@@ -1,0 +1,17 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace Abril_Backend.Infrastructure.Models {
+    public class LessonImages {
+        [Key]
+        public int LessonImageId {get; set;}
+        public string ImageUrl {get; set;}
+        public int LessonId {get;set;}
+        public int ImageTypeId {get;set;}
+        public DateTime CreatedDateTime {get; set;}
+        public int CreatedUserId {get; set;}
+        public DateTime? UpdatedDateTime {get; set;}
+        public int? UpdatedUserId {get; set;}
+        public bool Active {get; set;}
+        public bool State {get; set;}
+    }
+}

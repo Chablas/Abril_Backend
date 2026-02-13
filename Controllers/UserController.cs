@@ -29,7 +29,7 @@ namespace Abril_Backend.Controllers
             _frontendSettings = frontendSettings.Value;
         }
 
-        [Authorize]
+        //[Authorize]
         [HttpGet("paged")]
         public async Task<IActionResult> GetPaged(
             [FromQuery] int page = 1,
@@ -37,10 +37,10 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                /*var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
 
                 if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                    return Unauthorized(new { message = "Inicie sesión" });*/
 
                 var result = await _userRepository.GetPagedFactory(page, pageSize);
 

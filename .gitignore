@@ -58,6 +58,6 @@ nunit-*.xml
 
 appsettings.Development.json
 appsettings.Production.json
-wwwroot/images/lessons/*
+#wwwroot/images/lessons/*
 
 *.sln

@@ -13,8 +13,6 @@ namespace Abril_Backend.Controllers
     public class PhaseStageSubStageSubSpecialtyController : ControllerBase
     {
         PhaseStageSubStageSubSpecialtyRepository _phaseStageSubStageSubSpecialtyRepository;
-        AreaRepository _areaRepository;
-        ProjectRepository _projectRepository;
         PhaseRepository _phaseRepository;
         StageRepository _stageRepository;
         LayerRepository _layerRepository;
@@ -23,8 +21,6 @@ namespace Abril_Backend.Controllers
 
         public PhaseStageSubStageSubSpecialtyController(
             PhaseStageSubStageSubSpecialtyRepository phaseStageSubStageSubSpecialtyRepository,
-            AreaRepository areaRepository,
-            ProjectRepository projectRepository,
             PhaseRepository phaseRepository,
             StageRepository stageRepository,
             LayerRepository layerRepository,
@@ -33,8 +29,6 @@ namespace Abril_Backend.Controllers
         )
         {
             _phaseStageSubStageSubSpecialtyRepository = phaseStageSubStageSubSpecialtyRepository;
-            _areaRepository = areaRepository;
-            _projectRepository = projectRepository;
             _phaseRepository = phaseRepository;
             _stageRepository = stageRepository;
             _layerRepository = layerRepository;
@@ -43,8 +37,8 @@ namespace Abril_Backend.Controllers
         }
 
         [Authorize]
-        [HttpGet("form-data")]
-        public async Task<IActionResult> GetFormData()
+        [HttpGet("filters-create")]
+        public async Task<IActionResult> GetFiltersCreate()
         {
             try
             {
@@ -53,25 +47,21 @@ namespace Abril_Backend.Controllers
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var areasTask = _areaRepository.GetAllFactory();
-                var projectsTask = _projectRepository.GetAllFactory();
                 var phasesTask = _phaseRepository.GetAllFactory();
                 var stagesTask = _stageRepository.GetAllFactory();
                 var layersTask = _layerRepository.GetAllFactory();
                 var subStagesTask = _subStageRepository.GetAllFactory();
                 var subSpecialtiesTask = _subSpecialtyRepository.GetAllFactory();
 
-                await Task.WhenAll(areasTask, projectsTask, phasesTask, stagesTask, layersTask, subStagesTask, subSpecialtiesTask);
+                await Task.WhenAll(phasesTask, stagesTask, layersTask, subStagesTask, subSpecialtiesTask);
 
                 var result = new
                 {
-                    Areas = areasTask.Result,
-                    Projects = projectsTask.Result,
                     Phases = phasesTask.Result,
                     Stages = stagesTask.Result,
                     Layers = layersTask.Result,
                     SubStages = subStagesTask.Result,
-                    SubSpecialties = subSpecialtiesTask.Result
+                    SubSpecialties = subSpecialtiesTask.Result,
                 };
 
                 return Ok(result);

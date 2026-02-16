@@ -30,21 +30,15 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 });
             return await registros.ToListAsync();
         }
-        public async Task<List<LayerDTO>> GetAllFactory()
+        public async Task<List<LayerSimpleDTO>> GetAllFactory()
         {
             using var ctx = _factory.CreateDbContext();
             var registros = ctx.Layer
                 .OrderBy(item => item.LayerDescription)
-                .Select(item => new LayerDTO
+                .Select(item => new LayerSimpleDTO
                 {
                     LayerId = item.LayerId,
                     LayerDescription = item.LayerDescription,
-
-                    CreatedDateTime = item.CreatedDateTime,
-                    CreatedUserId = item.CreatedUserId,
-                    UpdatedDateTime = item.UpdatedDateTime,
-                    UpdatedUserId = item.UpdatedUserId,
-                    Active = item.Active
                 });
             return await registros.ToListAsync();
         }

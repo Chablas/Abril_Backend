@@ -20,13 +20,25 @@ namespace Abril_Backend.Controllers
         PhaseStageSubStageSubSpecialtyRepository _phaseStageSubStageSubSpecialtyRepository;
         DashboardRepository _dashboardRepository;
         ExcelService _excelService;
+        PhaseRepository _phaseRepository;
+        StageRepository _stageRepository;
+        LayerRepository _layerRepository;
+        SubStageRepository _subStageRepository;
+        SubSpecialtyRepository _subSpecialtyRepository;
+        UserRepository _userRepository;
         public LessonController(
             LessonRepository lessonRepository,
             ProjectRepository projectRepository,
             AreaRepository areaRepository,
             PhaseStageSubStageSubSpecialtyRepository phaseStageSubStageSubSpecialtyRepository,
             DashboardRepository dashboardRepository,
-            ExcelService excelService
+            ExcelService excelService,
+            PhaseRepository phaseRepository,
+            StageRepository stageRepository,
+            LayerRepository layerRepository,
+            SubStageRepository subStageRepository,
+            SubSpecialtyRepository subSpecialtyRepository,
+            UserRepository userRepository
             )
         {
             _lessonRepository = lessonRepository;
@@ -35,6 +47,12 @@ namespace Abril_Backend.Controllers
             _phaseStageSubStageSubSpecialtyRepository = phaseStageSubStageSubSpecialtyRepository;
             _dashboardRepository = dashboardRepository;
             _excelService = excelService;
+            _phaseRepository = phaseRepository;
+            _stageRepository = stageRepository;
+            _layerRepository = layerRepository;
+            _subStageRepository = subStageRepository;
+            _subSpecialtyRepository = subSpecialtyRepository;
+            _userRepository = userRepository;
         }
 
         /*[HttpGet("all")]
@@ -73,8 +91,8 @@ namespace Abril_Backend.Controllers
         }
 
         [Authorize]
-        [HttpGet("filters/initialLoad")]
-        public async Task<IActionResult> GetFiltersInitialLoad()
+        [HttpGet("filters")]
+        public async Task<IActionResult> GetFilters()
         {
             try
             {
@@ -83,14 +101,31 @@ namespace Abril_Backend.Controllers
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var projects = await _projectRepository.GetAll();
-                var areas = await _areaRepository.GetAll();
+                var areasTask = _areaRepository.GetAllFactory();
+                var projectsTask = _projectRepository.GetAllFactory();
+                var lessonPeriodsTask = _lessonRepository.GetAllPeriodsFactory();
+                var phasesTask = _phaseRepository.GetAllFactory();
+                var stagesTask = _stageRepository.GetAllFactory();
+                var layersTask = _layerRepository.GetAllFactory();
+                var subStagesTask = _subStageRepository.GetAllFactory();
+                var subSpecialtiesTask = _subSpecialtyRepository.GetAllFactory();
+                var usersTask = _userRepository.GetAllUsersFactory();
 
-                var result = new LessonFiltersDTO
+                await Task.WhenAll(areasTask, projectsTask, lessonPeriodsTask, phasesTask, stagesTask, layersTask, subStagesTask, subSpecialtiesTask, usersTask);
+
+                var result = new
                 {
-                    Projects = projects,
-                    Areas = areas
+                    Areas = areasTask.Result,
+                    Projects = projectsTask.Result,
+                    Periods = lessonPeriodsTask.Result,
+                    Phases = phasesTask.Result,
+                    Stages = stagesTask.Result,
+                    Layers = layersTask.Result,
+                    SubStages = subStagesTask.Result,
+                    SubSpecialties = subSpecialtiesTask.Result,
+                    Users = usersTask.Result
                 };
+
                 return Ok(result);
             }
             catch (Exception)
@@ -102,7 +137,7 @@ namespace Abril_Backend.Controllers
         [Authorize]
         [HttpGet]
         public async Task<IActionResult> GetLessonsUsingFilter(
-            [FromQuery] string? period,
+            [FromQuery] DateTime? periodDate,
             [FromQuery] int? stateId,
             [FromQuery] int? projectId,
             [FromQuery] int? areaId,
@@ -111,6 +146,7 @@ namespace Abril_Backend.Controllers
             [FromQuery] int? layerId,
             [FromQuery] int? subStageId,
             [FromQuery] int? subSpecialtyId,
+            [FromQuery] int? userId,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10
         )
@@ -123,7 +159,7 @@ namespace Abril_Backend.Controllers
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var result = await _lessonRepository.GetLessonsFilterPaged(
-                    period, stateId, projectId, areaId, phaseId, stageId, layerId, subStageId, subSpecialtyId, page, pageSize
+                    periodDate, stateId, projectId, areaId, phaseId, stageId, layerId, subStageId, subSpecialtyId, userId, page, pageSize
                 );
 
                 return Ok(result);

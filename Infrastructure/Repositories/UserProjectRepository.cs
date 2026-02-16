@@ -93,7 +93,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     UserId = g.Key.UserId,
                     UserFullName = g.Key.FullName,
                     Email = g.Key.Email,
-                    Projects = g.Select(x => new ProjectFilterDTO
+                    Projects = g.Select(x => new ProjectSimpleDTO
                     {
                         ProjectId = x.pj.ProjectId,
                         ProjectDescription = x.pj.ProjectDescription

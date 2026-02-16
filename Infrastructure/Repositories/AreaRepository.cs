@@ -32,22 +32,16 @@ namespace Abril_Backend.Infrastructure.Repositories {
             return await registros.ToListAsync();
         }
 
-        public async Task<List<AreaDTO>> GetAllFactory()
+        public async Task<List<AreaSimpleDTO>> GetAllFactory()
         {
             using var ctx = _factory.CreateDbContext();
             var registros = ctx.Area
                 .Where(item => item.State)
                 .OrderBy(item => item.AreaDescription)
-                .Select(item => new AreaDTO
+                .Select(item => new AreaSimpleDTO
                 {
                     AreaId = item.AreaId,
                     AreaDescription = item.AreaDescription,
-
-                    CreatedDateTime = item.CreatedDateTime,
-                    CreatedUserId = item.CreatedUserId,
-                    UpdatedDateTime = item.UpdatedDateTime,
-                    UpdatedUserId = item.UpdatedUserId,
-                    Active = item.Active
                 });
             return await registros.ToListAsync();
         }

@@ -3,6 +3,7 @@ namespace Abril_Backend.Infrastructure.Models {
         public int LessonId {get; set;}
         public string? LessonCode {get; set;}
         public string Period {get;set;}
+        public DateTime? PeriodDate {get;set;}
         public string? ProblemDescription {get; set;}
         public string? ReasonDescription {get; set;}
         public string? LessonDescription {get; set;}

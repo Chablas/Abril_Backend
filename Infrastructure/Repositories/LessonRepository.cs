@@ -10,11 +10,13 @@ namespace Abril_Backend.Infrastructure.Repositories
     public class LessonRepository
     {
 
-        AppDbContext _context;
+        private readonly AppDbContext _context;
+        private readonly IDbContextFactory<AppDbContext> _factory;
 
-        public LessonRepository(AppDbContext contexto)
+        public LessonRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory)
         {
             _context = contexto;
+            _factory = factory;
         }
 
         public async Task<List<LessonListDTO>> GetAll()
@@ -362,8 +364,24 @@ namespace Abril_Backend.Infrastructure.Repositories
             return registros;
         }
 
+        public async Task<List<LessonPeriodDTO>> GetAllPeriodsFactory()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var registros = ctx.Lesson
+                .Where(l => l.State)
+                .Select(l => new LessonPeriodDTO
+                {
+                    PeriodDate = l.PeriodDate
+                })
+                .Distinct()
+                .OrderByDescending(l => l.PeriodDate);
+
+            return await registros.ToListAsync();
+        }
+
         public async Task<PagedResult<LessonListDTO>> GetLessonsFilterPaged(
-            string? period,
+            DateTime? periodDate,
             int? stateId,
             int? projectId,
             int? areaId,
@@ -372,6 +390,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             int? layerId,
             int? subStageId,
             int? subSpecialtyId,
+            int? userId,
             int page,
             int pageSize
         )
@@ -380,8 +399,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .Where(x => x.Active)
                 .AsQueryable();
 
-            if (!string.IsNullOrWhiteSpace(period))
-                query = query.Where(x => x.Period == period);
+            if (periodDate.HasValue)
+                query = query.Where(x => x.PeriodDate == periodDate);
 
             if (stateId.HasValue)
                 query = query.Where(x => x.StateId == stateId.Value);
@@ -391,6 +410,9 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             if (areaId.HasValue)
                 query = query.Where(x => x.AreaId == areaId.Value);
+
+            if (userId.HasValue)
+                query = query.Where(x => x.CreatedUserId == userId.Value);
 
             var result =
                 from lesson in query
@@ -691,6 +713,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             var lesson = new Lesson
             {
                 Period = DateTime.UtcNow.ToString("MM-yyyy"),
+                PeriodDate = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1),
                 ProblemDescription = dto.ProblemDescription,
                 ReasonDescription = dto.ReasonDescription,
                 LessonDescription = dto.LessonDescription,

@@ -1,5 +1,5 @@
 namespace Abril_Backend.Application.DTOs {
-    public class ProjectFilterDTO {
+    public class ProjectSimpleDTO {
         public int ProjectId {get; set;}
         public string? ProjectDescription {get; set;}
     }

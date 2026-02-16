@@ -16,6 +16,25 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _passwordHasher = passwordHasher;
         }
 
+        public async Task<List<UserFilterDTO>> GetAllUsersFactory()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var data = await (
+                from u in ctx.User
+                join p in ctx.Person on u.PersonId equals p.PersonId
+                where u.Active == true
+                orderby p.FullName
+                select new UserFilterDTO
+                {
+                    UserId = u.UserId,
+                    FullName = p.FullName
+                }
+            ).ToListAsync();
+
+            return data;
+        }
+
         public async Task<List<UserPersonFilterDTO>> GetAllFilterFactory()
         {
             using var ctx = _factory.CreateDbContext();

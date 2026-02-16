@@ -18,16 +18,16 @@ namespace Abril_Backend.Controllers
             _repository = repository;
         }
 
-        //[Authorize]
+        [Authorize]
         [HttpGet]
         public async Task<IActionResult> GetAllByScheduleIdFactory([FromQuery] int scheduleId)
         {
             try
             {
-                /*var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
 
                 if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });*/
+                    return Unauthorized(new { message = "Inicie sesión" });
 
                 var result = await _repository.GetAllByScheduleIdFactory(scheduleId);
                 return Ok(result);

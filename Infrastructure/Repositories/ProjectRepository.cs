@@ -29,30 +29,25 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 });
             return await registros.ToListAsync();
         }
-        public async Task<List<ProjectDTO>> GetAllFactory()
+        public async Task<List<ProjectSimpleDTO>> GetAllFactory()
         {
             using var ctx = _factory.CreateDbContext();
             var registros = ctx.Project
                 .OrderBy(item => item.ProjectDescription)
-                .Select(item => new ProjectDTO
+                .Select(item => new ProjectSimpleDTO
                 {
                     ProjectId = item.ProjectId,
                     ProjectDescription = item.ProjectDescription,
-                    CreatedDateTime = item.CreatedDateTime,
-                    CreatedUserId = item.CreatedUserId,
-                    UpdatedDateTime = item.UpdatedDateTime,
-                    UpdatedUserId = item.UpdatedUserId,
-                    Active = item.Active
                 });
             return await registros.ToListAsync();
         }
 
-        public async Task<List<ProjectFilterDTO>> GetAllFilterFactory()
+        public async Task<List<ProjectSimpleDTO>> GetAllFilterFactory()
         {
             using var ctx = _factory.CreateDbContext();
             var registros = ctx.Project
                 .OrderBy(item => item.ProjectDescription)
-                .Select(item => new ProjectFilterDTO
+                .Select(item => new ProjectSimpleDTO
                 {
                     ProjectId = item.ProjectId,
                     ProjectDescription = item.ProjectDescription,

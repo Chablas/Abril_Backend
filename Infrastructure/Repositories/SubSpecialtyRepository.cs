@@ -30,22 +30,16 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 });
             return await registros.ToListAsync();
         }
-        public async Task<List<SubSpecialtyDTO>> GetAllFactory()
+        public async Task<List<SubSpecialtySimpleDTO>> GetAllFactory()
         {
             using var ctx = _factory.CreateDbContext();
             var registros = ctx.SubSpecialty
                 .Where(item => item.State)
                 .OrderBy(item => item.SubSpecialtyDescription)
-                .Select(item => new SubSpecialtyDTO
+                .Select(item => new SubSpecialtySimpleDTO
                 {
                     SubSpecialtyId = item.SubSpecialtyId,
                     SubSpecialtyDescription = item.SubSpecialtyDescription,
-
-                    CreatedDateTime = item.CreatedDateTime,
-                    CreatedUserId = item.CreatedUserId,
-                    UpdatedDateTime = item.UpdatedDateTime,
-                    UpdatedUserId = item.UpdatedUserId,
-                    Active = item.Active
                 });
             return await registros.ToListAsync();
         }

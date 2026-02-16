@@ -31,21 +31,15 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 });
             return await registros.ToListAsync();
         }
-        public async Task<List<SubStageDTO>> GetAllFactory()
+        public async Task<List<SubStageSimpleDTO>> GetAllFactory()
         {
             using var ctx = _factory.CreateDbContext();
             var registros = ctx.SubStage
                 .OrderBy(item => item.SubStageDescription)
-                .Select(item => new SubStageDTO
+                .Select(item => new SubStageSimpleDTO
                 {
                     SubStageId = item.SubStageId,
                     SubStageDescription = item.SubStageDescription,
-
-                    CreatedDateTime = item.CreatedDateTime,
-                    CreatedUserId = item.CreatedUserId,
-                    UpdatedDateTime = item.UpdatedDateTime,
-                    UpdatedUserId = item.UpdatedUserId,
-                    Active = item.Active
                 });
             return await registros.ToListAsync();
         }

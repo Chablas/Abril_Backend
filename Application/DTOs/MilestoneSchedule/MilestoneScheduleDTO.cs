@@ -4,6 +4,7 @@ namespace Abril_Backend.Application.DTOs {
         public int MilestoneId {get; set;}
         public string MilestoneDescription {get;set;}
         public int MilestoneScheduleHistoryId {get;set;}
+        public int Order {get;set;}
         public DateTime? PlannedStartDate {get; set;}
         public DateTime? PlannedEndDate {get; set;}
         public DateTime CreatedDateTime {get; set;}

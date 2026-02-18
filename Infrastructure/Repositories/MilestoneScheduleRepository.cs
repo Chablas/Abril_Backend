@@ -14,20 +14,22 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _factory = factory;
         }
 
-        public async Task<List<MilestoneScheduleDTO>> GetAllFactory(int milestoneScheduleId)
+        public async Task<List<MilestoneScheduleDTO>> GetAllByMilestoneScheduleHistoryIdFactory(int milestoneScheduleHistoryId)
         {
             using var ctx = _factory.CreateDbContext();
 
             var registros = from ms in ctx.MilestoneSchedule
                             join m in ctx.Milestone
                                 on ms.MilestoneId equals m.MilestoneId
-                            where (ms.State == true) && (ms.MilestoneScheduleId == milestoneScheduleId)
+                            where ms.State && ms.MilestoneScheduleHistoryId == milestoneScheduleHistoryId
+                            orderby ms.Order
                             select new MilestoneScheduleDTO
                             {
                                 MilestoneScheduleId = ms.MilestoneScheduleId,
                                 MilestoneId = ms.MilestoneId,
                                 MilestoneDescription = m.MilestoneDescription,
                                 MilestoneScheduleHistoryId = ms.MilestoneScheduleHistoryId,
+                                Order = ms.Order,
                                 PlannedStartDate = ms.PlannedStartDate,
                                 PlannedEndDate = ms.PlannedEndDate,
                                 CreatedDateTime = ms.CreatedDateTime,
@@ -39,5 +41,39 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             return await registros.ToListAsync();
         }
+        /*
+        public async Task<MilestoneSchedule> Create(MilestoneScheduleCreateDTO dto, int userId)
+        {
+            var milestoneSchedule = await _context.MilestoneSchedule.FirstOrDefaultAsync(a => a.MilestoneScheduleDescription == dto.MilestoneScheduleDescription.Trim());
+
+            if (milestoneSchedule != null && milestoneSchedule.State)
+                throw new AbrilException("El área ya existe");
+
+            if (milestoneSchedule != null && !milestoneSchedule.State)
+            {
+                milestoneSchedule.State = true;
+                milestoneSchedule.Active = dto.Active;
+                milestoneSchedule.UpdatedDateTime = DateTime.UtcNow;
+                milestoneSchedule.UpdatedUserId = userId;
+
+                await _context.SaveChangesAsync();
+                return milestoneSchedule;
+            }
+
+            milestoneSchedule = new MilestoneSchedule
+            {
+                MilestoneScheduleDescription = dto.MilestoneScheduleDescription.Trim(),
+                Active = dto.Active,
+                State = true,
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId = userId
+            };
+
+            _context.MilestoneSchedule.Add(milestoneSchedule);
+            await _context.SaveChangesAsync();
+
+            return milestoneSchedule;
+        }
+        */
     }
 }

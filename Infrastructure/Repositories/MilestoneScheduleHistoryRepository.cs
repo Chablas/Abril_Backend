@@ -21,6 +21,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var registros = ctx.MilestoneScheduleHistory
                 .Where(item => item.State)
                 .Where(item => item.ScheduleId == scheduleId)
+                .OrderByDescending(item => item.CreatedDateTime)
                 .Select(item => new MilestoneScheduleHistoryDTO
                 {
                     MilestoneScheduleHistoryId = item.MilestoneScheduleHistoryId,
@@ -33,6 +34,47 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 });
             return await registros.ToListAsync();
         }
+
+        public async Task<List<MilestoneSchedule>> Create(MilestoneScheduleHistoryCreateDTO dto, int userId)
+        {
+            var history = new MilestoneScheduleHistory
+            {
+                ScheduleId = dto.ScheduleId,
+                Active = true,
+                State = true,
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId = userId
+            };
+
+            _context.MilestoneScheduleHistory.Add(history);
+            await _context.SaveChangesAsync();
+
+            var milestoneSchedules = new List<MilestoneSchedule>();
+
+            foreach (var item in dto.MilestoneSchedules)
+            {
+                var milestoneSchedule = new MilestoneSchedule
+                {
+                    MilestoneId = item.MilestoneId,
+                    MilestoneScheduleHistoryId = history.MilestoneScheduleHistoryId,
+                    Order = item.Order,
+                    PlannedStartDate = item.PlannedStartDate,
+                    PlannedEndDate = item.PlannedEndDate,
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = userId
+                };
+
+                milestoneSchedules.Add(milestoneSchedule);
+            }
+
+            _context.MilestoneSchedule.AddRange(milestoneSchedules);
+            await _context.SaveChangesAsync();
+
+            return milestoneSchedules;
+        }
+
         /*
 
         public async Task<object> GetPaged(int page)

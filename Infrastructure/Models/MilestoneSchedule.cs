@@ -3,6 +3,7 @@ namespace Abril_Backend.Infrastructure.Models {
         public int MilestoneScheduleId {get; set;}
         public int MilestoneId {get; set;}
         public int MilestoneScheduleHistoryId {get;set;}
+        public int Order {get;set;}
         public DateTime? PlannedStartDate {get; set;}
         public DateTime? PlannedEndDate {get; set;}
         public DateTime CreatedDateTime {get; set;}

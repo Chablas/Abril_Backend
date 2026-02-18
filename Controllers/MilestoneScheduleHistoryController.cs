@@ -18,9 +18,29 @@ namespace Abril_Backend.Controllers
             _repository = repository;
         }
 
-        [Authorize]
+        //[Authorize]
         [HttpGet]
         public async Task<IActionResult> GetAllByScheduleIdFactory([FromQuery] int scheduleId)
+        {
+            try
+            {
+                /*var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });*/
+
+                var result = await _repository.GetAllByScheduleIdFactory(scheduleId);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] MilestoneScheduleHistoryCreateDTO dto)
         {
             try
             {
@@ -29,8 +49,14 @@ namespace Abril_Backend.Controllers
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _repository.GetAllByScheduleIdFactory(scheduleId);
-                return Ok(result);
+                var userId = int.Parse(userIdClaim.Value);
+
+                var result = await _repository.Create(dto, userId);
+                return Ok(new { message = "Cronograma creado exitosamente" });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
             }
             catch (Exception)
             {

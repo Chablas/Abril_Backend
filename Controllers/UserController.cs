@@ -15,12 +15,11 @@ namespace Abril_Backend.Controllers
     [Route("api/v1/[controller]")]
     public class UserController : ControllerBase
     {
-        private readonly UserRepository _repository;
         private readonly UserRegistrationTokenRepository _tokenRepository;
         private readonly FrontendSettings _frontendSettings;
         private readonly IEmailService _emailService;
         private readonly UserRepository _userRepository;
-        public UserController(UserRepository repository, UserRegistrationTokenRepository tokenRepository, UserRepository userRepository,
+        public UserController(UserRegistrationTokenRepository tokenRepository, UserRepository userRepository,
             IEmailService emailService, IOptions<FrontendSettings> frontendSettings)
         {
             _tokenRepository = tokenRepository;

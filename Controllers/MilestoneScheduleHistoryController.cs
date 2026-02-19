@@ -4,6 +4,8 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using Abril_Backend.Infrastructure.Interfaces;
+using System.Text;
 
 namespace Abril_Backend.Controllers
 {
@@ -12,10 +14,12 @@ namespace Abril_Backend.Controllers
     [Route("api/v1/[controller]")]
     public class MilestoneScheduleHistoryController : ControllerBase
     {
-        MilestoneScheduleHistoryRepository _repository;
-        public MilestoneScheduleHistoryController(MilestoneScheduleHistoryRepository repository)
+        private readonly MilestoneScheduleHistoryRepository _repository;
+        private readonly IEmailService _emailService;
+        public MilestoneScheduleHistoryController(MilestoneScheduleHistoryRepository repository, IEmailService emailService)
         {
             _repository = repository;
+            _emailService = emailService;
         }
 
         [Authorize]
@@ -51,7 +55,17 @@ namespace Abril_Backend.Controllers
 
                 var userId = int.Parse(userIdClaim.Value);
 
-                var result = await _repository.Create(dto, userId);
+                var changes = await _repository.Create(dto, userId);
+
+                if (changes.Any())
+                {
+                    var body = BuildEmailBody(changes);
+                    await _emailService.SendAsync(
+                        "calvarez@abril.pe",
+                        "Cambios en el cronograma",
+                        body);
+                }
+
                 return Ok(new { message = "Cronograma creado exitosamente" });
             }
             catch (AbrilException ex)
@@ -62,6 +76,33 @@ namespace Abril_Backend.Controllers
             {
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
+        }
+
+        private string BuildEmailBody(List<MilestoneChange> changes)
+        {
+            var sb = new StringBuilder();
+
+            sb.AppendLine("Se detectaron los siguientes cambios en el cronograma:\n");
+
+            foreach (var change in changes)
+            {
+                sb.Append($"Hito {change.MilestoneId}: {change.ChangeType}");
+
+                if (change.ChangeType == "Updated")
+                {
+                    var details = new List<string>();
+
+                    if (change.OrderChanged) details.Add("orden");
+                    if (change.StartDateChanged) details.Add("fecha inicio");
+                    if (change.EndDateChanged) details.Add("fecha fin");
+
+                    sb.Append($" (Cambios en: {string.Join(", ", details)})");
+                }
+
+                sb.AppendLine();
+            }
+
+            return sb.ToString();
         }
 
         /*

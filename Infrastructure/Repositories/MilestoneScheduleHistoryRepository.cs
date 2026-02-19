@@ -35,7 +35,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             return await registros.ToListAsync();
         }
 
-        public async Task<List<MilestoneSchedule>?> Create(MilestoneScheduleHistoryCreateDTO dto, int userId)
+        public async Task<List<MilestoneChange>> Create(MilestoneScheduleHistoryCreateDTO dto, int userId)
         {
             var lastHistory = await _context.MilestoneScheduleHistory
                 .Where(h => h.ScheduleId == dto.ScheduleId && h.Active && h.State)
@@ -78,6 +78,21 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 }
             }
 
+            List<MilestoneChange> changes = new();
+
+            if (lastHistory != null)
+            {
+                var lastMilestones = await _context.MilestoneSchedule
+                    .Where(ms => ms.MilestoneScheduleHistoryId == lastHistory.MilestoneScheduleHistoryId
+                                 && ms.Active && ms.State)
+                    .ToListAsync();
+
+                changes = DetectChanges(lastMilestones, dto.MilestoneSchedules);
+
+                if (!changes.Any())
+                    throw new AbrilException("El cronograma es igual a la última versión subida.");
+            }
+
             var history = new MilestoneScheduleHistory
             {
                 ScheduleId = dto.ScheduleId,
@@ -106,7 +121,58 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _context.MilestoneSchedule.AddRange(milestoneSchedules);
             await _context.SaveChangesAsync();
 
-            return milestoneSchedules;
+            return changes;
+        }
+
+        private List<MilestoneChange> DetectChanges(
+            List<MilestoneSchedule> lastMilestones,
+            List<MilestoneScheduleCreateDTO> newMilestones)
+        {
+            var changes = new List<MilestoneChange>();
+
+            var lastDict = lastMilestones.ToDictionary(m => m.MilestoneId);
+            var newDict = newMilestones.ToDictionary(m => m.MilestoneId);
+
+            // 🔹 Detectar agregados y cambios
+            foreach (var newItem in newMilestones)
+            {
+                if (!lastDict.TryGetValue(newItem.MilestoneId, out var last))
+                {
+                    changes.Add(new MilestoneChange
+                    {
+                        MilestoneId = newItem.MilestoneId,
+                        ChangeType = "Added"
+                    });
+                    continue;
+                }
+
+                var change = new MilestoneChange
+                {
+                    MilestoneId = newItem.MilestoneId,
+                    ChangeType = "Updated",
+                    OrderChanged = last.Order != newItem.Order,
+                    StartDateChanged = last.PlannedStartDate != newItem.PlannedStartDate,
+                    EndDateChanged = last.PlannedEndDate != newItem.PlannedEndDate
+                };
+
+                if (change.OrderChanged || change.StartDateChanged || change.EndDateChanged)
+                    changes.Add(change);
+            }
+
+            // 🔹 Detectar eliminados
+            foreach (var last in lastMilestones)
+            {
+                if (!newDict.ContainsKey(last.MilestoneId))
+                {
+                    changes.Add(new MilestoneChange
+                    {
+                        MilestoneId = last.MilestoneId,
+                        ChangeType = "Removed"
+                    });
+                }
+            }
+
+            return changes;
         }
 
         /*

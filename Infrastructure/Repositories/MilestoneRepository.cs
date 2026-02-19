@@ -52,6 +52,19 @@ namespace Abril_Backend.Infrastructure.Repositories {
             return await registros.ToListAsync();
         }
 
+        public async Task<List<MilestoneSimpleDTO>> GetAllFactorySimple()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var registros = ctx.Milestone
+                .Where(item => item.State)
+                .Select(item => new MilestoneSimpleDTO
+                {
+                    MilestoneId = item.MilestoneId,
+                    MilestoneDescription = item.MilestoneDescription,
+                });
+            return await registros.ToListAsync();
+        }
+
         public async Task<object> GetPaged(int page)
         {
             const int pageSize = 10;

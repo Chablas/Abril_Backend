@@ -35,8 +35,49 @@ namespace Abril_Backend.Infrastructure.Repositories {
             return await registros.ToListAsync();
         }
 
-        public async Task<List<MilestoneSchedule>> Create(MilestoneScheduleHistoryCreateDTO dto, int userId)
+        public async Task<List<MilestoneSchedule>?> Create(MilestoneScheduleHistoryCreateDTO dto, int userId)
         {
+            var lastHistory = await _context.MilestoneScheduleHistory
+                .Where(h => h.ScheduleId == dto.ScheduleId && h.Active && h.State)
+                .OrderByDescending(h => h.CreatedDateTime)
+                .FirstOrDefaultAsync();
+
+            if (lastHistory != null)
+            {
+                var lastMilestones = await _context.MilestoneSchedule
+                    .Where(ms => ms.MilestoneScheduleHistoryId == lastHistory.MilestoneScheduleHistoryId
+                                 && ms.Active && ms.State)
+                    .OrderBy(ms => ms.Order)
+                    .ToListAsync();
+
+                var newMilestones = dto.MilestoneSchedules
+                    .OrderBy(ms => ms.Order)
+                    .ToList();
+
+                if (lastMilestones.Count == newMilestones.Count)
+                {
+                    bool areEqual = true;
+
+                    for (int i = 0; i < lastMilestones.Count; i++)
+                    {
+                        var last = lastMilestones[i];
+                        var current = newMilestones[i];
+
+                        if (last.MilestoneId != current.MilestoneId ||
+                            last.Order != current.Order ||
+                            last.PlannedStartDate != current.PlannedStartDate ||
+                            last.PlannedEndDate != current.PlannedEndDate)
+                        {
+                            areEqual = false;
+                            break;
+                        }
+                    }
+
+                    if (areEqual)
+                        throw new AbrilException("El cronograma es igual a la última versión subida.");
+                }
+            }
+
             var history = new MilestoneScheduleHistory
             {
                 ScheduleId = dto.ScheduleId,
@@ -49,25 +90,18 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _context.MilestoneScheduleHistory.Add(history);
             await _context.SaveChangesAsync();
 
-            var milestoneSchedules = new List<MilestoneSchedule>();
-
-            foreach (var item in dto.MilestoneSchedules)
+            var milestoneSchedules = dto.MilestoneSchedules.Select(item => new MilestoneSchedule
             {
-                var milestoneSchedule = new MilestoneSchedule
-                {
-                    MilestoneId = item.MilestoneId,
-                    MilestoneScheduleHistoryId = history.MilestoneScheduleHistoryId,
-                    Order = item.Order,
-                    PlannedStartDate = item.PlannedStartDate,
-                    PlannedEndDate = item.PlannedEndDate,
-                    Active = true,
-                    State = true,
-                    CreatedDateTime = DateTime.UtcNow,
-                    CreatedUserId = userId
-                };
-
-                milestoneSchedules.Add(milestoneSchedule);
-            }
+                MilestoneId = item.MilestoneId,
+                MilestoneScheduleHistoryId = history.MilestoneScheduleHistoryId,
+                Order = item.Order,
+                PlannedStartDate = item.PlannedStartDate,
+                PlannedEndDate = item.PlannedEndDate,
+                Active = true,
+                State = true,
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId = userId
+            }).ToList();
 
             _context.MilestoneSchedule.AddRange(milestoneSchedules);
             await _context.SaveChangesAsync();

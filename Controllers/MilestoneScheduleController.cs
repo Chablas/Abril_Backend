@@ -20,16 +20,16 @@ namespace Abril_Backend.Controllers
             _milestoneRepository = milestoneRepository;
         }
 
-        //[Authorize]
+        [Authorize]
         [HttpGet]
         public async Task<IActionResult> GetAllByMilestoneScheduleHistoryIdFactory([FromQuery] int milestoneScheduleHistoryId)
         {
             try
             {
-                /*var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
 
                 if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });*/
+                    return Unauthorized(new { message = "Inicie sesión" });
 
                 var result = await _repository.GetAllByMilestoneScheduleHistoryIdFactory(milestoneScheduleHistoryId);
                 return Ok(result);
@@ -40,14 +40,14 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        //[Authorize]
+        [Authorize]
         [HttpGet("fake-data")]
         public async Task<IActionResult> BuildFakeSchedule(int milestoneScheduleHistoryId)
         {
-            /*var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
 
                 if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });*/
+                    return Unauthorized(new { message = "Inicie sesión" });
             var milestones = await _milestoneRepository.GetAllFactorySimple();
 
             var fakeScheduleConfig = new Dictionary<int, (DateTime start, DateTime? end)>

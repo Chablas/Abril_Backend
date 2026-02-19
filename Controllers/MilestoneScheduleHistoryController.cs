@@ -55,11 +55,11 @@ namespace Abril_Backend.Controllers
 
                 var userId = int.Parse(userIdClaim.Value);
 
-                var changes = await _repository.Create(dto, userId);
+                var result = await _repository.Create(dto, userId);
 
-                if (changes.Any())
+                if (result.Changes.Any())
                 {
-                    var body = BuildEmailBody(changes);
+                    var body = BuildEmailBody(result);
                     await _emailService.SendAsync(
                         "calvarez@abril.pe",
                         "Cambios en el cronograma",
@@ -78,17 +78,20 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        private string BuildEmailBody(List<MilestoneChange> changes)
+        private string BuildEmailBody(ScheduleChangeResult result)
         {
             var sb = new StringBuilder();
 
-            sb.AppendLine("Se detectaron los siguientes cambios en el cronograma:\n");
+            sb.AppendLine($"Proyecto: {result.ProjectName}");
+            sb.AppendLine($"Cronograma: {result.ScheduleName}\n");
 
-            foreach (var change in changes)
+            sb.AppendLine("Se detectaron los siguientes cambios:\n");
+
+            foreach (var change in result.Changes)
             {
-                sb.Append($"Hito {change.MilestoneId}: {change.ChangeType}");
+                sb.Append($"Hito: {change.MilestoneDescription}: {change.ChangeType}");
 
-                if (change.ChangeType == "Updated")
+                if (change.ChangeType == "Actualizado")
                 {
                     var details = new List<string>();
 

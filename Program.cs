@@ -13,11 +13,27 @@ using System.Text;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 var builder = WebApplication.CreateBuilder(args);
+var provider = builder.Configuration["DatabaseProvider"];
 
 // Add services to the container.
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"))
-);
+{
+    if (provider == "SqlServer")
+    {
+        var conn = builder.Configuration.GetConnectionString("SqlServer");
+        options.UseSqlServer(conn);
+    }
+    else if (provider == "PostgreSQL")
+    {
+        var conn = builder.Configuration.GetConnectionString("PostgreSQL");
+        options.UseNpgsql(conn)
+               .UseSnakeCaseNamingConvention();
+    }
+    else
+    {
+        throw new Exception("Proveedor de BD no soportado");
+    }
+});
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddScoped<LayerRepository>();

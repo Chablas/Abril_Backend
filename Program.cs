@@ -1,17 +1,16 @@
 using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Infrastructure.ExternalServices;
 using Abril_Backend.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
-using System.Net.Http.Headers;
-using Microsoft.AspNetCore.Identity;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.InternalServices;
 using Abril_Backend.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
+using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Mvc;
 var builder = WebApplication.CreateBuilder(args);
 var provider = builder.Configuration["DatabaseProvider"];
 
@@ -26,8 +25,7 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
     else if (provider == "PostgreSQL")
     {
         var conn = builder.Configuration.GetConnectionString("PostgreSQL");
-        options.UseNpgsql(conn)
-               .UseSnakeCaseNamingConvention();
+        options.UseNpgsql(conn).UseSnakeCaseNamingConvention();
     }
     else
     {

@@ -168,7 +168,6 @@ namespace Abril_Backend.Infrastructure.Repositories {
             milestone.UpdatedDateTime = DateTime.UtcNow;
             milestone.UpdatedUserId = userId;
 
-            _context.Milestone.Update(milestone);
             await _context.SaveChangesAsync();
 
             return true;

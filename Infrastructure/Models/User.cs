@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
 namespace Abril_Backend.Infrastructure.Models {
-    [Table("app_user")]
     public class User {
         public int UserId {get; set;}
         public int PersonId {get; set;}

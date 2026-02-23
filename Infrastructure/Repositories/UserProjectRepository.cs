@@ -159,7 +159,6 @@ namespace Abril_Backend.Infrastructure.Repositories {
             userProject.UpdatedDateTime = DateTime.UtcNow;
             userProject.UpdatedUserId = updatedUserId;
 
-            _context.UserProject.Update(userProject);
             await _context.SaveChangesAsync();
 
             return true;

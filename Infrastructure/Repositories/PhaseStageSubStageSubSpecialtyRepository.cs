@@ -285,7 +285,6 @@ namespace Abril_Backend.Infrastructure.Repositories
             phaseStageSubStageSubSpecialty.UpdatedDateTime = DateTime.UtcNow;
             phaseStageSubStageSubSpecialty.UpdatedUserId = userId;
 
-            _context.PhaseStageSubStageSubSpecialty.Update(phaseStageSubStageSubSpecialty);
             await _context.SaveChangesAsync();
 
             return true;

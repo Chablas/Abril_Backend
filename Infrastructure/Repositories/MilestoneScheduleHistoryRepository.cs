@@ -73,7 +73,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                         }
                     }
 
-                    if (areEqual)
+                    if (areEqual && (!dto.ForceSave))
                         throw new AbrilException("El cronograma es igual a la última versión subida.");
                 }
             }
@@ -101,18 +101,22 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
                 changes = DetectChanges(lastMilestones, dto.MilestoneSchedules, milestoneDescriptions);
 
-                if (!changes.Any())
+                if (!changes.Any() && (!dto.ForceSave))
                     throw new AbrilException("El cronograma es igual a la última versión subida.");
             }
 
             var history = new MilestoneScheduleHistory
             {
                 ScheduleId = dto.ScheduleId,
+                IsEqualToLastVersion = changes.Any() ? false : true,
                 Active = true,
                 State = true,
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId
             };
+
+            if (dto.ForceSave == true && changes.Any())
+                throw new AbrilException("Para guardar sin cambios la última versión subida debe ser igual a la que se está editando actualmente.");
 
             _context.MilestoneScheduleHistory.Add(history);
             await _context.SaveChangesAsync();

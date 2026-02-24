@@ -70,6 +70,10 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.Property(e => e.Order).HasColumnName("milestone_schedule_order");
             });
+            modelBuilder.Entity<MilestoneScheduleHistory>(entity =>
+            {
+                entity.Property(e => e.IsEqualToLastVersion).HasColumnName("is_equal_to_last_version");
+            });
         }
     }
 }

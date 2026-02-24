@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Authorization;
 using ClosedXML.Excel;
 using System.IO;
 using Abril_Backend.Infrastructure.InternalServices;
+using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Application.Exceptions;
 
 namespace Abril_Backend.Controllers
 {
@@ -14,18 +16,19 @@ namespace Abril_Backend.Controllers
     [Route("api/v1/[controller]")]
     public class LessonController : ControllerBase
     {
-        LessonRepository _lessonRepository;
-        ProjectRepository _projectRepository;
-        AreaRepository _areaRepository;
-        PhaseStageSubStageSubSpecialtyRepository _phaseStageSubStageSubSpecialtyRepository;
-        DashboardRepository _dashboardRepository;
-        ExcelService _excelService;
-        PhaseRepository _phaseRepository;
-        StageRepository _stageRepository;
-        LayerRepository _layerRepository;
-        SubStageRepository _subStageRepository;
-        SubSpecialtyRepository _subSpecialtyRepository;
-        UserRepository _userRepository;
+        private readonly LessonRepository _lessonRepository;
+        private readonly ProjectRepository _projectRepository;
+        private readonly AreaRepository _areaRepository;
+        private readonly PhaseStageSubStageSubSpecialtyRepository _phaseStageSubStageSubSpecialtyRepository;
+        private readonly DashboardRepository _dashboardRepository;
+        private readonly ExcelService _excelService;
+        private readonly PhaseRepository _phaseRepository;
+        private readonly StageRepository _stageRepository;
+        private readonly LayerRepository _layerRepository;
+        private readonly SubStageRepository _subStageRepository;
+        private readonly SubSpecialtyRepository _subSpecialtyRepository;
+        private readonly UserRepository _userRepository;
+        private readonly IEmailService _emailService;
         public LessonController(
             LessonRepository lessonRepository,
             ProjectRepository projectRepository,
@@ -38,7 +41,8 @@ namespace Abril_Backend.Controllers
             LayerRepository layerRepository,
             SubStageRepository subStageRepository,
             SubSpecialtyRepository subSpecialtyRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            IEmailService emailService
             )
         {
             _lessonRepository = lessonRepository;
@@ -53,6 +57,7 @@ namespace Abril_Backend.Controllers
             _subStageRepository = subStageRepository;
             _subSpecialtyRepository = subSpecialtyRepository;
             _userRepository = userRepository;
+            _emailService = emailService;
         }
 
         /*[HttpGet("all")]
@@ -329,6 +334,58 @@ namespace Abril_Backend.Controllers
                 };
 
                 return Ok(response);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("send-pdf")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> SendPDF([FromForm] IFormFile pdf)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                if (pdf == null || pdf.Length == 0)
+                    return BadRequest(new { message = "Debe adjuntar un PDF" });
+
+                if (pdf.ContentType != "application/pdf")
+                    return BadRequest(new { message = "El archivo debe ser un PDF" });
+
+                byte[] fileBytes;
+                using (var ms = new MemoryStream())
+                {
+                    await pdf.CopyToAsync(ms);
+                    fileBytes = ms.ToArray();
+                }
+
+                await _emailService.SendAsync(
+                    to: new List<string> { "calvarez@abril.pe" },
+                    subject: "PDF mensual",
+                    body: "Adjunto PDF mensual",
+                    isHtml: false,
+                    attachments: new List<EmailAttachment>
+                {
+                    new EmailAttachment
+                    {
+                        FileName = pdf.FileName,
+                        ContentType = pdf.ContentType,
+                        Content = fileBytes,
+                    }
+                });
+
+                return Ok(new { message = "PDF enviado correctamente" });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
             }
             catch (Exception)
             {

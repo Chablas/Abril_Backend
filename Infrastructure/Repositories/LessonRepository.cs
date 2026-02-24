@@ -3,6 +3,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Application.DTOs;
 using Microsoft.EntityFrameworkCore;
 using System.IO;
+using DocumentFormat.OpenXml.Drawing.Charts;
 
 namespace Abril_Backend.Infrastructure.Repositories
 {
@@ -395,12 +396,15 @@ namespace Abril_Backend.Infrastructure.Repositories
             int pageSize
         )
         {
+            Console.WriteLine(periodDate?.Date.Kind);
             var query = _context.Lesson
                 .Where(x => x.Active)
                 .AsQueryable();
 
-            if (periodDate.HasValue)
+            if (periodDate.HasValue) {
+                periodDate = DateTime.SpecifyKind(periodDate.Value, DateTimeKind.Utc);
                 query = query.Where(x => x.PeriodDate == periodDate);
+            }
 
             if (stateId.HasValue)
                 query = query.Where(x => x.StateId == stateId.Value);

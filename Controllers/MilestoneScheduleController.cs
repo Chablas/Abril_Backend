@@ -40,14 +40,14 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        //[Authorize]
+        [Authorize]
         [HttpGet("fake-data")]
         public async Task<IActionResult> BuildFakeSchedule(int milestoneScheduleHistoryId)
         {
-            /*var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
 
                 if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });*/
+                    return Unauthorized(new { message = "Inicie sesión" });
             var milestones = await _milestoneRepository.GetAllFactorySimple();
 
             var fakeScheduleConfig = new Dictionary<int, (DateTime start, DateTime? end)>

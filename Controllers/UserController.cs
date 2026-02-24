@@ -83,9 +83,10 @@ namespace Abril_Backend.Controllers
                 var link = $"{_frontendSettings.RegisterUrl}?token={token}";
 
                 await _emailService.SendAsync(
-                    user.Person.Email,
-                    "Completa tu registro",
-                    $"Hola,\n\nCompleta tu registro aquí:\n{link}\n\nEste enlace expirará en 24 horas."
+                    to: new List<string> { user.Person.Email },
+                    subject: "Completa tu registro",
+                    body: $"Hola,\n\nCompleta tu registro aquí:\n{link}\n\nEste enlace expirará en 24 horas.",
+                    isHtml: false
                 );
 
                 return Ok(new { message = "Usuario creado y correo enviado." });

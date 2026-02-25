@@ -12,30 +12,53 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _context = contexto;
             _factory = factory;
         }
-        public async Task<List<ChartItemDTO>> GetLessonsByPhase()
+        public async Task<List<ChartItemDTO>> GetLessonsByPhase(DateTime? periodDate, int? userId)
         {
             await using var context = await _factory.CreateDbContextAsync();
 
-            return await (
+            var query =
                 from lesson in context.Lesson
                 join psss in context.PhaseStageSubStageSubSpecialty
                     on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId
                 join phase in context.Phase
                     on psss.PhaseId equals phase.PhaseId
                 where lesson.Active && lesson.State
-                group lesson by new
+                select new { lesson, phase };
+
+            if (periodDate.HasValue)
+            {
+                var startOfMonth = new DateTime(periodDate.Value.Year, periodDate.Value.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var startOfNextMonth = startOfMonth.AddMonths(1);
+
+                query = query.Where(x =>
+                    x.lesson.PeriodDate != null &&
+                    x.lesson.PeriodDate >= startOfMonth &&
+                    x.lesson.PeriodDate < startOfNextMonth
+                );
+            }
+
+            if (userId.HasValue)
+            {
+                query = query.Where(x =>
+                    x.lesson.CreatedUserId == userId.Value
+                );
+            }
+
+            var result = await query
+                .GroupBy(x => new
                 {
-                    phase.PhaseId,
-                    phase.PhaseDescription
-                }
-                into g
-                select new ChartItemDTO
+                    x.phase.PhaseId,
+                    x.phase.PhaseDescription
+                })
+                .Select(g => new ChartItemDTO
                 {
                     Id = g.Key.PhaseId,
                     Label = g.Key.PhaseDescription,
                     Value = g.Count()
-                }
-            ).ToListAsync();
+                })
+                .ToListAsync();
+
+            return result;
         }
         public async Task<List<ChartItemDTO>> GetLessonsBySubStage(List<int> subStageIds)
         {

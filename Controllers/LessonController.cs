@@ -306,7 +306,18 @@ namespace Abril_Backend.Controllers
 
         [Authorize]
         [HttpPost("dashboard")]
-        public async Task<IActionResult> GetDashboardData([FromBody] List<int> subStageIds)
+        public async Task<IActionResult> GetDashboardData([FromBody] List<int> subStageIds, 
+            [FromQuery] DateTime? periodDate,
+            [FromQuery] int? stateId,
+            [FromQuery] int? projectId,
+            [FromQuery] int? areaId,
+            [FromQuery] int? phaseId,
+            [FromQuery] int? stageId,
+            [FromQuery] int? layerId,
+            [FromQuery] int? subStageId,
+            [FromQuery] int? subSpecialtyId,
+            [FromQuery] int? userId
+        )
         {
             try
             {
@@ -318,7 +329,7 @@ namespace Abril_Backend.Controllers
                 if (subStageIds == null || !subStageIds.Any())
                     return BadRequest(new { message = "Debe escoger al menos una subetapa" });
 
-                var lessonsByPhaseTask = _dashboardRepository.GetLessonsByPhase();
+                var lessonsByPhaseTask = _dashboardRepository.GetLessonsByPhase(periodDate, userId);
                 var lessonsByProjectTask = _dashboardRepository.GetLessonsByProject();
                 var lessonsByPhaseStageTask = _dashboardRepository.GetLessonsByPhaseAndStage();
                 var lessonsBySubStage = _dashboardRepository.GetLessonsBySubStage(subStageIds);

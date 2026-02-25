@@ -396,7 +396,6 @@ namespace Abril_Backend.Infrastructure.Repositories
             int pageSize
         )
         {
-            Console.WriteLine(periodDate?.Date.Kind);
             var query = _context.Lesson
                 .Where(x => x.Active)
                 .AsQueryable();

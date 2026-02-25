@@ -64,7 +64,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     on u.PersonId equals p.PersonId
                 join dit in ctx.DocumentIdentityType
                     on p.DocumentIdentityTypeId equals dit.DocumentIdentityTypeId
-                where u.Active == true
+                where u.State == true
                 orderby u.UserId descending
                 select new UserDTO
                 {
@@ -225,7 +225,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 var user = new User
                 {
                     PersonId = person.PersonId,
-                    Active = dto.Active,
+                    Active = false,
                     State = true,
                     EmailConfirmed = false,
                     CreatedDateTime = DateTime.UtcNow,

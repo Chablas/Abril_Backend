@@ -2,8 +2,8 @@ namespace Abril_Backend.Infrastructure.Models {
     public class Lesson {
         public int LessonId {get; set;}
         public string? LessonCode {get; set;}
-        public string Period {get;set;}
-        public DateTime? PeriodDate {get;set;}
+        public string Period {get;set;} // ejm: 12-2025
+        public DateTime? PeriodDate {get;set;} // todos los periodDate son Period pero con 01 para filtrar más rápido: 2025-12-01
         public string? ProblemDescription {get; set;}
         public string? ReasonDescription {get; set;}
         public string? LessonDescription {get; set;}

@@ -57,7 +57,7 @@ namespace Abril_Backend.Infrastructure.InternalServices
             using var smtp = new SmtpClient(_settings.Host, _settings.Port)
             {
                 Credentials = new NetworkCredential(_settings.Username, _settings.Password),
-                EnableSsl = _settings.EnableSsl,
+                EnableSsl = true,
                 UseDefaultCredentials = false
             };
 

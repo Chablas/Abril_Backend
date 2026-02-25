@@ -80,7 +80,7 @@ namespace Abril_Backend.Controllers
                     Used = false
                 });
 
-                var link = $"{_frontendSettings.RegisterUrl}?token={token}";
+                var link = $"https://abril-frontend.onrender.com/auth/complete-registration?token={token}";
 
                 await _emailService.SendAsync(
                     to: new List<string> { user.Person.Email },

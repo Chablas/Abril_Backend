@@ -43,7 +43,6 @@ namespace Abril_Backend.Infrastructure.InternalServices
                 foreach (var email in bcc.Distinct())
                     message.Bcc.Add(email);
 
-            // 📎 Adjuntos
             if (attachments != null && attachments.Any())
             {
                 foreach (var file in attachments)

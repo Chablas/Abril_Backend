@@ -57,7 +57,7 @@ namespace Abril_Backend.Controllers
 
                 var result = await _repository.Create(dto, userId);
 
-                if (result.Changes.Any())
+                /*if (result.Changes.Any())
                 {
                     var body = BuildEmailBody(result);
                     await _emailService.SendAsync(
@@ -66,7 +66,7 @@ namespace Abril_Backend.Controllers
                         body: body,
                         isHtml: false
                         );
-                }
+                }*/
 
                 return Ok(new { message = "Cronograma creado exitosamente" });
             }

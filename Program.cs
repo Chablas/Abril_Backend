@@ -13,6 +13,7 @@ using System.Text;
 using System.Security.Claims;
 var builder = WebApplication.CreateBuilder(args);
 var provider = builder.Configuration["DatabaseProvider"];
+var emailProvider = builder.Configuration["EMAIL_PROVIDER"];
 
 // Add services to the container.
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
@@ -32,6 +33,19 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
         throw new Exception("Proveedor de BD no soportado");
     }
 });
+
+
+if (emailProvider == "SendGrid")
+{
+    builder.Services.AddSingleton<IEmailService, SendGridEmailService>();
+} else if (emailProvider == "PowerAutomate")
+{
+    builder.Services.AddSingleton<IEmailService, PowerAutomateEmailService>();
+}
+else
+{
+    builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
+}
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddScoped<LayerRepository>();
@@ -51,7 +65,6 @@ builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<UserProjectRepository>();
 builder.Services.AddScoped<UserRegistrationTokenRepository>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
-builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<ExcelService>();
 builder.Services.AddScoped<AuthRepository>();
 builder.Services.AddScoped<JwtService>();

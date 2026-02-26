@@ -33,19 +33,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
         {
             using var ctx = _factory.CreateDbContext();
             var registros = ctx.Project
-                .OrderBy(item => item.ProjectDescription)
-                .Select(item => new ProjectSimpleDTO
-                {
-                    ProjectId = item.ProjectId,
-                    ProjectDescription = item.ProjectDescription,
-                });
-            return await registros.ToListAsync();
-        }
-
-        public async Task<List<ProjectSimpleDTO>> GetAllFilterFactory()
-        {
-            using var ctx = _factory.CreateDbContext();
-            var registros = ctx.Project
+                .Where(item => item.Active)
                 .OrderBy(item => item.ProjectDescription)
                 .Select(item => new ProjectSimpleDTO
                 {

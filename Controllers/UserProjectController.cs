@@ -103,7 +103,7 @@ namespace Abril_Backend.Controllers
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var usersTask = _userRepository.GetAllFilterFactory();
-                var projectsTask = _projectRepository.GetAllFilterFactory();
+                var projectsTask = _projectRepository.GetAllFactory();
 
                 await Task.WhenAll(usersTask, projectsTask);
 

@@ -716,7 +716,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             var lesson = new Lesson
             {
                 Period = DateTime.UtcNow.ToString("MM-yyyy"),
-                PeriodDate = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1),
+                PeriodDate = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc),
                 ProblemDescription = dto.ProblemDescription,
                 ReasonDescription = dto.ReasonDescription,
                 LessonDescription = dto.LessonDescription,
@@ -729,6 +729,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
+                UpdatedDateTime = null,
                 Active = true,
                 State = true
             };

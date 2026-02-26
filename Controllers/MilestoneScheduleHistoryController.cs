@@ -62,6 +62,7 @@ namespace Abril_Backend.Controllers
                     var body = BuildEmailBody(result);
                     await _emailService.SendAsync(
                         to: new List<string> { "calvarez@abril.pe" },
+                        to: new List<string> { "alvarezvillegaschristian@outlook.com" },
                         subject: "Cambios en el cronograma",
                         body: body,
                         isHtml: false

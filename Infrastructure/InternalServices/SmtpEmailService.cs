@@ -7,11 +7,11 @@ using Abril_Backend.Application.DTOs;
 
 namespace Abril_Backend.Infrastructure.InternalServices
 {
-    public class EmailService : IEmailService
+    public class SmtpEmailService : IEmailService
     {
         private readonly EmailSettings _settings;
 
-        public EmailService(IOptions<EmailSettings> options)
+        public SmtpEmailService(IOptions<EmailSettings> options)
         {
             _settings = options.Value;
         }

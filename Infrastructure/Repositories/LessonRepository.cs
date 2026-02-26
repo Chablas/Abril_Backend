@@ -800,6 +800,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                     ImageTypeId = imageTypeId,
                     CreatedDateTime = DateTime.UtcNow,
                     CreatedUserId = 1,
+                    UpdatedDateTime = null,
                     Active = true,
                     State = true
                 };

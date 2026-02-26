@@ -1,8 +1,10 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Abril_Backend.Infrastructure.Models {
     public class LessonImages {
         [Key]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int LessonImageId {get; set;}
         public string ImageUrl {get; set;}
         public int LessonId {get;set;}

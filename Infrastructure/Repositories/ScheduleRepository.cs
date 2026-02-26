@@ -20,6 +20,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var query = from schedule in _context.Schedule
                         join project in _context.Project on schedule.ProjectId equals project.ProjectId
+                        join user in _context.User on schedule.CreatedUserId equals user.UserId
+                        join person in _context.Person on user.PersonId equals person.PersonId
                         where schedule.State == true
                         orderby schedule.ScheduleId descending
                         select new ScheduleDTO
@@ -30,6 +32,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                             ProjectDescription = project.ProjectDescription,
                             CreatedDateTime = schedule.CreatedDateTime,
                             CreatedUserId = schedule.CreatedUserId,
+                            CreatedUserFullName = person.FullName,
                             UpdatedDateTime = schedule.UpdatedDateTime,
                             UpdatedUserId = schedule.UpdatedUserId,
                             Active = schedule.Active
@@ -37,7 +40,10 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var totalRecords = await query.CountAsync();
 
-            var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+            var data = await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
 
             return new
             {

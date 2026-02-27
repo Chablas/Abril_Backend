@@ -2,8 +2,7 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Application.DTOs;
 using Microsoft.EntityFrameworkCore;
-using System.IO;
-using DocumentFormat.OpenXml.Drawing.Charts;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Infrastructure.Repositories
 {
@@ -13,11 +12,13 @@ namespace Abril_Backend.Infrastructure.Repositories
 
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IFileStorageService _fileStorageService;
 
-        public LessonRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory)
+        public LessonRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory, IFileStorageService fileStorageService)
         {
             _context = contexto;
             _factory = factory;
+            _fileStorageService = fileStorageService;
         }
 
         public async Task<List<LessonListDTO>> GetAll()
@@ -782,20 +783,21 @@ namespace Abril_Backend.Infrastructure.Repositories
         {
             foreach (var file in files)
             {
+                if (file.Length == 0)
+                    continue;
+
                 var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
-                var relativePath = $"/images/lessons/{fileName}";
-                var physicalPath = Path.Combine("wwwroot", "images", "lessons", fileName);
 
-                Directory.CreateDirectory(Path.GetDirectoryName(physicalPath)!);
+                string fileUrl;
 
-                using (var stream = new FileStream(physicalPath, FileMode.Create))
+                using (var stream = file.OpenReadStream())
                 {
-                    await file.CopyToAsync(stream);
+                    fileUrl = await _fileStorageService.UploadFileAsync(stream, fileName);
                 }
 
                 var entity = new LessonImages
                 {
-                    ImageUrl = relativePath,
+                    ImageUrl = fileUrl,
                     LessonId = lessonId,
                     ImageTypeId = imageTypeId,
                     CreatedDateTime = DateTime.UtcNow,

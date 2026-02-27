@@ -3,8 +3,6 @@ using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Application.DTOs;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
-using ClosedXML.Excel;
-using System.IO;
 using Abril_Backend.Infrastructure.InternalServices;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Exceptions;
@@ -29,6 +27,7 @@ namespace Abril_Backend.Controllers
         private readonly SubSpecialtyRepository _subSpecialtyRepository;
         private readonly UserRepository _userRepository;
         private readonly IEmailService _emailService;
+        
         public LessonController(
             LessonRepository lessonRepository,
             ProjectRepository projectRepository,

@@ -12,18 +12,19 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
 var builder = WebApplication.CreateBuilder(args);
-var provider = builder.Configuration["DatabaseProvider"];
-var emailProvider = builder.Configuration["EMAIL_PROVIDER"];
+var databaseProvider = builder.Configuration["DatabaseProvider"];
+var emailProvider = builder.Configuration["EmailProvider"];
+var storageProvider = builder.Configuration["StorageProvider"];
 
 // Add services to the container.
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
 {
-    if (provider == "SqlServer")
+    if (databaseProvider == "SqlServer")
     {
         var conn = builder.Configuration.GetConnectionString("SqlServer");
         options.UseSqlServer(conn);
     }
-    else if (provider == "PostgreSQL")
+    else if (databaseProvider == "PostgreSQL")
     {
         var conn = builder.Configuration.GetConnectionString("PostgreSQL");
         options.UseNpgsql(conn).UseSnakeCaseNamingConvention();
@@ -33,7 +34,6 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
         throw new Exception("Proveedor de BD no soportado");
     }
 });
-
 
 if (emailProvider == "SendGrid")
 {
@@ -46,6 +46,16 @@ else
 {
     builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 }
+
+if (storageProvider == "Azure")
+{
+    builder.Services.AddSingleton<IFileStorageService, AzureBlobStorageService>();
+}
+else
+{
+    builder.Services.AddSingleton<IFileStorageService, LocalFileStorageService>();
+}
+
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddScoped<LayerRepository>();

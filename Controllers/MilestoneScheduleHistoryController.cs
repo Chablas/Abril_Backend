@@ -57,17 +57,16 @@ namespace Abril_Backend.Controllers
 
                 var result = await _repository.Create(dto, userId);
 
-                /*if (result.Changes.Any())
+                if (result.Changes.Any())
                 {
                     var body = BuildEmailBody(result);
                     await _emailService.SendAsync(
-                        to: new List<string> { "calvarez@abril.pe" },
-                        to: new List<string> { "alvarezvillegaschristian@outlook.com" },
+                        to: new List<string> { "calvarez@abril.pe", "alvarezvillegaschristian@outlook.com" },
                         subject: "Cambios en el cronograma",
                         body: body,
                         isHtml: false
                         );
-                }*/
+                }
 
                 return Ok(new { message = "Cronograma creado exitosamente" });
             }
@@ -85,10 +84,9 @@ namespace Abril_Backend.Controllers
         {
             var sb = new StringBuilder();
 
-            sb.AppendLine($"Proyecto: {result.ProjectName}");
-            sb.AppendLine($"Cronograma: {result.ScheduleName}\n");
-
-            sb.AppendLine("Se detectaron los siguientes cambios:\n");
+            sb.AppendLine($"Proyecto: {result.ProjectName}<br>");
+            sb.AppendLine($"Cronograma: {result.ScheduleName}<br><br>");
+            sb.AppendLine("Se detectaron los siguientes cambios:<br><br>");
 
             foreach (var change in result.Changes)
             {
@@ -105,7 +103,7 @@ namespace Abril_Backend.Controllers
                     sb.Append($" (Cambios en: {string.Join(", ", details)})");
                 }
 
-                sb.AppendLine();
+                sb.AppendLine("<br>");
             }
 
             return sb.ToString();

@@ -14,7 +14,7 @@ using System.Security.Claims;
 var builder = WebApplication.CreateBuilder(args);
 var databaseProvider = builder.Configuration["DatabaseProvider"];
 var emailProvider = builder.Configuration["EmailProvider"];
-var storageProvider = builder.Configuration["StorageProvider"];
+var storageProvider = builder.Configuration["Storage:StorageProvider"];
 
 // Add services to the container.
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
@@ -54,6 +54,18 @@ if (storageProvider == "Azure")
 else
 {
     builder.Services.AddSingleton<IFileStorageService, LocalFileStorageService>();
+}
+
+builder.Services.AddSingleton<IStorageContainerResolver, StorageContainerResolver>();
+builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
+
+if (storageProvider == "Azure")
+{
+    builder.Services.AddScoped<IFileStorageService, AzureBlobStorageService>();
+}
+else
+{
+    builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
 }
 
 builder.Services.AddScoped<AreaRepository>();

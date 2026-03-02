@@ -13,12 +13,14 @@ namespace Abril_Backend.Infrastructure.Repositories
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IFileStorageService _fileStorageService;
+        private readonly IStorageContainerResolver _containerResolver;
 
-        public LessonRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory, IFileStorageService fileStorageService)
+        public LessonRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory, IFileStorageService fileStorageService, IStorageContainerResolver containerResolver)
         {
             _context = contexto;
             _factory = factory;
             _fileStorageService = fileStorageService;
+            _containerResolver = containerResolver;
         }
 
         public async Task<List<LessonListDTO>> GetAll()
@@ -738,15 +740,14 @@ namespace Abril_Backend.Infrastructure.Repositories
             _context.Lesson.Add(lesson);
             await _context.SaveChangesAsync();
 
-            // Guardar imágenes
             if (dto.OpportunityImages?.Any() == true)
             {
-                await SaveImages(dto.OpportunityImages, lesson.LessonId, 1); // OPORTUNIDAD
+                await SaveImages(dto.OpportunityImages, lesson.LessonId, 1);
             }
 
             if (dto.ImprovementImages?.Any() == true)
             {
-                await SaveImages(dto.ImprovementImages, lesson.LessonId, 2); // MEJORA
+                await SaveImages(dto.ImprovementImages, lesson.LessonId, 2);
             }
 
             return lesson.LessonId;
@@ -792,7 +793,8 @@ namespace Abril_Backend.Infrastructure.Repositories
 
                 using (var stream = file.OpenReadStream())
                 {
-                    fileUrl = await _fileStorageService.UploadFileAsync(stream, fileName);
+                    var container = _containerResolver.GetContainerName();
+                    fileUrl = await _fileStorageService.UploadFileAsync(stream, fileName, container);
                 }
 
                 var entity = new LessonImages

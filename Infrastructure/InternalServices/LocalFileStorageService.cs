@@ -10,12 +10,12 @@ namespace Abril_Backend.Infrastructure.InternalServices
         {
             _env = env;
         }
-        public async Task<string> UploadFileAsync(Stream fileStream, string fileName)
+        public async Task<string> UploadFileAsync(Stream fileStream, string fileName, string containerName)
         {
             var uniqueName = $"{Guid.NewGuid()}{Path.GetExtension(fileName)}";
 
-            var relativePath = $"/images/lessons/{uniqueName}";
-            var physicalPath = Path.Combine(_env.WebRootPath, "images", "lessons", uniqueName);
+            var relativePath = $"/images/{containerName}/{uniqueName}";
+            var physicalPath = Path.Combine(_env.WebRootPath, "images", containerName, uniqueName);
 
             Directory.CreateDirectory(Path.GetDirectoryName(physicalPath)!);
 

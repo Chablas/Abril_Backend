@@ -1,25 +1,26 @@
 using Azure.Storage.Blobs;
-using Abril_Backend.Infrastructure.Interfaces;
-using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Infrastructure.InternalServices
 {
     public class AzureBlobStorageService : IFileStorageService
     {
-        private readonly BlobContainerClient _container;
+        private readonly BlobServiceClient _serviceClient;
+
         public AzureBlobStorageService(IConfiguration config)
         {
-            var connectionString = config["AzureStorage:ConnectionString"];
-            var containerName = config["AzureStorage:ContainerName"];
-
-            var serviceClient = new BlobServiceClient(connectionString);
-            _container = serviceClient.GetBlobContainerClient(containerName);
+            var connectionString = config["Storage:AzureStorage:ConnectionString"];
+            _serviceClient = new BlobServiceClient(connectionString);
         }
 
-        public async Task<string> UploadFileAsync(Stream fileStream, string fileName)
+        public async Task<string> UploadFileAsync(Stream fileStream, string fileName, string containerName)
         {
-            var blobClient = _container.GetBlobClient(fileName);
+            var container = _serviceClient.GetBlobContainerClient(containerName);
+
+            await container.CreateIfNotExistsAsync();
+
+            var blobClient = container.GetBlobClient(fileName);
 
             var headers = new BlobHttpHeaders
             {
@@ -33,6 +34,7 @@ namespace Abril_Backend.Infrastructure.InternalServices
 
             return blobClient.Uri.ToString();
         }
+
         private string GetContentType(string fileName)
         {
             var extension = Path.GetExtension(fileName).ToLowerInvariant();

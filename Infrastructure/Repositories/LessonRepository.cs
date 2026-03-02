@@ -793,7 +793,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
                 using (var stream = file.OpenReadStream())
                 {
-                    var container = _containerResolver.GetContainerName();
+                    var container = _containerResolver.GetLessonsContainerName();
                     fileUrl = await _fileStorageService.UploadFileAsync(stream, fileName, container);
                 }
 

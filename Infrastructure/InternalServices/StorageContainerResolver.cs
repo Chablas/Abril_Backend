@@ -12,12 +12,22 @@ namespace Abril_Backend.Infrastructure.InternalServices
             _options = options.Value;
         }
 
-        public string GetContainerName()
+        public string GetLessonsContainerName()
         {
-            return _options.StorageProvider switch
+            return _options.StorageProvider.ToLower() switch
             {
-                "Azure" => _options.AzureStorage.ContainerName,
-                "Local" => _options.LocalStorage.ContainerName,
+                "azure" => _options.AzureStorage.LessonsContainer,
+                "local" => _options.LocalStorage.LessonsContainer,
+                _ => throw new InvalidOperationException("Proveedor de storage no válido")
+            };
+        }
+
+        public string GetIvtContainerName()
+        {
+            return _options.StorageProvider.ToLower() switch
+            {
+                "azure" => _options.AzureStorage.IvtContainer,
+                "local" => _options.LocalStorage.IvtContainer,
                 _ => throw new InvalidOperationException("Proveedor de storage no válido")
             };
         }

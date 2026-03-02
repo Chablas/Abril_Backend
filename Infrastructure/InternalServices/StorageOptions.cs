@@ -10,11 +10,13 @@ namespace Abril_Backend.Infrastructure.InternalServices
     public class AzureStorageOptions
     {
         public string ConnectionString { get; set; }
-        public string ContainerName { get; set; }
+        public string LessonsContainer { get; set; }
+        public string IvtContainer { get; set; }
     }
 
     public class LocalStorageOptions
     {
-        public string ContainerName { get; set; }
+        public string LessonsContainer { get; set; }
+        public string IvtContainer { get; set; }
     }
 }

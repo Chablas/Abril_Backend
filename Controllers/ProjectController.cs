@@ -4,6 +4,7 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using Abril_Backend.Application.Interfaces;
 
 namespace Abril_Backend.Controllers
 {
@@ -13,9 +14,11 @@ namespace Abril_Backend.Controllers
     public class ProjectController : ControllerBase
     {
         ProjectRepository _repository;
-        public ProjectController(ProjectRepository repository)
+        IProjectService _projectService;
+        public ProjectController(ProjectRepository repository, IProjectService projectService)
         {
             _repository = repository;
+            _projectService = projectService;
         }
 
         [Authorize]
@@ -31,6 +34,27 @@ namespace Abril_Backend.Controllers
                 if (page < 1)
                     page = 1;
                 var result = await _repository.GetPaged(page);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("with-resident-by-userId")]
+        public async Task<IActionResult> GetWithResidentByUserId()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                var result = await _projectService.GetWithResidentByUserId(userId);
                 return Ok(result);
             }
             catch (Exception)

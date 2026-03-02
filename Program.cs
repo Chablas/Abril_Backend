@@ -5,6 +5,8 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.InternalServices;
 using Abril_Backend.Infrastructure.Services;
+using Abril_Backend.Application.Services;
+using Abril_Backend.Application.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Identity;
@@ -67,7 +69,10 @@ else
 {
     builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
 }
+builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();
+builder.Services.AddScoped<IProjectService, ProjectService>();
 
+builder.Services.AddScoped<IIvtControlPdfRepository, IvtControlPdfRepository>();
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddScoped<LayerRepository>();
@@ -78,6 +83,7 @@ builder.Services.AddScoped<MilestoneScheduleHistoryRepository>();
 builder.Services.AddScoped<PersonRepository>();
 builder.Services.AddScoped<PhaseRepository>();
 builder.Services.AddScoped<PhaseStageSubStageSubSpecialtyRepository>();
+builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<ProjectRepository>();
 builder.Services.AddScoped<ScheduleRepository>();
 builder.Services.AddScoped<StageRepository>();

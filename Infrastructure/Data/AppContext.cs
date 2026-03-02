@@ -13,6 +13,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Area> Area { get; set; }
         public DbSet<DocumentIdentityType> DocumentIdentityType { get; set; }
         public DbSet<ImageType> ImageType { get; set; }
+        public DbSet<IvtControlPdf> IvtControlPdf { get;set; }
         public DbSet<Layer> Layer { get; set; }
         public DbSet<Lesson> Lesson { get; set; }
         public DbSet<LessonImages> LessonImages { get; set; }

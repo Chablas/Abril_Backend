@@ -3,9 +3,10 @@ using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class ProjectRepository {
+    public class ProjectRepository : IProjectRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
         public ProjectRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
@@ -73,6 +74,22 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
                 data
             };
+        }
+
+        public async Task<List<ProjectScheduleSimpleDTO>> GetWithResidentByUserId(int userId)
+        {
+            var registros = from pj in _context.Project
+                join sd in _context.Schedule on pj.ProjectId equals sd.ProjectId
+                where (sd.CreatedUserId == userId)
+                && (pj.Active == true)
+                && (pj.State == true)
+                select new ProjectScheduleSimpleDTO
+                {
+                    ProjectId = pj.ProjectId,
+                    ProjectDescription = pj.ProjectDescription,
+                    ScheduleId = sd.ScheduleId
+                };
+            return await registros.ToListAsync();
         }
 
         public async Task<Project> Create(ProjectCreateDTO dto, int userId)

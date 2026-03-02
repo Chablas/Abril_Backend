@@ -1,8 +1,7 @@
 namespace Abril_Backend.Infrastructure.Models {
-    public class Project {
-        public int ProjectId {get; set;}
-        public string ProjectDescription {get; set;}
-        public int? ResidentUserId {get;set;}
+    public class IvtControlPdf {
+        public int IvtControlPdfId {get; set;}
+        public int ScheduleId {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

@@ -60,83 +60,180 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             return result;
         }
-        public async Task<List<ChartItemDTO>> GetLessonsBySubStage(List<int> subStageIds)
+        public async Task<List<ChartItemDTO>> GetLessonsBySubStage(
+            List<int> subStageIds,
+            DateTime? periodDate,
+            int? userId)
         {
             await using var context = await _factory.CreateDbContextAsync();
 
-            // Si no se envían ids, devolvemos vacío
             if (subStageIds == null || !subStageIds.Any())
                 return new List<ChartItemDTO>();
 
-            var query = from lesson in context.Lesson
-                        join psss in context.PhaseStageSubStageSubSpecialty
-                            on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId
-                        join subStage in context.SubStage
-                            on psss.SubStageId equals subStage.SubStageId
-                        where lesson.Active && lesson.State
-                              && subStageIds.Contains(subStage.SubStageId) // filtramos por los ids
-                        group lesson by new
-                        {
-                            subStage.SubStageId,
-                            subStage.SubStageDescription
-                        } into g
-                        select new ChartItemDTO
-                        {
-                            Id = g.Key.SubStageId,
-                            Label = g.Key.SubStageDescription!,
-                            Value = g.Count()
-                        };
+            var query =
+                from lesson in context.Lesson
+                join psss in context.PhaseStageSubStageSubSpecialty
+                    on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId
+                join subStage in context.SubStage
+                    on psss.SubStageId equals subStage.SubStageId
+                where lesson.Active
+                      && lesson.State
+                      && subStageIds.Contains(subStage.SubStageId)
+                select new { lesson, subStage };
 
-            return await query.ToListAsync();
+            // 🔹 Filtro por mes
+            if (periodDate.HasValue)
+            {
+                var startOfMonth = new DateTime(
+                    periodDate.Value.Year,
+                    periodDate.Value.Month,
+                    1, 0, 0, 0,
+                    DateTimeKind.Utc
+                );
+
+                var startOfNextMonth = startOfMonth.AddMonths(1);
+
+                query = query.Where(x =>
+                    x.lesson.PeriodDate != null &&
+                    x.lesson.PeriodDate >= startOfMonth &&
+                    x.lesson.PeriodDate < startOfNextMonth
+                );
+            }
+
+            // 🔹 Filtro por usuario
+            if (userId.HasValue)
+            {
+                query = query.Where(x =>
+                    x.lesson.CreatedUserId == userId.Value
+                );
+            }
+
+            var result = await query
+                .GroupBy(x => new
+                {
+                    x.subStage.SubStageId,
+                    x.subStage.SubStageDescription
+                })
+                .Select(g => new ChartItemDTO
+                {
+                    Id = g.Key.SubStageId,
+                    Label = g.Key.SubStageDescription!,
+                    Value = g.Count()
+                })
+                .ToListAsync();
+
+            return result;
         }
-        public async Task<List<ChartItemDTO>> GetLessonsByProject()
+        public async Task<List<ChartItemDTO>> GetLessonsByProject(DateTime? periodDate, int? userId)
         {
             await using var context = await _factory.CreateDbContextAsync();
 
-            return await (
+            var query =
                 from lesson in context.Lesson
                 join project in context.Project
                     on lesson.ProjectId equals project.ProjectId
                 where lesson.Active && lesson.State
-                group lesson by new
+                select new { lesson, project };
+
+            // 🔹 Filtro por mes
+            if (periodDate.HasValue)
+            {
+                var startOfMonth = new DateTime(
+                    periodDate.Value.Year,
+                    periodDate.Value.Month,
+                    1, 0, 0, 0,
+                    DateTimeKind.Utc
+                );
+
+                var startOfNextMonth = startOfMonth.AddMonths(1);
+
+                query = query.Where(x =>
+                    x.lesson.PeriodDate != null &&
+                    x.lesson.PeriodDate >= startOfMonth &&
+                    x.lesson.PeriodDate < startOfNextMonth
+                );
+            }
+
+            // 🔹 Filtro por usuario
+            if (userId.HasValue)
+            {
+                query = query.Where(x =>
+                    x.lesson.CreatedUserId == userId.Value
+                );
+            }
+
+            var result = await query
+                .GroupBy(x => new
                 {
-                    project.ProjectId,
-                    project.ProjectDescription
-                }
-                into g
-                select new ChartItemDTO
+                    x.project.ProjectId,
+                    x.project.ProjectDescription
+                })
+                .Select(g => new ChartItemDTO
                 {
                     Id = g.Key.ProjectId,
                     Label = g.Key.ProjectDescription,
                     Value = g.Count()
-                }
-            ).ToListAsync();
+                })
+                .ToListAsync();
+
+            return result;
         }
-        public async Task<List<PhaseStageChartDTO>> GetLessonsByPhaseAndStage()
+        public async Task<List<PhaseStageChartDTO>> GetLessonsByPhaseAndStage(DateTime? periodDate, int? userId)
         {
             await using var context = await _factory.CreateDbContextAsync();
 
-            var lessonCounts = from lesson in context.Lesson
+            var query =
+                from lesson in context.Lesson
                 join psss in context.PhaseStageSubStageSubSpecialty
                     on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId
                 join stage in context.Stage
                     on psss.StageId equals stage.StageId
                 where lesson.Active && lesson.State
-                group lesson by new
+                select new { lesson, psss, stage };
+
+            // 🔹 Filtro por mes
+            if (periodDate.HasValue)
+            {
+                var startOfMonth = new DateTime(
+                    periodDate.Value.Year,
+                    periodDate.Value.Month,
+                    1, 0, 0, 0,
+                    DateTimeKind.Utc
+                );
+
+                var startOfNextMonth = startOfMonth.AddMonths(1);
+
+                query = query.Where(x =>
+                    x.lesson.PeriodDate != null &&
+                    x.lesson.PeriodDate >= startOfMonth &&
+                    x.lesson.PeriodDate < startOfNextMonth
+                );
+            }
+
+            // 🔹 Filtro por usuario
+            if (userId.HasValue)
+            {
+                query = query.Where(x =>
+                    x.lesson.CreatedUserId == userId.Value
+                );
+            }
+
+            // 🔹 Agrupación después de aplicar filtros
+            var lessonCountsList = await query
+                .GroupBy(x => new
                 {
-                    psss.PhaseId,
-                    stage.StageId,
-                    stage.StageDescription
-                } into g
-                select new
+                    x.psss.PhaseId,
+                    x.stage.StageId,
+                    x.stage.StageDescription
+                })
+                .Select(g => new
                 {
                     g.Key.PhaseId,
                     g.Key.StageId,
                     g.Key.StageDescription,
                     Count = g.Count()
-                };
-
-            var lessonCountsList = await lessonCounts.ToListAsync();
+                })
+                .ToListAsync();
 
             var phases = await context.Phase
                 .OrderBy(p => p.Order ?? int.MaxValue)

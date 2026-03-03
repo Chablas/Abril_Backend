@@ -329,9 +329,9 @@ namespace Abril_Backend.Controllers
                     return BadRequest(new { message = "Debe escoger al menos una subetapa" });
 
                 var lessonsByPhaseTask = _dashboardRepository.GetLessonsByPhase(periodDate, userId);
-                var lessonsByProjectTask = _dashboardRepository.GetLessonsByProject();
-                var lessonsByPhaseStageTask = _dashboardRepository.GetLessonsByPhaseAndStage();
-                var lessonsBySubStage = _dashboardRepository.GetLessonsBySubStage(subStageIds);
+                var lessonsByProjectTask = _dashboardRepository.GetLessonsByProject(periodDate, userId);
+                var lessonsByPhaseStageTask = _dashboardRepository.GetLessonsByPhaseAndStage(periodDate, userId);
+                var lessonsBySubStage = _dashboardRepository.GetLessonsBySubStage(subStageIds, periodDate, userId);
 
                 await Task.WhenAll(lessonsByPhaseTask, lessonsByProjectTask, lessonsByPhaseStageTask, lessonsBySubStage);
 

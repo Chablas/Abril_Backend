@@ -2,6 +2,8 @@ namespace Abril_Backend.Infrastructure.Models {
     public class IvtControlPdf {
         public int IvtControlPdfId {get; set;}
         public int ScheduleId {get; set;}
+        public string FileUrl {get;set;}
+        public string FileDescription { get;set; }
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

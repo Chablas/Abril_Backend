@@ -15,10 +15,7 @@ namespace Abril_Backend.Application.Services
             _repository = repository;
             _fileStorageService = fileStorageService;
         }
-        public async Task<bool> Get()
-        {
-            return true;
-        }
+
         public async Task<bool> Create(IvtControlPdfCreateDTO dto, int userId)
         {
             if (dto.Pdf.Length == 0)
@@ -34,8 +31,14 @@ namespace Abril_Backend.Application.Services
                 fileUrl = await _fileStorageService.UploadFileAsync(stream, fileName, container);
             }
 
-            await _repository.Create(dto.ScheduleId, fileUrl, userId);
+            await _repository.Create(dto.ScheduleId, fileUrl, userId, dto.Pdf.FileName);
             return true;
+        }
+
+        public async Task<PagedResult<IvtControlPdfGetDTO>> GetPaged(int page)
+        {
+            var resultado = await _repository.GetPaged(page);
+            return resultado;
         }
     }
 }

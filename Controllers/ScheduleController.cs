@@ -4,6 +4,7 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Controllers
 {
@@ -12,9 +13,9 @@ namespace Abril_Backend.Controllers
     [Route("api/v1/[controller]")]
     public class ScheduleController : ControllerBase
     {
-        ScheduleRepository _repository;
+        IScheduleRepository _repository;
         ProjectRepository _projectRepository;
-        public ScheduleController(ScheduleRepository repository, ProjectRepository projectRepository)
+        public ScheduleController(IScheduleRepository repository, ProjectRepository projectRepository)
         {
             _repository = repository;
             _projectRepository = projectRepository;

@@ -10,19 +10,38 @@ namespace Abril_Backend.Infrastructure.InternalServices
         {
             _env = env;
         }
-        public async Task<string> UploadFileAsync(Stream fileStream, string fileName, string containerName)
+        public async Task<List<string>> UploadFilesAsync(
+            IEnumerable<(Stream Stream, string FileName)> files,
+            string containerName)
         {
-            var uniqueName = $"{Guid.NewGuid()}{Path.GetExtension(fileName)}";
+            var results = new List<string>();
 
-            var relativePath = $"/images/{containerName}/{uniqueName}";
-            var physicalPath = Path.Combine(_env.WebRootPath, "images", containerName, uniqueName);
+            var baseFolder = Path.Combine(_env.WebRootPath, "images", containerName);
 
-            Directory.CreateDirectory(Path.GetDirectoryName(physicalPath)!);
+            Directory.CreateDirectory(baseFolder);
 
-            using var stream = new FileStream(physicalPath, FileMode.Create);
-            await fileStream.CopyToAsync(stream);
+            foreach (var file in files)
+            {
+                var uniqueName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
 
-            return relativePath;
+                var physicalPath = Path.Combine(baseFolder, uniqueName);
+
+                using (var outputStream = new FileStream(
+                    physicalPath,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    81920,
+                    useAsync: true))
+                {
+                    await file.Stream.CopyToAsync(outputStream);
+                }
+
+                var relativePath = $"/images/{containerName}/{uniqueName}";
+                results.Add(relativePath);
+            }
+
+            return results;
         }
     }
 }

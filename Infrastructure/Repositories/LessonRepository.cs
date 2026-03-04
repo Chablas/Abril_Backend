@@ -780,8 +780,19 @@ namespace Abril_Backend.Infrastructure.Repositories
             return true;
         }
 
-        private async Task SaveImages(IEnumerable<IFormFile> files, int lessonId, int imageTypeId)
+        private async Task SaveImages(
+            IEnumerable<IFormFile> files,
+            int lessonId,
+            int imageTypeId)
         {
+            if (files == null || !files.Any())
+                return;
+
+            var container = _containerResolver.GetLessonsContainerName();
+
+            var filesToUpload = new List<(Stream Stream, string FileName)>();
+            var validFiles = new List<IFormFile>();
+
             foreach (var file in files)
             {
                 if (file.Length == 0)
@@ -789,17 +800,30 @@ namespace Abril_Backend.Infrastructure.Repositories
 
                 var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
 
-                string fileUrl;
+                filesToUpload.Add((file.OpenReadStream(), fileName));
+                validFiles.Add(file);
+            }
 
-                using (var stream = file.OpenReadStream())
-                {
-                    var container = _containerResolver.GetLessonsContainerName();
-                    fileUrl = await _fileStorageService.UploadFileAsync(stream, fileName, container);
-                }
+            if (!filesToUpload.Any())
+                return;
 
+            List<string> uploadedUrls;
+
+            try
+            {
+                uploadedUrls = await _fileStorageService.UploadFilesAsync(filesToUpload, container);
+            }
+            finally
+            {
+                foreach (var file in filesToUpload)
+                    file.Stream.Dispose();
+            }
+
+            for (int i = 0; i < uploadedUrls.Count; i++)
+            {
                 var entity = new LessonImages
                 {
-                    ImageUrl = fileUrl,
+                    ImageUrl = uploadedUrls[i],
                     LessonId = lessonId,
                     ImageTypeId = imageTypeId,
                     CreatedDateTime = DateTime.UtcNow,

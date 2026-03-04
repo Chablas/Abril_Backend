@@ -5,7 +5,8 @@ namespace Abril_Backend.Application.DTOs
 {
     public class IvtControlPdfCreateDTO
     {
-        public IFormFile Pdf {get; set;}
+        public List<IFormFile> Pdfs {get; set;}
         public int ScheduleId {get; set;}
+        public DateOnly PeriodDate {get;set;}
     }
 }

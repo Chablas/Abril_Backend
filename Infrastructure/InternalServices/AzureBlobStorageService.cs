@@ -14,25 +14,30 @@ namespace Abril_Backend.Infrastructure.InternalServices
             _serviceClient = new BlobServiceClient(connectionString);
         }
 
-        public async Task<string> UploadFileAsync(Stream fileStream, string fileName, string containerName)
+        public async Task<List<string>> UploadFilesAsync(IEnumerable<(Stream Stream, string FileName)> files, string containerName)
         {
             var container = _serviceClient.GetBlobContainerClient(containerName);
 
             await container.CreateIfNotExistsAsync();
 
-            var blobClient = container.GetBlobClient(fileName);
-
-            var headers = new BlobHttpHeaders
+            var tasks = files.Select(file =>
             {
-                ContentType = GetContentType(fileName)
-            };
+                var blobClient = container.GetBlobClient(file.FileName);
 
-            await blobClient.UploadAsync(fileStream, new BlobUploadOptions
-            {
-                HttpHeaders = headers
+                var headers = new BlobHttpHeaders
+                {
+                    ContentType = GetContentType(file.FileName)
+                };
+
+                return blobClient.UploadAsync(file.Stream, new BlobUploadOptions
+                {
+                    HttpHeaders = headers
+                }).ContinueWith(_ => blobClient.Uri.ToString());
             });
 
-            return blobClient.Uri.ToString();
+            var results = await Task.WhenAll(tasks);
+
+            return results.ToList();
         }
 
         private string GetContentType(string fileName)

@@ -13,22 +13,41 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _factory = factory;
         }
 
-        public async Task<bool> Create(int scheduleId, string fileUrl, int userId, string fileDescription)
+        public async Task<bool> Create(IvtControlPdfCreateDTO dto, List<string> fileUrls, int userId, List<string> fileDescriptions)
         {
-            var entity = new IvtControlPdf
+            for (int i = 0; i < fileUrls.Count; i++)
             {
-                ScheduleId = scheduleId,
-                FileUrl = fileUrl,
-                FileDescription = fileDescription,
-                CreatedDateTime = DateTime.UtcNow,
-                CreatedUserId = userId,
-                UpdatedDateTime = null,
-                Active = true,
-                State = true
-            };
-            _context.IvtControlPdf.Add(entity);
+                var entity = new IvtControlPdf
+                {
+                    ScheduleId = dto.ScheduleId,
+                    FileUrl = fileUrls[i],
+                    FileDescription = fileDescriptions[i],
+                    PeriodDate = dto.PeriodDate,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true
+                };
+
+                _context.IvtControlPdf.Add(entity);
+            }
+
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        public async Task<int> CountByScheduleAndPeriod(int scheduleId, DateOnly periodDate)
+        {
+            var startDate = new DateOnly(periodDate.Year, periodDate.Month, 1);
+            var endDate = startDate.AddMonths(1);
+
+            return await _context.IvtControlPdf
+                .Where(x =>
+                    x.ScheduleId == scheduleId &&
+                    x.PeriodDate >= startDate &&
+                    x.PeriodDate < endDate &&
+                    x.Active)
+                .CountAsync();
         }
 
         public async Task<PagedResult<IvtControlPdfGetDTO>> GetPaged(int page)

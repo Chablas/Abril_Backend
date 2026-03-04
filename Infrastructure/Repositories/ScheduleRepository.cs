@@ -4,9 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using System.Linq;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class ScheduleRepository {
+    public class ScheduleRepository : IScheduleRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
         public ScheduleRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
@@ -87,6 +88,21 @@ namespace Abril_Backend.Infrastructure.Repositories {
             await _context.SaveChangesAsync();
 
             return schedule;
+        }
+
+        public async Task<string?> GetProjectName(int scheduleId)
+        {
+            var projectName = await (
+                from schedule in _context.Schedule
+                join project in _context.Project
+                    on schedule.ProjectId equals project.ProjectId
+                where schedule.ScheduleId == scheduleId
+                      && schedule.State
+                      && project.State
+                select project.ProjectDescription
+            ).FirstOrDefaultAsync();
+
+            return projectName;
         }
     }
 }

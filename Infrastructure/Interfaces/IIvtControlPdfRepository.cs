@@ -4,7 +4,8 @@ namespace Abril_Backend.Infrastructure.Interfaces
 {
     public interface IIvtControlPdfRepository
     {
-        Task<bool> Create(int scheduleId, string fileUrl, int userId, string fileDescription);
+        Task<bool> Create(IvtControlPdfCreateDTO dto, List<string> fileUrls, int userId, List<string> fileDescriptions);
         Task<PagedResult<IvtControlPdfGetDTO>> GetPaged(int page);
+        Task<int> CountByScheduleAndPeriod(int scheduleId, DateOnly periodDate);
     }
 }

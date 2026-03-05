@@ -89,6 +89,7 @@ builder.Services.AddScoped<IScheduleRepository, ScheduleRepository>();
 builder.Services.AddScoped<StageRepository>();
 builder.Services.AddScoped<SubSpecialtyRepository>();
 builder.Services.AddScoped<SubStageRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<UserProjectRepository>();
 builder.Services.AddScoped<UserRegistrationTokenRepository>();

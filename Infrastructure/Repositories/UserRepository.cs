@@ -4,9 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using System.Linq;
 using Microsoft.AspNetCore.Identity;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class UserRepository {
+    public class UserRepository : IUserRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IPasswordHasher<User> _passwordHasher;
@@ -258,6 +259,21 @@ namespace Abril_Backend.Infrastructure.Repositories {
             user.UpdatedDateTime = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+        }
+
+        public async Task<List<UserFilterDTO>> GetResidentsFullName ()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var registros = from user in ctx.User
+                join schedule in ctx.Schedule on user.UserId equals schedule.CreatedUserId
+                join person in ctx.Person on user.PersonId equals person.PersonId
+                select new UserFilterDTO
+                {
+                    UserId = user.UserId,
+                    FullName = person.FullName
+                };
+
+            return await registros.Distinct().ToListAsync();
         }
     }
 }

@@ -92,6 +92,19 @@ namespace Abril_Backend.Infrastructure.Repositories {
             return await registros.ToListAsync();
         }
 
+        public async Task<List<ProjectSimpleDTO>> GetProjectWithResidents()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var registros = from item in ctx.Project
+                where (item.ResidentUserId != null)
+                select new ProjectSimpleDTO
+                {
+                    ProjectId = item.ProjectId,
+                    ProjectDescription = item.ProjectDescription
+                };
+            return await registros.ToListAsync();
+        }
+
         public async Task<Project> Create(ProjectCreateDTO dto, int userId)
         {
             var project = await _context.Project.FirstOrDefaultAsync(a => a.ProjectDescription == dto.ProjectDescription.Trim());

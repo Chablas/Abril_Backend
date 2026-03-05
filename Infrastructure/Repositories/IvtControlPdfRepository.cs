@@ -50,21 +50,30 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 .CountAsync();
         }
 
-        public async Task<PagedResult<IvtControlPdfGetDTO>> GetPaged(int page)
+        public async Task<PagedResult<IvtControlPdfGetDTO>> GetPaged(int page, DateOnly? periodDate, int? userId)
         {
             const int pageSize = 10;
 
-            var query = from item in _context.IvtControlPdf
-                where item.State == true
-                select new IvtControlPdfGetDTO
-                {
-                    FileUrl = item.FileUrl,
-                    FileDescription = item.FileDescription
-                };
+            var query = _context.IvtControlPdf.Where(x => x.State);
+                
+            if (userId.HasValue)
+            {
+                query = query.Where(x => x.CreatedUserId == userId.Value);
+            }
+
+            if (periodDate.HasValue)
+            {
+                query = query.Where(x => x.PeriodDate == periodDate);
+            }
 
             var totalRecords = await query.CountAsync();
 
-            var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+            var data = await query.Skip((page - 1) * pageSize).Take(pageSize)
+                .Select(x => new IvtControlPdfGetDTO
+                {
+                    FileUrl = x.FileUrl,
+                    FileDescription = x.FileDescription
+                }).ToListAsync();
 
             return new PagedResult<IvtControlPdfGetDTO>
             {
@@ -74,6 +83,15 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
                 Data = data
             };
+        }
+
+        public async Task<List<DateOnly>> GetIvtControlPeriods ()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var query = from item in ctx.IvtControlPdf
+                where (item.State == true)
+                select item.PeriodDate;
+            return await query.Distinct().ToListAsync();
         }
     }
 }

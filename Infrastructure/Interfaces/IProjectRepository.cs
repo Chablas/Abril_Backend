@@ -11,5 +11,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<Project> Create(ProjectCreateDTO dto, int userId);
         Task<Project> Update(ProjectEditDTO dto, int userId);
         Task<bool> DeleteSoftAsync(int projectId, int userId);
+        Task<List<ProjectSimpleDTO>> GetProjectWithResidents();
     }
 }

@@ -2,6 +2,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Infrastructure.Models;
 
 namespace Abril_Backend.Application.Services
 {
@@ -11,12 +12,16 @@ namespace Abril_Backend.Application.Services
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IFileStorageService _fileStorageService;
         private readonly IScheduleRepository _scheduleRepository;
-        public IvtControlPdfService(IIvtControlPdfRepository repository, IStorageContainerResolver containerResolver, IFileStorageService fileStorageService, IScheduleRepository scheduleRepository)
+        private readonly IUserRepository _userRepository;
+        private readonly IProjectRepository _projecRepository;
+        public IvtControlPdfService(IIvtControlPdfRepository repository, IStorageContainerResolver containerResolver, IFileStorageService fileStorageService, IScheduleRepository scheduleRepository, IUserRepository userRepository, IProjectRepository projectRepository)
         {
             _containerResolver = containerResolver;
             _repository = repository;
             _fileStorageService = fileStorageService;
             _scheduleRepository = scheduleRepository;
+            _userRepository = userRepository;
+            _projecRepository = projectRepository;
         }
 
         public async Task<bool> Create(IvtControlPdfCreateDTO dto, int userId)
@@ -89,10 +94,28 @@ namespace Abril_Backend.Application.Services
             return true;
         }
 
-        public async Task<PagedResult<IvtControlPdfGetDTO>> GetPaged(int page)
+        public async Task<PagedResult<IvtControlPdfGetDTO>> GetPaged(int page, DateOnly? periodDate, int? userId)
         {
-            var resultado = await _repository.GetPaged(page);
+            var resultado = await _repository.GetPaged(page, periodDate, userId);
             return resultado;
+        }
+
+        public async Task<IvtControlPdfFiltersDTO> GetFiltersData()
+        {
+            var residentsFullNameTask = _userRepository.GetResidentsFullName();
+            var projectWithResidentsTask = _projecRepository.GetProjectWithResidents();
+            var schedulePeriodsTask = _repository.GetIvtControlPeriods();
+
+            await Task.WhenAll(residentsFullNameTask, projectWithResidentsTask, schedulePeriodsTask);
+
+            var response = new IvtControlPdfFiltersDTO
+            {
+                Projects = await projectWithResidentsTask,
+                Residents = await residentsFullNameTask,
+                Periods = await schedulePeriodsTask,
+            };
+
+            return response;
         }
     }
 }

@@ -17,18 +17,17 @@ namespace Abril_Backend.Controllers
             _service = service;
         }
 
-        //[Authorize]
         [HttpGet]
         public async Task<IActionResult> ExecuteReminders()
         {
             try
             {
-                /*var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
 
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var userId = int.Parse(userIdClaim.Value);*/
+                if (authHeader != $"Bearer {Environment.GetEnvironmentVariable("CronSecret")}")
+                {
+                    return Unauthorized();
+                }
 
                 await _service.ExecuteReminders();
                 return NoContent();

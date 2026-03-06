@@ -4,7 +4,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 
-namespace Abril_Backend.Infrastructure.InternalServices
+namespace Abril_Backend.Infrastructure.Services
 {
     public class PowerAutomateEmailService : IEmailService
     {
@@ -33,8 +33,8 @@ namespace Abril_Backend.Infrastructure.InternalServices
                 Subject = subject,
                 Body = body,
                 //IsHtml = isHtml,
-                //Cc = cc,
-                //Bcc = bcc,
+                Cc = cc,
+                Bcc = bcc,
                 /*Attachments = attachments?.Select(a => new
                 {
                     a.FileName,

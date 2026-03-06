@@ -7,7 +7,7 @@ using System.IO;
 using Abril_Backend.Application.DTOs;
 using ClosedXML.Excel;
 
-namespace Abril_Backend.Infrastructure.InternalServices
+namespace Abril_Backend.Infrastructure.Services
 {
     public class ExcelService
     {

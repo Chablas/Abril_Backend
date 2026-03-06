@@ -1,4 +1,4 @@
-namespace Abril_Backend.Infrastructure.InternalServices
+namespace Abril_Backend.Infrastructure.Services
 {
     public class StorageOptions
     {

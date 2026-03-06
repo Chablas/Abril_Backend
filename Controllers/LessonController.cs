@@ -3,7 +3,7 @@ using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Application.DTOs;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
-using Abril_Backend.Infrastructure.InternalServices;
+using Abril_Backend.Infrastructure.Services;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Exceptions;
 

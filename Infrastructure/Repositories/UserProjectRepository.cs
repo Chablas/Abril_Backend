@@ -3,10 +3,11 @@ using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Infrastructure.Interfaces;
 using System.Linq;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class UserProjectRepository {
+    public class UserProjectRepository : IUserProjectRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
         public UserProjectRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
@@ -162,6 +163,48 @@ namespace Abril_Backend.Infrastructure.Repositories {
             await _context.SaveChangesAsync();
 
             return true;
+        }
+
+        public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsByPeriod(DateTime periodDate)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var targetPeriod = new DateTime(periodDate.Year, periodDate.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            var query =
+                from up in ctx.UserProject
+                join u in ctx.User on up.UserId equals u.UserId
+                join p in ctx.Person on u.PersonId equals p.PersonId
+                join pj in ctx.Project on up.ProjectId equals pj.ProjectId
+                where up.State == true
+                      && up.Active == true
+                      && !ctx.Lesson.Any(l =>
+                             l.CreatedUserId == up.UserId &&
+                             l.ProjectId == up.ProjectId &&
+                             l.PeriodDate == targetPeriod &&
+                             l.State == true &&
+                             l.Active == true
+                         )
+                group new { up, pj } by new
+                {
+                    up.UserId,
+                    p.FullName,
+                    p.Email
+                }
+                into g
+                select new UserWithoutLessonsDTO
+                {
+                    UserId = g.Key.UserId,
+                    UserFullName = g.Key.FullName,
+                    Email = g.Key.Email,
+                    Projects = g.Select(x => new ProjectSimpleDTO
+                    {
+                        ProjectId = x.pj.ProjectId,
+                        ProjectDescription = x.pj.ProjectDescription
+                    }).ToList()
+                };
+
+            return await query.ToListAsync();
         }
     }
 }

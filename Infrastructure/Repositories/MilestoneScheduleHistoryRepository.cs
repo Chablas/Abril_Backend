@@ -5,12 +5,16 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using System.Linq;
 using DocumentFormat.OpenXml.Office.CustomUI;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class MilestoneScheduleHistoryRepository {
+    public class MilestoneScheduleHistoryRepository : IMilestoneScheduleHistoryRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
-        public MilestoneScheduleHistoryRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
+        public MilestoneScheduleHistoryRepository(
+            AppDbContext contexto,
+            IDbContextFactory<AppDbContext> factory
+        ) {
             _context = contexto;
             _factory = factory;
         }
@@ -154,6 +158,52 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 ScheduleName = projectInfo.ScheduleName,
                 Changes = changes
             };
+        }
+
+        public async Task<List<UserWithoutMilestoneDTO>> GetUsersWithoutScheduleHistoryThisMonth()
+        {
+            await using var ctx = await _factory.CreateDbContextAsync();
+
+            var now = DateTime.UtcNow;
+            var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var startOfNextMonth = startOfMonth.AddMonths(1);
+
+            var query =
+                from pj in ctx.Project
+                join u in ctx.User on pj.ResidentUserId equals u.UserId
+                join person in ctx.Person on u.PersonId equals person.PersonId
+                where pj.Active && pj.State
+                where !ctx.MilestoneScheduleHistory.Any(msh =>
+                    msh.CreatedUserId == pj.ResidentUserId &&
+                    msh.Active && msh.State &&
+                    msh.CreatedDateTime >= startOfMonth &&
+                    msh.CreatedDateTime < startOfNextMonth &&
+                    ctx.Schedule.Any(s =>
+                        s.ScheduleId == msh.ScheduleId &&
+                        s.ProjectId == pj.ProjectId &&
+                        s.Active && s.State
+                    )
+                )
+                group pj by new
+                {
+                    u.UserId,
+                    person.FullName,
+                    person.Email
+                }
+                into g
+                select new UserWithoutMilestoneDTO
+                {
+                    UserId = g.Key.UserId,
+                    UserFullName = g.Key.FullName,
+                    Email = g.Key.Email,
+                    Projects = g.Select(p => new ProjectSimpleDTO
+                    {
+                        ProjectId = p.ProjectId,
+                        ProjectDescription = p.ProjectDescription
+                    }).ToList()
+                };
+
+            return await query.ToListAsync();
         }
 
         private List<MilestoneChange> DetectChanges(

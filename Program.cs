@@ -1,9 +1,7 @@
 using Abril_Backend.Infrastructure.Repositories;
-using Abril_Backend.Infrastructure.ExternalServices;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
-using Abril_Backend.Infrastructure.InternalServices;
 using Abril_Backend.Infrastructure.Services;
 using Abril_Backend.Application.Services;
 using Abril_Backend.Application.Interfaces;
@@ -71,8 +69,16 @@ else
 }
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
+builder.Services.AddScoped<IReminderService, ReminderService>();
 
+builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
+builder.Services.AddScoped<IMilestoneScheduleHistoryRepository, MilestoneScheduleHistoryRepository>();
 builder.Services.AddScoped<IIvtControlPdfRepository, IvtControlPdfRepository>();
+builder.Services.AddScoped<IScheduleRepository, ScheduleRepository>();
+builder.Services.AddScoped<IUserProjectRepository, UserProjectRepository>();
+builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddScoped<LayerRepository>();
@@ -83,13 +89,10 @@ builder.Services.AddScoped<MilestoneScheduleHistoryRepository>();
 builder.Services.AddScoped<PersonRepository>();
 builder.Services.AddScoped<PhaseRepository>();
 builder.Services.AddScoped<PhaseStageSubStageSubSpecialtyRepository>();
-builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<ProjectRepository>();
-builder.Services.AddScoped<IScheduleRepository, ScheduleRepository>();
 builder.Services.AddScoped<StageRepository>();
 builder.Services.AddScoped<SubSpecialtyRepository>();
 builder.Services.AddScoped<SubStageRepository>();
-builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<UserProjectRepository>();
 builder.Services.AddScoped<UserRegistrationTokenRepository>();

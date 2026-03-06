@@ -3,7 +3,7 @@ using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 
-namespace Abril_Backend.Infrastructure.ExternalServices
+namespace Abril_Backend.Infrastructure.Services
 {
     public class ReniecService
     {

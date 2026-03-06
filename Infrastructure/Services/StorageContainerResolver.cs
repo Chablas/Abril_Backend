@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using Abril_Backend.Infrastructure.Interfaces;
 
-namespace Abril_Backend.Infrastructure.InternalServices
+namespace Abril_Backend.Infrastructure.Services
 {
     public class StorageContainerResolver : IStorageContainerResolver
     {

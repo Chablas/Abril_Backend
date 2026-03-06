@@ -4,7 +4,7 @@ using SendGrid.Helpers.Mail;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Application.DTOs;
 
-namespace Abril_Backend.Infrastructure.InternalServices
+namespace Abril_Backend.Infrastructure.Services
 {
     public class SendGridEmailService : IEmailService
     {

@@ -4,14 +4,62 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using System.Linq;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class MilestoneScheduleRepository {
+    public class MilestoneScheduleRepository : IMilestoneScheduleRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
         public MilestoneScheduleRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
             _context = contexto;
             _factory = factory;
+        }
+
+        public async Task<List<ScheduleChangeInfoDTO>> GetSchedulesWithChangesThisMonthAsync()
+        {
+            var now = DateTime.UtcNow;
+
+            var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var startOfNextMonth = startOfMonth.AddMonths(1);
+
+            var data = await (
+                from msh in _context.MilestoneScheduleHistory
+                join s in _context.Schedule
+                    on msh.ScheduleId equals s.ScheduleId
+                join p in _context.Project
+                    on s.ProjectId equals p.ProjectId
+                join u in _context.User
+                    on msh.CreatedUserId equals u.UserId
+                join person in _context.Person
+                    on u.PersonId equals person.PersonId
+                where
+                    msh.CreatedDateTime >= startOfMonth &&
+                    msh.CreatedDateTime < startOfNextMonth &&
+                    s.Active && s.State &&
+                    msh.Active && msh.State
+                select new
+                {
+                    p.ProjectDescription,
+                    ChangedBy = person.FullName,
+                    ChangeDate = msh.CreatedDateTime
+                }
+            ).ToListAsync();
+
+            var result = data
+                .GroupBy(x => new { x.ProjectDescription, x.ChangedBy })
+                .Select(g => new ScheduleChangeInfoDTO
+                {
+                    ProjectDescription = g.Key.ProjectDescription,
+                    ChangedBy = g.Key.ChangedBy,
+                    ChangeDate = g
+                        .Select(x => x.ChangeDate)
+                        .Distinct()
+                        .OrderBy(d => d)
+                        .ToList()
+                })
+                .ToList();
+
+            return result;
         }
 
         public async Task<List<MilestoneScheduleDTO>> GetAllByMilestoneScheduleHistoryIdFactory(int milestoneScheduleHistoryId)

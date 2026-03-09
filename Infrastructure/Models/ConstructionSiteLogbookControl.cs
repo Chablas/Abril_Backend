@@ -1,10 +1,10 @@
 namespace Abril_Backend.Infrastructure.Models {
-    public class User {
-        public int UserId {get; set;}
-        public int PersonId {get; set;}
-        public Person Person { get; set; }
-        public string? Password {get; set;}
-        public bool EmailConfirmed {get;set;}
+    public class ConstructionSiteLogbookControl {
+        public int ConstructionSiteLogbookControlId {get; set;}
+        public int ProjectId {get; set;}
+        public string FileUrl {get;set;}
+        public string FileDescription { get;set; }
+        public DateOnly PeriodDate {get;set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

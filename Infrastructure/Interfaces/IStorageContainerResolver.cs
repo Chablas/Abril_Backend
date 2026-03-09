@@ -4,5 +4,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
     {
         string GetLessonsContainerName();
         string GetIvtContainerName();
+        string GetConstructionSiteLogbookContainerName();
     }
 }

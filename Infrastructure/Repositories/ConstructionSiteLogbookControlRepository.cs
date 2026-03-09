@@ -5,19 +5,19 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.DTOs;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class IvtControlPdfRepository : IIvtControlPdfRepository {
+    public class ConstructionSiteLogbookControlRepository : IConstructionSiteLogbookControlRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
-        public IvtControlPdfRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
+        public ConstructionSiteLogbookControlRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
             _context = contexto;
             _factory = factory;
         }
 
-        public async Task<bool> Create(IvtControlPdfCreateDTO dto, List<string> fileUrls, int userId, List<string> fileDescriptions)
+        public async Task<bool> Create(ConstructionSiteLogbookControlCreateDTO dto, List<string> fileUrls, int userId, List<string> fileDescriptions)
         {
             for (int i = 0; i < fileUrls.Count; i++)
             {
-                var entity = new IvtControlPdf
+                var entity = new ConstructionSiteLogbookControl
                 {
                     ProjectId = dto.ProjectId,
                     FileUrl = fileUrls[i],
@@ -29,7 +29,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     State = true
                 };
 
-                _context.IvtControlPdf.Add(entity);
+                _context.ConstructionSiteLogbookControl.Add(entity);
             }
 
             await _context.SaveChangesAsync();
@@ -41,7 +41,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var startDate = new DateOnly(periodDate.Year, periodDate.Month, 1);
             var endDate = startDate.AddMonths(1);
 
-            return await _context.IvtControlPdf
+            return await _context.ConstructionSiteLogbookControl
                 .Where(x =>
                     x.ProjectId == projectId &&
                     x.PeriodDate >= startDate &&
@@ -50,11 +50,11 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 .CountAsync();
         }
 
-        public async Task<PagedResult<IvtControlPdfGetDTO>> GetPaged(int page, DateOnly? periodDate, int? userId)
+        public async Task<PagedResult<ConstructionSiteLogbookControlGetDTO>> GetPaged(int page, DateOnly? periodDate, int? userId)
         {
             const int pageSize = 10;
 
-            var query = _context.IvtControlPdf.Where(x => x.State);
+            var query = _context.ConstructionSiteLogbookControl.Where(x => x.State);
                 
             if (userId.HasValue)
             {
@@ -69,13 +69,13 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var totalRecords = await query.CountAsync();
 
             var data = await query.Skip((page - 1) * pageSize).Take(pageSize)
-                .Select(x => new IvtControlPdfGetDTO
+                .Select(x => new ConstructionSiteLogbookControlGetDTO
                 {
                     FileUrl = x.FileUrl,
                     FileDescription = x.FileDescription
                 }).ToListAsync();
 
-            return new PagedResult<IvtControlPdfGetDTO>
+            return new PagedResult<ConstructionSiteLogbookControlGetDTO>
             {
                 Page = page,
                 PageSize = pageSize,
@@ -88,7 +88,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
         public async Task<List<DateOnly>> GetIvtControlPeriods ()
         {
             using var ctx = _factory.CreateDbContext();
-            var query = from item in ctx.IvtControlPdf
+            var query = from item in ctx.ConstructionSiteLogbookControl
                 where (item.State == true)
                 select item.PeriodDate;
             return await query.Distinct().ToListAsync();

@@ -89,20 +89,5 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             return schedule;
         }
-
-        public async Task<string?> GetProjectName(int scheduleId)
-        {
-            var projectName = await (
-                from schedule in _context.Schedule
-                join project in _context.Project
-                    on schedule.ProjectId equals project.ProjectId
-                where schedule.ScheduleId == scheduleId
-                      && schedule.State
-                      && project.State
-                select project.ProjectDescription
-            ).FirstOrDefaultAsync();
-
-            return projectName;
-        }
     }
 }

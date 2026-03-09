@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Abril_Backend.Application.DTOs
 {
-    public class IvtControlPdfCreateDTO
+    public class ConstructionSiteLogbookControlCreateDTO
     {
         public List<IFormFile> Pdfs {get; set;}
         public int ProjectId {get; set;}

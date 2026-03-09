@@ -10,6 +10,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<object> GetPagedFactory(int page, int pageSizeQuery);
         Task<User?> Create(UserCreateDTO dto);
         Task SetPassword(int userId, string plainPassword);
-        Task<List<UserFilterDTO>> GetResidentsFullName ();
+        Task<List<UserFilterDTO>> GetResidentsFullName();
     }
 }

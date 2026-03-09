@@ -11,6 +11,7 @@ namespace Abril_Backend.Infrastructure.Data
             _provider = config["DatabaseProvider"] ?? "SqlServer";
         }
         public DbSet<Area> Area { get; set; }
+        public DbSet<ConstructionSiteLogbookControl> ConstructionSiteLogbookControl { get;set; }
         public DbSet<DocumentIdentityType> DocumentIdentityType { get; set; }
         public DbSet<ImageType> ImageType { get; set; }
         public DbSet<IvtControlPdf> IvtControlPdf { get;set; }
@@ -24,6 +25,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Phase> Phase { get; set; }
         public DbSet<PhaseStageSubStageSubSpecialty> PhaseStageSubStageSubSpecialty { get; set; }
         public DbSet<Project> Project { get; set; }
+        public DbSet<ProjectResident> ProjectResident {get;set;}
+        public DbSet<Role> Role {get;set;}
         public DbSet<Schedule> Schedule { get; set; }
         public DbSet<Stage> Stage { get; set; }
         public DbSet<State> State { get; set; }
@@ -31,6 +34,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SubStage> SubStage { get; set; }
         public DbSet<User> User { get; set; }
         public DbSet<UserRegistrationToken> UserRegistrationTokens { get; set; }
+        public DbSet<UserRole> UserRole { get; set; }
         public DbSet<UserSession> UserSession { get; set; }
         public DbSet<UserProject> UserProject { get; set; }
 

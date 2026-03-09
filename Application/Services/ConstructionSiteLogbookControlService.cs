@@ -5,16 +5,16 @@ using Abril_Backend.Application.Exceptions;
 
 namespace Abril_Backend.Application.Services
 {
-    public class IvtControlPdfService : IIvtControlPdfService
+    public class ConstructionSiteLogbookControlService : IConstructionSiteLogbookControlService
     {
-        private readonly IIvtControlPdfRepository _repository;
+        private readonly IConstructionSiteLogbookControlRepository _repository;
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IFileStorageService _fileStorageService;
         private readonly IProjectRepository _projectRepository;
         private readonly IUserRepository _userRepository;
         private readonly IProjectResidentRepository _projecResidentRepository;
-        public IvtControlPdfService(
-            IIvtControlPdfRepository repository, 
+        public ConstructionSiteLogbookControlService(
+            IConstructionSiteLogbookControlRepository repository, 
             IStorageContainerResolver containerResolver, 
             IFileStorageService fileStorageService, 
             IProjectRepository projectRepository, 
@@ -29,7 +29,7 @@ namespace Abril_Backend.Application.Services
             _projecResidentRepository = projectResidentRepository;
         }
 
-        public async Task<bool> Create(IvtControlPdfCreateDTO dto, int userId)
+        public async Task<bool> Create(ConstructionSiteLogbookControlCreateDTO dto, int userId)
         {
             if (dto.Pdfs == null || !dto.Pdfs.Any())
                 throw new AbrilException("No se pusieron archivos.");
@@ -56,7 +56,7 @@ namespace Abril_Backend.Application.Services
                 .Replace(" ", "")
                 .Replace("-", "");
 
-            var container = _containerResolver.GetIvtContainerName();
+            var container = _containerResolver.GetConstructionSiteLogbookContainerName();
 
             var filesToUpload = new List<(Stream Stream, string FileName)>();
             var streams = new List<Stream>();
@@ -73,7 +73,7 @@ namespace Abril_Backend.Application.Services
 
                 var extension = Path.GetExtension(item.FileName);
 
-                var fileName = $"IVT-{dto.PeriodDate.Year}-{dto.PeriodDate.Month:D2}-{projectName}-{counter}{extension}";
+                var fileName = $"CO-{dto.PeriodDate.Year}-{dto.PeriodDate.Month:D2}-{projectName}-{counter}{extension}";
 
                 var stream = item.OpenReadStream();
 
@@ -99,13 +99,13 @@ namespace Abril_Backend.Application.Services
             return true;
         }
 
-        public async Task<PagedResult<IvtControlPdfGetDTO>> GetPaged(int page, DateOnly? periodDate, int? userId)
+        public async Task<PagedResult<ConstructionSiteLogbookControlGetDTO>> GetPaged(int page, DateOnly? periodDate, int? userId)
         {
             var resultado = await _repository.GetPaged(page, periodDate, userId);
             return resultado;
         }
 
-        public async Task<IvtControlPdfFiltersDTO> GetFiltersData()
+        public async Task<ConstructionSiteLogbookControlFiltersDTO> GetFiltersData()
         {
             var residentsFullNameTask = _userRepository.GetResidentsFullName();
             var projectWithResidentsTask = _projecResidentRepository.GetProjectsDescription();
@@ -113,7 +113,7 @@ namespace Abril_Backend.Application.Services
 
             await Task.WhenAll(residentsFullNameTask, projectWithResidentsTask, schedulePeriodsTask);
 
-            var response = new IvtControlPdfFiltersDTO
+            var response = new ConstructionSiteLogbookControlFiltersDTO
             {
                 Projects = await projectWithResidentsTask,
                 Residents = await residentsFullNameTask,

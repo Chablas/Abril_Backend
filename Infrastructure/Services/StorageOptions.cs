@@ -12,11 +12,13 @@ namespace Abril_Backend.Infrastructure.Services
         public string ConnectionString { get; set; }
         public string LessonsContainer { get; set; }
         public string IvtContainer { get; set; }
+        public string ConstructionSiteLogbookContainer { get; set; }
     }
 
     public class LocalStorageOptions
     {
         public string LessonsContainer { get; set; }
         public string IvtContainer { get; set; }
+        public string ConstructionSiteLogbookContainer { get; set; }
     }
 }

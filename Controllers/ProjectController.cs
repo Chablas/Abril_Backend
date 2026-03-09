@@ -43,27 +43,6 @@ namespace Abril_Backend.Controllers
         }
 
         [Authorize]
-        [HttpGet("with-resident-by-userId")]
-        public async Task<IActionResult> GetWithResidentByUserId()
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var userId = int.Parse(userIdClaim.Value);
-                var result = await _projectService.GetWithResidentByUserId(userId);
-                return Ok(result);
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [Authorize]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] ProjectCreateDTO dto)
         {

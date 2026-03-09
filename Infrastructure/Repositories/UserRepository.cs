@@ -261,12 +261,15 @@ namespace Abril_Backend.Infrastructure.Repositories {
             await _context.SaveChangesAsync();
         }
 
-        public async Task<List<UserFilterDTO>> GetResidentsFullName ()
+        public async Task<List<UserFilterDTO>> GetResidentsFullName()
         {
             using var ctx = _factory.CreateDbContext();
             var registros = from user in ctx.User
-                join schedule in ctx.Schedule on user.UserId equals schedule.CreatedUserId
+                join user_role in ctx.UserRole on user.UserId equals user_role.UserId
+                join role in ctx.Role on user_role.RoleId equals role.RoleId
                 join person in ctx.Person on user.PersonId equals person.PersonId
+                where (role.RoleDescription == "RESIDENTE") && (person.State == true) && (person.Active == true)
+                && (user.State == true) && (user.Active == true)
                 select new UserFilterDTO
                 {
                     UserId = user.UserId,

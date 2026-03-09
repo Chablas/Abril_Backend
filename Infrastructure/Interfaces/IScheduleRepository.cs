@@ -6,6 +6,5 @@ namespace Abril_Backend.Infrastructure.Interfaces
     {
         Task<object> GetPaged(int page);
         Task<Schedule> Create(ScheduleCreateDTO dto, int userId);
-        Task<string?> GetProjectName(int scheduleId);
     }
 }

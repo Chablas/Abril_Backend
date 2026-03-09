@@ -180,5 +180,17 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             return true;
         }
+
+        public async Task<string> GetProjectNameByProjectId(int projectId)
+        {
+            var projectName = await (
+                from project in _context.Project
+                where project.ProjectId == projectId
+                      && project.State
+                select project.ProjectDescription
+            ).FirstOrDefaultAsync();
+
+            return projectName;
+        }
     }
 }

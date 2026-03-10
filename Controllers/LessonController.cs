@@ -25,7 +25,7 @@ namespace Abril_Backend.Controllers
         private readonly LayerRepository _layerRepository;
         private readonly SubStageRepository _subStageRepository;
         private readonly SubSpecialtyRepository _subSpecialtyRepository;
-        private readonly UserRepository _userRepository;
+        private readonly IUserRepository _userRepository;
         private readonly IEmailService _emailService;
         
         public LessonController(
@@ -40,7 +40,7 @@ namespace Abril_Backend.Controllers
             LayerRepository layerRepository,
             SubStageRepository subStageRepository,
             SubSpecialtyRepository subSpecialtyRepository,
-            UserRepository userRepository,
+            IUserRepository userRepository,
             IEmailService emailService
             )
         {

@@ -70,9 +70,10 @@ else
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();
+builder.Services.AddScoped<IProjectResidentService, ProjectResidentService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<IReminderService, ReminderService>();
-builder.Services.AddScoped<IProjectResidentService, ProjectResidentService>();
+builder.Services.AddScoped<IUserService, UserService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
@@ -83,6 +84,7 @@ builder.Services.AddScoped<IUserProjectRepository, UserProjectRepository>();
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IProjectResidentRepository, ProjectResidentRepository>();
+builder.Services.AddScoped<IUserRegistrationTokenRepository, UserRegistrationTokenRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();
@@ -98,9 +100,7 @@ builder.Services.AddScoped<ProjectRepository>();
 builder.Services.AddScoped<StageRepository>();
 builder.Services.AddScoped<SubSpecialtyRepository>();
 builder.Services.AddScoped<SubStageRepository>();
-builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<UserProjectRepository>();
-builder.Services.AddScoped<UserRegistrationTokenRepository>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ExcelService>();
 builder.Services.AddScoped<AuthRepository>();

@@ -2,7 +2,6 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
-using System.Linq;
 using Microsoft.AspNetCore.Identity;
 using Abril_Backend.Infrastructure.Interfaces;
 
@@ -52,7 +51,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 return await query.ToListAsync();
         }
 
-        public async Task<object> GetPagedFactory(int page, int pageSizeQuery)
+        public async Task<PagedResult<UserDTO>> GetPagedFactory(int page, int pageSizeQuery)
         {
             int pageSize = pageSizeQuery;
             page = page < 1 ? 1 : page;
@@ -116,13 +115,13 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 .Take(pageSize)
                 .ToListAsync();
 
-            return new
+            return new PagedResult<UserDTO>
             {
-                page,
-                pageSize,
-                totalRecords,
-                totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
-                data
+                Page = page,
+                PageSize = pageSize,
+                TotalRecords = totalRecords,
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data = data
             };
         }
 

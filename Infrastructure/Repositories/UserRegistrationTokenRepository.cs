@@ -1,11 +1,11 @@
-using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Application.DTOs;
-using System.Linq;
+using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class UserRegistrationTokenRepository
+    public class UserRegistrationTokenRepository : IUserRegistrationTokenRepository
     {
         private readonly AppDbContext _context;
 
@@ -14,13 +14,21 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _context = context;
         }
 
-        public async Task CreateAsync(UserRegistrationToken token)
+        public async Task CreateAsync(UserRegistrationTokenDTO tokenDto)
         {
-            await _context.UserRegistrationTokens.AddAsync(token);
+            var tokenModel = new UserRegistrationToken
+            {
+                UserId = tokenDto.UserId,
+                Token = tokenDto.Token,
+                CreatedDateTime = tokenDto.CreatedDateTime,
+                ExpiresAt = tokenDto.ExpiresAt,
+                Used = tokenDto.Used
+            };
+            await _context.UserRegistrationTokens.AddAsync(tokenModel);
             await _context.SaveChangesAsync();
         }
 
-        public async Task<UserRegistrationToken?> GetValidTokenAsync(string token)
+        public async Task<UserRegistrationTokenDTO?> GetValidTokenAsync(string token)
         {
             var tokenEntity = await _context.UserRegistrationTokens.Include(t => t.User)
                 .FirstOrDefaultAsync(t =>
@@ -28,7 +36,15 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 !t.Used &&
                 t.ExpiresAt > DateTime.UtcNow
             );
-            return tokenEntity;
+            var dto = new UserRegistrationTokenDTO
+            {
+                UserId = tokenEntity.UserId,
+                Token = tokenEntity.Token,
+                CreatedDateTime = tokenEntity.CreatedDateTime,
+                ExpiresAt = tokenEntity.ExpiresAt,
+                Used = tokenEntity.Used
+            };
+            return dto;
         }
 
         public async Task InvalidateTokensByUserAsync(int userId)

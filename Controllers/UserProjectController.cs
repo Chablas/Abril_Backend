@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Abril_Backend.Infrastructure.Repositories;
+using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using System.Security.Claims;
@@ -12,9 +13,9 @@ namespace Abril_Backend.Controllers
     public class UserProjectController : ControllerBase
     {
         UserProjectRepository _userProjectRepository;
-        UserRepository _userRepository;
+        IUserRepository _userRepository;
         ProjectRepository _projectRepository;
-        public UserProjectController(UserProjectRepository userProjectRepository, UserRepository userRepository, ProjectRepository projectRepository)
+        public UserProjectController(UserProjectRepository userProjectRepository, IUserRepository userRepository, ProjectRepository projectRepository)
         {
             _userProjectRepository = userProjectRepository;
             _userRepository = userRepository;

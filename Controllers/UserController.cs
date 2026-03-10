@@ -1,31 +1,22 @@
-using Microsoft.AspNetCore.Mvc;
-using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Application.DTOs;
-using System.Security.Cryptography;
-using Abril_Backend.Infrastructure.Models;
-using Abril_Backend.Infrastructure.Interfaces;
-using Microsoft.Extensions.Options;
+using Abril_Backend.Application.Interfaces;
+using Abril_Backend.Application.Exceptions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
 namespace Abril_Backend.Controllers
 {
-
     [ApiController]
     [Route("api/v1/[controller]")]
     public class UserController : ControllerBase
     {
-        private readonly UserRegistrationTokenRepository _tokenRepository;
-        private readonly FrontendSettings _frontendSettings;
-        private readonly IEmailService _emailService;
-        private readonly UserRepository _userRepository;
-        public UserController(UserRegistrationTokenRepository tokenRepository, UserRepository userRepository,
-            IEmailService emailService, IOptions<FrontendSettings> frontendSettings)
+        private readonly IUserService _userService;
+        public UserController(
+            IUserService userService
+            )
         {
-            _tokenRepository = tokenRepository;
-            _userRepository = userRepository;
-            _emailService = emailService;
-            _frontendSettings = frontendSettings.Value;
+            _userService = userService;
         }
 
         [Authorize]
@@ -41,7 +32,7 @@ namespace Abril_Backend.Controllers
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _userRepository.GetPagedFactory(page, pageSize);
+                var result = await _userService.GetPagedFactory(page, pageSize);
 
                 return Ok(result);
             }
@@ -64,32 +55,13 @@ namespace Abril_Backend.Controllers
 
                 var userId = int.Parse(userIdClaim.Value);
 
-                var user = await _userRepository.Create(dto);
-
-                if (user == null)
-                    return BadRequest(new { message = "La persona ya tiene un usuario registrado." });
-
-                var token = GenerateToken();
-
-                await _tokenRepository.CreateAsync(new UserRegistrationToken
-                {
-                    UserId = user.UserId,
-                    Token = token,
-                    CreatedDateTime = DateTime.UtcNow,
-                    ExpiresAt = DateTime.UtcNow.AddHours(24),
-                    Used = false
-                });
-
-                var link = $"https://abril-frontend.onrender.com/auth/complete-registration?token={token}";
-
-                await _emailService.SendAsync(
-                    to: new List<string> { user.Person.Email },
-                    subject: "Completa tu registro",
-                    body: $"Hola,\n\nCompleta tu registro aquí:\n{link}\n\nEste enlace expirará en 24 horas.",
-                    isHtml: false
-                );
+                await _userService.Create(dto);
 
                 return Ok(new { message = "Usuario creado y correo enviado." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -102,18 +74,7 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var tokenEntity = await _tokenRepository.GetValidTokenAsync(dto.Token);
-
-                if (tokenEntity == null)
-                    return BadRequest(new { message = "Token inválido o expirado." });
-
-                await _userRepository.SetPassword(
-                    tokenEntity.UserId,
-                    dto.Password
-                );
-
-                tokenEntity.Used = true;
-                await _tokenRepository.SaveAsync();
+                await _userService.CompleteRegistration(dto);
 
                 return Ok(new { message = "Cuenta activada correctamente." });
             }
@@ -121,15 +82,6 @@ namespace Abril_Backend.Controllers
             {
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
-        }
-
-        private string GenerateToken()
-        {
-            var bytes = RandomNumberGenerator.GetBytes(64);
-            return Convert.ToBase64String(bytes)
-                .Replace("+", "-")
-                .Replace("/", "_")
-                .Replace("=", "");
         }
     }
 }

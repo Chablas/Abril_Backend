@@ -60,52 +60,50 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var query =
                 from u in ctx.User
-                join p in ctx.Person
-                    on u.PersonId equals p.PersonId
-                join dit in ctx.DocumentIdentityType
-                    on p.DocumentIdentityTypeId equals dit.DocumentIdentityTypeId
+                join p in ctx.Person on u.PersonId equals p.PersonId
+                join dit in ctx.DocumentIdentityType on p.DocumentIdentityTypeId equals dit.DocumentIdentityTypeId
+                join ur in ctx.UserRole on u.UserId equals ur.UserId
+                join r in ctx.Role on ur.RoleId equals r.RoleId
                 where u.State == true
-                orderby u.UserId descending
+                group new { u, p, dit, r } by new
+                {
+                    u.UserId,
+                    u.Active,
+                    p.PersonId,
+                    p.DocumentIdentityCode,
+                    p.FullName,
+                    p.Email,
+                    dit.DocumentIdentityTypeId,
+                    dit.DocumentIdentityTypeDescription,
+                    dit.DocumentIdentityTypeAbbreviation
+                }
+                into g
+                orderby g.Key.UserId descending
                 select new UserDTO
                 {
-                    UserId = u.UserId,
-                    CreatedDateTime = u.CreatedDateTime,
-                    CreatedUserId = u.CreatedUserId,
-                    UpdatedDateTime = u.UpdatedDateTime,
-                    UpdatedUserId = u.UpdatedUserId,
-                    Active = u.Active,
+                    UserId = g.Key.UserId,
+                    Active = g.Key.Active,
 
                     Person = new PersonDTO
                     {
-                        PersonId = p.PersonId,
-                        DocumentIdentityCode = p.DocumentIdentityCode,
-                        FirstNames = p.FirstNames,
-                        FirstName = p.FirstName,
-                        SecondName = p.SecondName,
-                        FirstLastName = p.FirstLastName,
-                        SecondLastName = p.SecondLastName,
-                        FullName = p.FullName,
-                        Email = p.Email,
-
-                        CreatedDateTime = p.CreatedDateTime,
-                        CreatedUserId = p.CreatedUserId,
-                        UpdatedDateTime = p.UpdatedDateTime,
-                        UpdatedUserId = p.UpdatedUserId,
-                        Active = p.Active,
+                        PersonId = g.Key.PersonId,
+                        DocumentIdentityCode = g.Key.DocumentIdentityCode,
+                        FullName = g.Key.FullName,
+                        Email = g.Key.Email,
 
                         DocumentIdentityType = new DocumentIdentityTypeDTO
                         {
-                            DocumentIdentityTypeId = dit.DocumentIdentityTypeId,
-                            DocumentIdentityTypeDescription = dit.DocumentIdentityTypeDescription,
-                            DocumentIdentityTypeAbbreviation = dit.DocumentIdentityTypeAbbreviation,
-
-                            CreatedDateTime = dit.CreatedDateTime,
-                            CreatedUserId = dit.CreatedUserId,
-                            UpdatedDateTime = dit.UpdatedDateTime,
-                            UpdatedUserId = dit.UpdatedUserId,
-                            Active = dit.Active
+                            DocumentIdentityTypeId = g.Key.DocumentIdentityTypeId,
+                            DocumentIdentityTypeDescription = g.Key.DocumentIdentityTypeDescription,
+                            DocumentIdentityTypeAbbreviation = g.Key.DocumentIdentityTypeAbbreviation
                         }
-                    }
+                    },
+
+                    Roles = g.Select(x => new RoleSimpleDTO
+                    {
+                        RoleId = x.r.RoleId,
+                        RoleDescription = x.r.RoleDescription
+                    }).ToList()
                 };
 
             var totalRecords = await query.CountAsync();
@@ -125,58 +123,6 @@ namespace Abril_Backend.Infrastructure.Repositories {
             };
         }
 
-        /*
-        public async Task<List<UserDTO>> GetAllFactory()
-        {
-            using var ctx = _factory.CreateDbContext();
-            var registros = ctx.User
-                .OrderBy(item => item.UserDescription)
-                .Select(item => new UserDTO
-                {
-                    UserId = item.UserId,
-                    UserDescription = item.UserDescription,
-
-                    CreatedDateTime = item.CreatedDateTime,
-                    CreatedUserId = item.CreatedUserId,
-                    UpdatedDateTime = item.UpdatedDateTime,
-                    UpdatedUserId = item.UpdatedUserId,
-                    Active = item.Active
-                });
-            return await registros.ToListAsync();
-        }
-
-        public async Task<object> GetPaged(int page)
-        {
-            const int pageSize = 10;
-
-            var query = from user in _context.User
-                        where user.State == true
-                        orderby user.UserId descending
-                        select new UserDTO
-                        {
-                            UserId = user.UserId,
-                            UserDescription = user.UserDescription,
-                            CreatedDateTime = user.CreatedDateTime,
-                            CreatedUserId = user.CreatedUserId,
-                            UpdatedDateTime = user.UpdatedDateTime,
-                            UpdatedUserId = user.UpdatedUserId,
-                            Active = user.Active
-                        };
-
-            var totalRecords = await query.CountAsync();
-
-            var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
-
-            return new
-            {
-                page,
-                pageSize,
-                totalRecords,
-                totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
-                data
-            };
-        }
-        */
         public async Task<User?> Create(UserCreateDTO dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();

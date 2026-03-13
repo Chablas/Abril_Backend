@@ -1,24 +1,26 @@
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
-using Abril_Backend.Application.Interfaces;
 
 namespace Abril_Backend.Controllers
 {
 
     [ApiController]
     [Route("api/v1/[controller]")]
-    public class ProjectResidentController : ControllerBase
+    public class ResidentReportIncidenceController : ControllerBase
     {
-        IProjectResidentService _projectResidentService;
-        public ProjectResidentController(IProjectResidentService projectResidentService)
+        IResidentReportIncidenceService _service;
+        public ResidentReportIncidenceController(IResidentReportIncidenceService service)
         {
-            _projectResidentService = projectResidentService;
+            _service = service;
         }
 
         [Authorize]
-        [HttpGet("with-resident-by-userId")]
-        public async Task<IActionResult> GetWithResidentByUserId()
+        [HttpGet("paged")]
+        public async Task<IActionResult> GetPaged([FromQuery] int page = 1)
         {
             try
             {
@@ -26,9 +28,9 @@ namespace Abril_Backend.Controllers
 
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
-
-                var userId = int.Parse(userIdClaim.Value);
-                var result = await _projectResidentService.GetProjectByResidentUserId(userId);
+                if (page < 1)
+                    page = 1;
+                var result = await _service.GetPaged(page);
                 return Ok(result);
             }
             catch (Exception)
@@ -38,8 +40,9 @@ namespace Abril_Backend.Controllers
         }
 
         [Authorize]
-        [HttpGet("projects")]
-        public async Task<IActionResult> GetProjectsDescription()
+        [HttpPost]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> Create([FromForm] ResidentReportIncidenceCreateDTO dto)
         {
             try
             {
@@ -50,8 +53,12 @@ namespace Abril_Backend.Controllers
 
                 var userId = int.Parse(userIdClaim.Value);
 
-                var result = await _projectResidentService.GetProjectsDescription();
-                return Ok(result);
+                await _service.Create(dto, userId);
+                return Ok(new { message = "Reporte creado exitosamente" });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
             }
             catch (Exception)
             {

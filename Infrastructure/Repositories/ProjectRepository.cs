@@ -44,7 +44,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             return await registros.ToListAsync();
         }
 
-        public async Task<object> GetPaged(int page)
+        public async Task<PagedResult<ProjectDTO>> GetPaged(int page)
         {
             const int pageSize = 10;
 
@@ -66,13 +66,13 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
-            return new
+            return new PagedResult<ProjectDTO>
             {
-                page,
-                pageSize,
-                totalRecords,
-                totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
-                data
+                Page = page,
+                PageSize = pageSize,
+                TotalRecords = totalRecords,
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data = data
             };
         }
 

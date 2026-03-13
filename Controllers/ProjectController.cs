@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Microsoft.AspNetCore.Authorization;
@@ -13,11 +12,9 @@ namespace Abril_Backend.Controllers
     [Route("api/v1/[controller]")]
     public class ProjectController : ControllerBase
     {
-        ProjectRepository _repository;
         IProjectService _projectService;
-        public ProjectController(ProjectRepository repository, IProjectService projectService)
+        public ProjectController(IProjectService projectService)
         {
-            _repository = repository;
             _projectService = projectService;
         }
 
@@ -33,7 +30,7 @@ namespace Abril_Backend.Controllers
                     return Unauthorized(new { message = "Inicie sesión" });
                 if (page < 1)
                     page = 1;
-                var result = await _repository.GetPaged(page);
+                var result = await _projectService.GetPaged(page);
                 return Ok(result);
             }
             catch (Exception)
@@ -57,7 +54,7 @@ namespace Abril_Backend.Controllers
 
                 if (string.IsNullOrWhiteSpace(dto.ProjectDescription))
                     return BadRequest(new { message = "ProjectDescription es obligatorio." });
-                var result = await _repository.Create(dto, userId);
+                await _projectService.Create(dto, userId);
                 return Ok(new { message = "Proyecto creado exitosamente" });
             }
             catch (AbrilException ex)
@@ -85,7 +82,9 @@ namespace Abril_Backend.Controllers
 
                 if (string.IsNullOrWhiteSpace(dto.ProjectDescription))
                     return BadRequest(new { message = "ProjectDescription es obligatorio." });
-                var result = await _repository.Update(dto, userId);
+
+                await _projectService.Update(dto, userId);
+
                 return Ok(new { message = "Proyecto actualizado exitosamente." });
             }
             catch (AbrilException ex)
@@ -111,9 +110,11 @@ namespace Abril_Backend.Controllers
 
                 var userId = int.Parse(userIdClaim.Value);
 
-                var result = await _repository.DeleteSoftAsync(id, userId);
+                var result = await _projectService.DeleteSoftAsync(id, userId);
+
                 if (!result)
                     return NotFound(new { message = "Proyecto no encontrado." });
+
                 return Ok(new { message = "Proyecto eliminado exitosamente." });
             }
             catch (Exception)

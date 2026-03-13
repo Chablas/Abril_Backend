@@ -26,6 +26,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<PhaseStageSubStageSubSpecialty> PhaseStageSubStageSubSpecialty { get; set; }
         public DbSet<Project> Project { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
+        public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
+        public DbSet<ResidentReportIncidenceImage> ResidentReportIncidenceImage {get;set;}
+        public DbSet<ResidentReportResponse> ResidentReportResponse {get;set;}
         public DbSet<Role> Role {get;set;}
         public DbSet<Schedule> Schedule { get; set; }
         public DbSet<Stage> Stage { get; set; }
@@ -55,6 +58,21 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(u => u.Person)
                 .WithMany()
                 .HasForeignKey(u => u.PersonId);
+
+            modelBuilder.Entity<ResidentReportIncidenceImage>()
+                .HasOne(i => i.ResidentReportIncidence)
+                .WithMany(r => r.Images)
+                .HasForeignKey(i => i.ResidentReportIncidenceId);
+                
+            modelBuilder.Entity<ResidentReportIncidence>()
+                .HasOne(r => r.Project)
+                .WithMany(p => p.Incidences)
+                .HasForeignKey(r => r.ProjectId);
+
+            modelBuilder.Entity<ResidentReportIncidence>()
+                .HasOne(r => r.StateNavigation)
+                .WithMany(s => s.ResidentReportIncidences)
+                .HasForeignKey(r => r.StateId);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

@@ -16,5 +16,9 @@ namespace Abril_Backend.Application.Services
             var registros = await _repository.GetProjectByResidentUserId(userId);
             return registros;
         }
+        public async Task<List<ProjectSimpleDTO>> GetProjectsDescription()
+        {
+            return await _repository.GetProjectsDescription();
+        }
     }
 }

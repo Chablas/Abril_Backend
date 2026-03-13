@@ -7,6 +7,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<bool> Create(ConstructionSiteLogbookControlCreateDTO dto, List<string> fileUrls, int userId, List<string> fileDescriptions);
         Task<PagedResult<ConstructionSiteLogbookControlGetDTO>> GetPaged(int page, DateOnly? periodDate, int? userId);
         Task<int> CountByScheduleAndPeriod(int scheduleId, DateOnly periodDate);
-        Task<List<DateOnly>> GetIvtControlPeriods ();
+        Task<List<DateOnly>> GetIvtControlPeriods();
     }
 }

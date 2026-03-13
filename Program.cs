@@ -74,6 +74,7 @@ builder.Services.AddScoped<IProjectResidentService, ProjectResidentService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<IReminderService, ReminderService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IResidentReportIncidenceService, ResidentReportIncidenceService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
@@ -85,6 +86,7 @@ builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IProjectResidentRepository, ProjectResidentRepository>();
 builder.Services.AddScoped<IUserRegistrationTokenRepository, UserRegistrationTokenRepository>();
+builder.Services.AddScoped<IResidentReportIncidenceRepository, ResidentReportIncidenceRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();

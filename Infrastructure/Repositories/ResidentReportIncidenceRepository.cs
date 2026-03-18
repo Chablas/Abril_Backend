@@ -20,6 +20,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var query = _context.ResidentReportIncidence
                 .Where(r => r.Project.State)
+                .OrderByDescending(x => x.ResidentReportIncidenceId)
                 .Select(r => new ResidentReportIncidenceDTO
                 {
                     ResidentReportIncidenceId = r.ResidentReportIncidenceId,
@@ -35,7 +36,11 @@ namespace Abril_Backend.Infrastructure.Repositories {
                         {
                             ImageUrl = i.ImageUrl
                         })
-                        .ToList()
+                        .ToList(),
+                    ResidentReportResponseDescriptions = r.ResidentReportResponses.Select(x => new ResidentReportResponseDTO
+                    {
+                        ResidentReportResponseDescription = x.ResidentReportResponseDescription
+                    }).ToList(),
                 });
 
             var totalRecords = await query.CountAsync();
@@ -63,7 +68,9 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 ProjectId = dto.ProjectId,
                 StateId = 6,
                 CreatedUserId = userId,
-                CreatedDateTime = DateTime.UtcNow
+                CreatedDateTime = DateTime.UtcNow,
+                Active = true,
+                State = true
             };
 
             foreach (var url in uploadedUrls)
@@ -73,11 +80,35 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     ImageUrl = url,
                     CreatedUserId = userId,
                     CreatedDateTime = DateTime.UtcNow,
+                    Active = true,
+                    State = true
                 });
             }
 
             _context.Add(registro);
 
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task CreateResponse(ResidentReportResponseCreateDTO dto, int userId)
+        {
+            var registro = new ResidentReportResponse
+            {
+                ResidentReportIncidenceId = dto.ResidentReportIncidenceId,
+                ResidentReportResponseDescription = dto.ResidentResponseDescription,
+                CreatedUserId = userId,
+                CreatedDateTime = DateTime.UtcNow,
+                Active = true,
+                State = true
+            };
+            _context.ResidentReportResponse.Add(registro);
+            var incidencia = new ResidentReportIncidence
+            {
+                ResidentReportIncidenceId = dto.ResidentReportIncidenceId
+            };
+            _context.ResidentReportIncidence.Attach(incidencia);
+            incidencia.StateId = 5;
+            
             await _context.SaveChangesAsync();
         }
     }

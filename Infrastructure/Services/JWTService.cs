@@ -1,12 +1,13 @@
+using Abril_Backend.Application.DTOs;
+using Abril_Backend.Infrastructure.Interfaces;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using Abril_Backend.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Services
 {
-    public class JwtService
+    public class JwtService : IJWTService
     {
         private readonly IConfiguration _config;
 
@@ -15,7 +16,7 @@ namespace Abril_Backend.Infrastructure.Services
             _config = config;
         }
 
-        public string GenerateToken(User user)
+        public string GenerateToken(UserDTO user)
         {
             var claims = new List<Claim>
             {
@@ -25,6 +26,11 @@ namespace Abril_Backend.Infrastructure.Services
                 new Claim(ClaimTypes.Email, user.Person.Email),
                 new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
             };
+
+            foreach (var role in user.Roles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role.RoleDescription));
+            }
 
             var key = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(_config["Jwt:Key"]!)

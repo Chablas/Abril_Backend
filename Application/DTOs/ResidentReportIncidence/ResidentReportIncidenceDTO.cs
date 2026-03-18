@@ -1,3 +1,5 @@
+using Abril_Backend.Infrastructure.Models;
+
 namespace Abril_Backend.Application.DTOs {
     public class ResidentReportIncidenceDTO {
         public int ResidentReportIncidenceId {get;set;}
@@ -7,10 +9,16 @@ namespace Abril_Backend.Application.DTOs {
         public int StateId {get;set;}
         public string StateDescription { get; set; }
         public List<ResidentReportIncidenceImageDTO> Images {get;set;}
+        public List<ResidentReportResponseDTO> ResidentReportResponseDescriptions { get;set; }
     }
 
     public class ResidentReportIncidenceImageDTO
     {
         public string ImageUrl {get;set;}
+    }
+
+    public class ResidentReportResponseDTO
+    {
+        public string ResidentReportResponseDescription {get;set;}
     }
 }

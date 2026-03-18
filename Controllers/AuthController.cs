@@ -1,7 +1,7 @@
+using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Application.DTOs;
-using Abril_Backend.Infrastructure.Repositories;
-using Abril_Backend.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Application.Exceptions;
 
 namespace Abril_Backend.Controllers
 {
@@ -9,16 +9,13 @@ namespace Abril_Backend.Controllers
     [Route("api/v1/auth")]
     public class AuthController : ControllerBase
     {
-        private readonly AuthRepository _authRepository;
-        private readonly JwtService _jwtService;
+        private readonly IAuthService _authService;
 
         public AuthController(
-            AuthRepository authRepository,
-            JwtService jwtService
+            IAuthService authService
         )
         {
-            _authRepository = authRepository;
-            _jwtService = jwtService;
+            _authService = authService;
         }
 
         [HttpPost("login")]
@@ -26,29 +23,17 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var user = await _authRepository.ValidateUserAsync(
-                dto.Email,
-                dto.Password
-            );
-
-                if (user == null)
-                    return Unauthorized(new { message = "Credenciales inválidas." });
-
-                var accessToken = _jwtService.GenerateToken(user);
-                var session = await _authRepository.CreateSessionAsync(user.UserId);
-
-                return Ok(new LoginResponseDTO
-                {
-                    AccessToken = accessToken,
-                    SessionToken = session.Token,
-                    ExpiresAt = session.ExpiresAt
-                });
+                var result = await _authService.Login(dto);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
-
         }
     }
 }

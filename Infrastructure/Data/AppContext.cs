@@ -69,6 +69,11 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany(p => p.Incidences)
                 .HasForeignKey(r => r.ProjectId);
 
+            modelBuilder.Entity<ResidentReportResponse>()
+                .HasOne(r => r.ResidentReportIncidence)
+                .WithMany(p => p.ResidentReportResponses)
+                .HasForeignKey(r => r.ResidentReportIncidenceId);
+
             modelBuilder.Entity<ResidentReportIncidence>()
                 .HasOne(r => r.StateNavigation)
                 .WithMany(s => s.ResidentReportIncidences)

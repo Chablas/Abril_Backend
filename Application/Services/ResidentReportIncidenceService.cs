@@ -66,5 +66,10 @@ namespace Abril_Backend.Application.Services
                     stream.Dispose();
             }
         }
+
+        public async Task CreateResponse(ResidentReportResponseCreateDTO dto, int userId)
+        {
+            await _repository.CreateResponse(dto, userId);
+        }
     }
 }

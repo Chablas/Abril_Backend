@@ -13,5 +13,6 @@ namespace Abril_Backend.Infrastructure.Models {
         public Project Project { get; set; }
         public State StateNavigation { get; set; }
         public List<ResidentReportIncidenceImage> Images { get; set; } = new();
+        public List<ResidentReportResponse> ResidentReportResponses { get; set; } = new();
     }
 }

@@ -75,6 +75,8 @@ builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<IReminderService, ReminderService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IResidentReportIncidenceService, ResidentReportIncidenceService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IResidentMonitoringService, ResidentMonitoringService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
@@ -87,6 +89,9 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IProjectResidentRepository, ProjectResidentRepository>();
 builder.Services.AddScoped<IUserRegistrationTokenRepository, UserRegistrationTokenRepository>();
 builder.Services.AddScoped<IResidentReportIncidenceRepository, ResidentReportIncidenceRepository>();
+builder.Services.AddScoped<IAuthRepository, AuthRepository>();
+builder.Services.AddScoped<IJWTService, JwtService>();
+builder.Services.AddScoped<IResidentMonitoringRepository, ResidentMonitoringRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();
@@ -105,8 +110,6 @@ builder.Services.AddScoped<SubStageRepository>();
 builder.Services.AddScoped<UserProjectRepository>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ExcelService>();
-builder.Services.AddScoped<AuthRepository>();
-builder.Services.AddScoped<JwtService>();
 builder.Services.Configure<EmailSettings>(
     builder.Configuration.GetSection("EmailSettings")
 );

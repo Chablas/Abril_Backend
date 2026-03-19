@@ -109,32 +109,7 @@ namespace Abril_Backend.Application.Services
             {
                 Projects = await projectsTask,
                 Residents = await residentsTask,
-                Periods = GeneratePeriods()
             };
-        }
-
-        private static List<PeriodFilterDto> GeneratePeriods()
-        {
-            var periods = new List<PeriodFilterDto>();
-            var start = new DateTime(2026, 1, 1);
-            var now = DateTime.Now;
-            var current = new DateTime(now.Year, now.Month, 1);
-
-            var culture = new System.Globalization.CultureInfo("es-PE");
-
-            for (var date = start; date <= current; date = date.AddMonths(1))
-            {
-                periods.Add(new PeriodFilterDto
-                {
-                    Month = date.Month,
-                    Year = date.Year,
-                    Label = culture.DateTimeFormat.GetMonthName(date.Month).ToUpperFirst()
-                            + " " + date.Year
-                });
-            }
-
-            periods.Reverse();
-            return periods;
         }
 
         private static TrackingSummaryDto CalculateSummary(List<TrackingItemDto> items)
@@ -167,31 +142,27 @@ namespace Abril_Backend.Application.Services
             int answeredIncidences,
             int monthCount)
         {
-            decimal points = 0;
-
-            points += 25m * Math.Min(scheduleReportedCount, monthCount) / monthCount;
-
             int expectedIvts = ExpectedIvtFiles * monthCount;
             int expectedCuaderno = ExpectedConstructionLogFiles * monthCount;
 
+            bool hasIncidences = totalIncidences > 0;
+
+            decimal weight = hasIncidences ? 25m : 100m / 3m;
+
+            decimal points = 0;
+
+            points += weight * Math.Min(scheduleReportedCount, monthCount) / monthCount;
+
             if (expectedIvts > 0)
-                points += 25m * Math.Min(ivtsUploaded, expectedIvts) / expectedIvts;
+                points += weight * Math.Min(ivtsUploaded, expectedIvts) / expectedIvts;
 
             if (expectedCuaderno > 0)
-                points += 25m * Math.Min(constructionLogsUploaded, expectedCuaderno) / expectedCuaderno;
+                points += weight * Math.Min(constructionLogsUploaded, expectedCuaderno) / expectedCuaderno;
 
-            if (totalIncidences == 0)
-                points += 25;
-            else
+            if (hasIncidences)
                 points += 25m * answeredIncidences / totalIncidences;
 
             return Math.Round(points, 2);
         }
-    }
-
-    public static class StringExtensions
-    {
-        public static string ToUpperFirst(this string s) =>
-            string.IsNullOrEmpty(s) ? s : char.ToUpper(s[0]) + s[1..];
     }
 }

@@ -75,7 +75,6 @@ namespace Abril_Backend.Application.DTOs
     {
         public List<ProjectSimpleDTO> Projects { get; set; }
         public List<UserFilterDTO> Residents { get; set; }
-        public List<PeriodFilterDto> Periods { get; set; }
     }
 
     public class PeriodFilterDto

@@ -1,15 +1,14 @@
 namespace Abril_Backend.Infrastructure.Models {
-    public class ResidentReportResponse {
+    public class ResidentReportResponseImage {
+        public int ResidentReportResponseImageId {get; set;}
         public int ResidentReportResponseId {get; set;}
-        public int ResidentReportIncidenceId {get; set;}
-        public string ResidentReportResponseDescription {get;set;}
+        public string ImageUrl {get;set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}
         public int? UpdatedUserId {get; set;}
         public bool Active {get; set;}
         public bool State {get; set;}
-        public List<ResidentReportResponseImage> Images { get; set; } = new();
-        public ResidentReportIncidence ResidentReportIncidence { get; set; }
+        public ResidentReportResponse ResidentReportResponse { get; set; }
     }
 }

@@ -42,7 +42,7 @@ namespace Abril_Backend.Controllers
         [Authorize]
         [HttpPost]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> Create([FromForm] ResidentReportIncidenceCreateDTO dto)
+        public async Task<IActionResult> CreateIncidence([FromForm] ResidentReportIncidenceCreateDTO dto)
         {
             try
             {
@@ -67,7 +67,8 @@ namespace Abril_Backend.Controllers
         }
 
         [Authorize]
-        [HttpPost]
+        [HttpPost("response")]
+        [Consumes("multipart/form-data")]
         public async Task<IActionResult> CreateResponse(ResidentReportResponseCreateDTO dto)
         {
             try
@@ -81,6 +82,32 @@ namespace Abril_Backend.Controllers
 
                 await _service.CreateResponse(dto, userId);
                 return Ok(new { message = "Respuesta creada exitosamente" });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPatch]
+        public async Task<IActionResult> UpdateIncidenceState(UpdateIncidenceDTO incidenceId)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+
+                await _service.UpdateIncidenceState(incidenceId, userId);
+                return Ok(new { message = "Incidencia levantada exitosamente" });
             }
             catch (AbrilException ex)
             {

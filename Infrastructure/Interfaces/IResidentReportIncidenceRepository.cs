@@ -5,6 +5,7 @@ namespace Abril_Backend.Infrastructure.Interfaces
     {
         Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page);
         Task Create(ResidentReportIncidenceCreateDTO dto, List<string> uploadedUrls, int userId);
-        Task CreateResponse(ResidentReportResponseCreateDTO dto, int userId);
+        Task CreateResponse(ResidentReportResponseCreateDTO dto, List<string> uploadedUrls, int userId);
+        Task UpdateIncidenceState(UpdateIncidenceDTO incidenceId, int userId);
     }
 }

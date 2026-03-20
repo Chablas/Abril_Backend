@@ -90,7 +90,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             await _context.SaveChangesAsync();
         }
 
-        public async Task CreateResponse(ResidentReportResponseCreateDTO dto, int userId)
+        public async Task CreateResponse(ResidentReportResponseCreateDTO dto, List<string> uploadedUrls, int userId)
         {
             var registro = new ResidentReportResponse
             {
@@ -101,13 +101,33 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 Active = true,
                 State = true
             };
-            _context.ResidentReportResponse.Add(registro);
+            foreach (var url in uploadedUrls)
+            {
+                registro.Images.Add(new ResidentReportResponseImage
+                {
+                    ImageUrl = url,
+                    CreatedUserId = userId,
+                    CreatedDateTime = DateTime.UtcNow,
+                    Active = true,
+                    State = true
+                });
+            }
+            _context.Add(registro);
+            
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task UpdateIncidenceState(UpdateIncidenceDTO incidence, int userId)
+        {
+            Console.WriteLine(incidence.incidenceId);
             var incidencia = new ResidentReportIncidence
             {
-                ResidentReportIncidenceId = dto.ResidentReportIncidenceId
+                ResidentReportIncidenceId = incidence.incidenceId
             };
             _context.ResidentReportIncidence.Attach(incidencia);
             incidencia.StateId = 5;
+            incidencia.UpdatedUserId = userId;
+            incidencia.UpdatedDateTime = DateTime.UtcNow;
             
             await _context.SaveChangesAsync();
         }

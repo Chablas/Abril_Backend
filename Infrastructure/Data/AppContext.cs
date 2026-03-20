@@ -29,6 +29,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
         public DbSet<ResidentReportIncidenceImage> ResidentReportIncidenceImage {get;set;}
         public DbSet<ResidentReportResponse> ResidentReportResponse {get;set;}
+        public DbSet<ResidentReportResponseImage> ResidentReportResponseImage {get;set;}
         public DbSet<Role> Role {get;set;}
         public DbSet<Schedule> Schedule { get; set; }
         public DbSet<Stage> Stage { get; set; }
@@ -73,6 +74,11 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(r => r.ResidentReportIncidence)
                 .WithMany(p => p.ResidentReportResponses)
                 .HasForeignKey(r => r.ResidentReportIncidenceId);
+
+            modelBuilder.Entity<ResidentReportResponseImage>()
+                .HasOne(r => r.ResidentReportResponse)
+                .WithMany(s => s.Images)
+                .HasForeignKey(r => r.ResidentReportResponseId);
 
             modelBuilder.Entity<ResidentReportIncidence>()
                 .HasOne(r => r.StateNavigation)

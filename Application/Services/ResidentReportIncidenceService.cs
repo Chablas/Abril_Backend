@@ -69,7 +69,49 @@ namespace Abril_Backend.Application.Services
 
         public async Task CreateResponse(ResidentReportResponseCreateDTO dto, int userId)
         {
-            await _repository.CreateResponse(dto, userId);
+            if (dto.Images == null || !dto.Images.Any())
+                throw new AbrilException("No se pusieron archivos.");
+
+            if (dto.Images.Count() > 3)
+                throw new AbrilException("Máximo 3 archivos por subida");
+
+            var container = _containerResolver.GetResidentIncidentContainerName();
+
+            var filesToUpload = new List<(Stream Stream, string FileName)>();
+            var streams = new List<Stream>();
+
+            foreach (var image in dto.Images)
+            {
+                if (image.Length == 0)
+                    throw new AbrilException("Empty file detected.");
+
+                var extension = Path.GetExtension(image.FileName);
+
+                var fileName = $"{Guid.NewGuid()}{extension}";
+
+                var stream = image.OpenReadStream();
+
+                streams.Add(stream);
+                filesToUpload.Add((stream, fileName));
+            }
+
+            List<string> uploadedUrls;
+
+            try
+            {
+                uploadedUrls = await _fileStorageService.UploadFilesAsync(filesToUpload, container);
+                await _repository.CreateResponse(dto, uploadedUrls, userId);
+            }
+            finally
+            {
+                foreach (var stream in streams)
+                    stream.Dispose();
+            }
+        }
+
+        public async Task UpdateIncidenceState(UpdateIncidenceDTO incidenceId, int userId)
+        {
+            await _repository.UpdateIncidenceState(incidenceId, userId);
         }
     }
 }

@@ -14,9 +14,9 @@ namespace Abril_Backend.Infrastructure.Services
 
         public SendGridEmailService(IConfiguration config)
         {
-            _apiKey = config["SendGrid:ApiKeySendGrid"];
-            _fromEmail = config["EmailSettings:FromEmail"];
-            _fromName = config["EmailSettings:FromName"];
+            _apiKey = config["Email:SendGrid:ApiKeySendGrid"];
+            _fromEmail = config["Email:EmailSettings:FromEmail"];
+            _fromName = config["Email:EmailSettings:FromName"];
         }
 
         public async Task SendAsync(

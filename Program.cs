@@ -12,8 +12,8 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
 var builder = WebApplication.CreateBuilder(args);
-var databaseProvider = builder.Configuration["DatabaseProvider"];
-var emailProvider = builder.Configuration["EmailProvider"];
+var databaseProvider = builder.Configuration["Database:DatabaseProvider"];
+var emailProvider = builder.Configuration["Email:EmailProvider"];
 var storageProvider = builder.Configuration["Storage:StorageProvider"];
 
 // Add services to the container.
@@ -21,12 +21,12 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
 {
     if (databaseProvider == "SqlServer")
     {
-        var conn = builder.Configuration.GetConnectionString("SqlServer");
+        var conn = builder.Configuration["Database:SqlServer"];
         options.UseSqlServer(conn);
     }
     else if (databaseProvider == "PostgreSQL")
     {
-        var conn = builder.Configuration.GetConnectionString("PostgreSQL");
+        var conn = builder.Configuration["Database:PostgreSQL"];
         options.UseNpgsql(conn).UseSnakeCaseNamingConvention();
     }
     else
@@ -111,13 +111,13 @@ builder.Services.AddScoped<UserProjectRepository>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ExcelService>();
 builder.Services.Configure<EmailSettings>(
-    builder.Configuration.GetSection("EmailSettings")
+    builder.Configuration.GetSection("Email:EmailSettings")
 );
 
 builder.Services.Configure<FrontendSettings>(builder.Configuration.GetSection("FrontendSettings"));
 builder.Services.AddHttpClient<ReniecService>(client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration.GetConnectionString("ReniecService"));
+    client.BaseAddress = new Uri(builder.Configuration["Reniec:ReniecService"]);
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", builder.Configuration["Reniec:Token"]);
     client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 });

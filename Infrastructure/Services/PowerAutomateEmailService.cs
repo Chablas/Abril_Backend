@@ -14,7 +14,7 @@ namespace Abril_Backend.Infrastructure.Services
         public PowerAutomateEmailService(IConfiguration config, HttpClient httpClient)
         {
             _httpClient = httpClient;
-            _powerAutomateUrl = config["PowerAutomate:WebhookUrl"];
+            _powerAutomateUrl = config["Email:PowerAutomate:WebhookUrl"];
         }
 
         public async Task SendAsync(

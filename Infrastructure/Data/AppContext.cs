@@ -8,7 +8,7 @@ namespace Abril_Backend.Infrastructure.Data
         private readonly string _provider;
         public AppDbContext(DbContextOptions<AppDbContext> opciones, IConfiguration config) : base(opciones)
         {
-            _provider = config["DatabaseProvider"] ?? "SqlServer";
+            _provider = config["Database:DatabaseProvider"] ?? "SqlServer";
         }
         public DbSet<Area> Area { get; set; }
         public DbSet<ConstructionSiteLogbookControl> ConstructionSiteLogbookControl { get;set; }

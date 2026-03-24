@@ -60,3 +60,5 @@ appsettings.Development.json
 appsettings.Production.json
 
 *.sln
+
+.claude/

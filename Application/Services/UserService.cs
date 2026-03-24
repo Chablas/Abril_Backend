@@ -55,16 +55,16 @@ namespace Abril_Backend.Application.Services
 
         public async Task CompleteRegistration(CompleteRegistrationDTO dto)
         {
+            if (dto.Password != dto.ConfirmPassword)
+                throw new AbrilException("Las contraseñas no coinciden.");
+
             var tokenEntity = await _tokenRepository.GetValidTokenAsync(dto.Token);
             if (tokenEntity == null)
                 throw new AbrilException("Token inválido o expirado.");
 
-            await _userRepository.SetPassword(
-                tokenEntity.UserId,
-                dto.Password
-            );
+            await _userRepository.SetPassword(tokenEntity.UserId, dto.Password);
 
-            tokenEntity.Used = true;
+            await _tokenRepository.InvalidateTokensByUserAsync(tokenEntity.UserId);
             await _tokenRepository.SaveAsync();
         }
 

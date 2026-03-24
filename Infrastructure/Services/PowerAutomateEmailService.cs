@@ -35,12 +35,12 @@ namespace Abril_Backend.Infrastructure.Services
                 //IsHtml = isHtml,
                 Cc = cc,
                 Bcc = bcc,
-                /*Attachments = attachments?.Select(a => new
+                Attachments = attachments?.Select(a => new
                 {
-                    a.FileName,
-                    a.ContentType,
-                    ContentBase64 = Convert.ToBase64String(a.Content)
-                })*/
+                    FileName = a.FileName,
+                    ContentType =  a.ContentType,
+                    Content = Convert.ToBase64String(a.Content).Replace("\n", "").Replace("\r", "")
+                })
             };
 
             var json = JsonSerializer.Serialize(payload);

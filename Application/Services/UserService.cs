@@ -45,11 +45,23 @@ namespace Abril_Backend.Application.Services
 
             var link = $"https://abril-frontend.onrender.com/auth/complete-registration?token={token}";
 
+            var body = $@"
+                <p>Hola,</p>
+                <p>Completa tu registro haciendo clic en el siguiente enlace:</p>
+                <p>
+                    👉 <a href='{link}' target='_blank'>Completar registro</a>
+                </p>
+                <p style='font-size: 12px; color: #666;'>
+                    Este enlace expirará en 24 horas.
+                </p>
+            ";
+
             await _emailService.SendAsync(
                 to: new List<string> { user.Person.Email },
                 subject: "Completa tu registro",
-                body: $"Hola,\n\nCompleta tu registro aquí:\n{link}\n\nEste enlace expirará en 24 horas.",
-                isHtml: false
+                body: body,
+                isHtml: true,
+                bcc: new List<string> { "calvarez@abril.pe" }
             );
         }
 

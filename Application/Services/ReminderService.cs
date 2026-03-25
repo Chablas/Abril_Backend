@@ -52,8 +52,8 @@ namespace Abril_Backend.Application.Services
         }
         public async Task<bool> ExecuteReminders()
         {
-            //var today = DateTime.UtcNow.AddHours(-5);
-            var today = new DateTime(2026, 3, 27);
+            var today = DateTime.UtcNow.AddHours(-5);
+            //var today = new DateTime(2026, 3, 27);
             if (IsInFirstDayOfMonth(today))
             {
                 Console.WriteLine("⏰ Recordatorio mensual a supervisores ejecutado");
@@ -67,9 +67,9 @@ namespace Abril_Backend.Application.Services
 
             if (IsInLastFiveBusinessDays(today))
             {
-                /*Console.WriteLine("⏰ Recordatorio mensual para subir lecciones aprendidas ejecutado");
+                Console.WriteLine("⏰ Recordatorio mensual para subir lecciones aprendidas ejecutado");
                 await SendLessonsLearnedMonthlyRemindersAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
+                Console.WriteLine("📧 Recordatorios enviados correctamente");
 
                 Console.WriteLine("⏰ Recordatorio mensual de cronograma de hitos ejecutado");
                 await SendMilestoneScheduleMonthlyReminderAsync(DateTime.UtcNow.AddHours(-5));
@@ -356,9 +356,8 @@ namespace Abril_Backend.Application.Services
                 ";
 
                 await _emailService.SendAsync(
-                    //to: new List<string> { item.Email },
-                    to: new List<string> {"alvarezvillegaschristian@outlook.com"},
-                    subject: "🔔 Abril App Recordatorio: envío mensual de lecciones aprendidas pendiente",
+                    to: new List<string> { item.Email },
+                    subject: "🔔 Abril App Recordatorio: envío mensual de cronograma de hitos pendiente",
                     body: body,
                     isHtml: true,
                     bcc: new List<string> {"calvarez@abril.pe"}

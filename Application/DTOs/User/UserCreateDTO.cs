@@ -8,5 +8,6 @@ namespace Abril_Backend.Application.DTOs {
         public int PhoneNumber {get; set;}
         public int CreatedUserId {get; set;}
         public bool Active {get; set;}
+        public int RoleId {get; set;}
     }
 }

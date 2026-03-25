@@ -26,12 +26,15 @@ namespace Abril_Backend.Infrastructure.Services
             List<string>? bcc = null,
             List<EmailAttachment>? attachments = null)
         {
+            var htmlBody = isHtml
+                ? body
+                : "<p>" + body.Replace("\r\n", "\n").Replace("\n\n", "</p><p>").Replace("\n", "<br>") + "</p>";
+
             var payload = new
             {
                 To = to,
-                //To = "calvarez@abril.pe",
                 Subject = subject,
-                Body = body,
+                Body = htmlBody,
                 //IsHtml = isHtml,
                 Cc = cc,
                 Bcc = bcc,

@@ -181,6 +181,19 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 _context.User.Add(user);
                 await _context.SaveChangesAsync();
 
+                var userRole = new UserRole
+                {
+                    UserId = user.UserId,
+                    RoleId = dto.RoleId,
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = dto.CreatedUserId
+                };
+
+                _context.UserRole.Add(userRole);
+                await _context.SaveChangesAsync();
+
                 await transaction.CommitAsync();
                 return user;
             }

@@ -24,10 +24,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var data = await (
                 from msh in _context.MilestoneScheduleHistory
-                join s in _context.Schedule
-                    on msh.ScheduleId equals s.ScheduleId
                 join p in _context.Project
-                    on s.ProjectId equals p.ProjectId
+                    on msh.ProjectId equals p.ProjectId
                 join u in _context.User
                     on msh.CreatedUserId equals u.UserId
                 join person in _context.Person
@@ -35,7 +33,6 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 where
                     msh.CreatedDateTime >= startOfMonth &&
                     msh.CreatedDateTime < startOfNextMonth &&
-                    s.Active && s.State &&
                     msh.Active && msh.State
                 select new
                 {

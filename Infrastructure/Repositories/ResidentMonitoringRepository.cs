@@ -41,10 +41,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
                     ScheduleReportedCount = _context.MilestoneScheduleHistory
                         .Where(h =>
-                            _context.Schedule.Any(s =>
-                            s.ScheduleId == h.ScheduleId
-                            && s.ProjectId == p.ProjectId
-                            && s.State && s.Active)
+                            h.ProjectId == p.ProjectId
                             && h.State && h.Active
                             && (!month.HasValue || h.CreatedDateTime.AddHours(-5).Month == month.Value)
                             && (!year.HasValue || h.CreatedDateTime.AddHours(-5).Year == year.Value))

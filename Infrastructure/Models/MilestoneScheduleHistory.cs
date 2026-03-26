@@ -1,7 +1,7 @@
 namespace Abril_Backend.Infrastructure.Models {
     public class MilestoneScheduleHistory {
         public int MilestoneScheduleHistoryId {get; set;}
-        public int ScheduleId {get; set;}
+        public int ProjectId {get; set;}
         public bool IsEqualToLastVersion {get;set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}

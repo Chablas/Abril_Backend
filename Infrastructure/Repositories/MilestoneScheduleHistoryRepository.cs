@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using System.Linq;
-using DocumentFormat.OpenXml.Office.CustomUI;
 using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Infrastructure.Repositories {
@@ -19,17 +18,17 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _factory = factory;
         }
 
-        public async Task<List<MilestoneScheduleHistoryDTO>> GetAllByScheduleIdFactory(int scheduleId)
+        public async Task<List<MilestoneScheduleHistoryDTO>> GetAllByProjectIdFactory(int projectId)
         {
             using var ctx = _factory.CreateDbContext();
             var registros = ctx.MilestoneScheduleHistory
                 .Where(item => item.State)
-                .Where(item => item.ScheduleId == scheduleId)
+                .Where(item => item.ProjectId == projectId)
                 .OrderByDescending(item => item.CreatedDateTime)
                 .Select(item => new MilestoneScheduleHistoryDTO
                 {
                     MilestoneScheduleHistoryId = item.MilestoneScheduleHistoryId,
-                    ScheduleId = item.ScheduleId,
+                    ProjectId = item.ProjectId,
                     CreatedDateTime = item.CreatedDateTime,
                     CreatedUserId = item.CreatedUserId,
                     UpdatedDateTime = item.UpdatedDateTime,
@@ -42,7 +41,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
         public async Task<ScheduleChangeResult> Create(MilestoneScheduleHistoryCreateDTO dto, int userId)
         {
             var lastHistory = await _context.MilestoneScheduleHistory
-                .Where(h => h.ScheduleId == dto.ScheduleId && h.Active && h.State)
+                .Where(h => h.ProjectId == dto.ProjectId && h.Active && h.State)
                 .OrderByDescending(h => h.CreatedDateTime)
                 .FirstOrDefaultAsync();
 
@@ -111,7 +110,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var history = new MilestoneScheduleHistory
             {
-                ScheduleId = dto.ScheduleId,
+                ProjectId = dto.ProjectId,
                 IsEqualToLastVersion = changes.Any() ? false : true,
                 Active = true,
                 State = true,
@@ -130,8 +129,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 MilestoneId = item.MilestoneId,
                 MilestoneScheduleHistoryId = history.MilestoneScheduleHistoryId,
                 Order = item.Order,
-                PlannedStartDate = DateTime.SpecifyKind(item.PlannedStartDate, DateTimeKind.Utc),
-                PlannedEndDate = item.PlannedEndDate != null ? DateTime.SpecifyKind(item.PlannedEndDate.Value, DateTimeKind.Utc) : null,
+                PlannedStartDate = item.PlannedStartDate,
+                PlannedEndDate = item.PlannedEndDate,
                 Active = true,
                 State = true,
                 CreatedDateTime = DateTime.UtcNow,
@@ -141,21 +140,14 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _context.MilestoneSchedule.AddRange(milestoneSchedules);
             await _context.SaveChangesAsync();
 
-            var projectInfo = await (
-                from s in _context.Schedule
-                join p in _context.Project on s.ProjectId equals p.ProjectId
-                where s.ScheduleId == dto.ScheduleId
-                select new
-                {
-                    ProjectName = p.ProjectDescription,
-                    ScheduleName = s.ScheduleDescription
-                }
-            ).FirstAsync();
+            var projectName = await _context.Project
+                .Where(p => p.ProjectId == dto.ProjectId)
+                .Select(p => p.ProjectDescription)
+                .FirstAsync();
 
             return new ScheduleChangeResult
             {
-                ProjectName = projectInfo.ProjectName,
-                ScheduleName = projectInfo.ScheduleName,
+                ProjectName = projectName,
                 Changes = changes
             };
         }
@@ -169,22 +161,19 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var startOfNextMonth = startOfMonth.AddMonths(1);
 
             var query =
-                from pj in ctx.Project
-                join u in ctx.User on pj.ResidentUserId equals u.UserId
+                from pr in ctx.ProjectResident
+                join pj in ctx.Project on pr.ProjectId equals pj.ProjectId
+                join u in ctx.User on pr.UserId equals u.UserId
                 join person in ctx.Person on u.PersonId equals person.PersonId
-                where pj.Active && pj.State
+                where pr.Active && pr.State && pj.Active && pj.State
                 where !ctx.MilestoneScheduleHistory.Any(msh =>
-                    msh.CreatedUserId == pj.ResidentUserId &&
+                    msh.ProjectId == pr.ProjectId &&
+                    msh.CreatedUserId == pr.UserId &&
                     msh.Active && msh.State &&
                     msh.CreatedDateTime >= startOfMonth &&
-                    msh.CreatedDateTime < startOfNextMonth &&
-                    ctx.Schedule.Any(s =>
-                        s.ScheduleId == msh.ScheduleId &&
-                        s.ProjectId == pj.ProjectId &&
-                        s.Active && s.State
-                    )
+                    msh.CreatedDateTime < startOfNextMonth
                 )
-                group pj by new
+                group new { pj } by new
                 {
                     u.UserId,
                     person.FullName,
@@ -196,10 +185,10 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     UserId = g.Key.UserId,
                     UserFullName = g.Key.FullName,
                     Email = g.Key.Email,
-                    Projects = g.Select(p => new ProjectSimpleDTO
+                    Projects = g.Select(x => new ProjectSimpleDTO
                     {
-                        ProjectId = p.ProjectId,
-                        ProjectDescription = p.ProjectDescription
+                        ProjectId = x.pj.ProjectId,
+                        ProjectDescription = x.pj.ProjectDescription
                     }).ToList()
                 };
 

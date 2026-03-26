@@ -7,7 +7,7 @@ using System.Linq;
 using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class ScheduleRepository : IScheduleRepository {
+    public class ScheduleRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
         public ScheduleRepository(AppDbContext contexto, IDbContextFactory<AppDbContext> factory) {
@@ -15,7 +15,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _factory = factory;
         }
 
-        public async Task<object> GetPaged(int page)
+        /*public async Task<object> GetPaged(int page)
         {
             const int pageSize = 10;
 
@@ -88,6 +88,6 @@ namespace Abril_Backend.Infrastructure.Repositories {
             await _context.SaveChangesAsync();
 
             return schedule;
-        }
+        }*/
     }
 }

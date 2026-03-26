@@ -24,7 +24,7 @@ namespace Abril_Backend.Controllers
 
         [Authorize]
         [HttpGet]
-        public async Task<IActionResult> GetAllByScheduleIdFactory([FromQuery] int scheduleId)
+        public async Task<IActionResult> GetAllByProjectIdFactory([FromQuery] int projectId)
         {
             try
             {
@@ -33,7 +33,7 @@ namespace Abril_Backend.Controllers
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _repository.GetAllByScheduleIdFactory(scheduleId);
+                var result = await _repository.GetAllByProjectIdFactory(projectId);
                 return Ok(result);
             }
             catch (Exception)
@@ -61,7 +61,7 @@ namespace Abril_Backend.Controllers
                 {
                     var body = BuildEmailBody(result);
                     await _emailService.SendAsync(
-                        to: new List<string> { "calvarez@abril.pe", "alvarezvillegaschristian@outlook.com", "vcolonio@abril.pe" },
+                        to: new List<string> { "calvarez@abril.pe", "alvarezvillegaschristian@outlook.com"/*, "vcolonio@abril.pe"*/ },
                         subject: "Cambios en el cronograma",
                         body: body,
                         isHtml: false
@@ -84,8 +84,7 @@ namespace Abril_Backend.Controllers
         {
             var sb = new StringBuilder();
 
-            sb.AppendLine($"Proyecto: {result.ProjectName}<br>");
-            sb.AppendLine($"Cronograma: {result.ScheduleName}<br><br>");
+            sb.AppendLine($"Proyecto: {result.ProjectName}<br><br>");
             sb.AppendLine("Se detectaron los siguientes cambios:<br><br>");
 
             foreach (var change in result.Changes)

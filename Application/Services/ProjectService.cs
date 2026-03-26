@@ -13,10 +13,14 @@ namespace Abril_Backend.Application.Services
             _repository = repository;
         }
 
-        public async Task<List<ProjectScheduleSimpleDTO>> GetWithResidentByUserId(int userId)
+        /*public async Task<List<ProjectScheduleSimpleDTO>> GetWithResidentByUserId(int userId)
         {
             var registros = await _repository.GetWithResidentByUserId(userId);
             return registros;
+        }*/
+        public async Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page)
+        {
+            return await _repository.GetPagedWithResidents(page);
         }
 
         public async Task<PagedResult<ProjectDTO>> GetPaged(int page)

@@ -83,7 +83,6 @@ builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, Constructi
 builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
 builder.Services.AddScoped<IMilestoneScheduleHistoryRepository, MilestoneScheduleHistoryRepository>();
 builder.Services.AddScoped<IIvtControlPdfRepository, IvtControlPdfRepository>();
-builder.Services.AddScoped<IScheduleRepository, ScheduleRepository>();
 builder.Services.AddScoped<IUserProjectRepository, UserProjectRepository>();
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();

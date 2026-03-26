@@ -67,13 +67,14 @@ namespace Abril_Backend.Application.Services
 
             if (IsInLastFiveBusinessDays(today))
             {
-                Console.WriteLine("⏰ Recordatorio mensual para subir lecciones aprendidas ejecutado");
+                /*Console.WriteLine("⏰ Recordatorio mensual para subir lecciones aprendidas ejecutado");
                 await SendLessonsLearnedMonthlyRemindersAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");
+                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
 
-                Console.WriteLine("⏰ Recordatorio mensual de cronograma de hitos ejecutado");
+                // este deberia ejecutarse el ultimo dia laborable del mes
+                /*Console.WriteLine("⏰ Recordatorio mensual de cronograma de hitos ejecutado");
                 await SendMilestoneScheduleMonthlyReminderAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");
+                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
 
                 Console.WriteLine("⏰ Recordatorio mensual para subir cronograma de hitos ejecutado");
                 await SendMilestoneScheduleHistoryMonthlyRemindersAsync(DateTime.UtcNow.AddHours(-5));
@@ -348,8 +349,8 @@ namespace Abril_Backend.Application.Services
                 </p>
 
                 <p style='font-size: 12px; color: #666;'>
-                    Este recordatorio se envía de manera automática a quienes aún no han registrado
-                    sus lecciones aprendidas del mes.
+                    Este recordatorio se envía de manera automática a quienes aún no han registrado si tuvieron cambios o no
+                    en su cronograma de hitos durante este mes.
                 </p>
 
                 <p>Gracias por tu compromiso con la mejora continua.</p>

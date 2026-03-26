@@ -31,7 +31,6 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ResidentReportResponse> ResidentReportResponse {get;set;}
         public DbSet<ResidentReportResponseImage> ResidentReportResponseImage {get;set;}
         public DbSet<Role> Role {get;set;}
-        public DbSet<Schedule> Schedule { get; set; }
         public DbSet<Stage> Stage { get; set; }
         public DbSet<State> State { get; set; }
         public DbSet<SubSpecialty> SubSpecialty { get; set; }

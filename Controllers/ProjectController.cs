@@ -40,6 +40,29 @@ namespace Abril_Backend.Controllers
         }
 
         [Authorize]
+        [HttpGet("paged-with-residents")]
+        public async Task<IActionResult> GetPagedWithResidents([FromQuery] int page = 1)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                if (page < 1)
+                    page = 1;
+
+                var result = await _projectService.GetPagedWithResidents(page);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] ProjectCreateDTO dto)
         {

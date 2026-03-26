@@ -48,23 +48,54 @@ namespace Abril_Backend.Infrastructure.Repositories {
         {
             const int pageSize = 10;
 
-            var query = from project in _context.Project
-                        where project.State == true
-                        orderby project.ProjectId descending
-                        select new ProjectDTO
-                        {
-                            ProjectId = project.ProjectId,
-                            ProjectDescription = project.ProjectDescription,
-                            CreatedDateTime = project.CreatedDateTime,
-                            CreatedUserId = project.CreatedUserId,
-                            UpdatedDateTime = project.UpdatedDateTime,
-                            UpdatedUserId = project.UpdatedUserId,
-                            Active = project.Active
-                        };
+            var projectQuery = _context.Project
+                .Where(p => p.State)
+                .OrderByDescending(p => p.ProjectId);
 
-            var totalRecords = await query.CountAsync();
+            var totalRecords = await projectQuery.CountAsync();
 
-            var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+            var projects = await projectQuery
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(p => new
+                {
+                    p.ProjectId,
+                    p.ProjectDescription,
+                    p.LevelDescription,
+                    p.CreatedDateTime,
+                    p.CreatedUserId,
+                    p.UpdatedDateTime,
+                    p.UpdatedUserId,
+                    p.Active
+                })
+                .ToListAsync();
+
+            var projectIds = projects.Select(p => p.ProjectId).ToList();
+
+            var residents = await (
+                from pr in _context.ProjectResident
+                join u in _context.User on pr.UserId equals u.UserId
+                join pe in _context.Person on u.PersonId equals pe.PersonId
+                where projectIds.Contains(pr.ProjectId) && pr.Active && pr.State
+                select new { pr.ProjectId, pe.FullName }
+            ).ToListAsync();
+
+            var residentsByProject = residents
+                .GroupBy(r => r.ProjectId)
+                .ToDictionary(g => g.Key, g => g.Select(r => r.FullName).ToList());
+
+            var data = projects.Select(p => new ProjectDTO
+            {
+                ProjectId = p.ProjectId,
+                ProjectDescription = p.ProjectDescription,
+                LevelDescription = p.LevelDescription,
+                ResidentFullNames = residentsByProject.GetValueOrDefault(p.ProjectId, new()),
+                CreatedDateTime = p.CreatedDateTime,
+                CreatedUserId = p.CreatedUserId,
+                UpdatedDateTime = p.UpdatedDateTime,
+                UpdatedUserId = p.UpdatedUserId,
+                Active = p.Active
+            }).ToList();
 
             return new PagedResult<ProjectDTO>
             {
@@ -76,33 +107,67 @@ namespace Abril_Backend.Infrastructure.Repositories {
             };
         }
 
-        public async Task<List<ProjectScheduleSimpleDTO>> GetWithResidentByUserId(int userId)
+        public async Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page)
         {
-            var registros = from pj in _context.Project
-                join sd in _context.Schedule on pj.ProjectId equals sd.ProjectId
-                where (sd.CreatedUserId == userId)
-                && (pj.Active == true)
-                && (pj.State == true)
-                select new ProjectScheduleSimpleDTO
-                {
-                    ProjectId = pj.ProjectId,
-                    ProjectDescription = pj.ProjectDescription,
-                    ScheduleId = sd.ScheduleId
-                };
-            return await registros.ToListAsync();
-        }
+            const int pageSize = 10;
 
-        public async Task<List<ProjectSimpleDTO>> GetProjectWithResidents()
-        {
-            using var ctx = _factory.CreateDbContext();
-            var registros = from item in ctx.Project
-                where (item.ResidentUserId != null)
-                select new ProjectSimpleDTO
+            var projectQuery = _context.Project
+                .Where(p => p.State && _context.ProjectResident.Any(pr => pr.ProjectId == p.ProjectId && pr.Active && pr.State))
+                .OrderByDescending(p => p.ProjectId);
+
+            var totalRecords = await projectQuery.CountAsync();
+
+            var projects = await projectQuery
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(p => new
                 {
-                    ProjectId = item.ProjectId,
-                    ProjectDescription = item.ProjectDescription
-                };
-            return await registros.ToListAsync();
+                    p.ProjectId,
+                    p.ProjectDescription,
+                    p.LevelDescription,
+                    p.CreatedDateTime,
+                    p.CreatedUserId,
+                    p.UpdatedDateTime,
+                    p.UpdatedUserId,
+                    p.Active
+                })
+                .ToListAsync();
+
+            var projectIds = projects.Select(p => p.ProjectId).ToList();
+
+            var residents = await (
+                from pr in _context.ProjectResident
+                join u in _context.User on pr.UserId equals u.UserId
+                join pe in _context.Person on u.PersonId equals pe.PersonId
+                where projectIds.Contains(pr.ProjectId) && pr.Active && pr.State
+                select new { pr.ProjectId, pe.FullName }
+            ).ToListAsync();
+
+            var residentsByProject = residents
+                .GroupBy(r => r.ProjectId)
+                .ToDictionary(g => g.Key, g => g.Select(r => r.FullName).ToList());
+
+            var data = projects.Select(p => new ProjectDTO
+            {
+                ProjectId = p.ProjectId,
+                ProjectDescription = p.ProjectDescription,
+                LevelDescription = p.LevelDescription,
+                ResidentFullNames = residentsByProject.GetValueOrDefault(p.ProjectId, new()),
+                CreatedDateTime = p.CreatedDateTime,
+                CreatedUserId = p.CreatedUserId,
+                UpdatedDateTime = p.UpdatedDateTime,
+                UpdatedUserId = p.UpdatedUserId,
+                Active = p.Active
+            }).ToList();
+
+            return new PagedResult<ProjectDTO>
+            {
+                Page = page,
+                PageSize = pageSize,
+                TotalRecords = totalRecords,
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data = data
+            };
         }
 
         public async Task<Project> Create(ProjectCreateDTO dto, int userId)

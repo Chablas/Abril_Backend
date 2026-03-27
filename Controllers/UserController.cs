@@ -68,20 +68,5 @@ namespace Abril_Backend.Controllers
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
-
-        [HttpPost("complete-registration")]
-        public async Task<IActionResult> CompleteRegistration(CompleteRegistrationDTO dto)
-        {
-            try
-            {
-                await _userService.CompleteRegistration(dto);
-
-                return Ok(new { message = "Cuenta activada correctamente." });
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
     }
 }

@@ -36,17 +36,14 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [HttpPost("forgot-password")]
-        public async Task<IActionResult> ForgotPassword(ForgotPasswordDTO dto)
+        [HttpPost("set-password")]
+        public async Task<IActionResult> SetPassword(SetPasswordDTO dto)
         {
             try
             {
-                await _authService.ForgotPassword(dto);
-                return Ok(new { message = "Si el correo existe, recibirás un enlace para restablecer tu contraseña." });
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
+                await _authService.SetPassword(dto);
+
+                return Ok(new { message = "Cuenta activada correctamente." });
             }
             catch (Exception)
             {
@@ -54,13 +51,13 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [HttpPost("reset-password")]
-        public async Task<IActionResult> ResetPassword(ResetPasswordDTO dto)
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword(ForgotPasswordDTO dto)
         {
             try
             {
-                await _authService.ResetPassword(dto);
-                return Ok(new { message = "Contraseña restablecida exitosamente." });
+                await _authService.ForgotPassword(dto);
+                return Ok(new { message = "Si el correo existe, recibirás un enlace para restablecer tu contraseña." });
             }
             catch (AbrilException ex)
             {

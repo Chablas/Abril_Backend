@@ -12,25 +12,25 @@ namespace Abril_Backend.Application.Services
     {
         private readonly IAuthRepository _authRepository;
         private readonly IJWTService _jwtService;
-        private readonly IUserPasswordResetTokenRepository _resetTokenRepository;
         private readonly IUserRepository _userRepository;
         private readonly IEmailService _emailService;
         private readonly FrontendSettings _frontendSettings;
+        private readonly IUserPasswordTokenRepository _tokenRepository;
 
         public AuthService(
             IAuthRepository authRepository,
             IJWTService jwtService,
-            IUserPasswordResetTokenRepository resetTokenRepository,
             IUserRepository userRepository,
             IEmailService emailService,
+            IUserPasswordTokenRepository tokenRepository,
             IOptions<FrontendSettings> frontendSettings
             )
         {
             _authRepository = authRepository;
             _jwtService = jwtService;
-            _resetTokenRepository = resetTokenRepository;
             _userRepository = userRepository;
             _emailService = emailService;
+            _tokenRepository = tokenRepository;
             _frontendSettings = frontendSettings.Value;
         }
 
@@ -55,6 +55,21 @@ namespace Abril_Backend.Application.Services
             };
         }
 
+        public async Task SetPassword(SetPasswordDTO dto)
+        {
+            if (dto.Password != dto.ConfirmPassword)
+                throw new AbrilException("Las contraseñas no coinciden.");
+
+            var tokenEntity = await _tokenRepository.GetValidTokenAsync(dto.Token);
+            if (tokenEntity == null)
+                throw new AbrilException("Token inválido o expirado.");
+
+            await _userRepository.SetPassword(tokenEntity.UserId, dto.Password);
+
+            await _tokenRepository.InvalidateTokensByUserAsync(tokenEntity.UserId);
+            await _tokenRepository.SaveAsync();
+        }
+
         public async Task ForgotPassword(ForgotPasswordDTO dto)
         {
             var user = await _authRepository.GetUserByIdAsync(dto.UserId);
@@ -62,11 +77,11 @@ namespace Abril_Backend.Application.Services
             if (user == null)
                 return;
 
-            await _resetTokenRepository.InvalidatePreviousTokensAsync(user.Value.UserId);
+            await _tokenRepository.InvalidateTokensByUserAsync(user.Value.UserId);
 
             var token = GenerateToken();
 
-            await _resetTokenRepository.CreateAsync(new UserPasswordResetToken
+            await _tokenRepository.CreateAsync(new UserPasswordTokenDTO
             {
                 UserId = user.Value.UserId,
                 Token = token,
@@ -75,17 +90,20 @@ namespace Abril_Backend.Application.Services
                 CreatedDateTime = DateTime.UtcNow
             });
 
-            var link = $"{_frontendSettings.ResetPasswordUrl}?token={token}";
+            var link = $"{_frontendSettings.SetPasswordUrl}?token={token}";
 
             var body = $@"
-                <p>Hola,</p>
-                <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
-                <p>Haz clic en el siguiente enlace para continuar:</p>
+                <p>Estimado usuario,</p>
+                <p>Hemos recibido una solicitud para restablecer una contraseña para su cuenta.</p>
+                <p>Para continuar, haga clic en el siguiente enlace:</p>
                 <p>
-                    👉 <a href='{link}' target='_blank'>Restablecer contraseña</a>
+                    <a href='{link}' target='_blank'
+                    style='display:inline-block; padding:10px 20px; background-color:#1a73e8; color:#ffffff; text-decoration:none; border-radius:4px;'>
+                        Restablecer contraseña
+                    </a>
                 </p>
                 <p style='font-size: 12px; color: #666;'>
-                    Este enlace expirará en 1 hora. Si no solicitaste este cambio, ignora este correo.
+                    Este enlace expirará en 1 hora. Si usted no realizó esta solicitud, ignore este correo.
                 </p>
             ";
 
@@ -96,23 +114,6 @@ namespace Abril_Backend.Application.Services
                 isHtml: true,
                 bcc: new List<string> { "calvarez@abril.pe" }
             );
-        }
-
-        public async Task ResetPassword(ResetPasswordDTO dto)
-        {
-            if (dto.Password != dto.ConfirmPassword)
-                throw new AbrilException("Las contraseñas no coinciden.", 400);
-
-            var tokenEntity = await _resetTokenRepository.GetValidTokenAsync(dto.Token);
-
-            if (tokenEntity == null)
-                throw new AbrilException("Token inválido o expirado.", 400);
-
-            await _userRepository.SetPassword(tokenEntity.UserId, dto.Password);
-
-            tokenEntity.Used = true;
-            await _resetTokenRepository.SaveAsync();
-
         }
 
         private string GenerateToken()

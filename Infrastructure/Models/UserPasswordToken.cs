@@ -1,8 +1,8 @@
 namespace Abril_Backend.Infrastructure.Models
 {
-    public class UserPasswordResetToken
+    public class UserPasswordToken
     {
-        public int Id { get; set; }
+        public int UserPasswordTokenId { get; set; }
         public int UserId { get; set; }
         public User User { get; set; } = null!;
         public string Token { get; set; } = null!;

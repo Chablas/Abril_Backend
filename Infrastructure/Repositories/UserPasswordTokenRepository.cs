@@ -5,18 +5,18 @@ using Abril_Backend.Application.DTOs;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Infrastructure.Repositories {
-    public class UserRegistrationTokenRepository : IUserRegistrationTokenRepository
+    public class UserPasswordTokenRepository : IUserPasswordTokenRepository
     {
         private readonly AppDbContext _context;
 
-        public UserRegistrationTokenRepository(AppDbContext context)
+        public UserPasswordTokenRepository(AppDbContext context)
         {
             _context = context;
         }
 
-        public async Task CreateAsync(UserRegistrationTokenDTO tokenDto)
+        public async Task CreateAsync(UserPasswordTokenDTO tokenDto)
         {
-            var tokenModel = new UserRegistrationToken
+            var tokenModel = new UserPasswordToken
             {
                 UserId = tokenDto.UserId,
                 Token = tokenDto.Token,
@@ -24,19 +24,19 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 ExpiresAt = tokenDto.ExpiresAt,
                 Used = tokenDto.Used
             };
-            await _context.UserRegistrationTokens.AddAsync(tokenModel);
+            await _context.UserPasswordToken.AddAsync(tokenModel);
             await _context.SaveChangesAsync();
         }
 
-        public async Task<UserRegistrationTokenDTO?> GetValidTokenAsync(string token)
+        public async Task<UserPasswordTokenDTO?> GetValidTokenAsync(string token)
         {
-            var tokenEntity = await _context.UserRegistrationTokens.Include(t => t.User)
+            var tokenEntity = await _context.UserPasswordToken.Include(t => t.User)
                 .FirstOrDefaultAsync(t =>
                 t.Token == token &&
                 !t.Used &&
                 t.ExpiresAt > DateTime.UtcNow
             );
-            var dto = new UserRegistrationTokenDTO
+            var dto = new UserPasswordTokenDTO
             {
                 UserId = tokenEntity.UserId,
                 Token = tokenEntity.Token,
@@ -49,7 +49,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
         public async Task InvalidateTokensByUserAsync(int userId)
         {
-            var tokens = await _context.UserRegistrationTokens
+            var tokens = await _context.UserPasswordToken
                 .Where(t => t.UserId == userId && !t.Used)
                 .ToListAsync();
 

@@ -6,6 +6,5 @@ namespace Abril_Backend.Application.Interfaces
     {
         Task<PagedResult<UserDTO>> GetPagedFactory(int page, int pageSize);
         Task Create(UserCreateDTO dto);
-        Task CompleteRegistration(CompleteRegistrationDTO dto);
     }
 }

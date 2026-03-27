@@ -1,6 +1,6 @@
 namespace Abril_Backend.Application.DTOs
 {
-    public class UserRegistrationTokenDTO
+    public class UserPasswordTokenDTO
     {
         public int UserId { get; set; }
         public string Token { get; set; }

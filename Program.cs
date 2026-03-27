@@ -87,13 +87,12 @@ builder.Services.AddScoped<IUserProjectRepository, UserProjectRepository>();
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IProjectResidentRepository, ProjectResidentRepository>();
-builder.Services.AddScoped<IUserRegistrationTokenRepository, UserRegistrationTokenRepository>();
+builder.Services.AddScoped<IUserPasswordTokenRepository, UserPasswordTokenRepository>();
 builder.Services.AddScoped<IResidentReportIncidenceRepository, ResidentReportIncidenceRepository>();
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IJWTService, JwtService>();
 builder.Services.AddScoped<IResidentMonitoringRepository, ResidentMonitoringRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();
-builder.Services.AddScoped<IUserPasswordResetTokenRepository, UserPasswordResetTokenRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();

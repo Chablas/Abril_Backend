@@ -7,5 +7,7 @@ namespace Abril_Backend.Infrastructure.Interfaces
     {
         Task<UserDTO?> ValidateUserAsync(string email, string password);
         Task<UserSession> CreateSessionAsync(int userId);
+        Task<(int UserId, string Email)?> GetUserByEmailAsync(string email);
+        Task<(int UserId, string Email)?> GetUserByIdAsync(int userId);
     }
 }

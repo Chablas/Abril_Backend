@@ -67,18 +67,18 @@ namespace Abril_Backend.Application.Services
 
             if (IsInLastFiveBusinessDays(today))
             {
-                /*Console.WriteLine("⏰ Recordatorio mensual para subir lecciones aprendidas ejecutado");
+                Console.WriteLine("⏰ Recordatorio mensual para subir lecciones aprendidas ejecutado");
                 await SendLessonsLearnedMonthlyRemindersAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
+                Console.WriteLine("📧 Recordatorios enviados correctamente");
 
                 // este deberia ejecutarse el ultimo dia laborable del mes
                 /*Console.WriteLine("⏰ Recordatorio mensual de cronograma de hitos ejecutado");
                 await SendMilestoneScheduleMonthlyReminderAsync(DateTime.UtcNow.AddHours(-5));
                 Console.WriteLine("📧 Recordatorios enviados correctamente");*/
 
-                Console.WriteLine("⏰ Recordatorio mensual para subir cronograma de hitos ejecutado");
+                /*Console.WriteLine("⏰ Recordatorio mensual para subir cronograma de hitos ejecutado");
                 await SendMilestoneScheduleHistoryMonthlyRemindersAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");
+                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
             }
             else
             {

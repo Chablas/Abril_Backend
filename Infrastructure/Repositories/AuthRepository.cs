@@ -100,6 +100,36 @@ namespace Abril_Backend.Infrastructure.Repositories
             return session;
         }
 
+        public async Task<(int UserId, string Email)?> GetUserByEmailAsync(string email)
+        {
+            var result = await (
+                from u in _context.User
+                join p in _context.Person on u.PersonId equals p.PersonId
+                where p.Email == email && u.Active && u.State
+                select new { u.UserId, p.Email }
+            ).FirstOrDefaultAsync();
+
+            if (result == null)
+                return null;
+
+            return (result.UserId, result.Email);
+        }
+
+        public async Task<(int UserId, string Email)?> GetUserByIdAsync(int userId)
+        {
+            var result = await (
+                from u in _context.User
+                join p in _context.Person on u.PersonId equals p.PersonId
+                where u.UserId == userId && u.State
+                select new { u.UserId, p.Email }
+            ).FirstOrDefaultAsync();
+
+            if (result == null)
+                return null;
+
+            return (result.UserId, result.Email);
+        }
+
         private string GenerateToken()
         {
             var bytes = RandomNumberGenerator.GetBytes(64);

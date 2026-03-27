@@ -37,6 +37,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SubStage> SubStage { get; set; }
         public DbSet<User> User { get; set; }
         public DbSet<UserRegistrationToken> UserRegistrationTokens { get; set; }
+        public DbSet<UserPasswordResetToken> UserPasswordResetTokens {get;set;}
         public DbSet<UserRole> UserRole { get; set; }
         public DbSet<UserSession> UserSession { get; set; }
         public DbSet<UserProject> UserProject { get; set; }

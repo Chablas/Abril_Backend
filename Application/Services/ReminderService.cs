@@ -76,9 +76,9 @@ namespace Abril_Backend.Application.Services
                 await SendMilestoneScheduleMonthlyReminderAsync(DateTime.UtcNow.AddHours(-5));
                 Console.WriteLine("📧 Recordatorios enviados correctamente");*/
 
-                /*Console.WriteLine("⏰ Recordatorio mensual para subir cronograma de hitos ejecutado");
+                Console.WriteLine("⏰ Recordatorio mensual para subir cronograma de hitos ejecutado");
                 await SendMilestoneScheduleHistoryMonthlyRemindersAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
+                Console.WriteLine("📧 Recordatorios enviados correctamente");
             }
             else
             {

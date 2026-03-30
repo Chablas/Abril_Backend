@@ -40,6 +40,17 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<UserRole> UserRole { get; set; }
         public DbSet<UserSession> UserSession { get; set; }
         public DbSet<UserProject> UserProject { get; set; }
+        public DbSet<Contract> Contract { get; set; }
+        public DbSet<ContractType> ContractType { get; set; }
+        public DbSet<ContractOrigin> ContractOrigin { get; set; }
+        public DbSet<PaymentMethod> PaymentMethod { get; set; }
+        public DbSet<Company> Company { get; set; }
+        public DbSet<Currency> Currency { get; set; }
+        public DbSet<WorkItemCategory> WorkItemCategory { get; set; }
+        public DbSet<WorkItem> WorkItem { get; set; }
+        public DbSet<ProjectSubContractor> ProjectSubContractor { get; set; }
+        public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
+        public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -83,6 +94,20 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(r => r.StateNavigation)
                 .WithMany(s => s.ResidentReportIncidences)
                 .HasForeignKey(r => r.StateId);
+            modelBuilder.Entity<ProjectSubContractorQuotationFile>()
+                .HasOne(f => f.ProjectSubContractor)
+                .WithMany(s => s.QuotationFiles)
+                .HasForeignKey(f => f.ProjectSubContractorId);
+
+            modelBuilder.Entity<ProjectSubContractorComparativeFile>()
+                .HasOne(f => f.ProjectSubContractor)
+                .WithMany(s => s.ComparativeFiles)
+                .HasForeignKey(f => f.ProjectSubContractorId);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Project)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectId);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

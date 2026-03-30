@@ -78,6 +78,7 @@ builder.Services.AddScoped<IResidentReportIncidenceService, ResidentReportIncide
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IResidentMonitoringService, ResidentMonitoringService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
+builder.Services.AddScoped<IProjectSubContractorService, ProjectSubContractorService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
@@ -93,6 +94,7 @@ builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IJWTService, JwtService>();
 builder.Services.AddScoped<IResidentMonitoringRepository, ResidentMonitoringRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();
+builder.Services.AddScoped<IProjectSubContractorRepository, ProjectSubContractorRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();

@@ -1,5 +1,6 @@
-using Abril_Backend.Application.DTOs;
-namespace Abril_Backend.Infrastructure.Interfaces
+using Abril_Backend.Features.Adjudicaciones.Application.Dtos;
+
+namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Interfaces
 {
     public interface IProjectSubContractorRepository
     {

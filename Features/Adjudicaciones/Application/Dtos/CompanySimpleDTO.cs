@@ -1,4 +1,4 @@
-namespace Abril_Backend.Application.DTOs {
+namespace Abril_Backend.Features.Adjudicaciones.Application.Dtos {
     public class CompanySimpleDTO {
         public int CompanyId {get; set;}
         public string? CompanyName {get; set;}

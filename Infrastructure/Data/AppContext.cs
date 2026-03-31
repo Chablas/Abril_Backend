@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Features.Adjudicaciones.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Data
 {

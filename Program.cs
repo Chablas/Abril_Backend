@@ -1,3 +1,4 @@
+using Abril_Backend.Features.Adjudicaciones;
 using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
@@ -68,6 +69,8 @@ else
     builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
 }
 
+builder.Services.AddAdjudicacionesModule();
+
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();
 builder.Services.AddScoped<IProjectResidentService, ProjectResidentService>();
@@ -78,7 +81,7 @@ builder.Services.AddScoped<IResidentReportIncidenceService, ResidentReportIncide
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IResidentMonitoringService, ResidentMonitoringService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
-builder.Services.AddScoped<IProjectSubContractorService, ProjectSubContractorService>();
+
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
@@ -94,7 +97,6 @@ builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IJWTService, JwtService>();
 builder.Services.AddScoped<IResidentMonitoringRepository, ResidentMonitoringRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();
-builder.Services.AddScoped<IProjectSubContractorRepository, ProjectSubContractorRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();

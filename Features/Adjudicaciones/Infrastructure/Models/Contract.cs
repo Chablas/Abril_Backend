@@ -1,8 +1,7 @@
-namespace Abril_Backend.Infrastructure.Models {
-    public class WorkItem {
-        public int WorkItemId {get; set;}
-        public string WorkItemDescription {get; set;}
-        public int WorkItemCategoryId {get; set;}
+namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Models {
+    public class Contract {
+        public int ContractId {get; set;}
+        public string ContractDescription {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

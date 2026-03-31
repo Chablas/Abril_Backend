@@ -1,4 +1,6 @@
-namespace Abril_Backend.Application.DTOs {
+using Abril_Backend.Application.DTOs;
+
+namespace Abril_Backend.Features.Adjudicaciones.Application.Dtos {
     public class ProjectSubContractorFormDataDTO {
         public List<ProjectSimpleDTO> Projects {get;set;}
         public List<ContractSimpleDTO> Contracts {get;set;}

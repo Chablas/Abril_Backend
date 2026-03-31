@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
-using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
-using Abril_Backend.Application.Interfaces;
+using Abril_Backend.Features.Adjudicaciones.Application.Interfaces;
+using Abril_Backend.Features.Adjudicaciones.Application.Dtos;
 
-namespace Abril_Backend.Controllers
+namespace Abril_Backend.Features.Adjudicaciones.Presentation
 {
 
     [ApiController]
@@ -30,7 +30,7 @@ namespace Abril_Backend.Controllers
                     return Unauthorized(new { message = "Inicie sesión" });
                 if (page < 1)
                     page = 1;
-                //var result = await _projectService.GetPaged(page);
+                var result = await _projectSubContractorService.GetPaged(page);
                 return Ok(result);
             }
             catch (Exception)
@@ -42,7 +42,7 @@ namespace Abril_Backend.Controllers
         [Authorize]
         [HttpPost]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> Create([FromBody] ProjectSubContractorCreateDTO dto)
+        public async Task<IActionResult> Create([FromForm] ProjectSubContractorCreateDTO dto)
         {
             try
             {
@@ -66,8 +66,8 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [Authorize]
-        [HttpGet]
+        //[Authorize]
+        [HttpGet("form-data")]
         public async Task<IActionResult> GetFormData()
         {
             try

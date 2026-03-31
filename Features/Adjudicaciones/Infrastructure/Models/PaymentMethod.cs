@@ -1,4 +1,4 @@
-namespace Abril_Backend.Infrastructure.Models {
+namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Models {
     public class PaymentMethod {
         public int PaymentMethodId {get; set;}
         public string PaymentMethodDescription {get; set;}

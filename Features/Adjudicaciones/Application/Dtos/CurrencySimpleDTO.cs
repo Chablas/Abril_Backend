@@ -1,4 +1,4 @@
-namespace Abril_Backend.Application.DTOs {
+namespace Abril_Backend.Features.Adjudicaciones.Application.Dtos {
     public class CurrencySimpleDTO {
         public int CurrencyId {get; set;}
         public string CurrencyCode {get;set;}

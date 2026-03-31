@@ -1,4 +1,4 @@
-namespace Abril_Backend.Infrastructure.Models {
+namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Models {
     public class Company {
         public int CompanyId {get; set;}
         public string CompanyRuc {get; set;}

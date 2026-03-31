@@ -1,4 +1,4 @@
-namespace Abril_Backend.Application.DTOs {
+namespace Abril_Backend.Features.Adjudicaciones.Application.Dtos {
     public class ProjectSubContractorCreateDTO {
         public int ProjectId { get; set; }
         public int CompanyId { get; set; }

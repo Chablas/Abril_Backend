@@ -1,4 +1,5 @@
-namespace Abril_Backend.Infrastructure.Models {
+using Abril_Backend.Infrastructure.Models;
+namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Models {
     public class ProjectSubContractor {
         public int ProjectSubContractorId {get; set;}
         public int ProjectId {get; set;}

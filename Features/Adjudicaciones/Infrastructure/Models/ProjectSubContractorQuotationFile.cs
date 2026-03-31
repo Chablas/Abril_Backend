@@ -1,4 +1,4 @@
-namespace Abril_Backend.Infrastructure.Models {
+namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Models {
     public class ProjectSubContractorQuotationFile {
         public int ProjectSubContractorQuotationFileId {get; set;}
         public int ProjectSubContractorId {get; set;}

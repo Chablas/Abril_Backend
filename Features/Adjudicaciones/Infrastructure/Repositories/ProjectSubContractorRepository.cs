@@ -1,10 +1,10 @@
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using Abril_Backend.Application.DTOs;
-using Abril_Backend.Infrastructure.Interfaces;
-using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Features.Adjudicaciones.Infrastructure.Interfaces;
+using Abril_Backend.Features.Adjudicaciones.Infrastructure.Models;
+using Abril_Backend.Features.Adjudicaciones.Application.Dtos;
 
-namespace Abril_Backend.Infrastructure.Repositories {
+namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Repositories {
     public class ProjectSubContractorRepository : IProjectSubContractorRepository {
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
@@ -125,7 +125,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             using var ctx = _factory.CreateDbContext();
             var registros = ctx.Currency
                 .Where(item => item.Active)
-                .OrderBy(item => item.CurrencyDescription)
+                .OrderBy(item => item.CurrencyCode)
                 .Select(item => new CurrencySimpleDTO
                 {
                     CurrencyId = item.CurrencyId,

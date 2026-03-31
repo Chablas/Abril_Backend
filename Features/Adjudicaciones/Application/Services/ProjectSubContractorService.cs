@@ -1,12 +1,10 @@
 using Abril_Backend.Infrastructure.Interfaces;
-using Abril_Backend.Infrastructure.Models;
-using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Application.Interfaces;
-using Microsoft.Extensions.Options;
-using System.Security.Cryptography;
+using Abril_Backend.Features.Adjudicaciones.Application.Interfaces;
+using Abril_Backend.Features.Adjudicaciones.Infrastructure.Interfaces;
+using Abril_Backend.Features.Adjudicaciones.Application.Dtos;
 
-namespace Abril_Backend.Application.Services
+namespace Abril_Backend.Features.Adjudicaciones.Application.Services
 {
     public class ProjectSubContractorService : IProjectSubContractorService
     {
@@ -27,6 +25,11 @@ namespace Abril_Backend.Application.Services
             _containerResolver = containerResolver;
             _projectRepository = projectRepository;
         }
+
+        /*public async Task GetPaged()
+        {
+            var respuesta = await _projectSubContractorRepository.GetPaged(page);
+        }*/
 
         public async Task Create(ProjectSubContractorCreateDTO dto, int userId)
         {

@@ -1,7 +1,7 @@
-namespace Abril_Backend.Infrastructure.Models {
-    public class ContractType {
-        public int ContractTypeId {get; set;}
-        public string ContractTypeDescription {get; set;}
+namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Models {
+    public class ContractOrigin {
+        public int ContractOriginId {get; set;}
+        public string ContractOriginDescription {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

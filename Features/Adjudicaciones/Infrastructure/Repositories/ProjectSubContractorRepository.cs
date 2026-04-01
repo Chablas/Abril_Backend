@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Features.Adjudicaciones.Infrastructure.Interfaces;
 using Abril_Backend.Features.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.Adjudicaciones.Application.Dtos;
+using Abril_Backend.Application.DTOs;
 
 namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Repositories {
     public class ProjectSubContractorRepository : IProjectSubContractorRepository {
@@ -163,6 +164,106 @@ namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Repositories {
                     CompanyRuc = item.CompanyRuc,
                 });
             return await registros.ToListAsync();
+        }
+
+        public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            const int pageSize = 10;
+
+            var query =
+                from psc in ctx.ProjectSubContractor
+                join p in ctx.Project on psc.ProjectId equals p.ProjectId
+                join c in ctx.Company on psc.CompanyId equals c.CompanyId
+                join ct in ctx.ContractType on psc.ContractTypeId equals ct.ContractTypeId
+                join co in ctx.ContractOrigin on psc.ContractOriginId equals co.ContractOriginId
+                join pm in ctx.PaymentMethod on psc.PaymentMethodId equals pm.PaymentMethodId
+                join cur in ctx.Currency on psc.CurrencyId equals cur.CurrencyId
+                join wi in ctx.WorkItem on psc.WorkItemId equals wi.WorkItemId
+                join contract in ctx.Contract on psc.ContractId equals contract.ContractId
+                where psc.State
+                select new { psc, p, c, ct, co, pm, cur, wi, contract };
+
+            if (filter.ProjectId.HasValue)
+                query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
+
+            if (!string.IsNullOrWhiteSpace(filter.CompanyName))
+                query = query.Where(x => x.c.CompanyName.Contains(filter.CompanyName));
+
+            if (!string.IsNullOrWhiteSpace(filter.CompanyRuc))
+                query = query.Where(x => x.c.CompanyRuc.Contains(filter.CompanyRuc));
+
+            if (filter.CreatedUserId.HasValue)
+                query = query.Where(x => x.psc.CreatedUserId == filter.CreatedUserId.Value);
+
+            query = query.OrderByDescending(x => x.psc.ProjectSubContractorId);
+
+            var totalRecords = await query.CountAsync();
+
+            var items = await query
+                .Skip((filter.Page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(x => new ProjectSubContractorDTO
+                {
+                    ProjectSubContractorId = x.psc.ProjectSubContractorId,
+                    ProjectId = x.psc.ProjectId,
+                    ProjectDescription = x.p.ProjectDescription,
+                    CompanyId = x.psc.CompanyId,
+                    CompanyName = x.c.CompanyName,
+                    ContractId = x.psc.ContractId,
+                    ContractDescription = x.contract.ContractDescription,
+                    ContractTypeId = x.psc.ContractTypeId,
+                    ContractTypeDescription = x.ct.ContractTypeDescription,
+                    ContractOriginId = x.psc.ContractOriginId,
+                    ContractOriginDescription = x.co.ContractOriginDescription,
+                    PaymentMethodId = x.psc.PaymentMethodId,
+                    PaymentMethodDescription = x.pm.PaymentMethodDescription,
+                    Amount = x.psc.Amount,
+                    CurrencyId = x.psc.CurrencyId,
+                    CurrencyCode = x.cur.CurrencyCode,
+                    AmountHasIgv = x.psc.HasIgv,
+                    ContractorEmail = x.psc.ContractorEmail,
+                    WorkItemId = x.psc.WorkItemId,
+                    WorkItemDescription = x.wi.WorkItemDescription,
+                    CreatedDateTime = x.psc.CreatedDateTime
+                })
+                .ToListAsync();
+
+            var ids = items.Select(x => x.ProjectSubContractorId).ToList();
+
+            var quotationFiles = await ctx.ProjectSubContractorQuotationFile
+                .Where(f => ids.Contains(f.ProjectSubContractorId) && f.State)
+                .Select(f => new { f.ProjectSubContractorId, f.FileUrl })
+                .ToListAsync();
+
+            var comparativeFiles = await ctx.ProjectSubContractorComparativeFile
+                .Where(f => ids.Contains(f.ProjectSubContractorId) && f.State)
+                .Select(f => new { f.ProjectSubContractorId, f.FileUrl })
+                .ToListAsync();
+
+            var quotationByPsc = quotationFiles
+                .GroupBy(f => f.ProjectSubContractorId)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.FileUrl).ToList());
+
+            var comparativeByPsc = comparativeFiles
+                .GroupBy(f => f.ProjectSubContractorId)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.FileUrl).ToList());
+
+            foreach (var item in items)
+            {
+                item.QuotationFileUrls = quotationByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
+                item.ComparativeFileUrls = comparativeByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
+            }
+
+            return new PagedResult<ProjectSubContractorDTO>
+            {
+                Page = filter.Page,
+                PageSize = pageSize,
+                TotalRecords = totalRecords,
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data = items
+            };
         }
     }
 }

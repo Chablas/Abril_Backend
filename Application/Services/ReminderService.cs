@@ -18,10 +18,10 @@ namespace Abril_Backend.Application.Services
             "calvarez@abril.pe"
         };
         private readonly List<string> _supervisorsEmails = new List<string> {
-            //"hmamani@abril.pe",
+            "hmamani@abril.pe",
             //"coriundo@abril.pe",
-            "alvarezvillegaschristian@outlook.com",
-            "calvarez@abril.pe"
+            //"alvarezvillegaschristian@outlook.com",
+            //"calvarez@abril.pe"
         };
         private readonly List<string> _residentsEmails = new List<string>
         {
@@ -238,8 +238,8 @@ namespace Abril_Backend.Application.Services
     ";
 
             await _emailService.SendAsync(
-                //to: emailsTo,
-                to: new List<string> {"alvarezvillegaschristian@outlook.com"},
+                to: emailsTo,
+                //to: new List<string> {"alvarezvillegaschristian@outlook.com"},
                 subject: $"📊 Reporte mensual: usuarios sin lecciones — {periodLabel}",
                 body: body,
                 isHtml: true,

@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Adjudicaciones.Application.Dtos;
+using Abril_Backend.Application.DTOs;
 
 namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Interfaces
 {
@@ -12,5 +13,6 @@ namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Interfaces
         Task<List<CurrencySimpleDTO>> GetCurrencyFactory();
         Task<List<WorkItemSimpleDTO>> GetWorkItemFactory();
         Task<List<CompanySimpleDTO>> GetCompanyFactory();
+        Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter);
     }
 }

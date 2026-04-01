@@ -18,9 +18,14 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             _projectSubContractorService = projectSubContractorService;
         }
 
-        /*[Authorize]
+        [Authorize]
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1)
+        public async Task<IActionResult> GetPaged(
+            [FromQuery] int? projectId,
+            [FromQuery] string? companyName,
+            [FromQuery] string? companyRuc,
+            [FromQuery] int? createdUserId,
+            [FromQuery] int page = 1)
         {
             try
             {
@@ -28,16 +33,24 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
-                if (page < 1)
-                    page = 1;
-                var result = await _projectSubContractorService.GetPaged(page);
+
+                var filter = new ProjectSubContractorFilterDTO
+                {
+                    ProjectId = projectId,
+                    CompanyName = companyName,
+                    CompanyRuc = companyRuc,
+                    CreatedUserId = createdUserId,
+                    Page = page
+                };
+
+                var result = await _projectSubContractorService.GetPaged(filter);
                 return Ok(result);
             }
             catch (Exception)
             {
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
-        }*/
+        }
 
         [Authorize]
         [HttpPost]

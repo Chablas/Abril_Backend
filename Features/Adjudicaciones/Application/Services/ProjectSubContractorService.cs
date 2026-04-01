@@ -1,5 +1,6 @@
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.Adjudicaciones.Application.Interfaces;
 using Abril_Backend.Features.Adjudicaciones.Infrastructure.Interfaces;
 using Abril_Backend.Features.Adjudicaciones.Application.Dtos;
@@ -26,10 +27,11 @@ namespace Abril_Backend.Features.Adjudicaciones.Application.Services
             _projectRepository = projectRepository;
         }
 
-        /*public async Task GetPaged()
+        public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
         {
-            var respuesta = await _projectSubContractorRepository.GetPaged(page);
-        }*/
+            if (filter.Page < 1) filter.Page = 1;
+            return await _projectSubContractorRepository.GetPaged(filter);
+        }
 
         public async Task Create(ProjectSubContractorCreateDTO dto, int userId)
         {

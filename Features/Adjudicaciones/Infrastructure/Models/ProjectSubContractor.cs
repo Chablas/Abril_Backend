@@ -8,11 +8,13 @@ namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Models {
         public int ContractTypeId {get; set;}
         public int ContractOriginId {get; set;}
         public int PaymentMethodId {get; set;}
+        public decimal AdvancePercentage {get;set;}
         public decimal Amount {get; set;}
         public int CurrencyId {get; set;}
         public bool HasIgv {get; set;}
         public string ContractorEmail {get; set;}
         public int WorkItemId {get; set;}
+        public int ProjectSubContractorStatusId {get;set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

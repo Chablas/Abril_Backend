@@ -26,11 +26,13 @@ namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Repositories {
                 ContractTypeId = dto.ContractTypeId,
                 ContractOriginId = dto.ContractOriginId,
                 PaymentMethodId = dto.PaymentMethodId,
+                AdvancePercentage = dto.AdvancePercentage,
                 Amount = dto.Amount,
                 CurrencyId  = dto.CurrencyId,
                 HasIgv = dto.HasIgv,
                 ContractorEmail = dto.ContractorEmail,
                 WorkItemId = dto.WorkItemId,
+                ProjectSubContractorStatusId = 1,
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
                 Active = true,
@@ -182,8 +184,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Repositories {
                 join cur in ctx.Currency on psc.CurrencyId equals cur.CurrencyId
                 join wi in ctx.WorkItem on psc.WorkItemId equals wi.WorkItemId
                 join contract in ctx.Contract on psc.ContractId equals contract.ContractId
+                join pscs in ctx.ProjectSubContractorStatus on psc.ProjectSubContractorStatusId equals pscs.ProjectSubContractorStatusId
                 where psc.State
-                select new { psc, p, c, ct, co, pm, cur, wi, contract };
+                select new { psc, p, c, ct, co, pm, cur, wi, contract, pscs };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -219,6 +222,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Repositories {
                     ContractOriginDescription = x.co.ContractOriginDescription,
                     PaymentMethodId = x.psc.PaymentMethodId,
                     PaymentMethodDescription = x.pm.PaymentMethodDescription,
+                    AdvancePercentage = x.psc.AdvancePercentage,
                     Amount = x.psc.Amount,
                     CurrencyId = x.psc.CurrencyId,
                     CurrencyCode = x.cur.CurrencyCode,
@@ -226,6 +230,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Infrastructure.Repositories {
                     ContractorEmail = x.psc.ContractorEmail,
                     WorkItemId = x.psc.WorkItemId,
                     WorkItemDescription = x.wi.WorkItemDescription,
+                    ProjectSubContractorStatusId = x.pscs.ProjectSubContractorStatusId,
+                    ProjectSubContractorStatusDescription = x.pscs.ProjectSubContractorStatusDescription,
                     CreatedDateTime = x.psc.CreatedDateTime
                 })
                 .ToListAsync();

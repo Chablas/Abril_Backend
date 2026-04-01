@@ -13,6 +13,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Application.Dtos {
         public string ContractOriginDescription { get; set; }
         public int PaymentMethodId { get; set; }
         public string PaymentMethodDescription { get; set; }
+        public decimal? AdvancePercentage {get;set;}
         public decimal Amount { get; set; }
         public int CurrencyId { get; set; }
         public string CurrencyCode { get; set; }
@@ -20,6 +21,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Application.Dtos {
         public string ContractorEmail { get; set; }
         public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; }
+        public int ProjectSubContractorStatusId { get; set; }
+        public string ProjectSubContractorStatusDescription { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public List<string> QuotationFileUrls { get; set; } = new();
         public List<string> ComparativeFileUrls { get; set; } = new();

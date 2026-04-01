@@ -52,6 +52,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractor> ProjectSubContractor { get; set; }
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
+        public DbSet<ProjectSubContractorStatus> ProjectSubContractorStatus { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

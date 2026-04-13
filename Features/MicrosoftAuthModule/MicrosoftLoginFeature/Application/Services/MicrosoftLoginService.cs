@@ -40,8 +40,9 @@ namespace Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Application.Servic
             var email = profile.Mail ?? profile.UserPrincipalName;
 
             var user = await _repository.GetUserByEmailAsync(email);
+
             if (user is null)
-                throw new AbrilException("No existe una cuenta asociada a este correo de Microsoft.", 404);
+                user = await _repository.CreateUserFromGraphAsync(profile);
 
             var accessToken = _jwtService.GenerateToken(user);
             var session = await _authRepository.CreateSessionAsync(user.UserId);

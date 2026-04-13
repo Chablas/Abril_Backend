@@ -5,7 +5,7 @@ namespace Abril_Backend.Infrastructure.Models {
         public string? Password {get; set;}
         public bool EmailConfirmed {get;set;}
         public DateTime CreatedDateTime {get; set;}
-        public int CreatedUserId {get; set;}
+        public int? CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}
         public int? UpdatedUserId {get; set;}
         public bool Active {get; set;}

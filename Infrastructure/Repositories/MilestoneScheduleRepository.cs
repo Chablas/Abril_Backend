@@ -29,7 +29,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 join u in _context.User
                     on msh.CreatedUserId equals u.UserId
                 join person in _context.Person
-                    on u.PersonId equals person.PersonId
+                    on u.UserId equals person.UserId
                 where
                     msh.CreatedDateTime >= startOfMonth &&
                     msh.CreatedDateTime < startOfNextMonth &&

@@ -164,7 +164,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 from pr in ctx.ProjectResident
                 join pj in ctx.Project on pr.ProjectId equals pj.ProjectId
                 join u in ctx.User on pr.UserId equals u.UserId
-                join person in ctx.Person on u.PersonId equals person.PersonId
+                join person in ctx.Person on u.UserId equals person.UserId
                 where pr.Active && pr.State && pj.Active && pj.State
                 where !ctx.MilestoneScheduleHistory.Any(msh =>
                     msh.ProjectId == pr.ProjectId &&
@@ -173,11 +173,11 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     msh.CreatedDateTime >= startOfMonth &&
                     msh.CreatedDateTime < startOfNextMonth
                 )
-                group new { pj } by new
+                group new { pj, u } by new
                 {
                     u.UserId,
                     person.FullName,
-                    person.Email
+                    u.Email
                 }
                 into g
                 select new UserWithoutMilestoneDTO

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Infrastructure.Services;
+using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 
@@ -10,8 +11,8 @@ namespace Abril_Backend.Controllers {
     [Route("api/v1/[controller]")]
     public class PersonController : ControllerBase {
         PersonRepository _repository;
-        private readonly ReniecService _reniecService;
-        public PersonController(PersonRepository repository, ReniecService reniecService) {
+        private readonly IReniecService _reniecService;
+        public PersonController(PersonRepository repository, IReniecService reniecService) {
             _repository = repository;
             _reniecService = reniecService;
         }

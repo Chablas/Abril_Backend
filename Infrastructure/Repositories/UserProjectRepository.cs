@@ -25,7 +25,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var query =
                 from up in ctx.UserProject
                 join u in ctx.User on up.UserId equals u.UserId
-                join p in ctx.Person on u.PersonId equals p.PersonId
+                join p in ctx.Person on u.UserId equals p.UserId
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
                 orderby up.UserProjectId descending
@@ -71,7 +71,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var query =
                 from up in ctx.UserProject
                 join u in ctx.User on up.UserId equals u.UserId
-                join p in ctx.Person on u.PersonId equals p.PersonId
+                join p in ctx.Person on u.UserId equals p.UserId
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
                       && up.Active == true
@@ -82,11 +82,11 @@ namespace Abril_Backend.Infrastructure.Repositories {
                              l.State == true &&
                              l.Active == true
                          )
-                group new { up, pj } by new
+                group new { up, pj, u } by new
                 {
                     up.UserId,
                     p.FullName,
-                    p.Email
+                    u.Email
                 }
                 into g
                 select new UserWithoutLessonsDTO
@@ -174,7 +174,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var query =
                 from up in ctx.UserProject
                 join u in ctx.User on up.UserId equals u.UserId
-                join p in ctx.Person on u.PersonId equals p.PersonId
+                join p in ctx.Person on u.UserId equals p.UserId
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
                       && up.Active == true
@@ -185,11 +185,11 @@ namespace Abril_Backend.Infrastructure.Repositories {
                              l.State == true &&
                              l.Active == true
                          )
-                group new { up, pj } by new
+                group new { up, pj, u } by new
                 {
                     up.UserId,
                     p.FullName,
-                    p.Email
+                    u.Email
                 }
                 into g
                 select new UserWithoutLessonsDTO

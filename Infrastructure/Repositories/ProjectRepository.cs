@@ -75,7 +75,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var residents = await (
                 from pr in _context.ProjectResident
                 join u in _context.User on pr.UserId equals u.UserId
-                join pe in _context.Person on u.PersonId equals pe.PersonId
+                join pe in _context.Person on u.UserId equals pe.UserId
                 where projectIds.Contains(pr.ProjectId) && pr.Active && pr.State
                 select new { pr.ProjectId, pe.FullName }
             ).ToListAsync();
@@ -138,7 +138,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var residents = await (
                 from pr in _context.ProjectResident
                 join u in _context.User on pr.UserId equals u.UserId
-                join pe in _context.Person on u.PersonId equals pe.PersonId
+                join pe in _context.Person on u.UserId equals pe.UserId
                 where projectIds.Contains(pr.ProjectId) && pr.Active && pr.State
                 select new { pr.ProjectId, pe.FullName }
             ).ToListAsync();

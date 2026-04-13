@@ -9,7 +9,6 @@ namespace Abril_Backend.Infrastructure.Repositories
 
     public class LessonRepository
     {
-
         private readonly AppDbContext _context;
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IFileStorageService _fileStorageService;
@@ -121,7 +120,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 from user in us.DefaultIfEmpty()
 
                 join person in _context.Person
-                    on user.PersonId equals person.PersonId into pe
+                    on user.UserId equals person.UserId into pe
                 from person in pe.DefaultIfEmpty()
 
                 join state in _context.State
@@ -257,7 +256,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 from user in us.DefaultIfEmpty()
 
                 join person in _context.Person
-                    on user.PersonId equals person.PersonId into pe
+                    on user.UserId equals person.UserId into pe
                 from person in pe.DefaultIfEmpty()
 
                 join state in _context.State on lesson.StateId equals state.StateId
@@ -451,7 +450,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 from user in us.DefaultIfEmpty()
 
                 join person in _context.Person
-                    on user.PersonId equals person.PersonId into pe
+                    on user.UserId equals person.UserId into pe
                 from person in pe.DefaultIfEmpty()
 
                 join state in _context.State on lesson.StateId equals state.StateId

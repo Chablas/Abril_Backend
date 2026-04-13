@@ -23,10 +23,10 @@ namespace Abril_Backend.Infrastructure.Repositories
         {
             var query =
                 from u in _context.User
-                join p in _context.Person on u.PersonId equals p.PersonId
+                join p in _context.Person on u.UserId equals p.UserId
                 join ur in _context.UserRole on u.UserId equals ur.UserId
                 join r in _context.Role on ur.RoleId equals r.RoleId
-                where p.Email == email &&
+                where u.Email == email &&
                       u.Active &&
                       u.State
                 group new { u, p, r } by new
@@ -37,7 +37,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                     p.PersonId,
                     p.DocumentIdentityCode,
                     p.FullName,
-                    p.Email
+                    u.Email
                 }
                 into g
                 select new
@@ -102,12 +102,10 @@ namespace Abril_Backend.Infrastructure.Repositories
 
         public async Task<(int UserId, string Email)?> GetUserByEmailAsync(string email)
         {
-            var result = await (
-                from u in _context.User
-                join p in _context.Person on u.PersonId equals p.PersonId
-                where p.Email == email && u.Active && u.State
-                select new { u.UserId, p.Email }
-            ).FirstOrDefaultAsync();
+            var result = await _context.User
+                .Where(u => u.Email == email && u.Active && u.State)
+                .Select(u => new { u.UserId, u.Email })
+                .FirstOrDefaultAsync();
 
             if (result == null)
                 return null;
@@ -117,12 +115,10 @@ namespace Abril_Backend.Infrastructure.Repositories
 
         public async Task<(int UserId, string Email)?> GetUserByIdAsync(int userId)
         {
-            var result = await (
-                from u in _context.User
-                join p in _context.Person on u.PersonId equals p.PersonId
-                where u.UserId == userId && u.State
-                select new { u.UserId, p.Email }
-            ).FirstOrDefaultAsync();
+            var result = await _context.User
+                .Where(u => u.UserId == userId && u.State)
+                .Select(u => new { u.UserId, u.Email })
+                .FirstOrDefaultAsync();
 
             if (result == null)
                 return null;

@@ -1,4 +1,3 @@
-using Abril_Backend.Features.Adjudicaciones;
 using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
@@ -6,12 +5,21 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Services;
 using Abril_Backend.Application.Services;
 using Abril_Backend.Application.Interfaces;
+using Abril_Backend.Features.MicrosoftAuth;
 using Microsoft.EntityFrameworkCore;
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
+using Abril_Backend.Features.Costs;
+using Abril_Backend.Shared.Services.Reniec.Services;
+using Abril_Backend.Shared.Services.Reniec.Interfaces;
+using Abril_Backend.Features.Contractors;
+using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
+using Abril_Backend.Shared.Services.Sunat.Interfaces;
+using System.Threading.RateLimiting;
+
 var builder = WebApplication.CreateBuilder(args);
 var databaseProvider = builder.Configuration["Database:DatabaseProvider"];
 var emailProvider = builder.Configuration["Email:EmailProvider"];
@@ -69,7 +77,9 @@ else
     builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
 }
 
-builder.Services.AddAdjudicacionesModule();
+builder.Services.AddCostsModule();
+builder.Services.AddContractorsModule();
+builder.Services.AddMicrosoftAuthModule(builder.Configuration);
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();
@@ -81,7 +91,7 @@ builder.Services.AddScoped<IResidentReportIncidenceService, ResidentReportIncide
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IResidentMonitoringService, ResidentMonitoringService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
-
+builder.Services.AddScoped<IReniecService, ReniecService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
@@ -126,6 +136,37 @@ builder.Services.AddHttpClient<ReniecService>(client =>
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", builder.Configuration["Reniec:Token"]);
     client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 });
+builder.Services.AddHttpClient<ISunatService, DecolectaSunatService>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Sunat:BaseUrl"]!);
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", builder.Configuration["Sunat:Token"]!);
+    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+});
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("sunat-ruc", httpContext =>
+    {
+        if (httpContext.User.Identity?.IsAuthenticated == true)
+            return RateLimitPartition.GetNoLimiter("authenticated");
+
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromHours(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        });
+    });
+    options.RejectionStatusCode = 429;
+    options.OnRejected = async (context, _) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            "{\"message\":\"Has superado el límite de 5 consultas por hora. Intenta más tarde.\"}"
+        );
+    };
+});
 builder.Services.AddControllers();
 builder.Services.AddCors(options =>
 {
@@ -155,8 +196,26 @@ builder.Services.AddAuthentication("Bearer")
 
             NameClaimType = ClaimTypes.NameIdentifier
         };
-    }
-);
+    })
+    .AddJwtBearer("AzureAd", options =>
+    {
+        options.Authority = $"https://login.microsoftonline.com/{builder.Configuration["AzureAd:TenantId"]}/v2.0";
+        options.Audience = builder.Configuration["AzureAd:ClientId"];
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            NameClaimType = "preferred_username"
+        };
+    });
+builder.Services.AddAuthorization(options =>
+{
+    options.DefaultPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .AddAuthenticationSchemes("Bearer", "AzureAd")
+        .RequireAuthenticatedUser()
+        .Build();
+});
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
@@ -175,6 +234,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors("AllowAngular");
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllers();

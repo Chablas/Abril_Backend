@@ -26,7 +26,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 from pr in _context.ProjectResident
                 join p in _context.Project on pr.ProjectId equals p.ProjectId
                 join u in _context.User on pr.UserId equals u.UserId
-                join pe in _context.Person on u.PersonId equals pe.PersonId
+                join pe in _context.Person on u.UserId equals pe.UserId
                 where pr.State && pr.Active
                    && p.State && p.Active
                    && u.State && u.Active

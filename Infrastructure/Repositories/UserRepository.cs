@@ -22,7 +22,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var data = await (
                 from u in ctx.User
-                join p in ctx.Person on u.PersonId equals p.PersonId
+                join p in ctx.Person on u.UserId equals p.UserId
                 where u.Active == true
                 orderby p.FullName
                 select new UserFilterDTO
@@ -40,7 +40,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             using var ctx = _factory.CreateDbContext();
             var query = from u in ctx.User
                 join p in ctx.Person
-                on u.PersonId equals p.PersonId
+                on u.UserId equals p.UserId
                 where (u.Active == true) && (u.State == true) && (p.Active == true) && (p.State == true) && (u.EmailConfirmed == true)
                 select new UserPersonFilterDTO
                 {
@@ -60,7 +60,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var query =
                 from u in ctx.User
-                join p in ctx.Person on u.PersonId equals p.PersonId
+                join p in ctx.Person 
+                on u.UserId equals p.UserId
                 join dit in ctx.DocumentIdentityType on p.DocumentIdentityTypeId equals dit.DocumentIdentityTypeId
                 join ur in ctx.UserRole on u.UserId equals ur.UserId
                 join r in ctx.Role on ur.RoleId equals r.RoleId
@@ -72,7 +73,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     p.PersonId,
                     p.DocumentIdentityCode,
                     p.FullName,
-                    p.Email,
+                    u.Email,
                     dit.DocumentIdentityTypeId,
                     dit.DocumentIdentityTypeDescription,
                     dit.DocumentIdentityTypeAbbreviation
@@ -129,6 +130,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             try
             {
+                // Verificar si ya existe una persona con ese documento
                 var person = await _context.Person
                     .FirstOrDefaultAsync(p =>
                         p.DocumentIdentityCode == dto.DocumentIdentityCode &&
@@ -137,9 +139,10 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
                 if (person != null)
                 {
+                    // Persona existe — verificar si ya tiene usuario
                     var userExists = await _context.User
                         .AnyAsync(u =>
-                            u.PersonId == person.PersonId &&
+                            u.UserId == person.UserId &&
                             u.State == true
                         );
 
@@ -148,6 +151,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 }
                 else
                 {
+                    // Persona no existe — crearla sin usuario aún
                     person = new Person
                     {
                         DocumentIdentityCode = dto.DocumentIdentityCode,
@@ -156,7 +160,6 @@ namespace Abril_Backend.Infrastructure.Repositories {
                         FirstLastName = dto.FirstLastName,
                         SecondLastName = dto.SecondLastName,
                         FullName = $"{dto.FirstNames} {dto.FirstLastName} {dto.SecondLastName}",
-                        Email = dto.Email,
                         PhoneNumber = dto.PhoneNumber,
                         Active = true,
                         State = true,
@@ -168,9 +171,10 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     await _context.SaveChangesAsync();
                 }
 
+                // Crear el usuario con el email
                 var user = new User
                 {
-                    PersonId = person.PersonId,
+                    Email = dto.Email,
                     Active = false,
                     State = true,
                     EmailConfirmed = false,
@@ -181,6 +185,11 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 _context.User.Add(user);
                 await _context.SaveChangesAsync();
 
+                // Vincular persona con usuario
+                person.UserId = user.UserId;
+                await _context.SaveChangesAsync();
+
+                // Asignar rol
                 var userRole = new UserRole
                 {
                     UserId = user.UserId,
@@ -225,7 +234,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var registros = from user in ctx.User
                 join user_role in ctx.UserRole on user.UserId equals user_role.UserId
                 join role in ctx.Role on user_role.RoleId equals role.RoleId
-                join person in ctx.Person on user.PersonId equals person.PersonId
+                join person in ctx.Person on user.UserId equals person.UserId
                 where (role.RoleDescription == "RESIDENTE") && (person.State == true) && (person.Active == true)
                 && (user.State == true) && (user.Active == true)
                 select new UserFilterDTO

@@ -67,7 +67,7 @@ namespace Abril_Backend.Application.Services
             ";
 
             await _emailService.SendAsync(
-                to: new List<string> { user.Person.Email },
+                to: new List<string> { user.Email },
                 subject: "Completa tu registro",
                 body: body,
                 isHtml: true,

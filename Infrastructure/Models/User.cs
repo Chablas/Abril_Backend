@@ -1,8 +1,7 @@
 namespace Abril_Backend.Infrastructure.Models {
     public class User {
         public int UserId {get; set;}
-        public int PersonId {get; set;}
-        public Person Person { get; set; }
+        public string? Email {get; set;}
         public string? Password {get; set;}
         public bool EmailConfirmed {get;set;}
         public DateTime CreatedDateTime {get; set;}
@@ -11,5 +10,6 @@ namespace Abril_Backend.Infrastructure.Models {
         public int? UpdatedUserId {get; set;}
         public bool Active {get; set;}
         public bool State {get; set;}
+        public Person Person { get; set; }
     }
 }

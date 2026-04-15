@@ -1,3 +1,5 @@
+using Abril_Backend.Shared.Services.Email.Interfaces;
+using Abril_Backend.Shared.Services.Email.Services;
 using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
@@ -135,6 +137,10 @@ builder.Services.AddHttpClient<ReniecService>(client =>
     client.BaseAddress = new Uri(builder.Configuration["Reniec:ReniecService"]);
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", builder.Configuration["Reniec:Token"]);
     client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+});
+builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>(client =>
+{
+    client.BaseAddress = new Uri("https://graph.microsoft.com/");
 });
 builder.Services.AddHttpClient<ISunatService, DecolectaSunatService>(client =>
 {

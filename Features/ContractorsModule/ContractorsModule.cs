@@ -6,6 +6,8 @@ using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Inte
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Services;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructure.Interfaces;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructure.Repositories;
+using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Services;
 
 namespace Abril_Backend.Features.Contractors
 {
@@ -13,6 +15,7 @@ namespace Abril_Backend.Features.Contractors
     {
         public static IServiceCollection AddContractorsModule(this IServiceCollection services)
         {
+            services.AddScoped<IGraphSharePointService, GraphSharePointService>();
             // ContractorRegistration
             services.AddScoped<IContractorRegistrationRepository, ContractorRegistrationRepository>();
             services.AddScoped<IContractorRegistrationService, ContractorRegistrationService>();

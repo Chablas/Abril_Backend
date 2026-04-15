@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
-using Abril_Backend.Shared.Models;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
 {
@@ -56,7 +56,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
         public DbSet<ProjectSubContractorStatus> ProjectSubContractorStatus { get; set; }
-        
+        public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             if (_provider == "PostgreSQL")
@@ -99,6 +100,7 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(r => r.StateNavigation)
                 .WithMany(s => s.ResidentReportIncidences)
                 .HasForeignKey(r => r.StateId);
+                
             modelBuilder.Entity<CompanyEmail>()
                 .HasOne(e => e.Company)
                 .WithMany(c => c.Emails)

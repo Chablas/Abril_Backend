@@ -12,6 +12,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task<List<PaymentMethodSimpleDTO>> GetPaymentMethodFactory();
         Task<List<CurrencySimpleDTO>> GetCurrencyFactory();
         Task<List<WorkItemSimpleDTO>> GetWorkItemFactory();
+        Task<List<WorkItemCategorySimpleDTO>> GetWorkItemCategoryFactory();
         Task<List<CompanyFactoryDTO>> GetCompanyFactory();
         Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter);
         Task<AdjudicacionNotificationDataDto> GetNotificationData(int projectSubContractorId);

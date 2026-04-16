@@ -18,12 +18,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IProjectRepository _projectRepository;
         private readonly IDelegatedMailService _delegatedMailService;
         private readonly IHttpClientFactory _httpClientFactory;
-
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            "eaguinaga@abril.pe",
-            "apimentel@abril.pe",
-            "cavila@abril.pe"
+            //"eaguinaga@abril.pe",
+            //"apimentel@abril.pe",
+            //"bquicana@abril.pe",
+            //"cavila@abril.pe",
+            "alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -71,9 +72,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var currenciesTask = _projectSubContractorRepository.GetCurrencyFactory();
 
             var workItemsTask = _projectSubContractorRepository.GetWorkItemFactory();
+            var workItemCategoriesTask = _projectSubContractorRepository.GetWorkItemCategoryFactory();
             var companiesTask = _projectSubContractorRepository.GetCompanyFactory();
 
-            await Task.WhenAll(projectsTask, contractsTask, contractTypesTask, contractOriginsTask, paymentMethodsTask, currenciesTask, workItemsTask, companiesTask);
+            await Task.WhenAll(
+                projectsTask, 
+                contractsTask, 
+                contractTypesTask, 
+                contractOriginsTask, 
+                paymentMethodsTask, 
+                currenciesTask, 
+                workItemsTask, 
+                workItemCategoriesTask,
+                companiesTask);
 
             return new ProjectSubContractorFormDataDTO
             {
@@ -84,6 +95,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 PaymentMethods = await paymentMethodsTask,
                 Currencies = await currenciesTask,
                 WorkItems = await workItemsTask,
+                WorkItemCategories = await workItemCategoriesTask,
                 Companies = await companiesTask
             };
         }
@@ -139,7 +151,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 subject: subject,
                 body: body,
                 isHtml: true,
-                bcc: new List<string> { BccEmail },
+                //bcc: new List<string> { BccEmail },
                 attachments: attachments
             );
 

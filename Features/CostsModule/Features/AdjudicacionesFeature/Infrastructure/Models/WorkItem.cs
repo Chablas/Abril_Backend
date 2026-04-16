@@ -2,7 +2,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
     public class WorkItem {
         public int WorkItemId {get; set;}
         public string WorkItemDescription {get; set;}
-        public int WorkItemCategoryId {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

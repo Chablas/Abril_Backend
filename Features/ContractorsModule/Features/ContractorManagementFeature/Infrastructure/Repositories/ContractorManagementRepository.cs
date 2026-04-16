@@ -48,6 +48,9 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                     CompanyEconomicActivityDescription = x.c.CompanyEconomicActivityDescription,
                     CompanyStateId = x.cs.CompanyStateId,
                     CompanyStateDescription = x.cs.CompanyStateDescription,
+                    BrochureFileUrl = x.c.BrochureFileUrl,
+                    FichaRucFileUrl = x.c.FichaRucFileUrl,
+                    ReferencesListFileUrl = x.c.ReferencesListFileUrl,
                     CreatedDateTime = x.c.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
                 })
                 .ToListAsync();

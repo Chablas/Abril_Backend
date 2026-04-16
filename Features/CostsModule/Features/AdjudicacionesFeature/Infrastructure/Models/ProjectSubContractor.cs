@@ -14,6 +14,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public bool HasIgv {get; set;}
         public string ContractorEmail {get; set;}
         public int WorkItemId {get; set;}
+        public int WorkItemCategoryId {get; set;}
         public int ProjectSubContractorStatusId {get;set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}

@@ -9,6 +9,9 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Dt
         public string CompanyEconomicActivityDescription { get; set; } = null!;
         public int CompanyStateId { get; set; }
         public string CompanyStateDescription { get; set; } = null!;
+        public string? BrochureFileUrl { get; set; }
+        public string? FichaRucFileUrl { get; set; }
+        public string? ReferencesListFileUrl { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public List<string> Emails { get; set; } = new();
     }

@@ -9,6 +9,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public List<PaymentMethodSimpleDTO> PaymentMethods {get;set;}
         public List<CurrencySimpleDTO> Currencies {get;set;}
         public List<WorkItemSimpleDTO> WorkItems {get;set;}
+        public List<WorkItemCategorySimpleDTO> WorkItemCategories { get;set; }
         public List<CompanyFactoryDTO> Companies {get;set;}
     }
 }

@@ -33,6 +33,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 HasIgv = dto.HasIgv,
                 ContractorEmail = dto.ContractorEmail,
                 WorkItemId = dto.WorkItemId,
+                WorkItemCategoryId = dto.WorkItemCategoryId,
                 ProjectSubContractorStatusId = 1,
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
@@ -154,6 +155,20 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             return await registros.ToListAsync();
         }
 
+        public async Task<List<WorkItemCategorySimpleDTO>> GetWorkItemCategoryFactory()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var registros = ctx.WorkItemCategory
+                .Where(item => item.Active)
+                .OrderBy(item => item.WorkItemCategoryDescription)
+                .Select(item => new WorkItemCategorySimpleDTO
+                {
+                    WorkItemCategoryId = item.WorkItemCategoryId,
+                    WorkItemCategoryDescription = item.WorkItemCategoryDescription,
+                });
+            return await registros.ToListAsync();
+        }
+
         public async Task<List<CompanyFactoryDTO>> GetCompanyFactory()
         {
             using var ctx = _factory.CreateDbContext();
@@ -203,8 +218,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join wi in ctx.WorkItem on psc.WorkItemId equals wi.WorkItemId
                 join contract in ctx.Contract on psc.ContractId equals contract.ContractId
                 join pscs in ctx.ProjectSubContractorStatus on psc.ProjectSubContractorStatusId equals pscs.ProjectSubContractorStatusId
+                join wic in ctx.WorkItemCategory on psc.WorkItemCategoryId equals wic.WorkItemCategoryId
                 where psc.State
-                select new { psc, p, c, ct, co, pm, cur, wi, contract, pscs };
+                select new { psc, p, c, ct, co, pm, cur, wi, contract, pscs, wic };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -248,6 +264,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     ContractorEmail = x.psc.ContractorEmail,
                     WorkItemId = x.psc.WorkItemId,
                     WorkItemDescription = x.wi.WorkItemDescription,
+                    WorkItemCategoryId = x.psc.WorkItemCategoryId,
+                    WorkItemCategoryDescription = x.wic.WorkItemCategoryDescription,
                     ProjectSubContractorStatusId = x.pscs.ProjectSubContractorStatusId,
                     ProjectSubContractorStatusDescription = x.pscs.ProjectSubContractorStatusDescription,
                     CreatedDateTime = x.psc.CreatedDateTime

@@ -152,7 +152,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 HitosProximos14Dias = hitosProximos,
             };
 
-            // ── Proyección de Avance (by project) ──
+            // ── Ranking Eficiencia (by project) ──
             var projectGroups = classified
                 .GroupBy(x => x.ProjectDescription)
                 .Select(g => new
@@ -165,14 +165,6 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .Take(10)
                 .ToList();
 
-            var proyeccionAvance = new ProyeccionAvanceDTO
-            {
-                Labels = projectGroups.Select(x => x.Label).ToList(),
-                Programado = projectGroups.Select(x => (double)x.Total).ToList(),
-                Real = projectGroups.Select(x => (double)x.Completed).ToList(),
-            };
-
-            // ── Ranking Eficiencia (by project) ──
             var rankingEficiencia = projectGroups
                 .Where(x => x.Total > 0)
                 .Select(x => new ChartItemDTO
@@ -229,8 +221,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 }
             ).ToListAsync();
 
-            var supervisores = supervisorData
-                .GroupBy(x => x.FullName)
+            var supervisorGroups = supervisorData
+                .GroupBy(x => x.FullName ?? "Sin nombre")
                 .Select(g =>
                 {
                     var supProjectIds = g.Select(x => x.ProjectId).Distinct().ToList();
@@ -238,25 +230,54 @@ namespace Abril_Backend.Infrastructure.Repositories
                         .Where(x => supProjectIds.Contains(x.ProjectId)).ToList();
                     int supTotal = supActivities.Count;
                     int supCompleted = supActivities.Count(x => x.Estado == "Culminada");
+                    int supInProgress = supActivities.Count(x => x.Estado == "En Proceso");
 
-                    return new SupervisorProgresoDTO
+                    return new
                     {
-                        Nombre = g.Key ?? "Sin nombre",
+                        Nombre = g.Key,
                         Total = supTotal,
                         Completadas = supCompleted,
-                        Progreso = supTotal > 0
-                            ? Math.Round((double)supCompleted / supTotal * 100, 1) : 0,
+                        EnProceso = supInProgress,
                     };
+                })
+                .Where(x => x.Total > 0)
+                .ToList();
+
+            var supervisores = supervisorGroups
+                .Select(x => new SupervisorProgresoDTO
+                {
+                    Nombre = x.Nombre,
+                    Total = x.Total,
+                    Completadas = x.Completadas,
+                    Progreso = x.Total > 0
+                        ? Math.Round((double)x.Completadas / x.Total * 100, 1) : 0,
                 })
                 .OrderByDescending(x => x.Progreso)
                 .Take(10)
                 .ToList();
 
-            // ── Hitos Críticos (próximos a vencer o vencidos) ──
-            var hitosCriticos = classified
-                .Where(x => x.Estado != "Culminada" && x.PlannedEndDate.HasValue)
-                .OrderBy(x => x.PlannedEndDate)
+            // ── Proyección de Avance (by supervisor) ──
+            var proyeccionGroups = supervisorGroups
+                .OrderByDescending(x => x.Total)
                 .Take(10)
+                .ToList();
+
+            var proyeccionAvance = new ProyeccionAvanceDTO
+            {
+                Labels = proyeccionGroups.Select(x => x.Nombre).ToList(),
+                Programado = proyeccionGroups.Select(x => (double)x.Total).ToList(),
+                Real = proyeccionGroups.Select(x => (double)x.Completadas).ToList(),
+                Proyeccion = proyeccionGroups
+                    .Select(x => (double)(x.Completadas + x.EnProceso)).ToList(),
+            };
+
+            // ── Hitos Críticos (próximos 14 días sin completar) ──
+            var hitosCriticos = classified
+                .Where(x => x.Estado != "Culminada"
+                    && x.PlannedEndDate.HasValue
+                    && x.PlannedEndDate.Value >= today
+                    && x.PlannedEndDate.Value <= in14Days)
+                .OrderBy(x => x.PlannedEndDate)
                 .Select(x => new HitoCriticoDTO
                 {
                     Nombre = x.MilestoneDescription,

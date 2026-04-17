@@ -30,6 +30,7 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public List<string> Labels { get; set; } = new();
         public List<double> Programado { get; set; } = new();
         public List<double> Real { get; set; } = new();
+        public List<double> Proyeccion { get; set; } = new();
     }
 
     public class EficienciaSemanalDTO

@@ -66,6 +66,8 @@ namespace Abril_Backend.Shared.Services.Email.Services
             // Serializar manualmente para manejar @odata.type
             var json = BuildPayloadJson(to, subject, body, isHtml, cc, bcc, attachments);
 
+            Console.WriteLine($"[GraphDelegatedMailService] Token (primeros 20 chars): {graphAccessToken?[..Math.Min(20, graphAccessToken?.Length ?? 0)]}...");
+
             var request = new HttpRequestMessage(HttpMethod.Post, "v1.0/me/sendMail")
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
@@ -73,7 +75,13 @@ namespace Abril_Backend.Shared.Services.Email.Services
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", graphAccessToken);
 
             var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"[GraphDelegatedMailService] Error {(int)response.StatusCode}: {errorBody}");
+                throw new InvalidOperationException($"Graph sendMail falló con {(int)response.StatusCode}: {errorBody}");
+            }
         }
 
         private static string BuildPayloadJson(

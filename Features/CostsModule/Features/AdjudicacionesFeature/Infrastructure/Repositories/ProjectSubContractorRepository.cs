@@ -15,14 +15,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             _factory = factory;
         }
 
-        public async Task Create(ProjectSubContractorCreateDTO dto, List<string> quotationFileUrls, List<string> comparativeFileUrls, int userId)
+        public async Task Create(ProjectSubContractorCreateDTO dto, List<(string Url, string OriginalFileName)> quotationFiles, List<(string Url, string OriginalFileName)> comparativeFiles, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
             var subContractor = new ProjectSubContractor
             {
                 ProjectId = dto.ProjectId,
-                CompanyId = dto.CompanyId,
+                ContractorId = dto.ContractorId,
                 ContractId = dto.ContractId,
                 ContractTypeId = dto.ContractTypeId,
                 ContractOriginId = dto.ContractOriginId,
@@ -41,11 +41,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 State = true
             };
 
-            foreach (var url in quotationFileUrls)
+            foreach (var file in quotationFiles)
             {
                 subContractor.QuotationFiles.Add(new ProjectSubContractorQuotationFile
                 {
-                    FileUrl = url,
+                    FileUrl = file.Url,
+                    OriginalFileName = file.OriginalFileName,
                     CreatedDateTime = DateTime.UtcNow,
                     CreatedUserId = userId,
                     Active = true,
@@ -53,11 +54,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 });
             }
 
-            foreach (var url in comparativeFileUrls)
+            foreach (var file in comparativeFiles)
             {
                 subContractor.ComparativeFiles.Add(new ProjectSubContractorComparativeFile
                 {
-                    FileUrl = url,
+                    FileUrl = file.Url,
+                    OriginalFileName = file.OriginalFileName,
                     CreatedDateTime = DateTime.UtcNow,
                     CreatedUserId = userId,
                     Active = true,
@@ -173,32 +175,37 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
         {
             using var ctx = _factory.CreateDbContext();
 
-            var companies = await ctx.Company
-                .Where(item => item.Active)
-                .OrderBy(item => item.CompanyName)
-                .Select(item => new CompanyFactoryDTO
+            const int approvedContractorStateId = 2;
+
+            var contractors = await (
+                from ct in ctx.Contractor
+                join c in ctx.Company on ct.CompanyId equals c.CompanyId
+                where ct.Active && ct.State && ct.ContractorStateId == approvedContractorStateId
+                orderby c.CompanyName
+                select new CompanyFactoryDTO
                 {
-                    CompanyId = item.CompanyId,
-                    CompanyName = item.CompanyName,
-                    CompanyRuc = item.CompanyRuc
-                })
+                    ContractorId = ct.ContractorId,
+                    CompanyId = c.CompanyId,
+                    CompanyName = c.CompanyName,
+                    CompanyRuc = c.CompanyRuc
+                }
+            ).ToListAsync();
+
+            var ids = contractors.Select(c => c.ContractorId).ToList();
+
+            var emails = await ctx.ContractorEmail
+                .Where(e => ids.Contains(e.ContractorId) && e.Active)
+                .Select(e => new { e.ContractorId, e.Email })
                 .ToListAsync();
 
-            var ids = companies.Select(c => c.CompanyId).ToList();
-
-            var emails = await ctx.CompanyEmail
-                .Where(e => ids.Contains(e.CompanyId) && e.Active)
-                .Select(e => new { e.CompanyId, e.Email })
-                .ToListAsync();
-
-            var emailsByCompany = emails
-                .GroupBy(e => e.CompanyId)
+            var emailsByContractor = emails
+                .GroupBy(e => e.ContractorId)
                 .ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
 
-            foreach (var company in companies)
-                company.Emails = emailsByCompany.GetValueOrDefault(company.CompanyId, new());
+            foreach (var contractor in contractors)
+                contractor.Emails = emailsByContractor.GetValueOrDefault(contractor.ContractorId, new());
 
-            return companies;
+            return contractors;
         }
 
         public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
@@ -210,7 +217,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var query =
                 from psc in ctx.ProjectSubContractor
                 join p in ctx.Project on psc.ProjectId equals p.ProjectId
-                join c in ctx.Company on psc.CompanyId equals c.CompanyId
+                join contractor in ctx.Contractor on psc.ContractorId equals contractor.ContractorId
+                join c in ctx.Company on contractor.CompanyId equals c.CompanyId
                 join ct in ctx.ContractType on psc.ContractTypeId equals ct.ContractTypeId
                 join co in ctx.ContractOrigin on psc.ContractOriginId equals co.ContractOriginId
                 join pm in ctx.PaymentMethod on psc.PaymentMethodId equals pm.PaymentMethodId
@@ -220,7 +228,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join pscs in ctx.ProjectSubContractorStatus on psc.ProjectSubContractorStatusId equals pscs.ProjectSubContractorStatusId
                 join wic in ctx.WorkItemCategory on psc.WorkItemCategoryId equals wic.WorkItemCategoryId
                 where psc.State
-                select new { psc, p, c, ct, co, pm, cur, wi, contract, pscs, wic };
+                select new { psc, p, contractor, c, ct, co, pm, cur, wi, contract, pscs, wic };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -246,7 +254,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     ProjectSubContractorId = x.psc.ProjectSubContractorId,
                     ProjectId = x.psc.ProjectId,
                     ProjectDescription = x.p.ProjectDescription,
-                    CompanyId = x.psc.CompanyId,
+                    ContractorId = x.psc.ContractorId,
+                    CompanyId = x.c.CompanyId,
                     CompanyName = x.c.CompanyName,
                     ContractId = x.psc.ContractId,
                     ContractDescription = x.contract.ContractDescription,
@@ -276,26 +285,34 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
 
             var quotationFiles = await ctx.ProjectSubContractorQuotationFile
                 .Where(f => ids.Contains(f.ProjectSubContractorId) && f.State)
-                .Select(f => new { f.ProjectSubContractorId, f.FileUrl })
+                .Select(f => new { f.ProjectSubContractorId, f.FileUrl, f.OriginalFileName })
                 .ToListAsync();
 
             var comparativeFiles = await ctx.ProjectSubContractorComparativeFile
                 .Where(f => ids.Contains(f.ProjectSubContractorId) && f.State)
-                .Select(f => new { f.ProjectSubContractorId, f.FileUrl })
+                .Select(f => new { f.ProjectSubContractorId, f.FileUrl, f.OriginalFileName })
                 .ToListAsync();
 
             var quotationByPsc = quotationFiles
                 .GroupBy(f => f.ProjectSubContractorId)
-                .ToDictionary(g => g.Key, g => g.Select(f => f.FileUrl).ToList());
+                .ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto
+                {
+                    FileUrl = f.FileUrl,
+                    OriginalFileName = f.OriginalFileName
+                }).ToList());
 
             var comparativeByPsc = comparativeFiles
                 .GroupBy(f => f.ProjectSubContractorId)
-                .ToDictionary(g => g.Key, g => g.Select(f => f.FileUrl).ToList());
+                .ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto
+                {
+                    FileUrl = f.FileUrl,
+                    OriginalFileName = f.OriginalFileName
+                }).ToList());
 
             foreach (var item in items)
             {
-                item.QuotationFileUrls = quotationByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
-                item.ComparativeFileUrls = comparativeByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
+                item.QuotationFiles = quotationByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
+                item.ComparativeFiles = comparativeByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
             }
 
             return new PagedResult<ProjectSubContractorDTO>
@@ -325,8 +342,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var workItem = await _context.WorkItem
                 .FirstOrDefaultAsync(w => w.WorkItemId == psc.WorkItemId);
 
-            var company = await _context.Company
-                .FirstOrDefaultAsync(c => c.CompanyId == psc.CompanyId);
+            var company = await (
+                from ct in _context.Contractor
+                join c in _context.Company on ct.CompanyId equals c.CompanyId
+                where ct.ContractorId == psc.ContractorId
+                select c
+            ).FirstOrDefaultAsync();
 
             var staffEmails = await _context.StaffProjectEmail
                 .Where(s => s.ProjectId == psc.ProjectId && s.State && s.Active)
@@ -340,9 +361,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 ProjectDescription = psc.Project.ProjectDescription,
                 WorkItemDescription = workItem?.WorkItemDescription ?? string.Empty,
                 CompanyName = company?.CompanyName ?? string.Empty,
+                ContractorEmail = psc.ContractorEmail,
                 StaffEmails = staffEmails,
-                QuotationFileUrls = psc.QuotationFiles.Select(f => f.FileUrl).ToList(),
-                ComparativeFileUrls = psc.ComparativeFiles.Select(f => f.FileUrl).ToList()
+                QuotationFiles = psc.QuotationFiles.Select(f => new ProjectSubContractorFileDto
+                {
+                    FileUrl = f.FileUrl,
+                    OriginalFileName = f.OriginalFileName
+                }).ToList(),
+                ComparativeFiles = psc.ComparativeFiles.Select(f => new ProjectSubContractorFileDto
+                {
+                    FileUrl = f.FileUrl,
+                    OriginalFileName = f.OriginalFileName
+                }).ToList()
             };
         }
 

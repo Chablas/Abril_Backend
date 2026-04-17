@@ -8,6 +8,10 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 {
     public class ContractorManagementRepository : IContractorManagementRepository
     {
+        private const int PendingContractorStateId = 1;
+        private const int ApprovedContractorStateId = 2;
+        private const int RejectedContractorStateId = 3;
+
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public ContractorManagementRepository(IDbContextFactory<AppDbContext> factory)
@@ -22,10 +26,11 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             const int pageSize = 10;
 
             var query =
-                from c in ctx.Company
-                join cs in ctx.CompanyState on c.CompanyStateId equals cs.CompanyStateId
-                where c.Active
-                select new { c, cs };
+                from ct in ctx.Contractor
+                join c in ctx.Company on ct.CompanyId equals c.CompanyId
+                join cs in ctx.ContractorState on ct.ContractorStateId equals cs.ContractorStateId
+                where ct.Active
+                select new { ct, c, cs };
 
             if (!string.IsNullOrWhiteSpace(filter.CompanyName))
                 query = query.Where(x => x.c.CompanyName.ToLower().Contains(filter.CompanyName.ToLower()));
@@ -36,38 +41,39 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             var totalRecords = await query.CountAsync();
 
             var items = await query
-                .OrderByDescending(x => x.c.CompanyId)
+                .OrderByDescending(x => x.ct.ContractorId)
                 .Skip((filter.Page - 1) * pageSize)
                 .Take(pageSize)
                 .Select(x => new CompanyPagedDto
                 {
+                    ContractorId = x.ct.ContractorId,
                     CompanyId = x.c.CompanyId,
                     CompanyRuc = x.c.CompanyRuc,
                     CompanyName = x.c.CompanyName,
                     CompanyAddress = x.c.CompanyAddress,
                     CompanyEconomicActivityDescription = x.c.CompanyEconomicActivityDescription,
-                    CompanyStateId = x.cs.CompanyStateId,
-                    CompanyStateDescription = x.cs.CompanyStateDescription,
-                    BrochureFileUrl = x.c.BrochureFileUrl,
-                    FichaRucFileUrl = x.c.FichaRucFileUrl,
-                    ReferencesListFileUrl = x.c.ReferencesListFileUrl,
-                    CreatedDateTime = x.c.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
+                    ContractorStateId = x.cs.ContractorStateId,
+                    ContractorStateDescription = x.cs.ContractorStateDescription,
+                    BrochureFileUrl = x.ct.BrochureFileUrl,
+                    FichaRucFileUrl = x.ct.FichaRucFileUrl,
+                    ReferencesListFileUrl = x.ct.ReferencesListFileUrl,
+                    CreatedDateTime = x.ct.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
                 })
                 .ToListAsync();
 
-            var ids = items.Select(c => c.CompanyId).ToList();
+            var ids = items.Select(c => c.ContractorId).ToList();
 
-            var emails = await ctx.CompanyEmail
-                .Where(e => ids.Contains(e.CompanyId) && e.Active)
-                .Select(e => new { e.CompanyId, e.Email })
+            var emails = await ctx.ContractorEmail
+                .Where(e => ids.Contains(e.ContractorId) && e.Active)
+                .Select(e => new { e.ContractorId, e.Email })
                 .ToListAsync();
 
-            var emailsByCompany = emails
-                .GroupBy(e => e.CompanyId)
+            var emailsByContractor = emails
+                .GroupBy(e => e.ContractorId)
                 .ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
 
             foreach (var item in items)
-                item.Emails = emailsByCompany.GetValueOrDefault(item.CompanyId, new());
+                item.Emails = emailsByContractor.GetValueOrDefault(item.ContractorId, new());
 
             return new PagedResult<CompanyPagedDto>
             {
@@ -79,25 +85,25 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             };
         }
 
-        public async Task Approve(int companyId, int userId)
+        public async Task Approve(int contractorId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var company = await ctx.Company.FirstOrDefaultAsync(c => c.CompanyId == companyId && c.CompanyStateId == 1);
-            if (company is null) return;
-            company.CompanyStateId = 2;
-            company.UpdatedDateTime = DateTimeOffset.UtcNow;
-            company.UpdatedUserId = userId;
+            var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.ContractorStateId == PendingContractorStateId);
+            if (contractor is null) return;
+            contractor.ContractorStateId = ApprovedContractorStateId;
+            contractor.UpdatedDateTime = DateTimeOffset.UtcNow;
+            contractor.UpdatedUserId = userId;
             await ctx.SaveChangesAsync();
         }
 
-        public async Task Reject(int companyId, int userId)
+        public async Task Reject(int contractorId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var company = await ctx.Company.FirstOrDefaultAsync(c => c.CompanyId == companyId && c.CompanyStateId == 1);
-            if (company is null) return;
-            company.CompanyStateId = 3;
-            company.UpdatedDateTime = DateTimeOffset.UtcNow;
-            company.UpdatedUserId = userId;
+            var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.ContractorStateId == PendingContractorStateId);
+            if (contractor is null) return;
+            contractor.ContractorStateId = RejectedContractorStateId;
+            contractor.UpdatedDateTime = DateTimeOffset.UtcNow;
+            contractor.UpdatedUserId = userId;
             await ctx.SaveChangesAsync();
         }
     }

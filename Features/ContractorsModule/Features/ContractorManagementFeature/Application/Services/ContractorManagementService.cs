@@ -19,14 +19,14 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
             return await _repository.GetPaged(filter);
         }
 
-        public async Task Approve(int companyId, int userId)
+        public async Task Approve(int contractorId, int userId)
         {
-            await _repository.Approve(companyId, userId);
+            await _repository.Approve(contractorId, userId);
         }
 
-        public async Task Reject(int companyId, int userId)
+        public async Task Reject(int contractorId, int userId)
         {
-            await _repository.Reject(companyId, userId);
+            await _repository.Reject(contractorId, userId);
         }
     }
 }

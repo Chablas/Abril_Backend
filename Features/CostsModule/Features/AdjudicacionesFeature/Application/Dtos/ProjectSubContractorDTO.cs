@@ -1,8 +1,16 @@
 namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
+
+    public class ProjectSubContractorFileDto
+    {
+        public string FileUrl { get; set; } = null!;
+        public string? OriginalFileName { get; set; }
+    }
+
     public class ProjectSubContractorDTO {
         public int ProjectSubContractorId { get; set; }
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; }
+        public int ContractorId { get; set; }
         public int CompanyId { get; set; }
         public string CompanyName { get; set; }
         public int ContractId { get; set; }
@@ -26,7 +34,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int ProjectSubContractorStatusId { get; set; }
         public string ProjectSubContractorStatusDescription { get; set; }
         public DateTime CreatedDateTime { get; set; }
-        public List<string> QuotationFileUrls { get; set; } = new();
-        public List<string> ComparativeFileUrls { get; set; } = new();
+        public List<ProjectSubContractorFileDto> QuotationFiles { get; set; } = new();
+        public List<ProjectSubContractorFileDto> ComparativeFiles { get; set; } = new();
     }
 }

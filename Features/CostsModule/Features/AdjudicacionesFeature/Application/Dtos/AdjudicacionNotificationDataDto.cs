@@ -7,8 +7,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string ProjectDescription { get; set; } = null!;
         public string WorkItemDescription { get; set; } = null!;
         public string CompanyName { get; set; } = null!;
+        public string ContractorEmail { get; set; } = null!;
         public List<string> StaffEmails { get; set; } = new();
-        public List<string> QuotationFileUrls { get; set; } = new();
-        public List<string> ComparativeFileUrls { get; set; } = new();
+        public List<ProjectSubContractorFileDto> QuotationFiles { get; set; } = new();
+        public List<ProjectSubContractorFileDto> ComparativeFiles { get; set; } = new();
     }
 }

@@ -32,13 +32,13 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Presentation
             }
         }
 
-        [HttpPatch("{companyId}/approve")]
-        public async Task<IActionResult> Approve(int companyId)
+        [HttpPatch("{contractorId}/approve")]
+        public async Task<IActionResult> Approve(int contractorId)
         {
             try
             {
                 var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-                await _service.Approve(companyId, userId);
+                await _service.Approve(contractorId, userId);
                 return Ok(new { message = "Contratista aprobado exitosamente." });
             }
             catch (Exception)
@@ -47,13 +47,13 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Presentation
             }
         }
 
-        [HttpPatch("{companyId}/reject")]
-        public async Task<IActionResult> Reject(int companyId)
+        [HttpPatch("{contractorId}/reject")]
+        public async Task<IActionResult> Reject(int contractorId)
         {
             try
             {
                 var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-                await _service.Reject(companyId, userId);
+                await _service.Reject(contractorId, userId);
                 return Ok(new { message = "Contratista rechazado exitosamente." });
             }
             catch (Exception)

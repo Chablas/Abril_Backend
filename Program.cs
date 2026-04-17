@@ -15,6 +15,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
 using Abril_Backend.Features.Costs;
+using Abril_Backend.Features.ConfigurationModule;
 using Abril_Backend.Shared.Services.Reniec.Services;
 using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Abril_Backend.Features.Contractors;
@@ -81,6 +82,7 @@ else
 
 builder.Services.AddCostsModule();
 builder.Services.AddContractorsModule();
+builder.Services.AddConfigurationModule();
 builder.Services.AddMicrosoftAuthModule(builder.Configuration);
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();

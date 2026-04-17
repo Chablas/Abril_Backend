@@ -6,6 +6,8 @@ using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos;
 using Abril_Backend.Shared.Services.Email.Interfaces;
 using Abril_Backend.Shared.Services.Email.Dtos;
+using Abril_Backend.Shared.Services.Graph.Interfaces;
+using Abril_Backend.Shared.Services.Graph.Dtos;
 using System.Text;
 
 namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
@@ -18,6 +20,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IProjectRepository _projectRepository;
         private readonly IDelegatedMailService _delegatedMailService;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IGraphUserService _graphUserService;
+
         private static readonly List<string> CostosYPresupuestos = new()
         {
             //"eaguinaga@abril.pe",
@@ -35,8 +39,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             IStorageContainerResolver containerResolver,
             IProjectRepository projectRepository,
             IDelegatedMailService delegatedMailService,
-            IHttpClientFactory httpClientFactory
-            )
+            IHttpClientFactory httpClientFactory,
+            IGraphUserService graphUserService)
         {
             _projectSubContractorRepository = projectSubContractorRepository;
             _fileStorageService = fileStorageService;
@@ -44,6 +48,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _projectRepository = projectRepository;
             _delegatedMailService = delegatedMailService;
             _httpClientFactory = httpClientFactory;
+            _graphUserService = graphUserService;
         }
 
         public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
@@ -56,10 +61,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var container = _containerResolver.GetProjectSubContractorContainerName();
 
-            var quotationUrls = await UploadFiles(dto.QuotationFiles, container);
-            var comparativeUrls = await UploadFiles(dto.ComparativeFiles, container);
+            var quotationFiles = await UploadFiles(dto.QuotationFiles, container);
+            var comparativeFiles = await UploadFiles(dto.ComparativeFiles, container);
 
-            await _projectSubContractorRepository.Create(dto, quotationUrls, comparativeUrls, userId);
+            await _projectSubContractorRepository.Create(dto, quotationFiles, comparativeFiles, userId);
         }
 
         public async Task<ProjectSubContractorFormDataDTO> GetFormData()
@@ -70,19 +75,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var contractOriginsTask = _projectSubContractorRepository.GetContractOriginFactory();
             var paymentMethodsTask = _projectSubContractorRepository.GetPaymentMethodFactory();
             var currenciesTask = _projectSubContractorRepository.GetCurrencyFactory();
-
             var workItemsTask = _projectSubContractorRepository.GetWorkItemFactory();
             var workItemCategoriesTask = _projectSubContractorRepository.GetWorkItemCategoryFactory();
             var companiesTask = _projectSubContractorRepository.GetCompanyFactory();
 
             await Task.WhenAll(
-                projectsTask, 
-                contractsTask, 
-                contractTypesTask, 
-                contractOriginsTask, 
-                paymentMethodsTask, 
-                currenciesTask, 
-                workItemsTask, 
+                projectsTask,
+                contractsTask,
+                contractTypesTask,
+                contractOriginsTask,
+                paymentMethodsTask,
+                currenciesTask,
+                workItemsTask,
                 workItemCategoriesTask,
                 companiesTask);
 
@@ -100,12 +104,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
         }
 
-        private async Task<List<string>> UploadFiles(List<IFormFile>? files, string container)
+        private async Task<List<(string Url, string OriginalFileName)>> UploadFiles(List<IFormFile>? files, string container)
         {
             if (files == null || !files.Any())
-                return new List<string>();
+                return new List<(string, string)>();
 
             var filesToUpload = new List<(Stream Stream, string FileName)>();
+            var originalNames = new List<string>();
             var streams = new List<Stream>();
 
             foreach (var file in files)
@@ -114,16 +119,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     throw new AbrilException("Se detectó un archivo vacío.");
 
                 var extension = Path.GetExtension(file.FileName);
-                var fileName = $"{Guid.NewGuid()}{extension}";
+                var storedName = $"{Guid.NewGuid()}{extension}";
                 var stream = file.OpenReadStream();
 
                 streams.Add(stream);
-                filesToUpload.Add((stream, fileName));
+                filesToUpload.Add((stream, storedName));
+                originalNames.Add(file.FileName);
             }
 
             try
             {
-                return await _fileStorageService.UploadFilesAsync(filesToUpload, container);
+                var urls = await _fileStorageService.UploadFilesAsync(filesToUpload, container);
+                return urls.Zip(originalNames, (url, name) => (url, name)).ToList();
             }
             finally
             {
@@ -136,32 +143,64 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetNotificationData(dto.ProjectSubContractorId);
 
-            // Descargar archivos adjuntos en paralelo
-            var attachments = await DownloadAttachmentsAsync(data.QuotationFileUrls, data.ComparativeFileUrls);
+            // Consultar perfiles de Graph para todos los staff emails en una sola request
+            var userProfiles = await _graphUserService.GetUsersByEmailsAsync(data.StaffEmails);
 
-            // --- Primer correo: notificación de adjudicación al staff de obra ---
+            Console.WriteLine($"[SendNotification] StaffEmails ({data.StaffEmails.Count}): {string.Join(", ", data.StaffEmails)}");
+            Console.WriteLine($"[SendNotification] Perfiles obtenidos de Graph ({userProfiles.Count}):");
+            foreach (var kv in userProfiles)
+                Console.WriteLine($"  - {kv.Key} → Nombre: {kv.Value.DisplayName}, Puesto: {kv.Value.JobTitle}, Teléfono: {kv.Value.Phone}");
+
+            if (userProfiles.Count == 0)
+                Console.WriteLine("  [ADVERTENCIA] No se obtuvo ningún perfil. Verificar token y permisos User.Read.All.");
+
+            var quotationAttachments = await DownloadAttachmentsAsync(data.QuotationFiles);
+
             var subject = $"{data.ProjectDescription} // {data.WorkItemDescription} // {data.CompanyName}";
-            var body = BuildFirstEmailBody(data);
+            var internalRecipients = data.StaffEmails.Concat(CostosYPresupuestos).Distinct().ToList();
 
-            var to = data.StaffEmails.Concat(CostosYPresupuestos).Distinct().ToList();
+            // --- Correo 1: interno — staff de obra + costos y presupuestos ---
+            // TODO: descomentar cuando se defina el cuerpo y los destinatarios correctos
+            // var firstEmailBody = BuildInternalEmailBody(data);
+            // await _delegatedMailService.SendAsync(
+            //     graphAccessToken: dto.GraphAccessToken,
+            //     to: internalRecipients,
+            //     subject: subject,
+            //     body: firstEmailBody,
+            //     isHtml: true,
+            //     attachments: quotationAttachments.Concat(await DownloadAttachmentsAsync(data.ComparativeFiles)).ToList()
+            // );
 
+            // --- Correo único: subcontratista ---
+            // TO: subcontratista | CC: staff de obra + costos y presupuestos | Adjunto: solo cotización
+            var emailBody = BuildSubcontractorEmailBody(data, userProfiles);
             await _delegatedMailService.SendAsync(
                 graphAccessToken: dto.GraphAccessToken,
-                to: to,
+                to: new List<string> { data.ContractorEmail },
                 subject: subject,
-                body: body,
+                body: emailBody,
                 isHtml: true,
-                //bcc: new List<string> { BccEmail },
-                attachments: attachments
+                cc: internalRecipients,
+                attachments: quotationAttachments
             );
 
             // Actualizar estado de la adjudicación a 2 (notificada)
             await _projectSubContractorRepository.UpdateStatusToSent(dto.ProjectSubContractorId, userId);
-
-            // TODO: Aquí va la lógica del segundo correo
         }
 
-        private static string BuildFirstEmailBody(AdjudicacionNotificationDataDto data)
+        private static string BuildInternalEmailBody(AdjudicacionNotificationDataDto data)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<p>Estimados,</p>");
+            sb.AppendLine($"<p>Se adjuntan los archivos de cotización y cuadro comparativo correspondientes a la adjudicación de " +
+                          $"<strong>{data.WorkItemDescription}</strong> para el proyecto <strong>{data.ProjectDescription}</strong> " +
+                          $"con la empresa <strong>{data.CompanyName}</strong>.</p>");
+            return sb.ToString();
+        }
+
+        private static string BuildSubcontractorEmailBody(
+            AdjudicacionNotificationDataDto data,
+            Dictionary<string, GraphUserProfileDto> userProfiles)
         {
             var sb = new StringBuilder();
             sb.AppendLine("<p>Estimado,</p>");
@@ -177,13 +216,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             sb.AppendLine("  </tr></thead>");
             sb.AppendLine("  <tbody>");
 
-            // Nota: StaffProjectEmail almacena correos de grupos de distribución.
-            // Los campos Nombre, Puesto y Número no están disponibles en el modelo actual.
             for (int i = 0; i < data.StaffEmails.Count; i++)
             {
+                var email = data.StaffEmails[i];
+                userProfiles.TryGetValue(email, out var profile);
+
                 sb.AppendLine("    <tr>");
-                sb.AppendLine($"      <td>{i + 1}</td><td></td><td></td><td></td>");
-                sb.AppendLine($"      <td>{data.StaffEmails[i]}</td>");
+                sb.AppendLine($"      <td>{i + 1}</td>");
+                sb.AppendLine($"      <td>{profile?.DisplayName ?? "-"}</td>");
+                sb.AppendLine($"      <td>{profile?.JobTitle ?? "-"}</td>");
+                sb.AppendLine($"      <td>{profile?.Phone ?? "-"}</td>");
+                sb.AppendLine($"      <td>{email}</td>");
                 sb.AppendLine("    </tr>");
             }
 
@@ -192,18 +235,22 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         }
 
         private async Task<List<MailAttachmentDto>> DownloadAttachmentsAsync(
-            List<string> quotationUrls,
-            List<string> comparativeUrls)
+            List<ProjectSubContractorFileDto> files)
         {
-            var client = _httpClientFactory.CreateClient();
-            var allUrls = quotationUrls.Concat(comparativeUrls).ToList();
+            if (files == null || files.Count == 0)
+                return new List<MailAttachmentDto>();
 
-            var downloadTasks = allUrls.Select(async url =>
+            var client = _httpClientFactory.CreateClient();
+
+            var downloadTasks = files.Select(async file =>
             {
                 try
                 {
-                    var bytes = await client.GetByteArrayAsync(url);
-                    var fileName = Path.GetFileName(new Uri(url).LocalPath);
+                    var bytes = await client.GetByteArrayAsync(file.FileUrl);
+                    var fileName = !string.IsNullOrWhiteSpace(file.OriginalFileName)
+                        ? file.OriginalFileName
+                        : Path.GetFileName(new Uri(file.FileUrl).LocalPath);
+
                     return new MailAttachmentDto
                     {
                         FileName = fileName,

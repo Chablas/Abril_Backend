@@ -1,5 +1,6 @@
 namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
     public class CompanyFactoryDTO {
+        public int ContractorId { get; set; }
         public int CompanyId { get; set; }
         public string? CompanyName { get; set; }
         public string? CompanyRuc { get; set; }

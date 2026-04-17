@@ -1,0 +1,140 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Claims;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Dtos;
+using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Interfaces;
+
+namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Presentation
+{
+    [ApiController]
+    [Route("api/v1/project")]
+    [Authorize]
+    public class ProjectController : ControllerBase
+    {
+        private readonly IProjectService _service;
+
+        public ProjectController(IProjectService service)
+        {
+            _service = service;
+        }
+
+        [HttpGet("company-lookup/{ruc}")]
+        [EnableRateLimiting("sunat-ruc")]
+        public async Task<IActionResult> CompanyLookup(string ruc)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                var result = await _service.GetOrCreateCompanyByRuc(ruc, userId);
+
+                if (result == null)
+                    return NotFound(new { message = "No se encontró información para el RUC proporcionado." });
+
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("paged")]
+        public async Task<IActionResult> GetPaged([FromQuery] int page = 1)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var result = await _service.GetPaged(page);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] ProjectCreateDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                if (string.IsNullOrWhiteSpace(dto.ProjectDescription))
+                    return BadRequest(new { message = "La descripción del proyecto es obligatoria." });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _service.Create(dto, userId);
+                return Ok(new { message = "Proyecto creado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPut]
+        public async Task<IActionResult> Update([FromBody] ProjectEditDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                if (string.IsNullOrWhiteSpace(dto.ProjectDescription))
+                    return BadRequest(new { message = "La descripción del proyecto es obligatoria." });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _service.Update(dto, userId);
+                return Ok(new { message = "Proyecto actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpDelete("{projectId}")]
+        public async Task<IActionResult> Delete(int projectId)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                var result = await _service.DeleteSoftAsync(projectId, userId);
+
+                if (!result)
+                    return NotFound(new { message = "Proyecto no encontrado." });
+
+                return Ok(new { message = "Proyecto eliminado exitosamente." });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+    }
+}

@@ -181,6 +181,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             {
                 project.State = true;
                 project.Active = dto.Active;
+                project.LevelDescription = dto.LevelDescription?.Trim();
                 project.UpdatedDateTime = DateTime.UtcNow;
                 project.UpdatedUserId = userId;
 
@@ -191,6 +192,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             project = new Project
             {
                 ProjectDescription = dto.ProjectDescription.Trim(),
+                LevelDescription = dto.LevelDescription?.Trim(),
                 Active = dto.Active,
                 State = true,
                 CreatedDateTime = DateTime.UtcNow,
@@ -220,6 +222,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 throw new AbrilException("Ya existe otro proyecto con la misma descripción");
 
             project.ProjectDescription = dto.ProjectDescription.Trim();
+            project.LevelDescription = dto.LevelDescription?.Trim();
             project.Active = dto.Active;
             project.UpdatedDateTime = DateTime.UtcNow;
             project.UpdatedUserId = userId;

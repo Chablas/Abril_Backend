@@ -1,9 +1,10 @@
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
     public class ProjectSubContractor {
         public int ProjectSubContractorId {get; set;}
         public int ProjectId {get; set;}
-        public int CompanyId {get; set;}
+        public int ContractorId {get; set;}
         public int ContractId {get; set;}
         public int ContractTypeId {get; set;}
         public int ContractOriginId {get; set;}
@@ -23,6 +24,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public bool Active {get; set;}
         public bool State {get; set;}
         public Project Project { get; set; }
+        public Contractor Contractor { get; set; } = null!;
         public List<ProjectSubContractorQuotationFile> QuotationFiles { get; set; } = new();
         public List<ProjectSubContractorComparativeFile> ComparativeFiles { get; set; } = new();
     }

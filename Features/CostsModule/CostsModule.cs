@@ -6,6 +6,16 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.StaffProjectEmai
 using Abril_Backend.Features.CostsModule.Features.Configuration.StaffProjectEmailFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.CostsModule.Features.Configuration.StaffProjectEmailFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.StaffProjectEmailFeature.Application.Services;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCategoryFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCategoryFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCategoryFeature.Application.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCategoryFeature.Application.Services;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Application.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Application.Services;
+using Abril_Backend.Shared.Services.Graph.Interfaces;
+using Abril_Backend.Shared.Services.Graph.Services;
 
 namespace Abril_Backend.Features.Costs
 {
@@ -13,11 +23,24 @@ namespace Abril_Backend.Features.Costs
     {
         public static IServiceCollection AddCostsModule(this IServiceCollection services)
         {
+            // Shared - Graph
+            services.AddScoped<IGraphUserService, GraphUserService>();
+
+            // Adjudicaciones
             services.AddScoped<IProjectSubContractorRepository, ProjectSubContractorRepository>();
             services.AddScoped<IProjectSubContractorService, ProjectSubContractorService>();
 
+            // StaffProjectEmail
             services.AddScoped<IStaffProjectEmailRepository, StaffProjectEmailRepository>();
             services.AddScoped<IStaffProjectEmailService, StaffProjectEmailService>();
+
+            // WorkItemCategory
+            services.AddScoped<IWorkItemCategoryRepository, WorkItemCategoryRepository>();
+            services.AddScoped<IWorkItemCategoryService, WorkItemCategoryService>();
+
+            // WorkItem
+            services.AddScoped<IWorkItemRepository, WorkItemRepository>();
+            services.AddScoped<IWorkItemService, WorkItemService>();
 
             return services;
         }

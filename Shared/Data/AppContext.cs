@@ -47,8 +47,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ContractOrigin> ContractOrigin { get; set; }
         public DbSet<PaymentMethod> PaymentMethod { get; set; }
         public DbSet<Company> Company { get; set; }
-        public DbSet<CompanyEmail> CompanyEmail { get; set; }
-        public DbSet<CompanyState> CompanyState { get; set; }
+        public DbSet<Contractor> Contractor { get; set; }
+        public DbSet<ContractorEmail> ContractorEmail { get; set; }
+        public DbSet<ContractorState> ContractorState { get; set; }
         public DbSet<Currency> Currency { get; set; }
         public DbSet<WorkItemCategory> WorkItemCategory { get; set; }
         public DbSet<WorkItem> WorkItem { get; set; }
@@ -80,7 +81,7 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(i => i.ResidentReportIncidence)
                 .WithMany(r => r.Images)
                 .HasForeignKey(i => i.ResidentReportIncidenceId);
-                
+
             modelBuilder.Entity<ResidentReportIncidence>()
                 .HasOne(r => r.Project)
                 .WithMany(p => p.Incidences)
@@ -100,11 +101,27 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(r => r.StateNavigation)
                 .WithMany(s => s.ResidentReportIncidences)
                 .HasForeignKey(r => r.StateId);
-                
-            modelBuilder.Entity<CompanyEmail>()
-                .HasOne(e => e.Company)
+
+            modelBuilder.Entity<Contractor>()
+                .HasOne(c => c.Company)
+                .WithMany()
+                .HasForeignKey(c => c.CompanyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Contractor>()
+                .HasOne(c => c.ContractorState)
+                .WithMany()
+                .HasForeignKey(c => c.ContractorStateId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Contractor>()
+                .HasIndex(c => c.CompanyId)
+                .IsUnique();
+
+            modelBuilder.Entity<ContractorEmail>()
+                .HasOne(e => e.Contractor)
                 .WithMany(c => c.Emails)
-                .HasForeignKey(e => e.CompanyId);
+                .HasForeignKey(e => e.ContractorId);
 
             modelBuilder.Entity<ProjectSubContractorQuotationFile>()
                 .HasOne(f => f.ProjectSubContractor)
@@ -121,10 +138,17 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(s => s.ProjectId);
 
-            modelBuilder.Entity<CompanyEmail>()
-                .HasOne(e => e.Company)
-                .WithMany(c => c.Emails)
-                .HasForeignKey(e => e.CompanyId);
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Contractor)
+                .WithMany()
+                .HasForeignKey(s => s.ContractorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Project>()
+                .HasOne(p => p.Company)
+                .WithMany()
+                .HasForeignKey(p => p.CompanyId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)
@@ -148,10 +172,6 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<MilestoneScheduleHistory>(entity =>
             {
                 entity.Property(e => e.IsEqualToLastVersion).HasColumnName("is_equal_to_last_version");
-            });
-            modelBuilder.Entity<CompanyEmail>(entity =>
-            {
-               entity.Property(e => e.Email).HasColumnName("company_email"); 
             });
         }
     }

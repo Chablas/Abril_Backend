@@ -1,7 +1,7 @@
 namespace Abril_Backend.Features.CostsModule.Shared.Models {
-    public class CompanyState {
-        public int CompanyStateId { get; set; }
-        public string CompanyStateDescription { get; set; }
+    public class ContractorState {
+        public int ContractorStateId { get; set; }
+        public string ContractorStateDescription { get; set; } = null!;
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }
         public DateTimeOffset? UpdatedDateTime { get; set; }

@@ -3,6 +3,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int ProjectSubContractorQuotationFileId {get; set;}
         public int ProjectSubContractorId {get; set;}
         public string FileUrl {get; set;}
+        public string? OriginalFileName {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

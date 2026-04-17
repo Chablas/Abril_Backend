@@ -8,6 +8,8 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
 {
     public class ContractorRegistrationRepository : IContractorRegistrationRepository
     {
+        private const int PendingContractorStateId = 1;
+
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public ContractorRegistrationRepository(IDbContextFactory<AppDbContext> factory)
@@ -19,16 +21,31 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
         {
             using var ctx = _factory.CreateDbContext();
 
-            var company = new Company
+            var company = await ctx.Company.FirstOrDefaultAsync(c => c.CompanyRuc == dto.CompanyRuc && c.State);
+            if (company == null)
             {
-                CompanyRuc = dto.CompanyRuc,
-                CompanyName = dto.CompanyName,
-                CompanyAddress = dto.CompanyAddress,
-                CompanyEconomicActivityDescription = dto.CompanyEconomicActivityDescription,
+                company = new Company
+                {
+                    CompanyRuc = dto.CompanyRuc,
+                    CompanyName = dto.CompanyName,
+                    CompanyAddress = dto.CompanyAddress,
+                    CompanyEconomicActivityDescription = dto.CompanyEconomicActivityDescription,
+                    CreatedDateTime = DateTimeOffset.UtcNow,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true
+                };
+                ctx.Company.Add(company);
+                await ctx.SaveChangesAsync();
+            }
+
+            var contractor = new Contractor
+            {
+                CompanyId = company.CompanyId,
+                ContractorStateId = PendingContractorStateId,
                 BrochureFileUrl = brochureUrl,
                 FichaRucFileUrl = fichaRucUrl,
                 ReferencesListFileUrl = referencesUrl,
-                CompanyStateId = 1,
                 CreatedDateTime = DateTimeOffset.UtcNow,
                 CreatedUserId = userId,
                 Active = true,
@@ -37,7 +54,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
 
             foreach (var email in dto.CompanyEmails)
             {
-                company.Emails.Add(new CompanyEmail
+                contractor.Emails.Add(new ContractorEmail
                 {
                     Email = email,
                     CreatedDateTime = DateTimeOffset.UtcNow,
@@ -47,7 +64,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                 });
             }
 
-            ctx.Company.Add(company);
+            ctx.Contractor.Add(contractor);
             await ctx.SaveChangesAsync();
         }
     }

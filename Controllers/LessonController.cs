@@ -354,7 +354,7 @@ namespace Abril_Backend.Controllers
         [Authorize]
         [HttpPost("send-pdf")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> SendPDF([FromForm] IFormFile pdf)
+        public async Task<IActionResult> SendPDF(IFormFile pdf)
         {
             try
             {

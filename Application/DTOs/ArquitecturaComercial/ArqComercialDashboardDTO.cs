@@ -19,7 +19,7 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public int HitosProximos14Dias { get; set; }
     }
 
-    public class ChartItemDTO
+    public class ArqComercialChartItemDTO
     {
         public string Label { get; set; } = string.Empty;
         public double Value { get; set; }
@@ -61,8 +61,8 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public ArqComercialKpiDTO Kpis { get; set; } = new();
         public ArqComercialAlertDTO Alertas { get; set; } = new();
         public ProyeccionAvanceDTO ProyeccionAvance { get; set; } = new();
-        public List<ChartItemDTO> RankingEficiencia { get; set; } = new();
-        public List<ChartItemDTO> DistribucionEstado { get; set; } = new();
+        public List<ArqComercialChartItemDTO> RankingEficiencia { get; set; } = new();
+        public List<ArqComercialChartItemDTO> DistribucionEstado { get; set; } = new();
         public List<EficienciaSemanalDTO> TendenciaEficiencia { get; set; } = new();
         public List<SupervisorProgresoDTO> Supervisores { get; set; } = new();
         public List<HitoCriticoDTO> HitosCriticos { get; set; } = new();

@@ -167,7 +167,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var rankingEficiencia = projectGroups
                 .Where(x => x.Total > 0)
-                .Select(x => new ChartItemDTO
+                .Select(x => new ArqComercialChartItemDTO
                 {
                     Label = x.Label,
                     Value = Math.Round((double)x.Completed / x.Total * 100, 1),
@@ -176,7 +176,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .ToList();
 
             // ── Distribución por Estado ──
-            var distribucionEstado = new List<ChartItemDTO>
+            var distribucionEstado = new List<ArqComercialChartItemDTO>
             {
                 new() { Label = "Culminadas", Value = culminadas },
                 new() { Label = "En Proceso", Value = enProceso },

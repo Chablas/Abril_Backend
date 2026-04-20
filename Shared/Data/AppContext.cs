@@ -56,7 +56,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
         public DbSet<ProjectSubContractorStatus> ProjectSubContractorStatus { get; set; }
-        
+        public DbSet<AcActividad> AcActividad { get; set; }
+        public DbSet<AcEtapa> AcEtapa { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             if (_provider == "PostgreSQL")

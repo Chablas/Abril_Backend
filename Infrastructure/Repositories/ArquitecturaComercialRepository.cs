@@ -7,6 +7,12 @@ namespace Abril_Backend.Infrastructure.Repositories
 {
     public class ArquitecturaComercialRepository : IArquitecturaComercialRepository
     {
+        private const string EstadoCulminado = "CULMINADO";
+        private const string EstadoEnProceso = "EN PROCESO";
+        private const string EstadoVencido = "VENCIDO";
+        private const string EstadoPendiente = "PENDIENTE";
+        private const string EstadoVacio = "VACIO";
+
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public ArquitecturaComercialRepository(IDbContextFactory<AppDbContext> factory)
@@ -20,95 +26,89 @@ namespace Abril_Backend.Infrastructure.Repositories
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
             var startOfWeek = today.AddDays(-(int)today.DayOfWeek + (int)DayOfWeek.Monday);
             var endOfWeek = startOfWeek.AddDays(6);
+            var in14Days = today.AddDays(14);
 
-            // ── Base query: MilestoneSchedule + History + Milestone + Project ──
-            var query = from ms in ctx.MilestoneSchedule
-                        join msh in ctx.MilestoneScheduleHistory
-                            on ms.MilestoneScheduleHistoryId equals msh.MilestoneScheduleHistoryId
-                        join m in ctx.Milestone
-                            on ms.MilestoneId equals m.MilestoneId
-                        join p in ctx.Project
-                            on msh.ProjectId equals p.ProjectId
-                        where ms.State && msh.State && m.State && p.State
+            // ── Base query: AcActividad + Project + Person (left join via UserId) ──
+            var query = from a in ctx.AcActividad
+                        join p in ctx.Project on a.ProjectId equals p.ProjectId
+                        from pe in ctx.Person
+                            .Where(pe => pe.UserId == a.UserId && pe.State)
+                            .DefaultIfEmpty()
+                        where a.Activo && p.State
                         select new
                         {
-                            ms.MilestoneScheduleId,
-                            ms.MilestoneId,
-                            MilestoneDescription = m.MilestoneDescription,
-                            ms.PlannedStartDate,
-                            ms.PlannedEndDate,
-                            ms.Active,
-                            ms.CreatedDateTime,
-                            msh.ProjectId,
+                            a.Id,
+                            a.Nombre,
+                            a.ProjectId,
                             ProjectDescription = p.ProjectDescription,
-                            msh.MilestoneScheduleHistoryId,
+                            a.UserId,
+                            SupervisorFullName = pe != null ? pe.FullName : null,
+                            a.InicioProgramado,
+                            a.FinProgramado,
+                            a.InicioEfectivo,
+                            a.FinEfectivo,
                         };
 
             // ── Apply filters ──
             if (proyectoId.HasValue && proyectoId.Value > 0)
                 query = query.Where(x => x.ProjectId == proyectoId.Value);
 
-            if (!string.IsNullOrEmpty(semana))
+            if (!string.IsNullOrEmpty(semana) && DateOnly.TryParse(semana, out var semanaDate))
             {
-                if (DateOnly.TryParse(semana, out var semanaDate))
-                {
-                    var semanaEnd = semanaDate.AddDays(6);
-                    query = query.Where(x =>
-                        x.PlannedStartDate <= semanaEnd && x.PlannedEndDate >= semanaDate);
-                }
+                var semanaEnd = semanaDate.AddDays(6);
+                query = query.Where(x =>
+                    x.InicioProgramado <= semanaEnd && x.FinProgramado >= semanaDate);
             }
 
-            if (!string.IsNullOrEmpty(mes))
+            if (!string.IsNullOrEmpty(mes) && DateOnly.TryParse(mes + "-01", out var mesDate))
             {
-                if (DateOnly.TryParse(mes + "-01", out var mesDate))
-                {
-                    var mesEnd = mesDate.AddMonths(1).AddDays(-1);
-                    query = query.Where(x =>
-                        x.PlannedStartDate <= mesEnd && x.PlannedEndDate >= mesDate);
-                }
+                var mesEnd = mesDate.AddMonths(1).AddDays(-1);
+                query = query.Where(x =>
+                    x.InicioProgramado <= mesEnd && x.FinProgramado >= mesDate);
             }
 
             var activities = await query.ToListAsync();
 
-            // ── Classify by status ──
-            // Active=false + State=true → Culminada (completed)
-            // PlannedEndDate < today && Active → Vencida
-            // PlannedStartDate <= today && PlannedEndDate >= today && Active → En Proceso
-            // PlannedStartDate > today && Active → Pendiente
+            // ── Compute estado in real-time ──
             var classified = activities.Select(a =>
             {
                 string estado;
-                if (!a.Active)
-                    estado = "Culminada";
-                else if (a.PlannedEndDate.HasValue && a.PlannedEndDate.Value < today)
-                    estado = "Vencida";
-                else if (a.PlannedStartDate.HasValue && a.PlannedStartDate.Value <= today
-                      && a.PlannedEndDate.HasValue && a.PlannedEndDate.Value >= today)
-                    estado = "En Proceso";
+                if (a.FinEfectivo.HasValue)
+                    estado = EstadoCulminado;
+                else if (a.InicioEfectivo.HasValue)
+                    estado = a.FinProgramado.HasValue && a.FinProgramado.Value < today
+                        ? EstadoVencido
+                        : EstadoEnProceso;
+                else if (a.InicioProgramado.HasValue)
+                    estado = EstadoPendiente;
                 else
-                    estado = "Pendiente";
+                    estado = EstadoVacio;
 
                 return new
                 {
-                    a.MilestoneScheduleId,
-                    a.MilestoneId,
-                    a.MilestoneDescription,
-                    a.PlannedStartDate,
-                    a.PlannedEndDate,
+                    a.Id,
+                    a.Nombre,
                     a.ProjectId,
                     a.ProjectDescription,
-                    a.MilestoneScheduleHistoryId,
-                    a.CreatedDateTime,
+                    a.UserId,
+                    a.SupervisorFullName,
+                    a.InicioProgramado,
+                    a.FinProgramado,
+                    a.InicioEfectivo,
+                    a.FinEfectivo,
                     Estado = estado,
                 };
             }).ToList();
 
             int total = classified.Count;
-            int culminadas = classified.Count(x => x.Estado == "Culminada");
-            int enProceso = classified.Count(x => x.Estado == "En Proceso");
-            int vencidas = classified.Count(x => x.Estado == "Vencida");
-            int pendientes = classified.Count(x => x.Estado == "Pendiente");
-            double eficiencia = total > 0 ? Math.Round((double)culminadas / total * 100, 1) : 0;
+            int culminadas = classified.Count(x => x.Estado == EstadoCulminado);
+            int enProceso = classified.Count(x => x.Estado == EstadoEnProceso);
+            int vencidas = classified.Count(x => x.Estado == EstadoVencido);
+            int pendientes = classified.Count(x => x.Estado == EstadoPendiente);
+            int vacias = classified.Count(x => x.Estado == EstadoVacio);
+
+            double eficiencia = total > 0
+                ? Math.Round((double)culminadas / total * 100, 1) : 0;
             double progreso = total > 0
                 ? Math.Round((double)(culminadas + enProceso) / total * 100, 1) : 0;
 
@@ -125,54 +125,45 @@ namespace Abril_Backend.Infrastructure.Repositories
             };
 
             // ── Alerts ──
-            int vencidasSinCerrar = classified.Count(x => x.Estado == "Vencida");
             int vencenEstaSemana = classified.Count(x =>
-                x.Estado != "Culminada"
-                && x.PlannedEndDate.HasValue
-                && x.PlannedEndDate.Value >= startOfWeek
-                && x.PlannedEndDate.Value <= endOfWeek);
+                x.Estado != EstadoCulminado
+                && x.FinProgramado.HasValue
+                && x.FinProgramado.Value >= startOfWeek
+                && x.FinProgramado.Value <= endOfWeek);
             int arrancanEstaSemana = classified.Count(x =>
-                x.PlannedStartDate.HasValue
-                && x.PlannedStartDate.Value >= startOfWeek
-                && x.PlannedStartDate.Value <= endOfWeek);
-
-            // Hitos próximos 14 días
-            var in14Days = today.AddDays(14);
+                x.InicioProgramado.HasValue
+                && x.InicioProgramado.Value >= startOfWeek
+                && x.InicioProgramado.Value <= endOfWeek);
             int hitosProximos = classified.Count(x =>
-                x.Estado != "Culminada"
-                && x.PlannedEndDate.HasValue
-                && x.PlannedEndDate.Value >= today
-                && x.PlannedEndDate.Value <= in14Days);
+                x.Estado != EstadoCulminado
+                && x.FinProgramado.HasValue
+                && x.FinProgramado.Value >= today
+                && x.FinProgramado.Value <= in14Days);
 
             var alertas = new ArqComercialAlertDTO
             {
-                VencidasSinCerrar = vencidasSinCerrar,
+                VencidasSinCerrar = vencidas,
                 VencenEstaSemana = vencenEstaSemana,
                 ArrancanEstaSemana = arrancanEstaSemana,
                 HitosProximos14Dias = hitosProximos,
             };
 
             // ── Ranking Eficiencia (by project) ──
-            var projectGroups = classified
+            var rankingEficiencia = classified
                 .GroupBy(x => x.ProjectDescription)
-                .Select(g => new
+                .Select(g =>
                 {
-                    Label = g.Key,
-                    Total = g.Count(),
-                    Completed = g.Count(x => x.Estado == "Culminada"),
-                })
-                .OrderByDescending(x => x.Total)
-                .Take(10)
-                .ToList();
-
-            var rankingEficiencia = projectGroups
-                .Where(x => x.Total > 0)
-                .Select(x => new ArqComercialChartItemDTO
-                {
-                    Label = x.Label,
-                    Value = Math.Round((double)x.Completed / x.Total * 100, 1),
+                    int gTotal = g.Count();
+                    int gCompleted = g.Count(x => x.Estado == EstadoCulminado);
+                    return new ArqComercialChartItemDTO
+                    {
+                        Label = g.Key,
+                        Value = gTotal > 0
+                            ? Math.Round((double)gCompleted / gTotal * 100, 1) : 0,
+                    };
                 })
                 .OrderByDescending(x => x.Value)
+                .Take(10)
                 .ToList();
 
             // ── Distribución por Estado ──
@@ -182,6 +173,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 new() { Label = "En Proceso", Value = enProceso },
                 new() { Label = "Vencidas", Value = vencidas },
                 new() { Label = "Pendientes", Value = pendientes },
+                new() { Label = "Vacías", Value = vacias },
             };
 
             // ── Tendencia Eficiencia últimas 5 semanas ──
@@ -192,10 +184,10 @@ namespace Abril_Backend.Infrastructure.Repositories
                 var weekEnd = weekStart.AddDays(6);
 
                 var weekActivities = classified.Where(x =>
-                    x.PlannedEndDate.HasValue && x.PlannedEndDate.Value <= weekEnd).ToList();
+                    x.FinProgramado.HasValue && x.FinProgramado.Value <= weekEnd).ToList();
 
                 int weekTotal = weekActivities.Count;
-                int weekCompleted = weekActivities.Count(x => x.Estado == "Culminada");
+                int weekCompleted = weekActivities.Count(x => x.Estado == EstadoCulminado);
                 double weekEff = weekTotal > 0
                     ? Math.Round((double)weekCompleted / weekTotal * 100, 1) : 0;
 
@@ -206,39 +198,16 @@ namespace Abril_Backend.Infrastructure.Repositories
                 });
             }
 
-            // ── Supervisores (ProjectResident → User → Person) ──
-            var projectIds = classified.Select(x => x.ProjectId).Distinct().ToList();
-
-            var supervisorData = await (
-                from pr in ctx.ProjectResident
-                join u in ctx.User on pr.UserId equals u.UserId
-                join pe in ctx.Person on u.UserId equals pe.UserId
-                where projectIds.Contains(pr.ProjectId) && pr.Active && pr.State && pe.State
-                select new
+            // ── Supervisores (por Person vía user_id en la actividad) ──
+            var supervisorGroups = classified
+                .Where(x => !string.IsNullOrEmpty(x.SupervisorFullName))
+                .GroupBy(x => x.SupervisorFullName!)
+                .Select(g => new
                 {
-                    pr.ProjectId,
-                    pe.FullName,
-                }
-            ).ToListAsync();
-
-            var supervisorGroups = supervisorData
-                .GroupBy(x => x.FullName ?? "Sin nombre")
-                .Select(g =>
-                {
-                    var supProjectIds = g.Select(x => x.ProjectId).Distinct().ToList();
-                    var supActivities = classified
-                        .Where(x => supProjectIds.Contains(x.ProjectId)).ToList();
-                    int supTotal = supActivities.Count;
-                    int supCompleted = supActivities.Count(x => x.Estado == "Culminada");
-                    int supInProgress = supActivities.Count(x => x.Estado == "En Proceso");
-
-                    return new
-                    {
-                        Nombre = g.Key,
-                        Total = supTotal,
-                        Completadas = supCompleted,
-                        EnProceso = supInProgress,
-                    };
+                    Nombre = g.Key,
+                    Total = g.Count(),
+                    Completadas = g.Count(x => x.Estado == EstadoCulminado),
+                    EnProceso = g.Count(x => x.Estado == EstadoEnProceso),
                 })
                 .Where(x => x.Total > 0)
                 .ToList();
@@ -271,19 +240,19 @@ namespace Abril_Backend.Infrastructure.Repositories
                     .Select(x => (double)(x.Completadas + x.EnProceso)).ToList(),
             };
 
-            // ── Hitos Críticos (próximos 14 días sin completar) ──
+            // ── Hitos Críticos (próximos 14 días sin culminar) ──
             var hitosCriticos = classified
-                .Where(x => x.Estado != "Culminada"
-                    && x.PlannedEndDate.HasValue
-                    && x.PlannedEndDate.Value >= today
-                    && x.PlannedEndDate.Value <= in14Days)
-                .OrderBy(x => x.PlannedEndDate)
+                .Where(x => x.Estado != EstadoCulminado
+                    && x.FinProgramado.HasValue
+                    && x.FinProgramado.Value >= today
+                    && x.FinProgramado.Value <= in14Days)
+                .OrderBy(x => x.FinProgramado)
                 .Select(x => new HitoCriticoDTO
                 {
-                    Nombre = x.MilestoneDescription,
+                    Nombre = x.Nombre,
                     Proyecto = x.ProjectDescription,
-                    FechaLimite = x.PlannedEndDate!.Value.ToString("dd/MM/yyyy"),
-                    DiasRestantes = x.PlannedEndDate.Value.DayNumber - today.DayNumber,
+                    FechaLimite = x.FinProgramado!.Value.ToString("dd/MM/yyyy"),
+                    DiasRestantes = x.FinProgramado.Value.DayNumber - today.DayNumber,
                     Estado = x.Estado,
                 })
                 .ToList();

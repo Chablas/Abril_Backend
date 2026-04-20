@@ -16,6 +16,8 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Application.Services;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
+using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Services;
 
 namespace Abril_Backend.Features.Costs
 {
@@ -23,8 +25,9 @@ namespace Abril_Backend.Features.Costs
     {
         public static IServiceCollection AddCostsModule(this IServiceCollection services)
         {
-            // Shared - Graph
+            // Shared
             services.AddScoped<IGraphUserService, GraphUserService>();
+            services.AddScoped<IGraphSharePointService, GraphSharePointService>();
 
             // Adjudicaciones
             services.AddScoped<IProjectSubContractorRepository, ProjectSubContractorRepository>();

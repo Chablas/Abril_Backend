@@ -227,8 +227,20 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join contract in ctx.Contract on psc.ContractId equals contract.ContractId
                 join pscs in ctx.ProjectSubContractorStatus on psc.ProjectSubContractorStatusId equals pscs.ProjectSubContractorStatusId
                 join wic in ctx.WorkItemCategory on psc.WorkItemCategoryId equals wic.WorkItemCategoryId
+                join contractDocJoin in ctx.ProjectSubContractorContract on psc.ProjectSubContractorContractId equals contractDocJoin.ProjectSubContractorContractId into contractDocGroup
+                from contractDoc in contractDocGroup.DefaultIfEmpty()
+                join summarySheetDocJoin in ctx.ProjectSubContractorSummarySheet on psc.ProjectSubContractorSummarySheetId equals summarySheetDocJoin.ProjectSubContractorSummarySheetId into summarySheetDocGroup
+                from summarySheetDoc in summarySheetDocGroup.DefaultIfEmpty()
+                join budgetDocJoin in ctx.ProjectSubContractorBudget on psc.ProjectSubContractorBudgetId equals budgetDocJoin.ProjectSubContractorBudgetId into budgetDocGroup
+                from budgetDoc in budgetDocGroup.DefaultIfEmpty()
+                join scheduleDocJoin in ctx.ProjectSubContractorSchedule on psc.ProjectSubContractorScheduleId equals scheduleDocJoin.ProjectSubContractorScheduleId into scheduleDocGroup
+                from scheduleDoc in scheduleDocGroup.DefaultIfEmpty()
+                join attachedQuotationDocJoin in ctx.ProjectSubContractorAttachedQuotation on psc.ProjectSubContractorAttachedQuotationId equals attachedQuotationDocJoin.ProjectSubContractorAttachedQuotationId into attachedQuotationDocGroup
+                from attachedQuotationDoc in attachedQuotationDocGroup.DefaultIfEmpty()
+                join serviceOrderDocJoin in ctx.ProjectSubContractorServiceOrder on psc.ProjectSubContractorServiceOrderId equals serviceOrderDocJoin.ProjectSubContractorServiceOrderId into serviceOrderDocGroup
+                from serviceOrderDoc in serviceOrderDocGroup.DefaultIfEmpty()
                 where psc.State
-                select new { psc, p, contractor, c, ct, co, pm, cur, wi, contract, pscs, wic };
+                select new { psc, p, contractor, c, ct, co, pm, cur, wi, contract, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -277,7 +289,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     WorkItemCategoryDescription = x.wic.WorkItemCategoryDescription,
                     ProjectSubContractorStatusId = x.pscs.ProjectSubContractorStatusId,
                     ProjectSubContractorStatusDescription = x.pscs.ProjectSubContractorStatusDescription,
-                    CreatedDateTime = x.psc.CreatedDateTime
+                    SigningDate = x.psc.SigningDate,
+                    StartDate = x.psc.StartDate,
+                    EndDate = x.psc.EndDate,
+                    CreatedDateTime = x.psc.CreatedDateTime,
+                    Contract          = x.contractDoc == null          ? null : new ProjectSubContractorFileDto { FileUrl = x.contractDoc.FileUrl!,          OriginalFileName = x.contractDoc.OriginalFileName },
+                    SummarySheet      = x.summarySheetDoc == null      ? null : new ProjectSubContractorFileDto { FileUrl = x.summarySheetDoc.FileUrl!,      OriginalFileName = x.summarySheetDoc.OriginalFileName },
+                    Budget            = x.budgetDoc == null            ? null : new ProjectSubContractorFileDto { FileUrl = x.budgetDoc.FileUrl!,            OriginalFileName = x.budgetDoc.OriginalFileName },
+                    Schedule          = x.scheduleDoc == null          ? null : new ProjectSubContractorFileDto { FileUrl = x.scheduleDoc.FileUrl!,          OriginalFileName = x.scheduleDoc.OriginalFileName },
+                    AttachedQuotation = x.attachedQuotationDoc == null ? null : new ProjectSubContractorFileDto { FileUrl = x.attachedQuotationDoc.FileUrl!, OriginalFileName = x.attachedQuotationDoc.OriginalFileName },
+                    ServiceOrder      = x.serviceOrderDoc == null      ? null : new ProjectSubContractorFileDto { FileUrl = x.serviceOrderDoc.FileUrl!,      OriginalFileName = x.serviceOrderDoc.OriginalFileName },
                 })
                 .ToListAsync();
 
@@ -389,6 +410,202 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             psc.UpdatedUserId = userId;
 
             await _context.SaveChangesAsync();
+        }
+
+        public async Task SaveDates(int projectSubContractorId, UpdateDatesDTO dto, int userId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State);
+
+            if (psc is null)
+                throw new AbrilException("La adjudicación no existe.");
+
+            if (psc.ProjectSubContractorStatusId != 2)
+                throw new AbrilException("La adjudicación no está en el paso de datos del contrato.");
+
+            psc.SigningDate = dto.SigningDate;
+            psc.StartDate = dto.StartDate;
+            psc.EndDate = dto.EndDate;
+            psc.ProjectSubContractorStatusId = 3;
+            psc.UpdatedDateTime = DateTime.UtcNow;
+            psc.UpdatedUserId = userId;
+
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<AdjudicacionPathDataDto> GetPathDataAsync(int projectSubContractorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var data = await (
+                from psc in ctx.ProjectSubContractor
+                join p  in ctx.Project    on psc.ProjectId    equals p.ProjectId
+                join ct in ctx.Contractor on psc.ContractorId equals ct.ContractorId
+                join c  in ctx.Company    on ct.CompanyId     equals c.CompanyId
+                join wi in ctx.WorkItem   on psc.WorkItemId   equals wi.WorkItemId
+                where psc.ProjectSubContractorId == projectSubContractorId && psc.State
+                select new AdjudicacionPathDataDto
+                {
+                    ProjectSubContractorId = psc.ProjectSubContractorId,
+                    ProjectDescription     = p.ProjectDescription,
+                    CompanyRuc             = c.CompanyRuc,
+                    CompanyName            = c.CompanyName,
+                    WorkItemDescription    = wi.WorkItemDescription,
+                }
+            ).FirstOrDefaultAsync();
+
+            if (data is null)
+                throw new AbrilException("La adjudicación no existe.");
+
+            return data;
+        }
+
+        public async Task SaveDocumentAsync(
+            int projectSubContractorId,
+            AdjudicacionDocumentType documentType,
+            string fileUrl,
+            string originalFileName,
+            int userId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            var now = DateTimeOffset.UtcNow;
+
+            switch (documentType)
+            {
+                case AdjudicacionDocumentType.Contract:
+                    psc.ProjectSubContractorContractId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorContract,
+                        psc.ProjectSubContractorContractId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorContract { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorContractId);
+                    break;
+
+                case AdjudicacionDocumentType.SummarySheet:
+                    psc.ProjectSubContractorSummarySheetId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorSummarySheet,
+                        psc.ProjectSubContractorSummarySheetId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorSummarySheet { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorSummarySheetId);
+                    break;
+
+                case AdjudicacionDocumentType.Budget:
+                    psc.ProjectSubContractorBudgetId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorBudget,
+                        psc.ProjectSubContractorBudgetId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorBudget { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorBudgetId);
+                    break;
+
+                case AdjudicacionDocumentType.Schedule:
+                    psc.ProjectSubContractorScheduleId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorSchedule,
+                        psc.ProjectSubContractorScheduleId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorSchedule { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorScheduleId);
+                    break;
+
+                case AdjudicacionDocumentType.AttachedQuotation:
+                    psc.ProjectSubContractorAttachedQuotationId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorAttachedQuotation,
+                        psc.ProjectSubContractorAttachedQuotationId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorAttachedQuotation { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorAttachedQuotationId);
+                    break;
+
+                case AdjudicacionDocumentType.ServiceOrder:
+                    psc.ProjectSubContractorServiceOrderId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorServiceOrder,
+                        psc.ProjectSubContractorServiceOrderId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorServiceOrder { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorServiceOrderId);
+                    break;
+
+                default:
+                    throw new AbrilException("Tipo de documento no válido.");
+            }
+
+            psc.UpdatedDateTime = DateTime.UtcNow;
+            psc.UpdatedUserId = userId;
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<AdjudicacionSummarySheetDataDto> GetSummarySheetDataAsync(int projectSubContractorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var data = await (
+                from psc      in ctx.ProjectSubContractor
+                join p        in ctx.Project        on psc.ProjectId        equals p.ProjectId
+                join ct       in ctx.Contractor     on psc.ContractorId     equals ct.ContractorId
+                join c        in ctx.Company        on ct.CompanyId         equals c.CompanyId
+                join wi       in ctx.WorkItem       on psc.WorkItemId       equals wi.WorkItemId
+                join contract in ctx.Contract       on psc.ContractId       equals contract.ContractId
+                join ctype    in ctx.ContractType   on psc.ContractTypeId   equals ctype.ContractTypeId
+                join co       in ctx.ContractOrigin on psc.ContractOriginId equals co.ContractOriginId
+                join pm       in ctx.PaymentMethod  on psc.PaymentMethodId  equals pm.PaymentMethodId
+                join cur      in ctx.Currency       on psc.CurrencyId       equals cur.CurrencyId
+                where psc.ProjectSubContractorId == projectSubContractorId && psc.State
+                select new AdjudicacionSummarySheetDataDto
+                {
+                    ProjectSubContractorId  = psc.ProjectSubContractorId,
+                    ProjectDescription      = p.ProjectDescription,
+                    CompanyName             = c.CompanyName,
+                    CompanyRuc              = c.CompanyRuc,
+                    WorkItemDescription     = wi.WorkItemDescription,
+                    ContractDescription     = contract.ContractDescription,
+                    ContractTypeDescription = ctype.ContractTypeDescription,
+                    ContractOriginDescription = co.ContractOriginDescription,
+                    PaymentMethodDescription  = pm.PaymentMethodDescription,
+                    CurrencyCode            = cur.CurrencyCode,
+                    Amount                  = psc.Amount,
+                    HasIgv                  = psc.HasIgv,
+                    AdvancePercentage       = psc.AdvancePercentage,
+                    SigningDate             = psc.SigningDate,
+                    StartDate               = psc.StartDate,
+                    EndDate                 = psc.EndDate,
+                }
+            ).FirstOrDefaultAsync();
+
+            if (data is null)
+                throw new AbrilException("La adjudicación no existe.");
+
+            return data;
+        }
+
+        /// <summary>
+        /// Actualiza el registro existente si ya hay un ID, o crea uno nuevo y devuelve su ID.
+        /// </summary>
+        private async Task<int> UpsertDocumentAsync<T>(
+            Microsoft.EntityFrameworkCore.DbSet<T> dbSet,
+            int? existingId,
+            Action<T> update,
+            Func<T> create,
+            Func<T, int> getId) where T : class
+        {
+            if (existingId.HasValue)
+            {
+                var existing = await dbSet.FindAsync(existingId.Value)
+                    ?? throw new AbrilException("El documento referenciado no existe.");
+                update(existing);
+                await _context.SaveChangesAsync();
+                return existingId.Value;
+            }
+            else
+            {
+                var newDoc = create();
+                dbSet.Add(newDoc);
+                await _context.SaveChangesAsync();
+                return getId(newDoc);
+            }
         }
     }
 }

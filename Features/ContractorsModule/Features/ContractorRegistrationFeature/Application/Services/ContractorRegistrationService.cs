@@ -59,7 +59,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             var fileName = $"{baseName}{extension}";
 
             using var stream = file.OpenReadStream();
-            return await _sharePointService.UploadFileAsync(accessToken, folderPath, fileName, stream, file.ContentType);
+            return await _sharePointService.UploadToOneDriveAsync(accessToken, folderPath, fileName, stream, file.ContentType);
         }
     }
 }

@@ -17,6 +17,20 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int WorkItemId {get; set;}
         public int WorkItemCategoryId {get; set;}
         public int ProjectSubContractorStatusId {get;set;}
+
+        // Expediente dates (step 2)
+        public DateOnly? SigningDate { get; set; }
+        public DateOnly? StartDate { get; set; }
+        public DateOnly? EndDate { get; set; }
+
+        // Document FKs (nullable — populated as the expediente progresses)
+        public int? ProjectSubContractorContractId { get; set; }
+        public int? ProjectSubContractorSummarySheetId { get; set; }
+        public int? ProjectSubContractorBudgetId { get; set; }
+        public int? ProjectSubContractorScheduleId { get; set; }
+        public int? ProjectSubContractorAttachedQuotationId { get; set; }
+        public int? ProjectSubContractorServiceOrderId { get; set; }
+
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}
@@ -25,6 +39,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public bool State {get; set;}
         public Project Project { get; set; }
         public Contractor Contractor { get; set; } = null!;
+        public ProjectSubContractorContract? Contract { get; set; }
+        public ProjectSubContractorSummarySheet? SummarySheet { get; set; }
+        public ProjectSubContractorBudget? Budget { get; set; }
+        public ProjectSubContractorSchedule? Schedule { get; set; }
+        public ProjectSubContractorAttachedQuotation? AttachedQuotation { get; set; }
+        public ProjectSubContractorServiceOrder? ServiceOrder { get; set; }
         public List<ProjectSubContractorQuotationFile> QuotationFiles { get; set; } = new();
         public List<ProjectSubContractorComparativeFile> ComparativeFiles { get; set; } = new();
     }

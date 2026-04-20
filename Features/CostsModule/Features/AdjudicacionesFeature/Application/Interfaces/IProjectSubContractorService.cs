@@ -9,5 +9,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         Task<ProjectSubContractorFormDataDTO> GetFormData();
         Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter);
         Task SendNotification(SendAdjudicacionNotificationDto dto, int userId);
+        Task SaveDates(int projectSubContractorId, UpdateDatesDTO dto, int userId);
+        Task<DocumentUploadResponseDto> UploadDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, IFormFile file, int userId);
+        Task<DocumentUploadResponseDto> GenerateDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int userId);
     }
 }

@@ -33,8 +33,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public string WorkItemCategoryDescription { get; set; }
         public int ProjectSubContractorStatusId { get; set; }
         public string ProjectSubContractorStatusDescription { get; set; }
+        public DateOnly? SigningDate { get; set; }
+        public DateOnly? StartDate { get; set; }
+        public DateOnly? EndDate { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public List<ProjectSubContractorFileDto> QuotationFiles { get; set; } = new();
         public List<ProjectSubContractorFileDto> ComparativeFiles { get; set; } = new();
+        // Documentos del contrato (paso 3)
+        public ProjectSubContractorFileDto? Contract { get; set; }
+        public ProjectSubContractorFileDto? SummarySheet { get; set; }
+        public ProjectSubContractorFileDto? Budget { get; set; }
+        public ProjectSubContractorFileDto? Schedule { get; set; }
+        public ProjectSubContractorFileDto? AttachedQuotation { get; set; }
+        public ProjectSubContractorFileDto? ServiceOrder { get; set; }
     }
 }

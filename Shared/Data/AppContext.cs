@@ -57,6 +57,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
         public DbSet<ProjectSubContractorStatus> ProjectSubContractorStatus { get; set; }
+        public DbSet<ProjectSubContractorContract> ProjectSubContractorContract { get; set; }
+        public DbSet<ProjectSubContractorSummarySheet> ProjectSubContractorSummarySheet { get; set; }
+        public DbSet<ProjectSubContractorBudget> ProjectSubContractorBudget { get; set; }
+        public DbSet<ProjectSubContractorSchedule> ProjectSubContractorSchedule { get; set; }
+        public DbSet<ProjectSubContractorAttachedQuotation> ProjectSubContractorAttachedQuotation { get; set; }
+        public DbSet<ProjectSubContractorServiceOrder> ProjectSubContractorServiceOrder { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -149,6 +155,42 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(p => p.CompanyId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Contract)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorContractId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.SummarySheet)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorSummarySheetId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Budget)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorBudgetId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Schedule)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorScheduleId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.AttachedQuotation)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorAttachedQuotationId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.ServiceOrder)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorServiceOrderId)
+                .IsRequired(false);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

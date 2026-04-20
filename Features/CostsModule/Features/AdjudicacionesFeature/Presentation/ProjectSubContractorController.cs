@@ -107,6 +107,87 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         }
 
         [Authorize]
+        [HttpPatch("{id}/dates")]
+        public async Task<IActionResult> SaveDates(int id, [FromBody] UpdateDatesDTO dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.SaveDates(id, dto, userId);
+                return Ok(new { message = "Fechas guardadas exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/documents/{documentType}")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadDocument(int id, string documentType, IFormFile file)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+
+                if (!Enum.TryParse<AdjudicacionDocumentType>(documentType, ignoreCase: true, out var docType))
+                    return BadRequest(new { message = $"Tipo de documento inválido: '{documentType}'. Valores válidos: {string.Join(", ", Enum.GetNames<AdjudicacionDocumentType>())}" });
+
+                var result = await _projectSubContractorService.UploadDocumentAsync(id, docType, file, userId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/generate/{documentType}")]
+        public async Task<IActionResult> GenerateDocument(int id, string documentType)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+
+                if (!Enum.TryParse<AdjudicacionDocumentType>(documentType, ignoreCase: true, out var docType))
+                    return BadRequest(new { message = $"Tipo de documento inválido: '{documentType}'. Valores válidos: {string.Join(", ", Enum.GetNames<AdjudicacionDocumentType>())}" });
+
+                var result = await _projectSubContractorService.GenerateDocumentAsync(id, docType, userId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPost("send-notification")]
         public async Task<IActionResult> SendNotification([FromBody] SendAdjudicacionNotificationDto dto)
         {

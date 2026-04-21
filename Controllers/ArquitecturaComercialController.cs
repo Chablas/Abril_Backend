@@ -75,5 +75,24 @@ namespace Abril_Backend.Controllers
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        [Authorize]
+        [HttpGet("supervisores-ac")]
+        public async Task<IActionResult> GetSupervisoresAc()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var result = await _service.GetSupervisoresAc();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

@@ -295,6 +295,24 @@ namespace Abril_Backend.Infrastructure.Repositories
             return proyectos.OrderBy(p => p.Nombre).ToList();
         }
 
+        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await ctx.Worker
+                .Where(w =>
+                    w.Estado == "ACTIVO"
+                    && (w.Categoria == "Arquitecto Comercial"
+                        || (w.Ocupacion != null && EF.Functions.Like(w.Ocupacion, "%Arquitectura%"))))
+                .OrderBy(w => w.ApellidoNombre)
+                .Select(w => new SupervisorAcDTO
+                {
+                    Id = w.Id,
+                    ApellidoNombre = w.ApellidoNombre ?? string.Empty,
+                })
+                .ToListAsync();
+        }
+
         public async Task<ArqComercialFiltersDTO> GetFilters()
         {
             using var ctx = _factory.CreateDbContext();

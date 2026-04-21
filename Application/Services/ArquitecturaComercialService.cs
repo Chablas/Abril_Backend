@@ -27,5 +27,10 @@ namespace Abril_Backend.Application.Services
         {
             return await _repository.GetProyectosConActividades();
         }
+
+        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc()
+        {
+            return await _repository.GetSupervisoresAc();
+        }
     }
 }

@@ -7,5 +7,6 @@ namespace Abril_Backend.Application.Interfaces
         Task<ArqComercialDashboardDTO> GetDashboardData(string? semana, string? mes, int? proyectoId);
         Task<ArqComercialFiltersDTO> GetFilters();
         Task<List<ProyectoConActividadesDTO>> GetProyectosConActividades();
+        Task<List<SupervisorAcDTO>> GetSupervisoresAc();
     }
 }

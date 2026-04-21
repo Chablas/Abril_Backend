@@ -43,5 +43,10 @@ namespace Abril_Backend.Application.Services
         {
             return await _repository.PatchActividad(id, body);
         }
+
+        public async Task<ReasignarEncargadoResultDTO?> ReasignarEncargado(int proyectoId)
+        {
+            return await _repository.ReasignarEncargado(proyectoId);
+        }
     }
 }

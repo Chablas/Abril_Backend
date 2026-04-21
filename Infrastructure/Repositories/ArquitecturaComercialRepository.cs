@@ -573,6 +573,36 @@ namespace Abril_Backend.Infrastructure.Repositories
             return null;
         }
 
+        public async Task<ReasignarEncargadoResultDTO?> ReasignarEncargado(int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var proyecto = await ctx.Proyecto.FirstOrDefaultAsync(p => p.Id == proyectoId);
+            if (proyecto == null) return null;
+
+            var responsable = proyecto.ResponsableArqCom?.Trim();
+            if (string.IsNullOrWhiteSpace(responsable))
+                return new ReasignarEncargadoResultDTO { Actualizadas = 0, WorkerNoEncontrado = true };
+
+            var workerId = await ctx.Worker
+                .Where(w => w.ApellidoNombre == responsable)
+                .Select(w => (int?)w.Id)
+                .FirstOrDefaultAsync();
+
+            if (workerId == null)
+                return new ReasignarEncargadoResultDTO { Actualizadas = 0, WorkerNoEncontrado = true };
+
+            var actualizadas = await ctx.AcActividad
+                .Where(a => a.ProjectId == proyectoId)
+                .ExecuteUpdateAsync(s => s.SetProperty(a => a.UserId, workerId));
+
+            return new ReasignarEncargadoResultDTO
+            {
+                Actualizadas = actualizadas,
+                WorkerNoEncontrado = false,
+            };
+        }
+
         public async Task<ArqComercialFiltersDTO> GetFilters()
         {
             using var ctx = _factory.CreateDbContext();

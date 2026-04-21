@@ -11,5 +11,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<List<SupervisorAcDTO>> GetSupervisoresAc();
         Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina);
         Task<ActividadListItemDTO?> PatchActividad(int id, Dictionary<string, JsonElement> body);
+        Task<ReasignarEncargadoResultDTO?> ReasignarEncargado(int proyectoId);
     }
 }

@@ -23,8 +23,8 @@ using System.Threading.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration
-    .AddJsonFile("appsettings.json", optional: false)
-    .AddJsonFile("appsettings.Development.json", optional: true)
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true)
     .AddEnvironmentVariables();
 
 var databaseProvider = builder.Configuration["Database:DatabaseProvider"];

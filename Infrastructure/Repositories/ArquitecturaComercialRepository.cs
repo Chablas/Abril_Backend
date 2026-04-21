@@ -492,42 +492,42 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             if (row == null) return null;
 
-            var a = row.Actividad;
+            var act = row.Actividad;
             string estado;
-            if (a.FinEfectivo.HasValue)
+            if (act.FinEfectivo.HasValue)
                 estado = EstadoCulminado;
-            else if (a.InicioEfectivo.HasValue)
-                estado = a.FinProgramado.HasValue && a.FinProgramado.Value < today
+            else if (act.InicioEfectivo.HasValue)
+                estado = act.FinProgramado.HasValue && act.FinProgramado.Value < today
                     ? EstadoVencido
                     : EstadoEnProceso;
-            else if (a.InicioProgramado.HasValue)
+            else if (act.InicioProgramado.HasValue)
                 estado = EstadoPendiente;
             else
                 estado = EstadoVacio;
 
-            int? retraso = a.FinProgramado.HasValue
-                ? today.DayNumber - a.FinProgramado.Value.DayNumber
+            int? retraso = act.FinProgramado.HasValue
+                ? today.DayNumber - act.FinProgramado.Value.DayNumber
                 : (int?)null;
 
             return new ActividadListItemDTO
             {
-                Id = a.Id,
-                ProjectId = a.ProjectId,
+                Id = act.Id,
+                ProjectId = act.ProjectId,
                 ProjectNombre = row.ProjectNombre,
-                Indice = a.Indice,
-                Nombre = a.Nombre,
-                Tipo = a.Tipo,
-                EtapaId = a.EtapaId,
+                Indice = act.Indice,
+                Nombre = act.Nombre,
+                Tipo = act.Tipo,
+                EtapaId = act.EtapaId,
                 EtapaNombre = row.EtapaNombre,
-                UserId = a.UserId,
+                UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
                 Encargado1 = row.Encargado1,
-                InicioProgramado = a.InicioProgramado,
-                FinProgramado = a.FinProgramado,
-                InicioEfectivo = a.InicioEfectivo,
-                FinEfectivo = a.FinEfectivo,
-                Observaciones = a.Observaciones,
-                Activo = a.Activo,
+                InicioProgramado = act.InicioProgramado,
+                FinProgramado = act.FinProgramado,
+                InicioEfectivo = act.InicioEfectivo,
+                FinEfectivo = act.FinEfectivo,
+                Observaciones = act.Observaciones,
+                Activo = act.Activo,
                 Estado = estado,
                 Retraso = retraso,
             };

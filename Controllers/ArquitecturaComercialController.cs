@@ -1,7 +1,5 @@
 using Abril_Backend.Application.Interfaces;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace Abril_Backend.Controllers
 {
@@ -16,7 +14,6 @@ namespace Abril_Backend.Controllers
             _service = service;
         }
 
-        [Authorize]
         [HttpGet("dashboard")]
         public async Task<IActionResult> GetDashboard(
             [FromQuery] string? semana,
@@ -25,10 +22,6 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
                 var result = await _service.GetDashboardData(semana, mes, proyectoId);
                 return Ok(result);
             }
@@ -38,16 +31,11 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [Authorize]
         [HttpGet("filters")]
         public async Task<IActionResult> GetFilters()
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
                 var result = await _service.GetFilters();
                 return Ok(result);
             }
@@ -57,16 +45,11 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [Authorize]
         [HttpGet("proyectos-con-actividades")]
         public async Task<IActionResult> GetProyectosConActividades()
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
                 var result = await _service.GetProyectosConActividades();
                 return Ok(result);
             }
@@ -76,16 +59,11 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [Authorize]
         [HttpGet("supervisores-ac")]
         public async Task<IActionResult> GetSupervisoresAc()
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
                 var result = await _service.GetSupervisoresAc();
                 return Ok(result);
             }

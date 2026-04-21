@@ -21,6 +21,12 @@ using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: false)
+    .AddJsonFile("appsettings.Development.json", optional: true)
+    .AddEnvironmentVariables();
+
 var databaseProvider = builder.Configuration["Database:DatabaseProvider"];
 var emailProvider = builder.Configuration["Email:EmailProvider"];
 var storageProvider = builder.Configuration["Storage:StorageProvider"];

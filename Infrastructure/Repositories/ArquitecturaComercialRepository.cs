@@ -31,21 +31,21 @@ namespace Abril_Backend.Infrastructure.Repositories
             var endOfWeek = startOfWeek.AddDays(6);
             var in14Days = today.AddDays(14);
 
-            // ── Base query: AcActividad + Project + Person (left join via UserId) ──
+            // ── Base query: AcActividad + Proyecto (projects) + Worker (left join via UserId) ──
             var query = from a in ctx.AcActividad
-                        join p in ctx.Project on a.ProjectId equals p.ProjectId
-                        from pe in ctx.Person
-                            .Where(pe => pe.UserId == a.UserId && pe.State)
+                        join p in ctx.Proyecto on a.ProjectId equals p.Id
+                        from w in ctx.Worker
+                            .Where(w => w.Id == a.UserId)
                             .DefaultIfEmpty()
-                        where a.Activo && p.State
+                        where a.Activo
                         select new
                         {
                             a.Id,
                             a.Nombre,
                             a.ProjectId,
-                            ProjectDescription = p.ProjectDescription,
+                            ProjectDescription = p.Nombre ?? string.Empty,
                             a.UserId,
-                            SupervisorFullName = pe != null ? pe.FullName : null,
+                            SupervisorFullName = w != null ? w.ApellidoNombre : null,
                             a.InicioProgramado,
                             a.FinProgramado,
                             a.InicioEfectivo,
@@ -673,14 +673,13 @@ namespace Abril_Backend.Infrastructure.Repositories
                 });
             }
 
-            // Proyectos activos
-            var proyectos = await ctx.Project
-                .Where(p => p.State && p.Active)
-                .OrderBy(p => p.ProjectDescription)
+            // Proyectos (todos — frontend los marca visualmente por estado)
+            var proyectos = await ctx.Proyecto
+                .OrderBy(p => p.Nombre)
                 .Select(p => new ArqComercialProjectOptionDTO
                 {
-                    Id = p.ProjectId,
-                    Nombre = p.ProjectDescription,
+                    Id = p.Id,
+                    Nombre = p.Nombre ?? string.Empty,
                 })
                 .ToListAsync();
 

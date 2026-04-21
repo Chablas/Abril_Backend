@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -133,6 +134,30 @@ namespace Abril_Backend.Controllers
                     return NotFound(new { message = "Proyecto no encontrado." });
 
                 return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost("actividades/generar")]
+        public async Task<IActionResult> GenerarActividades([FromBody] GenerarActividadesDTO? body)
+        {
+            try
+            {
+                if (body == null || body.ProyectoId <= 0)
+                    return BadRequest(new { message = "proyectoId es requerido." });
+
+                var result = await _service.GenerarActividades(body.ProyectoId);
+                if (result == null)
+                    return NotFound(new { message = "Proyecto no encontrado." });
+
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

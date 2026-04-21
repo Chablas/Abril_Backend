@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Infrastructure.Repositories
@@ -601,6 +603,41 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Actualizadas = actualizadas,
                 WorkerNoEncontrado = false,
             };
+        }
+
+        public async Task<GenerarActividadesResultDTO?> GenerarActividades(int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var proyectoExiste = await ctx.Proyecto.AnyAsync(p => p.Id == proyectoId);
+            if (!proyectoExiste) return null;
+
+            var yaTiene = await ctx.AcActividad.AnyAsync(a => a.ProjectId == proyectoId);
+            if (yaTiene)
+                throw new AbrilException("El proyecto ya tiene actividades.", 409);
+
+            var plantilla = await ctx.AcActividadPlantilla
+                .Where(p => p.Activo)
+                .OrderBy(p => p.Orden)
+                .ToListAsync();
+
+            if (plantilla.Count == 0)
+                return new GenerarActividadesResultDTO { Generadas = 0 };
+
+            var nuevas = plantilla.Select(p => new AcActividad
+            {
+                ProjectId = proyectoId,
+                Nombre = p.Nombre,
+                Tipo = p.Tipo,
+                EtapaId = p.EtapaId,
+                Indice = p.Orden,
+                Activo = false,
+            }).ToList();
+
+            ctx.AcActividad.AddRange(nuevas);
+            await ctx.SaveChangesAsync();
+
+            return new GenerarActividadesResultDTO { Generadas = nuevas.Count };
         }
 
         public async Task<ArqComercialFiltersDTO> GetFilters()

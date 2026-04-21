@@ -4,6 +4,6 @@ namespace Abril_Backend.Shared.Services.Sunat.Interfaces
 {
     public interface ISunatService
     {
-        Task<SunatCompanyDto?> GetByRucAsync(string ruc);
+        Task<SunatContributorDto?> GetByRucAsync(string ruc);
     }
 }

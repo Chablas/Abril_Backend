@@ -22,8 +22,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         [HttpGet("paged")]
         public async Task<IActionResult> GetPaged(
             [FromQuery] int? projectId,
-            [FromQuery] string? companyName,
-            [FromQuery] string? companyRuc,
+            [FromQuery] string? contributorName,
+            [FromQuery] string? contributorRuc,
             [FromQuery] int? createdUserId,
             [FromQuery] int page = 1)
         {
@@ -37,8 +37,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                 var filter = new ProjectSubContractorFilterDTO
                 {
                     ProjectId = projectId,
-                    CompanyName = companyName,
-                    CompanyRuc = companyRuc,
+                    ContributorName = contributorName,
+                    ContributorRuc = contributorRuc,
                     CreatedUserId = createdUserId,
                     Page = page
                 };
@@ -148,6 +148,34 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
                 var result = await _projectSubContractorService.UploadDocumentAsync(id, docType, file, userId);
                 return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPatch("{id}/documents/{documentType}/status")]
+        public async Task<IActionResult> UpdateDocumentStatus(int id, string documentType, [FromBody] UpdateDocumentStatusDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+
+                if (!Enum.TryParse<AdjudicacionDocumentType>(documentType, ignoreCase: true, out var docType))
+                    return BadRequest(new { message = $"Tipo de documento inválido: '{documentType}'." });
+
+                await _projectSubContractorService.UpdateDocumentStatusAsync(id, docType, dto.StatusId, dto.Observation, userId);
+                return Ok(new { message = "Estado actualizado exitosamente." });
             }
             catch (AbrilException ex)
             {

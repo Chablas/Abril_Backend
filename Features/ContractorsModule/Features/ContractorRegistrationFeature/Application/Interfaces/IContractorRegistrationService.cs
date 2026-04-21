@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 {
     public interface IContractorRegistrationService
     {
-        Task Create(CompanyCreateDto dto, int? userId, string? accessToken = null);
-        Task<SunatCompanyDto?> GetByRuc(string ruc);
+        Task Create(ContributorCreateDto dto, int? userId, string? accessToken = null);
+        Task<SunatContributorDto?> GetByRuc(string ruc);
     }
 }

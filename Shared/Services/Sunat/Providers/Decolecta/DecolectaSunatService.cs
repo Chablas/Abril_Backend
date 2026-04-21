@@ -13,7 +13,7 @@ namespace Abril_Backend.Shared.Services.Sunat.Providers.Decolecta
             _httpClient = httpClient;
         }
 
-        public async Task<SunatCompanyDto?> GetByRucAsync(string ruc)
+        public async Task<SunatContributorDto?> GetByRucAsync(string ruc)
         {
             var response = await _httpClient.GetAsync($"/v1/sunat/ruc/full?numero={ruc}");
             if (!response.IsSuccessStatusCode)
@@ -23,7 +23,7 @@ namespace Abril_Backend.Shared.Services.Sunat.Providers.Decolecta
             if (data is null)
                 return null;
 
-            return DecolectaRucMapper.ToSunatCompanyDto(data);
+            return DecolectaRucMapper.ToSunatContributorDto(data);
         }
     }
 }

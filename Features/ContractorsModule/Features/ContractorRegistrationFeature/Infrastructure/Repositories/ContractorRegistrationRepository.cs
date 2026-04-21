@@ -17,31 +17,31 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
             _factory = factory;
         }
 
-        public async Task Create(CompanyCreateDto dto, int? userId, string? brochureUrl, string? fichaRucUrl, string? referencesUrl)
+        public async Task Create(ContributorCreateDto dto, int? userId, string? brochureUrl, string? fichaRucUrl, string? referencesUrl)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var company = await ctx.Company.FirstOrDefaultAsync(c => c.CompanyRuc == dto.CompanyRuc && c.State);
-            if (company == null)
+            var contributor = await ctx.Contributor.FirstOrDefaultAsync(c => c.ContributorRuc == dto.ContributorRuc && c.State);
+            if (contributor == null)
             {
-                company = new Company
+                contributor = new Contributor
                 {
-                    CompanyRuc = dto.CompanyRuc,
-                    CompanyName = dto.CompanyName,
-                    CompanyAddress = dto.CompanyAddress,
-                    CompanyEconomicActivityDescription = dto.CompanyEconomicActivityDescription,
+                    ContributorRuc = dto.ContributorRuc,
+                    ContributorName = dto.ContributorName,
+                    ContributorAddress = dto.ContributorAddress,
+                    ContributorEconomicActivityDescription = dto.ContributorEconomicActivityDescription,
                     CreatedDateTime = DateTimeOffset.UtcNow,
                     CreatedUserId = userId,
                     Active = true,
                     State = true
                 };
-                ctx.Company.Add(company);
+                ctx.Contributor.Add(contributor);
                 await ctx.SaveChangesAsync();
             }
 
             var contractor = new Contractor
             {
-                CompanyId = company.CompanyId,
+                ContributorId = contributor.ContributorId,
                 ContractorStateId = PendingContractorStateId,
                 BrochureFileUrl = brochureUrl,
                 FichaRucFileUrl = fichaRucUrl,
@@ -52,7 +52,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                 State = true
             };
 
-            foreach (var email in dto.CompanyEmails)
+            foreach (var email in dto.ContributorEmails)
             {
                 contractor.Emails.Add(new ContractorEmail
                 {

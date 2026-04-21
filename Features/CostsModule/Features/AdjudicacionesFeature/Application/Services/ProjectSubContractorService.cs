@@ -83,7 +83,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var currenciesTask = _projectSubContractorRepository.GetCurrencyFactory();
             var workItemsTask = _projectSubContractorRepository.GetWorkItemFactory();
             var workItemCategoriesTask = _projectSubContractorRepository.GetWorkItemCategoryFactory();
-            var companiesTask = _projectSubContractorRepository.GetCompanyFactory();
+            var contributorsTask = _projectSubContractorRepository.GetCompanyFactory();
 
             await Task.WhenAll(
                 projectsTask,
@@ -94,7 +94,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 currenciesTask,
                 workItemsTask,
                 workItemCategoriesTask,
-                companiesTask);
+                contributorsTask);
 
             return new ProjectSubContractorFormDataDTO
             {
@@ -106,7 +106,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 Currencies = await currenciesTask,
                 WorkItems = await workItemsTask,
                 WorkItemCategories = await workItemCategoriesTask,
-                Companies = await companiesTask
+                Contributors = await contributorsTask
             };
         }
 
@@ -162,7 +162,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             var quotationAttachments = await DownloadAttachmentsAsync(data.QuotationFiles);
 
-            var subject = $"{data.ProjectDescription} // {data.WorkItemDescription} // {data.CompanyName}";
+            var subject = $"{data.ProjectDescription} // {data.WorkItemDescription} // {data.ContributorName}";
             var internalRecipients = data.StaffEmails.Concat(CostosYPresupuestos).Distinct().ToList();
 
             // --- Correo 1: interno — staff de obra + costos y presupuestos ---
@@ -200,7 +200,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             sb.AppendLine("<p>Estimados,</p>");
             sb.AppendLine($"<p>Se adjuntan los archivos de cotización y cuadro comparativo correspondientes a la adjudicación de " +
                           $"<strong>{data.WorkItemDescription}</strong> para el proyecto <strong>{data.ProjectDescription}</strong> " +
-                          $"con la empresa <strong>{data.CompanyName}</strong>.</p>");
+                          $"con la empresa <strong>{data.ContributorName}</strong>.</p>");
             return sb.ToString();
         }
 
@@ -243,6 +243,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         public async Task SaveDates(int projectSubContractorId, UpdateDatesDTO dto, int userId)
         {
             await _projectSubContractorRepository.SaveDates(projectSubContractorId, dto, userId);
+        }
+
+        public async Task UpdateDocumentStatusAsync(
+            int projectSubContractorId,
+            AdjudicacionDocumentType documentType,
+            int? statusId,
+            string? observation,
+            int userId)
+        {
+            await _projectSubContractorRepository.UpdateDocumentStatusAsync(
+                projectSubContractorId, documentType, statusId, observation, userId);
         }
 
         public async Task<DocumentUploadResponseDto> UploadDocumentAsync(
@@ -314,8 +325,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             {
                 ProjectSubContractorId = data.ProjectSubContractorId,
                 ProjectDescription     = data.ProjectDescription,
-                CompanyRuc             = data.CompanyRuc,
-                CompanyName            = data.CompanyName,
+                ContributorRuc         = data.ContributorRuc,
+                ContributorName        = data.ContributorName,
                 WorkItemDescription    = data.WorkItemDescription,
             };
 
@@ -361,12 +372,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             var replacements = new Dictionary<string, string>
             {
-                { "{{EMPRESA}}",        data.CompanyName },
+                { "{{EMPRESA}}",        data.ContributorName },
                 { "{{PROYECTO}}",       data.ProjectDescription },
                 { "{{MONTO}}",          $"{currencySymbol} {data.Amount:N2}" },
                 { "{{FECHA_INICIO}}",   data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
                 { "{{FECHA_FIN}}",      data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
-                { "{{RUC}}",            data.CompanyRuc },
+                { "{{RUC}}",            data.ContributorRuc },
                 { "{{TIPO_CONTRATO}}",  data.ContractTypeDescription },
                 { "{{PARTIDA}}",        data.WorkItemDescription },
             };
@@ -379,8 +390,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             {
                 ProjectSubContractorId = data.ProjectSubContractorId,
                 ProjectDescription     = data.ProjectDescription,
-                CompanyRuc             = data.CompanyRuc,
-                CompanyName            = data.CompanyName,
+                ContributorRuc         = data.ContributorRuc,
+                ContributorName        = data.ContributorName,
                 WorkItemDescription    = data.WorkItemDescription,
             };
 
@@ -457,7 +468,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("C5").Value = data.ProjectDescription;
 
             ws.Cell("B6").Value = "Contratista:"; ws.Cell("B6").Style.Font.Bold = true;
-            ws.Cell("C6").Value = data.CompanyName;
+            ws.Cell("C6").Value = data.ContributorName;
 
             ws.Cell("B8").Value = "Fecha:"; ws.Cell("B8").Style.Font.Bold = true;
             if (data.SigningDate.HasValue)
@@ -644,8 +655,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private static string BuildSharePointPath(AdjudicacionPathDataDto data, AdjudicacionDocumentType documentType)
         {
-            var project   = Sanitize(data.ProjectDescription);
-            var company   = Sanitize($"{data.CompanyRuc} - {data.CompanyName}");
+            var project      = Sanitize(data.ProjectDescription);
+            var company      = Sanitize($"{data.ContributorRuc} - {data.ContributorName}");
             var workItem  = Sanitize($"{data.ProjectSubContractorId} - {data.WorkItemDescription}");
             var subfolder = GetSubfolderName(documentType);
             return $"{project}/{company}/{workItem}/{subfolder}";

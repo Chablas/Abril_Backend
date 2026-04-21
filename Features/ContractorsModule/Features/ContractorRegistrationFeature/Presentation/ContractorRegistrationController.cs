@@ -38,7 +38,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Presentation
 
         [HttpPost]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> Create([FromForm] CompanyCreateDto dto)
+        public async Task<IActionResult> Create([FromForm] ContributorCreateDto dto)
         {
             try
             {

@@ -19,7 +19,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Presentation
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetPaged([FromQuery] CompanyFilterDto filter)
+        public async Task<IActionResult> GetPaged([FromQuery] ContributorFilterDto filter)
         {
             try
             {

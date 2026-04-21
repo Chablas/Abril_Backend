@@ -4,12 +4,12 @@ namespace Abril_Backend.Shared.Services.Sunat.Providers.Decolecta
 {
     internal static class DecolectaRucMapper
     {
-        internal static SunatCompanyDto ToSunatCompanyDto(DecolectaRucResponse response) => new()
+        internal static SunatContributorDto ToSunatContributorDto(DecolectaRucResponse response) => new()
         {
-            CompanyRuc = response.NumeroDocumento,
-            CompanyName = response.RazonSocial,
-            CompanyAddress = response.Direccion,
-            CompanyEconomicActivityDescription = response.ActividadEconomica
+            ContributorRuc = response.NumeroDocumento,
+            ContributorName = response.RazonSocial,
+            ContributorAddress = response.Direccion,
+            ContributorEconomicActivityDescription = response.ActividadEconomica
         };
     }
 }

@@ -5,8 +5,8 @@ namespace Abril_Backend.Infrastructure.Models {
         public int ProjectId {get; set;}
         public string ProjectDescription {get; set;}
         public string? LevelDescription {get; set;}
-        public int? CompanyId {get; set;}
-        public Company? Company {get; set;}
+        public int? ContributorId {get; set;}
+        public Contributor? Contributor {get; set;}
         public string? District {get; set;}
         public string? Location {get; set;}
         public DateTime CreatedDateTime {get; set;}

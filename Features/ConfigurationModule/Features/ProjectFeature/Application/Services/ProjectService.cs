@@ -39,19 +39,19 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
             return await _repository.DeleteSoftAsync(projectId, userId);
         }
 
-        public async Task<CompanyLookupDto?> GetOrCreateCompanyByRuc(string ruc, int userId)
+        public async Task<ContributorLookupDto?> GetOrCreateCompanyByRuc(string ruc, int userId)
         {
             var trimmed = ruc.Trim();
 
-            var existing = await _repository.FindCompanyByRuc(trimmed);
+            var existing = await _repository.FindContributorByRuc(trimmed);
             if (existing != null)
             {
-                return new CompanyLookupDto
+                return new ContributorLookupDto
                 {
-                    CompanyId = existing.CompanyId,
-                    CompanyRuc = existing.CompanyRuc,
-                    CompanyName = existing.CompanyName,
-                    CompanyAddress = existing.CompanyAddress
+                    ContributorId = existing.ContributorId,
+                    ContributorRuc = existing.ContributorRuc,
+                    ContributorName = existing.ContributorName,
+                    ContributorAddress = existing.ContributorAddress
                 };
             }
 
@@ -59,19 +59,19 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
             if (sunat == null)
                 return null;
 
-            var created = await _repository.CreateCompany(
-                sunat.CompanyRuc,
-                sunat.CompanyName,
-                sunat.CompanyAddress,
-                sunat.CompanyEconomicActivityDescription,
+            var created = await _repository.CreateContributor(
+                sunat.ContributorRuc,
+                sunat.ContributorName,
+                sunat.ContributorAddress,
+                sunat.ContributorEconomicActivityDescription,
                 userId);
 
-            return new CompanyLookupDto
+            return new ContributorLookupDto
             {
-                CompanyId = created.CompanyId,
-                CompanyRuc = created.CompanyRuc,
-                CompanyName = created.CompanyName,
-                CompanyAddress = created.CompanyAddress
+                ContributorId = created.ContributorId,
+                ContributorRuc = created.ContributorRuc,
+                ContributorName = created.ContributorName,
+                ContributorAddress = created.ContributorAddress
             };
         }
     }

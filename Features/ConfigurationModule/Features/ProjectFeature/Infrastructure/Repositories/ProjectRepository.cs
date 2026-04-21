@@ -36,10 +36,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     ProjectId = p.ProjectId,
                     ProjectDescription = p.ProjectDescription,
                     LevelDescription = p.LevelDescription,
-                    CompanyId = p.CompanyId,
-                    CompanyRuc = p.Company != null ? p.Company.CompanyRuc : null,
-                    CompanyName = p.Company != null ? p.Company.CompanyName : null,
-                    CompanyAddress = p.Company != null ? p.Company.CompanyAddress : null,
+                    ContributorId = p.ContributorId,
+                    ContributorRuc = p.Contributor != null ? p.Contributor.ContributorRuc : null,
+                    ContributorName = p.Contributor != null ? p.Contributor.ContributorName : null,
+                    ContributorAddress = p.Contributor != null ? p.Contributor.ContributorAddress : null,
                     District = p.District,
                     Location = p.Location,
                     Active = p.Active
@@ -69,7 +69,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 existing.State = true;
                 existing.Active = dto.Active;
                 existing.LevelDescription = dto.LevelDescription?.Trim();
-                existing.CompanyId = dto.CompanyId;
+                existing.ContributorId = dto.ContributorId;
                 existing.District = dto.District?.Trim();
                 existing.Location = dto.Location?.Trim();
                 existing.UpdatedDateTime = DateTime.UtcNow;
@@ -82,7 +82,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             {
                 ProjectDescription = dto.ProjectDescription.Trim(),
                 LevelDescription = dto.LevelDescription?.Trim(),
-                CompanyId = dto.CompanyId,
+                ContributorId = dto.ContributorId,
                 District = dto.District?.Trim(),
                 Location = dto.Location?.Trim(),
                 Active = dto.Active,
@@ -114,7 +114,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
             project.ProjectDescription = dto.ProjectDescription.Trim();
             project.LevelDescription = dto.LevelDescription?.Trim();
-            project.CompanyId = dto.CompanyId;
+            project.ContributorId = dto.ContributorId;
             project.District = dto.District?.Trim();
             project.Location = dto.Location?.Trim();
             project.Active = dto.Active;
@@ -141,29 +141,29 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             return true;
         }
 
-        public async Task<Company?> FindCompanyByRuc(string ruc)
+        public async Task<Contributor?> FindContributorByRuc(string ruc)
         {
-            return await _context.Company
-                .FirstOrDefaultAsync(c => c.CompanyRuc == ruc && c.State);
+            return await _context.Contributor
+                .FirstOrDefaultAsync(c => c.ContributorRuc == ruc && c.State);
         }
 
-        public async Task<Company> CreateCompany(string ruc, string name, string address, string economicActivity, int userId)
+        public async Task<Contributor> CreateContributor(string ruc, string name, string address, string economicActivity, int userId)
         {
-            var company = new Company
+            var contributor = new Contributor
             {
-                CompanyRuc = ruc,
-                CompanyName = name,
-                CompanyAddress = address,
-                CompanyEconomicActivityDescription = economicActivity,
+                ContributorRuc = ruc,
+                ContributorName = name,
+                ContributorAddress = address,
+                ContributorEconomicActivityDescription = economicActivity,
                 Active = true,
                 State = true,
                 CreatedDateTime = DateTimeOffset.UtcNow,
                 CreatedUserId = userId
             };
 
-            _context.Company.Add(company);
+            _context.Contributor.Add(contributor);
             await _context.SaveChangesAsync();
-            return company;
+            return contributor;
         }
     }
 }

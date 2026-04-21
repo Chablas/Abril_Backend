@@ -1,13 +1,13 @@
 namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Dtos
 {
-    public class CompanyPagedDto
+    public class ContributorPagedDto
     {
         public int ContractorId { get; set; }
-        public int CompanyId { get; set; }
-        public string CompanyRuc { get; set; } = null!;
-        public string CompanyName { get; set; } = null!;
-        public string CompanyAddress { get; set; } = null!;
-        public string CompanyEconomicActivityDescription { get; set; } = null!;
+        public int ContributorId { get; set; }
+        public string ContributorRuc { get; set; } = null!;
+        public string ContributorName { get; set; } = null!;
+        public string ContributorAddress { get; set; } = null!;
+        public string ContributorEconomicActivityDescription { get; set; } = null!;
         public int ContractorStateId { get; set; }
         public string ContractorStateDescription { get; set; } = null!;
         public string? BrochureFileUrl { get; set; }

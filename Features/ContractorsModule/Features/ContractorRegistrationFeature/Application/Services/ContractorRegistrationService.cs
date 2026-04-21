@@ -23,7 +23,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             _sharePointService = sharePointService;
         }
 
-        public async Task Create(CompanyCreateDto dto, int? userId, string? accessToken = null)
+        public async Task Create(ContributorCreateDto dto, int? userId, string? accessToken = null)
         {
             string? brochureUrl = null;
             string? fichaRucUrl = null;
@@ -33,7 +33,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             {
                 // Carpeta: Homologación de Contratistas/{ruc} - {razonsocial}
                 // Graph API crea automáticamente las carpetas intermedias si no existen
-                var folderPath = $"Homologación de Contratistas/{dto.CompanyRuc} - {dto.CompanyName}";
+                var folderPath = $"Homologación de Contratistas/{dto.ContributorRuc} - {dto.ContributorName}";
 
                 if (dto.BrochureFile is not null)
                     brochureUrl = await UploadFile(accessToken, folderPath, "brochure", dto.BrochureFile);
@@ -48,7 +48,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             await _repository.Create(dto, userId, brochureUrl, fichaRucUrl, referencesUrl);
         }
 
-        public async Task<SunatCompanyDto?> GetByRuc(string ruc)
+        public async Task<SunatContributorDto?> GetByRuc(string ruc)
         {
             return await _sunatService.GetByRucAsync(ruc);
         }

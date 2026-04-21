@@ -14,7 +14,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
             _repository = repository;
         }
 
-        public async Task<PagedResult<CompanyPagedDto>> GetPaged(CompanyFilterDto filter)
+        public async Task<PagedResult<ContributorPagedDto>> GetPaged(ContributorFilterDto filter)
         {
             return await _repository.GetPaged(filter);
         }

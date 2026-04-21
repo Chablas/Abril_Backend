@@ -1,10 +1,10 @@
-namespace Abril_Backend.Shared.Services.Sunat.Dtos
+namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Dtos
 {
-    public class SunatContributorDto
+    public class ContributorLookupDto
     {
+        public int ContributorId { get; set; }
         public string ContributorRuc { get; set; } = null!;
         public string ContributorName { get; set; } = null!;
         public string ContributorAddress { get; set; } = null!;
-        public string ContributorEconomicActivityDescription { get; set; } = null!;
     }
 }

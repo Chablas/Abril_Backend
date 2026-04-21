@@ -19,7 +19,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             _factory = factory;
         }
 
-        public async Task<PagedResult<CompanyPagedDto>> GetPaged(CompanyFilterDto filter)
+        public async Task<PagedResult<ContributorPagedDto>> GetPaged(ContributorFilterDto filter)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -27,16 +27,16 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
             var query =
                 from ct in ctx.Contractor
-                join c in ctx.Company on ct.CompanyId equals c.CompanyId
+                join c in ctx.Contributor on ct.ContributorId equals c.ContributorId
                 join cs in ctx.ContractorState on ct.ContractorStateId equals cs.ContractorStateId
                 where ct.Active
                 select new { ct, c, cs };
 
-            if (!string.IsNullOrWhiteSpace(filter.CompanyName))
-                query = query.Where(x => x.c.CompanyName.ToLower().Contains(filter.CompanyName.ToLower()));
+            if (!string.IsNullOrWhiteSpace(filter.ContributorName))
+                query = query.Where(x => x.c.ContributorName.ToLower().Contains(filter.ContributorName.ToLower()));
 
-            if (!string.IsNullOrWhiteSpace(filter.CompanyRuc))
-                query = query.Where(x => x.c.CompanyRuc.Contains(filter.CompanyRuc));
+            if (!string.IsNullOrWhiteSpace(filter.ContributorRuc))
+                query = query.Where(x => x.c.ContributorRuc.Contains(filter.ContributorRuc));
 
             var totalRecords = await query.CountAsync();
 
@@ -44,14 +44,14 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                 .OrderByDescending(x => x.ct.ContractorId)
                 .Skip((filter.Page - 1) * pageSize)
                 .Take(pageSize)
-                .Select(x => new CompanyPagedDto
+                .Select(x => new ContributorPagedDto
                 {
                     ContractorId = x.ct.ContractorId,
-                    CompanyId = x.c.CompanyId,
-                    CompanyRuc = x.c.CompanyRuc,
-                    CompanyName = x.c.CompanyName,
-                    CompanyAddress = x.c.CompanyAddress,
-                    CompanyEconomicActivityDescription = x.c.CompanyEconomicActivityDescription,
+                    ContributorId = x.c.ContributorId,
+                    ContributorRuc = x.c.ContributorRuc,
+                    ContributorName = x.c.ContributorName,
+                    ContributorAddress = x.c.ContributorAddress,
+                    ContributorEconomicActivityDescription = x.c.ContributorEconomicActivityDescription,
                     ContractorStateId = x.cs.ContractorStateId,
                     ContractorStateDescription = x.cs.ContractorStateDescription,
                     BrochureFileUrl = x.ct.BrochureFileUrl,
@@ -75,7 +75,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             foreach (var item in items)
                 item.Emails = emailsByContractor.GetValueOrDefault(item.ContractorId, new());
 
-            return new PagedResult<CompanyPagedDto>
+            return new PagedResult<ContributorPagedDto>
             {
                 Page = filter.Page,
                 PageSize = pageSize,

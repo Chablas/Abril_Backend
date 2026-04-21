@@ -4,6 +4,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
     {
         public string FileUrl { get; set; } = null!;
         public string? OriginalFileName { get; set; }
+        public int? StatusId { get; set; }
+        public string? StatusDescription { get; set; }
+        public string? Observation { get; set; }
     }
 
     public class ProjectSubContractorDTO {
@@ -11,8 +14,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; }
         public int ContractorId { get; set; }
-        public int CompanyId { get; set; }
-        public string CompanyName { get; set; }
+        public int ContributorId { get; set; }
+        public string ContributorName { get; set; }
         public int ContractId { get; set; }
         public string ContractDescription { get; set; }
         public int ContractTypeId { get; set; }

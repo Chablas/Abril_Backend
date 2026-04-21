@@ -46,7 +46,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ContractType> ContractType { get; set; }
         public DbSet<ContractOrigin> ContractOrigin { get; set; }
         public DbSet<PaymentMethod> PaymentMethod { get; set; }
-        public DbSet<Company> Company { get; set; }
+        public DbSet<Contributor> Contributor { get; set; }
         public DbSet<Contractor> Contractor { get; set; }
         public DbSet<ContractorEmail> ContractorEmail { get; set; }
         public DbSet<ContractorState> ContractorState { get; set; }
@@ -63,6 +63,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorSchedule> ProjectSubContractorSchedule { get; set; }
         public DbSet<ProjectSubContractorAttachedQuotation> ProjectSubContractorAttachedQuotation { get; set; }
         public DbSet<ProjectSubContractorServiceOrder> ProjectSubContractorServiceOrder { get; set; }
+        public DbSet<ProjectSubContractorFileStatus> ProjectSubContractorFileStatus { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -109,9 +110,9 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(r => r.StateId);
 
             modelBuilder.Entity<Contractor>()
-                .HasOne(c => c.Company)
+                .HasOne(c => c.Contributor)
                 .WithMany()
-                .HasForeignKey(c => c.CompanyId)
+                .HasForeignKey(c => c.ContributorId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<Contractor>()
@@ -121,7 +122,7 @@ namespace Abril_Backend.Infrastructure.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<Contractor>()
-                .HasIndex(c => c.CompanyId)
+                .HasIndex(c => c.ContributorId)
                 .IsUnique();
 
             modelBuilder.Entity<ContractorEmail>()
@@ -151,9 +152,9 @@ namespace Abril_Backend.Infrastructure.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<Project>()
-                .HasOne(p => p.Company)
+                .HasOne(p => p.Contributor)
                 .WithMany()
-                .HasForeignKey(p => p.CompanyId)
+                .HasForeignKey(p => p.ContributorId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ProjectSubContractor>()
@@ -191,6 +192,37 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(s => s.ProjectSubContractorServiceOrderId)
                 .IsRequired(false);
+
+            // FK: cada tabla de documento → project_sub_contractor_file_status
+            modelBuilder.Entity<ProjectSubContractorContract>()
+                .HasOne(e => e.FileStatus).WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectSubContractorSummarySheet>()
+                .HasOne(e => e.FileStatus).WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectSubContractorBudget>()
+                .HasOne(e => e.FileStatus).WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectSubContractorSchedule>()
+                .HasOne(e => e.FileStatus).WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectSubContractorAttachedQuotation>()
+                .HasOne(e => e.FileStatus).WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectSubContractorServiceOrder>()
+                .HasOne(e => e.FileStatus).WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false).OnDelete(DeleteBehavior.Restrict);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

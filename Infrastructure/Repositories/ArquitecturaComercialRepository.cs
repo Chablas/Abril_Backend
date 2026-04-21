@@ -270,6 +270,31 @@ namespace Abril_Backend.Infrastructure.Repositories
             };
         }
 
+        public async Task<List<ProyectoConActividadesDTO>> GetProyectosConActividades()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var proyectos = await (
+                from p in ctx.Proyecto
+                select new ProyectoConActividadesDTO
+                {
+                    Id = p.Id,
+                    Nombre = p.Nombre ?? string.Empty,
+                    Estado = p.Estado ?? string.Empty,
+                    ResponsableArqCom = p.ResponsableArqCom,
+                    TotalActividades = ctx.AcActividad.Count(a => a.ProjectId == p.Id),
+                    Activas = ctx.AcActividad.Count(a => a.ProjectId == p.Id && a.Activo),
+                }
+            ).ToListAsync();
+
+            foreach (var p in proyectos)
+            {
+                p.SinActividades = p.TotalActividades == 0;
+            }
+
+            return proyectos.OrderBy(p => p.Nombre).ToList();
+        }
+
         public async Task<ArqComercialFiltersDTO> GetFilters()
         {
             using var ctx = _factory.CreateDbContext();

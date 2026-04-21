@@ -22,5 +22,10 @@ namespace Abril_Backend.Application.Services
         {
             return await _repository.GetFilters();
         }
+
+        public async Task<List<ProyectoConActividadesDTO>> GetProyectosConActividades()
+        {
+            return await _repository.GetProyectosConActividades();
+        }
     }
 }

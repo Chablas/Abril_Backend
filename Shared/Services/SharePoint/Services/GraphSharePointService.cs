@@ -132,31 +132,51 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-                // Buscar entre las bibliotecas existentes del sitio
-                var drivesResponse = await client.GetAsync(
-                    $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives");
-                drivesResponse.EnsureSuccessStatusCode();
+                string driveId;
 
-                var drivesJson = await drivesResponse.Content.ReadAsStringAsync();
-                using var drivesDoc = JsonDocument.Parse(drivesJson);
-
-                foreach (var drive in drivesDoc.RootElement.GetProperty("value").EnumerateArray())
+                // Si libraryName es un GUID, resolvemos directamente por list ID (más eficiente).
+                if (Guid.TryParse(libraryName, out _))
                 {
-                    if (drive.GetProperty("name").GetString() == libraryName)
+                    var driveResponse = await client.GetAsync(
+                        $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{libraryName}/drive");
+                    driveResponse.EnsureSuccessStatusCode();
+
+                    var driveJson = await driveResponse.Content.ReadAsStringAsync();
+                    using var driveDoc = JsonDocument.Parse(driveJson);
+                    driveId = driveDoc.RootElement.GetProperty("id").GetString()
+                        ?? throw new InvalidOperationException(
+                            $"No se pudo obtener el drive ID de la biblioteca con GUID '{libraryName}'.");
+                }
+                else
+                {
+                    // Buscar entre las bibliotecas existentes del sitio por nombre de display
+                    var drivesResponse = await client.GetAsync(
+                        $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives");
+                    drivesResponse.EnsureSuccessStatusCode();
+
+                    var drivesJson = await drivesResponse.Content.ReadAsStringAsync();
+                    using var drivesDoc = JsonDocument.Parse(drivesJson);
+
+                    string? found = null;
+                    foreach (var drive in drivesDoc.RootElement.GetProperty("value").EnumerateArray())
                     {
-                        var foundId = drive.GetProperty("id").GetString()!;
-                        _driveIdCache[libraryName] = foundId;
-                        return foundId;
+                        if (drive.GetProperty("name").GetString() == libraryName)
+                        {
+                            found = drive.GetProperty("id").GetString()!;
+                            break;
+                        }
                     }
+
+                    if (found is null)
+                        throw new InvalidOperationException(
+                            $"La biblioteca '{libraryName}' no existe en el sitio de SharePoint. " +
+                            $"Créela manualmente desde el sitio antes de subir archivos.");
+
+                    driveId = found;
                 }
 
-                // La biblioteca no existe — lanzar error descriptivo.
-                // Créela manualmente en SharePoint antes de usar este endpoint:
-                //   https://abrilinmob.sharepoint.com/sites/CostosyPresupuestos
-                //   → Nuevo → Biblioteca de documentos → nombre exacto: libraryName
-                throw new InvalidOperationException(
-                    $"La biblioteca '{libraryName}' no existe en el sitio de SharePoint. " +
-                    $"Créela manualmente desde el sitio antes de subir archivos.");
+                _driveIdCache[libraryName] = driveId;
+                return driveId;
             }
             finally
             {

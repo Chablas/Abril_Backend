@@ -19,7 +19,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Presentation
         }
 
         [HttpGet("ruc/{ruc}")]
-        [EnableRateLimiting("sunat-ruc")]
+        //[EnableRateLimiting("sunat-ruc")]
         public async Task<IActionResult> GetByRuc(string ruc)
         {
             try

@@ -5,7 +5,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
 {
     public interface IProjectSubContractorRepository
     {
-        Task Create(ProjectSubContractorCreateDTO dto, List<(string Url, string OriginalFileName)> quotationFiles, List<(string Url, string OriginalFileName)> comparativeFiles, int userId);
+        Task<int> Create(ProjectSubContractorCreateDTO dto, int userId);
+        Task SaveInitialFilesAsync(int projectSubContractorId, List<(string Url, string OriginalFileName)> quotationFiles, List<(string Url, string OriginalFileName)> comparativeFiles, int userId);
         Task<List<ContractSimpleDTO>> GetContractsFactory();
         Task<List<ContractTypeSimpleDTO>> GetContractTypeFactory();
         Task<List<ContractOriginSimpleDTO>> GetContractOriginFactory();

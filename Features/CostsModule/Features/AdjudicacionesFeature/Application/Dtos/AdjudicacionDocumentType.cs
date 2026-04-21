@@ -7,6 +7,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         Budget,
         Schedule,
         AttachedQuotation,
-        ServiceOrder
+        ServiceOrder,
+        InitialQuotation,
+        InitialComparative
     }
 }

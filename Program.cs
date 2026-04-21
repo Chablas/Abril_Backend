@@ -1,3 +1,4 @@
+using Microsoft.OpenApi;
 using Abril_Backend.Shared.Services.Email.Interfaces;
 using Abril_Backend.Shared.Services.Email.Services;
 using Abril_Backend.Infrastructure.Repositories;
@@ -186,7 +187,22 @@ builder.Services.AddCors(options =>
     );
 });
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Ingresa el token JWT. Ejemplo: eyJhbGci..."
+    });
+    c.AddSecurityRequirement(_ => new OpenApiSecurityRequirement
+    {
+        { new OpenApiSecuritySchemeReference("Bearer"), new List<string>() }
+    });
+});
 builder.Services.AddAuthentication("Bearer")
     .AddJwtBearer("Bearer", options => {
         options.TokenValidationParameters = new TokenValidationParameters

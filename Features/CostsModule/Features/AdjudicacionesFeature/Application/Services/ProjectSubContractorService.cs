@@ -65,12 +65,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         public async Task Create(ProjectSubContractorCreateDTO dto, int userId)
         {
-            var container = _containerResolver.GetProjectSubContractorContainerName();
+            // Phase 1: persist the record and get the new ID (needed for the folder path).
+            var newId = await _projectSubContractorRepository.Create(dto, userId);
 
-            var quotationFiles = await UploadFiles(dto.QuotationFiles, container);
-            var comparativeFiles = await UploadFiles(dto.ComparativeFiles, container);
+            // Phase 2: fetch path data and upload files to SharePoint.
+            var pathData = await _projectSubContractorRepository.GetPathDataAsync(newId);
 
-            await _projectSubContractorRepository.Create(dto, quotationFiles, comparativeFiles, userId);
+            var quotationFiles   = await UploadFilesToSharePoint(dto.QuotationFiles,   pathData, AdjudicacionDocumentType.InitialQuotation);
+            var comparativeFiles = await UploadFilesToSharePoint(dto.ComparativeFiles, pathData, AdjudicacionDocumentType.InitialComparative);
+
+            // Phase 3: save file records.
+            await _projectSubContractorRepository.SaveInitialFilesAsync(newId, quotationFiles, comparativeFiles, userId);
         }
 
         public async Task<ProjectSubContractorFormDataDTO> GetFormData()
@@ -110,39 +115,35 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
         }
 
-        private async Task<List<(string Url, string OriginalFileName)>> UploadFiles(List<IFormFile>? files, string container)
+        private async Task<List<(string Url, string OriginalFileName)>> UploadFilesToSharePoint(
+            List<IFormFile>? files,
+            AdjudicacionPathDataDto pathData,
+            AdjudicacionDocumentType documentType)
         {
-            if (files == null || !files.Any())
+            if (files == null || files.Count == 0)
                 return new List<(string, string)>();
 
-            var filesToUpload = new List<(Stream Stream, string FileName)>();
-            var originalNames = new List<string>();
-            var streams = new List<Stream>();
+            var folderPath = BuildSharePointPath(pathData, documentType);
+            var results    = new List<(string Url, string OriginalFileName)>();
 
             foreach (var file in files)
             {
                 if (file.Length == 0)
                     throw new AbrilException("Se detectó un archivo vacío.");
 
-                var extension = Path.GetExtension(file.FileName);
-                var storedName = $"{Guid.NewGuid()}{extension}";
-                var stream = file.OpenReadStream();
+                using var stream = file.OpenReadStream();
+                var fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+                    libraryName: "Adjudicaciones",
+                    folderPath:  folderPath,
+                    fileName:    file.FileName,
+                    fileStream:  stream,
+                    contentType: file.ContentType)
+                    ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
 
-                streams.Add(stream);
-                filesToUpload.Add((stream, storedName));
-                originalNames.Add(file.FileName);
+                results.Add((fileUrl, file.FileName));
             }
 
-            try
-            {
-                var urls = await _fileStorageService.UploadFilesAsync(filesToUpload, container);
-                return urls.Zip(originalNames, (url, name) => (url, name)).ToList();
-            }
-            finally
-            {
-                foreach (var stream in streams)
-                    stream.Dispose();
-            }
+            return results;
         }
 
         public async Task SendNotification(SendAdjudicacionNotificationDto dto, int userId)
@@ -664,12 +665,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private static string GetSubfolderName(AdjudicacionDocumentType documentType) => documentType switch
         {
-            AdjudicacionDocumentType.Contract          => "Contrato",
-            AdjudicacionDocumentType.SummarySheet      => "Hoja Resumen",
-            AdjudicacionDocumentType.Budget            => "Presupuesto",
-            AdjudicacionDocumentType.Schedule          => "Cronograma",
-            AdjudicacionDocumentType.AttachedQuotation => "Cotizacion Adjunta",
-            AdjudicacionDocumentType.ServiceOrder      => "Orden de Servicio",
+            AdjudicacionDocumentType.Contract           => "Contrato",
+            AdjudicacionDocumentType.SummarySheet       => "Hoja Resumen",
+            AdjudicacionDocumentType.Budget             => "Presupuesto",
+            AdjudicacionDocumentType.Schedule           => "Cronograma",
+            AdjudicacionDocumentType.AttachedQuotation  => "Cotizacion Adjunta",
+            AdjudicacionDocumentType.ServiceOrder       => "Orden de Servicio",
+            AdjudicacionDocumentType.InitialQuotation   => "Cotizaciones",
+            AdjudicacionDocumentType.InitialComparative => "Comparativo",
             _ => throw new ArgumentOutOfRangeException(nameof(documentType))
         };
 

@@ -15,7 +15,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             _factory = factory;
         }
 
-        public async Task Create(ProjectSubContractorCreateDTO dto, List<(string Url, string OriginalFileName)> quotationFiles, List<(string Url, string OriginalFileName)> comparativeFiles, int userId)
+        public async Task<int> Create(ProjectSubContractorCreateDTO dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -41,13 +41,29 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 State = true
             };
 
+            ctx.ProjectSubContractor.Add(subContractor);
+            await ctx.SaveChangesAsync();
+
+            return subContractor.ProjectSubContractorId;
+        }
+
+        public async Task SaveInitialFilesAsync(
+            int projectSubContractorId,
+            List<(string Url, string OriginalFileName)> quotationFiles,
+            List<(string Url, string OriginalFileName)> comparativeFiles,
+            int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var now = DateTime.UtcNow;
+
             foreach (var file in quotationFiles)
             {
-                subContractor.QuotationFiles.Add(new ProjectSubContractorQuotationFile
+                ctx.ProjectSubContractorQuotationFile.Add(new ProjectSubContractorQuotationFile
                 {
+                    ProjectSubContractorId = projectSubContractorId,
                     FileUrl = file.Url,
                     OriginalFileName = file.OriginalFileName,
-                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,
                     State = true
@@ -56,18 +72,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
 
             foreach (var file in comparativeFiles)
             {
-                subContractor.ComparativeFiles.Add(new ProjectSubContractorComparativeFile
+                ctx.ProjectSubContractorComparativeFile.Add(new ProjectSubContractorComparativeFile
                 {
+                    ProjectSubContractorId = projectSubContractorId,
                     FileUrl = file.Url,
                     OriginalFileName = file.OriginalFileName,
-                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,
                     State = true
                 });
             }
 
-            ctx.ProjectSubContractor.Add(subContractor);
             await ctx.SaveChangesAsync();
         }
 

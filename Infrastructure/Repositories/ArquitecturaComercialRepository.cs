@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -421,6 +422,155 @@ namespace Abril_Backend.Infrastructure.Repositories
                 PorPagina = porPagina,
                 Items = items,
             };
+        }
+
+        public async Task<ActividadListItemDTO?> PatchActividad(int id, Dictionary<string, JsonElement> body)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var actividad = await ctx.AcActividad.FirstOrDefaultAsync(a => a.Id == id);
+            if (actividad == null) return null;
+
+            var oldInicioProgramado = actividad.InicioProgramado;
+            bool inicioProgramadoTouched = false;
+
+            foreach (var kvp in body)
+            {
+                switch (kvp.Key.ToLowerInvariant())
+                {
+                    case "inicioprogramado":
+                        actividad.InicioProgramado = ParseDateOrNull(kvp.Value);
+                        inicioProgramadoTouched = true;
+                        break;
+                    case "finprogramado":
+                        actividad.FinProgramado = ParseDateOrNull(kvp.Value);
+                        break;
+                    case "inicioefectivo":
+                        actividad.InicioEfectivo = ParseDateOrNull(kvp.Value);
+                        break;
+                    case "finefectivo":
+                        actividad.FinEfectivo = ParseDateOrNull(kvp.Value);
+                        break;
+                    case "userid":
+                        actividad.UserId = ParseIntOrNull(kvp.Value);
+                        break;
+                    case "observaciones":
+                        actividad.Observaciones = ParseStringOrNull(kvp.Value);
+                        break;
+                }
+            }
+
+            if (inicioProgramadoTouched)
+            {
+                bool wasNull = !oldInicioProgramado.HasValue;
+                bool isNull = !actividad.InicioProgramado.HasValue;
+                if (wasNull && !isNull) actividad.Activo = true;
+                else if (!wasNull && isNull) actividad.Activo = false;
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return await GetActividadItemById(ctx, id);
+        }
+
+        private async Task<ActividadListItemDTO?> GetActividadItemById(AppDbContext ctx, int id)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            var row = await (from a in ctx.AcActividad
+                             join p in ctx.Proyecto on a.ProjectId equals p.Id
+                             from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
+                             from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             where a.Id == id
+                             select new
+                             {
+                                 Actividad = a,
+                                 ProjectNombre = p.Nombre,
+                                 Encargado1 = p.ResponsableArqCom,
+                                 EtapaNombre = e != null ? e.Nombre : null,
+                                 ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                             }).FirstOrDefaultAsync();
+
+            if (row == null) return null;
+
+            var a = row.Actividad;
+            string estado;
+            if (a.FinEfectivo.HasValue)
+                estado = EstadoCulminado;
+            else if (a.InicioEfectivo.HasValue)
+                estado = a.FinProgramado.HasValue && a.FinProgramado.Value < today
+                    ? EstadoVencido
+                    : EstadoEnProceso;
+            else if (a.InicioProgramado.HasValue)
+                estado = EstadoPendiente;
+            else
+                estado = EstadoVacio;
+
+            int? retraso = a.FinProgramado.HasValue
+                ? today.DayNumber - a.FinProgramado.Value.DayNumber
+                : (int?)null;
+
+            return new ActividadListItemDTO
+            {
+                Id = a.Id,
+                ProjectId = a.ProjectId,
+                ProjectNombre = row.ProjectNombre,
+                Indice = a.Indice,
+                Nombre = a.Nombre,
+                Tipo = a.Tipo,
+                EtapaId = a.EtapaId,
+                EtapaNombre = row.EtapaNombre,
+                UserId = a.UserId,
+                ResponsableNombre = row.ResponsableNombre,
+                Encargado1 = row.Encargado1,
+                InicioProgramado = a.InicioProgramado,
+                FinProgramado = a.FinProgramado,
+                InicioEfectivo = a.InicioEfectivo,
+                FinEfectivo = a.FinEfectivo,
+                Observaciones = a.Observaciones,
+                Activo = a.Activo,
+                Estado = estado,
+                Retraso = retraso,
+            };
+        }
+
+        private static DateOnly? ParseDateOrNull(JsonElement el)
+        {
+            if (el.ValueKind == JsonValueKind.Null || el.ValueKind == JsonValueKind.Undefined)
+                return null;
+            if (el.ValueKind == JsonValueKind.String)
+            {
+                var s = el.GetString();
+                if (string.IsNullOrWhiteSpace(s)) return null;
+                return DateOnly.Parse(s);
+            }
+            return null;
+        }
+
+        private static int? ParseIntOrNull(JsonElement el)
+        {
+            if (el.ValueKind == JsonValueKind.Null || el.ValueKind == JsonValueKind.Undefined)
+                return null;
+            if (el.ValueKind == JsonValueKind.Number)
+                return el.GetInt32();
+            if (el.ValueKind == JsonValueKind.String)
+            {
+                var s = el.GetString();
+                if (string.IsNullOrWhiteSpace(s)) return null;
+                return int.TryParse(s, out var v) ? v : null;
+            }
+            return null;
+        }
+
+        private static string? ParseStringOrNull(JsonElement el)
+        {
+            if (el.ValueKind == JsonValueKind.Null || el.ValueKind == JsonValueKind.Undefined)
+                return null;
+            if (el.ValueKind == JsonValueKind.String)
+            {
+                var s = el.GetString();
+                return string.IsNullOrWhiteSpace(s) ? null : s;
+            }
+            return null;
         }
 
         public async Task<ArqComercialFiltersDTO> GetFilters()

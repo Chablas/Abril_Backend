@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -36,6 +37,11 @@ namespace Abril_Backend.Application.Services
         public async Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina)
         {
             return await _repository.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina);
+        }
+
+        public async Task<ActividadListItemDTO?> PatchActividad(int id, Dictionary<string, JsonElement> body)
+        {
+            return await _repository.PatchActividad(id, body);
         }
     }
 }

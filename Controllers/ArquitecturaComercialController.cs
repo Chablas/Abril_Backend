@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Abril_Backend.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -87,6 +88,30 @@ namespace Abril_Backend.Controllers
             {
                 var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina);
                 return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("actividades/{id:int}")]
+        public async Task<IActionResult> PatchActividad(int id, [FromBody] Dictionary<string, JsonElement>? body)
+        {
+            try
+            {
+                if (body == null || body.Count == 0)
+                    return BadRequest(new { message = "El body está vacío." });
+
+                var result = await _service.PatchActividad(id, body);
+                if (result == null)
+                    return NotFound(new { message = "Actividad no encontrada." });
+
+                return Ok(result);
+            }
+            catch (FormatException)
+            {
+                return BadRequest(new { message = "Formato de fecha inválido. Use YYYY-MM-DD." });
             }
             catch (Exception)
             {

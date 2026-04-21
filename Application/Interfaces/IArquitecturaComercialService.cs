@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 
 namespace Abril_Backend.Application.Interfaces
@@ -9,5 +10,6 @@ namespace Abril_Backend.Application.Interfaces
         Task<List<ProyectoConActividadesDTO>> GetProyectosConActividades();
         Task<List<SupervisorAcDTO>> GetSupervisoresAc();
         Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina);
+        Task<ActividadListItemDTO?> PatchActividad(int id, Dictionary<string, JsonElement> body);
     }
 }

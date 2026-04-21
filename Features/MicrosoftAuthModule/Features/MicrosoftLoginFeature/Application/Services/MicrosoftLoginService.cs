@@ -42,7 +42,14 @@ namespace Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Application.Servic
             var user = await _repository.GetUserByEmailAsync(email);
 
             if (user is null)
+            {
                 user = await _repository.CreateUserFromGraphAsync(profile);
+            }
+            else if (user.Person is null || user.Person.PersonId == 0)
+            {
+                // El usuario existe en app_user pero le falta su fila en person → crearla.
+                user.Person = await _repository.CreatePersonForUserAsync(user.UserId, profile);
+            }
 
             var accessToken = _jwtService.GenerateToken(user);
             var session = await _authRepository.CreateSessionAsync(user.UserId);

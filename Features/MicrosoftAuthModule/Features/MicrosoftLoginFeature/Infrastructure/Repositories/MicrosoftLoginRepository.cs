@@ -22,7 +22,8 @@ namespace Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Infrastructure.Rep
 
             var query =
                 from u in ctx.User
-                join p in ctx.Person on u.UserId equals p.UserId
+                join p in ctx.Person on u.UserId equals p.UserId into pGroup   // LEFT JOIN
+                from p in pGroup.DefaultIfEmpty()
                 join ur in ctx.UserRole on u.UserId equals ur.UserId into urGroup
                 from ur in urGroup.DefaultIfEmpty()
                 join r in ctx.Role on ur.RoleId equals r.RoleId into rGroup
@@ -33,9 +34,9 @@ namespace Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Infrastructure.Rep
                     u.UserId,
                     u.Active,
                     u.Email,
-                    p.PersonId,
-                    p.DocumentIdentityCode,
-                    p.FullName
+                    PersonId             = (int?)   (p == null ? null : (int?)p.PersonId),
+                    DocumentIdentityCode = (string?)(p == null ? null : p.DocumentIdentityCode),
+                    FullName             = (string?)(p == null ? null : p.FullName)
                 }
                 into g
                 select new
@@ -59,12 +60,42 @@ namespace Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Infrastructure.Rep
                 Active = result.Key.Active,
                 Person = new PersonDTO
                 {
-                    PersonId = result.Key.PersonId,
+                    PersonId             = result.Key.PersonId ?? 0,
                     DocumentIdentityCode = result.Key.DocumentIdentityCode,
-                    FullName = result.Key.FullName,
-                    Email = result.Key.Email ?? string.Empty
+                    FullName             = result.Key.FullName ?? string.Empty,
+                    Email                = result.Key.Email ?? string.Empty
                 },
                 Roles = result.Roles
+            };
+        }
+
+        public async Task<PersonDTO> CreatePersonForUserAsync(int userId, MicrosoftProfileDto profile)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var person = new Person
+            {
+                UserId                 = userId,
+                DocumentIdentityTypeId = null,
+                DocumentIdentityCode   = null,
+                FirstNames             = profile.GivenName?.ToUpper(),
+                FirstLastName          = profile.Surname?.ToUpper(),
+                FullName               = profile.DisplayName?.ToUpper() ?? string.Empty,
+                Active                 = true,
+                State                  = true,
+                CreatedDateTime        = DateTime.UtcNow,
+                CreatedUserId          = null
+            };
+
+            ctx.Person.Add(person);
+            await ctx.SaveChangesAsync();
+
+            return new PersonDTO
+            {
+                PersonId             = person.PersonId,
+                DocumentIdentityCode = null,
+                FullName             = person.FullName,
+                Email                = profile.Mail ?? profile.UserPrincipalName ?? string.Empty
             };
         }
 

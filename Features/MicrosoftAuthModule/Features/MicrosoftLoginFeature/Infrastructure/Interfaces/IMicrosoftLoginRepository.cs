@@ -7,5 +7,6 @@ namespace Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Infrastructure.Int
     {
         Task<UserDTO?> GetUserByEmailAsync(string email);
         Task<UserDTO> CreateUserFromGraphAsync(MicrosoftProfileDto profile);
+        Task<PersonDTO> CreatePersonForUserAsync(int userId, MicrosoftProfileDto profile);
     }
 }

@@ -313,6 +313,116 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .ToListAsync();
         }
 
+        public async Task<ActividadListResponseDTO> GetActividades(
+            int? proyectoId,
+            string? tipo,
+            int? etapaId,
+            string? search,
+            bool? soloActivas,
+            int pagina,
+            int porPagina)
+        {
+            if (pagina < 1) pagina = 1;
+            if (porPagina < 1) porPagina = 100;
+            if (porPagina > 500) porPagina = 500;
+
+            using var ctx = _factory.CreateDbContext();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            var baseQuery = from a in ctx.AcActividad
+                            join p in ctx.Proyecto on a.ProjectId equals p.Id
+                            from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
+                            from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                            select new
+                            {
+                                Actividad = a,
+                                ProjectNombre = p.Nombre,
+                                Encargado1 = p.ResponsableArqCom,
+                                EtapaNombre = e != null ? e.Nombre : null,
+                                ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                            };
+
+            if (proyectoId.HasValue && proyectoId.Value > 0)
+                baseQuery = baseQuery.Where(x => x.Actividad.ProjectId == proyectoId.Value);
+
+            if (!string.IsNullOrWhiteSpace(tipo))
+                baseQuery = baseQuery.Where(x => x.Actividad.Tipo == tipo);
+
+            if (etapaId.HasValue && etapaId.Value > 0)
+                baseQuery = baseQuery.Where(x => x.Actividad.EtapaId == etapaId.Value);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.ToLower();
+                baseQuery = baseQuery.Where(x =>
+                    x.Actividad.Nombre != null && x.Actividad.Nombre.ToLower().Contains(s));
+            }
+
+            if (soloActivas.HasValue && soloActivas.Value)
+                baseQuery = baseQuery.Where(x => x.Actividad.Activo);
+
+            int total = await baseQuery.CountAsync();
+
+            var rows = await baseQuery
+                .OrderBy(x => x.Actividad.Indice)
+                .ThenBy(x => x.Actividad.Id)
+                .Skip((pagina - 1) * porPagina)
+                .Take(porPagina)
+                .ToListAsync();
+
+            var items = rows.Select(x =>
+            {
+                var a = x.Actividad;
+
+                string estado;
+                if (a.FinEfectivo.HasValue)
+                    estado = EstadoCulminado;
+                else if (a.InicioEfectivo.HasValue)
+                    estado = a.FinProgramado.HasValue && a.FinProgramado.Value < today
+                        ? EstadoVencido
+                        : EstadoEnProceso;
+                else if (a.InicioProgramado.HasValue)
+                    estado = EstadoPendiente;
+                else
+                    estado = EstadoVacio;
+
+                int? retraso = a.FinProgramado.HasValue
+                    ? today.DayNumber - a.FinProgramado.Value.DayNumber
+                    : (int?)null;
+
+                return new ActividadListItemDTO
+                {
+                    Id = a.Id,
+                    ProjectId = a.ProjectId,
+                    ProjectNombre = x.ProjectNombre,
+                    Indice = a.Indice,
+                    Nombre = a.Nombre,
+                    Tipo = a.Tipo,
+                    EtapaId = a.EtapaId,
+                    EtapaNombre = x.EtapaNombre,
+                    UserId = a.UserId,
+                    ResponsableNombre = x.ResponsableNombre,
+                    Encargado1 = x.Encargado1,
+                    InicioProgramado = a.InicioProgramado,
+                    FinProgramado = a.FinProgramado,
+                    InicioEfectivo = a.InicioEfectivo,
+                    FinEfectivo = a.FinEfectivo,
+                    Observaciones = a.Observaciones,
+                    Activo = a.Activo,
+                    Estado = estado,
+                    Retraso = retraso,
+                };
+            }).ToList();
+
+            return new ActividadListResponseDTO
+            {
+                Total = total,
+                Pagina = pagina,
+                PorPagina = porPagina,
+                Items = items,
+            };
+        }
+
         public async Task<ArqComercialFiltersDTO> GetFilters()
         {
             using var ctx = _factory.CreateDbContext();

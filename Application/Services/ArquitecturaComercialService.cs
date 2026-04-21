@@ -32,5 +32,10 @@ namespace Abril_Backend.Application.Services
         {
             return await _repository.GetSupervisoresAc();
         }
+
+        public async Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina)
+        {
+            return await _repository.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina);
+        }
     }
 }

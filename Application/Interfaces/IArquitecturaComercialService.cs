@@ -8,5 +8,6 @@ namespace Abril_Backend.Application.Interfaces
         Task<ArqComercialFiltersDTO> GetFilters();
         Task<List<ProyectoConActividadesDTO>> GetProyectosConActividades();
         Task<List<SupervisorAcDTO>> GetSupervisoresAc();
+        Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina);
     }
 }

@@ -72,5 +72,26 @@ namespace Abril_Backend.Controllers
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        [HttpGet("actividades")]
+        public async Task<IActionResult> GetActividades(
+            [FromQuery] int? proyectoId,
+            [FromQuery] string? tipo,
+            [FromQuery] int? etapaId,
+            [FromQuery] string? search,
+            [FromQuery] bool? soloActivas,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int porPagina = 100)
+        {
+            try
+            {
+                var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

@@ -13,5 +13,6 @@ namespace Abril_Backend.Application.Interfaces
         Task<ActividadListItemDTO?> PatchActividad(int id, Dictionary<string, JsonElement> body);
         Task<ReasignarEncargadoResultDTO?> ReasignarEncargado(int proyectoId);
         Task<GenerarActividadesResultDTO?> GenerarActividades(int proyectoId);
+        Task<ProyectoConActividadesDTO?> PatchProyecto(int id, PatchProyectoDTO body);
     }
 }

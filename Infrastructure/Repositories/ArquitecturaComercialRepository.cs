@@ -690,5 +690,33 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Proyectos = proyectos,
             };
         }
+
+        public async Task<ProyectoConActividadesDTO?> PatchProyecto(int id, PatchProyectoDTO body)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var proyecto = await ctx.Proyecto.FirstOrDefaultAsync(p => p.Id == id);
+            if (proyecto == null) return null;
+
+            proyecto.ResponsableArqCom = string.IsNullOrWhiteSpace(body.ResponsableArqCom)
+                ? null
+                : body.ResponsableArqCom.Trim();
+
+            await ctx.SaveChangesAsync();
+
+            var total = await ctx.AcActividad.CountAsync(a => a.ProjectId == id);
+            var activas = await ctx.AcActividad.CountAsync(a => a.ProjectId == id && a.Activo);
+
+            return new ProyectoConActividadesDTO
+            {
+                Id = proyecto.Id,
+                Nombre = proyecto.Nombre ?? string.Empty,
+                Estado = proyecto.Estado ?? string.Empty,
+                ResponsableArqCom = proyecto.ResponsableArqCom,
+                TotalActividades = total,
+                Activas = activas,
+                SinActividades = total == 0,
+            };
+        }
     }
 }

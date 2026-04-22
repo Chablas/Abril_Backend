@@ -53,5 +53,10 @@ namespace Abril_Backend.Application.Services
         {
             return await _repository.GenerarActividades(proyectoId);
         }
+
+        public async Task<ProyectoConActividadesDTO?> PatchProyecto(int id, PatchProyectoDTO body)
+        {
+            return await _repository.PatchProyecto(id, body);
+        }
     }
 }

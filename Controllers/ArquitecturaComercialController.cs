@@ -67,6 +67,7 @@ namespace Abril_Backend.Controllers
         {
             try
             {
+
                 var result = await _service.GetSupervisoresAc();
                 return Ok(result);
             }
@@ -130,6 +131,26 @@ namespace Abril_Backend.Controllers
                     return BadRequest(new { message = "proyectoId es requerido." });
 
                 var result = await _service.ReasignarEncargado(body.ProyectoId);
+                if (result == null)
+                    return NotFound(new { message = "Proyecto no encontrado." });
+
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("proyectos/{id:int}")]
+        public async Task<IActionResult> PatchProyecto(int id, [FromBody] PatchProyectoDTO? body)
+        {
+            try
+            {
+                if (body == null)
+                    return BadRequest(new { message = "El body está vacío." });
+
+                var result = await _service.PatchProyecto(id, body);
                 if (result == null)
                     return NotFound(new { message = "Proyecto no encontrado." });
 

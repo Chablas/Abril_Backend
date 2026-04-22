@@ -279,12 +279,14 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var proyectos = await (
                 from p in ctx.Proyecto
+                from w in ctx.Worker.Where(w => w.Id == p.ResponsableArqComId).DefaultIfEmpty()
                 select new ProyectoConActividadesDTO
                 {
                     Id = p.Id,
                     Nombre = p.Nombre ?? string.Empty,
                     Estado = p.Estado ?? string.Empty,
-                    ResponsableArqCom = p.ResponsableArqCom,
+                    ResponsableArqComId = p.ResponsableArqComId,
+                    ResponsableArqCom = w != null ? w.ApellidoNombre : p.ResponsableArqCom,
                     TotalActividades = ctx.AcActividad.Count(a => a.ProjectId == p.Id),
                     Activas = ctx.AcActividad.Count(a => a.ProjectId == p.Id && a.Activo),
                 }
@@ -582,16 +584,12 @@ namespace Abril_Backend.Infrastructure.Repositories
             var proyecto = await ctx.Proyecto.FirstOrDefaultAsync(p => p.Id == proyectoId);
             if (proyecto == null) return null;
 
-            var responsable = proyecto.ResponsableArqCom?.Trim();
-            if (string.IsNullOrWhiteSpace(responsable))
+            var workerId = proyecto.ResponsableArqComId;
+            if (workerId == null)
                 return new ReasignarEncargadoResultDTO { Actualizadas = 0, WorkerNoEncontrado = true };
 
-            var workerId = await ctx.Worker
-                .Where(w => w.ApellidoNombre == responsable)
-                .Select(w => (int?)w.Id)
-                .FirstOrDefaultAsync();
-
-            if (workerId == null)
+            var existeWorker = await ctx.Worker.AnyAsync(w => w.Id == workerId);
+            if (!existeWorker)
                 return new ReasignarEncargadoResultDTO { Actualizadas = 0, WorkerNoEncontrado = true };
 
             var actualizadas = await ctx.AcActividad
@@ -698,9 +696,20 @@ namespace Abril_Backend.Infrastructure.Repositories
             var proyecto = await ctx.Proyecto.FirstOrDefaultAsync(p => p.Id == id);
             if (proyecto == null) return null;
 
-            proyecto.ResponsableArqCom = string.IsNullOrWhiteSpace(body.ResponsableArqCom)
-                ? null
-                : body.ResponsableArqCom.Trim();
+            string? nombreResuelto = null;
+            if (body.ResponsableArqComId.HasValue)
+            {
+                nombreResuelto = await ctx.Worker
+                    .Where(w => w.Id == body.ResponsableArqComId.Value)
+                    .Select(w => w.ApellidoNombre)
+                    .FirstOrDefaultAsync();
+
+                if (nombreResuelto == null)
+                    throw new AbrilException("Worker no encontrado.", 404);
+            }
+
+            proyecto.ResponsableArqComId = body.ResponsableArqComId;
+            proyecto.ResponsableArqCom = nombreResuelto;
 
             await ctx.SaveChangesAsync();
 
@@ -712,6 +721,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Id = proyecto.Id,
                 Nombre = proyecto.Nombre ?? string.Empty,
                 Estado = proyecto.Estado ?? string.Empty,
+                ResponsableArqComId = proyecto.ResponsableArqComId,
                 ResponsableArqCom = proyecto.ResponsableArqCom,
                 TotalActividades = total,
                 Activas = activas,

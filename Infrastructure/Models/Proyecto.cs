@@ -16,5 +16,8 @@ namespace Abril_Backend.Infrastructure.Models
 
         [Column("responsable_arq_com")]
         public string? ResponsableArqCom { get; set; }
+
+        [Column("responsable_arq_com_id")]
+        public int? ResponsableArqComId { get; set; }
     }
 }

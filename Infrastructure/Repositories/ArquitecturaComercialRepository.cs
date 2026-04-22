@@ -388,9 +388,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 else
                     estado = EstadoVacio;
 
-                int? retraso = a.FinProgramado.HasValue
-                    ? today.DayNumber - a.FinProgramado.Value.DayNumber
-                    : (int?)null;
+                int? retraso = ComputeRetraso(a.FinProgramado, a.FinEfectivo, today);
 
                 return new ActividadListItemDTO
                 {
@@ -506,9 +504,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             else
                 estado = EstadoVacio;
 
-            int? retraso = act.FinProgramado.HasValue
-                ? today.DayNumber - act.FinProgramado.Value.DayNumber
-                : (int?)null;
+            int? retraso = ComputeRetraso(act.FinProgramado, act.FinEfectivo, today);
 
             return new ActividadListItemDTO
             {
@@ -532,6 +528,16 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Estado = estado,
                 Retraso = retraso,
             };
+        }
+
+        private static int? ComputeRetraso(DateOnly? finProgramado, DateOnly? finEfectivo, DateOnly today)
+        {
+            if (!finProgramado.HasValue) return null;
+            if (finEfectivo.HasValue)
+                return finEfectivo.Value.DayNumber - finProgramado.Value.DayNumber;
+            if (finProgramado.Value < today)
+                return today.DayNumber - finProgramado.Value.DayNumber;
+            return null;
         }
 
         private static DateOnly? ParseDateOrNull(JsonElement el)

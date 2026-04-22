@@ -106,14 +106,35 @@ namespace Abril_Backend.Infrastructure.Repositories
             int total = classified.Count;
             int culminadas = classified.Count(x => x.Estado == EstadoCulminado);
             int enProceso = classified.Count(x => x.Estado == EstadoEnProceso);
-            int vencidas = classified.Count(x => x.Estado == EstadoVencido);
-            int pendientes = classified.Count(x => x.Estado == EstadoPendiente);
             int vacias = classified.Count(x => x.Estado == EstadoVacio);
 
-            double eficiencia = total > 0
-                ? Math.Round((double)culminadas / total * 100, 1) : 0;
+            int vencidas = classified.Count(x =>
+                x.FinProgramado.HasValue
+                && x.FinProgramado.Value < today
+                && !x.FinEfectivo.HasValue
+                && x.InicioProgramado.HasValue);
+
+            int pendientes = classified.Count(x =>
+                x.InicioProgramado.HasValue
+                && !x.InicioEfectivo.HasValue
+                && x.FinProgramado.HasValue
+                && x.FinProgramado.Value >= today);
+
+            var efPorWorker = classified
+                .Where(x => !string.IsNullOrEmpty(x.SupervisorFullName))
+                .GroupBy(x => x.SupervisorFullName!)
+                .Select(g =>
+                {
+                    int gTotal = g.Count();
+                    int gCulminadas = g.Count(x => x.Estado == EstadoCulminado);
+                    return gTotal > 0 ? (double)gCulminadas / gTotal * 100 : 0;
+                })
+                .ToList();
+            double eficiencia = efPorWorker.Count > 0
+                ? Math.Round(efPorWorker.Average(), 1) : 0;
+
             double progreso = total > 0
-                ? Math.Round((double)(culminadas + enProceso) / total * 100, 1) : 0;
+                ? Math.Round((double)culminadas / total * 100, 1) : 0;
 
             // ── KPIs ──
             var kpis = new ArqComercialKpiDTO

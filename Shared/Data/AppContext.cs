@@ -66,6 +66,14 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorFileStatus> ProjectSubContractorFileStatus { get; set; }
         public DbSet<ProjectSubContractorPromissoryNote> ProjectSubContractorPromissoryNote { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
+        public DbSet<AcActividad> AcActividad { get; set; }
+        public DbSet<AcEtapa> AcEtapa { get; set; }
+        public DbSet<AcActividadPlantilla> AcActividadPlantilla { get; set; }
+        public DbSet<AcCategoria> AcCategoria { get; set; }
+        public DbSet<AcEspecialidad> AcEspecialidad { get; set; }
+        public DbSet<Worker> Worker { get; set; }
+        public DbSet<Proyecto> Proyecto { get; set; }
+        public DbSet<Empresa> Empresa { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

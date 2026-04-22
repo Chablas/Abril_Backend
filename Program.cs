@@ -25,6 +25,13 @@ using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true)
+    .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true)
+    .AddEnvironmentVariables();
+
 var databaseProvider = builder.Configuration["Database:DatabaseProvider"];
 var emailProvider = builder.Configuration["Email:EmailProvider"];
 var storageProvider = builder.Configuration["Storage:StorageProvider"];
@@ -97,6 +104,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IResidentMonitoringService, ResidentMonitoringService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
 builder.Services.AddScoped<IReniecService, ReniecService>();
+builder.Services.AddScoped<IArquitecturaComercialService, ArquitecturaComercialService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
@@ -112,6 +120,7 @@ builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IJWTService, JwtService>();
 builder.Services.AddScoped<IResidentMonitoringRepository, ResidentMonitoringRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();
+builder.Services.AddScoped<IArquitecturaComercialRepository, ArquitecturaComercialRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();

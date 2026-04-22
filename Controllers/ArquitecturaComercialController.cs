@@ -2,10 +2,12 @@ using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Abril_Backend.Controllers
 {
+    [Authorize]
     [ApiController]
     [Route("api/v1/arquitectura-comercial")]
     public class ArquitecturaComercialController : ControllerBase

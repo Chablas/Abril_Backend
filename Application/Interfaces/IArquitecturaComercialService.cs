@@ -14,5 +14,6 @@ namespace Abril_Backend.Application.Interfaces
         Task<ReasignarEncargadoResultDTO?> ReasignarEncargado(int proyectoId);
         Task<GenerarActividadesResultDTO?> GenerarActividades(int proyectoId);
         Task<ProyectoConActividadesDTO?> PatchProyecto(int id, PatchProyectoDTO body);
+        Task<List<GanttActividadDTO>> GetGantt(int? proyectoId, string? tipo, string? etapa, bool? soloActivas);
     }
 }

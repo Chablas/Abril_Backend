@@ -58,5 +58,10 @@ namespace Abril_Backend.Application.Services
         {
             return await _repository.PatchProyecto(id, body);
         }
+
+        public async Task<List<GanttActividadDTO>> GetGantt(int? proyectoId, string? tipo, string? etapa, bool? soloActivas)
+        {
+            return await _repository.GetGantt(proyectoId, tipo, etapa, soloActivas);
+        }
     }
 }

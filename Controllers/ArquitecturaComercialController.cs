@@ -142,6 +142,24 @@ namespace Abril_Backend.Controllers
             }
         }
 
+        [HttpGet("gantt")]
+        public async Task<IActionResult> GetGantt(
+            [FromQuery] int? proyectoId,
+            [FromQuery] string? tipo,
+            [FromQuery] string? etapa,
+            [FromQuery] bool? soloActivas)
+        {
+            try
+            {
+                var result = await _service.GetGantt(proyectoId, tipo, etapa, soloActivas);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPatch("proyectos/{id:int}")]
         public async Task<IActionResult> PatchProyecto(int id, [FromBody] PatchProyectoDTO? body)
         {

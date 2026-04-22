@@ -713,6 +713,47 @@ namespace Abril_Backend.Infrastructure.Repositories
             };
         }
 
+        public async Task<List<GanttActividadDTO>> GetGantt(int? proyectoId, string? tipo, string? etapa, bool? soloActivas)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var query = from a in ctx.AcActividad
+                        from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
+                        where a.InicioProgramado != null
+                        select new GanttActividadDTO
+                        {
+                            Id = a.Id,
+                            Indice = a.Indice,
+                            Nombre = a.Nombre,
+                            Tipo = a.Tipo,
+                            EtapaId = a.EtapaId,
+                            EtapaNombre = e != null ? e.Nombre : null,
+                            Activo = a.Activo,
+                            InicioProgramado = a.InicioProgramado,
+                            FinProgramado = a.FinProgramado,
+                            InicioEfectivo = a.InicioEfectivo,
+                            FinEfectivo = a.FinEfectivo,
+                            ProjectId = a.ProjectId,
+                        };
+
+            if (proyectoId.HasValue && proyectoId.Value > 0)
+                query = query.Where(x => x.ProjectId == proyectoId.Value);
+
+            if (!string.IsNullOrWhiteSpace(tipo))
+                query = query.Where(x => x.Tipo == tipo);
+
+            if (!string.IsNullOrWhiteSpace(etapa))
+                query = query.Where(x => x.EtapaNombre == etapa);
+
+            if (soloActivas.HasValue && soloActivas.Value)
+                query = query.Where(x => x.Activo);
+
+            return await query
+                .OrderBy(x => x.Indice)
+                .ThenBy(x => x.Id)
+                .ToListAsync();
+        }
+
         public async Task<ProyectoConActividadesDTO?> PatchProyecto(int id, PatchProyectoDTO body)
         {
             using var ctx = _factory.CreateDbContext();

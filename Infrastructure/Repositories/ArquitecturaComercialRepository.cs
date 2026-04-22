@@ -305,10 +305,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             return await ctx.Worker
-                .Where(w =>
-                    w.Estado == "ACTIVO"
-                    && (w.Categoria == "Arquitecto Comercial"
-                        || (w.Ocupacion != null && EF.Functions.Like(w.Ocupacion, "%Arquitectura%"))))
+                .Where(w => w.Estado == "ACTIVO" && w.Subarea == "Arquitectura Comercial")
                 .OrderBy(w => w.ApellidoNombre)
                 .Select(w => new SupervisorAcDTO
                 {

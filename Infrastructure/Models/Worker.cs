@@ -17,6 +17,9 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("ocupacion")]
         public string? Ocupacion { get; set; }
 
+        [Column("subarea")]
+        public string? Subarea { get; set; }
+
         [Column("estado")]
         public string? Estado { get; set; }
     }

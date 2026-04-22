@@ -36,5 +36,13 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
             string fileName,
             Stream fileStream,
             string contentType = "application/octet-stream");
+
+        /// <summary>
+        /// Descarga el contenido de un archivo de SharePoint a partir de su webUrl,
+        /// usando permisos de aplicación (Files.Read.All).
+        /// </summary>
+        /// <param name="webUrl">URL web del archivo tal como fue guardada al subirlo.</param>
+        /// <returns>Bytes del archivo.</returns>
+        Task<byte[]> DownloadFromSharePointAsync(string webUrl);
     }
 }

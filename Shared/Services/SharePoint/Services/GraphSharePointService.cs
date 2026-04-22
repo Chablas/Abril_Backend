@@ -209,6 +209,52 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                 ?? throw new InvalidOperationException("No se pudo obtener el token de aplicación.");
         }
 
+        public async Task<byte[]> DownloadFromSharePointAsync(string webUrl)
+        {
+            var token  = await GetAppTokenAsync();
+            var siteId = await EnsureSiteIdAsync(token);
+
+            // La webUrl tiene el formato:
+            // https://{hostname}/sites/{siteName}/{libraryName}/{ruta/al/archivo.pdf}
+            // Extraemos el nombre de la biblioteca y la ruta relativa dentro de ella.
+            var hostname = _configuration["SharePoint:Hostname"] ?? "abrilinmob.sharepoint.com";
+            var sitePath = (_configuration["SharePoint:SitePath"] ?? "/sites/CostosyPresupuestos").Trim('/');
+            var baseUrl  = $"https://{hostname}/{sitePath}/";
+
+            if (!webUrl.StartsWith(baseUrl, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"La URL del archivo no pertenece al sitio SharePoint configurado: {webUrl}");
+
+            // Decodificamos los %XX para trabajar con los nombres reales
+            var afterBase       = Uri.UnescapeDataString(webUrl.Substring(baseUrl.Length));
+            var firstSlash      = afterBase.IndexOf('/');
+            if (firstSlash < 0)
+                throw new InvalidOperationException($"No se pudo extraer la ruta del archivo: {webUrl}");
+
+            var libraryName      = afterBase[..firstSlash];               // ej. "Adjudicaciones"
+            var pathWithinDrive  = afterBase[(firstSlash + 1)..];         // ej. "TORRE ABRIL/.../archivo.pdf"
+
+            var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
+
+            // Drive API: /sites/{siteId}/drives/{driveId}/root:/{ruta}:/content
+            var escapedPath  = EscapePath(pathWithinDrive);
+            var downloadUrl  = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{escapedPath}:/content";
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await client.GetAsync(downloadUrl);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"No se pudo descargar el archivo de SharePoint [{(int)response.StatusCode}]: {error}");
+            }
+
+            return await response.Content.ReadAsByteArrayAsync();
+        }
+
         private static string EscapePath(string path)
             => string.Join("/", path.Split('/').Select(Uri.EscapeDataString));
 

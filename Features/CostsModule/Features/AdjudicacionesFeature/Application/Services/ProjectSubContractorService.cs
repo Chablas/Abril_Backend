@@ -22,17 +22,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IProjectRepository _projectRepository;
         private readonly IDelegatedMailService _delegatedMailService;
-        private readonly IHttpClientFactory _httpClientFactory;
         private readonly IGraphUserService _graphUserService;
         private readonly IGraphSharePointService _sharePointService;
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            //"eaguinaga@abril.pe",
-            //"apimentel@abril.pe",
-            //"bquicana@abril.pe",
-            //"cavila@abril.pe",
-            "alvarezvillegaschristian@gmail.com"
+            "eaguinaga@abril.pe",
+            "apimentel@abril.pe",
+            "bquicana@abril.pe",
+            "cavila@abril.pe",
+            //"alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -43,7 +42,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             IStorageContainerResolver containerResolver,
             IProjectRepository projectRepository,
             IDelegatedMailService delegatedMailService,
-            IHttpClientFactory httpClientFactory,
             IGraphUserService graphUserService,
             IGraphSharePointService sharePointService)
         {
@@ -52,7 +50,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _containerResolver = containerResolver;
             _projectRepository = projectRepository;
             _delegatedMailService = delegatedMailService;
-            _httpClientFactory = httpClientFactory;
             _graphUserService = graphUserService;
             _sharePointService = sharePointService;
         }
@@ -888,13 +885,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (files == null || files.Count == 0)
                 return new List<MailAttachmentDto>();
 
-            var client = _httpClientFactory.CreateClient();
-
             var downloadTasks = files.Select(async file =>
             {
                 try
                 {
-                    var bytes = await client.GetByteArrayAsync(file.FileUrl);
+                    var bytes = await _sharePointService.DownloadFromSharePointAsync(file.FileUrl);
                     var fileName = !string.IsNullOrWhiteSpace(file.OriginalFileName)
                         ? file.OriginalFileName
                         : Path.GetFileName(new Uri(file.FileUrl).LocalPath);

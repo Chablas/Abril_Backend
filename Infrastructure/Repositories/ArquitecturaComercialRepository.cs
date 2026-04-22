@@ -527,6 +527,154 @@ namespace Abril_Backend.Infrastructure.Repositories
             };
         }
 
+        public async Task<List<PlantillaActividadDTO>> GetPlantilla()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await (
+                from p in ctx.AcActividadPlantilla
+                from e in ctx.AcEtapa.Where(x => x.Id == p.EtapaId).DefaultIfEmpty()
+                from c in ctx.AcCategoria.Where(x => x.Id == p.CategoriaId).DefaultIfEmpty()
+                from s in ctx.AcEspecialidad.Where(x => x.Id == p.EspecialidadId).DefaultIfEmpty()
+                orderby p.Orden, p.Id
+                select new PlantillaActividadDTO
+                {
+                    Id = p.Id,
+                    Orden = p.Orden,
+                    Nombre = p.Nombre,
+                    Tipo = p.Tipo,
+                    EtapaId = p.EtapaId,
+                    EtapaNombre = e != null ? e.Nombre : null,
+                    CategoriaId = p.CategoriaId,
+                    CategoriaNombre = c != null ? c.Nombre : null,
+                    EspecialidadId = p.EspecialidadId,
+                    EspecialidadNombre = s != null ? s.Nombre : null,
+                    Activo = p.Activo,
+                }
+            ).ToListAsync();
+        }
+
+        public async Task<PlantillaActividadDTO> CreatePlantilla(CreatePlantillaDTO body)
+        {
+            if (string.IsNullOrWhiteSpace(body.Nombre))
+                throw new AbrilException("El nombre es requerido.", 400);
+
+            using var ctx = _factory.CreateDbContext();
+
+            var plantilla = new AcActividadPlantilla
+            {
+                Nombre = body.Nombre.Trim(),
+                Tipo = string.IsNullOrWhiteSpace(body.Tipo) ? null : body.Tipo.Trim(),
+                EtapaId = body.EtapaId,
+                CategoriaId = body.CategoriaId,
+                EspecialidadId = body.EspecialidadId,
+                Orden = body.Orden,
+                Activo = body.Activo ?? true,
+            };
+
+            ctx.AcActividadPlantilla.Add(plantilla);
+            await ctx.SaveChangesAsync();
+
+            return await LoadPlantillaDto(ctx, plantilla.Id)
+                ?? throw new InvalidOperationException("No se pudo releer la plantilla recien creada.");
+        }
+
+        public async Task<PlantillaActividadDTO?> PatchPlantilla(int id, Dictionary<string, JsonElement> body)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var plantilla = await ctx.AcActividadPlantilla.FirstOrDefaultAsync(p => p.Id == id);
+            if (plantilla == null) return null;
+
+            foreach (var kvp in body)
+            {
+                switch (kvp.Key.ToLowerInvariant())
+                {
+                    case "nombre":
+                        var nombre = kvp.Value.ValueKind == JsonValueKind.String ? kvp.Value.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(nombre))
+                            throw new AbrilException("El nombre no puede quedar vacio.", 400);
+                        plantilla.Nombre = nombre.Trim();
+                        break;
+                    case "tipo":
+                        plantilla.Tipo = kvp.Value.ValueKind == JsonValueKind.String
+                            ? (string.IsNullOrWhiteSpace(kvp.Value.GetString()) ? null : kvp.Value.GetString()!.Trim())
+                            : null;
+                        break;
+                    case "etapaid":
+                        plantilla.EtapaId = ParseIntOrNull(kvp.Value);
+                        break;
+                    case "categoriaid":
+                        plantilla.CategoriaId = ParseIntOrNull(kvp.Value);
+                        break;
+                    case "especialidadid":
+                        plantilla.EspecialidadId = ParseIntOrNull(kvp.Value);
+                        break;
+                    case "orden":
+                        plantilla.Orden = ParseIntOrNull(kvp.Value);
+                        break;
+                    case "activo":
+                        plantilla.Activo = kvp.Value.ValueKind == JsonValueKind.True
+                            || (kvp.Value.ValueKind == JsonValueKind.String && bool.TryParse(kvp.Value.GetString(), out var b) && b);
+                        break;
+                }
+            }
+
+            await ctx.SaveChangesAsync();
+            return await LoadPlantillaDto(ctx, plantilla.Id);
+        }
+
+        public async Task<List<AcCategoriaDTO>> GetCategorias()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.AcCategoria
+                .OrderBy(x => x.Nombre)
+                .Select(x => new AcCategoriaDTO { Id = x.Id, Nombre = x.Nombre })
+                .ToListAsync();
+        }
+
+        public async Task<List<AcEspecialidadDTO>> GetEspecialidades()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.AcEspecialidad
+                .OrderBy(x => x.Nombre)
+                .Select(x => new AcEspecialidadDTO { Id = x.Id, Nombre = x.Nombre })
+                .ToListAsync();
+        }
+
+        public async Task<List<AcEtapaDTO>> GetEtapas()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.AcEtapa
+                .OrderBy(x => x.Id)
+                .Select(x => new AcEtapaDTO { Id = x.Id, Nombre = x.Nombre })
+                .ToListAsync();
+        }
+
+        private static async Task<PlantillaActividadDTO?> LoadPlantillaDto(AppDbContext ctx, int id)
+        {
+            return await (
+                from p in ctx.AcActividadPlantilla
+                where p.Id == id
+                from e in ctx.AcEtapa.Where(x => x.Id == p.EtapaId).DefaultIfEmpty()
+                from c in ctx.AcCategoria.Where(x => x.Id == p.CategoriaId).DefaultIfEmpty()
+                from s in ctx.AcEspecialidad.Where(x => x.Id == p.EspecialidadId).DefaultIfEmpty()
+                select new PlantillaActividadDTO
+                {
+                    Id = p.Id,
+                    Orden = p.Orden,
+                    Nombre = p.Nombre,
+                    Tipo = p.Tipo,
+                    EtapaId = p.EtapaId,
+                    EtapaNombre = e != null ? e.Nombre : null,
+                    CategoriaId = p.CategoriaId,
+                    CategoriaNombre = c != null ? c.Nombre : null,
+                    EspecialidadId = p.EspecialidadId,
+                    EspecialidadNombre = s != null ? s.Nombre : null,
+                    Activo = p.Activo,
+                }
+            ).FirstOrDefaultAsync();
+        }
+
         private static int? ComputeRetraso(DateOnly? finProgramado, DateOnly? finEfectivo, DateOnly today)
         {
             if (!finProgramado.HasValue) return null;

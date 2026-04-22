@@ -63,5 +63,23 @@ namespace Abril_Backend.Application.Services
         {
             return await _repository.GetGantt(proyectoId, tipo, etapa, soloActivas);
         }
+
+        public async Task<List<PlantillaActividadDTO>> GetPlantilla()
+            => await _repository.GetPlantilla();
+
+        public async Task<PlantillaActividadDTO> CreatePlantilla(CreatePlantillaDTO body)
+            => await _repository.CreatePlantilla(body);
+
+        public async Task<PlantillaActividadDTO?> PatchPlantilla(int id, Dictionary<string, JsonElement> body)
+            => await _repository.PatchPlantilla(id, body);
+
+        public async Task<List<AcCategoriaDTO>> GetCategorias()
+            => await _repository.GetCategorias();
+
+        public async Task<List<AcEspecialidadDTO>> GetEspecialidades()
+            => await _repository.GetEspecialidades();
+
+        public async Task<List<AcEtapaDTO>> GetEtapas()
+            => await _repository.GetEtapas();
     }
 }

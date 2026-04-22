@@ -15,5 +15,11 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<GenerarActividadesResultDTO?> GenerarActividades(int proyectoId);
         Task<ProyectoConActividadesDTO?> PatchProyecto(int id, PatchProyectoDTO body);
         Task<List<GanttActividadDTO>> GetGantt(int? proyectoId, string? tipo, string? etapa, bool? soloActivas);
+        Task<List<PlantillaActividadDTO>> GetPlantilla();
+        Task<PlantillaActividadDTO> CreatePlantilla(CreatePlantillaDTO body);
+        Task<PlantillaActividadDTO?> PatchPlantilla(int id, Dictionary<string, JsonElement> body);
+        Task<List<AcCategoriaDTO>> GetCategorias();
+        Task<List<AcEspecialidadDTO>> GetEspecialidades();
+        Task<List<AcEtapaDTO>> GetEtapas();
     }
 }

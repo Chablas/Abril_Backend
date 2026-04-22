@@ -59,6 +59,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcActividad> AcActividad { get; set; }
         public DbSet<AcEtapa> AcEtapa { get; set; }
         public DbSet<AcActividadPlantilla> AcActividadPlantilla { get; set; }
+        public DbSet<AcCategoria> AcCategoria { get; set; }
+        public DbSet<AcEspecialidad> AcEspecialidad { get; set; }
         public DbSet<Worker> Worker { get; set; }
         public DbSet<Proyecto> Proyecto { get; set; }
         public DbSet<Empresa> Empresa { get; set; }

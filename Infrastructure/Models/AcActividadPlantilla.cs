@@ -22,5 +22,17 @@ namespace Abril_Backend.Infrastructure.Models
 
         [Column("activo")]
         public bool Activo { get; set; }
+
+        [Column("categoria_id")]
+        public int? CategoriaId { get; set; }
+
+        [Column("especialidad_id")]
+        public int? EspecialidadId { get; set; }
+
+        [ForeignKey(nameof(CategoriaId))]
+        public AcCategoria? Categoria { get; set; }
+
+        [ForeignKey(nameof(EspecialidadId))]
+        public AcEspecialidad? Especialidad { get; set; }
     }
 }

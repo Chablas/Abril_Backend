@@ -142,6 +142,86 @@ namespace Abril_Backend.Controllers
             }
         }
 
+        [HttpGet("plantilla")]
+        public async Task<IActionResult> GetPlantilla()
+        {
+            try
+            {
+                var result = await _service.GetPlantilla();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost("plantilla")]
+        public async Task<IActionResult> CreatePlantilla([FromBody] CreatePlantillaDTO? body)
+        {
+            try
+            {
+                if (body == null)
+                    return BadRequest(new { message = "El body está vacío." });
+
+                var result = await _service.CreatePlantilla(body);
+                return CreatedAtAction(nameof(GetPlantilla), new { id = result.Id }, result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("plantilla/{id:int}")]
+        public async Task<IActionResult> PatchPlantilla(int id, [FromBody] Dictionary<string, JsonElement>? body)
+        {
+            try
+            {
+                if (body == null || body.Count == 0)
+                    return BadRequest(new { message = "El body está vacío." });
+
+                var result = await _service.PatchPlantilla(id, body);
+                if (result == null)
+                    return NotFound(new { message = "Plantilla no encontrada." });
+
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("categorias")]
+        public async Task<IActionResult> GetCategorias()
+        {
+            try { return Ok(await _service.GetCategorias()); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("especialidades")]
+        public async Task<IActionResult> GetEspecialidades()
+        {
+            try { return Ok(await _service.GetEspecialidades()); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("etapas")]
+        public async Task<IActionResult> GetEtapas()
+        {
+            try { return Ok(await _service.GetEtapas()); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("gantt")]
         public async Task<IActionResult> GetGantt(
             [FromQuery] int? proyectoId,

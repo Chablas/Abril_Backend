@@ -75,17 +75,9 @@ namespace Abril_Backend.Infrastructure.Repositories
             // ── Compute estado in real-time ──
             var classified = activities.Select(a =>
             {
-                string estado;
-                if (a.FinEfectivo.HasValue)
-                    estado = EstadoCulminado;
-                else if (a.InicioEfectivo.HasValue)
-                    estado = a.FinProgramado.HasValue && a.FinProgramado.Value < today
-                        ? EstadoVencido
-                        : EstadoEnProceso;
-                else if (a.InicioProgramado.HasValue)
-                    estado = EstadoPendiente;
-                else
-                    estado = EstadoVacio;
+                string estado = ComputeEstado(
+                    a.InicioProgramado, a.FinProgramado,
+                    a.InicioEfectivo, a.FinEfectivo, today);
 
                 return new
                 {
@@ -397,17 +389,9 @@ namespace Abril_Backend.Infrastructure.Repositories
             {
                 var a = x.Actividad;
 
-                string estado;
-                if (a.FinEfectivo.HasValue)
-                    estado = EstadoCulminado;
-                else if (a.InicioEfectivo.HasValue)
-                    estado = a.FinProgramado.HasValue && a.FinProgramado.Value < today
-                        ? EstadoVencido
-                        : EstadoEnProceso;
-                else if (a.InicioProgramado.HasValue)
-                    estado = EstadoPendiente;
-                else
-                    estado = EstadoVacio;
+                string estado = ComputeEstado(
+                    a.InicioProgramado, a.FinProgramado,
+                    a.InicioEfectivo, a.FinEfectivo, today);
 
                 int? retraso = ComputeRetraso(a.FinProgramado, a.FinEfectivo, today);
 
@@ -513,17 +497,9 @@ namespace Abril_Backend.Infrastructure.Repositories
             if (row == null) return null;
 
             var act = row.Actividad;
-            string estado;
-            if (act.FinEfectivo.HasValue)
-                estado = EstadoCulminado;
-            else if (act.InicioEfectivo.HasValue)
-                estado = act.FinProgramado.HasValue && act.FinProgramado.Value < today
-                    ? EstadoVencido
-                    : EstadoEnProceso;
-            else if (act.InicioProgramado.HasValue)
-                estado = EstadoPendiente;
-            else
-                estado = EstadoVacio;
+            string estado = ComputeEstado(
+                act.InicioProgramado, act.FinProgramado,
+                act.InicioEfectivo, act.FinEfectivo, today);
 
             int? retraso = ComputeRetraso(act.FinProgramado, act.FinEfectivo, today);
 
@@ -559,6 +535,30 @@ namespace Abril_Backend.Infrastructure.Repositories
             if (finProgramado.Value < today)
                 return today.DayNumber - finProgramado.Value.DayNumber;
             return null;
+        }
+
+        private static string ComputeEstado(
+            DateOnly? inicioProgramado,
+            DateOnly? finProgramado,
+            DateOnly? inicioEfectivo,
+            DateOnly? finEfectivo,
+            DateOnly today)
+        {
+            if (finEfectivo.HasValue)
+                return EstadoCulminado;
+
+            if (finProgramado.HasValue
+                && finProgramado.Value < today
+                && inicioProgramado.HasValue)
+                return EstadoVencido;
+
+            if (inicioEfectivo.HasValue)
+                return EstadoEnProceso;
+
+            if (inicioProgramado.HasValue)
+                return EstadoPendiente;
+
+            return EstadoVacio;
         }
 
         private static DateOnly? ParseDateOrNull(JsonElement el)

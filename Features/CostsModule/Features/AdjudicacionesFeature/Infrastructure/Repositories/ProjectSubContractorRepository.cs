@@ -256,8 +256,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 from attachedQuotationDoc in attachedQuotationDocGroup.DefaultIfEmpty()
                 join serviceOrderDocJoin in ctx.ProjectSubContractorServiceOrder on psc.ProjectSubContractorServiceOrderId equals serviceOrderDocJoin.ProjectSubContractorServiceOrderId into serviceOrderDocGroup
                 from serviceOrderDoc in serviceOrderDocGroup.DefaultIfEmpty()
+                join promissoryNoteDocJoin in ctx.ProjectSubContractorPromissoryNote on psc.ProjectSubContractorPromissoryNoteId equals promissoryNoteDocJoin.ProjectSubContractorPromissoryNoteId into promissoryNoteDocGroup
+                from promissoryNoteDoc in promissoryNoteDocGroup.DefaultIfEmpty()
                 where psc.State
-                select new { psc, p, contractor, c, ct, co, pm, cur, wi, contract, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc };
+                select new { psc, p, contractor, c, ct, co, pm, cur, wi, contract, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -316,6 +318,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     Schedule          = x.scheduleDoc == null          ? null : new ProjectSubContractorFileDto { FileUrl = x.scheduleDoc.FileUrl!,          OriginalFileName = x.scheduleDoc.OriginalFileName,          StatusId = x.scheduleDoc.ProjectSubContractorFileStatusId,          StatusDescription = x.scheduleDoc.FileStatus == null          ? null : x.scheduleDoc.FileStatus.ProjectSubContractorFileStatusDescription,          Observation = x.scheduleDoc.Observation },
                     AttachedQuotation = x.attachedQuotationDoc == null ? null : new ProjectSubContractorFileDto { FileUrl = x.attachedQuotationDoc.FileUrl!, OriginalFileName = x.attachedQuotationDoc.OriginalFileName, StatusId = x.attachedQuotationDoc.ProjectSubContractorFileStatusId, StatusDescription = x.attachedQuotationDoc.FileStatus == null ? null : x.attachedQuotationDoc.FileStatus.ProjectSubContractorFileStatusDescription, Observation = x.attachedQuotationDoc.Observation },
                     ServiceOrder      = x.serviceOrderDoc == null      ? null : new ProjectSubContractorFileDto { FileUrl = x.serviceOrderDoc.FileUrl!,      OriginalFileName = x.serviceOrderDoc.OriginalFileName,      StatusId = x.serviceOrderDoc.ProjectSubContractorFileStatusId,      StatusDescription = x.serviceOrderDoc.FileStatus == null      ? null : x.serviceOrderDoc.FileStatus.ProjectSubContractorFileStatusDescription,      Observation = x.serviceOrderDoc.Observation },
+                    PromissoryNote    = x.promissoryNoteDoc == null    ? null : new ProjectSubContractorFileDto { FileUrl = x.promissoryNoteDoc.FileUrl!,    OriginalFileName = x.promissoryNoteDoc.OriginalFileName },
                 })
                 .ToListAsync();
 
@@ -546,6 +549,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                         e => e.ProjectSubContractorServiceOrderId);
                     break;
 
+                case AdjudicacionDocumentType.PromissoryNote:
+                    psc.ProjectSubContractorPromissoryNoteId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorPromissoryNote,
+                        psc.ProjectSubContractorPromissoryNoteId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorPromissoryNote { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorPromissoryNoteId);
+                    break;
+
                 default:
                     throw new AbrilException("Tipo de documento no válido.");
             }
@@ -648,6 +660,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     var serviceOrder = await _context.ProjectSubContractorServiceOrder.FindAsync(psc.ProjectSubContractorServiceOrderId.Value) ?? throw new AbrilException("Documento no encontrado.");
                     serviceOrder.ProjectSubContractorFileStatusId = statusId; serviceOrder.Observation = observation; serviceOrder.UpdatedDatetime = now; serviceOrder.UpdatedUserId = userId;
                     break;
+
+                case AdjudicacionDocumentType.PromissoryNote:
+                    throw new AbrilException("El pagaré no admite cambio de estado.");
 
                 default:
                     throw new AbrilException("Tipo de documento no válido.");

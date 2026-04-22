@@ -31,70 +31,16 @@ namespace Abril_Backend.Shared.Services.Graph.Services
 
             var result = new Dictionary<string, GraphUserProfileDto>(StringComparer.OrdinalIgnoreCase);
 
-            var chunks = emails
-                .Where(e => !string.IsNullOrWhiteSpace(e))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Chunk(ChunkSize);
+            var client = BuildClient(appToken);
 
-            var client = _httpClientFactory.CreateClient();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", appToken);
-            // Requerido por Graph para filtros avanzados con 'in'
-            client.DefaultRequestHeaders.Add("ConsistencyLevel", "eventual");
-
-            foreach (var chunk in chunks)
+            foreach (var chunk in emails.Where(e => !string.IsNullOrWhiteSpace(e))
+                                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                                        .Chunk(ChunkSize))
             {
-                var filterValues = string.Join(",", chunk.Select(e => $"'{e}'"));
-                var url = $"https://graph.microsoft.com/v1.0/users" +
-                          $"?$filter=mail in ({filterValues})" +
-                          $"&$select=displayName,mail,jobTitle,mobilePhone,businessPhones" +
-                          $"&$count=true";
-
-                Console.WriteLine($"[GraphUserService] URL: {url}");
-
                 try
                 {
-                    var response = await client.GetAsync(url);
-                    var json = await response.Content.ReadAsStringAsync();
-
-                    Console.WriteLine($"[GraphUserService] Status: {(int)response.StatusCode} {response.StatusCode}");
-                    Console.WriteLine($"[GraphUserService] Response: {json}");
-
-                    if (!response.IsSuccessStatusCode) continue;
-
-                    using var doc = JsonDocument.Parse(json);
-
-                    if (!doc.RootElement.TryGetProperty("value", out var valueArray)) continue;
-
-                    foreach (var user in valueArray.EnumerateArray())
-                    {
-                        var mail = user.TryGetProperty("mail", out var mailProp) ? mailProp.GetString() : null;
-                        if (string.IsNullOrWhiteSpace(mail)) continue;
-
-                        var displayName = user.TryGetProperty("displayName", out var dnProp) ? dnProp.GetString() : null;
-                        var jobTitle = user.TryGetProperty("jobTitle", out var jtProp) ? jtProp.GetString() : null;
-
-                        // Teléfono: mobilePhone primero, luego primer businessPhone
-                        string? phone = null;
-                        if (user.TryGetProperty("mobilePhone", out var mobileProp) && mobileProp.ValueKind != JsonValueKind.Null)
-                            phone = mobileProp.GetString();
-
-                        if (string.IsNullOrWhiteSpace(phone) &&
-                            user.TryGetProperty("businessPhones", out var bpProp) &&
-                            bpProp.ValueKind == JsonValueKind.Array)
-                        {
-                            var firstPhone = bpProp.EnumerateArray().FirstOrDefault();
-                            if (firstPhone.ValueKind == JsonValueKind.String)
-                                phone = firstPhone.GetString();
-                        }
-
-                        result[mail] = new GraphUserProfileDto
-                        {
-                            Mail = mail,
-                            DisplayName = displayName,
-                            JobTitle = jobTitle,
-                            Phone = phone
-                        };
-                    }
+                    foreach (var profile in await QueryUsersChunkAsync(client, chunk))
+                        result[profile.Mail] = profile;
                 }
                 catch (Exception ex)
                 {
@@ -103,6 +49,179 @@ namespace Abril_Backend.Shared.Services.Graph.Services
             }
 
             return result;
+        }
+
+        public async Task<List<GraphUserProfileDto>> GetResolvedProfilesAsync(List<string> emails)
+        {
+            if (emails == null || emails.Count == 0)
+                return new List<GraphUserProfileDto>();
+
+            var appToken = await GetAppTokenAsync();
+            if (string.IsNullOrEmpty(appToken))
+            {
+                Console.WriteLine("[GraphUserService] No se pudo obtener el token de aplicación.");
+                return new List<GraphUserProfileDto>();
+            }
+
+            var result    = new List<GraphUserProfileDto>();
+            var foundMails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var client = BuildClient(appToken);
+
+            var distinctEmails = emails
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // Fase 1: consultar como usuarios individuales en chunks
+            foreach (var chunk in distinctEmails.Chunk(ChunkSize))
+            {
+                try
+                {
+                    foreach (var profile in await QueryUsersChunkAsync(client, chunk))
+                    {
+                        if (foundMails.Add(profile.Mail))
+                            result.Add(profile);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[GraphUserService] EXCEPCIÓN en chunk users: {ex.Message}");
+                }
+            }
+
+            // Fase 2: emails no resueltos → intentar como grupo y expandir miembros
+            var unresolved = distinctEmails.Where(e => !foundMails.Contains(e)).ToList();
+            foreach (var email in unresolved)
+            {
+                try
+                {
+                    // Buscar el grupo por email
+                    var groupUrl = $"https://graph.microsoft.com/v1.0/groups" +
+                                   $"?$filter=mail eq '{email}'" +
+                                   $"&$select=id,displayName" +
+                                   $"&$count=true";
+
+                    var groupResponse = await client.GetAsync(groupUrl);
+                    if (!groupResponse.IsSuccessStatusCode) continue;
+
+                    var groupJson = await groupResponse.Content.ReadAsStringAsync();
+                    using var groupDoc = JsonDocument.Parse(groupJson);
+
+                    if (!groupDoc.RootElement.TryGetProperty("value", out var groupArray)) continue;
+
+                    var firstGroup = groupArray.EnumerateArray().FirstOrDefault();
+                    if (firstGroup.ValueKind == JsonValueKind.Undefined) continue;
+                    if (!firstGroup.TryGetProperty("id", out var groupIdProp)) continue;
+
+                    var groupId = groupIdProp.GetString();
+                    if (string.IsNullOrEmpty(groupId)) continue;
+
+                    Console.WriteLine($"[GraphUserService] '{email}' es un grupo ({groupId}), expandiendo miembros...");
+
+                    // Obtener miembros del grupo (solo usuarios, no sub-grupos)
+                    var membersUrl = $"https://graph.microsoft.com/v1.0/groups/{groupId}/members" +
+                                     $"?$select=displayName,mail,jobTitle,mobilePhone,businessPhones";
+
+                    var membersResponse = await client.GetAsync(membersUrl);
+                    if (!membersResponse.IsSuccessStatusCode) continue;
+
+                    var membersJson = await membersResponse.Content.ReadAsStringAsync();
+                    using var membersDoc = JsonDocument.Parse(membersJson);
+
+                    if (!membersDoc.RootElement.TryGetProperty("value", out var membersArray)) continue;
+
+                    foreach (var member in membersArray.EnumerateArray())
+                    {
+                        // Saltar sub-grupos anidados (su @odata.type contiene "group")
+                        if (member.TryGetProperty("@odata.type", out var odataType) &&
+                            odataType.GetString()?.Contains("group", StringComparison.OrdinalIgnoreCase) == true)
+                            continue;
+
+                        var profile = ParseUserProfile(member);
+                        if (profile is null) continue;
+
+                        if (foundMails.Add(profile.Mail))
+                            result.Add(profile);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[GraphUserService] EXCEPCIÓN expandiendo grupo '{email}': {ex.Message}");
+                }
+            }
+
+            return result;
+        }
+
+        // ── Helpers privados ─────────────────────────────────────────────────
+
+        private HttpClient BuildClient(string appToken)
+        {
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", appToken);
+            client.DefaultRequestHeaders.Add("ConsistencyLevel", "eventual");
+            return client;
+        }
+
+        private static async Task<List<GraphUserProfileDto>> QueryUsersChunkAsync(HttpClient client, string[] chunk)
+        {
+            var filterValues = string.Join(",", chunk.Select(e => $"'{e}'"));
+            var url = $"https://graph.microsoft.com/v1.0/users" +
+                      $"?$filter=mail in ({filterValues})" +
+                      $"&$select=displayName,mail,jobTitle,mobilePhone,businessPhones" +
+                      $"&$count=true";
+
+            Console.WriteLine($"[GraphUserService] URL: {url}");
+
+            var response = await client.GetAsync(url);
+            var json     = await response.Content.ReadAsStringAsync();
+
+            Console.WriteLine($"[GraphUserService] Status: {(int)response.StatusCode} {response.StatusCode}");
+
+            if (!response.IsSuccessStatusCode) return new List<GraphUserProfileDto>();
+
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("value", out var valueArray))
+                return new List<GraphUserProfileDto>();
+
+            var result = new List<GraphUserProfileDto>();
+            foreach (var user in valueArray.EnumerateArray())
+            {
+                var profile = ParseUserProfile(user);
+                if (profile is not null) result.Add(profile);
+            }
+            return result;
+        }
+
+        private static GraphUserProfileDto? ParseUserProfile(JsonElement user)
+        {
+            var mail = user.TryGetProperty("mail", out var mailProp) ? mailProp.GetString() : null;
+            if (string.IsNullOrWhiteSpace(mail)) return null;
+
+            var displayName = user.TryGetProperty("displayName", out var dnProp) ? dnProp.GetString() : null;
+            var jobTitle    = user.TryGetProperty("jobTitle",    out var jtProp) ? jtProp.GetString() : null;
+
+            string? phone = null;
+            if (user.TryGetProperty("mobilePhone", out var mobileProp) && mobileProp.ValueKind != JsonValueKind.Null)
+                phone = mobileProp.GetString();
+
+            if (string.IsNullOrWhiteSpace(phone) &&
+                user.TryGetProperty("businessPhones", out var bpProp) &&
+                bpProp.ValueKind == JsonValueKind.Array)
+            {
+                var firstPhone = bpProp.EnumerateArray().FirstOrDefault();
+                if (firstPhone.ValueKind == JsonValueKind.String)
+                    phone = firstPhone.GetString();
+            }
+
+            return new GraphUserProfileDto
+            {
+                Mail        = mail,
+                DisplayName = displayName,
+                JobTitle    = jobTitle,
+                Phone       = phone
+            };
         }
 
         /// <summary>

@@ -9,6 +9,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         AttachedQuotation,
         ServiceOrder,
         InitialQuotation,
-        InitialComparative
+        InitialComparative,
+        PromissoryNote
     }
 }

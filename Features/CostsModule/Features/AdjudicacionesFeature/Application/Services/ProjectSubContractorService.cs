@@ -150,16 +150,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetNotificationData(dto.ProjectSubContractorId);
 
-            // Consultar perfiles de Graph para todos los staff emails en una sola request
-            var userProfiles = await _graphUserService.GetUsersByEmailsAsync(data.StaffEmails);
+            // Consultar perfiles de Graph para todos los staff emails.
+            // Los grupos de correo se expanden automáticamente a sus miembros individuales.
+            var userProfiles = await _graphUserService.GetResolvedProfilesAsync(data.StaffEmails);
 
             Console.WriteLine($"[SendNotification] StaffEmails ({data.StaffEmails.Count}): {string.Join(", ", data.StaffEmails)}");
-            Console.WriteLine($"[SendNotification] Perfiles obtenidos de Graph ({userProfiles.Count}):");
-            foreach (var kv in userProfiles)
-                Console.WriteLine($"  - {kv.Key} → Nombre: {kv.Value.DisplayName}, Puesto: {kv.Value.JobTitle}, Teléfono: {kv.Value.Phone}");
+            Console.WriteLine($"[SendNotification] Perfiles resueltos ({userProfiles.Count}):");
+            foreach (var p in userProfiles)
+                Console.WriteLine($"  - {p.Mail} → Nombre: {p.DisplayName}, Puesto: {p.JobTitle}, Teléfono: {p.Phone}");
 
             if (userProfiles.Count == 0)
-                Console.WriteLine("  [ADVERTENCIA] No se obtuvo ningún perfil. Verificar token y permisos User.Read.All.");
+                Console.WriteLine("  [ADVERTENCIA] No se obtuvo ningún perfil. Verificar token y permisos User.Read.All / GroupMember.Read.All.");
 
             var quotationAttachments = await DownloadAttachmentsAsync(data.QuotationFiles);
 
@@ -207,7 +208,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private static string BuildSubcontractorEmailBody(
             AdjudicacionNotificationDataDto data,
-            Dictionary<string, GraphUserProfileDto> userProfiles)
+            List<GraphUserProfileDto> userProfiles)
         {
             var sb = new StringBuilder();
             sb.AppendLine("<p>Estimado,</p>");
@@ -223,17 +224,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             sb.AppendLine("  </tr></thead>");
             sb.AppendLine("  <tbody>");
 
-            for (int i = 0; i < data.StaffEmails.Count; i++)
+            for (int i = 0; i < userProfiles.Count; i++)
             {
-                var email = data.StaffEmails[i];
-                userProfiles.TryGetValue(email, out var profile);
-
+                var profile = userProfiles[i];
                 sb.AppendLine("    <tr>");
                 sb.AppendLine($"      <td>{i + 1}</td>");
-                sb.AppendLine($"      <td>{profile?.DisplayName ?? "-"}</td>");
-                sb.AppendLine($"      <td>{profile?.JobTitle ?? "-"}</td>");
-                sb.AppendLine($"      <td>{profile?.Phone ?? "-"}</td>");
-                sb.AppendLine($"      <td>{email}</td>");
+                sb.AppendLine($"      <td>{profile.DisplayName ?? "-"}</td>");
+                sb.AppendLine($"      <td>{profile.JobTitle ?? "-"}</td>");
+                sb.AppendLine($"      <td>{profile.Phone ?? "-"}</td>");
+                sb.AppendLine($"      <td>{profile.Mail}</td>");
                 sb.AppendLine("    </tr>");
             }
 
@@ -304,6 +303,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     await GenerateSummarySheetAsync(projectSubContractorId, userId),
                 AdjudicacionDocumentType.Contract =>
                     await GenerateContractAsync(projectSubContractorId, userId),
+                AdjudicacionDocumentType.Budget =>
+                    await GenerateBudgetAsync(projectSubContractorId, userId),
                 _ => throw new AbrilException(
                     $"La generación del documento '{documentType}' aún no está implementada.")
             };
@@ -416,6 +417,202 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 projectSubContractorId, AdjudicacionDocumentType.Contract, fileUrl, fileName, userId);
 
             return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
+        }
+
+        private async Task<DocumentUploadResponseDto> GenerateBudgetAsync(
+            int projectSubContractorId, int userId)
+        {
+            var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
+
+            using var workbook = new XLWorkbook();
+            var ws = workbook.Worksheets.Add("PRESUPUESTO");
+            BuildBudget(ws, data);
+
+            using var ms = new MemoryStream();
+            workbook.SaveAs(ms);
+            ms.Position = 0;
+
+            var pathData = new AdjudicacionPathDataDto
+            {
+                ProjectSubContractorId = data.ProjectSubContractorId,
+                ProjectDescription     = data.ProjectDescription,
+                ContributorRuc         = data.ContributorRuc,
+                ContributorName        = data.ContributorName,
+                WorkItemDescription    = data.WorkItemDescription,
+            };
+
+            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.Budget);
+            var fileName   = $"PRESUPUESTO_{data.ProjectSubContractorId:D4}.xlsx";
+            const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+            var fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+                libraryName: "Adjudicaciones",
+                folderPath:  folderPath,
+                fileName:    fileName,
+                fileStream:  ms,
+                contentType: xlsxMime)
+                ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+
+            await _projectSubContractorRepository.SaveDocumentAsync(
+                projectSubContractorId, AdjudicacionDocumentType.Budget, fileUrl, fileName, userId);
+
+            return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
+        }
+
+        private static void BuildBudget(IXLWorksheet ws, AdjudicacionSummarySheetDataDto data)
+        {
+            // ── Column widths ──────────────────────────────────────────────────
+            ws.Column("A").Width = 2;    // left margin
+            ws.Column("B").Width = 50;   // DESCRIPCIÓN
+            ws.Column("C").Width = 10;   // UND
+            ws.Column("D").Width = 14;   // METRADO
+            ws.Column("E").Width = 16;   // P.U.
+            ws.Column("F").Width = 16;   // COSTO TOTAL
+            ws.Column("G").Width = 2;    // right margin
+
+            // ── Row heights ────────────────────────────────────────────────────
+            ws.Row(2).Height  = 32;
+            ws.Row(10).Height = 22;
+            ws.Row(11).Height = 22;
+
+            var currencySymbol = data.CurrencyCode == "USD" ? "US$" : "S/";
+            var currencyFmt    = $"\"{currencySymbol}\" #,##0.00";
+
+            // ── Row 2: Title ───────────────────────────────────────────────────
+            ws.Range("B2:F2").Merge();
+            ws.Cell("B2").Value =
+                $"PRESUPUESTO CONTRATO N° {data.ProjectSubContractorId:D4} " +
+                $"A {data.ContractTypeDescription.ToUpper()} " +
+                $"POR {data.WorkItemDescription.ToUpper()}";
+            ws.Range("B2:F2").Style.Font.Bold                = true;
+            ws.Range("B2:F2").Style.Font.FontSize            = 11;
+            ws.Range("B2:F2").Style.Alignment.Horizontal     = XLAlignmentHorizontalValues.Center;
+            ws.Range("B2:F2").Style.Alignment.Vertical       = XLAlignmentVerticalValues.Center;
+            ws.Range("B2:F2").Style.Alignment.WrapText       = true;
+            ws.Range("B2:F2").Style.Border.OutsideBorder     = XLBorderStyleValues.Medium;
+
+            // ── Rows 5–8: Info block ───────────────────────────────────────────
+            void InfoLabel(string cell, string text)
+            {
+                ws.Cell(cell).Value = text;
+                ws.Cell(cell).Style.Font.Bold = true;
+            }
+
+            InfoLabel("B5", "Proyecto:");
+            ws.Cell("C5").Value = data.ProjectDescription;
+            ws.Range("C5:F5").Merge();
+
+            InfoLabel("B6", "Contratista:");
+            ws.Cell("C6").Value = data.ContributorName;
+            ws.Range("C6:F6").Merge();
+
+            InfoLabel("B7", "N° de niveles:");
+            // (no data available — the user fills this in)
+            ws.Range("C7:F7").Merge();
+
+            InfoLabel("B8", "Fecha:");
+            if (data.SigningDate.HasValue)
+            {
+                ws.Cell("C8").Value = data.SigningDate.Value.ToDateTime(TimeOnly.MinValue);
+                ws.Cell("C8").Style.DateFormat.Format = "dd/MM/yyyy";
+            }
+            ws.Range("C8:F8").Merge();
+
+            // ── Row 10: Section header ─────────────────────────────────────────
+            ws.Range("B10:F10").Merge();
+            ws.Cell("B10").Value = data.WorkItemDescription.ToUpper();
+            ws.Range("B10:F10").Style.Font.Bold                = true;
+            ws.Range("B10:F10").Style.Fill.BackgroundColor     = XLColor.FromHtml("#D9D9D9");
+            ws.Range("B10:F10").Style.Alignment.Horizontal     = XLAlignmentHorizontalValues.Center;
+            ws.Range("B10:F10").Style.Alignment.Vertical       = XLAlignmentVerticalValues.Center;
+            ws.Range("B10:F10").Style.Border.OutsideBorder     = XLBorderStyleValues.Medium;
+
+            // ── Row 11: Column headers ─────────────────────────────────────────
+            void SetColHeader(string cell, string text)
+            {
+                ws.Cell(cell).Value = text;
+                ws.Cell(cell).Style.Font.Bold                = true;
+                ws.Cell(cell).Style.Fill.BackgroundColor     = XLColor.FromHtml("#D9D9D9");
+                ws.Cell(cell).Style.Alignment.Horizontal     = XLAlignmentHorizontalValues.Center;
+                ws.Cell(cell).Style.Alignment.Vertical       = XLAlignmentVerticalValues.Center;
+                ws.Cell(cell).Style.Alignment.WrapText       = true;
+                ws.Cell(cell).Style.Border.OutsideBorder     = XLBorderStyleValues.Thin;
+            }
+
+            SetColHeader("B11", "DESCRIPCIÓN");
+            SetColHeader("C11", "UND");
+            SetColHeader("D11", "METRADO");
+            SetColHeader("E11", "P.U.");
+            SetColHeader("F11", "COSTO TOTAL");
+
+            // ── Row 12: Category row (work item category) ──────────────────────
+            ws.Range("B12:F12").Style.Fill.BackgroundColor = XLColor.FromHtml("#F2F2F2");
+            ws.Cell("B12").Value = data.WorkItemDescription.ToUpper();
+            ws.Cell("B12").Style.Font.Bold = true;
+            foreach (var col in new[] { "B", "C", "D", "E", "F" })
+                ws.Cell($"{col}12").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+            // ── Rows 13–17: Empty item rows (template) ─────────────────────────
+            const int firstItemRow = 13;
+            const int lastItemRow  = 17;
+
+            for (int r = firstItemRow; r <= lastItemRow; r++)
+            {
+                ws.Row(r).Height = 18;
+                // COSTO TOTAL = METRADO * P.U.
+                ws.Cell(r, 6).FormulaA1 = $"=IF(AND(D{r}<>\"\",E{r}<>\"\"),D{r}*E{r},\"\")";
+                ws.Cell(r, 6).Style.NumberFormat.Format = currencyFmt;
+
+                foreach (var col in new[] { "B", "C", "D", "E", "F" })
+                {
+                    ws.Cell($"{col}{r}").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                    ws.Cell($"{col}{r}").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+                }
+                // Currency hint for P.U. column
+                ws.Cell(r, 5).Style.NumberFormat.Format = currencyFmt;
+            }
+
+            // ── Summary rows ──────────────────────────────────────────────────
+            int subtotalRow = lastItemRow + 2;   // 19
+            int igvRow      = subtotalRow + 1;   // 20
+            int totalRow    = igvRow + 1;         // 21
+
+            ws.Row(subtotalRow).Height = 18;
+            ws.Row(igvRow).Height      = 18;
+            ws.Row(totalRow).Height    = 18;
+
+            void SummaryLabel(int row, string text)
+            {
+                ws.Cell(row, 4).Value = text;
+                ws.Cell(row, 4).Style.Font.Bold            = true;
+                ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                ws.Cell(row, 4).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                ws.Cell(row, 5).Style.Border.OutsideBorder = XLBorderStyleValues.Thin; // P.U. col left border
+            }
+
+            // SUBTOTAL
+            SummaryLabel(subtotalRow, "SUBTOTAL");
+            ws.Cell(subtotalRow, 6).FormulaA1      = $"=SUM(F{firstItemRow}:F{lastItemRow})";
+            ws.Cell(subtotalRow, 6).Style.NumberFormat.Format  = currencyFmt;
+            ws.Cell(subtotalRow, 6).Style.Font.Bold            = true;
+            ws.Cell(subtotalRow, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+            // IGV (18%)
+            SummaryLabel(igvRow, "IGV (18%)");
+            ws.Cell(igvRow, 6).FormulaA1      = $"=F{subtotalRow}*0.18";
+            ws.Cell(igvRow, 6).Style.NumberFormat.Format  = currencyFmt;
+            ws.Cell(igvRow, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+            // TOTAL
+            SummaryLabel(totalRow, "TOTAL");
+            ws.Cell(totalRow, 6).FormulaA1      = $"=F{subtotalRow}+F{igvRow}";
+            ws.Cell(totalRow, 6).Style.NumberFormat.Format  = currencyFmt;
+            ws.Cell(totalRow, 6).Style.Font.Bold            = true;
+            ws.Cell(totalRow, 6).Style.Font.FontColor       = XLColor.FromHtml("#E26B0A");
+            ws.Cell(totalRow, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+            // ── Outer border around the whole table ───────────────────────────
+            ws.Range($"B10:F{totalRow}").Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
         }
 
         private static void BuildSummarySheet(IXLWorksheet ws, AdjudicacionSummarySheetDataDto data)
@@ -673,6 +870,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.ServiceOrder       => "Orden de Servicio",
             AdjudicacionDocumentType.InitialQuotation   => "Cotizaciones",
             AdjudicacionDocumentType.InitialComparative => "Comparativo",
+            AdjudicacionDocumentType.PromissoryNote     => "Pagaré",
             _ => throw new ArgumentOutOfRangeException(nameof(documentType))
         };
 

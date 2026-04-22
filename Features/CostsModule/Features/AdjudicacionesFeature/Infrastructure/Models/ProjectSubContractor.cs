@@ -30,6 +30,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? ProjectSubContractorScheduleId { get; set; }
         public int? ProjectSubContractorAttachedQuotationId { get; set; }
         public int? ProjectSubContractorServiceOrderId { get; set; }
+        public int? ProjectSubContractorPromissoryNoteId { get; set; }
 
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
@@ -45,6 +46,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public ProjectSubContractorSchedule? Schedule { get; set; }
         public ProjectSubContractorAttachedQuotation? AttachedQuotation { get; set; }
         public ProjectSubContractorServiceOrder? ServiceOrder { get; set; }
+        public ProjectSubContractorPromissoryNote? PromissoryNote { get; set; }
         public List<ProjectSubContractorQuotationFile> QuotationFiles { get; set; } = new();
         public List<ProjectSubContractorComparativeFile> ComparativeFiles { get; set; } = new();
     }

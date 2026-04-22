@@ -64,6 +64,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorAttachedQuotation> ProjectSubContractorAttachedQuotation { get; set; }
         public DbSet<ProjectSubContractorServiceOrder> ProjectSubContractorServiceOrder { get; set; }
         public DbSet<ProjectSubContractorFileStatus> ProjectSubContractorFileStatus { get; set; }
+        public DbSet<ProjectSubContractorPromissoryNote> ProjectSubContractorPromissoryNote { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -223,6 +224,12 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(e => e.FileStatus).WithMany()
                 .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
                 .IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.PromissoryNote)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorPromissoryNoteId)
+                .IsRequired(false);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

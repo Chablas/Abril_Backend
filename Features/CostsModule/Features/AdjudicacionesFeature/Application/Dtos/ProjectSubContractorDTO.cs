@@ -49,5 +49,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public ProjectSubContractorFileDto? Schedule { get; set; }
         public ProjectSubContractorFileDto? AttachedQuotation { get; set; }
         public ProjectSubContractorFileDto? ServiceOrder { get; set; }
+        public ProjectSubContractorFileDto? PromissoryNote { get; set; }
     }
 }

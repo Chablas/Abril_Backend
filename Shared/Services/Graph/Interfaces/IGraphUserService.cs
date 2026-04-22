@@ -11,5 +11,13 @@ namespace Abril_Backend.Shared.Services.Graph.Interfaces
         /// Emails que no existan en el tenant simplemente no aparecerán en el resultado.
         /// </summary>
         Task<Dictionary<string, GraphUserProfileDto>> GetUsersByEmailsAsync(List<string> emails);
+
+        /// <summary>
+        /// Igual que GetUsersByEmailsAsync pero expande automáticamente los grupos de correo:
+        /// si un email no corresponde a un usuario individual, consulta si es un grupo y
+        /// retorna los perfiles de sus miembros en lugar del grupo.
+        /// Retorna una lista plana de perfiles individuales listos para mostrar en una tabla.
+        /// </summary>
+        Task<List<GraphUserProfileDto>> GetResolvedProfilesAsync(List<string> emails);
     }
 }

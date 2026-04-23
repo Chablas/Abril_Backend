@@ -16,6 +16,7 @@ using Abril_Backend.Features.Costs;
 using Abril_Backend.Shared.Services.Reniec.Services;
 using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Abril_Backend.Features.Contractors;
+using Abril_Backend.Features.Ssoma;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using System.Threading.RateLimiting;
@@ -87,6 +88,7 @@ else
 builder.Services.AddCostsModule();
 builder.Services.AddContractorsModule();
 builder.Services.AddMicrosoftAuthModule(builder.Configuration);
+builder.Services.AddSsomaModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();

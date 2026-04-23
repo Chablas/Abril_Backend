@@ -1,0 +1,378 @@
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Catalogos;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
+{
+    public class CatalogosRepository : ICatalogosRepository
+    {
+        private readonly IDbContextFactory<AppDbContext> _factory;
+
+        public CatalogosRepository(IDbContextFactory<AppDbContext> factory)
+        {
+            _factory = factory;
+        }
+
+        // ===== Clinicas =====
+        public async Task<List<ClinicaDto>> ListClinicas(bool soloActivos)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var q = ctx.SsClinica.AsQueryable();
+            if (soloActivos) q = q.Where(c => c.Activo);
+            return await q
+                .OrderBy(c => c.Nombre)
+                .Select(c => new ClinicaDto
+                {
+                    Id = c.Id,
+                    Nombre = c.Nombre,
+                    Ruc = c.Ruc,
+                    Direccion = c.Direccion,
+                    Telefono = c.Telefono,
+                    Email = c.Email,
+                    Activo = c.Activo
+                })
+                .ToListAsync();
+        }
+
+        public async Task<ClinicaDto> CreateClinica(ClinicaUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = new SsClinica
+            {
+                Nombre = dto.Nombre,
+                Ruc = dto.Ruc,
+                Direccion = dto.Direccion,
+                Telefono = dto.Telefono,
+                Email = dto.Email,
+                Activo = dto.Activo,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            ctx.SsClinica.Add(ent);
+            await ctx.SaveChangesAsync();
+            return new ClinicaDto
+            {
+                Id = ent.Id,
+                Nombre = ent.Nombre,
+                Ruc = ent.Ruc,
+                Direccion = ent.Direccion,
+                Telefono = ent.Telefono,
+                Email = ent.Email,
+                Activo = ent.Activo
+            };
+        }
+
+        public async Task<ClinicaDto> UpdateClinica(int id, ClinicaUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsClinica.FirstOrDefaultAsync(c => c.Id == id)
+                ?? throw new AbrilException("Clínica no encontrada.", 404);
+            ent.Nombre = dto.Nombre;
+            ent.Ruc = dto.Ruc;
+            ent.Direccion = dto.Direccion;
+            ent.Telefono = dto.Telefono;
+            ent.Email = dto.Email;
+            ent.Activo = dto.Activo;
+            await ctx.SaveChangesAsync();
+            return new ClinicaDto
+            {
+                Id = ent.Id,
+                Nombre = ent.Nombre,
+                Ruc = ent.Ruc,
+                Direccion = ent.Direccion,
+                Telefono = ent.Telefono,
+                Email = ent.Email,
+                Activo = ent.Activo
+            };
+        }
+
+        // ===== Medicos =====
+        public async Task<List<MedicoOcupacionalDto>> ListMedicos(bool soloActivos)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var q =
+                from m in ctx.SsMedicoOcupacional
+                join c in ctx.SsClinica on m.ClinicaId equals c.Id into cl
+                from c in cl.DefaultIfEmpty()
+                select new { m, c };
+
+            if (soloActivos) q = q.Where(x => x.m.Activo);
+
+            return await q
+                .OrderBy(x => x.m.ApellidoNombre)
+                .Select(x => new MedicoOcupacionalDto
+                {
+                    Id = x.m.Id,
+                    ApellidoNombre = x.m.ApellidoNombre,
+                    Cmp = x.m.Cmp,
+                    Especialidad = x.m.Especialidad,
+                    ClinicaId = x.m.ClinicaId,
+                    ClinicaNombre = x.c != null ? x.c.Nombre : null,
+                    Email = x.m.Email,
+                    Celular = x.m.Celular,
+                    Activo = x.m.Activo
+                })
+                .ToListAsync();
+        }
+
+        public async Task<MedicoOcupacionalDto> CreateMedico(MedicoOcupacionalUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = new SsMedicoOcupacional
+            {
+                ApellidoNombre = dto.ApellidoNombre,
+                Cmp = dto.Cmp,
+                Especialidad = dto.Especialidad,
+                ClinicaId = dto.ClinicaId,
+                Email = dto.Email,
+                Celular = dto.Celular,
+                Activo = dto.Activo,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            ctx.SsMedicoOcupacional.Add(ent);
+            await ctx.SaveChangesAsync();
+            return await GetMedicoById(ent.Id);
+        }
+
+        public async Task<MedicoOcupacionalDto> UpdateMedico(int id, MedicoOcupacionalUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsMedicoOcupacional.FirstOrDefaultAsync(m => m.Id == id)
+                ?? throw new AbrilException("Médico no encontrado.", 404);
+            ent.ApellidoNombre = dto.ApellidoNombre;
+            ent.Cmp = dto.Cmp;
+            ent.Especialidad = dto.Especialidad;
+            ent.ClinicaId = dto.ClinicaId;
+            ent.Email = dto.Email;
+            ent.Celular = dto.Celular;
+            ent.Activo = dto.Activo;
+            await ctx.SaveChangesAsync();
+            return await GetMedicoById(id);
+        }
+
+        private async Task<MedicoOcupacionalDto> GetMedicoById(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await (
+                from m in ctx.SsMedicoOcupacional
+                join c in ctx.SsClinica on m.ClinicaId equals c.Id into cl
+                from c in cl.DefaultIfEmpty()
+                where m.Id == id
+                select new MedicoOcupacionalDto
+                {
+                    Id = m.Id,
+                    ApellidoNombre = m.ApellidoNombre,
+                    Cmp = m.Cmp,
+                    Especialidad = m.Especialidad,
+                    ClinicaId = m.ClinicaId,
+                    ClinicaNombre = c != null ? c.Nombre : null,
+                    Email = m.Email,
+                    Celular = m.Celular,
+                    Activo = m.Activo
+                }).FirstAsync();
+        }
+
+        // ===== EMO Tipos =====
+        public async Task<List<EmoTipoDto>> ListEmoTipos(bool soloActivos)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var q = ctx.SsEmoTipo.AsQueryable();
+            if (soloActivos) q = q.Where(t => t.Activo);
+            return await q
+                .OrderBy(t => t.Nombre)
+                .Select(t => new EmoTipoDto
+                {
+                    Id = t.Id,
+                    Nombre = t.Nombre,
+                    VigenciaMeses = t.VigenciaMeses,
+                    RequiereNuevo = t.RequiereNuevo,
+                    Descripcion = t.Descripcion,
+                    Activo = t.Activo
+                })
+                .ToListAsync();
+        }
+
+        public async Task<EmoTipoDto> CreateEmoTipo(EmoTipoUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = new SsEmoTipo
+            {
+                Nombre = dto.Nombre,
+                VigenciaMeses = dto.VigenciaMeses,
+                RequiereNuevo = dto.RequiereNuevo,
+                Descripcion = dto.Descripcion,
+                Activo = dto.Activo
+            };
+            ctx.SsEmoTipo.Add(ent);
+            await ctx.SaveChangesAsync();
+            return new EmoTipoDto
+            {
+                Id = ent.Id,
+                Nombre = ent.Nombre,
+                VigenciaMeses = ent.VigenciaMeses,
+                RequiereNuevo = ent.RequiereNuevo,
+                Descripcion = ent.Descripcion,
+                Activo = ent.Activo
+            };
+        }
+
+        public async Task<EmoTipoDto> UpdateEmoTipo(int id, EmoTipoUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsEmoTipo.FirstOrDefaultAsync(t => t.Id == id)
+                ?? throw new AbrilException("Tipo de EMO no encontrado.", 404);
+            ent.Nombre = dto.Nombre;
+            ent.VigenciaMeses = dto.VigenciaMeses;
+            ent.RequiereNuevo = dto.RequiereNuevo;
+            ent.Descripcion = dto.Descripcion;
+            ent.Activo = dto.Activo;
+            await ctx.SaveChangesAsync();
+            return new EmoTipoDto
+            {
+                Id = ent.Id,
+                Nombre = ent.Nombre,
+                VigenciaMeses = ent.VigenciaMeses,
+                RequiereNuevo = ent.RequiereNuevo,
+                Descripcion = ent.Descripcion,
+                Activo = ent.Activo
+            };
+        }
+
+        // ===== Examen Tipos =====
+        public async Task<List<ExamenTipoDto>> ListExamenTipos(bool soloActivos)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var q = ctx.SsExamenTipo.AsQueryable();
+            if (soloActivos) q = q.Where(t => t.Activo);
+            return await q
+                .OrderBy(t => t.Nombre)
+                .Select(t => new ExamenTipoDto
+                {
+                    Id = t.Id,
+                    Nombre = t.Nombre,
+                    Codigo = t.Codigo,
+                    Categoria = t.Categoria,
+                    Activo = t.Activo
+                })
+                .ToListAsync();
+        }
+
+        public async Task<ExamenTipoDto> CreateExamenTipo(ExamenTipoUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = new SsExamenTipo
+            {
+                Nombre = dto.Nombre,
+                Codigo = dto.Codigo,
+                Categoria = dto.Categoria,
+                Activo = dto.Activo
+            };
+            ctx.SsExamenTipo.Add(ent);
+            await ctx.SaveChangesAsync();
+            return new ExamenTipoDto
+            {
+                Id = ent.Id,
+                Nombre = ent.Nombre,
+                Codigo = ent.Codigo,
+                Categoria = ent.Categoria,
+                Activo = ent.Activo
+            };
+        }
+
+        public async Task<ExamenTipoDto> UpdateExamenTipo(int id, ExamenTipoUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsExamenTipo.FirstOrDefaultAsync(t => t.Id == id)
+                ?? throw new AbrilException("Tipo de examen no encontrado.", 404);
+            ent.Nombre = dto.Nombre;
+            ent.Codigo = dto.Codigo;
+            ent.Categoria = dto.Categoria;
+            ent.Activo = dto.Activo;
+            await ctx.SaveChangesAsync();
+            return new ExamenTipoDto
+            {
+                Id = ent.Id,
+                Nombre = ent.Nombre,
+                Codigo = ent.Codigo,
+                Categoria = ent.Categoria,
+                Activo = ent.Activo
+            };
+        }
+
+        // ===== Restriccion Tipos =====
+        public async Task<List<RestriccionTipoDto>> ListRestriccionTipos(bool soloActivos)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var q = ctx.SsRestriccionTipo.AsQueryable();
+            if (soloActivos) q = q.Where(t => t.Activo);
+            return await q
+                .OrderBy(t => t.Descripcion)
+                .Select(t => new RestriccionTipoDto
+                {
+                    Id = t.Id,
+                    Descripcion = t.Descripcion,
+                    Categoria = t.Categoria,
+                    Activo = t.Activo
+                })
+                .ToListAsync();
+        }
+
+        public async Task<RestriccionTipoDto> CreateRestriccionTipo(RestriccionTipoUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = new SsRestriccionTipo
+            {
+                Descripcion = dto.Descripcion,
+                Categoria = dto.Categoria,
+                Activo = dto.Activo
+            };
+            ctx.SsRestriccionTipo.Add(ent);
+            await ctx.SaveChangesAsync();
+            return new RestriccionTipoDto
+            {
+                Id = ent.Id,
+                Descripcion = ent.Descripcion,
+                Categoria = ent.Categoria,
+                Activo = ent.Activo
+            };
+        }
+
+        public async Task<RestriccionTipoDto> UpdateRestriccionTipo(int id, RestriccionTipoUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsRestriccionTipo.FirstOrDefaultAsync(t => t.Id == id)
+                ?? throw new AbrilException("Tipo de restricción no encontrado.", 404);
+            ent.Descripcion = dto.Descripcion;
+            ent.Categoria = dto.Categoria;
+            ent.Activo = dto.Activo;
+            await ctx.SaveChangesAsync();
+            return new RestriccionTipoDto
+            {
+                Id = ent.Id,
+                Descripcion = ent.Descripcion,
+                Categoria = ent.Categoria,
+                Activo = ent.Activo
+            };
+        }
+
+        // ===== Empresas =====
+        public async Task<List<EmpresaCatalogoDto>> ListEmpresas(bool soloActivas)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var q = ctx.Empresa.AsQueryable();
+            if (soloActivas) q = q.Where(e => e.Activa == true);
+            return await q
+                .OrderBy(e => e.RazonSocial)
+                .Select(e => new EmpresaCatalogoDto
+                {
+                    Id = e.Id,
+                    Nombre = e.RazonSocial,
+                    Ruc = e.Ruc,
+                    EsAbril = e.RazonSocial != null && e.RazonSocial.ToUpper().Contains("ABRIL")
+                })
+                .ToListAsync();
+        }
+    }
+}

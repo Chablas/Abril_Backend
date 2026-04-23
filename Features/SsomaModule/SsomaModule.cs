@@ -1,0 +1,43 @@
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories;
+
+namespace Abril_Backend.Features.Ssoma
+{
+    public static class SsomaModule
+    {
+        public static IServiceCollection AddSsomaModule(this IServiceCollection services)
+        {
+            // Catalogos
+            services.AddScoped<ICatalogosRepository, CatalogosRepository>();
+            services.AddScoped<ICatalogosService, CatalogosService>();
+
+            // EMO
+            services.AddScoped<IEmoRepository, EmoRepository>();
+            services.AddScoped<IEmoService, EmoService>();
+
+            // Convalidacion
+            services.AddScoped<IConvalidacionRepository, ConvalidacionRepository>();
+            services.AddScoped<IConvalidacionService, ConvalidacionService>();
+
+            // Programacion EMO
+            services.AddScoped<IProgramacionEmoRepository, ProgramacionEmoRepository>();
+            services.AddScoped<IProgramacionEmoService, ProgramacionEmoService>();
+
+            // Interconsulta
+            services.AddScoped<IInterconsultaRepository, InterconsultaRepository>();
+            services.AddScoped<IInterconsultaService, InterconsultaService>();
+
+            // Dashboard
+            services.AddScoped<IDashboardRepository, DashboardRepository>();
+            services.AddScoped<IDashboardService, DashboardService>();
+
+            // Workers search
+            services.AddScoped<IWorkerSearchRepository, WorkerSearchRepository>();
+            services.AddScoped<IWorkerSearchService, WorkerSearchService>();
+
+            return services;
+        }
+    }
+}

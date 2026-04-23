@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -64,6 +65,20 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Worker> Worker { get; set; }
         public DbSet<Proyecto> Proyecto { get; set; }
         public DbSet<Empresa> Empresa { get; set; }
+        public DbSet<WorkerEmo> WorkerEmo { get; set; }
+        public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }
+        public DbSet<WorkerVinculacion> WorkerVinculacion { get; set; }
+        public DbSet<SsClinica> SsClinica { get; set; }
+        public DbSet<SsMedicoOcupacional> SsMedicoOcupacional { get; set; }
+        public DbSet<SsEmoTipo> SsEmoTipo { get; set; }
+        public DbSet<SsExamenTipo> SsExamenTipo { get; set; }
+        public DbSet<SsRestriccionTipo> SsRestriccionTipo { get; set; }
+        public DbSet<SsEmoExamenDetalle> SsEmoExamenDetalle { get; set; }
+        public DbSet<SsEmoRestriccion> SsEmoRestriccion { get; set; }
+        public DbSet<SsInterconsulta> SsInterconsulta { get; set; }
+        public DbSet<SsProgramacionEmo> SsProgramacionEmo { get; set; }
+        public DbSet<SsSeguimientoMedico> SsSeguimientoMedico { get; set; }
+        public DbSet<SsAlertaEmo> SsAlertaEmo { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

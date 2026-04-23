@@ -162,7 +162,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var quotationAttachments = await DownloadAttachmentsAsync(data.QuotationFiles);
 
             var subject = $"{data.ProjectDescription} // {data.WorkItemDescription} // {data.ContributorName}";
-            var internalRecipients = data.StaffEmails.Concat(CostosYPresupuestos).Distinct().ToList();
+
+            // Usar los correos individuales expandidos (los grupos ya fueron resueltos a sus miembros).
+            var expandedStaffEmails = userProfiles
+                .Select(p => p.Mail)
+                .Where(m => !string.IsNullOrWhiteSpace(m))
+                .ToList();
+            var internalRecipients = expandedStaffEmails.Concat(CostosYPresupuestos).Distinct().ToList();
 
             // --- Correo 1: interno — staff de obra + costos y presupuestos ---
             // TODO: descomentar cuando se defina el cuerpo y los destinatarios correctos

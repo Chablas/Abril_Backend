@@ -10,7 +10,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public decimal Amount { get; set; }
         public int CurrencyId { get; set; }
         public bool HasIgv { get; set; }
-        public string ContractorEmail { get; set; }
         public int WorkItemId { get; set; }
         public int WorkItemCategoryId { get; set; }
         public List<IFormFile>? QuotationFiles { get; set; }

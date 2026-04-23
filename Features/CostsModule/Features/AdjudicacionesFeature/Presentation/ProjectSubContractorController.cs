@@ -216,6 +216,79 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         }
 
         [Authorize]
+        [HttpPatch("{id}/status")]
+        public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateStatusDTO dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.UpdateStatusAsync(id, dto.ProjectSubContractorStatusId, userId);
+                return Ok(new { message = "Estado actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/send-sc-notification")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> SendScNotification(int id, IFormFile file, [FromForm] string graphAccessToken)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.SendScNotificationAsync(id, graphAccessToken, file, userId);
+                return Ok(new { message = "Correo enviado al subcontratista exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/send-step8-notification")]
+        public async Task<IActionResult> SendStep8Notification(int id, [FromBody] SendStep8NotificationDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.SendStep8NotificationAsync(id, dto.GraphAccessToken, userId);
+                return Ok(new { message = "Correo enviado a Oficina Técnica exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPost("send-notification")]
         public async Task<IActionResult> SendNotification([FromBody] SendAdjudicacionNotificationDto dto)
         {

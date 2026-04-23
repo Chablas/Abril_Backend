@@ -5,6 +5,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
 {
     public interface IStaffProjectEmailRepository
     {
+        Task<List<StaffProjectEmailTypeDto>> GetTypesFactory();
         Task<PagedResult<StaffProjectEmailDto>> GetPaged(StaffProjectEmailFilterDto filter);
         Task Create(StaffProjectEmailCreateDto dto, int userId);
         Task Update(StaffProjectEmailEditDto dto, int userId);

@@ -50,5 +50,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public ProjectSubContractorFileDto? AttachedQuotation { get; set; }
         public ProjectSubContractorFileDto? ServiceOrder { get; set; }
         public ProjectSubContractorFileDto? PromissoryNote { get; set; }
+        // Documentos escaneados (paso 7)
+        public ProjectSubContractorFileDto? ScannedDoc1 { get; set; }
+        public ProjectSubContractorFileDto? ScannedDoc2 { get; set; }
+        public ProjectSubContractorFileDto? ScannedDoc3 { get; set; }
     }
 }

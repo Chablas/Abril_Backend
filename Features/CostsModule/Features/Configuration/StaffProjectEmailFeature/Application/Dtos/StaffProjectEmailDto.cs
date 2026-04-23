@@ -6,6 +6,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
         public int ProjectId { get; set; }
         public string ProjectName { get; set; } = null!;
         public string Email { get; set; } = null!;
+        public int StaffProjectEmailTypeId { get; set; }
+        public string StaffProjectEmailTypeDescription { get; set; } = null!;
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

@@ -27,10 +27,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            "eaguinaga@abril.pe",
-            "apimentel@abril.pe",
-            "bquicana@abril.pe",
-            "cavila@abril.pe",
+            //"eaguinaga@abril.pe",
+            //"apimentel@abril.pe",
+            //"bquicana@abril.pe",
+            //"cavila@abril.pe",
             //"alvarezvillegaschristian@gmail.com"
         };
 
@@ -147,28 +147,35 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetNotificationData(dto.ProjectSubContractorId);
 
-            // Consultar perfiles de Graph para todos los staff emails.
-            // Los grupos de correo se expanden automáticamente a sus miembros individuales.
-            var userProfiles = await _graphUserService.GetResolvedProfilesAsync(data.StaffEmails);
+            // Expandir grupos: staff de obra (van a la matriz) y oficina central (solo CC).
+            var staffProfiles          = await _graphUserService.GetResolvedProfilesAsync(data.StaffEmails);
+            var oficinaCentralProfiles = await _graphUserService.GetResolvedProfilesAsync(data.OficinaCentralEmails);
 
             Console.WriteLine($"[SendNotification] StaffEmails ({data.StaffEmails.Count}): {string.Join(", ", data.StaffEmails)}");
-            Console.WriteLine($"[SendNotification] Perfiles resueltos ({userProfiles.Count}):");
-            foreach (var p in userProfiles)
+            Console.WriteLine($"[SendNotification] Perfiles staff resueltos ({staffProfiles.Count}):");
+            foreach (var p in staffProfiles)
                 Console.WriteLine($"  - {p.Mail} → Nombre: {p.DisplayName}, Puesto: {p.JobTitle}, Teléfono: {p.Phone}");
 
-            if (userProfiles.Count == 0)
+            Console.WriteLine($"[SendNotification] OficinaCentralEmails ({data.OficinaCentralEmails.Count}): {string.Join(", ", data.OficinaCentralEmails)}");
+            Console.WriteLine($"[SendNotification] Perfiles oficina central resueltos ({oficinaCentralProfiles.Count}):");
+            foreach (var p in oficinaCentralProfiles)
+                Console.WriteLine($"  - {p.Mail}");
+
+            if (staffProfiles.Count == 0 && oficinaCentralProfiles.Count == 0)
                 Console.WriteLine("  [ADVERTENCIA] No se obtuvo ningún perfil. Verificar token y permisos User.Read.All / GroupMember.Read.All.");
 
             var quotationAttachments = await DownloadAttachmentsAsync(data.QuotationFiles);
 
             var subject = $"{data.ProjectDescription} // {data.WorkItemDescription} // {data.ContributorName}";
 
-            // Usar los correos individuales expandidos (los grupos ya fueron resueltos a sus miembros).
-            var expandedStaffEmails = userProfiles
-                .Select(p => p.Mail)
-                .Where(m => !string.IsNullOrWhiteSpace(m))
+            // CC = staff de obra (expandidos) + oficina central (expandidos) + equipo costos y presupuestos.
+            var expandedStaff          = staffProfiles.Select(p => p.Mail).Where(m => !string.IsNullOrWhiteSpace(m));
+            var expandedOficinaCentral = oficinaCentralProfiles.Select(p => p.Mail).Where(m => !string.IsNullOrWhiteSpace(m));
+            var internalRecipients     = expandedStaff
+                .Concat(expandedOficinaCentral)
+                .Concat(CostosYPresupuestos)
+                .Distinct()
                 .ToList();
-            var internalRecipients = expandedStaffEmails.Concat(CostosYPresupuestos).Distinct().ToList();
 
             // --- Correo 1: interno — staff de obra + costos y presupuestos ---
             // TODO: descomentar cuando se defina el cuerpo y los destinatarios correctos
@@ -183,11 +190,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // );
 
             // --- Correo único: subcontratista ---
-            // TO: subcontratista | CC: staff de obra + costos y presupuestos | Adjunto: solo cotización
-            var emailBody = BuildSubcontractorEmailBody(data, userProfiles);
+            // TO: subcontratista | CC: todos los internos (staff + oficina central + costos) | Adjunto: cotización
+            // Matriz de comunicaciones: solo staff de obra (staffProfiles).
+            var emailBody = BuildSubcontractorEmailBody(data, staffProfiles);
             await _delegatedMailService.SendAsync(
                 graphAccessToken: dto.GraphAccessToken,
-                to: new List<string> { data.ContractorEmail },
+                to: data.ContractorEmails,
                 subject: subject,
                 body: emailBody,
                 isHtml: true,
@@ -197,6 +205,111 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // Actualizar estado de la adjudicación a 2 (notificada)
             await _projectSubContractorRepository.UpdateStatusToSent(dto.ProjectSubContractorId, userId);
+        }
+
+        public async Task UpdateStatusAsync(int projectSubContractorId, int statusId, int userId)
+        {
+            await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, statusId, userId);
+        }
+
+        public async Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile file, int userId)
+        {
+            var data     = await _projectSubContractorRepository.GetScNotificationDataAsync(projectSubContractorId);
+            var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
+
+            // Leer bytes una sola vez: se usan para SP y para el adjunto del correo
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            var fileBytes = ms.ToArray();
+
+            // Subir a SharePoint
+            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.ScPackage);
+            await _sharePointService.UploadToSharePointLibraryAsync(
+                libraryName: "Adjudicaciones",
+                folderPath:  folderPath,
+                fileName:    file.FileName,
+                fileStream:  new MemoryStream(fileBytes),
+                contentType: file.ContentType);
+
+            // Construir y enviar el correo
+            var subject    = $"{data.ProjectDescription} : {file.FileName}";
+            var body       = BuildScEmailBody(file.FileName, data.WorkItemDescription);
+            var attachment = new MailAttachmentDto
+            {
+                FileName    = file.FileName,
+                ContentType = file.ContentType ?? "application/octet-stream",
+                Content     = fileBytes
+            };
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: graphAccessToken,
+                to:          data.ContractorEmails,
+                subject:     subject,
+                body:        body,
+                isHtml:      true,
+                attachments: new List<MailAttachmentDto> { attachment });
+
+            // Avanzar al estado 5
+            await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 5, userId);
+        }
+
+        public async Task SendStep8NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId)
+        {
+            var data = await _projectSubContractorRepository.GetStep8NotificationDataAsync(projectSubContractorId);
+
+            if (data.OfTecnicaEmails.Count == 0)
+                throw new AbrilException("No hay correos de Oficina Técnica configurados para este proyecto.");
+
+            if (data.ScannedDocs.Count == 0)
+                throw new AbrilException("No hay documentos escaneados adjuntos para enviar.");
+
+            var attachments = await DownloadAttachmentsAsync(data.ScannedDocs);
+
+            var subject = $"CONTRATOS FIRMADOS / {data.ProjectDescription}";
+            var body    = BuildStep8EmailBody(data.ContributorName, data.ContractDescription);
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: graphAccessToken,
+                to:               data.OfTecnicaEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                attachments:      attachments);
+
+            await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 9, userId);
+        }
+
+        private static string BuildStep8EmailBody(string contributorName, string contractDescription)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<p>Estimados buenas tardes,</p>");
+            sb.AppendLine("<p>Adjunto contratos escaneados y firmados. Se encuentran en recepción para su recojo.</p>");
+            sb.AppendLine("<p><strong>CONTRATOS:</strong></p>");
+            sb.AppendLine("<ul>");
+            sb.AppendLine($"  <li>{contractDescription}: {contributorName}</li>");
+            sb.AppendLine("</ul>");
+            sb.AppendLine("<p>Saludos.</p>");
+            return sb.ToString();
+        }
+
+        private static string BuildScEmailBody(string fileName, string workItemDescription)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<p>Buenos días estimados,</p>");
+            sb.AppendLine($"<p>Adjunto contrato <strong>{fileName}</strong> por <strong>{workItemDescription}</strong>.</p>");
+            sb.AppendLine("<p>Se solicita la impresión y firma de <strong>TODOS LOS DOCUMENTOS ADJUNTOS</strong> en 03 juegos. " +
+                          "Asimismo, estos documentos deberán ser entregados en el orden de la numeración de cada documento. " +
+                          "<strong>Entregarlos en oficina central: Cal. Mama Ocllo N°2647</strong> Urb. Risso Lima- Lima-Lince (L-V de 8:00am-5:30 pm).</p>");
+            sb.AppendLine("<p>Tener en cuenta;</p>");
+            sb.AppendLine("<ul>");
+            sb.AppendLine("  <li>Las hojas del contrato <strong>no deberán estar engrampadas.</strong></li>");
+            sb.AppendLine("  <li>No imprimir a doble cara</li>");
+            sb.AppendLine("  <li>Firmar con lapicero azul todas las hojas adjuntas, no solo basta con un VB</li>");
+            sb.AppendLine("  <li><span style=\"background-color: yellow;\">Llevarlo cuanto antes para que no restrinjan el pago de las valorizaciones</span></li>");
+            sb.AppendLine("</ul>");
+            sb.AppendLine("<p>Quedo atenta.</p>");
+            sb.AppendLine("<p>Saludos.</p>");
+            return sb.ToString();
         }
 
         private static string BuildInternalEmailBody(AdjudicacionNotificationDataDto data)
@@ -874,6 +987,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.InitialQuotation   => "Cotizaciones",
             AdjudicacionDocumentType.InitialComparative => "Comparativo",
             AdjudicacionDocumentType.PromissoryNote     => "Pagaré",
+            AdjudicacionDocumentType.ScPackage          => "Paquete SC",
+            AdjudicacionDocumentType.ScannedDoc1        => "Escaneados",
+            AdjudicacionDocumentType.ScannedDoc2        => "Escaneados",
+            AdjudicacionDocumentType.ScannedDoc3        => "Escaneados",
             _ => throw new ArgumentOutOfRangeException(nameof(documentType))
         };
 

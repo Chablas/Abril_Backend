@@ -13,5 +13,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         Task<DocumentUploadResponseDto> UploadDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, IFormFile file, int userId);
         Task<DocumentUploadResponseDto> GenerateDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int userId);
         Task UpdateDocumentStatusAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int? statusId, string? observation, int userId);
+        Task UpdateStatusAsync(int projectSubContractorId, int statusId, int userId);
+        Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile file, int userId);
+        Task SendStep8NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId);
     }
 }

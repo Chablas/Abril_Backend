@@ -10,6 +10,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         ServiceOrder,
         InitialQuotation,
         InitialComparative,
-        PromissoryNote
+        PromissoryNote,
+        ScPackage,
+        ScannedDoc1,
+        ScannedDoc2,
+        ScannedDoc3
     }
 }

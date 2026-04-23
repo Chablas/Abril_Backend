@@ -17,14 +17,27 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
             _context = context;
         }
 
+        public async Task<List<StaffProjectEmailTypeDto>> GetTypesFactory()
+        {
+            return await _context.StaffProjectEmailType
+                .OrderBy(t => t.StaffProjectEmailTypeId)
+                .Select(t => new StaffProjectEmailTypeDto
+                {
+                    StaffProjectEmailTypeId = t.StaffProjectEmailTypeId,
+                    Description = t.Description,
+                })
+                .ToListAsync();
+        }
+
         public async Task<PagedResult<StaffProjectEmailDto>> GetPaged(StaffProjectEmailFilterDto filter)
         {
             const int pageSize = 10;
 
             var query = from s in _context.StaffProjectEmail
                         join p in _context.Project on s.ProjectId equals p.ProjectId
+                        join t in _context.StaffProjectEmailType on s.StaffProjectEmailTypeId equals t.StaffProjectEmailTypeId
                         where s.State
-                        select new { s, p };
+                        select new { s, p, t };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.s.ProjectId == filter.ProjectId.Value);
@@ -40,27 +53,29 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
                 .Take(pageSize)
                 .Select(x => new StaffProjectEmailDto
                 {
-                    StaffProjectEmailId = x.s.StaffProjectEmailId,
-                    ProjectId = x.s.ProjectId,
-                    ProjectName = x.p.ProjectDescription,
-                    Email = x.s.Email,
-                    CreatedDateTime = x.s.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
-                    CreatedUserId = x.s.CreatedUserId,
-                    UpdatedDateTime = x.s.UpdatedDateTime.HasValue
+                    StaffProjectEmailId              = x.s.StaffProjectEmailId,
+                    ProjectId                        = x.s.ProjectId,
+                    ProjectName                      = x.p.ProjectDescription,
+                    Email                            = x.s.Email,
+                    StaffProjectEmailTypeId          = x.s.StaffProjectEmailTypeId,
+                    StaffProjectEmailTypeDescription = x.t.Description,
+                    CreatedDateTime                  = x.s.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                    CreatedUserId                    = x.s.CreatedUserId,
+                    UpdatedDateTime                  = x.s.UpdatedDateTime.HasValue
                         ? x.s.UpdatedDateTime.Value.ToOffset(TimeSpan.FromHours(-5)).DateTime
                         : null,
                     UpdatedUserId = x.s.UpdatedUserId,
-                    Active = x.s.Active
+                    Active        = x.s.Active
                 })
                 .ToListAsync();
 
             return new PagedResult<StaffProjectEmailDto>
             {
-                Page = filter.Page,
-                PageSize = pageSize,
+                Page         = filter.Page,
+                PageSize     = pageSize,
                 TotalRecords = totalRecords,
-                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
-                Data = data
+                TotalPages   = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data         = data
             };
         }
 
@@ -74,12 +89,13 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
 
             var record = new StaffProjectEmail
             {
-                ProjectId = dto.ProjectId,
-                Email = dto.Email.Trim(),
-                Active = true,
-                State = true,
-                CreatedDateTime = DateTimeOffset.UtcNow,
-                CreatedUserId = userId
+                ProjectId               = dto.ProjectId,
+                Email                   = dto.Email.Trim(),
+                StaffProjectEmailTypeId = dto.StaffProjectEmailTypeId,
+                Active                  = true,
+                State                   = true,
+                CreatedDateTime         = DateTimeOffset.UtcNow,
+                CreatedUserId           = userId
             };
 
             _context.StaffProjectEmail.Add(record);
@@ -103,10 +119,11 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
             if (duplicate)
                 throw new AbrilException("Ya existe ese correo para el proyecto indicado.");
 
-            record.Email = dto.Email.Trim();
-            record.Active = dto.Active;
-            record.UpdatedDateTime = DateTimeOffset.UtcNow;
-            record.UpdatedUserId = userId;
+            record.Email                   = dto.Email.Trim();
+            record.StaffProjectEmailTypeId = dto.StaffProjectEmailTypeId;
+            record.Active                  = dto.Active;
+            record.UpdatedDateTime         = DateTimeOffset.UtcNow;
+            record.UpdatedUserId           = userId;
 
             await _context.SaveChangesAsync();
         }
@@ -119,10 +136,10 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
             if (record == null)
                 return false;
 
-            record.State = false;
-            record.Active = false;
+            record.State           = false;
+            record.Active          = false;
             record.UpdatedDateTime = DateTimeOffset.UtcNow;
-            record.UpdatedUserId = userId;
+            record.UpdatedUserId   = userId;
 
             await _context.SaveChangesAsync();
             return true;

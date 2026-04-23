@@ -5,5 +5,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
     public class StaffProjectEmailFormDataDto
     {
         public List<ProjectSimpleDTO> Projects { get; set; } = new();
+        public List<StaffProjectEmailTypeDto> Types { get; set; } = new();
     }
 }

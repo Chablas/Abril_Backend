@@ -20,7 +20,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
         public async Task<StaffProjectEmailFormDataDto> GetFormData()
         {
             var projects = await _projectRepository.GetAllFactory();
-            return new StaffProjectEmailFormDataDto { Projects = projects };
+            var types    = await _repository.GetTypesFactory();
+            return new StaffProjectEmailFormDataDto { Projects = projects, Types = types };
         }
 
         public async Task<PagedResult<StaffProjectEmailDto>> GetPaged(StaffProjectEmailFilterDto filter)

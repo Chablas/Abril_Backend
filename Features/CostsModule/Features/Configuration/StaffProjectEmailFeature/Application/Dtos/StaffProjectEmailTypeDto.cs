@@ -1,9 +1,8 @@
 namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProjectEmailFeature.Application.Dtos
 {
-    public class StaffProjectEmailCreateDto
+    public class StaffProjectEmailTypeDto
     {
-        public int ProjectId { get; set; }
-        public string Email { get; set; } = null!;
         public int StaffProjectEmailTypeId { get; set; }
+        public string Description { get; set; } = null!;
     }
 }

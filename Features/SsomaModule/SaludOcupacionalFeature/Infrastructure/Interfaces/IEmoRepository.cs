@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
     public interface IEmoRepository
     {
         Task<PagedResult<EmoListItemDto>> ListPaged(EmoFilterDto filter);
+        Task<PagedResult<EmoPorTrabajadorDto>> ListPorTrabajador(EmoPorTrabajadorFilterDto filter);
         Task<EmoDetalleDto> GetById(int id);
         Task<WorkerEmoHistorialDto> GetHistorialByWorker(int workerId);
         Task<int> Create(EmoCreateDto dto, int? userId);

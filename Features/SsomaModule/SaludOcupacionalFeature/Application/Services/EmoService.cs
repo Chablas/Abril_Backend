@@ -27,6 +27,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<PagedResult<EmoListItemDto>> ListPaged(EmoFilterDto filter) => _repo.ListPaged(filter);
 
+        public Task<PagedResult<EmoPorTrabajadorDto>> ListPorTrabajador(EmoPorTrabajadorFilterDto filter) => _repo.ListPorTrabajador(filter);
+
         public Task<EmoDetalleDto> GetById(int id) => _repo.GetById(id);
 
         public Task<WorkerEmoHistorialDto> GetHistorialByWorker(int workerId) => _repo.GetHistorialByWorker(workerId);

@@ -81,6 +81,101 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
         }
 
+        public async Task<PagedResult<EmoPorTrabajadorDto>> ListPorTrabajador(EmoPorTrabajadorFilterDto filter)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            // Último EMO activo por worker (WHERE NOT EXISTS emo posterior del mismo worker)
+            var ultimoEmo = ctx.WorkerEmo
+                .Where(e => e.Activo)
+                .Where(e => !ctx.WorkerEmo.Any(e2 =>
+                    e2.Activo
+                    && e2.WorkerId == e.WorkerId
+                    && (e2.FechaEmo > e.FechaEmo || (e2.FechaEmo == e.FechaEmo && e2.Id > e.Id))));
+
+            // Vinculación vigente por worker (la más reciente cuya fecha_fin es null o >= hoy)
+            var vinculacionVigente = ctx.WorkerVinculacion
+                .Where(v => v.FechaFin == null || v.FechaFin >= hoy)
+                .Where(v => !ctx.WorkerVinculacion.Any(v2 =>
+                    (v2.FechaFin == null || v2.FechaFin >= hoy)
+                    && v2.WorkerId == v.WorkerId
+                    && (v2.FechaInicio > v.FechaInicio || (v2.FechaInicio == v.FechaInicio && v2.Id > v.Id))));
+
+            var q =
+                from w in ctx.Worker
+                join ue in ultimoEmo on w.Id equals ue.WorkerId into ueJ
+                from ue in ueJ.DefaultIfEmpty()
+                join t in ctx.SsEmoTipo on ue.TipoEmoId equals t.Id into tJ
+                from t in tJ.DefaultIfEmpty()
+                join vv in vinculacionVigente on w.Id equals vv.WorkerId into vvJ
+                from vv in vvJ.DefaultIfEmpty()
+                join em in ctx.Empresa on vv.EmpresaId equals em.Id into emJ
+                from em in emJ.DefaultIfEmpty()
+                select new { w, ue, t, vv, em };
+
+            if (!string.IsNullOrWhiteSpace(filter.Search))
+            {
+                var term = filter.Search.Trim();
+                q = q.Where(x =>
+                    (x.w.ApellidoNombre != null && x.w.ApellidoNombre.Contains(term))
+                    || (x.w.Dni != null && x.w.Dni.Contains(term)));
+            }
+            if (!string.IsNullOrWhiteSpace(filter.Aptitud))
+                q = q.Where(x => x.ue != null && x.ue.Aptitud == filter.Aptitud);
+            if (!string.IsNullOrWhiteSpace(filter.Estado))
+            {
+                if (filter.Estado == "Sin EMO")
+                    q = q.Where(x => x.ue == null);
+                else
+                    q = q.Where(x => x.ue != null && x.ue.Estado == filter.Estado);
+            }
+            if (filter.EmpresaId.HasValue)
+                q = q.Where(x => x.vv != null && x.vv.EmpresaId == filter.EmpresaId.Value);
+
+            var page = filter.Page < 1 ? 1 : filter.Page;
+            var pageSize = filter.PageSize <= 0 ? 50 : Math.Min(filter.PageSize, 200);
+
+            var total = await q.CountAsync();
+
+            var rows = await q
+                .OrderBy(x => x.w.ApellidoNombre)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(x => new EmoPorTrabajadorDto
+                {
+                    WorkerId = x.w.Id,
+                    NombreCompleto = x.w.ApellidoNombre ?? string.Empty,
+                    Dni = x.w.Dni ?? string.Empty,
+                    EmpresaId = x.vv != null ? x.vv.EmpresaId : null,
+                    Empresa = x.em != null ? x.em.RazonSocial : null,
+                    TipoContrata = x.w.ContrataCasa,
+                    TieneEmo = x.ue != null,
+                    EmoId = x.ue != null ? x.ue.Id : (int?)null,
+                    TipoEmo = x.t != null ? x.t.Nombre : null,
+                    FechaEmo = x.ue != null ? (DateOnly?)x.ue.FechaEmo : null,
+                    FechaVencimiento = x.ue != null ? (x.ue.FechaVencimientoCalculada ?? x.ue.FechaVencimiento) : null,
+                    Aptitud = x.ue != null ? x.ue.Aptitud : null,
+                    Estado = x.ue != null ? x.ue.Estado : null
+                })
+                .ToListAsync();
+
+            foreach (var r in rows)
+            {
+                if (r.FechaVencimiento.HasValue)
+                    r.DiasRestantes = r.FechaVencimiento.Value.DayNumber - hoy.DayNumber;
+            }
+
+            return new PagedResult<EmoPorTrabajadorDto>
+            {
+                Page = page,
+                PageSize = pageSize,
+                TotalRecords = total,
+                TotalPages = (int)Math.Ceiling(total / (double)pageSize),
+                Data = rows
+            };
+        }
+
         public async Task<EmoDetalleDto> GetById(int id)
         {
             using var ctx = _factory.CreateDbContext();

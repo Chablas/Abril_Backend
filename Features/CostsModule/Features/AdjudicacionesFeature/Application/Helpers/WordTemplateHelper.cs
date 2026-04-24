@@ -8,6 +8,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
 /// Rellena un template Word (.docx) reemplazando placeholders del tipo {{CLAVE}}.
 /// Trabaja directamente sobre el XML interno del .docx (ZIP) y fusiona únicamente
 /// los nodos &lt;w:t&gt; que forman el placeholder, preservando el formato del resto.
+/// Procesa: cuerpo del documento, encabezados y pies de página.
 /// </summary>
 public static class WordTemplateHelper
 {
@@ -17,7 +18,20 @@ public static class WordTemplateHelper
         templateStream.CopyTo(ms);
 
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Update, leaveOpen: true))
-            ProcessZipEntry(zip, "word/document.xml", replacements);
+        {
+            // Recopilar todas las partes que pueden contener texto con placeholders:
+            // cuerpo principal + todos los encabezados y pies de página numerados.
+            var entryNames = zip.Entries
+                .Select(e => e.FullName)
+                .Where(n =>
+                    n == "word/document.xml" ||
+                    Regex.IsMatch(n, @"^word/header\d+\.xml$", RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(n, @"^word/footer\d+\.xml$", RegexOptions.IgnoreCase))
+                .ToList();
+
+            foreach (var name in entryNames)
+                ProcessZipEntry(zip, name, replacements);
+        }
 
         ms.Position = 0;
         return ms.ToArray();
@@ -36,10 +50,10 @@ public static class WordTemplateHelper
             xml = reader.ReadToEnd();
 
         // Eliminar elementos que fragmentan runs sin aportar texto visible
-        xml = Regex.Replace(xml, @"<w:proofErr\b[^>]*/?>",              "");
-        xml = Regex.Replace(xml, @"<w:bookmarkStart\b[^>]*/?>",         "");
-        xml = Regex.Replace(xml, @"<w:bookmarkEnd\b[^>]*/?>",           "");
-        xml = Regex.Replace(xml, @"<w:rPrChange\b.*?</w:rPrChange>",    "", RegexOptions.Singleline);
+        xml = Regex.Replace(xml, @"<w:proofErr\b[^>]*/?>",           "");
+        xml = Regex.Replace(xml, @"<w:bookmarkStart\b[^>]*/?>",      "");
+        xml = Regex.Replace(xml, @"<w:bookmarkEnd\b[^>]*/?>",        "");
+        xml = Regex.Replace(xml, @"<w:rPrChange\b.*?</w:rPrChange>", "", RegexOptions.Singleline);
 
         // Procesar cada párrafo
         xml = Regex.Replace(
@@ -78,15 +92,16 @@ public static class WordTemplateHelper
 
         foreach (var (placeholder, value) in replacements)
         {
-            // Recalcular combined y offsets a partir del estado actual (puede haber cambiado)
-            var cur     = string.Concat(newTexts);
-            var curOff  = new int[newTexts.Length];
-            for (int i = 1; i < newTexts.Length; i++)
-                curOff[i] = curOff[i - 1] + newTexts[i - 1].Length;
-
             int searchFrom = 0;
+
             while (true)
             {
+                // Recalcular combined y offsets en cada pasada (los nodos pueden haber cambiado)
+                var cur    = string.Concat(newTexts);
+                var curOff = new int[newTexts.Length];
+                for (int i = 1; i < newTexts.Length; i++)
+                    curOff[i] = curOff[i - 1] + newTexts[i - 1].Length;
+
                 int phStart = cur.IndexOf(placeholder, searchFrom, StringComparison.Ordinal);
                 if (phStart < 0) break;
                 int phEnd = phStart + placeholder.Length;
@@ -105,19 +120,17 @@ public static class WordTemplateHelper
                 }
                 if (firstNode < 0) break;
 
-                // Texto antes del placeholder dentro del primer nodo
+                // Texto antes y después del placeholder dentro de los nodos límite
                 var before = cur[curOff[firstNode]..phStart];
-                // Texto después del placeholder dentro del último nodo
-                var after  = cur[phEnd..( curOff[lastNode] + newTexts[lastNode].Length )];
+                var after  = cur[phEnd..(curOff[lastNode] + newTexts[lastNode].Length)];
 
-                // Fusionar: primer nodo recibe before + value + after
+                // Fusionar: primer nodo recibe before + value + after; el resto queda vacío
                 newTexts[firstNode] = before + value + after;
                 for (int i = firstNode + 1; i <= lastNode; i++)
                     newTexts[i] = "";
 
-                // Próxima búsqueda después del valor insertado
+                // Continuar búsqueda tras el valor insertado (maneja múltiples ocurrencias)
                 searchFrom = curOff[firstNode] + before.Length + value.Length;
-                break; // recalcular cur en la siguiente iteración del while
             }
         }
 
@@ -129,7 +142,7 @@ public static class WordTemplateHelper
             var attrs   = m.Groups[1].Value;
             var newText = newTexts[idx++];
 
-            // Sin cambio → devolver original
+            // Sin cambio → devolver original intacto
             if (newText == XmlUnescape(m.Groups[2].Value)) return m.Value;
 
             // Asegurar xml:space="preserve" si el texto tiene espacios al inicio/fin
@@ -142,10 +155,37 @@ public static class WordTemplateHelper
 
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Escapa únicamente los caracteres que DEBEN escaparse en contenido de texto XML:
+    /// &amp; → &amp;amp;  |  &lt; → &amp;lt;  |  &gt; → &amp;gt;
+    /// Las comillas dobles (") NO se escapan en contenido de texto (solo son obligatorias
+    /// dentro de valores de atributos). Escaparlas en texto produce &amp;quot; que Word
+    /// puede re-fragmentar los nodos &lt;w:t&gt; al volver a leer el archivo.
+    /// </summary>
     private static string XmlEscape(string s) =>
-        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
-    private static string XmlUnescape(string s) =>
-        s.Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">")
-         .Replace("&quot;", "\"").Replace("&apos;", "'");
+    /// <summary>
+    /// Convierte referencias de entidad XML y referencias numéricas de carácter
+    /// a sus caracteres correspondientes.
+    /// </summary>
+    private static string XmlUnescape(string s)
+    {
+        // Entidades nombradas
+        s = s.Replace("&quot;", "\"")
+             .Replace("&apos;", "'")
+             .Replace("&lt;",   "<")
+             .Replace("&gt;",   ">")
+             .Replace("&amp;",  "&");   // &amp; siempre al final para no doble-desescapar
+
+        // Referencias numéricas decimales comunes (Word las usa a veces)
+        s = Regex.Replace(s, @"&#(\d+);", m =>
+            char.ConvertFromUtf32(int.Parse(m.Groups[1].Value)));
+
+        // Referencias numéricas hexadecimales
+        s = Regex.Replace(s, @"&#x([0-9A-Fa-f]+);", m =>
+            char.ConvertFromUtf32(Convert.ToInt32(m.Groups[1].Value, 16)));
+
+        return s;
+    }
 }

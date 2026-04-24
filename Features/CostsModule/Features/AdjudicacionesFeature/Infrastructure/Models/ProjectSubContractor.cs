@@ -23,6 +23,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public DateOnly? StartDate { get; set; }
         public DateOnly? EndDate { get; set; }
 
+        // Número de contrato (paso 3)
+        public int? ContractNumber { get; set; }
+
+        // Llegada a Of. Central (paso 5)
+        public bool? ArrivedWithObservations { get; set; }
+
         // Document FKs (nullable — populated as the expediente progresses)
         public int? ProjectSubContractorContractId { get; set; }
         public int? ProjectSubContractorSummarySheetId { get; set; }

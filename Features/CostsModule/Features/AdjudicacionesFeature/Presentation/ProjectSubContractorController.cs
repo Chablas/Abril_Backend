@@ -240,6 +240,54 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         }
 
         [Authorize]
+        [HttpPatch("{id}/arrival-option")]
+        public async Task<IActionResult> SetArrivalOption(int id, [FromBody] ConfirmStep5DTO dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.SetArrivalOptionAsync(id, dto.ArrivedWithObservations, userId);
+                return Ok(new { message = "Opción de llegada guardada." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/confirm-step5")]
+        public async Task<IActionResult> ConfirmStep5(int id, [FromBody] ConfirmStep5DTO dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.ConfirmStep5Async(id, dto.ArrivedWithObservations, userId);
+                return Ok(new { message = "Recepción confirmada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPost("{id}/send-sc-notification")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> SendScNotification(int id, IFormFile file, [FromForm] string graphAccessToken)
@@ -253,6 +301,30 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                 var userId = int.Parse(userIdClaim.Value);
                 await _projectSubContractorService.SendScNotificationAsync(id, graphAccessToken, file, userId);
                 return Ok(new { message = "Correo enviado al subcontratista exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/send-step6-notification")]
+        public async Task<IActionResult> SendStep6Notification(int id, [FromBody] SendStep6NotificationDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.SendStep6NotificationAsync(id, dto.GraphAccessToken, userId);
+                return Ok(new { message = "Correo de proceso de firma enviado exitosamente." });
             }
             catch (AbrilException ex)
             {

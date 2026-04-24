@@ -27,11 +27,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            "eaguinaga@abril.pe",
-            "apimentel@abril.pe",
-            "bquicana@abril.pe",
-            "cavila@abril.pe",
-            //"alvarezvillegaschristian@gmail.com"
+            //"eaguinaga@abril.pe",
+            //"apimentel@abril.pe",
+            //"bquicana@abril.pe",
+            //"cavila@abril.pe",
+            "alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -241,16 +241,74 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 Content     = fileBytes
             };
 
+            var ccEmails = data.StaffObraEmails
+                .Concat(CostosYPresupuestos)
+                .Distinct()
+                .ToList();
+
             await _delegatedMailService.SendAsync(
                 graphAccessToken: graphAccessToken,
                 to:          data.ContractorEmails,
                 subject:     subject,
                 body:        body,
                 isHtml:      true,
+                cc:          ccEmails,
                 attachments: new List<MailAttachmentDto> { attachment });
 
             // Avanzar al estado 5
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 5, userId);
+        }
+
+        public async Task SetArrivalOptionAsync(int projectSubContractorId, bool arrivedWithObservations, int userId)
+        {
+            await _projectSubContractorRepository.SetArrivalOptionAsync(projectSubContractorId, arrivedWithObservations, userId);
+        }
+
+        public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, int userId)
+        {
+            await _projectSubContractorRepository.ConfirmStep5Async(projectSubContractorId, arrivedWithObservations, userId);
+        }
+
+        public async Task SendStep6NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId)
+        {
+            var data = await _projectSubContractorRepository.GetStep6NotificationDataAsync(projectSubContractorId);
+
+            var toEmails = data.StaffObraEmails
+                .Concat(CostosYPresupuestos)
+                .Distinct()
+                .ToList();
+
+            if (toEmails.Count == 0)
+                throw new AbrilException("No hay correos de staff de obra ni de costos configurados para este proyecto.");
+
+            var subject = $"PROCESO DE FIRMA / {data.ProjectDescription}";
+            var body    = BuildStep6EmailBody(data);
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: graphAccessToken,
+                to:               toEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true);
+
+            await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 7, userId);
+        }
+
+        private static string BuildStep6EmailBody(Step6NotificationDataDto data)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<p>Estimados,</p>");
+            sb.AppendLine("<p>Se les informa que los documentos del siguiente contrato se encuentran en proceso de firma:</p>");
+            sb.AppendLine("<table style=\"border-collapse:collapse; font-family:Arial,sans-serif; font-size:13px;\">");
+            sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">Proyecto</td>"        + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
+            sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">Subcontratista</td>" + $"<td style=\"padding:4px 0;\">{data.ContributorName}</td></tr>");
+            sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">Partida</td>"        + $"<td style=\"padding:4px 0;\">{data.WorkItemDescription}</td></tr>");
+            sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">Contrato</td>"       + $"<td style=\"padding:4px 0;\">{data.ContractDescription}</td></tr>");
+            if (data.ContractNumber.HasValue)
+                sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">N° de contrato</td>" + $"<td style=\"padding:4px 0;\">{data.ContractNumber}</td></tr>");
+            sb.AppendLine("</table>");
+            sb.AppendLine("<br/><p>Saludos.</p>");
+            return sb.ToString();
         }
 
         public async Task SendStep8NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId)
@@ -488,16 +546,23 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             var currencySymbol = data.CurrencyCode == "USD" ? "US$" : "S/";
 
+            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
+                ? data.ProjectDescription[..3].ToUpperInvariant()
+                : data.ProjectDescription.ToUpperInvariant();
+
             var replacements = new Dictionary<string, string>
             {
-                { "{{EMPRESA}}",        data.ContributorName },
-                { "{{PROYECTO}}",       data.ProjectDescription },
-                { "{{MONTO}}",          $"{currencySymbol} {data.Amount:N2}" },
-                { "{{FECHA_INICIO}}",   data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
-                { "{{FECHA_FIN}}",      data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
-                { "{{RUC}}",            data.ContributorRuc },
-                { "{{TIPO_CONTRATO}}",  data.ContractTypeDescription },
-                { "{{PARTIDA}}",        data.WorkItemDescription },
+                { "{{EMPRESA}}",               data.ContributorName },
+                { "{{PROYECTO}}",              data.ProjectDescription },
+                { "{{MONTO}}",                 $"{currencySymbol} {data.Amount:N2}" },
+                { "{{FECHA_INICIO}}",          data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
+                { "{{FECHA_FIN}}",             data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
+                { "{{RUC}}",                   data.ContributorRuc },
+                { "{{TIPO_CONTRATO}}",         data.ContractTypeDescription },
+                { "{{PARTIDA}}",               data.WorkItemDescription },
+                { "{{AÑO_ACTUAL}}",            DateTime.UtcNow.Year.ToString() },
+                { "{{NUM_CONTRATO}}",          data.ContractNumber?.ToString() ?? "" },
+                { "{{ABREVIATURA_PROYECTO}}", abreviaturaProyecto },
             };
 
             byte[] docBytes;

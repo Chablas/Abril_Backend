@@ -39,6 +39,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public DateOnly? SigningDate { get; set; }
         public DateOnly? StartDate { get; set; }
         public DateOnly? EndDate { get; set; }
+        public int?   ContractNumber            { get; set; }
+        public bool?  ArrivedWithObservations   { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public List<ProjectSubContractorFileDto> QuotationFiles { get; set; } = new();
         public List<ProjectSubContractorFileDto> ComparativeFiles { get; set; } = new();

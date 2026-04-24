@@ -27,11 +27,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            //"eaguinaga@abril.pe",
-            //"apimentel@abril.pe",
-            //"bquicana@abril.pe",
-            //"cavila@abril.pe",
-            "alvarezvillegaschristian@gmail.com"
+            "eaguinaga@abril.pe",
+            "apimentel@abril.pe",
+            "bquicana@abril.pe",
+            "cavila@abril.pe",
+            //"alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";

@@ -8,6 +8,9 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Dt
         public string ContributorName { get; set; } = null!;
         public string ContributorAddress { get; set; } = null!;
         public string ContributorEconomicActivityDescription { get; set; } = null!;
+        public string? ContributorDistrict { get; set; }
+        public string? ContributorProvince { get; set; }
+        public string? ContributorDepartment { get; set; }
         public int ContractorStateId { get; set; }
         public string ContractorStateDescription { get; set; } = null!;
         public string? BrochureFileUrl { get; set; }

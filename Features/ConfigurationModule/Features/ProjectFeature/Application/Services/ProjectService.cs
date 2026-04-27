@@ -46,12 +46,33 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
             var existing = await _repository.FindContributorByRuc(trimmed);
             if (existing != null)
             {
+                // If location fields are missing, enrich from SUNAT and persist
+                if (existing.ContributorDistrict == null || existing.ContributorProvince == null || existing.ContributorDepartment == null)
+                {
+                    var sunatData = await _sunatService.GetByRucAsync(trimmed);
+                    if (sunatData != null)
+                    {
+                        await _repository.UpdateContributorLocationAsync(
+                            existing.ContributorId,
+                            sunatData.ContributorDistrict,
+                            sunatData.ContributorProvince,
+                            sunatData.ContributorDepartment);
+
+                        existing.ContributorDistrict = sunatData.ContributorDistrict;
+                        existing.ContributorProvince = sunatData.ContributorProvince;
+                        existing.ContributorDepartment = sunatData.ContributorDepartment;
+                    }
+                }
+
                 return new ContributorLookupDto
                 {
                     ContributorId = existing.ContributorId,
                     ContributorRuc = existing.ContributorRuc,
                     ContributorName = existing.ContributorName,
-                    ContributorAddress = existing.ContributorAddress
+                    ContributorAddress = existing.ContributorAddress,
+                    ContributorDistrict = existing.ContributorDistrict,
+                    ContributorProvince = existing.ContributorProvince,
+                    ContributorDepartment = existing.ContributorDepartment
                 };
             }
 
@@ -64,6 +85,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
                 sunat.ContributorName,
                 sunat.ContributorAddress,
                 sunat.ContributorEconomicActivityDescription,
+                sunat.ContributorDistrict,
+                sunat.ContributorProvince,
+                sunat.ContributorDepartment,
                 userId);
 
             return new ContributorLookupDto
@@ -71,7 +95,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
                 ContributorId = created.ContributorId,
                 ContributorRuc = created.ContributorRuc,
                 ContributorName = created.ContributorName,
-                ContributorAddress = created.ContributorAddress
+                ContributorAddress = created.ContributorAddress,
+                ContributorDistrict = created.ContributorDistrict,
+                ContributorProvince = created.ContributorProvince,
+                ContributorDepartment = created.ContributorDepartment
             };
         }
     }

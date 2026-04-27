@@ -6,8 +6,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public string ProjectDescription { get; set; } = null!;
         public string? LevelDescription { get; set; }
         public int? ContributorId { get; set; }
-        public string? District { get; set; }
-        public string? Location { get; set; }
+        public string? ProjectDistrict { get; set; }
+        public string? ProjectProvince { get; set; }
+        public string? ProjectDepartment { get; set; }
+        public string? ProjectLocation { get; set; }
         public bool Active { get; set; }
     }
 }

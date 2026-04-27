@@ -4,6 +4,9 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
         public string ContributorName { get; set; }
         public string ContributorAddress { get; set; }
         public string ContributorEconomicActivityDescription { get; set; }
+        public string? ContributorDistrict { get; set; }
+        public string? ContributorProvince { get; set; }
+        public string? ContributorDepartment { get; set; }
         public IFormFile? BrochureFile { get; set; }
         public IFormFile? FichaRucFile { get; set; }
         public IFormFile? ReferencesListFile { get; set; }

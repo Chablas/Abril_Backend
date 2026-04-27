@@ -40,8 +40,13 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     ContributorRuc = p.Contributor != null ? p.Contributor.ContributorRuc : null,
                     ContributorName = p.Contributor != null ? p.Contributor.ContributorName : null,
                     ContributorAddress = p.Contributor != null ? p.Contributor.ContributorAddress : null,
-                    District = p.District,
-                    Location = p.Location,
+                    ContributorDistrict = p.Contributor != null ? p.Contributor.ContributorDistrict : null,
+                    ContributorProvince = p.Contributor != null ? p.Contributor.ContributorProvince : null,
+                    ContributorDepartment = p.Contributor != null ? p.Contributor.ContributorDepartment : null,
+                    ProjectDistrict = p.ProjectDistrict,
+                    ProjectProvince = p.ProjectProvince,
+                    ProjectDepartment = p.ProjectDepartment,
+                    ProjectLocation = p.ProjectLocation,
                     Active = p.Active
                 })
                 .ToListAsync();
@@ -70,8 +75,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 existing.Active = dto.Active;
                 existing.LevelDescription = dto.LevelDescription?.Trim();
                 existing.ContributorId = dto.ContributorId;
-                existing.District = dto.District?.Trim();
-                existing.Location = dto.Location?.Trim();
+                existing.ProjectDistrict = dto.ProjectDistrict?.Trim();
+                existing.ProjectProvince = dto.ProjectProvince?.Trim();
+                existing.ProjectDepartment = dto.ProjectDepartment?.Trim();
+                existing.ProjectLocation = dto.ProjectLocation?.Trim();
                 existing.UpdatedDateTime = DateTime.UtcNow;
                 existing.UpdatedUserId = userId;
                 await _context.SaveChangesAsync();
@@ -83,8 +90,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 ProjectDescription = dto.ProjectDescription.Trim(),
                 LevelDescription = dto.LevelDescription?.Trim(),
                 ContributorId = dto.ContributorId,
-                District = dto.District?.Trim(),
-                Location = dto.Location?.Trim(),
+                ProjectDistrict = dto.ProjectDistrict?.Trim(),
+                ProjectProvince = dto.ProjectProvince?.Trim(),
+                ProjectDepartment = dto.ProjectDepartment?.Trim(),
+                ProjectLocation = dto.ProjectLocation?.Trim(),
                 Active = dto.Active,
                 State = true,
                 CreatedDateTime = DateTime.UtcNow,
@@ -115,8 +124,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.ProjectDescription = dto.ProjectDescription.Trim();
             project.LevelDescription = dto.LevelDescription?.Trim();
             project.ContributorId = dto.ContributorId;
-            project.District = dto.District?.Trim();
-            project.Location = dto.Location?.Trim();
+            project.ProjectDistrict = dto.ProjectDistrict?.Trim();
+            project.ProjectProvince = dto.ProjectProvince?.Trim();
+            project.ProjectDepartment = dto.ProjectDepartment?.Trim();
+            project.ProjectLocation = dto.ProjectLocation?.Trim();
             project.Active = dto.Active;
             project.UpdatedDateTime = DateTime.UtcNow;
             project.UpdatedUserId = userId;
@@ -147,7 +158,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 .FirstOrDefaultAsync(c => c.ContributorRuc == ruc && c.State);
         }
 
-        public async Task<Contributor> CreateContributor(string ruc, string name, string address, string economicActivity, int userId)
+        public async Task<Contributor> CreateContributor(string ruc, string name, string address, string economicActivity, string? district, string? province, string? department, int userId)
         {
             var contributor = new Contributor
             {
@@ -155,6 +166,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 ContributorName = name,
                 ContributorAddress = address,
                 ContributorEconomicActivityDescription = economicActivity,
+                ContributorDistrict = district,
+                ContributorProvince = province,
+                ContributorDepartment = department,
                 Active = true,
                 State = true,
                 CreatedDateTime = DateTimeOffset.UtcNow,
@@ -164,6 +178,19 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             _context.Contributor.Add(contributor);
             await _context.SaveChangesAsync();
             return contributor;
+        }
+
+        public async Task UpdateContributorLocationAsync(int contributorId, string? district, string? province, string? department)
+        {
+            var contributor = await _context.Contributor.FindAsync(contributorId);
+            if (contributor == null) return;
+
+            contributor.ContributorDistrict = district;
+            contributor.ContributorProvince = province;
+            contributor.ContributorDepartment = department;
+            contributor.UpdatedDateTime = DateTimeOffset.UtcNow;
+
+            await _context.SaveChangesAsync();
         }
     }
 }

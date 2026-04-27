@@ -7,8 +7,10 @@ namespace Abril_Backend.Infrastructure.Models {
         public string? LevelDescription {get; set;}
         public int? ContributorId {get; set;}
         public Contributor? Contributor {get; set;}
-        public string? District {get; set;}
-        public string? Location {get; set;}
+        public string? ProjectDistrict {get; set;}
+        public string? ProjectProvince {get; set;}
+        public string? ProjectDepartment {get; set;}
+        public string? ProjectLocation {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

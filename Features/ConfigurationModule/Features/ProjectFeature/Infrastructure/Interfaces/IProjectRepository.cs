@@ -11,6 +11,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         Task Update(ProjectEditDto dto, int userId);
         Task<bool> DeleteSoftAsync(int projectId, int userId);
         Task<Contributor?> FindContributorByRuc(string ruc);
-        Task<Contributor> CreateContributor(string ruc, string name, string address, string economicActivity, int userId);
+        Task<Contributor> CreateContributor(string ruc, string name, string address, string economicActivity, string? district, string? province, string? department, int userId);
+        Task UpdateContributorLocationAsync(int contributorId, string? district, string? province, string? department);
     }
 }

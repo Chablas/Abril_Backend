@@ -9,7 +9,10 @@ namespace Abril_Backend.Shared.Services.Sunat.Providers.Decolecta
             ContributorRuc = response.NumeroDocumento,
             ContributorName = response.RazonSocial,
             ContributorAddress = response.Direccion,
-            ContributorEconomicActivityDescription = response.ActividadEconomica
+            ContributorEconomicActivityDescription = response.ActividadEconomica,
+            ContributorDistrict   = response.Distrito,
+            ContributorProvince   = response.Provincia,
+            ContributorDepartment = response.Departamento
         };
     }
 }

@@ -361,6 +361,30 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         }
 
         [Authorize]
+        [HttpPost("{id}/advance-to-step4")]
+        public async Task<IActionResult> AdvanceToStep4(int id)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.AdvanceToStep4Async(id, userId);
+                return Ok(new { message = "Adjudicación aprobada y Oficina Técnica notificada." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPost("send-notification")]
         public async Task<IActionResult> SendNotification([FromBody] SendAdjudicacionNotificationDto dto)
         {

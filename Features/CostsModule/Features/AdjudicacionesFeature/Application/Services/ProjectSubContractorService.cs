@@ -24,16 +24,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IProjectRepository _projectRepository;
         private readonly IDelegatedMailService _delegatedMailService;
+        private readonly IEmailService _emailService;
         private readonly IGraphUserService _graphUserService;
         private readonly IGraphSharePointService _sharePointService;
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            //"eaguinaga@abril.pe",
-            //"apimentel@abril.pe",
-            //"bquicana@abril.pe",
-            //"cavila@abril.pe",
-            "alvarezvillegaschristian@gmail.com"
+            "eaguinaga@abril.pe",
+            "apimentel@abril.pe",
+            "bquicana@abril.pe",
+            "cavila@abril.pe",
+            //"alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -44,6 +45,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             IStorageContainerResolver containerResolver,
             IProjectRepository projectRepository,
             IDelegatedMailService delegatedMailService,
+            IEmailService emailService,
             IGraphUserService graphUserService,
             IGraphSharePointService sharePointService)
         {
@@ -52,6 +54,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _containerResolver = containerResolver;
             _projectRepository = projectRepository;
             _delegatedMailService = delegatedMailService;
+            _emailService = emailService;
             _graphUserService = graphUserService;
             _sharePointService = sharePointService;
         }
@@ -212,6 +215,32 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         public async Task UpdateStatusAsync(int projectSubContractorId, int statusId, int userId)
         {
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, statusId, userId);
+        }
+
+        public async Task AdvanceToStep4Async(int projectSubContractorId, int userId)
+        {
+            var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
+
+            await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 4, userId);
+
+            if (data.OfTecnicaEmails.Count > 0)
+            {
+                var body = new StringBuilder();
+                body.AppendLine("<p>Estimado equipo de Oficina Técnica,</p>");
+                body.AppendLine("<p>Se le informa que la siguiente adjudicación ha sido aprobada y avanza a la etapa de envío al Subcontratista. A continuación se detallan los datos:</p>");
+                body.AppendLine("<ul>");
+                body.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
+                body.AppendLine($"  <li><strong>Contratista:</strong> {data.ContributorName}</li>");
+                body.AppendLine($"  <li><strong>Partida:</strong> {data.WorkItemDescription}</li>");
+                body.AppendLine("</ul>");
+                body.AppendLine("<p>Por favor, acceda al sistema para revisar el detalle de la adjudicación.</p>");
+
+                await _emailService.SendAsync(
+                    to:      data.OfTecnicaEmails,
+                    subject: $"Adjudicación aprobada - {data.ProjectDescription} / {data.ContributorName}",
+                    body:    body.ToString(),
+                    isHtml:  true);
+            }
         }
 
         public async Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile file, int userId)

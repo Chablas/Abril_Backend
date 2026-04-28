@@ -930,6 +930,40 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             await _context.SaveChangesAsync();
         }
 
+        public async Task<Step3ApprovalDataDto> GetStep3ApprovalDataAsync(int projectSubContractorId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .Include(x => x.Project)
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            if (psc.ProjectSubContractorStatusId != 3)
+                throw new AbrilException("La adjudicación no está en el paso de preparación de documentos.");
+
+            var workItem = await _context.WorkItem
+                .FirstOrDefaultAsync(w => w.WorkItemId == psc.WorkItemId);
+
+            var contributor = await (
+                from ct in _context.Contractor
+                join contrib in _context.Contributor on ct.ContributorId equals contrib.ContributorId
+                where ct.ContractorId == psc.ContractorId
+                select contrib
+            ).FirstOrDefaultAsync();
+
+            var ofTecnicaEmails = await _context.StaffProjectEmail
+                .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 3 && s.State && s.Active)
+                .Select(s => s.Email)
+                .ToListAsync();
+
+            return new Step3ApprovalDataDto
+            {
+                ProjectDescription  = psc.Project.ProjectDescription,
+                ContributorName     = contributor?.ContributorName ?? string.Empty,
+                WorkItemDescription = workItem?.WorkItemDescription ?? string.Empty,
+                OfTecnicaEmails     = ofTecnicaEmails,
+            };
+        }
+
         /// <summary>
         /// Actualiza el registro existente si ya hay un ID, o crea uno nuevo y devuelve su ID.
         /// </summary>

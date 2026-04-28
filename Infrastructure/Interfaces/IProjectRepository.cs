@@ -7,10 +7,11 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<List<ProjectDTO>> GetAll();
         Task<List<ProjectSimpleDTO>> GetAllFactory();
         Task<PagedResult<ProjectDTO>> GetPaged(int page);
-        Task<Project> Create(ProjectCreateDTO dto, int userId);
-        Task<Project> Update(ProjectEditDTO dto, int userId);
+        Task<Projects> Create(ProjectCreateDTO dto, int userId);
+        Task<Projects> Update(ProjectEditDTO dto, int userId);
         Task<bool> DeleteSoftAsync(int projectId, int userId);
         Task<string> GetProjectNameByProjectId(int projectId);
         Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page);
+        Task UpdateEmails(int id, ProjectEmailsUpdateDto dto);
     }
 }

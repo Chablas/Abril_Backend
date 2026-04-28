@@ -27,7 +27,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Person> Person { get; set; }
         public DbSet<Phase> Phase { get; set; }
         public DbSet<PhaseStageSubStageSubSpecialty> PhaseStageSubStageSubSpecialty { get; set; }
-        public DbSet<Project> Project { get; set; }
+        public DbSet<Projects> Projects { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
         public DbSet<ResidentReportIncidenceImage> ResidentReportIncidenceImage {get;set;}
@@ -63,7 +63,6 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcCategoria> AcCategoria { get; set; }
         public DbSet<AcEspecialidad> AcEspecialidad { get; set; }
         public DbSet<Worker> Worker { get; set; }
-        public DbSet<Proyecto> Proyecto { get; set; }
         public DbSet<Empresa> Empresa { get; set; }
         public DbSet<WorkerEmo> WorkerEmo { get; set; }
         public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }

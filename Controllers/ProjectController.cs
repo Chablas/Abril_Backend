@@ -121,6 +121,31 @@ namespace Abril_Backend.Controllers
         }
 
         [Authorize]
+        [HttpPatch("{id}/emails")]
+        public async Task<IActionResult> UpdateEmails(int id, [FromBody] ProjectEmailsUpdateDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                await _projectService.UpdateEmails(id, dto);
+
+                return Ok(new { message = "Emails actualizados correctamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {

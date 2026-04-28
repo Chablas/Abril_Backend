@@ -10,5 +10,6 @@ namespace Abril_Backend.Application.Interfaces
         Task Update(ProjectEditDTO dto, int userId);
         Task<bool> DeleteSoftAsync(int projecdId, int userId);
         Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page);
+        Task UpdateEmails(int id, ProjectEmailsUpdateDto dto);
     }
 }

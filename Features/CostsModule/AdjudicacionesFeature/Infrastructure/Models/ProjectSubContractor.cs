@@ -21,7 +21,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? UpdatedUserId {get; set;}
         public bool Active {get; set;}
         public bool State {get; set;}
-        public Project Project { get; set; }
+        public Projects Project { get; set; }
         public List<ProjectSubContractorQuotationFile> QuotationFiles { get; set; } = new();
         public List<ProjectSubContractorComparativeFile> ComparativeFiles { get; set; } = new();
     }

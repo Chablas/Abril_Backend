@@ -37,6 +37,9 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IWorkerSearchRepository, WorkerSearchRepository>();
             services.AddScoped<IWorkerSearchService, WorkerSearchService>();
 
+            // Alertas EMO (cron)
+            services.AddScoped<IEmoAlertaService, EmoAlertaService>();
+
             return services;
         }
     }

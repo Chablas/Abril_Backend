@@ -43,5 +43,10 @@ namespace Abril_Backend.Application.Services
             await _repository.DeleteSoftAsync(projecdId, userId);
             return true;
         }
+
+        public async Task UpdateEmails(int id, ProjectEmailsUpdateDto dto)
+        {
+            await _repository.UpdateEmails(id, dto);
+        }
     }
 }

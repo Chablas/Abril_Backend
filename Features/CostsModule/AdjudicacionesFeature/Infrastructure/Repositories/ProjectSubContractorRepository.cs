@@ -193,7 +193,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
 
             var query =
                 from psc in ctx.ProjectSubContractor
-                join p in ctx.Project on psc.ProjectId equals p.ProjectId
+                join p in ctx.Projects on psc.ProjectId equals p.Id
                 join c in ctx.Company on psc.CompanyId equals c.CompanyId
                 join ct in ctx.ContractType on psc.ContractTypeId equals ct.ContractTypeId
                 join co in ctx.ContractOrigin on psc.ContractOriginId equals co.ContractOriginId
@@ -228,7 +228,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 {
                     ProjectSubContractorId = x.psc.ProjectSubContractorId,
                     ProjectId = x.psc.ProjectId,
-                    ProjectDescription = x.p.ProjectDescription,
+                    ProjectDescription = x.p.Nombre ?? string.Empty,
                     CompanyId = x.psc.CompanyId,
                     CompanyName = x.c.CompanyName,
                     ContractId = x.psc.ContractId,

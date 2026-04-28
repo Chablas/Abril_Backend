@@ -48,6 +48,6 @@ namespace Abril_Backend.Infrastructure.Models
         public Empresa? Empresa { get; set; }
 
         [ForeignKey(nameof(ProyectoId))]
-        public Proyecto? Proyecto { get; set; }
+        public Projects? Proyecto { get; set; }
     }
 }

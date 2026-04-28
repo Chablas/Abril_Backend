@@ -1,4 +1,5 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Archivos;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -50,10 +51,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         [HttpPost("subir")]
         [RequestSizeLimit(MaxFileSize)]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> Subir([FromForm] IFormFile? file, [FromForm] string contexto = "")
+        public async Task<IActionResult> Subir([FromForm] SubirArchivoRequest request)
         {
             try
             {
+                var file = request.File;
+                var contexto = request.Contexto;
+
                 if (file is null || file.Length == 0)
                     return BadRequest(new { message = "No se recibió ningún archivo." });
 

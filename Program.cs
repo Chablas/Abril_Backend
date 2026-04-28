@@ -39,7 +39,7 @@ var storageProvider = builder.Configuration["Storage:StorageProvider"];
 
 // Add services to the container.
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<AuditoriaInterceptor>();
+builder.Services.AddSingleton<AuditoriaInterceptor>();
 
 builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
 {

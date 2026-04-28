@@ -193,7 +193,12 @@ namespace Abril_Backend.Infrastructure.Data
             });
             modelBuilder.Entity<CompanyEmail>(entity =>
             {
-               entity.Property(e => e.Email).HasColumnName("company_email"); 
+               entity.Property(e => e.Email).HasColumnName("company_email");
+            });
+            modelBuilder.Entity<AuditoriaCambio>(entity =>
+            {
+                entity.Property(e => e.DatosAnteriores).HasColumnType("jsonb");
+                entity.Property(e => e.DatosNuevos).HasColumnType("jsonb");
             });
         }
     }

@@ -15,10 +15,10 @@ namespace Abril_Backend.Shared.Interceptors
             "ss_induccion", "ss_eval_supervisor"
         };
 
-        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IServiceScopeFactory _scopeFactory;
 
-        public AuditoriaInterceptor(IHttpContextAccessor httpContextAccessor)
-            => _httpContextAccessor = httpContextAccessor;
+        public AuditoriaInterceptor(IServiceScopeFactory scopeFactory)
+            => _scopeFactory = scopeFactory;
 
         public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result,
@@ -45,10 +45,13 @@ namespace Abril_Backend.Shared.Interceptors
                 }
             }
 
-            var userId = ObtenerUserId();
-            var usuarioNombre = ObtenerUsuarioNombre();
-            var empresaId = ObtenerEmpresaId();
-            var ip = _httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString();
+            using var scope = _scopeFactory.CreateScope();
+            var httpCtx = scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
+
+            var userId = ObtenerUserId(httpCtx);
+            var usuarioNombre = ObtenerUsuarioNombre(httpCtx);
+            var empresaId = ObtenerEmpresaId(httpCtx);
+            var ip = httpCtx.HttpContext?.Connection.RemoteIpAddress?.ToString();
 
             var auditorias = new List<AuditoriaCambio>();
 
@@ -142,20 +145,20 @@ namespace Abril_Backend.Shared.Interceptors
                 prop.CurrentValue = new DateTimeOffset(ahora, TimeSpan.Zero);
         }
 
-        private int? ObtenerUserId()
+        private static int? ObtenerUserId(IHttpContextAccessor httpContextAccessor)
         {
-            var claim = _httpContextAccessor.HttpContext?.User
+            var claim = httpContextAccessor.HttpContext?.User
                 .FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return int.TryParse(claim, out var id) ? id : null;
         }
 
-        private string? ObtenerUsuarioNombre()
-            => _httpContextAccessor.HttpContext?.User
+        private static string? ObtenerUsuarioNombre(IHttpContextAccessor httpContextAccessor)
+            => httpContextAccessor.HttpContext?.User
                 .FindFirst(ClaimTypes.Name)?.Value;
 
-        private int? ObtenerEmpresaId()
+        private static int? ObtenerEmpresaId(IHttpContextAccessor httpContextAccessor)
         {
-            var claim = _httpContextAccessor.HttpContext?.User
+            var claim = httpContextAccessor.HttpContext?.User
                 .FindFirst("empresaId")?.Value;
             return int.TryParse(claim, out var id) ? id : null;
         }

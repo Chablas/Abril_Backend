@@ -42,6 +42,14 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+                if (roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))
+                        return StatusCode(403, new { message = "Token de contratista inválido." });
+                    empresaId = empresaJwt;
+                }
+
                 var (items, total) = await _repo.GetWorkersHabilitacionAsync(
                     search, empresaId, proyectoId, estadoHabilitacion, contratistaCasa, page, pageSize);
 

@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 > Pega este archivo en la raíz del proyecto. Claude Code lo leerá al inicio de cada sesión.
-> Última actualización: 2026-04-27 (consolidación entidad `Projects`)
+> Última actualización: 2026-04-28 (fixes interceptor/jsonb/Swagger, filtro CONTRATISTA, CRUD usuario)
 
 ---
 
@@ -266,6 +266,9 @@ DbSet<SsAlertaEmo>            SsAlertaEmo
 - Archivos `* - copia.cs` causan CS0101 — eliminar siempre.
 - `IDbContextFactory` obligatorio en repos nuevos — el `ProjectRepository` legacy aún inyecta `AppDbContext` directo (no replicar ese patrón).
 - `Abril_Backend.sln` está en `.gitignore` — no commitear.
+- **`AuditoriaInterceptor` debe ser `Singleton`** — inyectar `IServiceScopeFactory` en el constructor; crear un scope puntual dentro de `SavingChangesAsync` para resolver `IHttpContextAccessor`. Registrarlo como `Scoped` produce "Cannot resolve scoped service from root provider" porque `DbContextFactory` resuelve desde el root provider.
+- **`datos_anteriores`/`datos_nuevos` son `jsonb`** — la propiedad C# es `string?` pero la columna PG es `jsonb`. Sin `HasColumnType("jsonb")` en `ConfigurePostgreSQL`, Npgsql envía el parámetro como `text` y PG rechaza con "expression is of type text". El override va en `ConfigurePostgreSQL`, no en el modelo (evita romper SQL Server).
+- **`ProjectController` tiene `[AllowAnonymous]` temporal a nivel de clase** — aplicado para pruebas; revertir antes de producción. `userId` está hardcodeado a `0` en Create/Edit/Delete.
 - `SsEmoTipo.VigenciaMeses` es `int?` (nullable) — el tipo "Retiro" tiene `NULL` y el cálculo de `fecha_vencimiento_calculada` se omite cuando es null (`tipo.VigenciaMeses > 0` descarta null).
 - Al retirar un worker (`PATCH /workers/{id}/retirar`) se cierran automáticamente todas sus `worker_vinculaciones` abiertas (`fecha_fin = today`) en la misma transacción.
 - `ProjectController` tiene `[AllowAnonymous]` a nivel de clase y la validación `User.FindFirst(ClaimTypes.NameIdentifier)` está comentada en sus 6 acciones — `userId` se reemplazó por `0` en `Create`/`Edit`/`Delete` (no se persiste en la tabla `projects`). Es estado temporal de pruebas, revertir antes de producción.
@@ -286,6 +289,12 @@ DbSet<SsAlertaEmo>            SsAlertaEmo
 - **57 empresas contratistas migradas desde PowerApps** — vía `Database/migrations/002_migracion_datos.sql`; quedan con `password_hash='PENDIENTE_RESET'` hasta primer login.
 - **16 registros modelo insertados** — catálogo público disponible vía `GET /api/v1/habilitacion/registros-modelo` (`[AllowAnonymous]`).
 - **Tabla `ss_reset_token`** — soporta tokens de activación (48h) y reset de contraseña (2h); `usado=true` invalida re-uso y reenvíos.
+- **PUT /api/v1/user/{id} y PATCH /api/v1/user/{id}/toggle** — CRUD de usuario completo: edita nombre/email/rol (con reemplazo de `UserRole`); toggle activa/desactiva. `UpdatedUserId` se toma del JWT claim.
+- **Fix `AuditoriaInterceptor`** — registrado como `Singleton`; accede a `IHttpContextAccessor` vía `IServiceScopeFactory` (scope puntual en cada `SavingChangesAsync`). Resuelve "Cannot resolve scoped service from root provider".
+- **Fix jsonb** — `HasColumnType("jsonb")` para `DatosAnteriores`/`DatosNuevos` en `ConfigurePostgreSQL`. Resuelve "column datos_anteriores is of type jsonb but expression is of type text".
+- **Perfil `Development` en `launchSettings.json`** — `ASPNETCORE_ENVIRONMENT=Development`, puerto 5236. Arranca Swagger en `/swagger`.
+- **Fix Swagger `ArchivoHabilitacionController.Subir`** — `IFormFile` + `string` envueltos en `SubirArchivoRequest` DTO (`Features/HabilitacionModule/Application/Dtos/Archivos/`). Resuelve `SwaggerGeneratorException`.
+- **Filtro CONTRATISTA en `GET /habilitacion/trabajadores`** — si el rol es `CONTRATISTA`, se ignora el query param `empresaId` y se fuerza desde el claim JWT `"empresaId"`. Patrón idéntico al que ya existía en `GET /{workerId}/entregables`.
 
 ### Alta prioridad
 - **Auth real** — quitar `[AllowAnonymous]` de SSOMA y `ProjectController`, activar JWT
@@ -323,12 +332,14 @@ DbSet<SsAlertaEmo>            SsAlertaEmo
 
 **Interceptor de auditoría:**
 - `Shared/Interceptors/AuditoriaInterceptor.cs`
-- Registrado en `DbContextFactory` con overload `(sp, options)`
+- Registrado como **`Singleton`** en `Program.cs` (no Scoped)
+- Inyecta `IServiceScopeFactory`; crea scope puntual en cada `SavingChangesAsync` para leer `IHttpContextAccessor`
 - Auto-setea `CreatedAt`/`UpdatedAt` en todas las entidades
 - Audita tablas: `ss_hab_trabajador`, `ss_hab_empresa`, `ss_hab_equipo`,
   `ss_sctr_vidaley`, `ss_empresa_contratista`, `ss_equipo`, `ss_induccion`,
   `ss_eval_supervisor`
 - Lee `userId`, `usuarioNombre`, `empresaId` e IP del `HttpContext`
+- Columnas `datos_anteriores`/`datos_nuevos` son `jsonb` → override en `ConfigurePostgreSQL`
 
 **Control de versiones:**
 - Tabla: `ss_hab_documento_version`
@@ -380,3 +391,6 @@ GET         /api/v1/habilitacion/registros-modelo  (público)
   `Content-Disposition` en redirect (limitación inherente)
 - `AuditoriaInterceptor` detecta `DateTimeOffset` vs `DateTime` por `ClrType`
   para evitar type mismatch en `SaveChanges`
+- **Migración entregables** — 25,531 registros migrados desde PowerApps vía SQL a `ss_hab_trabajador`
+- **Catálogo `ss_item_trabajador` extendido** — items 18-22 agregados (sprints posteriores a migración inicial)
+- **`id_trabajador` en `workers`** — campo temporal usado como vinculador con el ID legacy de PowerApps; pendiente eliminar una vez consolidada la migración

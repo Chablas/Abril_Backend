@@ -195,7 +195,10 @@ coincide_empresa (bool), fecha_lectura (date)
 ### Repositorios — todos completos ✅
 `CatalogosRepository`, `ConvalidacionRepository`, `DashboardRepository`,
 `InterconsultaRepository`, `ProgramacionEmoRepository`, `WorkerSearchRepository`,
-`EmoRepository`, `EmoAlertaService`
+`EmoRepository`, `EmoAlertaService`,
+`EmpresaContratistaRepository`, `HabTrabajadorRepository`,
+`HabEmpresaRepository`, `SctrVidaLeyRepository`, `EquipoRepository`,
+`BandejaRepository`, `ReglasTrabajadorRepository`, `CatalogosHabilitacionRepository`
 
 ### Endpoints completos
 
@@ -277,11 +280,21 @@ DbSet<SsAlertaEmo>            SsAlertaEmo
 - **Emails de proyectos** — `PATCH /api/v1/project/{id}/emails` (parcial: solo actualiza los campos que vienen no-null).
 - **Projects entity consolidada** — `Project.cs` y `Proyecto.cs` eliminados; única entidad `Projects` con `[Table("projects")]` y 32 columnas mapeadas explícitamente.
 - **`[AllowAnonymous]` temporal en `ProjectController`** — aplicado a nivel de clase para pruebas; revertir antes de producción.
+- **Flujo alertas A/B** — implementado en Sprints 1-4 del módulo Habilitación SSOMA.
+- **Auth contratistas completo** — registro, activación por email, login por email+password, reset de contraseña, cambio de contraseña.
+- **Endpoint reenviar activación para admins** — `POST /api/v1/habilitacion/empresas/{id}/reenviar-activacion`, gateado a `ADMINISTRADOR SSOMA` / `ADMINISTRADOR DE UDP`, invalida tokens previos.
+- **57 empresas contratistas migradas desde PowerApps** — vía `Database/migrations/002_migracion_datos.sql`; quedan con `password_hash='PENDIENTE_RESET'` hasta primer login.
+- **16 registros modelo insertados** — catálogo público disponible vía `GET /api/v1/habilitacion/registros-modelo` (`[AllowAnonymous]`).
+- **Tabla `ss_reset_token`** — soporta tokens de activación (48h) y reset de contraseña (2h); `usado=true` invalida re-uso y reenvíos.
 
 ### Alta prioridad
-- **Flujo alertas A/B** — Staff/OC: correo individual a clínica; Obra: correo agrupado por proyecto
 - **Auth real** — quitar `[AllowAnonymous]` de SSOMA y `ProjectController`, activar JWT
 - **Usuario admin** — `app_user` vacía, sin usuario no hay login
+- **Migración de datos PowerApps → `ss_empresa_contratista`** (IdLegacy mapping)
+- **Correlación `WorkerVinculacion.EmpresaId` con `ss_empresa_contratista.Id`**
+- **Crear primer usuario admin en `app_user`** — sin esto no hay login de Abril
+- **Resetear passwords de empresas migradas** — las 57 empresas tienen `password_hash='PENDIENTE_RESET'`; lanzar reenvío masivo de activación o disparar `solicitar-reset` por correo a cada una.
+- **Deploy a producción**
 
 ### Media prioridad
 - **Empresas contratistas** — 1,591 vinculaciones sin empresa
@@ -290,3 +303,80 @@ DbSet<SsAlertaEmo>            SsAlertaEmo
 ### Baja prioridad
 - 8 EMOs sin match de DNI — insertar manualmente
 - 24 vinculaciones sin proyecto
+
+---
+
+## 11. Módulo Habilitación SSOMA
+
+**Ubicación:** `Features/HabilitacionModule/`
+
+**Stack técnico agregado:**
+- BCrypt.Net-Next 4.1.0 — hash de passwords contratistas
+- FluentValidation.AspNetCore 11.3.1 — validaciones automáticas
+- Dapper 2.1.72 — queries optimizadas para bandeja y reportes
+
+**Auth contratistas:**
+- Endpoint: `POST /api/v1/habilitacion/auth/login`
+- JWT con claims: `NameIdentifier=empresaId`, `Role=CONTRATISTA`, `empresaId`, `tipo`
+- Expiración: 8 horas
+- Password hasheado con BCrypt
+
+**Interceptor de auditoría:**
+- `Shared/Interceptors/AuditoriaInterceptor.cs`
+- Registrado en `DbContextFactory` con overload `(sp, options)`
+- Auto-setea `CreatedAt`/`UpdatedAt` en todas las entidades
+- Audita tablas: `ss_hab_trabajador`, `ss_hab_empresa`, `ss_hab_equipo`,
+  `ss_sctr_vidaley`, `ss_empresa_contratista`, `ss_equipo`, `ss_induccion`,
+  `ss_eval_supervisor`
+- Lee `userId`, `usuarioNombre`, `empresaId` e IP del `HttpContext`
+
+**Control de versiones:**
+- Tabla: `ss_hab_documento_version`
+- Se activa automáticamente cuando cambia `archivo_url` en un entregable
+- Disponible para trabajador, empresa y equipo
+
+**Endpoints completos:**
+
+```
+POST/GET    /api/v1/habilitacion/auth/login|empresas
+POST        /api/v1/habilitacion/auth/activar
+POST        /api/v1/habilitacion/auth/solicitar-reset
+POST        /api/v1/habilitacion/auth/reset-password
+PATCH       /api/v1/habilitacion/auth/cambiar-password   (rol CONTRATISTA)
+GET/POST/PUT /api/v1/habilitacion/empresas
+POST        /api/v1/habilitacion/empresas/{id}/reenviar-activacion  (admin)
+GET         /api/v1/habilitacion/empresas/{id}/entregables
+PUT         /api/v1/habilitacion/empresas/{id}/entregables/{itemId}
+GET         /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
+GET         /api/v1/habilitacion/trabajadores
+GET/PUT     /api/v1/habilitacion/trabajadores/{id}/entregables
+GET         /api/v1/habilitacion/trabajadores/entregables/{id}/versiones
+PATCH       /api/v1/habilitacion/trabajadores/{id}/cambiar-obra|reingreso
+GET/PATCH   /api/v1/habilitacion/bandeja
+GET/PATCH   /api/v1/habilitacion/bandeja/cursor
+GET/POST    /api/v1/habilitacion/sctr-vidaley
+PATCH       /api/v1/habilitacion/sctr-vidaley/{id}/aprobar
+GET/POST/PUT/DELETE /api/v1/habilitacion/reglas
+GET         /api/v1/habilitacion/auditoria
+GET         /api/v1/habilitacion/archivos/ver|descargar
+POST        /api/v1/habilitacion/archivos/subir
+GET         /api/v1/habilitacion/registros-modelo  (público)
+```
+
+**Reglas de negocio críticas:**
+- Worker solo puede pertenecer a UNA empresa activa a la vez
+- Violación registrada en `ss_hab_bloqueo_log` y retorna 409
+- Contratista solo ve workers de su empresa (validado por JWT claim `empresaId`)
+- Contratista solo puede cambiar estado a `'Enviado'` (no puede aprobar)
+- EMO es read-only — lee de `worker_emos`, no de `ss_hab_trabajador`
+- SCTR/Vida Ley es masivo — un documento cubre múltiples workers
+- Estado SCTR: `Aprobado`/`Rechazado`/`Parcial` según workers aprobados
+
+**Pitfalls conocidos:**
+- `WorkerVinculacion.EmpresaId` apunta a tabla legacy `companies`, NO a
+  `ss_empresa_contratista.Id` — requiere correlación via `IdLegacy`
+- FluentValidation 11.3.1 usa API deprecated — migrar cuando bumpeemos v12
+- SharePoint: `/descargar` usa redirect 302, el browser ignora
+  `Content-Disposition` en redirect (limitación inherente)
+- `AuditoriaInterceptor` detecta `DateTimeOffset` vs `DateTime` por `ClrType`
+  para evitar type mismatch en `SaveChanges`

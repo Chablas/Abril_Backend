@@ -17,8 +17,12 @@ using Abril_Backend.Shared.Services.Reniec.Services;
 using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Abril_Backend.Features.Contractors;
 using Abril_Backend.Features.Ssoma;
+using Abril_Backend.Features.Habilitacion;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
+using Abril_Backend.Shared.Interceptors;
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,7 +38,10 @@ var emailProvider = builder.Configuration["Email:EmailProvider"];
 var storageProvider = builder.Configuration["Storage:StorageProvider"];
 
 // Add services to the container.
-builder.Services.AddDbContextFactory<AppDbContext>(options =>
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<AuditoriaInterceptor>();
+
+builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
 {
     if (databaseProvider == "SqlServer")
     {
@@ -50,6 +57,8 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
     {
         throw new Exception("Proveedor de BD no soportado");
     }
+
+    options.AddInterceptors(sp.GetRequiredService<AuditoriaInterceptor>());
 });
 
 if (emailProvider == "SendGrid")
@@ -89,6 +98,7 @@ builder.Services.AddCostsModule();
 builder.Services.AddContractorsModule();
 builder.Services.AddMicrosoftAuthModule(builder.Configuration);
 builder.Services.AddSsomaModule();
+builder.Services.AddHabilitacionModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();
@@ -178,6 +188,9 @@ builder.Services.AddRateLimiter(options =>
         );
     };
 });
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
 builder.Services.AddControllers();
 builder.Services.AddCors(options =>
 {

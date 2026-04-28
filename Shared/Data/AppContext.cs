@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -78,6 +79,27 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsProgramacionEmo> SsProgramacionEmo { get; set; }
         public DbSet<SsSeguimientoMedico> SsSeguimientoMedico { get; set; }
         public DbSet<SsAlertaEmo> SsAlertaEmo { get; set; }
+        public DbSet<SsItemTrabajador> SsItemTrabajador => Set<SsItemTrabajador>();
+        public DbSet<SsItemEmpresa> SsItemEmpresa => Set<SsItemEmpresa>();
+        public DbSet<SsItemEquipo> SsItemEquipo => Set<SsItemEquipo>();
+        public DbSet<SsCriterioEvaluacion> SsCriterioEvaluacion => Set<SsCriterioEvaluacion>();
+        public DbSet<SsEmpresaContratista> SsEmpresaContratista => Set<SsEmpresaContratista>();
+        public DbSet<SsEmpresaProyecto> SsEmpresaProyecto => Set<SsEmpresaProyecto>();
+        public DbSet<SsHabTrabajador> SsHabTrabajador => Set<SsHabTrabajador>();
+        public DbSet<SsHabEmpresa> SsHabEmpresa => Set<SsHabEmpresa>();
+        public DbSet<SsSctrVidaley> SsSctrVidaley => Set<SsSctrVidaley>();
+        public DbSet<SsSctrVidaLeyWorker> SsSctrVidaLeyWorker => Set<SsSctrVidaLeyWorker>();
+        public DbSet<SsEquipo> SsEquipo => Set<SsEquipo>();
+        public DbSet<SsHabEquipo> SsHabEquipo => Set<SsHabEquipo>();
+        public DbSet<SsEvalSupervisor> SsEvalSupervisor => Set<SsEvalSupervisor>();
+        public DbSet<SsEvalSupervisorItem> SsEvalSupervisorItem => Set<SsEvalSupervisorItem>();
+        public DbSet<SsInduccion> SsInduccion => Set<SsInduccion>();
+        public DbSet<SsRegistroModelo> SsRegistroModelo => Set<SsRegistroModelo>();
+        public DbSet<SsItemTrabajadorRegla> SsItemTrabajadorRegla => Set<SsItemTrabajadorRegla>();
+        public DbSet<SsHabBloqueoLog> SsHabBloqueoLog => Set<SsHabBloqueoLog>();
+        public DbSet<AuditoriaCambio> AuditoriaCambios => Set<AuditoriaCambio>();
+        public DbSet<SsHabDocumentoVersion> SsHabDocumentoVersion => Set<SsHabDocumentoVersion>();
+        public DbSet<SsResetToken> SsResetToken => Set<SsResetToken>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

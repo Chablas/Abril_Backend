@@ -1,0 +1,119 @@
+using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+
+namespace Abril_Backend.Features.Habilitacion.Presentation
+{
+    [ApiController]
+    [Route("api/v1/habilitacion/bandeja")]
+    [Authorize]
+    public class BandejaController : ControllerBase
+    {
+        private readonly IBandejaRepository _repo;
+        private readonly ILogger<BandejaController> _logger;
+
+        public BandejaController(IBandejaRepository repo, ILogger<BandejaController> logger)
+        {
+            _repo = repo;
+            _logger = logger;
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetPendientes(
+            [FromQuery] string? tipo,
+            [FromQuery] int? proyectoId,
+            [FromQuery] int? empresaId,
+            [FromQuery] string? responsable,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                var (items, total) = await _repo.GetPendientesAsync(tipo, proyectoId, empresaId, responsable, page, pageSize);
+
+                var result = new PagedResult<BandejaItemDto>
+                {
+                    Page = page,
+                    PageSize = pageSize,
+                    TotalRecords = total,
+                    TotalPages = (int)Math.Ceiling(total / (double)pageSize),
+                    Data = items
+                };
+
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetPendientes"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("cursor")]
+        public async Task<IActionResult> GetPendientesCursor(
+            [FromQuery] string? tipo,
+            [FromQuery] int? proyectoId,
+            [FromQuery] int? empresaId,
+            [FromQuery] string? responsable,
+            [FromQuery] string? cursor,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                var result = await _repo.GetPendientesCursorAsync(tipo, proyectoId, empresaId, responsable, cursor, pageSize);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetPendientesCursor"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("trabajador/{id:int}")]
+        public async Task<IActionResult> AprobarTrabajador(int id, [FromBody] BandejaAprobarDto dto)
+        {
+            try
+            {
+                var userId = ParseUserIdOrZero();
+                var entity = await _repo.AprobarTrabajadorAsync(id, dto, userId);
+                if (entity is null) return NotFound(new { message = "Entregable no encontrado." });
+                return Ok(entity);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.AprobarTrabajador"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("empresa/{id:int}")]
+        public async Task<IActionResult> AprobarEmpresa(int id, [FromBody] BandejaAprobarDto dto)
+        {
+            try
+            {
+                var userId = ParseUserIdOrZero();
+                var entity = await _repo.AprobarEmpresaAsync(id, dto, userId);
+                if (entity is null) return NotFound(new { message = "Entregable no encontrado." });
+                return Ok(entity);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.AprobarEmpresa"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("equipo/{id:int}")]
+        public async Task<IActionResult> AprobarEquipo(int id, [FromBody] BandejaAprobarDto dto)
+        {
+            try
+            {
+                var userId = ParseUserIdOrZero();
+                var entity = await _repo.AprobarEquipoAsync(id, dto, userId);
+                if (entity is null) return NotFound(new { message = "Entregable no encontrado." });
+                return Ok(entity);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.AprobarEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        private int ParseUserIdOrZero()
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            return claim != null && int.TryParse(claim.Value, out var id) ? id : 0;
+        }
+    }
+}

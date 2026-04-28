@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Interfaces;
+using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
@@ -12,10 +13,29 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Presentation
     public class ContractorRegistrationController : ControllerBase
     {
         private readonly IContractorRegistrationService _service;
+        private readonly IReniecService _reniecService;
 
-        public ContractorRegistrationController(IContractorRegistrationService service)
+        public ContractorRegistrationController(IContractorRegistrationService service, IReniecService reniecService)
         {
             _service = service;
+            _reniecService = reniecService;
+        }
+
+        [HttpGet("dni/{dni}")]
+        public async Task<IActionResult> GetByDni(string dni)
+        {
+            try
+            {
+                var result = await _reniecService.GetByDniAsync(dni);
+                if (result is null)
+                    return NotFound(new { message = "No se encontró información para el DNI proporcionado." });
+
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
         }
 
         [HttpGet("ruc/{ruc}")]

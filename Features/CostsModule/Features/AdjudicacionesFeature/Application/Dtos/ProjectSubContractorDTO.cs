@@ -25,6 +25,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int PaymentMethodId { get; set; }
         public string PaymentMethodDescription { get; set; }
         public decimal? AdvancePercentage {get;set;}
+        public decimal? AdvanceAmount {get;set;}
         public decimal Amount { get; set; }
         public int CurrencyId { get; set; }
         public string CurrencyCode { get; set; }
@@ -39,6 +40,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public DateOnly? SigningDate { get; set; }
         public DateOnly? StartDate { get; set; }
         public DateOnly? EndDate { get; set; }
+        public int?   TermDays               { get; set; }
         public int?   ContractNumber            { get; set; }
         public bool?  ArrivedWithObservations   { get; set; }
         public DateTime CreatedDateTime { get; set; }

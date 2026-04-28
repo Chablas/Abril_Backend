@@ -29,8 +29,10 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                 from ct in ctx.Contractor
                 join c in ctx.Contributor on ct.ContributorId equals c.ContributorId
                 join cs in ctx.ContractorState on ct.ContractorStateId equals cs.ContractorStateId
+                join p in ctx.Person on c.LegalRepresentativePersonId equals p.PersonId into personJoin
+                from p in personJoin.DefaultIfEmpty()
                 where ct.Active
-                select new { ct, c, cs };
+                select new { ct, c, cs, p };
 
             if (!string.IsNullOrWhiteSpace(filter.ContributorName))
                 query = query.Where(x => x.c.ContributorName.ToLower().Contains(filter.ContributorName.ToLower()));
@@ -55,6 +57,9 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                     ContributorDistrict   = x.c.ContributorDistrict,
                     ContributorProvince   = x.c.ContributorProvince,
                     ContributorDepartment = x.c.ContributorDepartment,
+                    LegalRepresentativeDni      = x.p != null ? x.p.DocumentIdentityCode : null,
+                    LegalRepresentativeFullName = x.p != null ? x.p.FullName : null,
+                    LegalEntityRegistryNumber   = x.c.LegalEntityRegistryNumber,
                     ContractorStateId = x.cs.ContractorStateId,
                     ContractorStateDescription = x.cs.ContractorStateDescription,
                     BrochureFileUrl = x.ct.BrochureFileUrl,

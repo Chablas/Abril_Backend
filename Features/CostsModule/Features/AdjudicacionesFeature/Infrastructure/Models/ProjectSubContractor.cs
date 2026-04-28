@@ -10,6 +10,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int ContractOriginId {get; set;}
         public int PaymentMethodId {get; set;}
         public decimal AdvancePercentage {get;set;}
+        public decimal? AdvanceAmount {get; set;}
         public decimal Amount {get; set;}
         public int CurrencyId {get; set;}
         public bool HasIgv {get; set;}
@@ -22,6 +23,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public DateOnly? SigningDate { get; set; }
         public DateOnly? StartDate { get; set; }
         public DateOnly? EndDate { get; set; }
+        public int? TermDays { get; set; }
 
         // Número de contrato (paso 3)
         public int? ContractNumber { get; set; }

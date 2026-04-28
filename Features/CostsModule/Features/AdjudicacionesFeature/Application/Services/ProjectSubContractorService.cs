@@ -539,10 +539,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     "No se encontró la plantilla del contrato en el servidor. " +
                     "Contacte al administrador del sistema.");
 
-            var plazo = (data.StartDate.HasValue && data.EndDate.HasValue)
-                ? (int)(data.EndDate.Value.ToDateTime(TimeOnly.MinValue)
-                      - data.StartDate.Value.ToDateTime(TimeOnly.MinValue)).TotalDays
-                : 0;
+            // PLAZO: preferir el valor guardado en BD (TermDays); si aún no existe, calcularlo al vuelo
+            var plazo = data.TermDays
+                ?? ((data.StartDate.HasValue && data.EndDate.HasValue)
+                    ? (int)(data.EndDate.Value.ToDateTime(TimeOnly.MinValue)
+                          - data.StartDate.Value.ToDateTime(TimeOnly.MinValue)).TotalDays
+                    : 0);
 
             var currencySymbol = data.CurrencyCode == "USD" ? "US$" : "S/";
 
@@ -550,19 +552,39 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 ? data.ProjectDescription[..3].ToUpperInvariant()
                 : data.ProjectDescription.ToUpperInvariant();
 
+            var advanceAmount = data.AdvanceAmount
+                ?? (data.AdvancePercentage.HasValue
+                    ? Math.Round(data.AdvancePercentage.Value / 100m * data.Amount, 2)
+                    : 0m);
+
             var replacements = new Dictionary<string, string>
             {
-                { "{{EMPRESA}}",               data.ContributorName },
-                { "{{PROYECTO}}",              data.ProjectDescription },
-                { "{{MONTO}}",                 $"{currencySymbol} {data.Amount:N2}" },
-                { "{{FECHA_INICIO}}",          data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
-                { "{{FECHA_FIN}}",             data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
-                { "{{RUC}}",                   data.ContributorRuc },
-                { "{{TIPO_CONTRATO}}",         data.ContractTypeDescription },
-                { "{{PARTIDA}}",               data.WorkItemDescription },
-                { "{{AÑO_ACTUAL}}",            DateTime.UtcNow.Year.ToString() },
-                { "{{NUM_CONTRATO}}",          data.ContractNumber?.ToString() ?? "" },
-                { "{{ABREVIATURA_PROYECTO}}", abreviaturaProyecto },
+                // Contratista
+                { "{{CONTRATISTA_RAZON_SOCIAL}}",      data.ContributorName },
+                { "{{CONTRATISTA_RUC}}",               data.ContributorRuc },
+                { "{{CONTRATISTA_UBICACION}}",         data.ContributorAddress ?? "" },
+                { "{{CONTRATISTA_DISTRITO}}",          data.ContributorDistrict ?? "" },
+                { "{{CONTRATISTA_PROVINCIA}}",         data.ContributorProvince ?? "" },
+                { "{{CONTRATISTA_DEPARTAMENTO}}",      data.ContributorDepartment ?? "" },
+                { "{{CONTRATISTA_REPRESENTANTE_NOMBRE}}", data.LegalRepresentativeFullName ?? "" },
+                { "{{CONTRATISTA_REPRESENTANTE_DNI}}", data.LegalRepresentativeDni ?? "" },
+                { "{{CONTRATISTA_PARTIDA_REGISTRAL}}", data.LegalEntityRegistryNumber ?? "" },
+                // Proyecto
+                { "{{PROYECTO_NOMBRE}}",               data.ProjectDescription },
+                { "{{PROYECTO_ABREVIATURA}}",          abreviaturaProyecto },
+                { "{{PROYECTO_RAZON_SOCIAL}}",         data.ProjectRazonSocial ?? "" },
+                { "{{PROYECTO_DISTRITO}}",             data.ProjectDistrict ?? "" },
+                // Contrato
+                { "{{MONTO}}",                         $"{currencySymbol} {data.Amount:N2}" },
+                { "{{FECHA_INICIO}}",                  data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
+                { "{{FECHA_FIN}}",                     data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
+                { "{{PLAZO_NUM}}",                     plazo.ToString() },
+                { "{{ADVANCE_PERCENTAGE}}",            data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
+                { "{{ADVANCE_AMOUNT}}",                $"{currencySymbol} {advanceAmount:N2}" },
+                { "{{TIPO_CONTRATO}}",                 data.ContractTypeDescription },
+                { "{{PARTIDA}}",                       data.WorkItemDescription },
+                { "{{AÑO_ACTUAL}}",                    DateTime.UtcNow.Year.ToString() },
+                { "{{NUM_CONTRATO}}",                  data.ContractNumber?.ToString() ?? "" },
             };
 
             byte[] docBytes;

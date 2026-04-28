@@ -103,7 +103,7 @@ builder.Services.AddScoped<IResidentReportIncidenceService, ResidentReportIncide
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IResidentMonitoringService, ResidentMonitoringService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
-builder.Services.AddScoped<IReniecService, ReniecService>();
+// IReniecService se registra vía AddHttpClient abajo para que el HttpClient tenga base URL y token configurados
 builder.Services.AddScoped<IArquitecturaComercialService, ArquitecturaComercialService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
@@ -144,10 +144,10 @@ builder.Services.Configure<EmailSettings>(
 );
 
 builder.Services.Configure<FrontendSettings>(builder.Configuration.GetSection("FrontendSettings"));
-builder.Services.AddHttpClient<ReniecService>(client =>
+builder.Services.AddHttpClient<IReniecService, ReniecService>(client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["Reniec:ReniecService"]);
-    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", builder.Configuration["Reniec:Token"]);
+    client.BaseAddress = new Uri(builder.Configuration["Reniec:ReniecService"]!);
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", builder.Configuration["Reniec:Token"]!);
     client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 });
 builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>(client =>

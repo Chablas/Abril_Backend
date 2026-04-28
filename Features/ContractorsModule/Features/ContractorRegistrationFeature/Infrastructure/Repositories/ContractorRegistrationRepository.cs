@@ -1,4 +1,5 @@
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructure.Interfaces;
 using Abril_Backend.Features.CostsModule.Shared.Models;
@@ -21,6 +22,30 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
         {
             using var ctx = _factory.CreateDbContext();
 
+            // Resolve legal representative → find or create Person by DNI
+            int? legalRepresentativePersonId = null;
+            if (!string.IsNullOrWhiteSpace(dto.LegalRepresentativeDni))
+            {
+                var person = await ctx.Person
+                    .FirstOrDefaultAsync(p => p.DocumentIdentityCode == dto.LegalRepresentativeDni && p.State);
+
+                if (person == null)
+                {
+                    person = new Person
+                    {
+                        DocumentIdentityCode = dto.LegalRepresentativeDni,
+                        FullName = dto.LegalRepresentativeFullName,
+                        Active = true,
+                        State = true,
+                        CreatedDateTime = DateTime.UtcNow,
+                    };
+                    ctx.Person.Add(person);
+                    await ctx.SaveChangesAsync();
+                }
+
+                legalRepresentativePersonId = person.PersonId;
+            }
+
             var contributor = await ctx.Contributor.FirstOrDefaultAsync(c => c.ContributorRuc == dto.ContributorRuc && c.State);
             if (contributor == null)
             {
@@ -30,15 +55,27 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                     ContributorName = dto.ContributorName,
                     ContributorAddress = dto.ContributorAddress,
                     ContributorEconomicActivityDescription = dto.ContributorEconomicActivityDescription,
-                    ContributorDistrict   = dto.ContributorDistrict,
-                    ContributorProvince   = dto.ContributorProvince,
-                    ContributorDepartment = dto.ContributorDepartment,
+                    ContributorDistrict             = dto.ContributorDistrict,
+                    ContributorProvince             = dto.ContributorProvince,
+                    ContributorDepartment           = dto.ContributorDepartment,
+                    LegalRepresentativePersonId     = legalRepresentativePersonId,
+                    LegalEntityRegistryNumber       = dto.LegalEntityRegistryNumber,
                     CreatedDateTime = DateTimeOffset.UtcNow,
                     CreatedUserId = userId,
                     Active = true,
                     State = true
                 };
                 ctx.Contributor.Add(contributor);
+                await ctx.SaveChangesAsync();
+            }
+            else
+            {
+                // Update legal representative data if provided
+                if (legalRepresentativePersonId.HasValue)
+                    contributor.LegalRepresentativePersonId = legalRepresentativePersonId;
+                if (!string.IsNullOrWhiteSpace(dto.LegalEntityRegistryNumber))
+                    contributor.LegalEntityRegistryNumber = dto.LegalEntityRegistryNumber;
+                contributor.UpdatedDateTime = DateTimeOffset.UtcNow;
                 await ctx.SaveChangesAsync();
             }
 

@@ -28,6 +28,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 ContractOriginId = dto.ContractOriginId,
                 PaymentMethodId = dto.PaymentMethodId,
                 AdvancePercentage = dto.AdvancePercentage,
+                AdvanceAmount = dto.AdvanceAmount,
                 Amount = dto.Amount,
                 CurrencyId  = dto.CurrencyId,
                 HasIgv = dto.HasIgv,
@@ -297,6 +298,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     PaymentMethodId = x.psc.PaymentMethodId,
                     PaymentMethodDescription = x.pm.PaymentMethodDescription,
                     AdvancePercentage = x.psc.AdvancePercentage,
+                    AdvanceAmount = x.psc.AdvanceAmount,
                     Amount = x.psc.Amount,
                     CurrencyId = x.psc.CurrencyId,
                     CurrencyCode = x.cur.CurrencyCode,
@@ -311,6 +313,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     SigningDate = x.psc.SigningDate,
                     StartDate = x.psc.StartDate,
                     EndDate = x.psc.EndDate,
+                    TermDays = x.psc.TermDays,
                     ContractNumber           = x.psc.ContractNumber,
                     ArrivedWithObservations  = x.psc.ArrivedWithObservations,
                     CreatedDateTime          = x.psc.CreatedDateTime,
@@ -638,6 +641,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             psc.StartDate = dto.StartDate;
             psc.EndDate = dto.EndDate;
             psc.ContractNumber = dto.ContractNumber;
+            psc.TermDays = (dto.StartDate != default && dto.EndDate != default)
+                ? (int)(dto.EndDate.ToDateTime(TimeOnly.MinValue) - dto.StartDate.ToDateTime(TimeOnly.MinValue)).TotalDays
+                : null;
             psc.ProjectSubContractorStatusId = 3;
             psc.UpdatedDateTime = DateTime.UtcNow;
             psc.UpdatedUserId = userId;
@@ -807,26 +813,43 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join co       in ctx.ContractOrigin on psc.ContractOriginId equals co.ContractOriginId
                 join pm       in ctx.PaymentMethod  on psc.PaymentMethodId  equals pm.PaymentMethodId
                 join cur      in ctx.Currency       on psc.CurrencyId       equals cur.CurrencyId
+                // representante legal del contratista (opcional)
+                join personJoin in ctx.Person on contrib.LegalRepresentativePersonId equals personJoin.PersonId into personGroup
+                from legalRep in personGroup.DefaultIfEmpty()
+                // contributor del proyecto (razón social de Abril — opcional)
+                join projContribJoin in ctx.Contributor on p.ContributorId equals projContribJoin.ContributorId into projContribGroup
+                from projContrib in projContribGroup.DefaultIfEmpty()
                 where psc.ProjectSubContractorId == projectSubContractorId && psc.State
                 select new AdjudicacionSummarySheetDataDto
                 {
-                    ProjectSubContractorId  = psc.ProjectSubContractorId,
-                    ProjectDescription      = p.ProjectDescription,
-                    ContributorName         = contrib.ContributorName,
-                    ContributorRuc          = contrib.ContributorRuc,
-                    WorkItemDescription     = wi.WorkItemDescription,
-                    ContractDescription     = contract.ContractDescription,
-                    ContractTypeDescription = ctype.ContractTypeDescription,
+                    ProjectSubContractorId    = psc.ProjectSubContractorId,
+                    ProjectDescription        = p.ProjectDescription,
+                    ProjectDistrict           = p.ProjectDistrict,
+                    ProjectRazonSocial        = projContrib != null ? projContrib.ContributorName : null,
+                    ContributorName           = contrib.ContributorName,
+                    ContributorRuc            = contrib.ContributorRuc,
+                    ContributorAddress        = contrib.ContributorAddress,
+                    ContributorDistrict       = contrib.ContributorDistrict,
+                    ContributorProvince       = contrib.ContributorProvince,
+                    ContributorDepartment     = contrib.ContributorDepartment,
+                    LegalRepresentativeFullName = legalRep != null ? legalRep.FullName : null,
+                    LegalRepresentativeDni    = legalRep != null ? legalRep.DocumentIdentityCode : null,
+                    LegalEntityRegistryNumber = contrib.LegalEntityRegistryNumber,
+                    WorkItemDescription       = wi.WorkItemDescription,
+                    ContractDescription       = contract.ContractDescription,
+                    ContractTypeDescription   = ctype.ContractTypeDescription,
                     ContractOriginDescription = co.ContractOriginDescription,
                     PaymentMethodDescription  = pm.PaymentMethodDescription,
-                    CurrencyCode            = cur.CurrencyCode,
-                    Amount                  = psc.Amount,
-                    HasIgv                  = psc.HasIgv,
-                    AdvancePercentage       = psc.AdvancePercentage,
-                    SigningDate             = psc.SigningDate,
-                    StartDate               = psc.StartDate,
-                    EndDate                 = psc.EndDate,
-                    ContractNumber          = psc.ContractNumber,
+                    CurrencyCode              = cur.CurrencyCode,
+                    Amount                    = psc.Amount,
+                    HasIgv                    = psc.HasIgv,
+                    AdvancePercentage         = psc.AdvancePercentage,
+                    AdvanceAmount             = psc.AdvanceAmount,
+                    TermDays                  = psc.TermDays,
+                    SigningDate               = psc.SigningDate,
+                    StartDate                 = psc.StartDate,
+                    EndDate                   = psc.EndDate,
+                    ContractNumber            = psc.ContractNumber,
                 }
             ).FirstOrDefaultAsync();
 

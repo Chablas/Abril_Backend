@@ -9,6 +9,8 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models {
         public string? ContributorDistrict { get; set; }
         public string? ContributorProvince { get; set; }
         public string? ContributorDepartment { get; set; }
+        public int? LegalRepresentativePersonId { get; set; }
+        public string? LegalEntityRegistryNumber { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }
         public DateTimeOffset? UpdatedDateTime { get; set; }

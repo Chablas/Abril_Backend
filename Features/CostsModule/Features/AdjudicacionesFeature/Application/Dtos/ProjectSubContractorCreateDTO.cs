@@ -7,6 +7,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int ContractOriginId { get; set; }
         public int PaymentMethodId { get; set; }
         public decimal AdvancePercentage { get; set; }
+        public decimal? AdvanceAmount { get; set; }
         public decimal Amount { get; set; }
         public int CurrencyId { get; set; }
         public bool HasIgv { get; set; }

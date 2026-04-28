@@ -10,6 +10,7 @@ namespace Abril_Backend.Controllers
 
     [ApiController]
     [Route("api/v1/[controller]")]
+    [AllowAnonymous]
     public class ProjectController : ControllerBase
     {
         IProjectService _projectService;
@@ -20,17 +21,17 @@ namespace Abril_Backend.Controllers
 
         [Authorize]
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1)
+        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] bool? activo = null)
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                // var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                //
+                // if (userIdClaim == null)
+                //     return Unauthorized(new { message = "Inicie sesión" });
                 if (page < 1)
                     page = 1;
-                var result = await _projectService.GetPaged(page);
+                var result = await _projectService.GetPaged(page, activo);
                 return Ok(result);
             }
             catch (Exception)
@@ -45,10 +46,10 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                // var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                //
+                // if (userIdClaim == null)
+                //     return Unauthorized(new { message = "Inicie sesión" });
 
                 if (page < 1)
                     page = 1;
@@ -68,12 +69,12 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                // var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                //
+                // if (userIdClaim == null)
+                //     return Unauthorized(new { message = "Inicie sesión" });
 
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var userId = int.Parse(userIdClaim.Value);
+                var userId = 0;
 
                 if (string.IsNullOrWhiteSpace(dto.ProjectDescription))
                     return BadRequest(new { message = "ProjectDescription es obligatorio." });
@@ -96,12 +97,12 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                // var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                //
+                // if (userIdClaim == null)
+                //     return Unauthorized(new { message = "Inicie sesión" });
 
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var userId = int.Parse(userIdClaim.Value);
+                var userId = 0;
 
                 if (string.IsNullOrWhiteSpace(dto.ProjectDescription))
                     return BadRequest(new { message = "ProjectDescription es obligatorio." });
@@ -126,10 +127,10 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                // var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                //
+                // if (userIdClaim == null)
+                //     return Unauthorized(new { message = "Inicie sesión" });
 
                 await _projectService.UpdateEmails(id, dto);
 
@@ -151,12 +152,12 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                // var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                //
+                // if (userIdClaim == null)
+                //     return Unauthorized(new { message = "Inicie sesión" });
 
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var userId = int.Parse(userIdClaim.Value);
+                var userId = 0;
 
                 var result = await _projectService.DeleteSoftAsync(id, userId);
 

@@ -12,7 +12,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         public string Nombre { get; set; } = string.Empty;
 
         [Column("vigencia_meses")]
-        public int VigenciaMeses { get; set; }
+        public int? VigenciaMeses { get; set; }
 
         [Column("requiere_nuevo")]
         public bool RequiereNuevo { get; set; }

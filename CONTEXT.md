@@ -263,20 +263,27 @@ DbSet<SsAlertaEmo>            SsAlertaEmo
 - Archivos `* - copia.cs` causan CS0101 — eliminar siempre.
 - `IDbContextFactory` obligatorio en repos nuevos — el `ProjectRepository` legacy aún inyecta `AppDbContext` directo (no replicar ese patrón).
 - `Abril_Backend.sln` está en `.gitignore` — no commitear.
+- `SsEmoTipo.VigenciaMeses` es `int?` (nullable) — el tipo "Retiro" tiene `NULL` y el cálculo de `fecha_vencimiento_calculada` se omite cuando es null (`tipo.VigenciaMeses > 0` descarta null).
+- Al retirar un worker (`PATCH /workers/{id}/retirar`) se cierran automáticamente todas sus `worker_vinculaciones` abiertas (`fecha_fin = today`) en la misma transacción.
+- `ProjectController` tiene `[AllowAnonymous]` a nivel de clase y la validación `User.FindFirst(ClaimTypes.NameIdentifier)` está comentada en sus 6 acciones — `userId` se reemplazó por `0` en `Create`/`Edit`/`Delete` (no se persiste en la tabla `projects`). Es estado temporal de pruebas, revertir antes de producción.
 
 ---
 
 ## 10. Trabajo pendiente
 
+### ✅ Completado recientemente
+- **Workers CRUD** — `POST` / `PUT /{id}` / `PATCH /{id}/retirar` (cierra vinculaciones abiertas). Validación DNI 8 dígitos en controller, unicidad de DNI activo en repo (409).
+- **Catálogos SSOMA funcionando** — clínicas, médicos, tipos EMO con CRUD completo. `vigencia_meses` ahora `int?`.
+- **Emails de proyectos** — `PATCH /api/v1/project/{id}/emails` (parcial: solo actualiza los campos que vienen no-null).
+- **Projects entity consolidada** — `Project.cs` y `Proyecto.cs` eliminados; única entidad `Projects` con `[Table("projects")]` y 32 columnas mapeadas explícitamente.
+- **`[AllowAnonymous]` temporal en `ProjectController`** — aplicado a nivel de clase para pruebas; revertir antes de producción.
+
 ### Alta prioridad
 - **Flujo alertas A/B** — Staff/OC: correo individual a clínica; Obra: correo agrupado por proyecto
-- **Workers CRUD** — crear, editar, retirar workers
-- **Auth real** — quitar `[AllowAnonymous]` de SSOMA, activar JWT
+- **Auth real** — quitar `[AllowAnonymous]` de SSOMA y `ProjectController`, activar JWT
 - **Usuario admin** — `app_user` vacía, sin usuario no hay login
 
 ### Media prioridad
-- **Clínicas y médicos** — cargar datos reales
-- **Emails proyectos** — completar `email_rrhh`, `email_coord_ssoma`, `email_coord_admin`
 - **Empresas contratistas** — 1,591 vinculaciones sin empresa
 - **tipo_emo_id** — los 813 EMOs migrados tienen NULL
 

@@ -23,9 +23,9 @@ namespace Abril_Backend.Application.Services
             return await _repository.GetPagedWithResidents(page);
         }
 
-        public async Task<PagedResult<ProjectDTO>> GetPaged(int page)
+        public async Task<PagedResult<ProjectDTO>> GetPaged(int page, bool? activo = null)
         {
-            return await _repository.GetPaged(page);
+            return await _repository.GetPaged(page, activo);
         }
 
         public async Task Create(ProjectCreateDTO dto, int userId)

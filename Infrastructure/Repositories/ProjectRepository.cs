@@ -59,13 +59,15 @@ namespace Abril_Backend.Infrastructure.Repositories {
             }).ToList();
         }
 
-        public async Task<PagedResult<ProjectDTO>> GetPaged(int page)
+        public async Task<PagedResult<ProjectDTO>> GetPaged(int page, bool? activo = null)
         {
             const int pageSize = 10;
 
-            var projectQuery = _context.Projects
-                .Where(p => p.Activo)
-                .OrderByDescending(p => p.Id);
+            var baseQuery = _context.Projects.AsQueryable();
+            if (activo.HasValue)
+                baseQuery = baseQuery.Where(p => p.Activo == activo.Value);
+
+            var projectQuery = baseQuery.OrderByDescending(p => p.Id);
 
             var totalRecords = await projectQuery.CountAsync();
 

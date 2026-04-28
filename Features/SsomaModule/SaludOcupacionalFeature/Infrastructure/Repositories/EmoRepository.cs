@@ -359,7 +359,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var fechaVencCalc = tipo.VigenciaMeses > 0
-                ? (DateOnly?)dto.FechaEmo.AddMonths(tipo.VigenciaMeses)
+                ? (DateOnly?)dto.FechaEmo.AddMonths(tipo.VigenciaMeses.Value)
                 : null;
 
             var emo = new WorkerEmo
@@ -463,7 +463,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Tipo de EMO no válido.", 400);
 
             var fechaVencCalc = tipo.VigenciaMeses > 0
-                ? (DateOnly?)dto.FechaEmo.AddMonths(tipo.VigenciaMeses)
+                ? (DateOnly?)dto.FechaEmo.AddMonths(tipo.VigenciaMeses.Value)
                 : null;
 
             emo.TipoEmoId = dto.TipoEmoId;

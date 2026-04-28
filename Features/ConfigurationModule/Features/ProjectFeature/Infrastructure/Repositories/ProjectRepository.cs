@@ -43,6 +43,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     ContributorDistrict = p.Contributor != null ? p.Contributor.ContributorDistrict : null,
                     ContributorProvince = p.Contributor != null ? p.Contributor.ContributorProvince : null,
                     ContributorDepartment = p.Contributor != null ? p.Contributor.ContributorDepartment : null,
+                    ContributorLegalEntityRegistryNumber = p.Contributor != null ? p.Contributor.LegalEntityRegistryNumber : null,
                     ProjectDistrict = p.ProjectDistrict,
                     ProjectProvince = p.ProjectProvince,
                     ProjectDepartment = p.ProjectDepartment,
@@ -82,6 +83,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 existing.UpdatedDateTime = DateTime.UtcNow;
                 existing.UpdatedUserId = userId;
                 await _context.SaveChangesAsync();
+                await UpdateContributorLegalEntityRegistryNumberAsync(dto.ContributorId, dto.LegalEntityRegistryNumber, userId);
                 return;
             }
 
@@ -102,6 +104,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
             _context.Project.Add(project);
             await _context.SaveChangesAsync();
+            await UpdateContributorLegalEntityRegistryNumberAsync(dto.ContributorId, dto.LegalEntityRegistryNumber, userId);
         }
 
         public async Task Update(ProjectEditDto dto, int userId)
@@ -133,6 +136,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.UpdatedUserId = userId;
 
             await _context.SaveChangesAsync();
+            await UpdateContributorLegalEntityRegistryNumberAsync(dto.ContributorId, dto.LegalEntityRegistryNumber, userId);
         }
 
         public async Task<bool> DeleteSoftAsync(int projectId, int userId)
@@ -189,6 +193,22 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             contributor.ContributorProvince = province;
             contributor.ContributorDepartment = department;
             contributor.UpdatedDateTime = DateTimeOffset.UtcNow;
+
+            await _context.SaveChangesAsync();
+        }
+
+        private async Task UpdateContributorLegalEntityRegistryNumberAsync(int? contributorId, string? legalEntityRegistryNumber, int userId)
+        {
+            if (contributorId == null) return;
+
+            var contributor = await _context.Contributor.FindAsync(contributorId.Value);
+            if (contributor == null) return;
+
+            contributor.LegalEntityRegistryNumber = string.IsNullOrWhiteSpace(legalEntityRegistryNumber)
+                ? null
+                : legalEntityRegistryNumber.Trim();
+            contributor.UpdatedDateTime = DateTimeOffset.UtcNow;
+            contributor.UpdatedUserId = userId;
 
             await _context.SaveChangesAsync();
         }

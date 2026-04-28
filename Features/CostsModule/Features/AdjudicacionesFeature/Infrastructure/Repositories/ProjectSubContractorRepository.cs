@@ -315,6 +315,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     EndDate = x.psc.EndDate,
                     TermDays = x.psc.TermDays,
                     ContractNumber           = x.psc.ContractNumber,
+                    PromissoryNoteNumber     = x.psc.PromissoryNoteNumber,
                     ArrivedWithObservations  = x.psc.ArrivedWithObservations,
                     CreatedDateTime          = x.psc.CreatedDateTime,
                     Contract          = x.contractDoc == null          ? null : new ProjectSubContractorFileDto { FileUrl = x.contractDoc.FileUrl!,          OriginalFileName = x.contractDoc.OriginalFileName,          StatusId = x.contractDoc.ProjectSubContractorFileStatusId,          StatusDescription = x.contractDoc.FileStatus == null          ? null : x.contractDoc.FileStatus.ProjectSubContractorFileStatusDescription,          Observation = x.contractDoc.Observation },
@@ -640,7 +641,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             psc.SigningDate = dto.SigningDate;
             psc.StartDate = dto.StartDate;
             psc.EndDate = dto.EndDate;
-            psc.ContractNumber = dto.ContractNumber;
+            psc.ContractNumber       = dto.ContractNumber;
+            psc.PromissoryNoteNumber = dto.PromissoryNoteNumber;
             psc.TermDays = (dto.StartDate != default && dto.EndDate != default)
                 ? (int)(dto.EndDate.ToDateTime(TimeOnly.MinValue) - dto.StartDate.ToDateTime(TimeOnly.MinValue)).TotalDays
                 : null;
@@ -825,7 +827,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     ProjectSubContractorId    = psc.ProjectSubContractorId,
                     ProjectDescription        = p.ProjectDescription,
                     ProjectDistrict           = p.ProjectDistrict,
-                    ProjectRazonSocial        = projContrib != null ? projContrib.ContributorName : null,
+                    ProjectRazonSocial                  = projContrib != null ? projContrib.ContributorName : null,
+                    ProjectContributorRuc               = projContrib != null ? projContrib.ContributorRuc : null,
+                    ProjectLegalEntityRegistryNumber    = projContrib != null ? projContrib.LegalEntityRegistryNumber : null,
                     ContributorName           = contrib.ContributorName,
                     ContributorRuc            = contrib.ContributorRuc,
                     ContributorAddress        = contrib.ContributorAddress,
@@ -850,6 +854,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     StartDate                 = psc.StartDate,
                     EndDate                   = psc.EndDate,
                     ContractNumber            = psc.ContractNumber,
+                    PromissoryNoteNumber      = psc.PromissoryNoteNumber,
                 }
             ).FirstOrDefaultAsync();
 

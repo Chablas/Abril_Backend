@@ -72,7 +72,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
                     ContributorAddress = existing.ContributorAddress,
                     ContributorDistrict = existing.ContributorDistrict,
                     ContributorProvince = existing.ContributorProvince,
-                    ContributorDepartment = existing.ContributorDepartment
+                    ContributorDepartment = existing.ContributorDepartment,
+                    LegalEntityRegistryNumber = existing.LegalEntityRegistryNumber
                 };
             }
 
@@ -98,7 +99,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
                 ContributorAddress = created.ContributorAddress,
                 ContributorDistrict = created.ContributorDistrict,
                 ContributorProvince = created.ContributorProvince,
-                ContributorDepartment = created.ContributorDepartment
+                ContributorDepartment = created.ContributorDepartment,
+                LegalEntityRegistryNumber = created.LegalEntityRegistryNumber
             };
         }
     }

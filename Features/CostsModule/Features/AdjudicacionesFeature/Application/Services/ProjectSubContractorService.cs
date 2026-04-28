@@ -12,6 +12,8 @@ using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
 using ClosedXML.Excel;
 using System.Text;
+using Humanizer;
+using System.Globalization;
 
 namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 {
@@ -27,11 +29,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            "eaguinaga@abril.pe",
-            "apimentel@abril.pe",
-            "bquicana@abril.pe",
-            "cavila@abril.pe",
-            //"alvarezvillegaschristian@gmail.com"
+            //"eaguinaga@abril.pe",
+            //"apimentel@abril.pe",
+            //"bquicana@abril.pe",
+            //"cavila@abril.pe",
+            "alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -557,6 +559,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     ? Math.Round(data.AdvancePercentage.Value / 100m * data.Amount, 2)
                     : 0m);
 
+            var esCulture = new CultureInfo("es");
+            var entero = (long)Math.Truncate(data.Amount);
+            var centavos = (int)Math.Round((data.Amount - entero) * 100);
+            var palabras = entero.ToWords(esCulture);
+            palabras = char.ToUpper(palabras[0]) + palabras[1..];
+            var moneda = data.CurrencyCode == "USD" ? "dólares" : "soles";
+            var monedaMayuscula = moneda.ToUpperInvariant();
+            var montoEnPalabras = $"{palabras} con {centavos:D2}/100 {moneda}";
+
             var replacements = new Dictionary<string, string>
             {
                 // Contratista
@@ -573,9 +584,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PROYECTO_NOMBRE}}",               data.ProjectDescription },
                 { "{{PROYECTO_ABREVIATURA}}",          abreviaturaProyecto },
                 { "{{PROYECTO_RAZON_SOCIAL}}",         data.ProjectRazonSocial ?? "" },
+                { "{{PROYECTO_RUC}}",                  data.ProjectContributorRuc ?? "" },
                 { "{{PROYECTO_DISTRITO}}",             data.ProjectDistrict ?? "" },
+                { "{{PROYECTO_PARTIDA_REGISTRAL}}",    data.ProjectLegalEntityRegistryNumber ?? "" },
                 // Contrato
+                { "{{FORMA_DE_PAGO}}",                 data.PaymentMethodDescription },
                 { "{{MONTO}}",                         $"{currencySymbol} {data.Amount:N2}" },
+                { "{{MONTO_EN_PALABRAS}}",             montoEnPalabras },
+                { "{{MONEDA}}",                        monedaMayuscula },
                 { "{{FECHA_INICIO}}",                  data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
                 { "{{FECHA_FIN}}",                     data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
                 { "{{PLAZO_NUM}}",                     plazo.ToString() },
@@ -584,7 +600,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{TIPO_CONTRATO}}",                 data.ContractTypeDescription },
                 { "{{PARTIDA}}",                       data.WorkItemDescription },
                 { "{{AÑO_ACTUAL}}",                    DateTime.UtcNow.Year.ToString() },
-                { "{{NUM_CONTRATO}}",                  data.ContractNumber?.ToString() ?? "" },
+                { "{{NUM_CONTRATO}}",                  data.ContractNumber.HasValue ? data.ContractNumber.Value.ToString("D3") : "" },
+                { "{{NUM_PAGARE}}",                    data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },
             };
 
             byte[] docBytes;

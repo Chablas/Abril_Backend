@@ -14,7 +14,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? LegalRepresentativeDni { get; set; }
         public string? LegalEntityRegistryNumber { get; set; }
         public string? ProjectRazonSocial { get; set; }
+        public string? ProjectContributorRuc { get; set; }
         public string? ProjectDistrict { get; set; }
+        public string? ProjectLegalEntityRegistryNumber { get; set; }
         public string WorkItemDescription { get; set; } = null!;
         public string ContractDescription { get; set; } = null!;
         public string ContractTypeDescription { get; set; } = null!;
@@ -30,5 +32,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public DateOnly? StartDate { get; set; }
         public DateOnly? EndDate { get; set; }
         public int? ContractNumber { get; set; }
+        public int? PromissoryNoteNumber { get; set; }
     }
 }

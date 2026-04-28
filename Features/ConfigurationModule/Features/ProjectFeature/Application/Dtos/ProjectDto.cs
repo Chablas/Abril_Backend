@@ -12,6 +12,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public string? ContributorDistrict { get; set; }
         public string? ContributorProvince { get; set; }
         public string? ContributorDepartment { get; set; }
+        public string? ContributorLegalEntityRegistryNumber { get; set; }
         public string? ProjectDistrict { get; set; }
         public string? ProjectProvince { get; set; }
         public string? ProjectDepartment { get; set; }

@@ -25,8 +25,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public DateOnly? EndDate { get; set; }
         public int? TermDays { get; set; }
 
-        // Número de contrato (paso 3)
+        // Número de contrato y pagaré (paso 2)
         public int? ContractNumber { get; set; }
+        public int? PromissoryNoteNumber { get; set; }
 
         // Llegada a Of. Central (paso 5)
         public bool? ArrivedWithObservations { get; set; }

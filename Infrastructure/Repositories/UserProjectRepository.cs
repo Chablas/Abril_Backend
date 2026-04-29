@@ -26,7 +26,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 from up in ctx.UserProject
                 join u in ctx.User on up.UserId equals u.UserId
                 join p in ctx.Person on u.UserId equals p.UserId
-                join pj in ctx.Project on up.ProjectId equals pj.ProjectId
+                join pj in ctx.Projects on up.ProjectId equals pj.Id
                 where up.State == true
                 orderby up.UserProjectId descending
                 select new UserProjectDTO
@@ -35,7 +35,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     UserId = up.UserId,
                     UserFullName = p.FullName,
                     ProjectId = up.ProjectId,
-                    ProjectDescription = pj.ProjectDescription,
+                    ProjectDescription = pj.Nombre ?? string.Empty,
                     CreatedDateTime = up.CreatedDateTime,
                     CreatedUserId = up.CreatedUserId,
                     UpdatedDateTime = up.UpdatedDateTime,
@@ -72,7 +72,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 from up in ctx.UserProject
                 join u in ctx.User on up.UserId equals u.UserId
                 join p in ctx.Person on u.UserId equals p.UserId
-                join pj in ctx.Project on up.ProjectId equals pj.ProjectId
+                join pj in ctx.Projects on up.ProjectId equals pj.Id
                 where up.State == true
                       && up.Active == true
                       && !ctx.Lesson.Any(l =>
@@ -96,8 +96,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     Email = g.Key.Email,
                     Projects = g.Select(x => new ProjectSimpleDTO
                     {
-                        ProjectId = x.pj.ProjectId,
-                        ProjectDescription = x.pj.ProjectDescription
+                        ProjectId = x.pj.Id,
+                        ProjectDescription = x.pj.Nombre ?? string.Empty
                     }).ToList()
                 };
 
@@ -175,7 +175,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 from up in ctx.UserProject
                 join u in ctx.User on up.UserId equals u.UserId
                 join p in ctx.Person on u.UserId equals p.UserId
-                join pj in ctx.Project on up.ProjectId equals pj.ProjectId
+                join pj in ctx.Projects on up.ProjectId equals pj.Id
                 where up.State == true
                       && up.Active == true
                       && !ctx.Lesson.Any(l =>
@@ -199,8 +199,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     Email = g.Key.Email,
                     Projects = g.Select(x => new ProjectSimpleDTO
                     {
-                        ProjectId = x.pj.ProjectId,
-                        ProjectDescription = x.pj.ProjectDescription
+                        ProjectId = x.pj.Id,
+                        ProjectDescription = x.pj.Nombre ?? string.Empty
                     }).ToList()
                 };
 

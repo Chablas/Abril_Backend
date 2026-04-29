@@ -19,15 +19,15 @@ namespace Abril_Backend.Infrastructure.Repositories {
             const int pageSize = 10;
 
             var query = _context.ResidentReportIncidence
-                .Where(r => r.Project.State)
+                .Where(r => r.Project.Activo)
                 .OrderByDescending(x => x.ResidentReportIncidenceId)
                 .Select(r => new ResidentReportIncidenceDTO
                 {
                     ResidentReportIncidenceId = r.ResidentReportIncidenceId,
                     ResidentReportIncidenceDescription = r.ResidentReportIncidenceDescription,
 
-                    ProjectId = r.Project.ProjectId,
-                    ProjectDescription = r.Project.ProjectDescription,
+                    ProjectId = r.Project.Id,
+                    ProjectDescription = r.Project.Nombre ?? string.Empty,
                     StateId = r.StateId,
                     StateDescription = r.StateNavigation.StateDescription,
 

@@ -9,6 +9,8 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<List<UserPersonFilterDTO>> GetAllFilterFactory();
         Task<PagedResult<UserDTO>> GetPagedFactory(int page, int pageSizeQuery);
         Task<User?> Create(UserCreateDTO dto);
+        Task Update(int userId, UserUpdateDTO dto);
+        Task ToggleActive(int userId, int updatedUserId);
         Task SetPassword(int userId, string plainPassword);
         Task<List<UserFilterDTO>> GetResidentsFullName();
     }

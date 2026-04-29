@@ -17,28 +17,27 @@ namespace Abril_Backend.Infrastructure.Repositories {
             using var ctx = _factory.CreateDbContext();
 
             var registros = from project_resident in ctx.ProjectResident
-                join project in ctx.Project on project_resident.ProjectId equals project.ProjectId
+                join project in ctx.Projects on project_resident.ProjectId equals project.Id
                 where (project_resident.State == true) && (project_resident.Active == true)
-                orderby project.ProjectDescription
+                orderby project.Nombre
                 select new ProjectSimpleDTO
                 {
-                    ProjectId = project.ProjectId,
-                    ProjectDescription = project.ProjectDescription
+                    ProjectId = project.Id,
+                    ProjectDescription = project.Nombre ?? string.Empty
                 };
             return await registros.ToListAsync();
         }
 
         public async Task<List<ProjectSimpleDTO>> GetProjectByResidentUserId(int userId)
         {
-            var registros = from pj in _context.Project
-                join up in _context.ProjectResident on pj.ProjectId equals up.ProjectId
+            var registros = from pj in _context.Projects
+                join up in _context.ProjectResident on pj.Id equals up.ProjectId
                 where (up.UserId == userId)
-                && (pj.Active == true)
-                && (pj.State == true)
+                && (pj.Activo == true)
                 select new ProjectSimpleDTO
                 {
-                    ProjectId = pj.ProjectId,
-                    ProjectDescription = pj.ProjectDescription,
+                    ProjectId = pj.Id,
+                    ProjectDescription = pj.Nombre ?? string.Empty,
                 };
             return await registros.ToListAsync();
         }

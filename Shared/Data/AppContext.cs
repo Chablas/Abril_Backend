@@ -2,6 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
 {
@@ -26,7 +29,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Person> Person { get; set; }
         public DbSet<Phase> Phase { get; set; }
         public DbSet<PhaseStageSubStageSubSpecialty> PhaseStageSubStageSubSpecialty { get; set; }
-        public DbSet<Project> Project { get; set; }
+        public DbSet<Projects> Projects { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
         public DbSet<ResidentReportIncidenceImage> ResidentReportIncidenceImage {get;set;}
@@ -74,8 +77,41 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcCategoria> AcCategoria { get; set; }
         public DbSet<AcEspecialidad> AcEspecialidad { get; set; }
         public DbSet<Worker> Worker { get; set; }
-        public DbSet<Proyecto> Proyecto { get; set; }
-        public DbSet<Empresa> Empresa { get; set; }
+        public DbSet<WorkerEmo> WorkerEmo { get; set; }
+        public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }
+        public DbSet<WorkerVinculacion> WorkerVinculacion { get; set; }
+        public DbSet<SsClinica> SsClinica { get; set; }
+        public DbSet<SsMedicoOcupacional> SsMedicoOcupacional { get; set; }
+        public DbSet<SsEmoTipo> SsEmoTipo { get; set; }
+        public DbSet<SsExamenTipo> SsExamenTipo { get; set; }
+        public DbSet<SsRestriccionTipo> SsRestriccionTipo { get; set; }
+        public DbSet<SsEmoExamenDetalle> SsEmoExamenDetalle { get; set; }
+        public DbSet<SsEmoRestriccion> SsEmoRestriccion { get; set; }
+        public DbSet<SsInterconsulta> SsInterconsulta { get; set; }
+        public DbSet<SsProgramacionEmo> SsProgramacionEmo { get; set; }
+        public DbSet<SsSeguimientoMedico> SsSeguimientoMedico { get; set; }
+        public DbSet<SsAlertaEmo> SsAlertaEmo { get; set; }
+        public DbSet<SsItemTrabajador> SsItemTrabajador => Set<SsItemTrabajador>();
+        public DbSet<SsItemEmpresa> SsItemEmpresa => Set<SsItemEmpresa>();
+        public DbSet<SsItemEquipo> SsItemEquipo => Set<SsItemEquipo>();
+        public DbSet<SsCriterioEvaluacion> SsCriterioEvaluacion => Set<SsCriterioEvaluacion>();
+        public DbSet<SsEmpresaContratista> SsEmpresaContratista => Set<SsEmpresaContratista>();
+        public DbSet<SsEmpresaProyecto> SsEmpresaProyecto => Set<SsEmpresaProyecto>();
+        public DbSet<SsHabTrabajador> SsHabTrabajador => Set<SsHabTrabajador>();
+        public DbSet<SsHabEmpresa> SsHabEmpresa => Set<SsHabEmpresa>();
+        public DbSet<SsSctrVidaley> SsSctrVidaley => Set<SsSctrVidaley>();
+        public DbSet<SsSctrVidaLeyWorker> SsSctrVidaLeyWorker => Set<SsSctrVidaLeyWorker>();
+        public DbSet<SsEquipo> SsEquipo => Set<SsEquipo>();
+        public DbSet<SsHabEquipo> SsHabEquipo => Set<SsHabEquipo>();
+        public DbSet<SsEvalSupervisor> SsEvalSupervisor => Set<SsEvalSupervisor>();
+        public DbSet<SsEvalSupervisorItem> SsEvalSupervisorItem => Set<SsEvalSupervisorItem>();
+        public DbSet<SsInduccion> SsInduccion => Set<SsInduccion>();
+        public DbSet<SsRegistroModelo> SsRegistroModelo => Set<SsRegistroModelo>();
+        public DbSet<SsItemTrabajadorRegla> SsItemTrabajadorRegla => Set<SsItemTrabajadorRegla>();
+        public DbSet<SsHabBloqueoLog> SsHabBloqueoLog => Set<SsHabBloqueoLog>();
+        public DbSet<AuditoriaCambio> AuditoriaCambios => Set<AuditoriaCambio>();
+        public DbSet<SsHabDocumentoVersion> SsHabDocumentoVersion => Set<SsHabDocumentoVersion>();
+        public DbSet<SsResetToken> SsResetToken => Set<SsResetToken>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -269,6 +305,11 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<MilestoneScheduleHistory>(entity =>
             {
                 entity.Property(e => e.IsEqualToLastVersion).HasColumnName("is_equal_to_last_version");
+            });
+            modelBuilder.Entity<AuditoriaCambio>(entity =>
+            {
+                entity.Property(e => e.DatosAnteriores).HasColumnType("jsonb");
+                entity.Property(e => e.DatosNuevos).HasColumnType("jsonb");
             });
         }
     }

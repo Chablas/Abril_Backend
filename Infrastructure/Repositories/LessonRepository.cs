@@ -25,7 +25,7 @@ namespace Abril_Backend.Infrastructure.Repositories
         public async Task<List<LessonListDTO>> GetAll()
         {
             var registros = await (from lesson in _context.Lesson
-                                   join project in _context.Project on lesson.ProjectId equals project.ProjectId
+                                   join project in _context.Projects on lesson.ProjectId equals project.Id
                                    join area in _context.Area on lesson.AreaId equals area.AreaId
                                    join psss in _context.PhaseStageSubStageSubSpecialty on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId
                                    join phase in _context.Phase on psss.PhaseId equals phase.PhaseId
@@ -43,7 +43,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                        LessonDescription = lesson.LessonDescription,
                                        ImpactDescription = lesson.ImpactDescription,
                                        ProjectId = lesson.ProjectId,
-                                       ProjectDescription = project.ProjectDescription,
+                                       ProjectDescription = project.Nombre,
                                        AreaId = lesson.AreaId,
                                        AreaDescription = area.AreaDescription,
                                        PhaseStageSubStageSubSpecialtyId = lesson.PhaseStageSubStageSubSpecialtyId,
@@ -92,8 +92,8 @@ namespace Abril_Backend.Infrastructure.Repositories
             var registro = await (
                 from lesson in _context.Lesson
 
-                join project in _context.Project
-                    on lesson.ProjectId equals project.ProjectId
+                join project in _context.Projects
+                    on lesson.ProjectId equals project.Id
 
                 join area in _context.Area
                     on lesson.AreaId equals area.AreaId
@@ -139,7 +139,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                     ImpactDescription = lesson.ImpactDescription,
 
                     ProjectId = lesson.ProjectId,
-                    ProjectDescription = project.ProjectDescription,
+                    ProjectDescription = project.Nombre,
 
                     AreaId = lesson.AreaId,
                     AreaDescription = area.AreaDescription,
@@ -226,7 +226,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var result =
                 from lesson in query
-                join project in _context.Project on lesson.ProjectId equals project.ProjectId into pj
+                join project in _context.Projects on lesson.ProjectId equals project.Id into pj
                 from project in pj.DefaultIfEmpty()
 
                 join area in _context.Area on lesson.AreaId equals area.AreaId
@@ -303,7 +303,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                     ImpactDescription = x.lesson.ImpactDescription,
 
                     ProjectId = x.lesson.ProjectId,
-                    ProjectDescription = x.project != null ? x.project.ProjectDescription : null,
+                    ProjectDescription = x.project != null ? x.project.Nombre : null,
 
                     AreaId = x.lesson.AreaId,
                     AreaDescription = x.area.AreaDescription,
@@ -421,7 +421,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var result =
                 from lesson in query
-                join project in _context.Project on lesson.ProjectId equals project.ProjectId into pj
+                join project in _context.Projects on lesson.ProjectId equals project.Id into pj
                 from project in pj.DefaultIfEmpty()
 
                 join area in _context.Area on lesson.AreaId equals area.AreaId
@@ -502,7 +502,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                     ImpactDescription = x.lesson.ImpactDescription,
 
                     ProjectId = x.lesson.ProjectId,
-                    ProjectDescription = x.project != null ? x.project.ProjectDescription : null,
+                    ProjectDescription = x.project != null ? x.project.Nombre : null,
 
                     AreaId = x.lesson.AreaId,
                     AreaDescription = x.area.AreaDescription,
@@ -579,7 +579,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             const int pageSize = 10;
 
             var query = from lesson in _context.Lesson
-                        join project in _context.Project on lesson.ProjectId equals project.ProjectId
+                        join project in _context.Projects on lesson.ProjectId equals project.Id
                         join area in _context.Area on lesson.AreaId equals area.AreaId
                         join psss in _context.PhaseStageSubStageSubSpecialty on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId
                         join phase in _context.Phase on psss.PhaseId equals phase.PhaseId
@@ -598,7 +598,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                             LessonDescription = lesson.LessonDescription,
                             ImpactDescription = lesson.ImpactDescription,
                             ProjectId = lesson.ProjectId,
-                            ProjectDescription = project.ProjectDescription,
+                            ProjectDescription = project.Nombre,
                             AreaId = lesson.AreaId,
                             AreaDescription = area.AreaDescription,
                             PhaseStageSubStageSubSpecialtyId = lesson.PhaseStageSubStageSubSpecialtyId,

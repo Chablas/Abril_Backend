@@ -130,8 +130,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var query =
                 from lesson in context.Lesson
-                join project in context.Project
-                    on lesson.ProjectId equals project.ProjectId
+                join project in context.Projects
+                    on lesson.ProjectId equals project.Id
                 where lesson.Active && lesson.State
                 select new { lesson, project };
 
@@ -165,13 +165,13 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var result = await query
                 .GroupBy(x => new
                 {
-                    x.project.ProjectId,
-                    x.project.ProjectDescription
+                    Id = x.project.Id,
+                    Nombre = x.project.Nombre
                 })
                 .Select(g => new ChartItemDTO
                 {
-                    Id = g.Key.ProjectId,
-                    Label = g.Key.ProjectDescription,
+                    Id = g.Key.Id,
+                    Label = g.Key.Nombre ?? string.Empty,
                     Value = g.Count()
                 })
                 .ToListAsync();

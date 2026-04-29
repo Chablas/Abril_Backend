@@ -140,9 +140,9 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _context.MilestoneSchedule.AddRange(milestoneSchedules);
             await _context.SaveChangesAsync();
 
-            var projectName = await _context.Project
-                .Where(p => p.ProjectId == dto.ProjectId)
-                .Select(p => p.ProjectDescription)
+            var projectName = await _context.Projects
+                .Where(p => p.Id == dto.ProjectId)
+                .Select(p => p.Nombre ?? string.Empty)
                 .FirstAsync();
 
             return new ScheduleChangeResult
@@ -162,10 +162,10 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var query =
                 from pr in ctx.ProjectResident
-                join pj in ctx.Project on pr.ProjectId equals pj.ProjectId
+                join pj in ctx.Projects on pr.ProjectId equals pj.Id
                 join u in ctx.User on pr.UserId equals u.UserId
                 join person in ctx.Person on u.UserId equals person.UserId
-                where pr.Active && pr.State && pj.Active && pj.State
+                where pr.Active && pr.State && pj.Activo
                 where !ctx.MilestoneScheduleHistory.Any(msh =>
                     msh.ProjectId == pr.ProjectId &&
                     msh.CreatedUserId == pr.UserId &&
@@ -187,8 +187,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     Email = g.Key.Email,
                     Projects = g.Select(x => new ProjectSimpleDTO
                     {
-                        ProjectId = x.pj.ProjectId,
-                        ProjectDescription = x.pj.ProjectDescription
+                        ProjectId = x.pj.Id,
+                        ProjectDescription = x.pj.Nombre ?? string.Empty
                     }).ToList()
                 };
 

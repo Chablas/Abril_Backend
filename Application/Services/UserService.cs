@@ -75,6 +75,16 @@ namespace Abril_Backend.Application.Services
             );
         }
 
+        public async Task Update(int userId, UserUpdateDTO dto)
+        {
+            await _userRepository.Update(userId, dto);
+        }
+
+        public async Task ToggleActive(int userId, int updatedUserId)
+        {
+            await _userRepository.ToggleActive(userId, updatedUserId);
+        }
+
         private string GenerateToken()
         {
             var bytes = RandomNumberGenerator.GetBytes(64);

@@ -1,0 +1,32 @@
+using System.ComponentModel.DataAnnotations.Schema;
+using Abril_Backend.Infrastructure.Models;
+
+namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
+{
+    [Table("ss_equipo")]
+    public class SsEquipo
+    {
+        public int Id { get; set; }
+        public string Tipo { get; set; } = string.Empty;
+        public string? Marca { get; set; }
+        public string? Modelo { get; set; }
+        public string? NSerie { get; set; }
+        public string? NVin { get; set; }
+        public string? Capacidad { get; set; }
+        public int? PropietarioEmpresaId { get; set; }
+        public int ProyectoId { get; set; }
+        public string? DatosEquipo { get; set; }
+        public string? EmailAdmin { get; set; }
+        public string? EmailSsoma { get; set; }
+        public bool Activo { get; set; } = true;
+        public int? IdLegacy { get; set; }
+        public DateTime? CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        [ForeignKey(nameof(PropietarioEmpresaId))]
+        public SsEmpresaContratista? PropietarioEmpresa { get; set; }
+
+        [ForeignKey(nameof(ProyectoId))]
+        public Projects? Proyecto { get; set; }
+    }
+}

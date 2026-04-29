@@ -1,0 +1,113 @@
+using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Equipos;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+
+namespace Abril_Backend.Features.Habilitacion.Presentation
+{
+    [ApiController]
+    [Route("api/v1/habilitacion/equipos")]
+    [Authorize]
+    public class EquipoController : ControllerBase
+    {
+        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP"];
+
+        private readonly IEquipoRepository _repo;
+        private readonly ILogger<EquipoController> _logger;
+
+        public EquipoController(IEquipoRepository repo, ILogger<EquipoController> logger)
+        {
+            _repo = repo;
+            _logger = logger;
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetPaged(
+            [FromQuery] int? proyectoId,
+            [FromQuery] int? empresaId,
+            [FromQuery] string? search,
+            [FromQuery] bool? activo,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                var (items, total) = await _repo.GetPagedAsync(proyectoId, empresaId, search, activo, page, pageSize);
+                var result = new PagedResult<EquipoListDto>
+                {
+                    Page = page,
+                    PageSize = pageSize,
+                    TotalRecords = total,
+                    TotalPages = (int)Math.Ceiling(total / (double)pageSize),
+                    Data = items
+                };
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EquipoController.GetPaged"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("{id:int}/entregables")]
+        public async Task<IActionResult> GetEntregables(int id)
+        {
+            try { return Ok(await _repo.GetEntregablesAsync(id)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EquipoController.GetEntregables"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] EquipoCreateDto dto)
+        {
+            try
+            {
+                var creado = await _repo.CreateAsync(dto);
+                return StatusCode(201, creado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EquipoController.Create"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] EquipoCreateDto dto)
+        {
+            try { return Ok(await _repo.UpdateAsync(id, dto)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EquipoController.Update"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("entregables/{id:int}")]
+        public async Task<IActionResult> UpdateEntregable(int id, [FromBody] EquipoEntregableUpdateDto dto)
+        {
+            try
+            {
+                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                var esAprobador = roles.Any(r => RolesAprobadores.Contains(r, StringComparer.OrdinalIgnoreCase));
+
+                if (esContratista && !string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase))
+                    return StatusCode(403, new { message = "Los contratistas solo pueden enviar entregables; la aprobación es interna." });
+
+                if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase) && !esAprobador)
+                    return StatusCode(403, new { message = "Solo ADMINISTRADOR SSOMA o ADMINISTRADOR DE UDP pueden aprobar." });
+
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int? userId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;
+
+                int? empresaIdClaim = null;
+                if (esContratista)
+                {
+                    var ec = User.FindFirst("empresaId")?.Value;
+                    if (int.TryParse(ec, out var eid)) empresaIdClaim = eid;
+                    userId = null;
+                }
+
+                return Ok(await _repo.UpdateEntregableAsync(id, dto, userId, empresaIdClaim));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EquipoController.UpdateEntregable"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+    }
+}

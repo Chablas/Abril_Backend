@@ -10,5 +10,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         Task Update(ProjectEditDto dto, int userId);
         Task<bool> DeleteSoftAsync(int projectId, int userId);
         Task<ContributorLookupDto?> GetOrCreateCompanyByRuc(string ruc, int userId);
+        Task UpdateEmails(int id, ProjectEmailsUpdateDto dto);
     }
 }

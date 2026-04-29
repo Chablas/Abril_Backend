@@ -33,7 +33,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             // ── Base query: AcActividad + Proyecto (projects) + Worker (left join via UserId) ──
             var query = from a in ctx.AcActividad
-                        join p in ctx.Proyecto on a.ProjectId equals p.Id
+                        join p in ctx.Projects on a.ProjectId equals p.Id
                         from w in ctx.Worker
                             .Where(w => w.Id == a.UserId)
                             .DefaultIfEmpty()
@@ -291,7 +291,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             var proyectos = await (
-                from p in ctx.Proyecto
+                from p in ctx.Projects
                 from w in ctx.Worker.Where(w => w.Id == p.ResponsableArqComId).DefaultIfEmpty()
                 select new ProyectoConActividadesDTO
                 {
@@ -345,7 +345,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
             var baseQuery = from a in ctx.AcActividad
-                            join p in ctx.Proyecto on a.ProjectId equals p.Id
+                            join p in ctx.Projects on a.ProjectId equals p.Id
                             from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                             from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
                             select new
@@ -481,7 +481,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
             var row = await (from a in ctx.AcActividad
-                             join p in ctx.Proyecto on a.ProjectId equals p.Id
+                             join p in ctx.Projects on a.ProjectId equals p.Id
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
                              where a.Id == id
@@ -753,7 +753,7 @@ namespace Abril_Backend.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var proyecto = await ctx.Proyecto.FirstOrDefaultAsync(p => p.Id == proyectoId);
+            var proyecto = await ctx.Projects.FirstOrDefaultAsync(p => p.Id == proyectoId);
             if (proyecto == null) return null;
 
             var workerId = proyecto.ResponsableArqComId;
@@ -779,7 +779,7 @@ namespace Abril_Backend.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var proyectoExiste = await ctx.Proyecto.AnyAsync(p => p.Id == proyectoId);
+            var proyectoExiste = await ctx.Projects.AnyAsync(p => p.Id == proyectoId);
             if (!proyectoExiste) return null;
 
             var yaTiene = await ctx.AcActividad.AnyAsync(a => a.ProjectId == proyectoId);
@@ -844,7 +844,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             }
 
             // Proyectos (todos — frontend los marca visualmente por estado)
-            var proyectos = await ctx.Proyecto
+            var proyectos = await ctx.Projects
                 .OrderBy(p => p.Nombre)
                 .Select(p => new ArqComercialProjectOptionDTO
                 {
@@ -906,7 +906,7 @@ namespace Abril_Backend.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var proyecto = await ctx.Proyecto.FirstOrDefaultAsync(p => p.Id == id);
+            var proyecto = await ctx.Projects.FirstOrDefaultAsync(p => p.Id == id);
             if (proyecto == null) return null;
 
             string? nombreResuelto = null;

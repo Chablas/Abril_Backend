@@ -1,0 +1,241 @@
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Equipos;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
+using Abril_Backend.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
+{
+    public class EquipoRepository : IEquipoRepository
+    {
+        private readonly IDbContextFactory<AppDbContext> _factory;
+
+        public EquipoRepository(IDbContextFactory<AppDbContext> factory)
+        {
+            _factory = factory;
+        }
+
+        public async Task<(List<EquipoListDto> Items, int Total)> GetPagedAsync(
+            int? proyectoId, int? empresaId, string? search,
+            bool? activo, int page, int pageSize)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var query = ctx.SsEquipo.AsQueryable();
+
+            if (proyectoId.HasValue) query = query.Where(e => e.ProyectoId == proyectoId.Value);
+            if (empresaId.HasValue) query = query.Where(e => e.PropietarioEmpresaId == empresaId.Value);
+            if (activo.HasValue) query = query.Where(e => e.Activo == activo.Value);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.ToLower();
+                query = query.Where(e =>
+                    e.Tipo.ToLower().Contains(s) ||
+                    (e.Marca != null && e.Marca.ToLower().Contains(s)) ||
+                    (e.Modelo != null && e.Modelo.ToLower().Contains(s)) ||
+                    (e.NSerie != null && e.NSerie.ToLower().Contains(s)));
+            }
+
+            var withState = query.Select(e => new
+            {
+                Equipo = e,
+                HasPendientes = ctx.SsHabEquipo
+                    .Any(h => h.EquipoId == e.Id && h.Estado != "No Aplica" && h.Estado != "Aprobado")
+            });
+
+            var total = await withState.CountAsync();
+
+            var pageRows = await withState
+                .OrderBy(x => x.Equipo.Tipo)
+                .ThenBy(x => x.Equipo.Id)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var empresaIds = pageRows
+                .Where(r => r.Equipo.PropietarioEmpresaId.HasValue)
+                .Select(r => r.Equipo.PropietarioEmpresaId!.Value)
+                .Distinct()
+                .ToList();
+            var proyectoIds = pageRows.Select(r => r.Equipo.ProyectoId).Distinct().ToList();
+
+            var empresaMap = await ctx.SsEmpresaContratista
+                .Where(e => empresaIds.Contains(e.Id))
+                .ToDictionaryAsync(e => e.Id, e => e.RazonSocial);
+
+            var proyectoMap = await ctx.Projects
+                .Where(p => proyectoIds.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id, p => p.Nombre);
+
+            var items = pageRows.Select(r => new EquipoListDto
+            {
+                Id = r.Equipo.Id,
+                Tipo = r.Equipo.Tipo,
+                Marca = r.Equipo.Marca,
+                Modelo = r.Equipo.Modelo,
+                NSerie = r.Equipo.NSerie,
+                Capacidad = r.Equipo.Capacidad,
+                PropietarioEmpresaNombre = r.Equipo.PropietarioEmpresaId is int eid && empresaMap.TryGetValue(eid, out var en) ? en : null,
+                ProyectoId = r.Equipo.ProyectoId,
+                ProyectoNombre = proyectoMap.TryGetValue(r.Equipo.ProyectoId, out var pn) ? pn ?? string.Empty : string.Empty,
+                EstadoHabilitacion = r.HasPendientes ? "No Autorizado" : "Habilitado",
+                Activo = r.Equipo.Activo
+            }).ToList();
+
+            return (items, total);
+        }
+
+        public async Task<SsEquipo?> GetByIdAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsEquipo.FirstOrDefaultAsync(e => e.Id == id);
+        }
+
+        public async Task<SsEquipo> CreateAsync(EquipoCreateDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = new SsEquipo
+            {
+                Tipo = dto.Tipo,
+                Marca = dto.Marca,
+                Modelo = dto.Modelo,
+                NSerie = dto.NSerie,
+                NVin = dto.NVin,
+                Capacidad = dto.Capacidad,
+                PropietarioEmpresaId = dto.PropietarioEmpresaId,
+                ProyectoId = dto.ProyectoId,
+                EmailAdmin = dto.EmailAdmin,
+                EmailSsoma = dto.EmailSsoma,
+                Activo = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            ctx.SsEquipo.Add(entity);
+            await ctx.SaveChangesAsync();
+            return entity;
+        }
+
+        public async Task<SsEquipo> UpdateAsync(int id, EquipoCreateDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.SsEquipo.FirstOrDefaultAsync(e => e.Id == id)
+                ?? throw new AbrilException("Equipo no encontrado.", 404);
+
+            entity.Tipo = dto.Tipo;
+            entity.Marca = dto.Marca;
+            entity.Modelo = dto.Modelo;
+            entity.NSerie = dto.NSerie;
+            entity.NVin = dto.NVin;
+            entity.Capacidad = dto.Capacidad;
+            entity.PropietarioEmpresaId = dto.PropietarioEmpresaId;
+            entity.ProyectoId = dto.ProyectoId;
+            entity.EmailAdmin = dto.EmailAdmin;
+            entity.EmailSsoma = dto.EmailSsoma;
+            entity.UpdatedAt = DateTime.UtcNow;
+
+            await ctx.SaveChangesAsync();
+            return entity;
+        }
+
+        public async Task<List<EquipoEntregableDto>> GetEntregablesAsync(int equipoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var equipo = await ctx.SsEquipo.FirstOrDefaultAsync(e => e.Id == equipoId)
+                ?? throw new AbrilException("Equipo no encontrado.", 404);
+
+            var items = await ctx.SsItemEquipo
+                .Where(i => i.Activo)
+                .OrderBy(i => i.Orden)
+                .ToListAsync();
+
+            var itemIds = items.Select(i => i.Id).ToList();
+
+            var existentes = await ctx.SsHabEquipo
+                .Where(h => h.EquipoId == equipoId && itemIds.Contains(h.ItemId))
+                .ToListAsync();
+
+            var faltantes = items
+                .Where(i => !existentes.Any(h => h.ItemId == i.Id))
+                .Select(i => new SsHabEquipo
+                {
+                    EquipoId = equipoId,
+                    ItemId = i.Id,
+                    Estado = "Falta",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                })
+                .ToList();
+
+            if (faltantes.Count > 0)
+            {
+                ctx.SsHabEquipo.AddRange(faltantes);
+                await ctx.SaveChangesAsync();
+                existentes.AddRange(faltantes);
+            }
+
+            var itemMap = items.ToDictionary(i => i.Id);
+
+            return existentes
+                .Where(h => itemMap.ContainsKey(h.ItemId))
+                .Select(h =>
+                {
+                    var item = itemMap[h.ItemId];
+                    return new EquipoEntregableDto
+                    {
+                        Id = h.Id,
+                        ItemId = h.ItemId,
+                        NombreItem = item.Nombre,
+                        Estado = h.Estado,
+                        Vigencia = h.Vigencia,
+                        ArchivoUrl = h.ArchivoUrl,
+                        ObsAbril = h.ObsAbril,
+                        RequiereVigencia = item.RequiereVigencia
+                    };
+                })
+                .OrderBy(d => itemMap[d.ItemId].Orden)
+                .ToList();
+        }
+
+        public async Task<SsHabEquipo> UpdateEntregableAsync(int id, EquipoEntregableUpdateDto dto, int? userId, int? empresaId = null)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entregable = await ctx.SsHabEquipo.FirstOrDefaultAsync(h => h.Id == id)
+                ?? throw new AbrilException("Entregable no encontrado.", 404);
+
+            if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
+            {
+                var versionActual = await ctx.SsHabDocumentoVersion
+                    .CountAsync(v => v.HabEquipoId == id);
+
+                ctx.SsHabDocumentoVersion.Add(new SsHabDocumentoVersion
+                {
+                    HabEquipoId = id,
+                    Version = versionActual + 1,
+                    ArchivoUrl = dto.ArchivoUrl,
+                    SubidoPorUserId = userId,
+                    SubidoPorEmpresaId = empresaId,
+                    EstadoAlSubir = dto.Estado,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            entregable.Estado = dto.Estado;
+            entregable.Vigencia = dto.Vigencia;
+            entregable.ArchivoUrl = dto.ArchivoUrl;
+            entregable.ObsAbril = dto.ObsAbril;
+            entregable.UpdatedAt = DateTime.UtcNow;
+
+            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+            {
+                entregable.AprobadoPor = userId;
+            }
+
+            await ctx.SaveChangesAsync();
+            return entregable;
+        }
+    }
+}

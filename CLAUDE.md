@@ -10,6 +10,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Dockerfile builds with the .NET 10 SDK and exposes port 8080.
 - Swagger is wired but only mounted in Development at `/swagger`.
 
+## EF Core migrations
+
+```bash
+# Add a migration (run from the project root)
+dotnet ef migrations add <MigrationName> --project Abril-Backend.csproj
+
+# Apply pending migrations
+dotnet ef database update --project Abril-Backend.csproj
+```
+
+The connection string used comes from whichever `appsettings.*.json` / `appsettings.Local.json` is active. Run migrations against the target provider before deploying. Both providers share one `AppDbContext`; if PG overrides are needed, add them in `ConfigurePostgreSQL` before generating the migration.
+
 ## Configuration model
 
 `Program.cs` layers config as `appsettings.json` → `appsettings.{Environment}.json` → `appsettings.Local.json` → env vars. `appsettings.Development.json`, `appsettings.Production.json`, and `appsettings.Local.json` are all gitignored and contain real secrets (DB, JWT key, Azure Blob, SendGrid, PowerAutomate webhook, Reniec/Sunat tokens, Azure AD). **Do not commit these** and do not paste their contents into chat/PRs.
@@ -53,17 +65,20 @@ Features/<Module>Module/
     Presentation/*Controller.cs
 ```
 
-Existing modules: `ContractorsModule` (ContractorRegistration, ContractorManagement), `CostsModule` (Adjudicaciones), `MicrosoftAuthModule` (MicrosoftLogin, MicrosoftProfile). Each module's `AddXxxModule` extension is the only thing wired in `Program.cs` — keep internal registrations inside the module file, not in `Program.cs`.
+Existing modules: `ContractorsModule` (ContractorRegistration, ContractorManagement), `CostsModule` (Adjudicaciones), `MicrosoftAuthModule` (MicrosoftLogin, MicrosoftProfile), `SsomaModule` (SaludOcupacional — Catalogos, EMO, Convalidacion, ProgramacionEmo, Interconsulta, Dashboard, WorkerSearch). Each module's `AddXxxModule` extension is the only thing wired in `Program.cs` — keep internal registrations inside the module file, not in `Program.cs`.
+
+SSOMA entities use the `Ss*` prefix (e.g. `SsClinica`, `SsMedicoOcupacional`, `SsEmoTipo`, `SsEmoExamenDetalle`, `SsInterconsulta`, `SsProgramacionEmo`). These are distinct from the `Worker*` entities (`Worker`, `WorkerEmo`, `WorkerEmoConvalidacion`, `WorkerVinculacion`) which are shared across AC and SSOMA domains.
 
 Feature entities are still registered as `DbSet`s on the single shared `AppDbContext` in `Shared/Data/AppContext.cs`. When adding a feature entity, add the `DbSet` there and (if PG needs overrides) extend `ConfigurePostgreSQL`.
 
 ## Conventions to preserve
 
-- **Repositories use `IDbContextFactory<AppDbContext>`** and open a short-lived context per call (`using var ctx = _factory.CreateDbContext()`), not an injected `AppDbContext`. Follow this pattern for new repos — several repos run parallel queries and rely on distinct contexts.
+- **Repositories use `IDbContextFactory<AppDbContext>`** and open a short-lived context per call (`using var ctx = _factory.CreateDbContext()`), not an injected `AppDbContext`. Follow this pattern for new repos — several repos run parallel queries and rely on distinct contexts. Some older traditional-layer repos (e.g. `AreaRepository`, `LayerRepository`, `PersonRepository`) are registered directly as concrete types without an interface (`builder.Services.AddScoped<AreaRepository>()`) and injected by concrete type in controllers — this is a legacy pattern; new repos should use the interface-backed pattern.
 - **Controllers wrap calls in try/catch** with this shape: catch `AbrilException` → return `StatusCode(ex.StatusCode, new { message = ex.Message })`; catch generic `Exception` → return 500 with a fixed Spanish message. Throw `AbrilException(message, statusCode)` from services/repos for expected failures; let unexpected ones bubble to the 500 handler.
 - **Auth**: two JWT schemes are registered — `"Bearer"` (internal JWT signed with `Jwt:Key`) and `"AzureAd"` (Microsoft Entra). The default authorization policy accepts both. Endpoints are authenticated by default unless `[AllowAnonymous]` is used. `NameClaimType` is `ClaimTypes.NameIdentifier` for internal JWT — read the current user id via `User.FindFirst(ClaimTypes.NameIdentifier)`.
 - **Rate limiting**: the `sunat-ruc` policy (5/hour per IP for unauthenticated callers, unlimited for authenticated) is configured in `Program.cs`. Apply with `[EnableRateLimiting("sunat-ruc")]` on relevant endpoints.
-- **Mixed domain vocabulary**: older English-named entities (`Project`, `User`, `Stage`) coexist with newer Spanish-named ones introduced for the Arquitectura Comercial domain (`Proyecto`, `Worker`, `Empresa`, `AcActividad`, `AcEtapa`, `AcActividadPlantilla`). These refer to different tables — do not assume a Spanish name is an alias for an English one. Check `AppDbContext` and existing queries before cross-referencing.
+- **Mixed domain vocabulary**: older English-named entities (`Project`, `User`, `Stage`) coexist with newer Spanish-named ones introduced for the Arquitectura Comercial domain (`Proyecto`, `Worker`, `Empresa`, `AcActividad`, `AcEtapa`, `AcActividadPlantilla`) and SSOMA (`Ss*` entities). These refer to different tables — do not assume a Spanish name is an alias for an English one. Check `AppDbContext` and existing queries before cross-referencing.
+- **ArquitecturaComercial lives in the traditional layer**, not under `Features/`: service at `Application/Services/ArquitecturaComercialService.cs`, repo at `Infrastructure/Repositories/ArquitecturaComercialRepository.cs`. Its entities (`AcActividad`, `AcEtapa`, `AcActividadPlantilla`, `AcCategoria`, `AcEspecialidad`, `Proyecto`, `Empresa`) all carry `Ac*` or Spanish names.
 - **User-facing messages** in error responses are in Spanish; keep that tone for new endpoints.
 
 ## Pitfalls

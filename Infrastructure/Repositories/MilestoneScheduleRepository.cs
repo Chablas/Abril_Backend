@@ -24,8 +24,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var data = await (
                 from msh in _context.MilestoneScheduleHistory
-                join p in _context.Project
-                    on msh.ProjectId equals p.ProjectId
+                join p in _context.Projects
+                    on msh.ProjectId equals p.Id
                 join u in _context.User
                     on msh.CreatedUserId equals u.UserId
                 join person in _context.Person
@@ -36,7 +36,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     msh.Active && msh.State
                 select new
                 {
-                    p.ProjectDescription,
+                    ProjectDescription = p.Nombre ?? string.Empty,
                     ChangedBy = person.FullName,
                     ChangeDate = msh.CreatedDateTime
                 }

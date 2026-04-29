@@ -11,6 +11,7 @@ namespace Abril_Backend.Controllers
 {
     [ApiController]
     [Route("api/v1/[controller]")]
+    [AllowAnonymous]
     public class ProjectController : ControllerBase
     {
         private readonly IProjectService _projectService;
@@ -26,10 +27,10 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                // var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                //
+                // if (userIdClaim == null)
+                //     return Unauthorized(new { message = "Inicie sesión" });
 
                 if (page < 1)
                     page = 1;

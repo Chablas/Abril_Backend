@@ -357,20 +357,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
         }
 
-        // ===== Empresas =====
+        // ===== Empresas (razones sociales) =====
+        // Lee desde la tabla `contributor`. Mapea los campos al shape de EmpresaCatalogoDto
+        // que es el que consume tanto SSOMA como Configuración → Razones Sociales.
         public async Task<List<EmpresaCatalogoDto>> ListEmpresas(bool soloActivas)
         {
             using var ctx = _factory.CreateDbContext();
-            var q = ctx.Contributor.AsQueryable();
+            var q = ctx.Contributor.Where(e => e.State).AsQueryable();
             if (soloActivas) q = q.Where(e => e.Active == true);
             return await q
                 .OrderBy(e => e.ContributorName)
                 .Select(e => new EmpresaCatalogoDto
                 {
-                    Id = e.ContributorId,
-                    Nombre = e.ContributorName,
-                    Ruc = e.ContributorRuc,
-                    EsAbril = e.ContributorName != null && e.ContributorName.ToUpper().Contains("ABRIL")
+                    Id               = e.ContributorId,
+                    Nombre           = e.ContributorName,
+                    Ruc              = e.ContributorRuc,
+                    Direccion        = e.ContributorAddress,
+                    PartidaRegistral = e.LegalEntityRegistryNumber,
+                    TipoActividad    = e.ContributorEconomicActivityDescription,
+                    Activo           = e.Active,
+                    EsAbril          = e.ContributorName != null && e.ContributorName.ToUpper().Contains("ABRIL")
                 })
                 .ToListAsync();
         }

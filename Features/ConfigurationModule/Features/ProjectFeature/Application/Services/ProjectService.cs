@@ -108,5 +108,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         {
             await _repository.UpdateEmails(id, dto);
         }
+
+        public async Task<ProjectEmailsUpdateDto?> GetEmails(int projectId)
+        {
+            return await _repository.GetEmails(projectId);
+        }
     }
 }

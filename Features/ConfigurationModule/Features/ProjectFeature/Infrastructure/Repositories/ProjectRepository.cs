@@ -33,32 +33,56 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 .Take(pageSize)
                 .Select(p => new ProjectDto
                 {
-                    ProjectId = p.ProjectId,
+                    ProjectId          = p.ProjectId,
                     ProjectDescription = p.ProjectDescription,
-                    LevelDescription = p.LevelDescription,
-                    ContributorId = p.ContributorId,
-                    ContributorRuc = p.Contributor != null ? p.Contributor.ContributorRuc : null,
-                    ContributorName = p.Contributor != null ? p.Contributor.ContributorName : null,
-                    ContributorAddress = p.Contributor != null ? p.Contributor.ContributorAddress : null,
-                    ContributorDistrict = p.Contributor != null ? p.Contributor.ContributorDistrict : null,
-                    ContributorProvince = p.Contributor != null ? p.Contributor.ContributorProvince : null,
-                    ContributorDepartment = p.Contributor != null ? p.Contributor.ContributorDepartment : null,
+                    Codigo             = p.Codigo,
+                    LevelDescription   = p.LevelDescription,
+                    Estado             = p.Estado,
+
+                    ContributorId                        = p.ContributorId,
+                    ContributorRuc                       = p.Contributor != null ? p.Contributor.ContributorRuc           : null,
+                    ContributorName                      = p.Contributor != null ? p.Contributor.ContributorName          : null,
+                    ContributorAddress                   = p.Contributor != null ? p.Contributor.ContributorAddress       : null,
+                    ContributorDistrict                  = p.Contributor != null ? p.Contributor.ContributorDistrict      : null,
+                    ContributorProvince                  = p.Contributor != null ? p.Contributor.ContributorProvince      : null,
+                    ContributorDepartment                = p.Contributor != null ? p.Contributor.ContributorDepartment    : null,
                     ContributorLegalEntityRegistryNumber = p.Contributor != null ? p.Contributor.LegalEntityRegistryNumber : null,
-                    ProjectDistrict = p.ProjectDistrict,
-                    ProjectProvince = p.ProjectProvince,
+
+                    ProjectDistrict   = p.ProjectDistrict,
+                    ProjectProvince   = p.ProjectProvince,
                     ProjectDepartment = p.ProjectDepartment,
-                    ProjectLocation = p.ProjectLocation,
+                    ProjectLocation   = p.ProjectLocation,
+
+                    ResponsableArqCom   = p.ResponsableArqCom,
+                    ResponsableArqComId = p.ResponsableArqComId,
+
+                    FechaInicio = p.FechaInicio,
+                    FechaFin    = p.FechaFin,
+                    InicioObra  = p.InicioObra,
+                    FinObra     = p.FinObra,
+
+                    NumNiveles           = p.NumNiveles,
+                    NumSotanos           = p.NumSotanos,
+                    Pisos                = p.Pisos,
+                    TiempoConstruccion   = p.TiempoConstruccion,
+                    AreaM2               = p.AreaM2,
+                    AreaTechadaM2        = p.AreaTechadaM2,
+                    HhTotalCasa          = p.HhTotalCasa,
+                    CantTrabajadoresCasa = p.CantTrabajadoresCasa,
+
+                    TieneArquitecturaComercial = p.TieneArquitecturaComercial,
+
                     Active = p.Active
                 })
                 .ToListAsync();
 
             return new PagedResult<ProjectDto>
             {
-                Page = page,
-                PageSize = pageSize,
+                Page         = page,
+                PageSize     = pageSize,
                 TotalRecords = totalRecords,
-                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
-                Data = data
+                TotalPages   = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data         = data
             };
         }
 
@@ -72,16 +96,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
             if (existing != null && !existing.State)
             {
-                existing.State = true;
-                existing.Active = dto.Active;
-                existing.LevelDescription = dto.LevelDescription?.Trim();
-                existing.ContributorId = dto.ContributorId;
-                existing.ProjectDistrict = dto.ProjectDistrict?.Trim();
-                existing.ProjectProvince = dto.ProjectProvince?.Trim();
-                existing.ProjectDepartment = dto.ProjectDepartment?.Trim();
-                existing.ProjectLocation = dto.ProjectLocation?.Trim();
+                ApplyDtoToEntity(existing, dto);
+                existing.State           = true;
                 existing.UpdatedDateTime = DateTime.UtcNow;
-                existing.UpdatedUserId = userId;
+                existing.UpdatedUserId   = userId;
                 await _context.SaveChangesAsync();
                 await UpdateContributorLegalEntityRegistryNumberAsync(dto.ContributorId, dto.LegalEntityRegistryNumber, userId);
                 return;
@@ -90,17 +108,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             var project = new Project
             {
                 ProjectDescription = dto.ProjectDescription.Trim(),
-                LevelDescription = dto.LevelDescription?.Trim(),
-                ContributorId = dto.ContributorId,
-                ProjectDistrict = dto.ProjectDistrict?.Trim(),
-                ProjectProvince = dto.ProjectProvince?.Trim(),
-                ProjectDepartment = dto.ProjectDepartment?.Trim(),
-                ProjectLocation = dto.ProjectLocation?.Trim(),
-                Active = dto.Active,
-                State = true,
-                CreatedDateTime = DateTime.UtcNow,
-                CreatedUserId = userId
+                State              = true,
+                CreatedDateTime    = DateTime.UtcNow,
+                CreatedUserId      = userId
             };
+            ApplyDtoToEntity(project, dto);
 
             _context.Project.Add(project);
             await _context.SaveChangesAsync();
@@ -124,16 +136,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             if (duplicate != null)
                 throw new AbrilException("Ya existe otro proyecto con la misma descripción.");
 
-            project.ProjectDescription = dto.ProjectDescription.Trim();
-            project.LevelDescription = dto.LevelDescription?.Trim();
-            project.ContributorId = dto.ContributorId;
-            project.ProjectDistrict = dto.ProjectDistrict?.Trim();
-            project.ProjectProvince = dto.ProjectProvince?.Trim();
-            project.ProjectDepartment = dto.ProjectDepartment?.Trim();
-            project.ProjectLocation = dto.ProjectLocation?.Trim();
-            project.Active = dto.Active;
+            ApplyDtoToEntity(project, dto);
             project.UpdatedDateTime = DateTime.UtcNow;
-            project.UpdatedUserId = userId;
+            project.UpdatedUserId   = userId;
 
             await _context.SaveChangesAsync();
             await UpdateContributorLegalEntityRegistryNumberAsync(dto.ContributorId, dto.LegalEntityRegistryNumber, userId);
@@ -147,10 +152,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             if (project == null)
                 return false;
 
-            project.State = false;
-            project.Active = false;
+            project.State           = false;
+            project.Active          = false;
             project.UpdatedDateTime = DateTime.UtcNow;
-            project.UpdatedUserId = userId;
+            project.UpdatedUserId   = userId;
 
             await _context.SaveChangesAsync();
             return true;
@@ -166,17 +171,17 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         {
             var contributor = new Contributor
             {
-                ContributorRuc = ruc,
-                ContributorName = name,
-                ContributorAddress = address,
+                ContributorRuc                         = ruc,
+                ContributorName                        = name,
+                ContributorAddress                     = address,
                 ContributorEconomicActivityDescription = economicActivity,
-                ContributorDistrict = district,
-                ContributorProvince = province,
-                ContributorDepartment = department,
-                Active = true,
-                State = true,
-                CreatedDateTime = DateTimeOffset.UtcNow,
-                CreatedUserId = userId
+                ContributorDistrict                    = district,
+                ContributorProvince                    = province,
+                ContributorDepartment                  = department,
+                Active                                 = true,
+                State                                  = true,
+                CreatedDateTime                        = DateTimeOffset.UtcNow,
+                CreatedUserId                          = userId
             };
 
             _context.Contributor.Add(contributor);
@@ -184,17 +189,129 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             return contributor;
         }
 
+        public async Task<ProjectEmailsUpdateDto?> GetEmails(int projectId)
+        {
+            var emails = await _context.Project
+                .Where(p => p.ProjectId == projectId && p.State)
+                .Select(p => new ProjectEmailsUpdateDto
+                {
+                    EmailResidente   = p.EmailResidente,
+                    EmailResponsable = p.EmailResponsable,
+                    EmailRrhh        = p.EmailRrhh,
+                    EmailCoordSsoma  = p.EmailCoordSsoma,
+                    EmailCoordAdmin  = p.EmailCoordAdmin,
+                })
+                .FirstOrDefaultAsync();
+
+            return emails;
+        }
+
+        public async Task UpdateEmails(int id, ProjectEmailsUpdateDto dto)
+        {
+            var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == id);
+            if (project == null)
+                throw new AbrilException("El proyecto no existe.");
+
+            // Solo sobreescribimos campos que vinieron no-null en el DTO; null se trata como "no tocar".
+            // Si querés vaciar un email, mandar string vacío en vez de null.
+            if (dto.EmailResidente   != null) project.EmailResidente   = string.IsNullOrWhiteSpace(dto.EmailResidente)   ? null : dto.EmailResidente.Trim();
+            if (dto.EmailResponsable != null) project.EmailResponsable = string.IsNullOrWhiteSpace(dto.EmailResponsable) ? null : dto.EmailResponsable.Trim();
+            if (dto.EmailRrhh        != null) project.EmailRrhh        = string.IsNullOrWhiteSpace(dto.EmailRrhh)        ? null : dto.EmailRrhh.Trim();
+            if (dto.EmailCoordSsoma  != null) project.EmailCoordSsoma  = string.IsNullOrWhiteSpace(dto.EmailCoordSsoma)  ? null : dto.EmailCoordSsoma.Trim();
+            if (dto.EmailCoordAdmin  != null) project.EmailCoordAdmin  = string.IsNullOrWhiteSpace(dto.EmailCoordAdmin)  ? null : dto.EmailCoordAdmin.Trim();
+
+            project.UpdatedDateTime = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+        }
+
         public async Task UpdateContributorLocationAsync(int contributorId, string? district, string? province, string? department)
         {
             var contributor = await _context.Contributor.FindAsync(contributorId);
             if (contributor == null) return;
 
-            contributor.ContributorDistrict = district;
-            contributor.ContributorProvince = province;
+            contributor.ContributorDistrict   = district;
+            contributor.ContributorProvince   = province;
             contributor.ContributorDepartment = department;
-            contributor.UpdatedDateTime = DateTimeOffset.UtcNow;
+            contributor.UpdatedDateTime       = DateTimeOffset.UtcNow;
 
             await _context.SaveChangesAsync();
+        }
+
+        // ----- helpers privados -----
+
+        /// <summary>Aplica los campos editables del DTO Create a la entidad Project.</summary>
+        private static void ApplyDtoToEntity(Project project, ProjectCreateDto dto)
+        {
+            project.ProjectDescription = dto.ProjectDescription.Trim();
+            project.Codigo             = string.IsNullOrWhiteSpace(dto.Codigo) ? null : dto.Codigo.Trim();
+            project.LevelDescription   = dto.LevelDescription?.Trim();
+            project.Estado             = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim();
+
+            project.ContributorId      = dto.ContributorId;
+
+            project.ProjectDistrict    = dto.ProjectDistrict?.Trim();
+            project.ProjectProvince    = dto.ProjectProvince?.Trim();
+            project.ProjectDepartment  = dto.ProjectDepartment?.Trim();
+            project.ProjectLocation    = dto.ProjectLocation?.Trim();
+
+            project.ResponsableArqCom    = dto.ResponsableArqCom?.Trim();
+            project.ResponsableArqComId  = dto.ResponsableArqComId;
+
+            project.FechaInicio = dto.FechaInicio;
+            project.FechaFin    = dto.FechaFin;
+            project.InicioObra  = dto.InicioObra;
+            project.FinObra     = dto.FinObra;
+
+            project.NumNiveles           = string.IsNullOrWhiteSpace(dto.NumNiveles)           ? null : dto.NumNiveles.Trim();
+            project.NumSotanos           = string.IsNullOrWhiteSpace(dto.NumSotanos)           ? null : dto.NumSotanos.Trim();
+            project.Pisos                = string.IsNullOrWhiteSpace(dto.Pisos)                ? null : dto.Pisos.Trim();
+            project.TiempoConstruccion   = dto.TiempoConstruccion;
+            project.AreaM2               = dto.AreaM2;
+            project.AreaTechadaM2        = dto.AreaTechadaM2;
+            project.HhTotalCasa          = dto.HhTotalCasa;
+            project.CantTrabajadoresCasa = string.IsNullOrWhiteSpace(dto.CantTrabajadoresCasa) ? null : dto.CantTrabajadoresCasa.Trim();
+
+            project.TieneArquitecturaComercial = dto.TieneArquitecturaComercial ?? false;
+
+            project.Active = dto.Active;
+        }
+
+        /// <summary>Aplica los campos editables del DTO Edit a la entidad Project.</summary>
+        private static void ApplyDtoToEntity(Project project, ProjectEditDto dto)
+        {
+            project.ProjectDescription = dto.ProjectDescription.Trim();
+            project.Codigo             = string.IsNullOrWhiteSpace(dto.Codigo) ? null : dto.Codigo.Trim();
+            project.LevelDescription   = dto.LevelDescription?.Trim();
+            project.Estado             = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim();
+
+            project.ContributorId      = dto.ContributorId;
+
+            project.ProjectDistrict    = dto.ProjectDistrict?.Trim();
+            project.ProjectProvince    = dto.ProjectProvince?.Trim();
+            project.ProjectDepartment  = dto.ProjectDepartment?.Trim();
+            project.ProjectLocation    = dto.ProjectLocation?.Trim();
+
+            project.ResponsableArqCom    = dto.ResponsableArqCom?.Trim();
+            project.ResponsableArqComId  = dto.ResponsableArqComId;
+
+            project.FechaInicio = dto.FechaInicio;
+            project.FechaFin    = dto.FechaFin;
+            project.InicioObra  = dto.InicioObra;
+            project.FinObra     = dto.FinObra;
+
+            project.NumNiveles           = string.IsNullOrWhiteSpace(dto.NumNiveles)           ? null : dto.NumNiveles.Trim();
+            project.NumSotanos           = string.IsNullOrWhiteSpace(dto.NumSotanos)           ? null : dto.NumSotanos.Trim();
+            project.Pisos                = string.IsNullOrWhiteSpace(dto.Pisos)                ? null : dto.Pisos.Trim();
+            project.TiempoConstruccion   = dto.TiempoConstruccion;
+            project.AreaM2               = dto.AreaM2;
+            project.AreaTechadaM2        = dto.AreaTechadaM2;
+            project.HhTotalCasa          = dto.HhTotalCasa;
+            project.CantTrabajadoresCasa = string.IsNullOrWhiteSpace(dto.CantTrabajadoresCasa) ? null : dto.CantTrabajadoresCasa.Trim();
+
+            project.TieneArquitecturaComercial = dto.TieneArquitecturaComercial ?? false;
+
+            project.Active = dto.Active;
         }
 
         private async Task UpdateContributorLegalEntityRegistryNumberAsync(int? contributorId, string? legalEntityRegistryNumber, int userId)
@@ -208,25 +325,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 ? null
                 : legalEntityRegistryNumber.Trim();
             contributor.UpdatedDateTime = DateTimeOffset.UtcNow;
-            contributor.UpdatedUserId = userId;
-
-            await _context.SaveChangesAsync();
-        }
-
-        public async Task UpdateEmails(int id, ProjectEmailsUpdateDto dto)
-        {
-            var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == id);
-
-            if (project == null)
-                throw new AbrilException("El proyecto no existe");
-
-            if (dto.EmailResidente   != null) project.EmailResidente   = dto.EmailResidente;
-            if (dto.EmailResponsable != null) project.EmailResponsable = dto.EmailResponsable;
-            if (dto.EmailRrhh        != null) project.EmailRrhh        = dto.EmailRrhh;
-            if (dto.EmailCoordSsoma  != null) project.EmailCoordSsoma  = dto.EmailCoordSsoma;
-            if (dto.EmailCoordAdmin  != null) project.EmailCoordAdmin  = dto.EmailCoordAdmin;
-
-            project.UpdatedDateTime = DateTime.UtcNow;
+            contributor.UpdatedUserId   = userId;
 
             await _context.SaveChangesAsync();
         }

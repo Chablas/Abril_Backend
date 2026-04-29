@@ -138,6 +138,24 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
         }
 
         [Authorize]
+        [HttpGet("{id}/emails")]
+        public async Task<IActionResult> GetEmails(int id)
+        {
+            try
+            {
+                var emails = await _service.GetEmails(id);
+                if (emails == null)
+                    return NotFound(new { message = "Proyecto no encontrado." });
+
+                return Ok(emails);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPatch("{id}/emails")]
         public async Task<IActionResult> UpdateEmails(int id, [FromBody] ProjectEmailsUpdateDto dto)
         {

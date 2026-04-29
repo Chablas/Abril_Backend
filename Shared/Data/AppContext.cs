@@ -29,7 +29,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Person> Person { get; set; }
         public DbSet<Phase> Phase { get; set; }
         public DbSet<PhaseStageSubStageSubSpecialty> PhaseStageSubStageSubSpecialty { get; set; }
-        public DbSet<Projects> Projects { get; set; }
+        public DbSet<Project> Project { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
         public DbSet<ResidentReportIncidenceImage> ResidentReportIncidenceImage {get;set;}

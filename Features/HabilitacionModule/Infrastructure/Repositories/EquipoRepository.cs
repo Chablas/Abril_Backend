@@ -65,9 +65,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(e => empresaIds.Contains(e.Id))
                 .ToDictionaryAsync(e => e.Id, e => e.RazonSocial);
 
-            var proyectoMap = await ctx.Projects
-                .Where(p => proyectoIds.Contains(p.Id))
-                .ToDictionaryAsync(p => p.Id, p => p.Nombre);
+            var proyectoMap = await ctx.Project
+                .Where(p => proyectoIds.Contains(p.ProjectId))
+                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
 
             var items = pageRows.Select(r => new EquipoListDto
             {

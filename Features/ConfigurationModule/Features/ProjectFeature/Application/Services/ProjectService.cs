@@ -103,5 +103,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
                 LegalEntityRegistryNumber = created.LegalEntityRegistryNumber
             };
         }
+
+        public async Task UpdateEmails(int id, ProjectEmailsUpdateDto dto)
+        {
+            await _repository.UpdateEmails(id, dto);
+        }
     }
 }

@@ -23,7 +23,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var q =
                 from p in ctx.SsProgramacionEmo
                 join w in ctx.Worker on p.WorkerId equals w.Id
-                join em in ctx.Empresa on p.EmpresaId equals em.Id into ej
+                join em in ctx.Contributor on p.EmpresaId equals em.ContributorId into ej
                 from em in ej.DefaultIfEmpty()
                 join t in ctx.SsEmoTipo on p.TipoEmoId equals t.Id into tj
                 from t in tj.DefaultIfEmpty()
@@ -51,7 +51,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerId = x.p.WorkerId,
                     WorkerNombre = x.w.ApellidoNombre,
                     WorkerDni = x.w.Dni,
-                    Empresa = x.em != null ? x.em.RazonSocial : null,
+                    Empresa = x.em != null ? x.em.ContributorName : null,
                     TipoEmo = x.t != null ? x.t.Nombre : null,
                     FechaProgramada = x.p.FechaProgramada,
                     HoraProgramada = x.p.HoraProgramada,

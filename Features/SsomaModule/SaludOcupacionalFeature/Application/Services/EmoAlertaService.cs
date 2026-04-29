@@ -1,8 +1,10 @@
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
@@ -83,17 +85,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Distinct()
                 .ToList();
 
-            var proyectos = await ctx.Projects
+            var proyectos = await ctx.Project
                 .AsNoTracking()
-                .Where(p => proyectoIds.Contains(p.Id))
+                .Where(p => proyectoIds.Contains(p.ProjectId))
                 .ToListAsync();
-            var proyectosDict = proyectos.ToDictionary(p => p.Id);
+            var proyectosDict = proyectos.ToDictionary(p => p.ProjectId);
 
-            var empresas = await ctx.Empresa
+            var empresas = await ctx.Contributor
                 .AsNoTracking()
-                .Where(em => empresaIds.Contains(em.Id))
+                .Where(em => empresaIds.Contains(em.ContributorId))
                 .ToListAsync();
-            var empresasDict = empresas.ToDictionary(em => em.Id);
+            var empresasDict = empresas.ToDictionary(em => em.ContributorId);
 
             var alertasYaEnviadasHoy = await ctx.SsAlertaEmo
                 .AsNoTracking()
@@ -120,13 +122,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                 vinculacionPorWorker.TryGetValue(worker.Id, out var vinculacion);
 
-                Abril_Backend.Infrastructure.Models.Projects? proyecto = null;
+                Project? proyecto = null;
                 if (vinculacion?.ProyectoId.HasValue == true)
                 {
                     proyectosDict.TryGetValue(vinculacion.ProyectoId.Value, out proyecto);
                 }
 
-                Abril_Backend.Infrastructure.Models.Empresa? empresa = null;
+                Contributor? empresa = null;
                 if (vinculacion?.EmpresaId.HasValue == true)
                 {
                     empresasDict.TryGetValue(vinculacion.EmpresaId.Value, out empresa);
@@ -184,7 +186,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         private static List<string> BuildDestinatarios(
             string? emailPersonal,
-            Abril_Backend.Infrastructure.Models.Projects? proyecto)
+            Project? proyecto)
         {
             var raw = new[]
             {
@@ -206,8 +208,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private static string BuildBody(
             Abril_Backend.Infrastructure.Models.Worker worker,
             Abril_Backend.Infrastructure.Models.WorkerEmo emo,
-            Abril_Backend.Infrastructure.Models.Projects? proyecto,
-            Abril_Backend.Infrastructure.Models.Empresa? empresa,
+            Project? proyecto,
+            Contributor? empresa,
             int vigenciaAnios)
         {
             return $@"
@@ -237,11 +239,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Empresa</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{empresa?.RazonSocial ?? "—"}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{empresa?.ContributorName ?? "—"}</td>
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Proyecto</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{proyecto?.Nombre ?? "—"}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{proyecto?.ProjectDescription ?? "—"}</td>
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Fecha del EMO</strong></td>

@@ -1,4 +1,5 @@
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.CostsModule.Shared.Models {
     public class StaffProjectEmail

@@ -13,5 +13,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         Task<Contributor?> FindContributorByRuc(string ruc);
         Task<Contributor> CreateContributor(string ruc, string name, string address, string economicActivity, string? district, string? province, string? department, int userId);
         Task UpdateContributorLocationAsync(int contributorId, string? district, string? province, string? department);
+        Task UpdateEmails(int id, ProjectEmailsUpdateDto dto);
     }
 }

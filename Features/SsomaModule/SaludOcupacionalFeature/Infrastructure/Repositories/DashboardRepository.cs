@@ -85,7 +85,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var proximos = await (
                 from e in emosActivos
                 join w in ctx.Worker on e.WorkerId equals w.Id
-                join em in ctx.Empresa on e.EmpresaOrigenId equals em.Id into ej
+                join em in ctx.Contributor on e.EmpresaOrigenId equals em.ContributorId into ej
                 from em in ej.DefaultIfEmpty()
                 let fv = e.FechaVencimientoCalculada ?? e.FechaVencimiento
                 where fv != null && fv >= hoy
@@ -96,7 +96,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Nombre = w.ApellidoNombre ?? string.Empty,
                     Dni = w.Dni ?? string.Empty,
                     FechaVencimiento = fv!.Value,
-                    Empresa = em != null ? (em.RazonSocial ?? string.Empty) : string.Empty
+                    Empresa = em != null ? (em.ContributorName ?? string.Empty) : string.Empty
                 })
                 .Take(10)
                 .ToListAsync();

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Models
@@ -46,7 +47,7 @@ namespace Abril_Backend.Infrastructure.Models
         public WorkerEmo? Emo { get; set; }
 
         [ForeignKey(nameof(EmpresaDestinoId))]
-        public Empresa? EmpresaDestino { get; set; }
+        public Contributor? EmpresaDestino { get; set; }
 
         [ForeignKey(nameof(MedicoId))]
         public SsMedicoOcupacional? Medico { get; set; }

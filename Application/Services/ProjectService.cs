@@ -27,26 +27,5 @@ namespace Abril_Backend.Application.Services
         {
             return await _repository.GetPaged(page, activo);
         }
-
-        public async Task Create(ProjectCreateDTO dto, int userId)
-        {
-            await _repository.Create(dto, userId);
-        }
-
-        public async Task Update(ProjectEditDTO dto, int userId)
-        {
-            await _repository.Update(dto, userId);
-        }
-
-        public async Task<bool> DeleteSoftAsync(int projecdId, int userId)
-        {
-            await _repository.DeleteSoftAsync(projecdId, userId);
-            return true;
-        }
-
-        public async Task UpdateEmails(int id, ProjectEmailsUpdateDto dto)
-        {
-            await _repository.UpdateEmails(id, dto);
-        }
     }
 }

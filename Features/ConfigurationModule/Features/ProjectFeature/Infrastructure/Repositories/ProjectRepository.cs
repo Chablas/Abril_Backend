@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
-using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Dtos;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.CostsModule.Shared.Models;
@@ -209,6 +209,24 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 : legalEntityRegistryNumber.Trim();
             contributor.UpdatedDateTime = DateTimeOffset.UtcNow;
             contributor.UpdatedUserId = userId;
+
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task UpdateEmails(int id, ProjectEmailsUpdateDto dto)
+        {
+            var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == id);
+
+            if (project == null)
+                throw new AbrilException("El proyecto no existe");
+
+            if (dto.EmailResidente   != null) project.EmailResidente   = dto.EmailResidente;
+            if (dto.EmailResponsable != null) project.EmailResponsable = dto.EmailResponsable;
+            if (dto.EmailRrhh        != null) project.EmailRrhh        = dto.EmailRrhh;
+            if (dto.EmailCoordSsoma  != null) project.EmailCoordSsoma  = dto.EmailCoordSsoma;
+            if (dto.EmailCoordAdmin  != null) project.EmailCoordAdmin  = dto.EmailCoordAdmin;
+
+            project.UpdatedDateTime = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
         }

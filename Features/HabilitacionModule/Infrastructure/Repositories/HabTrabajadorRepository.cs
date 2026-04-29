@@ -89,13 +89,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(e => new { e.Id, e.RazonSocial })
                 .ToListAsync();
 
-            var proyectos = await ctx.Projects
-                .Where(p => proyectoIds.Contains(p.Id))
-                .Select(p => new { p.Id, p.Nombre })
+            var proyectos = await ctx.Project
+                .Where(p => proyectoIds.Contains(p.ProjectId))
+                .Select(p => new { p.ProjectId, p.ProjectDescription })
                 .ToListAsync();
 
             var empresaMap = empresas.ToDictionary(e => e.Id, e => e.RazonSocial);
-            var proyectoMap = proyectos.ToDictionary(p => p.Id, p => p.Nombre);
+            var proyectoMap = proyectos.ToDictionary(p => p.ProjectId, p => p.ProjectDescription);
 
             var items = pageRows.Select(r => new WorkerHabilitacionListDto
             {

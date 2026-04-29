@@ -361,16 +361,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task<List<EmpresaCatalogoDto>> ListEmpresas(bool soloActivas)
         {
             using var ctx = _factory.CreateDbContext();
-            var q = ctx.Empresa.AsQueryable();
-            if (soloActivas) q = q.Where(e => e.Activa == true);
+            var q = ctx.Contributor.AsQueryable();
+            if (soloActivas) q = q.Where(e => e.Active == true);
             return await q
-                .OrderBy(e => e.RazonSocial)
+                .OrderBy(e => e.ContributorName)
                 .Select(e => new EmpresaCatalogoDto
                 {
-                    Id = e.Id,
-                    Nombre = e.RazonSocial,
-                    Ruc = e.Ruc,
-                    EsAbril = e.RazonSocial != null && e.RazonSocial.ToUpper().Contains("ABRIL")
+                    Id = e.ContributorId,
+                    Nombre = e.ContributorName,
+                    Ruc = e.ContributorRuc,
+                    EsAbril = e.ContributorName != null && e.ContributorName.ToUpper().Contains("ABRIL")
                 })
                 .ToListAsync();
         }

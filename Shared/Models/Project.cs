@@ -1,22 +1,71 @@
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Infrastructure.Models;
 
-namespace Abril_Backend.Infrastructure.Models {
+namespace Abril_Backend.Shared.Models {
     public class Project {
+        // Identidad
         public int ProjectId {get; set;}
         public string ProjectDescription {get; set;}
+        public string? Codigo {get; set;}
         public string? LevelDescription {get; set;}
+
+        // Estado del proyecto (vigente, finalizado, etc.)
+        public string? Estado {get; set;}
+
+        // Contribuyente / razón social
         public int? ContributorId {get; set;}
         public Contributor? Contributor {get; set;}
+
+        // Ubicación
         public string? ProjectDistrict {get; set;}
         public string? ProjectProvince {get; set;}
         public string? ProjectDepartment {get; set;}
         public string? ProjectLocation {get; set;}
+
+        // Responsables
+        public string? ResponsableArqCom {get; set;}
+        public int? ResponsableArqComId {get; set;}
+
+        // Emails del proyecto
+        public string? EmailResidente {get; set;}
+        public string? EmailResponsable {get; set;}
+        public string? EmailRrhh {get; set;}
+        public string? EmailCoordSsoma {get; set;}
+        public string? EmailCoordAdmin {get; set;}
+
+        // Fechas del proyecto
+        public DateOnly? FechaInicio {get; set;}
+        public DateOnly? FechaFin {get; set;}
+        public DateOnly? InicioObra {get; set;}
+        public DateOnly? FinObra {get; set;}
+
+        // Métricas físicas
+        public string? NumNiveles {get; set;}
+        public string? NumSotanos {get; set;}
+        public string? Pisos {get; set;}
+        public int? TiempoConstruccion {get; set;}
+        public decimal? AreaM2 {get; set;}
+        public decimal? AreaTechadaM2 {get; set;}
+        public decimal? HhTotalCasa {get; set;}
+        public string? CantTrabajadoresCasa {get; set;}
+
+        // Contadores
+        public int ContadorIncidentes {get; set;}
+        public int ContadorAccidentes {get; set;}
+        public int ContadorRac {get; set;}
+
+        // Flags
+        public bool TieneArquitecturaComercial {get; set;}
+
+        // Auditoría
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}
         public int? UpdatedUserId {get; set;}
         public bool Active {get; set;}
         public bool State {get; set;}
+
+        // Navegaciones
         public List<ResidentReportIncidence> Incidences { get; set; }
     }
 }

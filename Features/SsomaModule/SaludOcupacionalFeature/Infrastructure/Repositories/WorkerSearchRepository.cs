@@ -48,7 +48,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var vinculacionActual = await (
                 from v in ctx.WorkerVinculacion
-                join em in ctx.Empresa on v.EmpresaId equals em.Id into ej
+                join em in ctx.Contributor on v.EmpresaId equals em.ContributorId into ej
                 from em in ej.DefaultIfEmpty()
                 where ids.Contains(v.WorkerId)
                       && (v.FechaFin == null || v.FechaFin >= hoy)
@@ -57,7 +57,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     v.WorkerId,
                     v.EmpresaId,
-                    EmpresaNombre = em != null ? em.RazonSocial : null,
+                    EmpresaNombre = em != null ? em.ContributorName : null,
                     v.FechaInicio
                 }).ToListAsync();
 

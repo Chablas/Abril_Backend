@@ -25,9 +25,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from cv in ctx.WorkerEmoConvalidacion
                 join e in ctx.WorkerEmo on cv.EmoId equals e.Id
                 join w in ctx.Worker on e.WorkerId equals w.Id
-                join eo in ctx.Empresa on e.EmpresaOrigenId equals eo.Id into eoj
+                join eo in ctx.Contributor on e.EmpresaOrigenId equals eo.ContributorId into eoj
                 from eo in eoj.DefaultIfEmpty()
-                join ed in ctx.Empresa on cv.EmpresaDestinoId equals ed.Id into edj
+                join ed in ctx.Contributor on cv.EmpresaDestinoId equals ed.ContributorId into edj
                 from ed in edj.DefaultIfEmpty()
                 select new { cv, e, w, eo, ed };
 
@@ -43,8 +43,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerId = x.e.WorkerId,
                     WorkerNombre = x.w.ApellidoNombre,
                     WorkerDni = x.w.Dni,
-                    EmpresaOrigen = x.eo != null ? x.eo.RazonSocial : null,
-                    EmpresaDestino = x.ed != null ? x.ed.RazonSocial : null,
+                    EmpresaOrigen = x.eo != null ? x.eo.ContributorName : null,
+                    EmpresaDestino = x.ed != null ? x.ed.ContributorName : null,
                     FechaConvalidacion = x.cv.FechaConvalidacion,
                     Resultado = x.cv.Resultado,
                     FechaVencimiento = x.cv.FechaVencimiento,

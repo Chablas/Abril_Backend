@@ -1,5 +1,6 @@
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Shared.Models;
 namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
     public class ProjectSubContractor {
         public int ProjectSubContractorId {get; set;}

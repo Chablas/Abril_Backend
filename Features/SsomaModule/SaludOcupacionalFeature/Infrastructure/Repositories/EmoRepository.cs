@@ -29,7 +29,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 join w in ctx.Worker on e.WorkerId equals w.Id
                 join t in ctx.SsEmoTipo on e.TipoEmoId equals t.Id into tj
                 from t in tj.DefaultIfEmpty()
-                join em in ctx.Empresa on e.EmpresaOrigenId equals em.Id into ej
+                join em in ctx.Contributor on e.EmpresaOrigenId equals em.ContributorId into ej
                 from em in ej.DefaultIfEmpty()
                 select new { e, w, t, em };
 
@@ -57,7 +57,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerNombre = x.w.ApellidoNombre,
                     WorkerDni = x.w.Dni,
                     TipoEmo = x.t != null ? x.t.Nombre : null,
-                    Empresa = x.em != null ? x.em.RazonSocial : null,
+                    Empresa = x.em != null ? x.em.ContributorName : null,
                     FechaEmo = x.e.FechaEmo,
                     FechaVencimiento = x.e.FechaVencimientoCalculada ?? x.e.FechaVencimiento,
                     Aptitud = x.e.Aptitud,
@@ -110,7 +110,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from t in tJ.DefaultIfEmpty()
                 join vv in vinculacionVigente on w.Id equals vv.WorkerId into vvJ
                 from vv in vvJ.DefaultIfEmpty()
-                join em in ctx.Empresa on vv.EmpresaId equals em.Id into emJ
+                join em in ctx.Contributor on vv.EmpresaId equals em.ContributorId into emJ
                 from em in emJ.DefaultIfEmpty()
                 select new { w, ue, t, vv, em };
 
@@ -148,7 +148,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     NombreCompleto = x.w.ApellidoNombre ?? string.Empty,
                     Dni = x.w.Dni ?? string.Empty,
                     EmpresaId = x.vv != null ? x.vv.EmpresaId : null,
-                    Empresa = x.em != null ? x.em.RazonSocial : null,
+                    Empresa = x.em != null ? x.em.ContributorName : null,
                     TipoContrata = x.w.ContrataCasa,
                     TieneEmo = x.ue != null,
                     EmoId = x.ue != null ? x.ue.Id : (int?)null,
@@ -186,7 +186,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 join w in ctx.Worker on e.WorkerId equals w.Id
                 join t in ctx.SsEmoTipo on e.TipoEmoId equals t.Id into tj
                 from t in tj.DefaultIfEmpty()
-                join em in ctx.Empresa on e.EmpresaOrigenId equals em.Id into ej
+                join em in ctx.Contributor on e.EmpresaOrigenId equals em.ContributorId into ej
                 from em in ej.DefaultIfEmpty()
                 join c in ctx.SsClinica on e.ClinicaId equals c.Id into cj
                 from c in cj.DefaultIfEmpty()
@@ -229,7 +229,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var convalidaciones = await (
                 from cv in ctx.WorkerEmoConvalidacion
-                join em in ctx.Empresa on cv.EmpresaDestinoId equals em.Id into ej
+                join em in ctx.Contributor on cv.EmpresaDestinoId equals em.ContributorId into ej
                 from em in ej.DefaultIfEmpty()
                 where cv.EmoId == id
                 orderby cv.FechaConvalidacion descending
@@ -237,7 +237,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     Id = cv.Id,
                     EmpresaDestinoId = cv.EmpresaDestinoId,
-                    EmpresaDestinoNombre = em != null ? em.RazonSocial : null,
+                    EmpresaDestinoNombre = em != null ? em.ContributorName : null,
                     FechaConvalidacion = cv.FechaConvalidacion,
                     Resultado = cv.Resultado,
                     FechaVencimiento = cv.FechaVencimiento,
@@ -256,7 +256,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 TipoEmoId = row.e.TipoEmoId,
                 TipoEmoNombre = row.t != null ? row.t.Nombre : null,
                 EmpresaOrigenId = row.e.EmpresaOrigenId,
-                EmpresaOrigenNombre = row.em != null ? row.em.RazonSocial : null,
+                EmpresaOrigenNombre = row.em != null ? row.em.ContributorName : null,
                 FechaEmo = row.e.FechaEmo,
                 FechaVencimiento = row.e.FechaVencimiento,
                 FechaVencimientoCalculada = row.e.FechaVencimientoCalculada,
@@ -288,7 +288,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var vinculaciones = await (
                 from v in ctx.WorkerVinculacion
-                join em in ctx.Empresa on v.EmpresaId equals em.Id into ej
+                join em in ctx.Contributor on v.EmpresaId equals em.ContributorId into ej
                 from em in ej.DefaultIfEmpty()
                 where v.WorkerId == workerId
                 orderby v.FechaInicio descending
@@ -296,7 +296,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     Id = v.Id,
                     EmpresaId = v.EmpresaId,
-                    EmpresaNombre = em != null ? em.RazonSocial : null,
+                    EmpresaNombre = em != null ? em.ContributorName : null,
                     Puesto = v.Puesto,
                     TipoVinculacion = v.TipoVinculacion,
                     FechaInicio = v.FechaInicio,
@@ -308,7 +308,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from e in ctx.WorkerEmo
                 join t in ctx.SsEmoTipo on e.TipoEmoId equals t.Id into tj
                 from t in tj.DefaultIfEmpty()
-                join em in ctx.Empresa on e.EmpresaOrigenId equals em.Id into ej
+                join em in ctx.Contributor on e.EmpresaOrigenId equals em.ContributorId into ej
                 from em in ej.DefaultIfEmpty()
                 where e.WorkerId == workerId
                 orderby e.FechaEmo descending
@@ -319,7 +319,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerNombre = w.ApellidoNombre,
                     WorkerDni = w.Dni,
                     TipoEmo = t != null ? t.Nombre : null,
-                    Empresa = em != null ? em.RazonSocial : null,
+                    Empresa = em != null ? em.ContributorName : null,
                     FechaEmo = e.FechaEmo,
                     FechaVencimiento = e.FechaVencimientoCalculada ?? e.FechaVencimiento,
                     Aptitud = e.Aptitud,

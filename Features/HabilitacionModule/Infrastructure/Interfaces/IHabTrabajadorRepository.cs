@@ -21,5 +21,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task ReingresoAsync(int workerId, int proyectoId, int empresaId);
 
         Task<int?> GetEmpresaActivaWorkerAsync(int workerId);
+
+        Task InicializarEntregablesAsync(int workerId);
     }
 }

@@ -24,6 +24,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
+            var itemsEmoIds = await ctx.SsItemTrabajador
+                .Where(i => i.Nombre.Contains("EMO"))
+                .Select(i => i.Id)
+                .ToListAsync();
+
             var baseQuery = ctx.Worker
                 .Select(w => new
                 {
@@ -32,8 +37,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
                         .OrderByDescending(v => v.FechaInicio)
                         .FirstOrDefault(),
-                    HasPendientes = ctx.SsHabTrabajador
-                        .Any(h => h.WorkerId == w.Id && h.Estado != "No Aplica" && h.Estado != "Aprobado")
+                    EstadoCalc =
+                        (ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
+                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido") &&
+                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
+                         || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
+                             e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
+                        ? "No Autorizado"
+                        : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id && h.Estado == "En Plazo" &&
+                            !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
+                        ? "Autorizado Temporalmente"
+                        : "Habilitado"
                 });
 
             if (!string.IsNullOrWhiteSpace(search))
@@ -57,12 +71,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             if (!string.IsNullOrWhiteSpace(estadoHabilitacion))
-            {
-                if (estadoHabilitacion.Equals("Habilitado", StringComparison.OrdinalIgnoreCase))
-                    baseQuery = baseQuery.Where(x => !x.HasPendientes);
-                else if (estadoHabilitacion.Equals("No Autorizado", StringComparison.OrdinalIgnoreCase))
-                    baseQuery = baseQuery.Where(x => x.HasPendientes);
-            }
+                baseQuery = baseQuery.Where(x => x.EstadoCalc == estadoHabilitacion);
 
             var total = await baseQuery.CountAsync();
 
@@ -106,7 +115,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 EmpresaNombre = r.LatestVinc?.EmpresaId is int eid && empresaMap.TryGetValue(eid, out var en) ? en : null,
                 ProyectoActualId = r.LatestVinc?.ProyectoId,
                 ProyectoActual = r.LatestVinc?.ProyectoId is int pid && proyectoMap.TryGetValue(pid, out var pn) ? pn : null,
-                EstadoHabilitacion = r.HasPendientes ? "No Autorizado" : "Habilitado",
+                EstadoHabilitacion = r.EstadoCalc,
                 Categoria = r.Worker.Categoria,
                 Ocupacion = r.Worker.Ocupacion,
                 EstadoWorker = r.Worker.Estado ?? "ACTIVO"
@@ -126,10 +135,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ? "CASA"
                 : "CONTRATISTA";
 
+            var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
+
             var items = await ctx.SsItemTrabajador
                 .Where(i => i.Activo && (i.AplicaA == "TODOS" || i.AplicaA == workerType))
                 .OrderBy(i => i.Orden)
                 .ToListAsync();
+
+            items = items
+                .Where(i => CsvContiene(i.AplicaCategoria, worker.Categoria))
+                .Where(i => CsvContiene(i.AplicaObraOficina, worker.ObraOficina))
+                .Where(i => !CsvExcluye(i.ExcluyeObraOficina, worker.ObraOficina))
+                .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, worker.Categoria))
+                .ToList();
 
             var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)).ToList();
             var nonEmoItems = items.Except(emoItems).ToList();
@@ -138,25 +156,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var existentes = await ctx.SsHabTrabajador
                 .Where(h => h.WorkerId == workerId && nonEmoIds.Contains(h.ItemId))
                 .ToListAsync();
-
-            var faltantes = nonEmoItems
-                .Where(i => !existentes.Any(h => h.ItemId == i.Id))
-                .Select(i => new SsHabTrabajador
-                {
-                    WorkerId = workerId,
-                    ItemId = i.Id,
-                    Estado = "Falta",
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                })
-                .ToList();
-
-            if (faltantes.Count > 0)
-            {
-                ctx.SsHabTrabajador.AddRange(faltantes);
-                await ctx.SaveChangesAsync();
-                existentes.AddRange(faltantes);
-            }
 
             var nonEmoMap = nonEmoItems.ToDictionary(i => i.Id);
 
@@ -227,7 +226,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var entregable = await ctx.SsHabTrabajador.FirstOrDefaultAsync(h => h.Id == id)
+            var entregable = await ctx.SsHabTrabajador
+                .Include(h => h.Item)
+                .FirstOrDefaultAsync(h => h.Id == id)
                 ?? throw new AbrilException("Entregable no encontrado.", 404);
 
             if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
@@ -248,7 +249,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             entregable.Estado = dto.Estado;
-            entregable.Vigencia = dto.Vigencia;
+            entregable.Vigencia = ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
             entregable.ArchivoUrl = dto.ArchivoUrl;
             entregable.ObsAbril = dto.ObsAbril;
             entregable.ObsContratista = dto.ObsContratista;
@@ -344,6 +345,78 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .OrderByDescending(v => v.FechaInicio)
                 .Select(v => v.EmpresaId)
                 .FirstOrDefaultAsync();
+        }
+
+        public async Task InicializarEntregablesAsync(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
+                ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            var workerType = string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase)
+                ? "CASA"
+                : "CONTRATISTA";
+
+            var todosItems = await ctx.SsItemTrabajador
+                .Where(i => i.Activo)
+                .ToListAsync();
+
+            var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
+
+            var itemsAplicables = todosItems
+                .Where(i => i.AplicaA == "TODOS" ||
+                            (i.AplicaA == "CASA" && workerType == "CASA") ||
+                            (i.AplicaA == "CONTRATISTA" && workerType == "CONTRATISTA"))
+                .Where(i => CsvContiene(i.AplicaCategoria, worker.Categoria))
+                .Where(i => CsvContiene(i.AplicaObraOficina, worker.ObraOficina))
+                .Where(i => !CsvExcluye(i.ExcluyeObraOficina, worker.ObraOficina))
+                .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, worker.Categoria))
+                .ToList();
+
+            var itemIds = itemsAplicables.Select(i => i.Id).ToList();
+
+            var existentesIds = (await ctx.SsHabTrabajador
+                .Where(h => h.WorkerId == workerId && itemIds.Contains(h.ItemId))
+                .Select(h => h.ItemId)
+                .ToListAsync())
+                .ToHashSet();
+
+            var nuevos = itemsAplicables
+                .Where(i => !existentesIds.Contains(i.Id))
+                .Select(i => new SsHabTrabajador
+                {
+                    WorkerId = workerId,
+                    ItemId = i.Id,
+                    Estado = "Falta",
+                    Vigencia = null,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                })
+                .ToList();
+
+            if (nuevos.Count > 0)
+            {
+                ctx.SsHabTrabajador.AddRange(nuevos);
+                await ctx.SaveChangesAsync();
+            }
+        }
+
+        private static bool CsvContiene(string? csv, string? valor)
+            => csv == null || csv.Split(',', StringSplitOptions.TrimEntries)
+                   .Contains(valor ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
+        private static bool CsvExcluye(string? csv, string? valor)
+            => csv != null && csv.Split(',', StringSplitOptions.TrimEntries)
+                   .Contains(valor ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
+        private static DateTime? ResolverVigencia(bool requiereVigencia, string estado, DateTime? dtoVigencia)
+        {
+            if (!string.Equals(estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+                return dtoVigencia;
+            return requiereVigencia
+                ? dtoVigencia
+                : new DateOnly(2040, 12, 31).ToDateTime(TimeOnly.MinValue);
         }
 
         private static async Task ValidarExclusividadEmpresaAsync(

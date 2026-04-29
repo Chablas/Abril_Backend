@@ -212,12 +212,14 @@ LIMIT @PageSize";
         public async Task<SsHabTrabajador?> AprobarTrabajadorAsync(int id, BandejaAprobarDto dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var entity = await ctx.SsHabTrabajador.FirstOrDefaultAsync(h => h.Id == id);
+            var entity = await ctx.SsHabTrabajador
+                .Include(h => h.Item)
+                .FirstOrDefaultAsync(h => h.Id == id);
             if (entity is null) return null;
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = dto.Vigencia;
+            entity.Vigencia = ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
             entity.AprobadoPor = userId;
             entity.FechaAprobacion = DateTime.UtcNow;
             entity.UpdatedAt = DateTime.UtcNow;
@@ -229,12 +231,14 @@ LIMIT @PageSize";
         public async Task<SsHabEmpresa?> AprobarEmpresaAsync(int id, BandejaAprobarDto dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var entity = await ctx.SsHabEmpresa.FirstOrDefaultAsync(h => h.Id == id);
+            var entity = await ctx.SsHabEmpresa
+                .Include(h => h.Item)
+                .FirstOrDefaultAsync(h => h.Id == id);
             if (entity is null) return null;
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = dto.Vigencia;
+            entity.Vigencia = ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
             entity.AprobadoPor = userId;
             entity.FechaAprobacion = DateTime.UtcNow;
             entity.UpdatedAt = DateTime.UtcNow;
@@ -246,17 +250,28 @@ LIMIT @PageSize";
         public async Task<SsHabEquipo?> AprobarEquipoAsync(int id, BandejaAprobarDto dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var entity = await ctx.SsHabEquipo.FirstOrDefaultAsync(h => h.Id == id);
+            var entity = await ctx.SsHabEquipo
+                .Include(h => h.Item)
+                .FirstOrDefaultAsync(h => h.Id == id);
             if (entity is null) return null;
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = dto.Vigencia;
+            entity.Vigencia = ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
             entity.AprobadoPor = userId;
             entity.UpdatedAt = DateTime.UtcNow;
 
             await ctx.SaveChangesAsync();
             return entity;
+        }
+
+        private static DateTime? ResolverVigencia(bool requiereVigencia, string estado, DateTime? dtoVigencia)
+        {
+            if (!string.Equals(estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+                return dtoVigencia;
+            return requiereVigencia
+                ? dtoVigencia
+                : new DateOnly(2040, 12, 31).ToDateTime(TimeOnly.MinValue);
         }
     }
 }

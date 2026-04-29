@@ -13,7 +13,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     [Authorize]
     public class SctrVidaLeyController : ControllerBase
     {
-        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP"];
+        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP", "ADMINISTRADOR ADMINISTRACION"];
 
         private readonly ISctrVidaLeyRepository _repo;
         private readonly ILogger<SctrVidaLeyController> _logger;

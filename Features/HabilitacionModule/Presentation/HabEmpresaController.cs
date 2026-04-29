@@ -12,7 +12,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     [Authorize]
     public class HabEmpresaController : ControllerBase
     {
-        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP"];
+        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP", "ADMINISTRADOR ADMINISTRACION"];
 
         private readonly IHabEmpresaRepository _repo;
         private readonly ILogger<HabEmpresaController> _logger;

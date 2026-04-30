@@ -12,5 +12,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
             int id, EmpresaEntregableUpdateDto dto, int? userId, int? empresaId = null);
 
         Task InicializarEntregablesEmpresaAsync(int empresaId, int proyectoId);
+
+        Task ActivarProyectoAsync(int empresaId, int proyectoId);
+
+        Task<List<ProyectoDisponibleDto>> GetProyectosDisponiblesAsync(int empresaId);
+
+        Task DesactivarProyectoAsync(int empresaId, int proyectoId);
     }
 }

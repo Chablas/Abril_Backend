@@ -5,6 +5,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 {
@@ -161,6 +162,77 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ctx.SsHabEmpresa.AddRange(faltantes);
                 await ctx.SaveChangesAsync();
             }
+        }
+
+        public async Task ActivarProyectoAsync(int empresaId, int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var empresaExiste = await ctx.SsEmpresaContratista.AnyAsync(e => e.Id == empresaId);
+            if (!empresaExiste)
+                throw new AbrilException("Empresa no encontrada.", 404);
+
+            var proyectoExiste = await ctx.Project.AnyAsync(p => p.ProjectId == proyectoId);
+            if (!proyectoExiste)
+                throw new AbrilException("Proyecto no encontrado.", 404);
+
+            var yaActiva = await ctx.SsEmpresaProyecto
+                .AnyAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId && ep.Activo);
+            if (yaActiva)
+                throw new AbrilException("La empresa ya está activa en este proyecto.", 409);
+
+            ctx.SsEmpresaProyecto.Add(new SsEmpresaProyecto
+            {
+                EmpresaId = empresaId,
+                ProyectoId = proyectoId,
+                Activo = true,
+                FechaInicio = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+            await ctx.SaveChangesAsync();
+
+            await InicializarEntregablesEmpresaAsync(empresaId, proyectoId);
+        }
+
+        public async Task<List<ProyectoDisponibleDto>> GetProyectosDisponiblesAsync(int empresaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var proyectos = await ctx.Project
+                .Where(p => p.State)
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new { p.ProjectId, p.ProjectDescription })
+                .ToListAsync();
+
+            var activas = await ctx.SsEmpresaProyecto
+                .Where(ep => ep.EmpresaId == empresaId && ep.Activo)
+                .Select(ep => new { ep.ProyectoId, ep.FechaInicio })
+                .ToListAsync();
+
+            var activasMap = activas.ToDictionary(ep => ep.ProyectoId, ep => ep.FechaInicio);
+
+            return proyectos.Select(p => new ProyectoDisponibleDto
+            {
+                Id = p.ProjectId,
+                Nombre = p.ProjectDescription,
+                EstaActiva = activasMap.ContainsKey(p.ProjectId),
+                FechaInicio = activasMap.TryGetValue(p.ProjectId, out var fi) && fi.HasValue
+                    ? DateOnly.FromDateTime(fi.Value)
+                    : null
+            }).ToList();
+        }
+
+        public async Task DesactivarProyectoAsync(int empresaId, int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var registro = await ctx.SsEmpresaProyecto
+                .FirstOrDefaultAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId && ep.Activo)
+                ?? throw new AbrilException("No existe una activación activa para esa empresa y proyecto.", 404);
+
+            registro.Activo = false;
+            registro.FechaFin = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
         }
     }
 }

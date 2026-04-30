@@ -8,7 +8,7 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
     [ApiController]
-    [Route("api/v1/habilitacion/empresas/{empresaId:int}/entregables")]
+    [Route("api/v1/habilitacion/empresas/{empresaId:int}")]
     [Authorize]
     public class HabEmpresaController : ControllerBase
     {
@@ -23,7 +23,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             _logger = logger;
         }
 
-        [HttpGet]
+        [HttpGet("entregables")]
         public async Task<IActionResult> GetEntregables(
             int empresaId,
             [FromQuery] int proyectoId,
@@ -39,7 +39,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.GetEntregables"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [HttpPut("{id:int}")]
+        [HttpPut("entregables/{id:int}")]
         public async Task<IActionResult> UpdateEntregable(int empresaId, int id, [FromBody] EmpresaEntregableUpdateDto dto)
         {
             try
@@ -72,6 +72,63 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.UpdateEntregable"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("proyectos-disponibles")]
+        public async Task<IActionResult> GetProyectosDisponibles(int empresaId)
+        {
+            try
+            {
+                var esContratista = User.FindAll(ClaimTypes.Role)
+                    .Any(c => c.Value.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                if (esContratista && !EmpresaJwtCoinside(empresaId))
+                    return StatusCode(403, new { message = "Solo puede consultar su propia empresa." });
+
+                var proyectos = await _repo.GetProyectosDisponiblesAsync(empresaId);
+                return Ok(proyectos);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.GetProyectosDisponibles"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("activar-proyecto")]
+        public async Task<IActionResult> ActivarProyecto(int empresaId, [FromBody] ActivarProyectoDto dto)
+        {
+            try
+            {
+                var esContratista = User.FindAll(ClaimTypes.Role)
+                    .Any(c => c.Value.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                if (esContratista && !EmpresaJwtCoinside(empresaId))
+                    return StatusCode(403, new { message = "Solo puede activar su propia empresa." });
+
+                await _repo.ActivarProyectoAsync(empresaId, dto.ProyectoId);
+                return Ok(new { message = "Empresa activada en proyecto correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.ActivarProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("desactivar-proyecto")]
+        public async Task<IActionResult> DesactivarProyecto(int empresaId, [FromBody] ActivarProyectoDto dto)
+        {
+            try
+            {
+                var esContratista = User.FindAll(ClaimTypes.Role)
+                    .Any(c => c.Value.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                if (esContratista && !EmpresaJwtCoinside(empresaId))
+                    return StatusCode(403, new { message = "Solo puede desactivar su propia empresa." });
+
+                await _repo.DesactivarProyectoAsync(empresaId, dto.ProyectoId);
+                return Ok(new { message = "Empresa desactivada del proyecto correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.DesactivarProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        private bool EmpresaJwtCoinside(int empresaIdRuta)
+        {
+            var claim = User.FindFirst("empresaId")?.Value;
+            return int.TryParse(claim, out var jwtEmpresaId) && jwtEmpresaId == empresaIdRuta;
         }
     }
 }

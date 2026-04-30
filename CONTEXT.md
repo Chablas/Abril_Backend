@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 > Pega este archivo en la raíz del proyecto. Claude Code lo leerá al inicio de cada sesión.
-> Última actualización: 2026-04-30 (migración SwitchProyectoFkToProjectLegacy reconcilia FK proyecto_id; nuevos endpoints worker detalle GET/PUT, /proyectos, /catalogos/areas|subareas; pageSize en /project/paged; tabla cat_subarea; HabilitacionDateHelper para UTC; Sunat null-safe; patch semantics en aprobaciones)
+> Última actualización: 2026-04-30 (baja/reingreso/cambiarObra trabajadores; worker_eventos; ss_hab_documento_version enriquecida; migración contributor; habilitación empresa con activar/desactivar proyecto; SharePoint GetDownloadUrlAsync fix; item 25 Lectura de EMO)
 
 ---
 
@@ -136,7 +136,9 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `CatSubarea` | `cat_subarea` | Catálogo de subáreas con jefatura. Tabla creada manualmente en DB; sin migración EF (DbSet declarado en AppDbContext). |
 | `SsItemTrabajador` | `ss_item_trabajador` | Catálogo de entregables con reglas |
 | `SsHabTrabajador` | `ss_hab_trabajador` | Entregables por trabajador |
-| `SsHabDocumentoVersion` | `ss_hab_documento_version` | Historial versiones |
+| `SsHabDocumentoVersion` | `ss_hab_documento_version` | Historial versiones — campos nuevos 2026-04-30: `proyecto_id`, `empresa_id`, `estado_anterior`, `aprobado_por_user_id`, `motivo_rechazo` |
+| `WorkerEvento` | `worker_eventos` | Log ciclo de vida worker — creada manualmente en BD, sin migración EF |
+| `Contributor` | `contributor` | **Entidad unificada de empresas** (reemplaza `companies` eliminada). Incluye `es_abril` (bool) e `id_sharepoint` (int?, temporal para migración). `EmpresaId` en `worker_vinculaciones`, `ss_empresa_proyecto` y `ss_hab_empresa` apunta a `contributor.id`. |
 
 ### ⚠️ Pitfall histórico: `Project` (legacy) vs `Projects` (eliminada)
 
@@ -240,6 +242,9 @@ responsable           → 'SSOMA' | 'ADMINISTRACION'
 | 20 | Entrevista con el área de Calidad | CONTRATISTA | Supervisor,Capataz | | | false | SSOMA |
 | 21 | Habilitación en el Colegio de Ingenieros | CASA | Residente | | | true | SSOMA |
 | 22 | Curriculum Ultimos 2 años | CASA | | | | false | SSOMA (aplica_obra_oficina: Oficina Central,Staff) |
+| 25 | Lectura de EMO | CASA | | | | true | SSOMA |
+
+> **Item 25 — Lectura de EMO**: excluido del set virtual `emoItems` en `GetEntregablesWorkerAsync` (se trata como documento real, no como virtual de worker_emos). Sí está incluido en `itemsEmoIds` (filtro por nombre "EMO") → excluido del cálculo de bloqueo para workers CASA.
 
 **Nota EMO**: Para workers Casa, el EMO NO vive en `ss_hab_trabajador` — se gestiona desde `worker_emos` via módulo SSOMA. Para Contratistas sí vive en `ss_hab_trabajador`.
 
@@ -286,27 +291,34 @@ POST        /api/v1/habilitacion/auth/activar|solicitar-reset|reset-password
 PATCH       /api/v1/habilitacion/auth/cambiar-password
 GET/POST/PUT /api/v1/habilitacion/empresas
 POST        /api/v1/habilitacion/empresas/{id}/reenviar-activacion
-GET         /api/v1/habilitacion/empresas/{id}/entregables
-PUT         /api/v1/habilitacion/empresas/{id}/entregables/{itemId}
+GET         /api/v1/habilitacion/empresas/{empresaId}/entregables?proyectoId=&mes=&anio=
+PUT         /api/v1/habilitacion/empresas/{empresaId}/entregables/{id}
+GET         /api/v1/habilitacion/empresas/{empresaId}/proyectos-disponibles
+POST        /api/v1/habilitacion/empresas/{empresaId}/activar-proyecto      ← body { proyectoId }
+DELETE      /api/v1/habilitacion/empresas/{empresaId}/desactivar-proyecto   ← body { proyectoId }, soft delete (activo=false, fecha_fin=hoy)
 GET         /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
-GET         /api/v1/habilitacion/catalogos/areas              (público — selectores en login/registro)
-GET         /api/v1/habilitacion/catalogos/subareas?area=…   (público — filtra por área, opcional)
-GET         /api/v1/habilitacion/proyectos                    (lista activos {id, nombre} desde Project legacy)
-GET         /api/v1/habilitacion/trabajadores                 (lista paginada con filtros)
-GET         /api/v1/habilitacion/trabajadores/{id}            (detalle completo)
+GET         /api/v1/habilitacion/catalogos/areas              (público)
+GET         /api/v1/habilitacion/catalogos/subareas?area=     (público)
+GET         /api/v1/habilitacion/proyectos                    (lista activos desde Project legacy)
+GET         /api/v1/habilitacion/trabajadores?search=&empresaId=&proyectoId=&estadoHabilitacion=&contratistaCasa=&soloRetirados=false
+GET         /api/v1/habilitacion/trabajadores/{id}            (detalle completo WorkerDetalleDto)
 PUT         /api/v1/habilitacion/trabajadores/{id}            (PATCH semantics — solo asigna campos non-null)
-POST        /api/v1/habilitacion/trabajadores/{id}/inicializar   ← auto-crea entregables
+POST        /api/v1/habilitacion/trabajadores/{id}/inicializar
 GET/PUT     /api/v1/habilitacion/trabajadores/{id}/entregables
 GET         /api/v1/habilitacion/trabajadores/entregables/{id}/versiones
-PATCH       /api/v1/habilitacion/trabajadores/{id}/cambiar-obra|reingreso
+PATCH       /api/v1/habilitacion/trabajadores/{id}/baja                ← body { fechaRetiro?: DateOnly }
+PATCH       /api/v1/habilitacion/trabajadores/baja-masiva              ← body { ids: int[], fechaRetiro?: DateOnly }
+PATCH       /api/v1/habilitacion/trabajadores/{id}/cambiar-obra        ← body WorkerCambiarObraDto (resetea entregables + correos + eventos)
+PATCH       /api/v1/habilitacion/trabajadores/{id}/reingreso           ← body { nuevoProyectoId?, nuevaEmpresaId?, fechaReingreso? }
+GET         /api/v1/habilitacion/trabajadores/{id}/eventos             ← [AllowAnonymous] temporal
 GET/PATCH   /api/v1/habilitacion/bandeja
 GET/PATCH   /api/v1/habilitacion/bandeja/cursor
 GET/POST    /api/v1/habilitacion/sctr-vidaley
 PATCH       /api/v1/habilitacion/sctr-vidaley/{id}/aprobar
 GET/POST/PUT/DELETE /api/v1/habilitacion/reglas
 GET         /api/v1/habilitacion/auditoria
-POST        /api/v1/habilitacion/archivos/subir   ← acepta opcional habTrabajadorId para auto-marcar 'Enviado'
-GET         /api/v1/habilitacion/archivos/url?path={path}   ← URL temporal SharePoint
+POST        /api/v1/habilitacion/archivos/subir
+GET         /api/v1/habilitacion/archivos/url?path=   ← URLs absolutas legacy pasan directamente; relativas via Graph /content + 302
 GET         /api/v1/habilitacion/registros-modelo (público)
 ```
 
@@ -321,12 +333,28 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 - SCTR/Vida Ley → masivo, un documento cubre múltiples workers
 - Al aprobar con `requiere_vigencia = false` → forzar `Vigencia = 2040-12-31`
 
+### Estado actual del módulo (2026-04-30)
+
+- **Baja individual y masiva de trabajadores** — `BajaAsync` / `BajaMasivaAsync`: marcan worker con `Estado = "RETIRADO"` y `FechaRetiro`, cierran vinculación activa
+- **Reingreso** — `ReingresoAsync`: reactiva worker, crea nueva vinculación; si cambia proyecto o empresa, resetea entregables según tipo (CONTRATISTA: siempre; CASA: solo si cambia proyecto), envía correos, inserta eventos
+- **CambiarObraAsync** — misma lógica que reingreso: resets de entregables + correos + eventos; `NuevoProyectoId` es no-nullable, comparar directamente sin `.HasValue`
+- **`worker_eventos`** — tabla creada manualmente en BD (sin migración EF). Eventos: `BAJA`, `REINGRESO`, `CAMBIO_OBRA`, `CAMBIO_EMPRESA`, `ENTREGABLE_RESETEADO`. Campos clave: `proyecto_anterior_id`, `proyecto_nuevo_id`, `empresa_anterior_id`, `empresa_nueva_id`, `datos` (jsonb), `usuario_id`
+- **`ss_hab_documento_version` enriquecida** — 5 campos nuevos: `proyecto_id`, `empresa_id`, `estado_anterior`, `aprobado_por_user_id`, `motivo_rechazo`. Populados en `UpdateEntregableAsync` al subir archivo, aprobar o rechazar
+- **`WorkerHabilitacionListDto`** incluye `ContrataCasa` y `ObraOficina`
+- **`GetWorkersHabilitacionAsync`** acepta `soloRetirados`: `true` = solo `RETIRADO`; `false` (default) = excluye `RETIRADO`. `LatestVinc` no filtra por `fecha_fin` — devuelve la última vinculación aunque esté cerrada (para mostrar empresa/proyecto de retirados)
+- **Item 25 "Lectura de EMO"** — CASA, `requiere_vigencia = true`. Excluido del virtual `emoItems`, incluido en `itemsEmoIds`
+- **Migración `contributor`** — tabla `companies` eliminada de BD. `worker_vinculaciones.empresa_id`, `ss_empresa_proyecto.empresa_id`, `ss_hab_empresa.empresa_id` ahora apuntan a `contributor`. 281 empresas migradas (23 Abril + 258 contratistas), 428 relaciones `ss_empresa_proyecto`, 10.506 entregables `ss_hab_empresa`, 868 `worker_vinculaciones`. `contributor` tiene `es_abril` (bool) e `id_sharepoint` (int?, temporal)
+- **HabEmpresa — activación en proyecto** — `POST /activar-proyecto` valida empresa + proyecto + no-duplicado → inserta `ss_empresa_proyecto` + llama `InicializarEntregablesEmpresaAsync`. `GET /proyectos-disponibles` retorna todos con flag `estaActiva`. `DELETE /desactivar-proyecto` soft-delete
+
 ### Pitfalls conocidos
 
 - `SharePointHabService` debe ser **Singleton** — el token y driveId se cachean en instancia
 - **Todos los `proyecto_id` de tablas nuevas (`worker_vinculaciones`, `ss_equipo`, `ss_sctr_vidaley`, `ss_hab_empresa`) apuntan a `project.project_id` legacy**. Resolver siempre vía `ctx.Project` con `ProjectId`/`ProjectDescription`. La entidad `Projects` (plural) fue eliminada el 2026-04-30 vía migración `SwitchProyectoFkToProjectLegacy`. Ver sección 6.
 - **Al consultar `worker_vinculaciones` activas, siempre `ORDER BY created_at DESC, id DESC`**. `fecha_inicio` no es único y EF/PG no garantiza orden estable sin tie-breaker → puede devolver vinculación incorrecta cuando un worker tiene varias filas con `fecha_fin IS NULL`. Para JOINs en SQL crudo, usar `LEFT JOIN LATERAL (... ORDER BY created_at DESC, id DESC LIMIT 1) ON TRUE` para evitar duplicar filas base.
-- `WorkerVinculacion.EmpresaId` apunta a tabla legacy `companies`, NO a `ss_empresa_contratista.Id`
+- **`LatestVinc` en `GetWorkersHabilitacionAsync` NO filtra por `fecha_fin`** — devuelve la última vinculación independientemente de si está cerrada, para mostrar empresa/proyecto de workers retirados
+- `worker_vinculaciones.empresa_id`, `ss_empresa_proyecto.empresa_id` y `ss_hab_empresa.empresa_id` apuntan a `contributor.id`. La tabla `companies` fue eliminada. **No usar** `SsEmpresaContratista` ni `companies` para resolver `empresa_id` en estas tablas — usar `contributor`
+- **`worker_eventos` creada manualmente en BD** (igual que `cat_subarea`) — `DbSet` declarado en AppDbContext con `HasColumnType("jsonb")` para `Datos`. No generar migración EF para esta tabla
+- **`contributor.id_sharepoint`** es columna temporal para migración SharePoint. 42 empresas con IDs 1656+ pendientes. Eliminar cuando la migración esté completa
 - **`HabilitacionDateHelper.AsUtc(dto.Fecha)` obligatorio** para todo `DateTime` que venga de un DTO antes de asignarlo a una columna `timestamp with time zone`. JSON deserializa fechas sin `Z` como `Kind=Unspecified` y Npgsql las rechaza con `"Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with time zone', only UTC is supported"`. Ya aplicado en `HabTrabajadorRepository`, `EquipoRepository`, `HabEmpresaRepository`, `SctrVidaLeyRepository`, `BandejaRepository`. Para el sentinel "sin vencimiento" usar `DateTime.SpecifyKind(new DateOnly(2040,12,31).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)` (ya encapsulado en `HabilitacionDateHelper.ResolverVigencia`).
 - **Patch semantics en `UpdateEntregableAsync`**: solo asignar `ArchivoUrl`/`ObsAbril`/`ObsContratista` cuando `dto.X is not null`. Si el frontend manda `{ estado: "Aprobado", vigencia: "..." }` sin esos campos, **NO** los pises con null — borrarías el documento subido. Mismo principio en `UpdateAsync` de `WorkerUpdateDto` (todos los campos `is not null` o `HasValue`).
 - **`WorkerEntregableUpdateValidator.EstadosValidos`** debe incluir `"En Plazo"` y `"Vencido"` además de `Falta`/`Enviado`/`Aprobado`/`Rechazado`/`No Aplica`. El sistema usa los 7.
@@ -342,22 +370,21 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 ## 9. Trabajo pendiente
 
 ### Alta prioridad
-- **Auth real** — quitar `[AllowAnonymous]` de SSOMA y `ProjectController`
+- **Auth real** — quitar `[AllowAnonymous]` de SSOMA, `ProjectController` y `GET /trabajadores/{id}/eventos`
 - **Crear primer usuario admin** en `app_user`
-- **Correlación `WorkerVinculacion.EmpresaId`** con `ss_empresa_contratista.Id` via `IdLegacy` (hoy comparaciones por id no funcionan para contratistas reales)
 - **Deploy a producción**
+- **42 empresas SharePoint con IDs 1656+** pendientes de migrar a `contributor` (necesita Excel actualizado con los datos correctos)
+- **Eliminar `id_sharepoint`** de `contributor` cuando la migración SharePoint esté completa
 
 ### Media prioridad
 - **Empresas contratistas** — 1,591 vinculaciones sin empresa
 - **tipo_emo_id** — los 813 EMOs migrados tienen NULL
 - **Eliminar `id_trabajador`** de `workers` tras confirmar migración completa
-- **`BandejaRepository` segmentos UNION ALL EMPRESA y EQUIPO** — siguen apuntando a `JOIN projects p ON p.id = …`. Cuando `ss_hab_empresa` y `ss_equipo` tengan datos, revertir a `JOIN project p ON p.project_id = …` (mismo patrón que ya tiene el segmento TRABAJADOR).
+- **`BandejaRepository` segmentos UNION ALL EMPRESA y EQUIPO** — siguen apuntando a `JOIN projects p ON p.id = …`. Cuando `ss_hab_empresa` y `ss_equipo` tengan datos con la nueva FK a `project`, revertir a `JOIN project p ON p.project_id = …` (mismo patrón que ya tiene el segmento TRABAJADOR).
 - **`ProjectService` acoplamiento con `ISunatService`** — separar a `ISunatLookupService` para que solo `/company-lookup/{ruc}` lo necesite. Hoy mitigado con factory null-safe pero la dependencia sigue en el constructor.
 
 ### Baja prioridad
 - **Refactor `Sunat:Token` y `Sunat` headers** en Program.cs — quedaron fuera del fix null-safe; restaurar dentro del `if` cuando se confirme que en producción siempre hay configuración.
-
-### Baja prioridad
 - 8 EMOs sin match de DNI — insertar manualmente
 - 24 vinculaciones sin proyecto
 - `ReminderController.cs` aún usa `Environment.GetEnvironmentVariable` para CronSecret — migrar

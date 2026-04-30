@@ -23,46 +23,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var items = await ctx.SsItemEmpresa
-                .Where(i => i.Activo)
-                .OrderBy(i => i.Orden)
-                .ToListAsync();
+            var query = ctx.SsHabEmpresa
+                .Where(h => h.EmpresaId == empresaId && h.ProyectoId == proyectoId);
 
-            var itemIds = items.Select(i => i.Id).ToList();
+            if (mes.HasValue) query = query.Where(h => h.Mes == mes.Value);
+            if (anio.HasValue) query = query.Where(h => h.Anio == anio.Value);
 
-            var existentesQuery = ctx.SsHabEmpresa
-                .Where(h => h.EmpresaId == empresaId && h.ProyectoId == proyectoId && itemIds.Contains(h.ItemId));
+            var registros = await query.ToListAsync();
+            if (registros.Count == 0) return [];
 
-            if (mes.HasValue) existentesQuery = existentesQuery.Where(h => h.Mes == mes.Value);
-            if (anio.HasValue) existentesQuery = existentesQuery.Where(h => h.Anio == anio.Value);
+            var itemIds = registros.Select(h => h.ItemId).Distinct().ToList();
+            var itemMap = await ctx.SsItemEmpresa
+                .Where(i => itemIds.Contains(i.Id))
+                .ToDictionaryAsync(i => i.Id);
 
-            var existentes = await existentesQuery.ToListAsync();
-
-            var faltantes = items
-                .Where(i => !existentes.Any(h => h.ItemId == i.Id))
-                .Select(i => new SsHabEmpresa
-                {
-                    EmpresaId = empresaId,
-                    ProyectoId = proyectoId,
-                    ItemId = i.Id,
-                    Mes = mes,
-                    Anio = anio,
-                    Estado = "Falta",
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                })
-                .ToList();
-
-            if (faltantes.Count > 0)
-            {
-                ctx.SsHabEmpresa.AddRange(faltantes);
-                await ctx.SaveChangesAsync();
-                existentes.AddRange(faltantes);
-            }
-
-            var itemMap = items.ToDictionary(i => i.Id);
-
-            return existentes
+            return registros
                 .Where(h => itemMap.ContainsKey(h.ItemId))
                 .Select(h =>
                 {

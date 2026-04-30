@@ -181,7 +181,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToList();
 
             var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)
-                                          && i.Id != ItemLecturaEmo).ToList();
+                                          && i.Id != ItemLecturaEmo
+                                          && !esContratista).ToList();
             var nonEmoItems = items.Except(emoItems).ToList();
             var nonEmoIds = nonEmoItems.Select(i => i.Id).ToList();
 

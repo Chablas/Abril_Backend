@@ -4,7 +4,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
-using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
@@ -86,11 +86,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Distinct()
                 .ToList();
 
-            var proyectos = await ctx.Set<Projects>()
+            var proyectos = await ctx.Project
                 .AsNoTracking()
-                .Where(p => proyectoIds.Contains(p.Id))
+                .Where(p => proyectoIds.Contains(p.ProjectId))
                 .ToListAsync();
-            var proyectosDict = proyectos.ToDictionary(p => p.Id);
+            var proyectosDict = proyectos.ToDictionary(p => p.ProjectId);
 
             var empresas = await ctx.Contributor
                 .AsNoTracking()
@@ -123,7 +123,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                 vinculacionPorWorker.TryGetValue(worker.Id, out var vinculacion);
 
-                Projects? proyecto = null;
+                Project? proyecto = null;
                 if (vinculacion?.ProyectoId.HasValue == true)
                 {
                     proyectosDict.TryGetValue(vinculacion.ProyectoId.Value, out proyecto);
@@ -187,7 +187,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         private static List<string> BuildDestinatarios(
             string? emailPersonal,
-            Projects? proyecto)
+            Project? proyecto)
         {
             var raw = new[]
             {
@@ -209,7 +209,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private static string BuildBody(
             Abril_Backend.Infrastructure.Models.Worker worker,
             Abril_Backend.Infrastructure.Models.WorkerEmo emo,
-            Projects? proyecto,
+            Project? proyecto,
             Contributor? empresa,
             int vigenciaAnios)
         {
@@ -244,7 +244,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Proyecto</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{proyecto?.Nombre ?? "—"}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{proyecto?.ProjectDescription ?? "—"}</td>
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Fecha del EMO</strong></td>

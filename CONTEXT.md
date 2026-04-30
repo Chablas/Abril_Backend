@@ -129,8 +129,8 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 
 | Nombre C# | Tabla PG | Notas |
 |-----------|----------|-------|
-| `Projects` | `projects` | **Entidad NUEVA**. Propiedades: `Id`, `Nombre`, `Activo`, `Estado`. Es la tabla a la que apuntan TODAS las FKs nuevas (`worker_vinculaciones.proyecto_id`, `ss_equipo.proyecto_id`, `ss_sctr_vidaley.proyecto_id`, `ss_hab_empresa.proyecto_id`). Ubicada en `Infrastructure/Models/Projects.cs`. **NO tiene `DbSet` declarado** — acceder vía `ctx.Set<Projects>()`. |
-| `Project` | `project` | **Entidad LEGACY** (singular). Propiedades: `ProjectId`, `ProjectDescription`, etc. Ubicada en `Shared/Models/Project.cs`. DbSet `ctx.Project`. ⚠️ **NO usar para resolver `proyecto_id` proveniente de tablas nuevas** — los IDs caen en rangos similares y los joins "funcionan" pero retornan nombres incorrectos. |
+| `Project` | `project` | **Entidad CANÓNICA** para resolver nombres de proyecto. Propiedades: `ProjectId`, `ProjectDescription`, etc. Ubicada en `Shared/Models/Project.cs`. DbSet `ctx.Project`. Es la tabla a la que apunta `worker_vinculaciones.proyecto_id` (verificado contra DB real, **no** contra el migration snapshot — el snapshot quedó desincronizado). |
+| `Projects` | `projects` | Entidad alterna en `Infrastructure/Models/Projects.cs` con `Id`, `Nombre`. **NO tiene `DbSet` declarado** — acceso solo vía `ctx.Set<Projects>()`. ⚠️ Su rol real está sin auditar: `ss_equipo.proyecto_id` y `ss_sctr_vidaley.proyecto_id` podrían apuntar aquí o a `project` legacy — no asumir, verificar con SQL antes de tocar. |
 | `User` | `app_user` | Override en ConfigurePostgreSQL |
 | `Worker` | `workers` | Personal SSOMA |
 | `WorkerEmo` | `worker_emos` | Registros EMO |
@@ -140,25 +140,34 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 
 ### ⚠️ Pitfall crítico: `Project` (legacy) vs `Projects` (nuevo)
 
-Existen **dos entidades C# distintas** que apuntan a **dos tablas PG distintas**:
+Existen **dos entidades C# distintas** que apuntan a **dos tablas PG distintas con IDs en rangos solapados** — los joins compilan y "funcionan" silenciosamente contra la tabla equivocada, devolviendo nombres incorrectos.
+
+**Realidad verificada en producción**: `worker_vinculaciones.proyecto_id → project.project_id` (legacy). El migration snapshot generado por EF Core declara la FK hacia `Projects` (`fk_worker_vinculaciones_projects_proyecto_id`), pero la DB **no respeta esa declaración** — drift schema↔código. Hasta que se reconcilie, **confiar en la DB, no en el snapshot**.
 
 ```csharp
-// ❌ INCORRECTO al resolver nombre de proyecto desde una FK nueva
+// ✅ CORRECTO para resolver worker_vinculaciones.proyecto_id
 var proyectos = await ctx.Project
     .Where(p => proyectoIds.Contains(p.ProjectId))
     .Select(p => new { p.ProjectId, p.ProjectDescription })
     .ToListAsync();
-
-// ✅ CORRECTO — usar la entidad nueva
-var proyectos = await ctx.Set<Projects>()
-    .Where(p => proyectoIds.Contains(p.Id))
-    .Select(p => new { p.Id, p.Nombre })
-    .ToListAsync();
 ```
 
-**Síntoma del bug**: el endpoint devuelve un nombre de proyecto incorrecto (ej: worker GODENZI con `proyecto_id=10` mostraba "Gran Manzano" del legacy `project` en vez de "Oficina Central" del nuevo `projects`).
+**Síntoma del bug** (caso histórico): el endpoint `/trabajadores` devolvía `proyectoActual="Gran Manzano"` para un worker cuyo `proyecto_id=10` mapea a "Oficina Central" en `projects` (nueva), porque el código resolvía contra `projects.id=10` en vez de `project.project_id=10`. El revert volvió a usar `ctx.Project` (legacy) — el correcto.
 
-**Regla**: si la FK que tienes en mano viene de una tabla nueva (`worker_vinculaciones`, `ss_*`, `ac_*`), siempre resuélvela contra `ctx.Set<Projects>()`. Solo usa `ctx.Project` cuando trabajas con entidades del dominio legacy (`Lesson`, `MilestoneSchedule`, `UserProject`, `ResidentReport*`, `ProjectSubContractor`, `StaffProjectEmail`).
+**Regla provisional**:
+- `worker_vinculaciones.proyecto_id` → resolver contra `ctx.Project` (legacy). Confirmado.
+- `ss_equipo.proyecto_id`, `ss_sctr_vidaley.proyecto_id`, `ss_hab_empresa.proyecto_id` → **sin verificar**, asumir igual hasta correr SQL contra DB:
+
+```sql
+SELECT t.proyecto_id, p.project_description AS legacy, pn.nombre AS nueva
+FROM <tabla> t
+LEFT JOIN project p ON p.project_id = t.proyecto_id
+LEFT JOIN projects pn ON pn.id = t.proyecto_id
+LIMIT 3;
+```
+
+- Entidades del dominio legacy (`Lesson`, `MilestoneSchedule`, `UserProject`, `ResidentReport*`, `ProjectSubContractor`, `StaffProjectEmail`) → siempre `ctx.Project`.
+- `Projects` (plural) sigue declarada en código por la navegación `WorkerVinculacion.Proyecto` y por usos en `EquipoRepository`/`SctrVidaLeyRepository`/`BandejaRepository`/`EmoAlertaService` — pendientes de auditoría.
 
 ---
 
@@ -325,7 +334,7 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 ### Pitfalls conocidos
 
 - `SharePointHabService` debe ser **Singleton** — el token y driveId se cachean en instancia
-- **`worker_vinculaciones.proyecto_id` apunta a `projects.id` (entidad `Projects`), NO a `project.project_id` (entidad `Project` legacy)**. Resolver siempre vía `ctx.Set<Projects>()`. Ver sección 6 para detalles.
+- **`worker_vinculaciones.proyecto_id` apunta a `project.project_id` (entidad `Project` legacy), NO a `projects.id`**. Resolver siempre vía `ctx.Project` con `ProjectId`/`ProjectDescription`. El migration snapshot dice lo contrario pero está desincronizado con la DB real. Ver sección 6 para detalles y para SQL de verificación de las otras FKs aún sin auditar.
 - **Al consultar `worker_vinculaciones` activas, siempre `ORDER BY created_at DESC, id DESC`**. `fecha_inicio` no es único y EF/PG no garantiza orden estable sin tie-breaker → puede devolver vinculación incorrecta cuando un worker tiene varias filas con `fecha_fin IS NULL`. Para JOINs en SQL crudo, usar `LEFT JOIN LATERAL (... ORDER BY created_at DESC, id DESC LIMIT 1) ON TRUE` para evitar duplicar filas base.
 - `WorkerVinculacion.EmpresaId` apunta a tabla legacy `companies`, NO a `ss_empresa_contratista.Id`
 - FluentValidation 11.3.1 usa API deprecated — migrar cuando bumpeemos v12

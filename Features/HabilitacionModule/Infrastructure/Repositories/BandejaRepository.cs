@@ -37,8 +37,8 @@ SELECT
     i.nombre as nombre_entregable,
     w.apellido_nombre as entidad_nombre,
     ec.razon_social as empresa_nombre,
-    p.nombre as proyecto_nombre,
-    p.id as proyecto_id,
+    p.project_description as proyecto_nombre,
+    p.project_id as proyecto_id,
     ht.estado,
     ht.vigencia,
     ht.archivo_url,
@@ -56,7 +56,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) wv ON TRUE
 LEFT JOIN ss_empresa_contratista ec ON ec.id = wv.empresa_id
-LEFT JOIN projects p ON p.id = wv.proyecto_id
+LEFT JOIN project p ON p.project_id = wv.proyecto_id
 WHERE ht.estado = 'Enviado'
   AND (@ProyectoId IS NULL OR wv.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR wv.empresa_id = @EmpresaId)

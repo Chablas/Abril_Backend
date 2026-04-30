@@ -113,6 +113,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsHabDocumentoVersion> SsHabDocumentoVersion => Set<SsHabDocumentoVersion>();
         public DbSet<SsResetToken> SsResetToken => Set<SsResetToken>();
         public DbSet<CatSubarea> CatSubarea => Set<CatSubarea>();
+        public DbSet<WorkerEvento> WorkerEvento => Set<WorkerEvento>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -312,6 +313,8 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.DatosAnteriores).HasColumnType("jsonb");
                 entity.Property(e => e.DatosNuevos).HasColumnType("jsonb");
             });
+            modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
+            modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
         }
     }
 }

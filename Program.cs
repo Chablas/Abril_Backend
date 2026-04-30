@@ -55,7 +55,12 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
     else if (databaseProvider == "PostgreSQL")
     {
         var conn = builder.Configuration["Database:PostgreSQL"];
-        options.UseNpgsql(conn).UseSnakeCaseNamingConvention();
+        options.UseNpgsql(conn, npgsqlOptions =>
+            npgsqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorCodesToAdd: null))
+        .UseSnakeCaseNamingConvention();
     }
     else
     {

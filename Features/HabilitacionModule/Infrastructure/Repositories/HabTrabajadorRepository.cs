@@ -4,7 +4,9 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
@@ -12,16 +14,38 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
     public class HabTrabajadorRepository : IHabTrabajadorRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IEmailService _emailService;
+        private readonly ILogger<HabTrabajadorRepository> _logger;
 
-        public HabTrabajadorRepository(IDbContextFactory<AppDbContext> factory)
+        private const int ItemInduccionObra = 12;
+        private const int ItemRisst = 6;
+        private const int ItemRegistroEpp = 5;
+        private const int ItemDifusionPts = 10;
+        private const int ItemEntregaRecomendaciones = 8;
+        private const int ItemTRegistro = 7;
+        private const int ItemSctr = 11;
+        private const int ItemVidaLey = 13;
+        private const int ItemCertAptitud = 4;
+        private const int ItemLecturaEmo = 25;
+
+        private const string EmailMedico = "medicinaocupacionalnm@abril.pe";
+        private const string EmailGth = "gth@abril.pe";
+        private const string EmailAsistentaSocial = "pquispe@abril.pe";
+
+        public HabTrabajadorRepository(
+            IDbContextFactory<AppDbContext> factory,
+            IEmailService emailService,
+            ILogger<HabTrabajadorRepository> logger)
         {
             _factory = factory;
+            _emailService = emailService;
+            _logger = logger;
         }
 
         public async Task<(List<WorkerHabilitacionListDto> Items, int Total)> GetWorkersHabilitacionAsync(
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
-            int page, int pageSize)
+            int page, int pageSize, bool soloRetirados = false)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -35,7 +59,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     Worker = w,
                     LatestVinc = ctx.WorkerVinculacion
-                        .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                        .Where(v => v.WorkerId == w.Id)
                         .OrderByDescending(v => v.CreatedAt)
                         .ThenByDescending(v => v.Id)
                         .FirstOrDefault(),
@@ -51,6 +75,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         ? "Autorizado Temporalmente"
                         : "Habilitado"
                 });
+
+            if (soloRetirados)
+                baseQuery = baseQuery.Where(x => x.Worker.Estado == "RETIRADO");
+            else
+                baseQuery = baseQuery.Where(x => x.Worker.Estado == null || x.Worker.Estado != "RETIRADO");
 
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -95,17 +124,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Distinct()
                 .ToList();
 
-            var empresas = await ctx.SsEmpresaContratista
-                .Where(e => empresaIds.Contains(e.Id))
-                .Select(e => new { e.Id, e.RazonSocial })
-                .ToListAsync();
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
 
             var proyectos = await ctx.Project
                 .Where(p => proyectoIds.Contains(p.ProjectId))
                 .Select(p => new { p.ProjectId, p.ProjectDescription })
                 .ToListAsync();
 
-            var empresaMap = empresas.ToDictionary(e => e.Id, e => e.RazonSocial);
             var proyectoMap = proyectos.ToDictionary(p => p.ProjectId, p => p.ProjectDescription);
 
             var items = pageRows.Select(r => new WorkerHabilitacionListDto
@@ -120,6 +147,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 EstadoHabilitacion = r.EstadoCalc,
                 Categoria = r.Worker.Categoria,
                 Ocupacion = r.Worker.Ocupacion,
+                ContrataCasa = r.Worker.ContrataCasa,
+                ObraOficina = r.Worker.ObraOficina,
                 EstadoWorker = r.Worker.Estado ?? "ACTIVO"
             }).ToList();
 
@@ -151,7 +180,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, worker.Categoria))
                 .ToList();
 
-            var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)).ToList();
+            var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)
+                                          && i.Id != ItemLecturaEmo).ToList();
             var nonEmoItems = items.Except(emoItems).ToList();
             var nonEmoIds = nonEmoItems.Select(i => i.Id).ToList();
 
@@ -233,8 +263,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .FirstOrDefaultAsync(h => h.Id == id)
                 ?? throw new AbrilException("Entregable no encontrado.", 404);
 
-            if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
+            var estadoAnterior = entregable.Estado;
+
+            var esArchivoNuevo = !string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl;
+            var esAprobacion = string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase);
+            var esRechazo = string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase);
+
+            if (esArchivoNuevo || esAprobacion || esRechazo)
             {
+                var vinculacion = await ctx.WorkerVinculacion
+                    .Where(v => v.WorkerId == entregable.WorkerId && v.FechaFin == null)
+                    .OrderByDescending(v => v.CreatedAt)
+                    .ThenByDescending(v => v.Id)
+                    .FirstOrDefaultAsync();
+
                 var versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v => v.HabTrabajadorId == id);
 
@@ -242,10 +284,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     HabTrabajadorId = id,
                     Version = versionActual + 1,
-                    ArchivoUrl = dto.ArchivoUrl,
+                    ArchivoUrl = (esArchivoNuevo ? dto.ArchivoUrl : entregable.ArchivoUrl) ?? string.Empty,
                     SubidoPorUserId = userId,
                     SubidoPorEmpresaId = empresaId,
                     EstadoAlSubir = dto.Estado,
+                    EstadoAnterior = estadoAnterior,
+                    ProyectoId = vinculacion?.ProyectoId,
+                    EmpresaId = vinculacion?.EmpresaId,
+                    AprobadoPorUserId = esAprobacion ? userId : null,
+                    MotivoRechazo = esRechazo ? dto.ObsAbril : null,
                     CreatedAt = DateTime.UtcNow
                 });
             }
@@ -267,13 +314,80 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return entregable;
         }
 
-        public async Task<List<SsHabDocumentoVersion>> GetVersionesDocumentoAsync(int habTrabajadorId)
+        public async Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoAsync(int habTrabajadorId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.SsHabDocumentoVersion
+            var versiones = await ctx.SsHabDocumentoVersion
                 .Where(v => v.HabTrabajadorId == habTrabajadorId)
                 .OrderByDescending(v => v.Version)
                 .ToListAsync();
+
+            return versiones.Select(v => new SsHabDocumentoVersionDto
+            {
+                Id = v.Id,
+                HabTrabajadorId = v.HabTrabajadorId,
+                Version = v.Version,
+                ArchivoUrl = v.ArchivoUrl,
+                SubidoPorUserId = v.SubidoPorUserId,
+                SubidoPorEmpresaId = v.SubidoPorEmpresaId,
+                EstadoAlSubir = v.EstadoAlSubir,
+                EstadoAnterior = v.EstadoAnterior,
+                ProyectoId = v.ProyectoId,
+                EmpresaId = v.EmpresaId,
+                AprobadoPorUserId = v.AprobadoPorUserId,
+                MotivoRechazo = v.MotivoRechazo,
+                CreatedAt = v.CreatedAt
+            }).ToList();
+        }
+
+        public async Task<List<WorkerEventoDto>> GetEventosAsync(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var eventos = await ctx.WorkerEvento
+                .Where(e => e.WorkerId == workerId)
+                .OrderByDescending(e => e.CreatedAt)
+                .ToListAsync();
+
+            if (eventos.Count == 0) return [];
+
+            var proyectoIds = eventos
+                .SelectMany(e => new[] { e.ProyectoAnteriorId, e.ProyectoNuevoId })
+                .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+
+            var empresaIds = eventos
+                .SelectMany(e => new[] { e.EmpresaAnteriorId, e.EmpresaNuevaId })
+                .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+
+            var proyectoMap = proyectoIds.Count > 0
+                ? await ctx.Project
+                    .Where(p => proyectoIds.Contains(p.ProjectId))
+                    .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription)
+                : new Dictionary<int, string>();
+
+            var empresaMap = empresaIds.Count > 0
+                ? await ctx.Contributor
+                    .Where(c => empresaIds.Contains(c.ContributorId))
+                    .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName)
+                : new Dictionary<int, string>();
+
+            return eventos.Select(e => new WorkerEventoDto
+            {
+                Id = e.Id,
+                TipoEvento = e.TipoEvento,
+                Descripcion = e.Descripcion,
+                ProyectoAnteriorId = e.ProyectoAnteriorId,
+                ProyectoAnteriorNombre = e.ProyectoAnteriorId is int paid && proyectoMap.TryGetValue(paid, out var pan) ? pan : null,
+                ProyectoNuevoId = e.ProyectoNuevoId,
+                ProyectoNuevoNombre = e.ProyectoNuevoId is int pnid && proyectoMap.TryGetValue(pnid, out var pnn) ? pnn : null,
+                EmpresaAnteriorId = e.EmpresaAnteriorId,
+                EmpresaAnteriorNombre = e.EmpresaAnteriorId is int eaid && empresaMap.TryGetValue(eaid, out var ean) ? ean : null,
+                EmpresaNuevaId = e.EmpresaNuevaId,
+                EmpresaNuevaNombre = e.EmpresaNuevaId is int enid && empresaMap.TryGetValue(enid, out var enn) ? enn : null,
+                Datos = e.Datos,
+                UsuarioId = e.UsuarioId,
+                CreatedAt = e.CreatedAt
+            }).ToList();
         }
 
         public async Task CambiarObraAsync(int workerId, WorkerCambiarObraDto dto)
@@ -284,59 +398,391 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
+            var now = DateTimeOffset.UtcNow;
+            var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
 
             var activas = await ctx.WorkerVinculacion
                 .Where(v => v.WorkerId == workerId && v.FechaFin == null)
                 .ToListAsync();
 
-            int? empresaPrevia = activas.Select(a => a.EmpresaId).FirstOrDefault();
+            int? currentProyectoId = activas.Select(a => a.ProyectoId).FirstOrDefault();
+            int? currentEmpresaId = activas.Select(a => a.EmpresaId).FirstOrDefault();
+
+            var esCambioProyecto = dto.NuevoProyectoId != currentProyectoId;
+            var esCambioEmpresa = dto.NuevaEmpresaId.HasValue
+                && dto.NuevaEmpresaId != currentEmpresaId
+                && !esContratista;
 
             if (dto.NuevaEmpresaId.HasValue)
                 await ValidarExclusividadEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId.Value);
 
+            var itemsToReset = new HashSet<int>();
+            var pendingEmails = new List<(List<string> To, string Subject, string Body)>();
+            Project? proyectoDestino = null;
+
+            if (esCambioProyecto)
+            {
+                proyectoDestino = await ctx.Project
+                    .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId);
+
+                itemsToReset.Add(ItemInduccionObra);
+                if (!esContratista)
+                {
+                    itemsToReset.Add(ItemRisst);
+                    itemsToReset.Add(ItemRegistroEpp);
+                    itemsToReset.Add(ItemDifusionPts);
+                    itemsToReset.Add(ItemEntregaRecomendaciones);
+                    itemsToReset.Add(ItemTRegistro);
+                }
+
+                if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
+                {
+                    var itemsNombre = esContratista
+                        ? "• Inducción Obra"
+                        : "• Inducción Obra<br/>• RISST<br/>• Registro EPP<br/>• Difusión PTS<br/>• Entrega de Recomendaciones";
+                    pendingEmails.Add((
+                        [proyectoDestino.EmailCoordSsoma],
+                        $"Cambio de obra — {worker.ApellidoNombre}",
+                        BuildBodyReingreso(worker, proyectoDestino, itemsNombre)
+                    ));
+                }
+
+                if (!esContratista && !string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordAdmin))
+                {
+                    pendingEmails.Add((
+                        [proyectoDestino.EmailCoordAdmin],
+                        $"Cambio de obra — T-Registro — {worker.ApellidoNombre}",
+                        BuildBodyReingreso(worker, proyectoDestino, "• T-Registro")
+                    ));
+                }
+            }
+
+            if (esCambioEmpresa)
+            {
+                itemsToReset.Add(ItemSctr);
+                itemsToReset.Add(ItemVidaLey);
+                itemsToReset.Add(ItemCertAptitud);
+
+                if (proyectoDestino == null)
+                {
+                    var pidParaEmail = (int?)dto.NuevoProyectoId ?? currentProyectoId;
+                    if (pidParaEmail.HasValue)
+                        proyectoDestino = await ctx.Project
+                            .FirstOrDefaultAsync(p => p.ProjectId == pidParaEmail.Value);
+                }
+
+                var esOficinaOStaff =
+                    string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
+
+                var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
+                if (!string.IsNullOrWhiteSpace(emailSctr))
+                    pendingEmails.Add((
+                        [emailSctr!],
+                        $"Cambio de obra — SCTR — {worker.ApellidoNombre}",
+                        BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
+                    ));
+
+                var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.EmailCoordAdmin;
+                if (!string.IsNullOrWhiteSpace(emailVidaLey))
+                    pendingEmails.Add((
+                        [emailVidaLey!],
+                        $"Cambio de obra — Vida Ley — {worker.ApellidoNombre}",
+                        BuildBodyReingreso(worker, proyectoDestino, "• Vida Ley")
+                    ));
+
+                pendingEmails.Add((
+                    [EmailMedico],
+                    $"Cambio de obra — Certificado de Aptitud — {worker.ApellidoNombre}",
+                    BuildBodyReingreso(worker, proyectoDestino, "• Certificado de Aptitud (Homologación)")
+                ));
+            }
+
             foreach (var v in activas)
             {
                 v.FechaFin = fechaCambio;
-                v.UpdatedAt = DateTimeOffset.UtcNow;
+                v.UpdatedAt = now;
             }
 
-            var nueva = new WorkerVinculacion
+            ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
                 WorkerId = workerId,
-                EmpresaId = dto.NuevaEmpresaId ?? empresaPrevia,
+                EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
                 ProyectoId = dto.NuevoProyectoId,
                 FechaInicio = fechaCambio,
-                CreatedAt = DateTimeOffset.UtcNow
-            };
+                CreatedAt = now
+            });
 
-            ctx.WorkerVinculacion.Add(nueva);
+            if (itemsToReset.Count > 0)
+            {
+                var entregables = await ctx.SsHabTrabajador
+                    .Where(h => h.WorkerId == workerId && itemsToReset.Contains(h.ItemId))
+                    .ToListAsync();
+
+                foreach (var e in entregables)
+                {
+                    e.Estado = "Falta";
+                    e.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            var nowUtc = DateTime.UtcNow;
+
+            if (esCambioProyecto)
+                ctx.WorkerEvento.Add(new WorkerEvento
+                {
+                    WorkerId = workerId,
+                    TipoEvento = WorkerTipoEvento.CambioObra,
+                    Descripcion = $"Cambio de obra registrado. Fecha: {fechaCambio:dd/MM/yyyy}",
+                    ProyectoAnteriorId = currentProyectoId,
+                    ProyectoNuevoId = dto.NuevoProyectoId,
+                    EmpresaAnteriorId = currentEmpresaId,
+                    EmpresaNuevaId = dto.NuevaEmpresaId ?? currentEmpresaId,
+                    CreatedAt = nowUtc
+                });
+
+            if (esCambioEmpresa)
+                ctx.WorkerEvento.Add(new WorkerEvento
+                {
+                    WorkerId = workerId,
+                    TipoEvento = WorkerTipoEvento.CambioEmpresa,
+                    Descripcion = $"Cambio de razón social. Fecha: {fechaCambio:dd/MM/yyyy}",
+                    EmpresaAnteriorId = currentEmpresaId,
+                    EmpresaNuevaId = dto.NuevaEmpresaId,
+                    CreatedAt = nowUtc
+                });
+
+            foreach (var itemId in itemsToReset)
+                ctx.WorkerEvento.Add(new WorkerEvento
+                {
+                    WorkerId = workerId,
+                    TipoEvento = WorkerTipoEvento.EntregableReseteado,
+                    Datos = itemId.ToString(),
+                    CreatedAt = nowUtc
+                });
+
             await ctx.SaveChangesAsync();
+
+            foreach (var (to, subject, body) in pendingEmails)
+                await EnviarEmailSilenciosoAsync(to, subject, body);
         }
 
-        public async Task ReingresoAsync(int workerId, int proyectoId, int empresaId)
+        public async Task ReingresoAsync(int workerId, WorkerReingresoDto dto)
         {
             using var ctx = _factory.CreateDbContext();
 
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            await ValidarExclusividadEmpresaAsync(ctx, workerId, empresaId);
+            var fechaReingreso = dto.FechaReingreso ?? DateOnly.FromDateTime(DateTime.Today);
+            var now = DateTimeOffset.UtcNow;
+            var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
 
             worker.Estado = "ACTIVO";
             worker.FechaRetiro = null;
-            worker.UpdatedAt = DateTimeOffset.UtcNow;
+            worker.UpdatedAt = now;
 
-            var nueva = new WorkerVinculacion
+            var vinculActual = await ctx.WorkerVinculacion
+                .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+                .OrderByDescending(v => v.CreatedAt)
+                .ThenByDescending(v => v.Id)
+                .FirstOrDefaultAsync();
+
+            var currentProyectoId = vinculActual?.ProyectoId;
+            var currentEmpresaId = vinculActual?.EmpresaId;
+
+            var esCambioProyecto = dto.NuevoProyectoId.HasValue && dto.NuevoProyectoId != currentProyectoId;
+            var esCambioEmpresa = dto.NuevaEmpresaId.HasValue && !esContratista;
+
+            var itemsToReset = new HashSet<int>();
+            var pendingEmails = new List<(List<string> To, string Subject, string Body)>();
+
+            Project? proyectoDestino = null;
+
+            if (esCambioProyecto)
+            {
+                proyectoDestino = await ctx.Project
+                    .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId!.Value);
+
+                itemsToReset.Add(ItemInduccionObra);
+                if (!esContratista)
+                {
+                    itemsToReset.Add(ItemRisst);
+                    itemsToReset.Add(ItemRegistroEpp);
+                    itemsToReset.Add(ItemDifusionPts);
+                    itemsToReset.Add(ItemEntregaRecomendaciones);
+                    itemsToReset.Add(ItemTRegistro);
+                }
+
+                if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
+                {
+                    var itemsNombre = esContratista
+                        ? "• Inducción Obra"
+                        : "• Inducción Obra<br/>• RISST<br/>• Registro EPP<br/>• Difusión PTS<br/>• Entrega de Recomendaciones";
+                    pendingEmails.Add((
+                        [proyectoDestino.EmailCoordSsoma],
+                        $"Reingreso de trabajador — {worker.ApellidoNombre}",
+                        BuildBodyReingreso(worker, proyectoDestino, itemsNombre)
+                    ));
+                }
+
+                if (!esContratista && !string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordAdmin))
+                {
+                    pendingEmails.Add((
+                        [proyectoDestino.EmailCoordAdmin],
+                        $"Reingreso de trabajador — T-Registro — {worker.ApellidoNombre}",
+                        BuildBodyReingreso(worker, proyectoDestino, "• T-Registro")
+                    ));
+                }
+            }
+
+            if (esCambioEmpresa)
+            {
+                itemsToReset.Add(ItemSctr);
+                itemsToReset.Add(ItemVidaLey);
+                itemsToReset.Add(ItemCertAptitud);
+
+                if (proyectoDestino == null)
+                {
+                    var pidParaEmail = dto.NuevoProyectoId ?? currentProyectoId;
+                    if (pidParaEmail.HasValue)
+                        proyectoDestino = await ctx.Project
+                            .FirstOrDefaultAsync(p => p.ProjectId == pidParaEmail.Value);
+                }
+
+                var esOficinaOStaff =
+                    string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
+
+                var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
+                if (!string.IsNullOrWhiteSpace(emailSctr))
+                    pendingEmails.Add((
+                        [emailSctr!],
+                        $"Reingreso de trabajador — SCTR — {worker.ApellidoNombre}",
+                        BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
+                    ));
+
+                var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.EmailCoordAdmin;
+                if (!string.IsNullOrWhiteSpace(emailVidaLey))
+                    pendingEmails.Add((
+                        [emailVidaLey!],
+                        $"Reingreso de trabajador — Vida Ley — {worker.ApellidoNombre}",
+                        BuildBodyReingreso(worker, proyectoDestino, "• Vida Ley")
+                    ));
+
+                pendingEmails.Add((
+                    [EmailMedico],
+                    $"Reingreso de trabajador — Certificado de Aptitud — {worker.ApellidoNombre}",
+                    BuildBodyReingreso(worker, proyectoDestino, "• Certificado de Aptitud (Homologación)")
+                ));
+            }
+
+            if (esCambioProyecto || esCambioEmpresa)
+            {
+                if (vinculActual != null)
+                {
+                    vinculActual.FechaFin = fechaReingreso;
+                    vinculActual.UpdatedAt = now;
+                }
+
+                ctx.WorkerVinculacion.Add(new WorkerVinculacion
+                {
+                    WorkerId = workerId,
+                    EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
+                    ProyectoId = dto.NuevoProyectoId ?? currentProyectoId,
+                    FechaInicio = fechaReingreso,
+                    CreatedAt = now
+                });
+            }
+
+            if (itemsToReset.Count > 0)
+            {
+                var entregables = await ctx.SsHabTrabajador
+                    .Where(h => h.WorkerId == workerId && itemsToReset.Contains(h.ItemId))
+                    .ToListAsync();
+
+                foreach (var e in entregables)
+                {
+                    e.Estado = "Falta";
+                    e.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            var nowUtc = DateTime.UtcNow;
+
+            ctx.WorkerEvento.Add(new WorkerEvento
             {
                 WorkerId = workerId,
-                EmpresaId = empresaId,
-                ProyectoId = proyectoId,
-                FechaInicio = DateOnly.FromDateTime(DateTime.UtcNow),
-                CreatedAt = DateTimeOffset.UtcNow
-            };
+                TipoEvento = WorkerTipoEvento.Reingreso,
+                Descripcion = $"Reingreso registrado. Fecha: {fechaReingreso:dd/MM/yyyy}",
+                ProyectoAnteriorId = currentProyectoId,
+                ProyectoNuevoId = dto.NuevoProyectoId ?? currentProyectoId,
+                EmpresaAnteriorId = currentEmpresaId,
+                EmpresaNuevaId = dto.NuevaEmpresaId ?? currentEmpresaId,
+                CreatedAt = nowUtc
+            });
 
-            ctx.WorkerVinculacion.Add(nueva);
+            if (esCambioProyecto)
+                ctx.WorkerEvento.Add(new WorkerEvento
+                {
+                    WorkerId = workerId,
+                    TipoEvento = WorkerTipoEvento.CambioObra,
+                    Descripcion = "Cambio de proyecto en reingreso.",
+                    ProyectoAnteriorId = currentProyectoId,
+                    ProyectoNuevoId = dto.NuevoProyectoId,
+                    CreatedAt = nowUtc
+                });
+
+            if (esCambioEmpresa)
+                ctx.WorkerEvento.Add(new WorkerEvento
+                {
+                    WorkerId = workerId,
+                    TipoEvento = WorkerTipoEvento.CambioEmpresa,
+                    Descripcion = "Cambio de empresa en reingreso.",
+                    EmpresaAnteriorId = currentEmpresaId,
+                    EmpresaNuevaId = dto.NuevaEmpresaId,
+                    CreatedAt = nowUtc
+                });
+
+            foreach (var itemId in itemsToReset)
+                ctx.WorkerEvento.Add(new WorkerEvento
+                {
+                    WorkerId = workerId,
+                    TipoEvento = WorkerTipoEvento.EntregableReseteado,
+                    Datos = itemId.ToString(),
+                    CreatedAt = nowUtc
+                });
+
             await ctx.SaveChangesAsync();
+
+            foreach (var (to, subject, body) in pendingEmails)
+                await EnviarEmailSilenciosoAsync(to, subject, body);
+        }
+
+        private static string BuildBodyReingreso(Worker worker, Project? proyecto, string itemsHtml)
+        {
+            var proyectoNombre = proyecto?.ProjectDescription ?? "(sin proyecto asignado)";
+            return $@"<p>Estimados,</p>
+<p>Se notifica el <strong>reingreso del siguiente trabajador</strong>. Los entregables indicados deben ser actualizados:</p>
+<table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.ApellidoNombre}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Dni}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Modalidad</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.ContrataCasa}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Proyecto</strong></td><td style='border:1px solid #ddd;padding:8px;'>{proyectoNombre}</td></tr>
+</table>
+<p><strong>Entregables pendientes:</strong><br/>{itemsHtml}</p>";
+        }
+
+        private async Task EnviarEmailSilenciosoAsync(List<string> to, string subject, string body)
+        {
+            try
+            {
+                await _emailService.SendAsync(to, subject, body, isHtml: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error al enviar correo de reingreso a {Destinatarios}", string.Join(", ", to));
+            }
         }
 
         public async Task<int?> GetEmpresaActivaWorkerAsync(int workerId)
@@ -483,6 +929,94 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Notas = w.Notas,
             PuntosInfraccion = w.PuntosInfraccion
         };
+
+        public async Task BajaAsync(int workerId, DateOnly fechaRetiro)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
+                ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            worker.Estado = "RETIRADO";
+            worker.FechaRetiro = fechaRetiro;
+            worker.UpdatedAt = DateTimeOffset.UtcNow;
+
+            var vinculacion = await ctx.WorkerVinculacion
+                .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+                .OrderByDescending(v => v.CreatedAt)
+                .ThenByDescending(v => v.Id)
+                .FirstOrDefaultAsync();
+
+            if (vinculacion != null)
+            {
+                vinculacion.FechaFin = fechaRetiro;
+                vinculacion.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
+            ctx.WorkerEvento.Add(new WorkerEvento
+            {
+                WorkerId = workerId,
+                TipoEvento = WorkerTipoEvento.Baja,
+                Descripcion = $"Baja registrada. Fecha retiro: {fechaRetiro:dd/MM/yyyy}",
+                ProyectoAnteriorId = vinculacion?.ProyectoId,
+                EmpresaAnteriorId = vinculacion?.EmpresaId,
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task BajaMasivaAsync(List<int> ids, DateOnly fechaRetiro)
+        {
+            if (ids is null || ids.Count == 0) return;
+
+            using var ctx = _factory.CreateDbContext();
+
+            var workers = await ctx.Worker
+                .Where(w => ids.Contains(w.Id))
+                .ToListAsync();
+
+            if (workers.Count == 0) return;
+
+            var now = DateTimeOffset.UtcNow;
+            foreach (var w in workers)
+            {
+                w.Estado = "RETIRADO";
+                w.FechaRetiro = fechaRetiro;
+                w.UpdatedAt = now;
+            }
+
+            var workerIds = workers.Select(w => w.Id).ToList();
+            var vinculaciones = await ctx.WorkerVinculacion
+                .Where(v => workerIds.Contains(v.WorkerId) && v.FechaFin == null)
+                .ToListAsync();
+
+            foreach (var v in vinculaciones)
+            {
+                v.FechaFin = fechaRetiro;
+                v.UpdatedAt = now;
+            }
+
+            var vincMap = vinculaciones
+                .GroupBy(v => v.WorkerId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            foreach (var w in workers)
+            {
+                vincMap.TryGetValue(w.Id, out var vinc);
+                ctx.WorkerEvento.Add(new WorkerEvento
+                {
+                    WorkerId = w.Id,
+                    TipoEvento = WorkerTipoEvento.Baja,
+                    Descripcion = $"Baja masiva. Fecha retiro: {fechaRetiro:dd/MM/yyyy}",
+                    ProyectoAnteriorId = vinc?.ProyectoId,
+                    EmpresaAnteriorId = vinc?.EmpresaId,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            await ctx.SaveChangesAsync();
+        }
 
         private static async Task ValidarExclusividadEmpresaAsync(
             AppDbContext ctx, int workerId, int empresaSolicitanteId)

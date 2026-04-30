@@ -15,6 +15,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public int? SubidoPorEmpresaId { get; set; }
         public string? EstadoAlSubir { get; set; }
         public DateTime? CreatedAt { get; set; }
+        public int? ProyectoId { get; set; }
+        public int? EmpresaId { get; set; }
+        public string? EstadoAnterior { get; set; }
+        public int? AprobadoPorUserId { get; set; }
+        public string? MotivoRechazo { get; set; }
 
         [ForeignKey(nameof(HabTrabajadorId))]
         public SsHabTrabajador? HabTrabajador { get; set; }

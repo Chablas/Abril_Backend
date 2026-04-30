@@ -30,7 +30,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int CurrencyId { get; set; }
         public string CurrencyCode { get; set; }
         public bool AmountHasIgv { get; set; }
-        public string ContractorEmail { get; set; }
+        public List<string> ContractorEmails { get; set; } = new();
         public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; }
         public int WorkItemCategoryId { get; set; }

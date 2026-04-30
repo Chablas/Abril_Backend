@@ -15,6 +15,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task<List<WorkItemSimpleDTO>> GetWorkItemFactory();
         Task<List<WorkItemCategorySimpleDTO>> GetWorkItemCategoryFactory();
         Task<List<ContributorFactoryDTO>> GetCompanyFactory();
+        Task<ProjectSubContractorFormDataDTO> GetFormDataAsync();
         Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter);
         Task<AdjudicacionNotificationDataDto> GetNotificationData(int projectSubContractorId);
         Task UpdateStatusToSent(int projectSubContractorId, int userId);

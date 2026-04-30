@@ -129,13 +129,36 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 
 | Nombre C# | Tabla PG | Notas |
 |-----------|----------|-------|
-| `Projects` | `projects` | Entidad unificada. Propiedades: `Id`, `Nombre`, `Activo`, `Estado`. |
+| `Projects` | `projects` | **Entidad NUEVA**. Propiedades: `Id`, `Nombre`, `Activo`, `Estado`. Es la tabla a la que apuntan TODAS las FKs nuevas (`worker_vinculaciones.proyecto_id`, `ss_equipo.proyecto_id`, `ss_sctr_vidaley.proyecto_id`, `ss_hab_empresa.proyecto_id`). Ubicada en `Infrastructure/Models/Projects.cs`. **NO tiene `DbSet` declarado** — acceder vía `ctx.Set<Projects>()`. |
+| `Project` | `project` | **Entidad LEGACY** (singular). Propiedades: `ProjectId`, `ProjectDescription`, etc. Ubicada en `Shared/Models/Project.cs`. DbSet `ctx.Project`. ⚠️ **NO usar para resolver `proyecto_id` proveniente de tablas nuevas** — los IDs caen en rangos similares y los joins "funcionan" pero retornan nombres incorrectos. |
 | `User` | `app_user` | Override en ConfigurePostgreSQL |
 | `Worker` | `workers` | Personal SSOMA |
 | `WorkerEmo` | `worker_emos` | Registros EMO |
 | `SsItemTrabajador` | `ss_item_trabajador` | Catálogo de entregables con reglas |
 | `SsHabTrabajador` | `ss_hab_trabajador` | Entregables por trabajador |
 | `SsHabDocumentoVersion` | `ss_hab_documento_version` | Historial versiones |
+
+### ⚠️ Pitfall crítico: `Project` (legacy) vs `Projects` (nuevo)
+
+Existen **dos entidades C# distintas** que apuntan a **dos tablas PG distintas**:
+
+```csharp
+// ❌ INCORRECTO al resolver nombre de proyecto desde una FK nueva
+var proyectos = await ctx.Project
+    .Where(p => proyectoIds.Contains(p.ProjectId))
+    .Select(p => new { p.ProjectId, p.ProjectDescription })
+    .ToListAsync();
+
+// ✅ CORRECTO — usar la entidad nueva
+var proyectos = await ctx.Set<Projects>()
+    .Where(p => proyectoIds.Contains(p.Id))
+    .Select(p => new { p.Id, p.Nombre })
+    .ToListAsync();
+```
+
+**Síntoma del bug**: el endpoint devuelve un nombre de proyecto incorrecto (ej: worker GODENZI con `proyecto_id=10` mostraba "Gran Manzano" del legacy `project` en vez de "Oficina Central" del nuevo `projects`).
+
+**Regla**: si la FK que tienes en mano viene de una tabla nueva (`worker_vinculaciones`, `ss_*`, `ac_*`), siempre resuélvela contra `ctx.Set<Projects>()`. Solo usa `ctx.Project` cuando trabajas con entidades del dominio legacy (`Lesson`, `MilestoneSchedule`, `UserProject`, `ResidentReport*`, `ProjectSubContractor`, `StaffProjectEmail`).
 
 ---
 
@@ -302,6 +325,8 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 ### Pitfalls conocidos
 
 - `SharePointHabService` debe ser **Singleton** — el token y driveId se cachean en instancia
+- **`worker_vinculaciones.proyecto_id` apunta a `projects.id` (entidad `Projects`), NO a `project.project_id` (entidad `Project` legacy)**. Resolver siempre vía `ctx.Set<Projects>()`. Ver sección 6 para detalles.
+- **Al consultar `worker_vinculaciones` activas, siempre `ORDER BY created_at DESC, id DESC`**. `fecha_inicio` no es único y EF/PG no garantiza orden estable sin tie-breaker → puede devolver vinculación incorrecta cuando un worker tiene varias filas con `fecha_fin IS NULL`. Para JOINs en SQL crudo, usar `LEFT JOIN LATERAL (... ORDER BY created_at DESC, id DESC LIMIT 1) ON TRUE` para evitar duplicar filas base.
 - `WorkerVinculacion.EmpresaId` apunta a tabla legacy `companies`, NO a `ss_empresa_contratista.Id`
 - FluentValidation 11.3.1 usa API deprecated — migrar cuando bumpeemos v12
 - `AuditoriaInterceptor` debe ser **Singleton** — inyectar `IServiceScopeFactory`

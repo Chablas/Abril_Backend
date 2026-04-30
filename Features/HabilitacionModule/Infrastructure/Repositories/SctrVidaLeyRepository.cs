@@ -3,6 +3,7 @@ using Abril_Backend.Features.Habilitacion.Application.Dtos.SctrVidaley;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
@@ -252,9 +253,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(e => empresaIds.Contains(e.Id))
                 .ToDictionaryAsync(e => e.Id, e => e.RazonSocial);
 
-            var proyectoMap = await ctx.Project
-                .Where(p => proyectoIds.Contains(p.ProjectId))
-                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
+            var proyectoMap = await ctx.Set<Projects>()
+                .Where(p => proyectoIds.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id, p => p.Nombre);
 
             var workersData = await (from svw in ctx.SsSctrVidaLeyWorker
                                      where ids.Contains(svw.SctrVidaLeyId)

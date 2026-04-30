@@ -47,7 +47,13 @@ SELECT
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
 JOIN workers w ON w.id = ht.worker_id
-LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+LEFT JOIN LATERAL (
+    SELECT empresa_id, proyecto_id
+    FROM worker_vinculaciones
+    WHERE worker_id = w.id AND fecha_fin IS NULL
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+) wv ON TRUE
 LEFT JOIN ss_empresa_contratista ec ON ec.id = wv.empresa_id
 LEFT JOIN projects p ON p.id = wv.proyecto_id
 WHERE ht.estado = 'Enviado'

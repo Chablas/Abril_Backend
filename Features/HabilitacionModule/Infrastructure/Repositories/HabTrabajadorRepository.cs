@@ -35,7 +35,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Worker = w,
                     LatestVinc = ctx.WorkerVinculacion
                         .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
-                        .OrderByDescending(v => v.FechaInicio)
+                        .OrderByDescending(v => v.CreatedAt)
+                        .ThenByDescending(v => v.Id)
                         .FirstOrDefault(),
                     EstadoCalc =
                         (ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
@@ -98,13 +99,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(e => new { e.Id, e.RazonSocial })
                 .ToListAsync();
 
-            var proyectos = await ctx.Project
-                .Where(p => proyectoIds.Contains(p.ProjectId))
-                .Select(p => new { p.ProjectId, p.ProjectDescription })
+            var proyectos = await ctx.Set<Projects>()
+                .Where(p => proyectoIds.Contains(p.Id))
+                .Select(p => new { p.Id, p.Nombre })
                 .ToListAsync();
 
             var empresaMap = empresas.ToDictionary(e => e.Id, e => e.RazonSocial);
-            var proyectoMap = proyectos.ToDictionary(p => p.ProjectId, p => p.ProjectDescription);
+            var proyectoMap = proyectos.ToDictionary(p => p.Id, p => p.Nombre);
 
             var items = pageRows.Select(r => new WorkerHabilitacionListDto
             {
@@ -342,7 +343,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
             return await ctx.WorkerVinculacion
                 .Where(v => v.WorkerId == workerId && v.FechaFin == null)
-                .OrderByDescending(v => v.FechaInicio)
+                .OrderByDescending(v => v.CreatedAt)
+                .ThenByDescending(v => v.Id)
                 .Select(v => v.EmpresaId)
                 .FirstOrDefaultAsync();
         }
@@ -424,7 +426,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             var activa = await ctx.WorkerVinculacion
                 .Where(v => v.WorkerId == workerId && v.FechaFin == null)
-                .OrderByDescending(v => v.FechaInicio)
+                .OrderByDescending(v => v.CreatedAt)
+                .ThenByDescending(v => v.Id)
                 .FirstOrDefaultAsync();
 
             if (activa == null || !activa.EmpresaId.HasValue) return;

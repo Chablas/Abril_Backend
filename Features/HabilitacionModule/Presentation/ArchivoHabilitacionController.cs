@@ -77,6 +77,24 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en ArchivoHabilitacionController.Subir"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("url")]
+        public async Task<IActionResult> GetUrl([FromQuery] string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    return BadRequest(new { message = "Parámetro 'path' requerido." });
+
+                var downloadUrl = await _sharePoint.GetDownloadUrlAsync(Uri.UnescapeDataString(path));
+                if (string.IsNullOrWhiteSpace(downloadUrl))
+                    return NotFound(new { message = "Archivo no encontrado." });
+
+                return Ok(new { url = downloadUrl });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ArchivoHabilitacionController.GetUrl"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("descargar")]
         public async Task<IActionResult> Descargar([FromQuery] string url)
         {

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
 {
@@ -25,7 +26,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public SsEmpresaContratista? Empresa { get; set; }
 
         [ForeignKey(nameof(ProyectoId))]
-        public Projects? Proyecto { get; set; }
+        public Project? Proyecto { get; set; }
 
         public ICollection<SsEvalSupervisorItem> Items { get; set; } = [];
     }

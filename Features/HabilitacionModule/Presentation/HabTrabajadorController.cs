@@ -68,6 +68,32 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetWorkers"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> GetById(int id)
+        {
+            try
+            {
+                var worker = await _repo.GetByIdAsync(id);
+                if (worker is null)
+                    return NotFound(new { message = "Trabajador no encontrado." });
+                return Ok(worker);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetById"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] WorkerUpdateDto dto)
+        {
+            try
+            {
+                var actualizado = await _repo.UpdateAsync(id, dto);
+                return Ok(actualizado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.Update"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("{workerId:int}/entregables")]
         public async Task<IActionResult> GetEntregables(int workerId)
         {

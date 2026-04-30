@@ -203,7 +203,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     id = ep.Id,
                     empresaId = ep.EmpresaId,
                     proyectoId = ep.ProyectoId,
-                    proyectoNombre = ep.Proyecto?.Nombre,
+                    proyectoNombre = ep.Proyecto?.ProjectDescription,
                     activo = ep.Activo,
                     fechaInicio = ep.FechaInicio,
                     fechaFin = ep.FechaFin,

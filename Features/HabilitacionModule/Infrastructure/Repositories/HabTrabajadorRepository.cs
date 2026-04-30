@@ -413,6 +413,77 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             => csv != null && csv.Split(',', StringSplitOptions.TrimEntries)
                    .Contains(valor ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
+        public async Task<WorkerDetalleDto?> GetByIdAsync(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var w = await ctx.Worker.FirstOrDefaultAsync(x => x.Id == workerId);
+            return w is null ? null : MapToDetalle(w);
+        }
+
+        public async Task<WorkerDetalleDto> UpdateAsync(int workerId, WorkerUpdateDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var w = await ctx.Worker.FirstOrDefaultAsync(x => x.Id == workerId)
+                ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            if (dto.ApellidoNombre is not null) w.ApellidoNombre = dto.ApellidoNombre;
+            if (dto.Ruc is not null) w.Ruc = dto.Ruc;
+            if (dto.Celular is not null) w.Celular = dto.Celular;
+            if (dto.EmailPersonal is not null) w.EmailPersonal = dto.EmailPersonal;
+            if (dto.EmailCorporativo is not null) w.EmailCorporativo = dto.EmailCorporativo;
+            if (dto.FechaNacimiento.HasValue) w.FechaNacimiento = dto.FechaNacimiento;
+            if (dto.FechaIngreso.HasValue) w.FechaIngreso = dto.FechaIngreso;
+            if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
+            if (dto.Categoria is not null) w.Categoria = dto.Categoria;
+            if (dto.Ocupacion is not null) w.Ocupacion = dto.Ocupacion;
+            if (dto.Area is not null) w.Area = dto.Area;
+            if (dto.Subarea is not null) w.Subarea = dto.Subarea;
+            if (dto.ContrataCasa is not null) w.ContrataCasa = dto.ContrataCasa;
+            if (dto.ObraOficina is not null) w.ObraOficina = dto.ObraOficina;
+            if (dto.Jefatura is not null) w.Jefatura = dto.Jefatura;
+            if (dto.Estado is not null) w.Estado = dto.Estado;
+            if (dto.HabilitadoObra.HasValue) w.HabilitadoObra = dto.HabilitadoObra;
+            if (dto.Sctr.HasValue) w.Sctr = dto.Sctr;
+            if (dto.CondicionMedica is not null) w.CondicionMedica = dto.CondicionMedica;
+            if (dto.Procedencia is not null) w.Procedencia = dto.Procedencia;
+            if (dto.Notas is not null) w.Notas = dto.Notas;
+            if (dto.PuntosInfraccion.HasValue) w.PuntosInfraccion = dto.PuntosInfraccion;
+
+            w.UpdatedAt = DateTimeOffset.UtcNow;
+
+            await ctx.SaveChangesAsync();
+            return MapToDetalle(w);
+        }
+
+        private static WorkerDetalleDto MapToDetalle(Worker w) => new()
+        {
+            Id = w.Id,
+            IdTrabajador = w.IdTrabajador,
+            ApellidoNombre = w.ApellidoNombre,
+            Dni = w.Dni,
+            Ruc = w.Ruc,
+            Celular = w.Celular,
+            EmailPersonal = w.EmailPersonal,
+            EmailCorporativo = w.EmailCorporativo,
+            FechaNacimiento = w.FechaNacimiento,
+            FechaIngreso = w.FechaIngreso,
+            FechaRetiro = w.FechaRetiro,
+            Categoria = w.Categoria,
+            Ocupacion = w.Ocupacion,
+            Area = w.Area,
+            Subarea = w.Subarea,
+            ContrataCasa = w.ContrataCasa,
+            ObraOficina = w.ObraOficina,
+            Jefatura = w.Jefatura,
+            Estado = w.Estado,
+            HabilitadoObra = w.HabilitadoObra,
+            Sctr = w.Sctr,
+            CondicionMedica = w.CondicionMedica,
+            Procedencia = w.Procedencia,
+            Notas = w.Notas,
+            PuntosInfraccion = w.PuntosInfraccion
+        };
+
         private static async Task ValidarExclusividadEmpresaAsync(
             AppDbContext ctx, int workerId, int empresaSolicitanteId)
         {

@@ -168,9 +168,9 @@ builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>
 });
 builder.Services.AddHttpClient<ISunatService, DecolectaSunatService>(client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["Sunat:BaseUrl"]!);
-    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", builder.Configuration["Sunat:Token"]!);
-    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+    var baseUrl = builder.Configuration["Sunat:BaseUrl"];
+    if (!string.IsNullOrEmpty(baseUrl))
+        client.BaseAddress = new Uri(baseUrl);
 });
 builder.Services.AddRateLimiter(options =>
 {

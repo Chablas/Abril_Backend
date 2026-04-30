@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Models
 {
@@ -49,6 +50,6 @@ namespace Abril_Backend.Infrastructure.Models
         public Contributor? Empresa { get; set; }
 
         [ForeignKey(nameof(ProyectoId))]
-        public Projects? Proyecto { get; set; }
+        public Project? Proyecto { get; set; }
     }
 }

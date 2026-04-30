@@ -112,6 +112,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AuditoriaCambio> AuditoriaCambios => Set<AuditoriaCambio>();
         public DbSet<SsHabDocumentoVersion> SsHabDocumentoVersion => Set<SsHabDocumentoVersion>();
         public DbSet<SsResetToken> SsResetToken => Set<SsResetToken>();
+        public DbSet<CatSubarea> CatSubarea => Set<CatSubarea>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

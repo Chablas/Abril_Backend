@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 > Pega este archivo en la raíz del proyecto. Claude Code lo leerá al inicio de cada sesión.
-> Última actualización: 2026-04-30 (migración entregables, reglas ss_item_trabajador, roles SSOMA/Admin, SharePoint fix, visor documentos)
+> Última actualización: 2026-04-30 (migración SwitchProyectoFkToProjectLegacy reconcilia FK proyecto_id; nuevos endpoints worker detalle GET/PUT, /proyectos, /catalogos/areas|subareas; pageSize en /project/paged; tabla cat_subarea; HabilitacionDateHelper para UTC; Sunat null-safe; patch semantics en aprobaciones)
 
 ---
 
@@ -129,45 +129,30 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 
 | Nombre C# | Tabla PG | Notas |
 |-----------|----------|-------|
-| `Project` | `project` | **Entidad CANÓNICA** para resolver nombres de proyecto. Propiedades: `ProjectId`, `ProjectDescription`, etc. Ubicada en `Shared/Models/Project.cs`. DbSet `ctx.Project`. Es la tabla a la que apunta `worker_vinculaciones.proyecto_id` (verificado contra DB real, **no** contra el migration snapshot — el snapshot quedó desincronizado). |
-| `Projects` | `projects` | Entidad alterna en `Infrastructure/Models/Projects.cs` con `Id`, `Nombre`. **NO tiene `DbSet` declarado** — acceso solo vía `ctx.Set<Projects>()`. ⚠️ Su rol real está sin auditar: `ss_equipo.proyecto_id` y `ss_sctr_vidaley.proyecto_id` podrían apuntar aquí o a `project` legacy — no asumir, verificar con SQL antes de tocar. |
+| `Project` | `project` | **Entidad ÚNICA** para nombres de proyecto. Propiedades: `ProjectId`, `ProjectDescription`, etc. Ubicada en `Shared/Models/Project.cs`. DbSet `ctx.Project`. FK destino de `worker_vinculaciones.proyecto_id`, `ss_equipo.proyecto_id`, `ss_sctr_vidaley.proyecto_id`, `ss_hab_empresa.proyecto_id`. |
 | `User` | `app_user` | Override en ConfigurePostgreSQL |
 | `Worker` | `workers` | Personal SSOMA |
 | `WorkerEmo` | `worker_emos` | Registros EMO |
+| `CatSubarea` | `cat_subarea` | Catálogo de subáreas con jefatura. Tabla creada manualmente en DB; sin migración EF (DbSet declarado en AppDbContext). |
 | `SsItemTrabajador` | `ss_item_trabajador` | Catálogo de entregables con reglas |
 | `SsHabTrabajador` | `ss_hab_trabajador` | Entregables por trabajador |
 | `SsHabDocumentoVersion` | `ss_hab_documento_version` | Historial versiones |
 
-### ⚠️ Pitfall crítico: `Project` (legacy) vs `Projects` (nuevo)
+### ⚠️ Pitfall histórico: `Project` (legacy) vs `Projects` (eliminada)
 
-Existen **dos entidades C# distintas** que apuntan a **dos tablas PG distintas con IDs en rangos solapados** — los joins compilan y "funcionan" silenciosamente contra la tabla equivocada, devolviendo nombres incorrectos.
-
-**Realidad verificada en producción**: `worker_vinculaciones.proyecto_id → project.project_id` (legacy). El migration snapshot generado por EF Core declara la FK hacia `Projects` (`fk_worker_vinculaciones_projects_proyecto_id`), pero la DB **no respeta esa declaración** — drift schema↔código. Hasta que se reconcilie, **confiar en la DB, no en el snapshot**.
+**Resuelto el 2026-04-30** vía migración `20260430053121_SwitchProyectoFkToProjectLegacy` + eliminación de `Infrastructure/Models/Projects.cs`. La entidad `Projects` (plural, con `Id`/`Nombre`) **ya no existe en código**. Toda referencia a proyectos por ID se resuelve contra `ctx.Project` (legacy, con `ProjectId`/`ProjectDescription`).
 
 ```csharp
-// ✅ CORRECTO para resolver worker_vinculaciones.proyecto_id
+// ✅ ÚNICO patrón válido para resolver cualquier proyecto_id
 var proyectos = await ctx.Project
     .Where(p => proyectoIds.Contains(p.ProjectId))
     .Select(p => new { p.ProjectId, p.ProjectDescription })
     .ToListAsync();
 ```
 
-**Síntoma del bug** (caso histórico): el endpoint `/trabajadores` devolvía `proyectoActual="Gran Manzano"` para un worker cuyo `proyecto_id=10` mapea a "Oficina Central" en `projects` (nueva), porque el código resolvía contra `projects.id=10` en vez de `project.project_id=10`. El revert volvió a usar `ctx.Project` (legacy) — el correcto.
+**Histórico del bug** (commits `8a3e317` → `4e49442` → `d4db179`): originalmente había dos entidades C# que apuntaban a dos tablas PG con IDs solapados; los joins compilaban y "funcionaban" silenciosamente contra la tabla equivocada. Caso emblemático: GODENZI (worker con `proyecto_id=10`) devolvía "Gran Manzano" en vez de "Oficina Central". Tras revertir el código y migrar el schema, todas las FKs apuntan a `project.project_id` consistentemente.
 
-**Regla provisional**:
-- `worker_vinculaciones.proyecto_id` → resolver contra `ctx.Project` (legacy). Confirmado.
-- `ss_equipo.proyecto_id`, `ss_sctr_vidaley.proyecto_id`, `ss_hab_empresa.proyecto_id` → **sin verificar**, asumir igual hasta correr SQL contra DB:
-
-```sql
-SELECT t.proyecto_id, p.project_description AS legacy, pn.nombre AS nueva
-FROM <tabla> t
-LEFT JOIN project p ON p.project_id = t.proyecto_id
-LEFT JOIN projects pn ON pn.id = t.proyecto_id
-LIMIT 3;
-```
-
-- Entidades del dominio legacy (`Lesson`, `MilestoneSchedule`, `UserProject`, `ResidentReport*`, `ProjectSubContractor`, `StaffProjectEmail`) → siempre `ctx.Project`.
-- `Projects` (plural) sigue declarada en código por la navegación `WorkerVinculacion.Proyecto` y por usos en `EquipoRepository`/`SctrVidaLeyRepository`/`BandejaRepository`/`EmoAlertaService` — pendientes de auditoría.
+**Si en el futuro EF intenta regenerar `Projects`**: probablemente porque alguien restauró la navegación `Projects? Proyecto` en `WorkerVinculacion`. Verificar que esa navegación esté removida o apunte explícitamente a `Project` legacy.
 
 ---
 
@@ -304,7 +289,12 @@ POST        /api/v1/habilitacion/empresas/{id}/reenviar-activacion
 GET         /api/v1/habilitacion/empresas/{id}/entregables
 PUT         /api/v1/habilitacion/empresas/{id}/entregables/{itemId}
 GET         /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
-GET         /api/v1/habilitacion/trabajadores
+GET         /api/v1/habilitacion/catalogos/areas              (público — selectores en login/registro)
+GET         /api/v1/habilitacion/catalogos/subareas?area=…   (público — filtra por área, opcional)
+GET         /api/v1/habilitacion/proyectos                    (lista activos {id, nombre} desde Project legacy)
+GET         /api/v1/habilitacion/trabajadores                 (lista paginada con filtros)
+GET         /api/v1/habilitacion/trabajadores/{id}            (detalle completo)
+PUT         /api/v1/habilitacion/trabajadores/{id}            (PATCH semantics — solo asigna campos non-null)
 POST        /api/v1/habilitacion/trabajadores/{id}/inicializar   ← auto-crea entregables
 GET/PUT     /api/v1/habilitacion/trabajadores/{id}/entregables
 GET         /api/v1/habilitacion/trabajadores/entregables/{id}/versiones
@@ -315,7 +305,7 @@ GET/POST    /api/v1/habilitacion/sctr-vidaley
 PATCH       /api/v1/habilitacion/sctr-vidaley/{id}/aprobar
 GET/POST/PUT/DELETE /api/v1/habilitacion/reglas
 GET         /api/v1/habilitacion/auditoria
-POST        /api/v1/habilitacion/archivos/subir
+POST        /api/v1/habilitacion/archivos/subir   ← acepta opcional habTrabajadorId para auto-marcar 'Enviado'
 GET         /api/v1/habilitacion/archivos/url?path={path}   ← URL temporal SharePoint
 GET         /api/v1/habilitacion/registros-modelo (público)
 ```
@@ -334,13 +324,18 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 ### Pitfalls conocidos
 
 - `SharePointHabService` debe ser **Singleton** — el token y driveId se cachean en instancia
-- **`worker_vinculaciones.proyecto_id` apunta a `project.project_id` (entidad `Project` legacy), NO a `projects.id`**. Resolver siempre vía `ctx.Project` con `ProjectId`/`ProjectDescription`. El migration snapshot dice lo contrario pero está desincronizado con la DB real. Ver sección 6 para detalles y para SQL de verificación de las otras FKs aún sin auditar.
+- **Todos los `proyecto_id` de tablas nuevas (`worker_vinculaciones`, `ss_equipo`, `ss_sctr_vidaley`, `ss_hab_empresa`) apuntan a `project.project_id` legacy**. Resolver siempre vía `ctx.Project` con `ProjectId`/`ProjectDescription`. La entidad `Projects` (plural) fue eliminada el 2026-04-30 vía migración `SwitchProyectoFkToProjectLegacy`. Ver sección 6.
 - **Al consultar `worker_vinculaciones` activas, siempre `ORDER BY created_at DESC, id DESC`**. `fecha_inicio` no es único y EF/PG no garantiza orden estable sin tie-breaker → puede devolver vinculación incorrecta cuando un worker tiene varias filas con `fecha_fin IS NULL`. Para JOINs en SQL crudo, usar `LEFT JOIN LATERAL (... ORDER BY created_at DESC, id DESC LIMIT 1) ON TRUE` para evitar duplicar filas base.
 - `WorkerVinculacion.EmpresaId` apunta a tabla legacy `companies`, NO a `ss_empresa_contratista.Id`
+- **`HabilitacionDateHelper.AsUtc(dto.Fecha)` obligatorio** para todo `DateTime` que venga de un DTO antes de asignarlo a una columna `timestamp with time zone`. JSON deserializa fechas sin `Z` como `Kind=Unspecified` y Npgsql las rechaza con `"Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with time zone', only UTC is supported"`. Ya aplicado en `HabTrabajadorRepository`, `EquipoRepository`, `HabEmpresaRepository`, `SctrVidaLeyRepository`, `BandejaRepository`. Para el sentinel "sin vencimiento" usar `DateTime.SpecifyKind(new DateOnly(2040,12,31).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)` (ya encapsulado en `HabilitacionDateHelper.ResolverVigencia`).
+- **Patch semantics en `UpdateEntregableAsync`**: solo asignar `ArchivoUrl`/`ObsAbril`/`ObsContratista` cuando `dto.X is not null`. Si el frontend manda `{ estado: "Aprobado", vigencia: "..." }` sin esos campos, **NO** los pises con null — borrarías el documento subido. Mismo principio en `UpdateAsync` de `WorkerUpdateDto` (todos los campos `is not null` o `HasValue`).
+- **`WorkerEntregableUpdateValidator.EstadosValidos`** debe incluir `"En Plazo"` y `"Vencido"` además de `Falta`/`Enviado`/`Aprobado`/`Rechazado`/`No Aplica`. El sistema usa los 7.
+- `BandejaRepository.SelectBase` segmento TRABAJADOR usa `LEFT JOIN project p ON p.project_id = wv.proyecto_id` con `p.project_description AS proyecto_nombre`. Los segmentos UNION ALL de EMPRESA y EQUIPO aún apuntan a `projects` plural — pendientes de revertir cuando esas tablas tengan datos.
 - FluentValidation 11.3.1 usa API deprecated — migrar cuando bumpeemos v12
 - `AuditoriaInterceptor` debe ser **Singleton** — inyectar `IServiceScopeFactory`
 - `datos_anteriores`/`datos_nuevos` son `jsonb` → `HasColumnType("jsonb")` en `ConfigurePostgreSQL`
 - `id_trabajador` en `workers` es campo temporal (vinculador PowerApps legacy) — pendiente eliminar
+- **`ProjectService` exige `ISunatService` en su constructor**: cualquier endpoint del módulo Project (ej. `GET /paged`) instancia toda la cadena DI. Si `Sunat:BaseUrl` falta, el HttpClient revienta al inicializar y rompe endpoints sin relación con Sunat. Mitigado en Program.cs: la factory chequea `string.IsNullOrEmpty(baseUrl)` antes de setear `BaseAddress` — el backend arranca sin Sunat configurado y solo `/company-lookup/{ruc}` falla en runtime.
 
 ---
 
@@ -349,13 +344,18 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 ### Alta prioridad
 - **Auth real** — quitar `[AllowAnonymous]` de SSOMA y `ProjectController`
 - **Crear primer usuario admin** en `app_user`
-- **Correlación `WorkerVinculacion.EmpresaId`** con `ss_empresa_contratista.Id` via `IdLegacy`
+- **Correlación `WorkerVinculacion.EmpresaId`** con `ss_empresa_contratista.Id` via `IdLegacy` (hoy comparaciones por id no funcionan para contratistas reales)
 - **Deploy a producción**
 
 ### Media prioridad
 - **Empresas contratistas** — 1,591 vinculaciones sin empresa
 - **tipo_emo_id** — los 813 EMOs migrados tienen NULL
 - **Eliminar `id_trabajador`** de `workers` tras confirmar migración completa
+- **`BandejaRepository` segmentos UNION ALL EMPRESA y EQUIPO** — siguen apuntando a `JOIN projects p ON p.id = …`. Cuando `ss_hab_empresa` y `ss_equipo` tengan datos, revertir a `JOIN project p ON p.project_id = …` (mismo patrón que ya tiene el segmento TRABAJADOR).
+- **`ProjectService` acoplamiento con `ISunatService`** — separar a `ISunatLookupService` para que solo `/company-lookup/{ruc}` lo necesite. Hoy mitigado con factory null-safe pero la dependencia sigue en el constructor.
+
+### Baja prioridad
+- **Refactor `Sunat:Token` y `Sunat` headers** en Program.cs — quedaron fuera del fix null-safe; restaurar dentro del `if` cuando se confirme que en producción siempre hay configuración.
 
 ### Baja prioridad
 - 8 EMOs sin match de DNI — insertar manualmente

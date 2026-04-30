@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.SctrVidaley;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
@@ -160,7 +161,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         habs.Add(hab);
                     }
                     hab.Estado = "Aprobado";
-                    hab.Vigencia = dto.Vigencia;
+                    hab.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
                     hab.ObsAbril = dto.ObsAbril;
                     hab.AprobadoPor = userId;
                     hab.FechaAprobacion = DateTime.UtcNow;
@@ -193,7 +194,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             else nuevoEstado = "Parcial";
 
             entity.Estado = nuevoEstado;
-            entity.Vigencia = dto.Vigencia;
+            entity.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
             entity.ObsAbril = dto.ObsAbril;
             entity.UpdatedAt = DateTime.UtcNow;
 

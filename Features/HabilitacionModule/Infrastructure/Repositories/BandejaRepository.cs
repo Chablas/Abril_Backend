@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -225,7 +226,7 @@ LIMIT @PageSize";
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+            entity.Vigencia = HabilitacionDateHelper.ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
             entity.AprobadoPor = userId;
             entity.FechaAprobacion = DateTime.UtcNow;
             entity.UpdatedAt = DateTime.UtcNow;
@@ -244,7 +245,7 @@ LIMIT @PageSize";
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+            entity.Vigencia = HabilitacionDateHelper.ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
             entity.AprobadoPor = userId;
             entity.FechaAprobacion = DateTime.UtcNow;
             entity.UpdatedAt = DateTime.UtcNow;
@@ -263,7 +264,7 @@ LIMIT @PageSize";
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+            entity.Vigencia = HabilitacionDateHelper.ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
             entity.AprobadoPor = userId;
             entity.UpdatedAt = DateTime.UtcNow;
 
@@ -271,13 +272,5 @@ LIMIT @PageSize";
             return entity;
         }
 
-        private static DateTime? ResolverVigencia(bool requiereVigencia, string estado, DateTime? dtoVigencia)
-        {
-            if (!string.Equals(estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
-                return dtoVigencia;
-            return requiereVigencia
-                ? dtoVigencia
-                : new DateOnly(2040, 12, 31).ToDateTime(TimeOnly.MinValue);
-        }
     }
 }

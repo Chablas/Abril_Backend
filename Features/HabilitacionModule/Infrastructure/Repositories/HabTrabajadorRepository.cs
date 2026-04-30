@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -250,10 +251,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             entregable.Estado = dto.Estado;
-            entregable.Vigencia = ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
-            entregable.ArchivoUrl = dto.ArchivoUrl;
-            entregable.ObsAbril = dto.ObsAbril;
-            entregable.ObsContratista = dto.ObsContratista;
+            entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+            if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
+            if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
+            if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;
             entregable.UpdatedAt = DateTime.UtcNow;
 
             if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
@@ -411,15 +412,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         private static bool CsvExcluye(string? csv, string? valor)
             => csv != null && csv.Split(',', StringSplitOptions.TrimEntries)
                    .Contains(valor ?? string.Empty, StringComparer.OrdinalIgnoreCase);
-
-        private static DateTime? ResolverVigencia(bool requiereVigencia, string estado, DateTime? dtoVigencia)
-        {
-            if (!string.Equals(estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
-                return dtoVigencia;
-            return requiereVigencia
-                ? dtoVigencia
-                : new DateOnly(2040, 12, 31).ToDateTime(TimeOnly.MinValue);
-        }
 
         private static async Task ValidarExclusividadEmpresaAsync(
             AppDbContext ctx, int workerId, int empresaSolicitanteId)

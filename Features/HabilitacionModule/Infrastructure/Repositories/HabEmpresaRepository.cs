@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -111,7 +112,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             entregable.Estado = dto.Estado;
-            entregable.Vigencia = dto.Vigencia;
+            entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
             entregable.ArchivoUrl = dto.ArchivoUrl;
             entregable.ObsAbril = dto.ObsAbril;
             entregable.ObsContratista = dto.ObsContratista;

@@ -474,7 +474,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var workers = await ctx.Worker
                 .Where(w => workerIds.Contains(w.Id))
-                .Select(w => new { w.Id, w.ApellidoNombre, w.Dni })
+                .Select(w => new { w.Id, w.ApellidoNombre, w.Dni, w.ObraOficina })
                 .ToListAsync();
 
             // Items SCTR y VidaLey del catálogo
@@ -515,6 +515,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     WorkerId = w.Id,
                     ApellidoNombre = w.ApellidoNombre ?? string.Empty,
                     Dni = w.Dni ?? string.Empty,
+                    ObraOficina = w.ObraOficina,
                     EstadoSctr = estadoSctrVal,
                     EstadoVidaLey = estadoVidaLeyVal
                 };

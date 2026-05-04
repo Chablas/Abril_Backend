@@ -445,51 +445,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerProyecto → {Count} workerIds: [{Ids}]",
                 workerIds.Count, string.Join(",", workerIds));
 
-            // Fallback para empresas Casa: ss_hab_worker_proyecto.empresa_id es null para ellas,
-            // sus workers viven en worker_vinculaciones
+            // Fallback: worker_vinculaciones (empresas Casa o cuando worker_proyectos no tiene registros).
+            // empresa_id en worker_vinculaciones referencia contributor.contributor_id, por lo que se
+            // prueba tanto contributorId (resuelto) como el empresaId original por si llegara directo.
             if (workerIds.Count == 0)
             {
+                var vinculacionEmpresaIds = contributorId == empresaId
+                    ? new List<int> { contributorId }
+                    : new List<int> { contributorId, empresaId };
+
                 workerIds = await ctx.WorkerVinculacion
-                    .Where(v => v.EmpresaId == contributorId
+                    .Where(v => vinculacionEmpresaIds.Contains(v.EmpresaId!.Value)
                         && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
                         && v.FechaFin == null)
                     .Select(v => v.WorkerId)
                     .Distinct()
                     .ToListAsync();
 
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Fallback WorkerVinculacion → {Count} workerIds: [{Ids}]",
-                    workerIds.Count, string.Join(",", workerIds));
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Fallback WorkerVinculacion (empresaIds=[{Ids}]) → {Count} workerIds: [{WorkerIds}]",
+                    string.Join(",", vinculacionEmpresaIds), workerIds.Count, string.Join(",", workerIds));
             }
 
             if (workerIds.Count == 0)
             {
                 _logger.LogWarning("[GetTrabajadoresPorEmpresa] Sin workers para contributorId={ContributorId} proyectoId={ProyectoId}. Retornando lista vacía.", contributorId, proyectoId);
                 return [];
-            }
-
-            // Si viene filtro por tipo/tipoPoliza, restringir a workers vinculados a esas pólizas
-            if (!string.IsNullOrWhiteSpace(tipo) || !string.IsNullOrWhiteSpace(tipoPoliza))
-            {
-                var polizaQuery = ctx.SsSctrVidaley
-                    .Where(s => s.EmpresaId == empresaId
-                        && (!proyectoId.HasValue || s.ProyectoId == proyectoId.Value));
-
-                if (!string.IsNullOrWhiteSpace(tipo))
-                    polizaQuery = polizaQuery.Where(s => s.Tipo == tipo);
-
-                if (!string.IsNullOrWhiteSpace(tipoPoliza))
-                    polizaQuery = polizaQuery.Where(s => s.TipoPoliza == tipoPoliza);
-
-                var polizaIds = await polizaQuery.Select(s => s.Id).ToListAsync();
-
-                var workerIdsFiltrados = await ctx.SsSctrVidaLeyWorker
-                    .Where(w => polizaIds.Contains(w.SctrVidaLeyId))
-                    .Select(w => w.WorkerId)
-                    .Distinct()
-                    .ToListAsync();
-
-                workerIds = workerIds.Intersect(workerIdsFiltrados).ToList();
-                if (workerIds.Count == 0) return [];
             }
 
             var workers = await ctx.Worker

@@ -1325,14 +1325,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
         {
             using var ctx = _factory.CreateDbContext();
 
-            return await (
+            var result = await (
                 from psc in ctx.ProjectSubContractor
                 join pkg in ctx.ProjectSubContractorPackage
                     on psc.ProjectSubContractorPackageId equals pkg.ProjectSubContractorPackageId
                 where psc.ProjectSubContractorId == projectSubContractorId && psc.State
                 select new { pkg.FileUrl, pkg.OriginalFileName }
-            ).Select(x => ValueTuple.Create(x.FileUrl, x.OriginalFileName))
-             .FirstOrDefaultAsync();
+            ).FirstOrDefaultAsync();
+
+            return result != null
+                ? (result.FileUrl, result.OriginalFileName)
+                : null;
         }
 
         /// <summary>

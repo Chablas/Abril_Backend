@@ -601,6 +601,480 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             };
         }
 
+        // Helper: convierte cualquier valor de fecha (DateOnly, DateTime, string, null) a DateOnly?
+        private static DateOnly? ToDateOnly(dynamic value)
+        {
+            if (value == null) return null;
+            if (value is DateOnly d) return d;
+            if (value is DateTime dt) return DateOnly.FromDateTime(dt);
+            if (value is string s) return DateOnly.Parse(s);
+            return null;
+        }
+
+        public async Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFiltersAsync(ProjectSubContractorFilterDTO filter)
+        {
+            if (filter.Page < 1) filter.Page = 1;
+
+            using var ctx = _factory.CreateDbContext();
+            var connection = ctx.Database.GetDbConnection();
+            if (connection.State != ConnectionState.Open)
+                await connection.OpenAsync();
+
+            const int pageSize = 10;
+            var offset = (filter.Page - 1) * pageSize;
+
+            // Resolver tablas y columnas reales desde EF (refactor-safe + funciona en SQL Server y PostgreSQL/snake_case)
+            string tPsc = ctx.Table<ProjectSubContractor>();
+            string cPscId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorId));
+            string cPscProjectId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectId));
+            string cPscContractorId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractorId));
+            string cPscContractId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractId));
+            string cPscContractTypeId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractTypeId));
+            string cPscContractOriginId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractOriginId));
+            string cPscPaymentMethodId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.PaymentMethodId));
+            string cPscAmount = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.Amount));
+            string cPscCurrencyId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.CurrencyId));
+            string cPscHasIgv = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.HasIgv));
+            string cPscWorkItemId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.WorkItemId));
+            string cPscWorkItemCategoryId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.WorkItemCategoryId));
+            string cPscStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorStatusId));
+            string cPscState = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.State));
+            string cPscSigningDate = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.SigningDate));
+            string cPscStartDate = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.StartDate));
+            string cPscEndDate = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.EndDate));
+            string cPscTermDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.TermDays));
+            string cPscContractNumber = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractNumber));
+            string cPscPromissoryNoteNumber = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.PromissoryNoteNumber));
+            string cPscArrivedWithObservations = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivedWithObservations));
+            string cPscCreatedDateTime = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.CreatedDateTime));
+            string cPscAdvancePercentage = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.AdvancePercentage));
+            string cPscAdvanceAmount = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.AdvanceAmount));
+            string cPscContractDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorContractId));
+            string cPscSummarySheetDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorSummarySheetId));
+            string cPscBudgetDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorBudgetId));
+            string cPscScheduleDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorScheduleId));
+            string cPscAttachedQuotationDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorAttachedQuotationId));
+            string cPscServiceOrderDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorServiceOrderId));
+            string cPscPromissoryNoteDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorPromissoryNoteId));
+            string cPscPackageDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorPackageId));
+            string cPscCreatedUserId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.CreatedUserId));
+
+            string tProject = ctx.Table<ProjectModel>();
+            string cProjectId = ctx.Col<ProjectModel>(nameof(ProjectModel.ProjectId));
+            string cProjectDesc = ctx.Col<ProjectModel>(nameof(ProjectModel.ProjectDescription));
+            string cProjectActive = ctx.Col<ProjectModel>(nameof(ProjectModel.Active));
+
+            string tContractor = ctx.Table<Contractor>();
+            string cContractorId = ctx.Col<Contractor>(nameof(Contractor.ContractorId));
+            string cContractorContribId = ctx.Col<Contractor>(nameof(Contractor.ContributorId));
+            string cContractorActive = ctx.Col<Contractor>(nameof(Contractor.Active));
+            string cContractorState = ctx.Col<Contractor>(nameof(Contractor.State));
+            string cContractorStateId = ctx.Col<Contractor>(nameof(Contractor.ContractorStateId));
+
+            string tContributor = ctx.Table<Contributor>();
+            string cContributorId = ctx.Col<Contributor>(nameof(Contributor.ContributorId));
+            string cContributorName = ctx.Col<Contributor>(nameof(Contributor.ContributorName));
+            string cContributorRuc = ctx.Col<Contributor>(nameof(Contributor.ContributorRuc));
+
+            string tContractType = ctx.Table<ContractType>();
+            string cContractTypeId = ctx.Col<ContractType>(nameof(ContractType.ContractTypeId));
+            string cContractTypeDesc = ctx.Col<ContractType>(nameof(ContractType.ContractTypeDescription));
+            string cContractTypeActive = ctx.Col<ContractType>(nameof(ContractType.Active));
+
+            string tContractOrigin = ctx.Table<ContractOrigin>();
+            string cContractOriginId = ctx.Col<ContractOrigin>(nameof(ContractOrigin.ContractOriginId));
+            string cContractOriginDesc = ctx.Col<ContractOrigin>(nameof(ContractOrigin.ContractOriginDescription));
+            string cContractOriginActive = ctx.Col<ContractOrigin>(nameof(ContractOrigin.Active));
+
+            string tPaymentMethod = ctx.Table<PaymentMethod>();
+            string cPaymentMethodId = ctx.Col<PaymentMethod>(nameof(PaymentMethod.PaymentMethodId));
+            string cPaymentMethodDesc = ctx.Col<PaymentMethod>(nameof(PaymentMethod.PaymentMethodDescription));
+            string cPaymentMethodActive = ctx.Col<PaymentMethod>(nameof(PaymentMethod.Active));
+
+            string tCurrency = ctx.Table<Currency>();
+            string cCurrencyId = ctx.Col<Currency>(nameof(Currency.CurrencyId));
+            string cCurrencyCode = ctx.Col<Currency>(nameof(Currency.CurrencyCode));
+            string cCurrencyDesc = ctx.Col<Currency>(nameof(Currency.CurrencyDescription));
+            string cCurrencySymbol = ctx.Col<Currency>(nameof(Currency.CurrencySymbol));
+            string cCurrencyActive = ctx.Col<Currency>(nameof(Currency.Active));
+
+            string tWorkItem = ctx.Table<WorkItem>();
+            string cWorkItemId = ctx.Col<WorkItem>(nameof(WorkItem.WorkItemId));
+            string cWorkItemDesc = ctx.Col<WorkItem>(nameof(WorkItem.WorkItemDescription));
+            string cWorkItemActive = ctx.Col<WorkItem>(nameof(WorkItem.Active));
+
+            string tWorkItemCategory = ctx.Table<WorkItemCategory>();
+            string cWorkItemCategoryId = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryId));
+            string cWorkItemCategoryDesc = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryDescription));
+            string cWorkItemCategoryActive = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
+
+            string tContract = ctx.Table<Contract>();
+            string cContractId = ctx.Col<Contract>(nameof(Contract.ContractId));
+            string cContractDesc = ctx.Col<Contract>(nameof(Contract.ContractDescription));
+            string cContractActive = ctx.Col<Contract>(nameof(Contract.Active));
+
+            string tStatus = ctx.Table<ProjectSubContractorStatus>();
+            string cStatusId = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusId));
+            string cStatusDesc = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusDescription));
+
+            // Document tables
+            string tContractDoc = ctx.Table<ProjectSubContractorContract>();
+            string cContractDocId = ctx.Col<ProjectSubContractorContract>(nameof(ProjectSubContractorContract.ProjectSubContractorContractId));
+            string cContractDocFileUrl = ctx.Col<ProjectSubContractorContract>(nameof(ProjectSubContractorContract.FileUrl));
+            string cContractDocFileName = ctx.Col<ProjectSubContractorContract>(nameof(ProjectSubContractorContract.OriginalFileName));
+            string cContractDocStatusId = ctx.Col<ProjectSubContractorContract>(nameof(ProjectSubContractorContract.ProjectSubContractorFileStatusId));
+            string cContractDocObs = ctx.Col<ProjectSubContractorContract>(nameof(ProjectSubContractorContract.Observation));
+
+            string tSummaryDoc = ctx.Table<ProjectSubContractorSummarySheet>();
+            string cSummaryDocId = ctx.Col<ProjectSubContractorSummarySheet>(nameof(ProjectSubContractorSummarySheet.ProjectSubContractorSummarySheetId));
+            string cSummaryDocFileUrl = ctx.Col<ProjectSubContractorSummarySheet>(nameof(ProjectSubContractorSummarySheet.FileUrl));
+            string cSummaryDocFileName = ctx.Col<ProjectSubContractorSummarySheet>(nameof(ProjectSubContractorSummarySheet.OriginalFileName));
+            string cSummaryDocStatusId = ctx.Col<ProjectSubContractorSummarySheet>(nameof(ProjectSubContractorSummarySheet.ProjectSubContractorFileStatusId));
+            string cSummaryDocObs = ctx.Col<ProjectSubContractorSummarySheet>(nameof(ProjectSubContractorSummarySheet.Observation));
+
+            string tBudgetDoc = ctx.Table<ProjectSubContractorBudget>();
+            string cBudgetDocId = ctx.Col<ProjectSubContractorBudget>(nameof(ProjectSubContractorBudget.ProjectSubContractorBudgetId));
+            string cBudgetDocFileUrl = ctx.Col<ProjectSubContractorBudget>(nameof(ProjectSubContractorBudget.FileUrl));
+            string cBudgetDocFileName = ctx.Col<ProjectSubContractorBudget>(nameof(ProjectSubContractorBudget.OriginalFileName));
+            string cBudgetDocStatusId = ctx.Col<ProjectSubContractorBudget>(nameof(ProjectSubContractorBudget.ProjectSubContractorFileStatusId));
+            string cBudgetDocObs = ctx.Col<ProjectSubContractorBudget>(nameof(ProjectSubContractorBudget.Observation));
+
+            string tScheduleDoc = ctx.Table<ProjectSubContractorSchedule>();
+            string cScheduleDocId = ctx.Col<ProjectSubContractorSchedule>(nameof(ProjectSubContractorSchedule.ProjectSubContractorScheduleId));
+            string cScheduleDocFileUrl = ctx.Col<ProjectSubContractorSchedule>(nameof(ProjectSubContractorSchedule.FileUrl));
+            string cScheduleDocFileName = ctx.Col<ProjectSubContractorSchedule>(nameof(ProjectSubContractorSchedule.OriginalFileName));
+            string cScheduleDocStatusId = ctx.Col<ProjectSubContractorSchedule>(nameof(ProjectSubContractorSchedule.ProjectSubContractorFileStatusId));
+            string cScheduleDocObs = ctx.Col<ProjectSubContractorSchedule>(nameof(ProjectSubContractorSchedule.Observation));
+
+            string tAttQuotDoc = ctx.Table<ProjectSubContractorAttachedQuotation>();
+            string cAttQuotDocId = ctx.Col<ProjectSubContractorAttachedQuotation>(nameof(ProjectSubContractorAttachedQuotation.ProjectSubContractorAttachedQuotationId));
+            string cAttQuotDocFileUrl = ctx.Col<ProjectSubContractorAttachedQuotation>(nameof(ProjectSubContractorAttachedQuotation.FileUrl));
+            string cAttQuotDocFileName = ctx.Col<ProjectSubContractorAttachedQuotation>(nameof(ProjectSubContractorAttachedQuotation.OriginalFileName));
+            string cAttQuotDocStatusId = ctx.Col<ProjectSubContractorAttachedQuotation>(nameof(ProjectSubContractorAttachedQuotation.ProjectSubContractorFileStatusId));
+            string cAttQuotDocObs = ctx.Col<ProjectSubContractorAttachedQuotation>(nameof(ProjectSubContractorAttachedQuotation.Observation));
+
+            string tSvcOrderDoc = ctx.Table<ProjectSubContractorServiceOrder>();
+            string cSvcOrderDocId = ctx.Col<ProjectSubContractorServiceOrder>(nameof(ProjectSubContractorServiceOrder.ProjectSubContractorServiceOrderId));
+            string cSvcOrderDocFileUrl = ctx.Col<ProjectSubContractorServiceOrder>(nameof(ProjectSubContractorServiceOrder.FileUrl));
+            string cSvcOrderDocFileName = ctx.Col<ProjectSubContractorServiceOrder>(nameof(ProjectSubContractorServiceOrder.OriginalFileName));
+            string cSvcOrderDocStatusId = ctx.Col<ProjectSubContractorServiceOrder>(nameof(ProjectSubContractorServiceOrder.ProjectSubContractorFileStatusId));
+            string cSvcOrderDocObs = ctx.Col<ProjectSubContractorServiceOrder>(nameof(ProjectSubContractorServiceOrder.Observation));
+
+            string tPNoteDoc = ctx.Table<ProjectSubContractorPromissoryNote>();
+            string cPNoteDocId = ctx.Col<ProjectSubContractorPromissoryNote>(nameof(ProjectSubContractorPromissoryNote.ProjectSubContractorPromissoryNoteId));
+            string cPNoteDocFileUrl = ctx.Col<ProjectSubContractorPromissoryNote>(nameof(ProjectSubContractorPromissoryNote.FileUrl));
+            string cPNoteDocFileName = ctx.Col<ProjectSubContractorPromissoryNote>(nameof(ProjectSubContractorPromissoryNote.OriginalFileName));
+            string cPNoteDocStatusId = ctx.Col<ProjectSubContractorPromissoryNote>(nameof(ProjectSubContractorPromissoryNote.ProjectSubContractorFileStatusId));
+            string cPNoteDocObs = ctx.Col<ProjectSubContractorPromissoryNote>(nameof(ProjectSubContractorPromissoryNote.Observation));
+
+            string tPackageDoc = ctx.Table<ProjectSubContractorPackage>();
+            string cPackageDocId = ctx.Col<ProjectSubContractorPackage>(nameof(ProjectSubContractorPackage.ProjectSubContractorPackageId));
+            string cPackageDocFileUrl = ctx.Col<ProjectSubContractorPackage>(nameof(ProjectSubContractorPackage.FileUrl));
+            string cPackageDocFileName = ctx.Col<ProjectSubContractorPackage>(nameof(ProjectSubContractorPackage.OriginalFileName));
+
+            string tFileStatus = ctx.Table<ProjectSubContractorFileStatus>();
+            string cFileStatusId = ctx.Col<ProjectSubContractorFileStatus>(nameof(ProjectSubContractorFileStatus.ProjectSubContractorFileStatusId));
+            string cFileStatusDesc = ctx.Col<ProjectSubContractorFileStatus>(nameof(ProjectSubContractorFileStatus.ProjectSubContractorFileStatusDescription));
+
+            string tContractorEmail = ctx.Table<ContractorEmail>();
+            string cCEContractorId = ctx.Col<ContractorEmail>(nameof(ContractorEmail.ContractorId));
+            string cCEEmail = ctx.Col<ContractorEmail>(nameof(ContractorEmail.Email));
+            string cCEActive = ctx.Col<ContractorEmail>(nameof(ContractorEmail.Active));
+
+            string tQuotFile = ctx.Table<ProjectSubContractorQuotationFile>();
+            string cQFPscId = ctx.Col<ProjectSubContractorQuotationFile>(nameof(ProjectSubContractorQuotationFile.ProjectSubContractorId));
+            string cQFFileUrl = ctx.Col<ProjectSubContractorQuotationFile>(nameof(ProjectSubContractorQuotationFile.FileUrl));
+            string cQFFileName = ctx.Col<ProjectSubContractorQuotationFile>(nameof(ProjectSubContractorQuotationFile.OriginalFileName));
+            string cQFState = ctx.Col<ProjectSubContractorQuotationFile>(nameof(ProjectSubContractorQuotationFile.State));
+
+            string tCompFile = ctx.Table<ProjectSubContractorComparativeFile>();
+            string cCFPscId = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.ProjectSubContractorId));
+            string cCFFileUrl = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.FileUrl));
+            string cCFFileName = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.OriginalFileName));
+            string cCFState = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.State));
+
+            var parameters = new DynamicParameters();
+            parameters.Add("@PageSize", pageSize);
+            parameters.Add("@PageOffset", offset);
+
+            var whereConditions = new List<string> { $"psc.{cPscState} = TRUE" };
+
+            if (filter.ProjectId.HasValue)
+            {
+                whereConditions.Add($"psc.{cPscProjectId} = @ProjectId");
+                parameters.Add("@ProjectId", filter.ProjectId.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(filter.ContributorName))
+            {
+                whereConditions.Add($"c.{cContributorName} ILIKE @ContributorName");
+                parameters.Add("@ContributorName", $"%{filter.ContributorName}%");
+            }
+
+            if (!string.IsNullOrWhiteSpace(filter.ContributorRuc))
+            {
+                whereConditions.Add($"c.{cContributorRuc} ILIKE @ContributorRuc");
+                parameters.Add("@ContributorRuc", $"%{filter.ContributorRuc}%");
+            }
+
+            if (filter.CreatedUserId.HasValue)
+            {
+                whereConditions.Add($"psc.{cPscCreatedUserId} = @CreatedUserId");
+                parameters.Add("@CreatedUserId", filter.CreatedUserId.Value);
+            }
+
+            var whereClause = string.Join(" AND ", whereConditions);
+
+            string sql = $@"
+-- 1. Count
+SELECT COUNT(DISTINCT psc.{cPscId}) AS ""Total""
+FROM {tPsc} psc
+JOIN {tContractor} contractor ON psc.{cPscContractorId} = contractor.{cContractorId}
+JOIN {tContributor} c ON contractor.{cContractorContribId} = c.{cContributorId}
+WHERE {whereClause};
+
+-- 2. Paged Data (con aliases PascalCase para que Dapper mapee a dynamic / DTOs)
+SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
+       psc.{cPscProjectId} AS ""ProjectId"",
+       p.{cProjectDesc} AS ""ProjectDescription"",
+       psc.{cPscContractorId} AS ""ContractorId"",
+       c.{cContributorId} AS ""ContributorId"",
+       c.{cContributorName} AS ""ContributorName"",
+       psc.{cPscContractId} AS ""ContractId"",
+       contract.{cContractDesc} AS ""ContractDescription"",
+       psc.{cPscContractTypeId} AS ""ContractTypeId"",
+       ct.{cContractTypeDesc} AS ""ContractTypeDescription"",
+       psc.{cPscContractOriginId} AS ""ContractOriginId"",
+       co.{cContractOriginDesc} AS ""ContractOriginDescription"",
+       psc.{cPscPaymentMethodId} AS ""PaymentMethodId"",
+       pm.{cPaymentMethodDesc} AS ""PaymentMethodDescription"",
+       psc.{cPscAdvancePercentage} AS ""AdvancePercentage"",
+       psc.{cPscAdvanceAmount} AS ""AdvanceAmount"",
+       psc.{cPscAmount} AS ""Amount"",
+       psc.{cPscCurrencyId} AS ""CurrencyId"",
+       cur.{cCurrencyCode} AS ""CurrencyCode"",
+       psc.{cPscHasIgv} AS ""HasIgv"",
+       psc.{cPscWorkItemId} AS ""WorkItemId"",
+       wi.{cWorkItemDesc} AS ""WorkItemDescription"",
+       psc.{cPscWorkItemCategoryId} AS ""WorkItemCategoryId"",
+       wic.{cWorkItemCategoryDesc} AS ""WorkItemCategoryDescription"",
+       psc.{cPscStatusId} AS ""ProjectSubContractorStatusId"",
+       pscs.{cStatusDesc} AS ""ProjectSubContractorStatusDescription"",
+       psc.{cPscSigningDate} AS ""SigningDate"",
+       psc.{cPscStartDate} AS ""StartDate"",
+       psc.{cPscEndDate} AS ""EndDate"",
+       psc.{cPscTermDays} AS ""TermDays"",
+       psc.{cPscContractNumber} AS ""ContractNumber"",
+       psc.{cPscPromissoryNoteNumber} AS ""PromissoryNoteNumber"",
+       psc.{cPscArrivedWithObservations} AS ""ArrivedWithObservations"",
+       psc.{cPscCreatedDateTime} AS ""CreatedDateTime"",
+       contractDoc.{cContractDocFileUrl} AS contract_file_url,
+       contractDoc.{cContractDocFileName} AS contract_file_name,
+       contractDoc.{cContractDocStatusId} AS contract_status_id,
+       fs_contract.{cFileStatusDesc} AS contract_status_desc,
+       contractDoc.{cContractDocObs} AS contract_observation,
+       summaryDoc.{cSummaryDocFileUrl} AS summary_sheet_file_url,
+       summaryDoc.{cSummaryDocFileName} AS summary_sheet_file_name,
+       summaryDoc.{cSummaryDocStatusId} AS summary_sheet_status_id,
+       fs_summary.{cFileStatusDesc} AS summary_sheet_status_desc,
+       summaryDoc.{cSummaryDocObs} AS summary_sheet_observation,
+       budgetDoc.{cBudgetDocFileUrl} AS budget_file_url,
+       budgetDoc.{cBudgetDocFileName} AS budget_file_name,
+       budgetDoc.{cBudgetDocStatusId} AS budget_status_id,
+       fs_budget.{cFileStatusDesc} AS budget_status_desc,
+       budgetDoc.{cBudgetDocObs} AS budget_observation,
+       scheduleDoc.{cScheduleDocFileUrl} AS schedule_file_url,
+       scheduleDoc.{cScheduleDocFileName} AS schedule_file_name,
+       scheduleDoc.{cScheduleDocStatusId} AS schedule_status_id,
+       fs_schedule.{cFileStatusDesc} AS schedule_status_desc,
+       scheduleDoc.{cScheduleDocObs} AS schedule_observation,
+       attQuotDoc.{cAttQuotDocFileUrl} AS attached_quotation_file_url,
+       attQuotDoc.{cAttQuotDocFileName} AS attached_quotation_file_name,
+       attQuotDoc.{cAttQuotDocStatusId} AS attached_quotation_status_id,
+       fs_att_quot.{cFileStatusDesc} AS attached_quotation_status_desc,
+       attQuotDoc.{cAttQuotDocObs} AS attached_quotation_observation,
+       svcOrderDoc.{cSvcOrderDocFileUrl} AS service_order_file_url,
+       svcOrderDoc.{cSvcOrderDocFileName} AS service_order_file_name,
+       svcOrderDoc.{cSvcOrderDocStatusId} AS service_order_status_id,
+       fs_svc_order.{cFileStatusDesc} AS service_order_status_desc,
+       svcOrderDoc.{cSvcOrderDocObs} AS service_order_observation,
+       pNoteDoc.{cPNoteDocFileUrl} AS promissory_note_file_url,
+       pNoteDoc.{cPNoteDocFileName} AS promissory_note_file_name,
+       pNoteDoc.{cPNoteDocStatusId} AS promissory_note_status_id,
+       fs_p_note.{cFileStatusDesc} AS promissory_note_status_desc,
+       pNoteDoc.{cPNoteDocObs} AS promissory_note_observation,
+       packageDoc.{cPackageDocFileUrl} AS package_file_url,
+       packageDoc.{cPackageDocFileName} AS package_file_name
+FROM {tPsc} psc
+JOIN {tProject} p ON psc.{cPscProjectId} = p.{cProjectId}
+JOIN {tContractor} contractor ON psc.{cPscContractorId} = contractor.{cContractorId}
+JOIN {tContributor} c ON contractor.{cContractorContribId} = c.{cContributorId}
+JOIN {tContractType} ct ON psc.{cPscContractTypeId} = ct.{cContractTypeId}
+JOIN {tContractOrigin} co ON psc.{cPscContractOriginId} = co.{cContractOriginId}
+JOIN {tPaymentMethod} pm ON psc.{cPscPaymentMethodId} = pm.{cPaymentMethodId}
+JOIN {tCurrency} cur ON psc.{cPscCurrencyId} = cur.{cCurrencyId}
+JOIN {tWorkItem} wi ON psc.{cPscWorkItemId} = wi.{cWorkItemId}
+JOIN {tContract} contract ON psc.{cPscContractId} = contract.{cContractId}
+JOIN {tStatus} pscs ON psc.{cPscStatusId} = pscs.{cStatusId}
+JOIN {tWorkItemCategory} wic ON psc.{cPscWorkItemCategoryId} = wic.{cWorkItemCategoryId}
+LEFT JOIN {tContractDoc} contractDoc ON psc.{cPscContractDocId} = contractDoc.{cContractDocId}
+LEFT JOIN {tFileStatus} fs_contract ON contractDoc.{cContractDocStatusId} = fs_contract.{cFileStatusId}
+LEFT JOIN {tSummaryDoc} summaryDoc ON psc.{cPscSummarySheetDocId} = summaryDoc.{cSummaryDocId}
+LEFT JOIN {tFileStatus} fs_summary ON summaryDoc.{cSummaryDocStatusId} = fs_summary.{cFileStatusId}
+LEFT JOIN {tBudgetDoc} budgetDoc ON psc.{cPscBudgetDocId} = budgetDoc.{cBudgetDocId}
+LEFT JOIN {tFileStatus} fs_budget ON budgetDoc.{cBudgetDocStatusId} = fs_budget.{cFileStatusId}
+LEFT JOIN {tScheduleDoc} scheduleDoc ON psc.{cPscScheduleDocId} = scheduleDoc.{cScheduleDocId}
+LEFT JOIN {tFileStatus} fs_schedule ON scheduleDoc.{cScheduleDocStatusId} = fs_schedule.{cFileStatusId}
+LEFT JOIN {tAttQuotDoc} attQuotDoc ON psc.{cPscAttachedQuotationDocId} = attQuotDoc.{cAttQuotDocId}
+LEFT JOIN {tFileStatus} fs_att_quot ON attQuotDoc.{cAttQuotDocStatusId} = fs_att_quot.{cFileStatusId}
+LEFT JOIN {tSvcOrderDoc} svcOrderDoc ON psc.{cPscServiceOrderDocId} = svcOrderDoc.{cSvcOrderDocId}
+LEFT JOIN {tFileStatus} fs_svc_order ON svcOrderDoc.{cSvcOrderDocStatusId} = fs_svc_order.{cFileStatusId}
+LEFT JOIN {tPNoteDoc} pNoteDoc ON psc.{cPscPromissoryNoteDocId} = pNoteDoc.{cPNoteDocId}
+LEFT JOIN {tFileStatus} fs_p_note ON pNoteDoc.{cPNoteDocStatusId} = fs_p_note.{cFileStatusId}
+LEFT JOIN {tPackageDoc} packageDoc ON psc.{cPscPackageDocId} = packageDoc.{cPackageDocId}
+WHERE {whereClause}
+ORDER BY psc.{cPscId} DESC
+LIMIT @PageSize OFFSET @PageOffset;
+
+-- 3-11. Form data queries (9 simple selects con aliases PascalCase para mapeo a DTOs)
+SELECT {cProjectId} AS ""ProjectId"", {cProjectDesc} AS ""ProjectDescription"" FROM {tProject} WHERE {cProjectActive} = TRUE ORDER BY {cProjectDesc};
+SELECT {cContractId} AS ""ContractId"", {cContractDesc} AS ""ContractDescription"" FROM {tContract} WHERE {cContractActive} = TRUE ORDER BY {cContractDesc};
+SELECT {cContractTypeId} AS ""ContractTypeId"", {cContractTypeDesc} AS ""ContractTypeDescription"" FROM {tContractType} WHERE {cContractTypeActive} = TRUE ORDER BY {cContractTypeDesc};
+SELECT {cContractOriginId} AS ""ContractOriginId"", {cContractOriginDesc} AS ""ContractOriginDescription"" FROM {tContractOrigin} WHERE {cContractOriginActive} = TRUE ORDER BY {cContractOriginDesc};
+SELECT {cPaymentMethodId} AS ""PaymentMethodId"", {cPaymentMethodDesc} AS ""PaymentMethodDescription"" FROM {tPaymentMethod} WHERE {cPaymentMethodActive} = TRUE ORDER BY {cPaymentMethodDesc};
+SELECT {cCurrencyId} AS ""CurrencyId"", {cCurrencyDesc} AS ""CurrencyDescription"", {cCurrencyCode} AS ""CurrencyCode"", {cCurrencySymbol} AS ""CurrencySymbol"" FROM {tCurrency} WHERE {cCurrencyActive} = TRUE ORDER BY {cCurrencyCode};
+SELECT {cWorkItemId} AS ""WorkItemId"", {cWorkItemDesc} AS ""WorkItemDescription"" FROM {tWorkItem} WHERE {cWorkItemActive} = TRUE ORDER BY {cWorkItemDesc};
+SELECT {cWorkItemCategoryId} AS ""WorkItemCategoryId"", {cWorkItemCategoryDesc} AS ""WorkItemCategoryDescription"" FROM {tWorkItemCategory} WHERE {cWorkItemCategoryActive} = TRUE ORDER BY {cWorkItemCategoryDesc};
+SELECT ct.{cContractorId} AS ""ContractorId"", contrib.{cContributorId} AS ""ContributorId"", contrib.{cContributorName} AS ""ContributorName"", contrib.{cContributorRuc} AS ""ContributorRuc""
+FROM {tContractor} ct
+JOIN {tContributor} contrib ON contrib.{cContributorId} = ct.{cContractorContribId}
+WHERE ct.{cContractorActive} = TRUE AND ct.{cContractorState} = TRUE AND ct.{cContractorStateId} = 2
+ORDER BY contrib.{cContributorName};
+
+-- 12-14. Supporting data
+SELECT {cCEContractorId} AS ""ContractorId"", {cCEEmail} AS ""Email"" FROM {tContractorEmail} WHERE {cCEActive} = TRUE;
+SELECT {cQFPscId} AS ""ProjectSubContractorId"", {cQFFileUrl} AS ""FileUrl"", {cQFFileName} AS ""OriginalFileName"" FROM {tQuotFile} WHERE {cQFState} = TRUE;
+SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {cCFFileName} AS ""OriginalFileName"" FROM {tCompFile} WHERE {cCFState} = TRUE;
+            ";
+
+            using var multi = await connection.QueryMultipleAsync(sql, parameters);
+
+            // Read COUNT (PostgreSQL devuelve bigint, por eso casteamos desde long)
+            var countResult = await multi.ReadFirstOrDefaultAsync<dynamic>();
+            int totalRecords = countResult == null ? 0 : Convert.ToInt32(countResult.Total);
+
+            // Read paged data
+            var itemsRaw = (await multi.ReadAsync<dynamic>()).ToList();
+
+            // Read form data queries
+            var projects = (await multi.ReadAsync<ProjectSimpleDTO>()).ToList();
+            var contracts = (await multi.ReadAsync<ContractSimpleDTO>()).ToList();
+            var contractTypes = (await multi.ReadAsync<ContractTypeSimpleDTO>()).ToList();
+            var contractOrigins = (await multi.ReadAsync<ContractOriginSimpleDTO>()).ToList();
+            var paymentMethods = (await multi.ReadAsync<PaymentMethodSimpleDTO>()).ToList();
+            var currencies = (await multi.ReadAsync<CurrencySimpleDTO>()).ToList();
+            var workItems = (await multi.ReadAsync<WorkItemSimpleDTO>()).ToList();
+            var workItemCategories = (await multi.ReadAsync<WorkItemCategorySimpleDTO>()).ToList();
+            var contractors = (await multi.ReadAsync<ContributorFactoryDTO>()).ToList();
+
+            // Read supporting data (using dynamic to avoid tuple-naming issues)
+            var emailsRaw = (await multi.ReadAsync<dynamic>()).ToList();
+            var quotationFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
+            var comparativeFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
+
+            var emails = emailsRaw.Select(e => new { ContractorId = (int)e.ContractorId, Email = (string)e.Email }).ToList();
+            var quotationFiles = quotationFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
+            var comparativeFiles = comparativeFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
+
+            // Build dictionaries for supporting data
+            var emailsByContractor = emails.GroupBy(e => e.ContractorId).ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
+            var quotationByPsc = quotationFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
+            var comparativeByPsc = comparativeFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
+
+            // Map contractors with emails
+            foreach (var contractor in contractors)
+                contractor.Emails = emailsByContractor.GetValueOrDefault(contractor.ContractorId, new());
+
+            // Map items from dynamic to DTO
+            var items = new List<ProjectSubContractorDTO>();
+            foreach (var raw in itemsRaw)
+            {
+                items.Add(new ProjectSubContractorDTO
+                {
+                    ProjectSubContractorId = (int)raw.ProjectSubContractorId,
+                    ProjectId = (int)raw.ProjectId,
+                    ProjectDescription = raw.ProjectDescription ?? "",
+                    ContractorId = (int)raw.ContractorId,
+                    ContributorId = (int)raw.ContributorId,
+                    ContributorName = raw.ContributorName ?? "",
+                    ContractId = (int)raw.ContractId,
+                    ContractDescription = raw.ContractDescription ?? "",
+                    ContractTypeId = (int)raw.ContractTypeId,
+                    ContractTypeDescription = raw.ContractTypeDescription ?? "",
+                    ContractOriginId = (int)raw.ContractOriginId,
+                    ContractOriginDescription = raw.ContractOriginDescription ?? "",
+                    PaymentMethodId = (int)raw.PaymentMethodId,
+                    PaymentMethodDescription = raw.PaymentMethodDescription ?? "",
+                    AdvancePercentage = (decimal?)raw.AdvancePercentage,
+                    AdvanceAmount = (decimal?)raw.AdvanceAmount,
+                    Amount = (decimal?)raw.Amount ?? 0m,
+                    CurrencyId = (int)raw.CurrencyId,
+                    CurrencyCode = raw.CurrencyCode ?? "",
+                    AmountHasIgv = (bool)raw.HasIgv,
+                    WorkItemId = (int)raw.WorkItemId,
+                    WorkItemDescription = raw.WorkItemDescription ?? "",
+                    WorkItemCategoryId = (int)raw.WorkItemCategoryId,
+                    WorkItemCategoryDescription = raw.WorkItemCategoryDescription ?? "",
+                    ProjectSubContractorStatusId = (int)raw.ProjectSubContractorStatusId,
+                    ProjectSubContractorStatusDescription = raw.ProjectSubContractorStatusDescription ?? "",
+                    SigningDate = ToDateOnly(raw.SigningDate),
+                    StartDate = ToDateOnly(raw.StartDate),
+                    EndDate = ToDateOnly(raw.EndDate),
+                    TermDays = (int?)raw.TermDays,
+                    ContractNumber = (int?)raw.ContractNumber,
+                    PromissoryNoteNumber = (int?)raw.PromissoryNoteNumber,
+                    ArrivedWithObservations = (bool?)raw.ArrivedWithObservations,
+                    CreatedDateTime = (DateTime)raw.CreatedDateTime,
+                    Contract = raw.contract_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.contract_file_url, OriginalFileName = raw.contract_file_name, StatusId = (int?)raw.contract_status_id, StatusDescription = raw.contract_status_desc, Observation = raw.contract_observation } : null,
+                    SummarySheet = raw.summary_sheet_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.summary_sheet_file_url, OriginalFileName = raw.summary_sheet_file_name, StatusId = (int?)raw.summary_sheet_status_id, StatusDescription = raw.summary_sheet_status_desc, Observation = raw.summary_sheet_observation } : null,
+                    Budget = raw.budget_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.budget_file_url, OriginalFileName = raw.budget_file_name, StatusId = (int?)raw.budget_status_id, StatusDescription = raw.budget_status_desc, Observation = raw.budget_observation } : null,
+                    Schedule = raw.schedule_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.schedule_file_url, OriginalFileName = raw.schedule_file_name, StatusId = (int?)raw.schedule_status_id, StatusDescription = raw.schedule_status_desc, Observation = raw.schedule_observation } : null,
+                    AttachedQuotation = raw.attached_quotation_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.attached_quotation_file_url, OriginalFileName = raw.attached_quotation_file_name, StatusId = (int?)raw.attached_quotation_status_id, StatusDescription = raw.attached_quotation_status_desc, Observation = raw.attached_quotation_observation } : null,
+                    ServiceOrder = raw.service_order_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.service_order_file_url, OriginalFileName = raw.service_order_file_name, StatusId = (int?)raw.service_order_status_id, StatusDescription = raw.service_order_status_desc, Observation = raw.service_order_observation } : null,
+                    PromissoryNote = raw.promissory_note_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.promissory_note_file_url, OriginalFileName = raw.promissory_note_file_name, StatusId = (int?)raw.promissory_note_status_id, StatusDescription = raw.promissory_note_status_desc, Observation = raw.promissory_note_observation } : null,
+                    Package = raw.package_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.package_file_url, OriginalFileName = raw.package_file_name } : null,
+                });
+            }
+
+            var formDataDto = new ProjectSubContractorFormDataDTO
+            {
+                Projects = projects,
+                Contracts = contracts,
+                ContractTypes = contractTypes,
+                ContractOrigins = contractOrigins,
+                PaymentMethods = paymentMethods,
+                Currencies = currencies,
+                WorkItems = workItems,
+                WorkItemCategories = workItemCategories,
+                Contributors = contractors
+            };
+
+            int totalPages = (totalRecords + pageSize - 1) / pageSize;
+
+            return new ProjectSubContractorPagedWithFiltersDTO
+            {
+                Paged = new PagedResult<ProjectSubContractorDTO>
+                {
+                    Page = filter.Page,
+                    PageSize = pageSize,
+                    TotalRecords = totalRecords,
+                    TotalPages = totalPages,
+                    Data = items
+                },
+                Filters = formDataDto
+            };
+        }
+
         public async Task<AdjudicacionNotificationDataDto> GetNotificationData(int projectSubContractorId)
         {
             var psc = await _context.ProjectSubContractor

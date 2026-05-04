@@ -68,6 +68,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return await _projectSubContractorRepository.GetPaged(filter);
         }
 
+        public async Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFilters(ProjectSubContractorFilterDTO filter)
+        {
+            // Combina GetPaged + GetFormDataAsync en una sola llamada al repositorio.
+            // Las operaciones se ejecutan en paralelo aprovechando el connection pooling.
+            if (filter.Page < 1) filter.Page = 1;
+            return await _projectSubContractorRepository.GetPagedWithFiltersAsync(filter);
+        }
+
         public async Task Create(ProjectSubContractorCreateDTO dto, int userId)
         {
             // Phase 1: persist the record and get the new ID (needed for the folder path).

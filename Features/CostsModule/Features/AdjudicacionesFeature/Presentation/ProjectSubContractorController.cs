@@ -107,6 +107,40 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         }
 
         [Authorize]
+        [HttpGet("paged-with-filters")]
+        public async Task<IActionResult> GetPagedWithFilters(
+            [FromQuery] int? projectId,
+            [FromQuery] string? contributorName,
+            [FromQuery] string? contributorRuc,
+            [FromQuery] int? createdUserId,
+            [FromQuery] int page = 1)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var filter = new ProjectSubContractorFilterDTO
+                {
+                    ProjectId = projectId,
+                    ContributorName = contributorName,
+                    ContributorRuc = contributorRuc,
+                    CreatedUserId = createdUserId,
+                    Page = page
+                };
+
+                var result = await _projectSubContractorService.GetPagedWithFilters(filter);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message, stackTrace = ex.StackTrace });
+            }
+        }
+
+        [Authorize]
         [HttpPatch("{id}/dates")]
         public async Task<IActionResult> SaveDates(int id, [FromBody] UpdateDatesDTO dto)
         {

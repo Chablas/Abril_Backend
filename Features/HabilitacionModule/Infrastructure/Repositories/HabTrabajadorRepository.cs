@@ -431,33 +431,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId);
 
                 itemsToReset.Add(ItemInduccionObra);
-                if (!esContratista)
-                {
-                    itemsToReset.Add(ItemRisst);
-                    itemsToReset.Add(ItemRegistroEpp);
-                    itemsToReset.Add(ItemDifusionPts);
-                    itemsToReset.Add(ItemEntregaRecomendaciones);
-                    itemsToReset.Add(ItemTRegistro);
-                }
 
                 if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
                 {
-                    var itemsNombre = esContratista
-                        ? "• Inducción Obra"
-                        : "• Inducción Obra<br/>• RISST<br/>• Registro EPP<br/>• Difusión PTS<br/>• Entrega de Recomendaciones";
                     pendingEmails.Add((
                         [proyectoDestino.EmailCoordSsoma],
                         $"{prefijoSubject}Cambio de obra — {worker.ApellidoNombre}",
-                        BuildBodyReingreso(worker, proyectoDestino, itemsNombre)
-                    ));
-                }
-
-                if (!esContratista && !string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordAdmin))
-                {
-                    pendingEmails.Add((
-                        [proyectoDestino.EmailCoordAdmin],
-                        $"{prefijoSubject}Cambio de obra — T-Registro — {worker.ApellidoNombre}",
-                        BuildBodyReingreso(worker, proyectoDestino, "• T-Registro")
+                        BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
                     ));
                 }
             }
@@ -623,33 +603,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId!.Value);
 
                 itemsToReset.Add(ItemInduccionObra);
-                if (!esContratista)
-                {
-                    itemsToReset.Add(ItemRisst);
-                    itemsToReset.Add(ItemRegistroEpp);
-                    itemsToReset.Add(ItemDifusionPts);
-                    itemsToReset.Add(ItemEntregaRecomendaciones);
-                    itemsToReset.Add(ItemTRegistro);
-                }
 
                 if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
                 {
-                    var itemsNombre = esContratista
-                        ? "• Inducción Obra"
-                        : "• Inducción Obra<br/>• RISST<br/>• Registro EPP<br/>• Difusión PTS<br/>• Entrega de Recomendaciones";
                     pendingEmails.Add((
                         [proyectoDestino.EmailCoordSsoma],
                         $"{prefijoSubject}Reingreso de trabajador — {worker.ApellidoNombre}",
-                        BuildBodyReingreso(worker, proyectoDestino, itemsNombre)
-                    ));
-                }
-
-                if (!esContratista && !string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordAdmin))
-                {
-                    pendingEmails.Add((
-                        [proyectoDestino.EmailCoordAdmin],
-                        $"{prefijoSubject}Reingreso de trabajador — T-Registro — {worker.ApellidoNombre}",
-                        BuildBodyReingreso(worker, proyectoDestino, "• T-Registro")
+                        BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
                     ));
                 }
             }

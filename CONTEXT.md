@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 > Pega este archivo en la raíz del proyecto. Claude Code lo leerá al inicio de cada sesión.
-> Última actualización: 2026-04-30 (baja/reingreso/cambiarObra trabajadores; worker_eventos; ss_hab_documento_version enriquecida; migración contributor; habilitación empresa con activar/desactivar proyecto; SharePoint GetDownloadUrlAsync fix; item 25 Lectura de EMO)
+> Última actualización: 2026-05-03 (sprint trabajador multi-proyecto: tabla `ss_hab_worker_proyecto` + 4 endpoints + integración con CambiarObra/Reingreso/Baja/BajaMasiva; correos de Vida Ley por cambio de cargo Practicante→otro y por cambio ObraOficina→Staff/Oficina Central; prefijo `[PRUEBA - NO TOMAR EN CUENTA]` en subjects de trabajadores Abril; reset al cambiar de proyecto reducido a solo Inducción Obra + eliminado correo T-Registro a CoordAdmin)
 
 ---
 
@@ -138,6 +138,7 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `SsHabTrabajador` | `ss_hab_trabajador` | Entregables por trabajador |
 | `SsHabDocumentoVersion` | `ss_hab_documento_version` | Historial versiones — campos nuevos 2026-04-30: `proyecto_id`, `empresa_id`, `estado_anterior`, `aprobado_por_user_id`, `motivo_rechazo` |
 | `WorkerEvento` | `worker_eventos` | Log ciclo de vida worker — creada manualmente en BD, sin migración EF |
+| `WorkerProyecto` | `ss_hab_worker_proyecto` | **Asignación multi-proyecto de un worker Casa**. Permite que un trabajador esté activo simultáneamente en N proyectos (a diferencia de `worker_vinculaciones` que es 1-activa-a-la-vez). Campos: `WorkerId`, `ProyectoId`, `EmpresaId?`, `FechaInicio`, `FechaFin?` (null = activa), `InduccionCompletada`, `FechaInduccion?`, `CreatedAt`, `UpdatedAt?`. Migración `20260504022041_AddWorkerProyectoTable`. **Solo workers Casa**: `AgregarProyectoAsync` valida `ContrataCasa == "Casa"` (400 si no). Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL` impide doble asignación activa al mismo proyecto. FKs: `worker_id → workers(id) CASCADE`, `proyecto_id → project(project_id) RESTRICT`, `empresa_id → contributor(id) SET NULL`. |
 | `Contributor` | `contributor` | **Entidad unificada de empresas** (reemplaza `companies` eliminada). Incluye `es_abril` (bool) e `id_sharepoint` (int?, temporal para migración). `EmpresaId` en `worker_vinculaciones`, `ss_empresa_proyecto` y `ss_hab_empresa` apunta a `contributor.id`. |
 
 ### ⚠️ Pitfall histórico: `Project` (legacy) vs `Projects` (eliminada)
@@ -308,9 +309,13 @@ GET/PUT     /api/v1/habilitacion/trabajadores/{id}/entregables
 GET         /api/v1/habilitacion/trabajadores/entregables/{id}/versiones
 PATCH       /api/v1/habilitacion/trabajadores/{id}/baja                ← body { fechaRetiro?: DateOnly }
 PATCH       /api/v1/habilitacion/trabajadores/baja-masiva              ← body { ids: int[], fechaRetiro?: DateOnly }
-PATCH       /api/v1/habilitacion/trabajadores/{id}/cambiar-obra        ← body WorkerCambiarObraDto (resetea entregables + correos + eventos)
-PATCH       /api/v1/habilitacion/trabajadores/{id}/reingreso           ← body { nuevoProyectoId?, nuevaEmpresaId?, fechaReingreso? }
+PATCH       /api/v1/habilitacion/trabajadores/{id}/cambiar-obra        ← body WorkerCambiarObraDto (resetea entregables + correos + eventos + sincroniza ss_hab_worker_proyecto)
+PATCH       /api/v1/habilitacion/trabajadores/{id}/reingreso           ← body { nuevoProyectoId?, nuevaEmpresaId?, fechaReingreso? } (sincroniza ss_hab_worker_proyecto)
 GET         /api/v1/habilitacion/trabajadores/{id}/eventos             ← [AllowAnonymous] temporal
+POST        /api/v1/habilitacion/trabajadores/{id}/proyectos                       ← AgregarProyectoDto, multi-proyecto, [AllowAnonymous] temporal
+GET         /api/v1/habilitacion/trabajadores/{id}/proyectos                       ← lista activos+históricos, [AllowAnonymous] temporal
+DELETE      /api/v1/habilitacion/trabajadores/{id}/proyectos/{proyectoId}          ← retira (FechaFin = hoy), [AllowAnonymous] temporal
+PATCH       /api/v1/habilitacion/trabajadores/{id}/proyectos/{proyectoId}/induccion ← marca InduccionCompletada=true, [AllowAnonymous] temporal
 GET/PATCH   /api/v1/habilitacion/bandeja
 GET/PATCH   /api/v1/habilitacion/bandeja/cursor
 GET/POST    /api/v1/habilitacion/sctr-vidaley
@@ -333,8 +338,18 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 - SCTR/Vida Ley → masivo, un documento cubre múltiples workers
 - Al aprobar con `requiere_vigencia = false` → forzar `Vigencia = 2040-12-31`
 
-### Estado actual del módulo (2026-04-30)
+### Estado actual del módulo (2026-05-03)
 
+- **Sprint trabajador multi-proyecto (FASE 1+2+3)** — `ss_hab_worker_proyecto` permite N proyectos activos en paralelo por worker Casa. Convive con `worker_vinculaciones` (que sigue siendo 1-activa-a-la-vez); ambas se sincronizan vía `SincronizarWorkerProyectoCambioAsync`. 4 endpoints nuevos (`POST/GET/DELETE/PATCH /proyectos`) + integración con flujos existentes.
+- **Sincronización en flujos existentes**:
+  - `CambiarObraAsync` y `ReingresoAsync` (gate `esCambioProyecto && !esContratista`): cierran fila activa del proyecto anterior; si existe fila previa cerrada del proyecto destino, **la reactivan preservando `InduccionCompletada` y `FechaInduccion`**; si no existe, crean nueva con `InduccionCompletada=false`. No tocan `EmpresaId` al reactivar.
+  - `BajaAsync` y `BajaMasivaAsync`: cierran TODAS las filas activas del worker (`FechaFin = fechaRetiro`).
+  - `InicializarEntregablesAsync` no toca `ss_hab_worker_proyecto` — la asignación inicial debe crearse vía `POST /proyectos` o `CambiarObraAsync`.
+- **Reset al cambiar de proyecto reducido** — `CambiarObraAsync` y `ReingresoAsync` (rama `esCambioProyecto`) ahora **solo resetean `ItemInduccionObra`** a "Falta". Removidos del set: `ItemRisst`, `ItemRegistroEpp`, `ItemDifusionPts`, `ItemEntregaRecomendaciones`, `ItemTRegistro`. Consecuencia en correos: el body a `EmailCoordSsoma` ahora muestra solo `"• Inducción Obra"` (sin ternario por contratista/casa) y el correo dedicado a `EmailCoordAdmin` por T-Registro fue eliminado de ambos métodos. Bloque `esCambioEmpresa` (SCTR/Vida Ley/Cert. Aptitud) intacto.
+- **Correos Vida Ley por cambio de cargo (Casa)** — `UpdateAsync` detecta transición `Categoria == "Practicante" → otro cargo`; si no existe ya, inserta entregable `ItemVidaLey` y notifica a `EmailAsistentaSocial` (`pquispe@abril.pe`).
+- **Correos Vida Ley por cambio ObraOficina (Casa)** — `UpdateAsync` detecta transición ObraOficina → `"Staff"` (correo a `EmailCoordAdmin` del proyecto activo) o → `"Oficina Central"` (correo a `EmailAsistentaSocial`). Solo notificación, no crea entregable.
+- **Practicante exclusión Vida Ley** — `InicializarEntregablesAsync` filtra `ItemVidaLey` cuando `workerType == "CASA" && Categoria == "Practicante"` (case-insensitive). Cuando deja de ser Practicante, `UpdateAsync` lo agrega.
+- **Prefijo `[PRUEBA - NO TOMAR EN CUENTA]`** en subjects de correos del módulo HabilitacionModule cuando el worker es Casa (Abril). Variable `prefijoSubject = esContratista ? "" : "[PRUEBA - NO TOMAR EN CUENTA] "` en `CambiarObraAsync` y `ReingresoAsync`. Aplicado siempre en correos nuevos de Vida Ley (cargo/obra-oficina) y Nuevo Proyecto (multi-proyecto). Pendiente: quitar antes de prod real.
 - **Baja individual y masiva de trabajadores** — `BajaAsync` / `BajaMasivaAsync`: marcan worker con `Estado = "RETIRADO"` y `FechaRetiro`, cierran vinculación activa
 - **Reingreso** — `ReingresoAsync`: reactiva worker, crea nueva vinculación; si cambia proyecto o empresa, resetea entregables según tipo (CONTRATISTA: siempre; CASA: solo si cambia proyecto), envía correos, inserta eventos
 - **CambiarObraAsync** — misma lógica que reingreso: resets de entregables + correos + eventos; `NuevoProyectoId` es no-nullable, comparar directamente sin `.HasValue`
@@ -364,13 +379,20 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 - `datos_anteriores`/`datos_nuevos` son `jsonb` → `HasColumnType("jsonb")` en `ConfigurePostgreSQL`
 - `id_trabajador` en `workers` es campo temporal (vinculador PowerApps legacy) — pendiente eliminar
 - **`ProjectService` exige `ISunatService` en su constructor**: cualquier endpoint del módulo Project (ej. `GET /paged`) instancia toda la cadena DI. Si `Sunat:BaseUrl` falta, el HttpClient revienta al inicializar y rompe endpoints sin relación con Sunat. Mitigado en Program.cs: la factory chequea `string.IsNullOrEmpty(baseUrl)` antes de setear `BaseAddress` — el backend arranca sin Sunat configurado y solo `/company-lookup/{ruc}` falla en runtime.
+- **`ss_hab_worker_proyecto` solo aplica a Casa**: `AgregarProyectoAsync` valida `ContrataCasa == "Casa"` (400 si no). La sincronización en `CambiarObraAsync`/`ReingresoAsync` está gateada con `!esContratista` por la misma razón. Los contratistas siguen el modelo 1-vinculación-activa de `worker_vinculaciones` exclusivamente.
+- **Reactivación de fila previa preserva `InduccionCompletada`, `FechaInduccion` y `EmpresaId` históricos**. Si el worker había completado la inducción de obra X, fue retirado y vuelve a X, **no** se le pide inducción nueva. Si esto cambia (p.ej. inducción válida solo 12 meses), agregar lógica de expiración en `SincronizarWorkerProyectoCambioAsync`. Tampoco se actualiza `EmpresaId` al reactivar — si el worker volvió a X bajo otra empresa, queda la histórica.
+- **Anti-duplicado defensivo en sincronización**: el helper hace `AnyAsync(activa nueva)` antes de insertar para evitar pelear con el unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL`. Si el chequeo dice que ya existe activa, hace early return sin tocar nada — útil para idempotencia pero también enmascara casos raros donde la activa apunta a empresa/fecha distinta.
+- **Migración `AddWorkerProyectoTable` se editó a mano** para remover el ruido del scaffold EF — `dotnet ef migrations add` detectó como pendientes 5 `AddColumn` a `ss_hab_documento_version` y `CreateTable cat_subarea`/`worker_eventos` (deuda histórica del snapshot porque esos cambios se aplicaron en BD sin pasar por EF). El snapshot quedó actualizado, así que próximas migraciones no regenerarán ese ruido — pero **antes de correr `migrations add` siempre revisar el archivo generado** y limpiar operaciones que ya estén en BD.
+- **Workers Casa con cargo "Practicante"**: `InicializarEntregablesAsync` filtra `ItemVidaLey` (id 13). La transición Practicante→otro cargo en `UpdateAsync` agrega el entregable e invoca correo a `EmailAsistentaSocial`. La transición inversa (otro→Practicante) **no elimina** el entregable existente — queda histórico en `ss_hab_trabajador`.
+- **Correos de cambio ObraOficina**: solo se disparan a `"Staff"` (admin del proyecto activo) o `"Oficina Central"` (asistenta social). Otros valores (`"Obra X"`, etc.) no notifican. La resolución del proyecto activo usa el patrón estable de `GetEmpresaActivaWorkerAsync` (vinculación con `FechaFin == null` ordenada por `CreatedAt + Id DESC`).
 
 ---
 
 ## 9. Trabajo pendiente
 
 ### Alta prioridad
-- **Auth real** — quitar `[AllowAnonymous]` de SSOMA, `ProjectController` y `GET /trabajadores/{id}/eventos`
+- **Auth real** — quitar `[AllowAnonymous]` de SSOMA, `ProjectController`, `GET /trabajadores/{id}/eventos` y los 4 endpoints `/trabajadores/{id}/proyectos*`
+- **Quitar prefijo `[PRUEBA - NO TOMAR EN CUENTA]`** de subjects antes de prod real (en `HabTrabajadorRepository`: `prefijoSubject` en CambiarObra/Reingreso, hardcoded en correos de Vida Ley cargo/obra-oficina y Nuevo Proyecto)
 - **Crear primer usuario admin** en `app_user`
 - **Deploy a producción**
 - **42 empresas SharePoint con IDs 1656+** pendientes de migrar a `contributor` (necesita Excel actualizado con los datos correctos)
@@ -382,6 +404,9 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 - **Eliminar `id_trabajador`** de `workers` tras confirmar migración completa
 - **`BandejaRepository` segmentos UNION ALL EMPRESA y EQUIPO** — siguen apuntando a `JOIN projects p ON p.id = …`. Cuando `ss_hab_empresa` y `ss_equipo` tengan datos con la nueva FK a `project`, revertir a `JOIN project p ON p.project_id = …` (mismo patrón que ya tiene el segmento TRABAJADOR).
 - **`ProjectService` acoplamiento con `ISunatService`** — separar a `ISunatLookupService` para que solo `/company-lookup/{ruc}` lo necesite. Hoy mitigado con factory null-safe pero la dependencia sigue en el constructor.
+- **Multi-proyecto FASE 4 (consumidores)**: `BandejaRepository`, listados, EMO, SCTR y Vida Ley aún razonan exclusivamente sobre `worker_vinculaciones` (1-activa). Decidir si y cómo pivotar lecturas a `ss_hab_worker_proyecto` para reflejar a workers Casa que están en N proyectos simultáneos.
+- **`InicializarEntregablesAsync` no crea fila inicial en `ss_hab_worker_proyecto`** — al crear un worker nuevo, su asignación a un primer proyecto debe hacerse vía `POST /proyectos` o `CambiarObraAsync`. Considerar agregar parámetro `proyectoInicialId?` al endpoint `POST /workers` para encadenarlo.
+- **`Project` no tiene campo `id_sharepoint`** (a diferencia de `Contributor`). Si se necesita correlacionar proyectos con su origen en SharePoint para futuras migraciones, agregar columna + override en `ConfigurePostgreSQL`.
 
 ### Baja prioridad
 - **Refactor `Sunat:Token` y `Sunat` headers** en Program.cs — quedaron fuera del fix null-safe; restaurar dentro del `if` cuando se confirme que en producción siempre hay configuración.

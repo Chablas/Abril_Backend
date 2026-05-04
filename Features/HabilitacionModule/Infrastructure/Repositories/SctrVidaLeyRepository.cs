@@ -5,16 +5,19 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 {
     public class SctrVidaLeyRepository : ISctrVidaLeyRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ILogger<SctrVidaLeyRepository> _logger;
 
-        public SctrVidaLeyRepository(IDbContextFactory<AppDbContext> factory)
+        public SctrVidaLeyRepository(IDbContextFactory<AppDbContext> factory, ILogger<SctrVidaLeyRepository> logger)
         {
             _factory = factory;
+            _logger = logger;
         }
 
         public async Task<(List<SctrVidaLeyDto> Items, int Total)> GetPagedAsync(
@@ -399,6 +402,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
+            _logger.LogInformation("[GetTrabajadoresPorEmpresa] INPUT empresaId={EmpresaId} proyectoId={ProyectoId} tipo={Tipo} tipoPoliza={TipoPoliza} estadoSctr={EstadoSctr} estadoVidaLey={EstadoVidaLey}",
+                empresaId, proyectoId, tipo, tipoPoliza, estadoSctr, estadoVidaLey);
+
             // Si empresaId corresponde a una empresa Abril en contributor, se usa directo.
             // Si no, es un ss_empresa_contratista.id → resolver via id_legacy.
             var contributor = await ctx.Contributor
@@ -412,6 +418,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 && contributor.ContributorName.ToUpper().Contains("ABRIL"))
             {
                 contributorId = empresaId;
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Empresa Abril detectada en contributor. contributorId={ContributorId} nombre='{Nombre}'",
+                    contributorId, contributor.ContributorName);
             }
             else
             {
@@ -421,6 +429,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .FirstOrDefaultAsync();
 
                 contributorId = idLegacy ?? empresaId;
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Contratista: ss_empresa_contratista.id={EmpresaId} → id_legacy={IdLegacy} → contributorId={ContributorId}",
+                    empresaId, idLegacy, contributorId);
             }
 
             // Workers activos en la empresa (y en el proyecto si se especifica)
@@ -431,6 +441,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(wp => wp.WorkerId)
                 .Distinct()
                 .ToListAsync();
+
+            _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerProyecto → {Count} workerIds: [{Ids}]",
+                workerIds.Count, string.Join(",", workerIds));
 
             // Fallback para empresas Casa: ss_hab_worker_proyecto.empresa_id es null para ellas,
             // sus workers viven en worker_vinculaciones
@@ -443,9 +456,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .Select(v => v.WorkerId)
                     .Distinct()
                     .ToListAsync();
+
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Fallback WorkerVinculacion → {Count} workerIds: [{Ids}]",
+                    workerIds.Count, string.Join(",", workerIds));
             }
 
-            if (workerIds.Count == 0) return [];
+            if (workerIds.Count == 0)
+            {
+                _logger.LogWarning("[GetTrabajadoresPorEmpresa] Sin workers para contributorId={ContributorId} proyectoId={ProyectoId}. Retornando lista vacía.", contributorId, proyectoId);
+                return [];
+            }
 
             // Si viene filtro por tipo/tipoPoliza, restringir a workers vinculados a esas pólizas
             if (!string.IsNullOrWhiteSpace(tipo) || !string.IsNullOrWhiteSpace(tipoPoliza))
@@ -491,6 +511,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(h => workerIds.Contains(h.WorkerId) && itemIdsRelevantes.Contains(h.ItemId))
                 .ToListAsync();
 
+            _logger.LogInformation("itemSctr: {item}, itemVidaLey: {item2}, habs count: {count}", itemSctr?.Nombre, itemVidaLey?.Nombre, habs.Count);
+
             var result = workers.Select(w =>
             {
                 var estadoSctrVal = "Falta";
@@ -518,12 +540,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 };
             }).ToList();
 
+            _logger.LogInformation("[GetTrabajadoresPorEmpresa] Antes de filtros de estado: {Total} trabajadores. itemSctr={ItemSctrId} itemVidaLey={ItemVidaLeyId}",
+                result.Count, itemSctr?.Id.ToString() ?? "null", itemVidaLey?.Id.ToString() ?? "null");
+
             // Filtros por estado
             if (!string.IsNullOrWhiteSpace(estadoSctr))
-                result = result.Where(r => r.EstadoSctr == estadoSctr).ToList();
+            {
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Aplicando filtro estadoSctr='{EstadoSctr}'", estadoSctr);
+                result = result.Where(r => string.Equals(r.EstadoSctr, estadoSctr, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
 
             if (!string.IsNullOrWhiteSpace(estadoVidaLey))
-                result = result.Where(r => r.EstadoVidaLey == estadoVidaLey).ToList();
+            {
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Aplicando filtro estadoVidaLey='{EstadoVidaLey}'", estadoVidaLey);
+                result = result.Where(r => string.Equals(r.EstadoVidaLey, estadoVidaLey, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
+            _logger.LogInformation("[GetTrabajadoresPorEmpresa] RESULTADO FINAL: {Count} trabajadores", result.Count);
 
             return result;
         }

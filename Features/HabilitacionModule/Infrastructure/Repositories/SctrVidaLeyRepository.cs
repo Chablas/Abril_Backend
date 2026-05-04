@@ -409,7 +409,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         }
 
         public async Task<List<SctrTrabajadorEstadoDto>> GetTrabajadoresPorEmpresaAsync(
-            int empresaId, int? proyectoId, string? tipo, string? tipoPoliza,
+            int? empresaId, int? proyectoId, string? tipo, string? tipoPoliza,
             string? estadoSctr, string? estadoVidaLey)
         {
             using var ctx = _factory.CreateDbContext();
@@ -417,71 +417,83 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             _logger.LogInformation("[GetTrabajadoresPorEmpresa] INPUT empresaId={EmpresaId} proyectoId={ProyectoId} tipo={Tipo} tipoPoliza={TipoPoliza} estadoSctr={EstadoSctr} estadoVidaLey={EstadoVidaLey}",
                 empresaId, proyectoId, tipo, tipoPoliza, estadoSctr, estadoVidaLey);
 
-            // Si empresaId corresponde a una empresa Abril en contributor, se usa directo.
-            // Si no, es un ss_empresa_contratista.id → resolver via id_legacy.
-            var contributor = await ctx.Contributor
-                .Where(c => c.ContributorId == empresaId)
-                .Select(c => new { c.ContributorId, c.ContributorName })
-                .FirstOrDefaultAsync();
+            List<int> workerIds;
 
-            int contributorId;
-            if (contributor != null
-                && contributor.ContributorName != null
-                && contributor.ContributorName.ToUpper().Contains("ABRIL"))
+            if (!empresaId.HasValue)
             {
-                contributorId = empresaId;
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Empresa Abril detectada en contributor. contributorId={ContributorId} nombre='{Nombre}'",
-                    contributorId, contributor.ContributorName);
+                // Sin filtro de empresa: todos los workers activos
+                workerIds = await ctx.Worker
+                    .Select(w => w.Id)
+                    .ToListAsync();
+
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Sin empresaId → {Count} workers totales", workerIds.Count);
             }
             else
             {
-                var idLegacy = await ctx.SsEmpresaContratista
-                    .Where(e => e.Id == empresaId)
-                    .Select(e => e.IdLegacy)
+                // Si empresaId corresponde a una empresa Abril en contributor, se usa directo.
+                // Si no, es un ss_empresa_contratista.id → resolver via id_legacy.
+                var contributor = await ctx.Contributor
+                    .Where(c => c.ContributorId == empresaId.Value)
+                    .Select(c => new { c.ContributorId, c.ContributorName })
                     .FirstOrDefaultAsync();
 
-                contributorId = idLegacy ?? empresaId;
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Contratista: ss_empresa_contratista.id={EmpresaId} → id_legacy={IdLegacy} → contributorId={ContributorId}",
-                    empresaId, idLegacy, contributorId);
-            }
+                int contributorId;
+                if (contributor != null
+                    && contributor.ContributorName != null
+                    && contributor.ContributorName.ToUpper().Contains("ABRIL"))
+                {
+                    contributorId = empresaId.Value;
+                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Empresa Abril detectada en contributor. contributorId={ContributorId} nombre='{Nombre}'",
+                        contributorId, contributor.ContributorName);
+                }
+                else
+                {
+                    var idLegacy = await ctx.SsEmpresaContratista
+                        .Where(e => e.Id == empresaId.Value)
+                        .Select(e => e.IdLegacy)
+                        .FirstOrDefaultAsync();
 
-            // Workers activos en la empresa (y en el proyecto si se especifica)
-            var workerIds = await ctx.WorkerProyecto
-                .Where(wp => wp.EmpresaId == contributorId
-                    && (!proyectoId.HasValue || wp.ProyectoId == proyectoId.Value)
-                    && wp.FechaFin == null)
-                .Select(wp => wp.WorkerId)
-                .Distinct()
-                .ToListAsync();
+                    contributorId = idLegacy ?? empresaId.Value;
+                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Contratista: ss_empresa_contratista.id={EmpresaId} → id_legacy={IdLegacy} → contributorId={ContributorId}",
+                        empresaId.Value, idLegacy, contributorId);
+                }
 
-            _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerProyecto → {Count} workerIds: [{Ids}]",
-                workerIds.Count, string.Join(",", workerIds));
-
-            // Fallback: worker_vinculaciones (empresas Casa o cuando worker_proyectos no tiene registros).
-            // empresa_id en worker_vinculaciones referencia contributor.contributor_id, por lo que se
-            // prueba tanto contributorId (resuelto) como el empresaId original por si llegara directo.
-            if (workerIds.Count == 0)
-            {
-                var vinculacionEmpresaIds = contributorId == empresaId
-                    ? new List<int> { contributorId }
-                    : new List<int> { contributorId, empresaId };
-
-                workerIds = await ctx.WorkerVinculacion
-                    .Where(v => vinculacionEmpresaIds.Contains(v.EmpresaId!.Value)
-                        && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
-                        && v.FechaFin == null)
-                    .Select(v => v.WorkerId)
+                // Workers activos en la empresa (y en el proyecto si se especifica)
+                workerIds = await ctx.WorkerProyecto
+                    .Where(wp => wp.EmpresaId == contributorId
+                        && (!proyectoId.HasValue || wp.ProyectoId == proyectoId.Value)
+                        && wp.FechaFin == null)
+                    .Select(wp => wp.WorkerId)
                     .Distinct()
                     .ToListAsync();
 
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Fallback WorkerVinculacion (empresaIds=[{Ids}]) → {Count} workerIds: [{WorkerIds}]",
-                    string.Join(",", vinculacionEmpresaIds), workerIds.Count, string.Join(",", workerIds));
-            }
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerProyecto → {Count} workerIds: [{Ids}]",
+                    workerIds.Count, string.Join(",", workerIds));
 
-            if (workerIds.Count == 0)
-            {
-                _logger.LogWarning("[GetTrabajadoresPorEmpresa] Sin workers para contributorId={ContributorId} proyectoId={ProyectoId}. Retornando lista vacía.", contributorId, proyectoId);
-                return [];
+                // Fallback: worker_vinculaciones (empresas Casa o cuando worker_proyectos no tiene registros).
+                if (workerIds.Count == 0)
+                {
+                    var vinculacionEmpresaIds = contributorId == empresaId.Value
+                        ? new List<int> { contributorId }
+                        : new List<int> { contributorId, empresaId.Value };
+
+                    workerIds = await ctx.WorkerVinculacion
+                        .Where(v => vinculacionEmpresaIds.Contains(v.EmpresaId!.Value)
+                            && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
+                            && v.FechaFin == null)
+                        .Select(v => v.WorkerId)
+                        .Distinct()
+                        .ToListAsync();
+
+                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Fallback WorkerVinculacion (empresaIds=[{Ids}]) → {Count} workerIds: [{WorkerIds}]",
+                        string.Join(",", vinculacionEmpresaIds), workerIds.Count, string.Join(",", workerIds));
+                }
+
+                if (workerIds.Count == 0)
+                {
+                    _logger.LogWarning("[GetTrabajadoresPorEmpresa] Sin workers para empresaId={EmpresaId} proyectoId={ProyectoId}. Retornando lista vacía.", empresaId, proyectoId);
+                    return [];
+                }
             }
 
             var workers = await ctx.Worker

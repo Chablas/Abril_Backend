@@ -235,5 +235,57 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetEventos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        [AllowAnonymous]
+        [HttpPost("{workerId:int}/proyectos")]
+        public async Task<IActionResult> AgregarProyecto(int workerId, [FromBody] AgregarProyectoDto dto)
+        {
+            try
+            {
+                var creado = await _repo.AgregarProyectoAsync(workerId, dto);
+                return Ok(creado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.AgregarProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpGet("{workerId:int}/proyectos")]
+        public async Task<IActionResult> GetProyectos(int workerId)
+        {
+            try
+            {
+                var proyectos = await _repo.GetProyectosAsync(workerId);
+                return Ok(proyectos);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetProyectos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpDelete("{workerId:int}/proyectos/{proyectoId:int}")]
+        public async Task<IActionResult> RetirarDeProyecto(int workerId, int proyectoId)
+        {
+            try
+            {
+                await _repo.RetirarDeProyectoAsync(workerId, proyectoId);
+                return Ok(new { message = "Trabajador retirado del proyecto correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.RetirarDeProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpPatch("{workerId:int}/proyectos/{proyectoId:int}/induccion")]
+        public async Task<IActionResult> MarcarInduccion(int workerId, int proyectoId)
+        {
+            try
+            {
+                await _repo.MarcarInduccionAsync(workerId, proyectoId);
+                return Ok(new { message = "Inducción marcada como completada." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.MarcarInduccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

@@ -80,6 +80,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<WorkerEmo> WorkerEmo { get; set; }
         public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }
         public DbSet<WorkerVinculacion> WorkerVinculacion { get; set; }
+        public DbSet<WorkerProyecto> WorkerProyecto { get; set; }
         public DbSet<SsClinica> SsClinica { get; set; }
         public DbSet<SsMedicoOcupacional> SsMedicoOcupacional { get; set; }
         public DbSet<SsEmoTipo> SsEmoTipo { get; set; }

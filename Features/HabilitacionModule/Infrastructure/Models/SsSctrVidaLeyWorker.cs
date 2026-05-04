@@ -7,6 +7,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
     public class SsSctrVidaLeyWorker
     {
         public int Id { get; set; }
+        [Column("sctr_vidaley_id")]
         public int SctrVidaLeyId { get; set; }
         public int WorkerId { get; set; }
         public DateTime? FechaInicioCobertura { get; set; }

@@ -394,17 +394,32 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         }
 
         public async Task<List<SctrTrabajadorEstadoDto>> GetTrabajadoresPorEmpresaAsync(
-            int empresaId, int proyectoId, string? tipo, string? tipoPoliza,
+            int empresaId, int? proyectoId, string? tipo, string? tipoPoliza,
             string? estadoSctr, string? estadoVidaLey)
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Workers activos en la empresa+proyecto
+            // Workers activos en la empresa (y en el proyecto si se especifica)
             var workerIds = await ctx.WorkerProyecto
-                .Where(wp => wp.EmpresaId == empresaId && wp.ProyectoId == proyectoId && wp.FechaFin == null)
+                .Where(wp => wp.EmpresaId == empresaId
+                    && (!proyectoId.HasValue || wp.ProyectoId == proyectoId.Value)
+                    && wp.FechaFin == null)
                 .Select(wp => wp.WorkerId)
                 .Distinct()
                 .ToListAsync();
+
+            // Fallback para empresas Casa: ss_hab_worker_proyecto.empresa_id es null para ellas,
+            // sus workers viven en worker_vinculaciones
+            if (workerIds.Count == 0)
+            {
+                workerIds = await ctx.WorkerVinculacion
+                    .Where(v => v.EmpresaId == empresaId
+                        && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
+                        && v.FechaFin == null)
+                    .Select(v => v.WorkerId)
+                    .Distinct()
+                    .ToListAsync();
+            }
 
             if (workerIds.Count == 0) return [];
 
@@ -412,7 +427,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (!string.IsNullOrWhiteSpace(tipo) || !string.IsNullOrWhiteSpace(tipoPoliza))
             {
                 var polizaQuery = ctx.SsSctrVidaley
-                    .Where(s => s.EmpresaId == empresaId && s.ProyectoId == proyectoId);
+                    .Where(s => s.EmpresaId == empresaId
+                        && (!proyectoId.HasValue || s.ProyectoId == proyectoId.Value));
 
                 if (!string.IsNullOrWhiteSpace(tipo))
                     polizaQuery = polizaQuery.Where(s => s.Tipo == tipo);

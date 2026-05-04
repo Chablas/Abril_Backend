@@ -113,7 +113,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         [HttpGet("trabajadores-por-empresa")]
         public async Task<IActionResult> GetTrabajadoresPorEmpresa(
             [FromQuery] int empresaId,
-            [FromQuery] int proyectoId,
+            [FromQuery] int? proyectoId,
             [FromQuery] string? tipo,
             [FromQuery] string? tipoPoliza,
             [FromQuery] string? estadoSctr,

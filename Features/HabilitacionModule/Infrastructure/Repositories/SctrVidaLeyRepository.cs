@@ -59,6 +59,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
+            var fechaRef = dto.FechaInicio ?? DateTime.UtcNow;
+            var mes = dto.Mes != 0 ? dto.Mes : fechaRef.Month;
+            var anio = dto.Anio != 0 ? dto.Anio : fechaRef.Year;
+
             var entity = new SsSctrVidaley
             {
                 EmpresaId = empresaId,
@@ -66,8 +70,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 Tipo = dto.Tipo,
                 TipoPoliza = string.IsNullOrWhiteSpace(dto.TipoPoliza) ? "Renovacion" : dto.TipoPoliza,
                 FechaInicio = dto.FechaInicio.HasValue ? DateTime.SpecifyKind(dto.FechaInicio.Value, DateTimeKind.Utc) : null,
-                Mes = dto.Mes,
-                Anio = dto.Anio,
+                Mes = mes,
+                Anio = anio,
                 ArchivoUrl = dto.ArchivoUrl,
                 ArchivoUrl2 = dto.ArchivoUrl2,
                 Estado = "Enviado",

@@ -399,9 +399,33 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
+            // Si empresaId corresponde a una empresa Abril en contributor, se usa directo.
+            // Si no, es un ss_empresa_contratista.id → resolver via id_legacy.
+            var contributor = await ctx.Contributor
+                .Where(c => c.ContributorId == empresaId)
+                .Select(c => new { c.ContributorId, c.ContributorName })
+                .FirstOrDefaultAsync();
+
+            int contributorId;
+            if (contributor != null
+                && contributor.ContributorName != null
+                && contributor.ContributorName.ToUpper().Contains("ABRIL"))
+            {
+                contributorId = empresaId;
+            }
+            else
+            {
+                var idLegacy = await ctx.SsEmpresaContratista
+                    .Where(e => e.Id == empresaId)
+                    .Select(e => e.IdLegacy)
+                    .FirstOrDefaultAsync();
+
+                contributorId = idLegacy ?? empresaId;
+            }
+
             // Workers activos en la empresa (y en el proyecto si se especifica)
             var workerIds = await ctx.WorkerProyecto
-                .Where(wp => wp.EmpresaId == empresaId
+                .Where(wp => wp.EmpresaId == contributorId
                     && (!proyectoId.HasValue || wp.ProyectoId == proyectoId.Value)
                     && wp.FechaFin == null)
                 .Select(wp => wp.WorkerId)
@@ -413,7 +437,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (workerIds.Count == 0)
             {
                 workerIds = await ctx.WorkerVinculacion
-                    .Where(v => v.EmpresaId == empresaId
+                    .Where(v => v.EmpresaId == contributorId
                         && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
                         && v.FechaFin == null)
                     .Select(v => v.WorkerId)

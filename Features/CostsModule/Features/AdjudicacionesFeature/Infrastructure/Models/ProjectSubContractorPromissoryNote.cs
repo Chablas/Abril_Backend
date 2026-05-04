@@ -5,6 +5,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models
         public int ProjectSubContractorPromissoryNoteId { get; set; }
         public string? FileUrl { get; set; }
         public string? OriginalFileName { get; set; }
+        public string? SharepointItemId { get; set; }
         public int? ProjectSubContractorFileStatusId { get; set; }
         public string? Observation { get; set; }
         public DateTimeOffset CreatedDatetime { get; set; }

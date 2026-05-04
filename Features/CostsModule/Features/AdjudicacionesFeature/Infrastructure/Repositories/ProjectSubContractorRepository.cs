@@ -55,8 +55,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
 
         public async Task SaveInitialFilesAsync(
             int projectSubContractorId,
-            List<(string Url, string OriginalFileName)> quotationFiles,
-            List<(string Url, string OriginalFileName)> comparativeFiles,
+            List<(string Url, string OriginalFileName, string? ItemId)> quotationFiles,
+            List<(string Url, string OriginalFileName, string? ItemId)> comparativeFiles,
             int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -69,6 +69,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     ProjectSubContractorId = projectSubContractorId,
                     FileUrl = file.Url,
                     OriginalFileName = file.OriginalFileName,
+                    SharepointItemId = file.ItemId,
                     CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,
@@ -83,6 +84,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     ProjectSubContractorId = projectSubContractorId,
                     FileUrl = file.Url,
                     OriginalFileName = file.OriginalFileName,
+                    SharepointItemId = file.ItemId,
                     CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,
@@ -455,8 +457,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 from serviceOrderDoc in serviceOrderDocGroup.DefaultIfEmpty()
                 join promissoryNoteDocJoin in ctx.ProjectSubContractorPromissoryNote on psc.ProjectSubContractorPromissoryNoteId equals promissoryNoteDocJoin.ProjectSubContractorPromissoryNoteId into promissoryNoteDocGroup
                 from promissoryNoteDoc in promissoryNoteDocGroup.DefaultIfEmpty()
+                join packageDocJoin in ctx.ProjectSubContractorPackage on psc.ProjectSubContractorPackageId equals packageDocJoin.ProjectSubContractorPackageId into packageDocGroup
+                from packageDoc in packageDocGroup.DefaultIfEmpty()
                 where psc.State
-                select new { psc, p, contractor, c, ct, co, pm, cur, wi, contract, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc };
+                select new { psc, p, contractor, c, ct, co, pm, cur, wi, contract, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -520,6 +524,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     AttachedQuotation = x.attachedQuotationDoc == null ? null : new ProjectSubContractorFileDto { FileUrl = x.attachedQuotationDoc.FileUrl!, OriginalFileName = x.attachedQuotationDoc.OriginalFileName, StatusId = x.attachedQuotationDoc.ProjectSubContractorFileStatusId, StatusDescription = x.attachedQuotationDoc.FileStatus == null ? null : x.attachedQuotationDoc.FileStatus.ProjectSubContractorFileStatusDescription, Observation = x.attachedQuotationDoc.Observation },
                     ServiceOrder      = x.serviceOrderDoc == null      ? null : new ProjectSubContractorFileDto { FileUrl = x.serviceOrderDoc.FileUrl!,      OriginalFileName = x.serviceOrderDoc.OriginalFileName,      StatusId = x.serviceOrderDoc.ProjectSubContractorFileStatusId,      StatusDescription = x.serviceOrderDoc.FileStatus == null      ? null : x.serviceOrderDoc.FileStatus.ProjectSubContractorFileStatusDescription,      Observation = x.serviceOrderDoc.Observation },
                     PromissoryNote    = x.promissoryNoteDoc == null    ? null : new ProjectSubContractorFileDto { FileUrl = x.promissoryNoteDoc.FileUrl!,    OriginalFileName = x.promissoryNoteDoc.OriginalFileName,    StatusId = x.promissoryNoteDoc.ProjectSubContractorFileStatusId,    StatusDescription = x.promissoryNoteDoc.FileStatus == null    ? null : x.promissoryNoteDoc.FileStatus.ProjectSubContractorFileStatusDescription,    Observation = x.promissoryNoteDoc.Observation },
+                    Package           = x.packageDoc == null           ? null : new ProjectSubContractorFileDto { FileUrl = x.packageDoc.FileUrl!,           OriginalFileName = x.packageDoc.OriginalFileName },
                 })
                 .ToListAsync();
 
@@ -966,7 +971,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             AdjudicacionDocumentType documentType,
             string fileUrl,
             string originalFileName,
-            int userId)
+            int userId,
+            string? sharepointItemId = null)
         {
             var psc = await _context.ProjectSubContractor
                 .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
@@ -980,8 +986,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     psc.ProjectSubContractorContractId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorContract,
                         psc.ProjectSubContractorContractId,
-                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
-                        () => new ProjectSubContractorContract { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorContract { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
                         e => e.ProjectSubContractorContractId);
                     break;
 
@@ -989,8 +995,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     psc.ProjectSubContractorSummarySheetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSummarySheet,
                         psc.ProjectSubContractorSummarySheetId,
-                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
-                        () => new ProjectSubContractorSummarySheet { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorSummarySheet { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
                         e => e.ProjectSubContractorSummarySheetId);
                     break;
 
@@ -998,8 +1004,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     psc.ProjectSubContractorBudgetId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorBudget,
                         psc.ProjectSubContractorBudgetId,
-                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
-                        () => new ProjectSubContractorBudget { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorBudget { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
                         e => e.ProjectSubContractorBudgetId);
                     break;
 
@@ -1007,8 +1013,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     psc.ProjectSubContractorScheduleId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorSchedule,
                         psc.ProjectSubContractorScheduleId,
-                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
-                        () => new ProjectSubContractorSchedule { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorSchedule { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
                         e => e.ProjectSubContractorScheduleId);
                     break;
 
@@ -1016,8 +1022,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     psc.ProjectSubContractorAttachedQuotationId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorAttachedQuotation,
                         psc.ProjectSubContractorAttachedQuotationId,
-                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
-                        () => new ProjectSubContractorAttachedQuotation { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorAttachedQuotation { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
                         e => e.ProjectSubContractorAttachedQuotationId);
                     break;
 
@@ -1025,8 +1031,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     psc.ProjectSubContractorServiceOrderId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorServiceOrder,
                         psc.ProjectSubContractorServiceOrderId,
-                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
-                        () => new ProjectSubContractorServiceOrder { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorServiceOrder { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
                         e => e.ProjectSubContractorServiceOrderId);
                     break;
 
@@ -1034,9 +1040,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     psc.ProjectSubContractorPromissoryNoteId = await UpsertDocumentAsync(
                         _context.ProjectSubContractorPromissoryNote,
                         psc.ProjectSubContractorPromissoryNoteId,
-                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
-                        () => new ProjectSubContractorPromissoryNote { FileUrl = fileUrl, OriginalFileName = originalFileName, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorPromissoryNote { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
                         e => e.ProjectSubContractorPromissoryNoteId);
+                    break;
+
+                case AdjudicacionDocumentType.ContractPackage:
+                    psc.ProjectSubContractorPackageId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorPackage,
+                        psc.ProjectSubContractorPackageId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorPackage { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorPackageId);
                     break;
 
                 case AdjudicacionDocumentType.ScannedDoc1:
@@ -1054,6 +1069,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     {
                         existingScanned.FileUrl = fileUrl;
                         existingScanned.OriginalFileName = originalFileName;
+                        existingScanned.SharepointItemId = sharepointItemId;
                         existingScanned.UpdatedDatetime = now;
                         existingScanned.UpdatedUserId = userId;
                     }
@@ -1064,6 +1080,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                             Slot = scannedSlotSave,
                             FileUrl = fileUrl,
                             OriginalFileName = originalFileName,
+                            SharepointItemId = sharepointItemId,
                             CreatedDatetime = now,
                             CreatedUserId = userId,
                             Active = true,
@@ -1246,6 +1263,61 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 ContributorName     = contributor?.ContributorName ?? string.Empty,
                 WorkItemDescription = workItem?.WorkItemDescription ?? string.Empty,
                 OfTecnicaEmails     = ofTecnicaEmails,
+            };
+        }
+
+        public async Task<ContractPackageUrlsDto> GetContractPackageUrlsAsync(int projectSubContractorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ids = await ctx.ProjectSubContractor
+                .Where(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                .Select(x => new
+                {
+                    x.ProjectSubContractorSummarySheetId,
+                    x.ProjectSubContractorContractId,
+                    x.ProjectSubContractorPromissoryNoteId,
+                    x.ContractNumber,
+                })
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            var summarySheet = ids.ProjectSubContractorSummarySheetId.HasValue
+                ? await ctx.ProjectSubContractorSummarySheet
+                    .Where(x => x.ProjectSubContractorSummarySheetId == ids.ProjectSubContractorSummarySheetId.Value)
+                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .FirstOrDefaultAsync()
+                : null;
+
+            var contract = ids.ProjectSubContractorContractId.HasValue
+                ? await ctx.ProjectSubContractorContract
+                    .Where(x => x.ProjectSubContractorContractId == ids.ProjectSubContractorContractId.Value)
+                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .FirstOrDefaultAsync()
+                : null;
+
+            var promissoryNote = ids.ProjectSubContractorPromissoryNoteId.HasValue
+                ? await ctx.ProjectSubContractorPromissoryNote
+                    .Where(x => x.ProjectSubContractorPromissoryNoteId == ids.ProjectSubContractorPromissoryNoteId.Value)
+                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .FirstOrDefaultAsync()
+                : null;
+
+            if (string.IsNullOrEmpty(summarySheet?.FileUrl))
+                throw new AbrilException("La hoja resumen no ha sido generada. Genérela primero en el paso 3.");
+
+            if (string.IsNullOrEmpty(contract?.FileUrl))
+                throw new AbrilException("El contrato no ha sido generado. Genérelo primero en el paso 3.");
+
+            return new ContractPackageUrlsDto
+            {
+                SummarySheetUrl      = summarySheet.FileUrl,
+                SummarySheetItemId   = summarySheet.SharepointItemId,
+                ContractUrl          = contract.FileUrl,
+                ContractItemId       = contract.SharepointItemId,
+                PromissoryNoteUrl    = promissoryNote?.FileUrl,
+                PromissoryNoteItemId = promissoryNote?.SharepointItemId,
+                ContractNumber       = ids.ContractNumber,
             };
         }
 

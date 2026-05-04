@@ -69,6 +69,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorFileStatus> ProjectSubContractorFileStatus { get; set; }
         public DbSet<ProjectSubContractorPromissoryNote> ProjectSubContractorPromissoryNote { get; set; }
         public DbSet<ProjectSubContractorScannedDoc> ProjectSubContractorScannedDoc { get; set; }
+        public DbSet<ProjectSubContractorPackage> ProjectSubContractorPackage { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
         public DbSet<StaffProjectEmailType> StaffProjectEmailType { get; set; }
         public DbSet<AcActividad> AcActividad { get; set; }
@@ -187,6 +188,11 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany(s => s.ComparativeFiles)
                 .HasForeignKey(f => f.ProjectSubContractorId);
 
+            /*modelBuilder.Entity<ProjectSubContractorPackage>()
+                .HasOne(f => f.ProjectSubContractor)
+                .WithMany(s => s.Packages)
+                .HasForeignKey(f => f.ProjectSubContractorId);*/
+
             modelBuilder.Entity<ProjectSubContractor>()
                 .HasOne(s => s.Project)
                 .WithMany()
@@ -275,6 +281,12 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(s => s.PromissoryNote)
                 .WithMany()
                 .HasForeignKey(s => s.ProjectSubContractorPromissoryNoteId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Package)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorPackageId)
                 .IsRequired(false);
 
             modelBuilder.Entity<StaffProjectEmail>()

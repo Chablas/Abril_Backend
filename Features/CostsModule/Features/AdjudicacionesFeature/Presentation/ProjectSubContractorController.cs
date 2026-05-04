@@ -385,6 +385,38 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         }
 
         [Authorize]
+        [HttpPost("{id}/generate-contract-package")]
+        public async Task<IActionResult> GenerateContractPackage(int id)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                var result = await _projectSubContractorService.GenerateContractPackageAsync(id, userId);
+
+                // Exponer la URL guardada en SharePoint para que el frontend la pueda leer
+                Response.Headers["Access-Control-Expose-Headers"] = "X-Package-Url,X-Package-Filename";
+                Response.Headers["X-Package-Url"]      = result.FileUrl;
+                Response.Headers["X-Package-Filename"] = Uri.EscapeDataString(result.OriginalFileName);
+
+                return File(result.Bytes, "application/pdf", result.OriginalFileName);
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                // Log completo para diagnóstico
+                Console.Error.WriteLine($"[GenerateContractPackage] Exception: {ex}");
+                return StatusCode(500, new { message = $"Error generando paquete: {ex.Message}" });
+            }
+        }
+
+        [Authorize]
         [HttpPost("send-notification")]
         public async Task<IActionResult> SendNotification([FromBody] SendAdjudicacionNotificationDto dto)
         {

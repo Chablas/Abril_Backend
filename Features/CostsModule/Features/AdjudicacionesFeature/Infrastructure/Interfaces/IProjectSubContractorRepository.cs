@@ -6,7 +6,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
     public interface IProjectSubContractorRepository
     {
         Task<int> Create(ProjectSubContractorCreateDTO dto, int userId);
-        Task SaveInitialFilesAsync(int projectSubContractorId, List<(string Url, string OriginalFileName)> quotationFiles, List<(string Url, string OriginalFileName)> comparativeFiles, int userId);
+        Task SaveInitialFilesAsync(int projectSubContractorId, List<(string Url, string OriginalFileName, string? ItemId)> quotationFiles, List<(string Url, string OriginalFileName, string? ItemId)> comparativeFiles, int userId);
         Task<List<ContractSimpleDTO>> GetContractsFactory();
         Task<List<ContractTypeSimpleDTO>> GetContractTypeFactory();
         Task<List<ContractOriginSimpleDTO>> GetContractOriginFactory();
@@ -22,7 +22,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task UpdateStatus(int projectSubContractorId, int statusId, int userId);
         Task SaveDates(int projectSubContractorId, UpdateDatesDTO dto, int userId);
         Task<AdjudicacionPathDataDto> GetPathDataAsync(int projectSubContractorId);
-        Task SaveDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, string fileUrl, string originalFileName, int userId);
+        Task SaveDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, string fileUrl, string originalFileName, int userId, string? sharepointItemId = null);
         Task UpdateDocumentStatusAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int? statusId, string? observation, int userId);
         Task<AdjudicacionSummarySheetDataDto> GetSummarySheetDataAsync(int projectSubContractorId);
         Task<ScNotificationDataDto> GetScNotificationDataAsync(int projectSubContractorId);
@@ -31,5 +31,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task<Step3ApprovalDataDto> GetStep3ApprovalDataAsync(int projectSubContractorId);
         Task<Step6NotificationDataDto> GetStep6NotificationDataAsync(int projectSubContractorId);
         Task<Step8NotificationDataDto> GetStep8NotificationDataAsync(int projectSubContractorId);
+        Task<ContractPackageUrlsDto> GetContractPackageUrlsAsync(int projectSubContractorId);
     }
 }

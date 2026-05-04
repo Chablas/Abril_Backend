@@ -109,12 +109,13 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             var fileName  = $"{baseName}{extension}";
 
             using var stream = file.OpenReadStream();
-            return await _sharePointService.UploadToSharePointLibraryAsync(
+            var result = await _sharePointService.UploadToSharePointLibraryAsync(
                 libraryName: listId,
                 folderPath:  folderPath,
                 fileName:    fileName,
                 fileStream:  stream,
                 contentType: file.ContentType);
+            return result?.WebUrl;
         }
 
         /// <summary>Elimina caracteres no permitidos en nombres de carpeta de SharePoint.</summary>

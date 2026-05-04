@@ -20,5 +20,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, int userId);
         Task SendStep6NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId);
         Task SendStep8NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId);
+        Task<(byte[] Bytes, string FileUrl, string OriginalFileName)> GenerateContractPackageAsync(int projectSubContractorId, int userId);
     }
 }

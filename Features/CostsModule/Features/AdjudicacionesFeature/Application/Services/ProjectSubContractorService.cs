@@ -8,7 +8,10 @@ using Abril_Backend.Shared.Services.Email.Interfaces;
 using Abril_Backend.Shared.Services.Email.Dtos;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Dtos;
+using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using PdfSharpCore.Pdf;
+using PdfSharpCore.Pdf.IO;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
 using ClosedXML.Excel;
 using System.Text;
@@ -87,16 +90,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return await _projectSubContractorRepository.GetFormDataAsync();
         }
 
-        private async Task<List<(string Url, string OriginalFileName)>> UploadFilesToSharePoint(
+        private async Task<List<(string Url, string OriginalFileName, string? ItemId)>> UploadFilesToSharePoint(
             List<IFormFile>? files,
             AdjudicacionPathDataDto pathData,
             AdjudicacionDocumentType documentType)
         {
             if (files == null || files.Count == 0)
-                return new List<(string, string)>();
+                return new List<(string, string, string?)>();
 
             var folderPath = BuildSharePointPath(pathData, documentType);
-            var results    = new List<(string Url, string OriginalFileName)>();
+            var results    = new List<(string Url, string OriginalFileName, string? ItemId)>();
 
             foreach (var file in files)
             {
@@ -104,7 +107,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     throw new AbrilException("Se detectó un archivo vacío.");
 
                 using var stream = file.OpenReadStream();
-                var fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    file.FileName,
@@ -112,7 +115,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     contentType: file.ContentType)
                     ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
 
-                results.Add((fileUrl, file.FileName));
+                if (spResult.WebUrl is null)
+                    throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+
+                results.Add((spResult.WebUrl, file.FileName, spResult.ItemId));
             }
 
             return results;
@@ -445,18 +451,22 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var fileName   = file.FileName;
 
             string fileUrl;
+            string? sharepointItemId;
             using (var stream = file.OpenReadStream())
             {
-                fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    fileName,
                     fileStream:  stream,
                     contentType: file.ContentType) ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+
+                fileUrl          = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+                sharepointItemId = spResult.ItemId;
             }
 
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, documentType, fileUrl, fileName, userId);
+                projectSubContractorId, documentType, fileUrl, fileName, userId, sharepointItemId);
 
             return new DocumentUploadResponseDto
             {
@@ -513,7 +523,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var fileName   = $"HOJA_RESUMEN_{data.ProjectSubContractorId:D4}.xlsx";
             const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-            var fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                 libraryName: "Adjudicaciones",
                 folderPath:  folderPath,
                 fileName:    fileName,
@@ -521,8 +531,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 contentType: xlsxMime)
                 ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
 
+            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.SummarySheet, fileUrl, fileName, userId);
+                projectSubContractorId, AdjudicacionDocumentType.SummarySheet, fileUrl, fileName, userId, spResult.ItemId);
 
             return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
         }
@@ -663,19 +675,23 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             const string docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
             string fileUrl;
+            string? contractItemId;
             using (var ms = new MemoryStream(docBytes))
             {
-                fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    fileName,
                     fileStream:  ms,
                     contentType: docxMime)
                     ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+
+                fileUrl       = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+                contractItemId = spResult.ItemId;
             }
 
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.Contract, fileUrl, fileName, userId);
+                projectSubContractorId, AdjudicacionDocumentType.Contract, fileUrl, fileName, userId, contractItemId);
 
             return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
         }
@@ -739,6 +755,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             {
                 { "{{PROYECTO_ABREVIATURA}}",             abreviaturaProyecto },
                 { "{{PROYECTO_RAZON_SOCIAL}}",            data.ProjectRazonSocial ?? "" },
+                { "{{PROYECTO_RUC}}",                     data.ProjectContributorRuc ?? "" },
                 { "{{PROYECTO_NOMBRE}}",                  data.ProjectDescription },
                 { "{{PROYECTO_DISTRITO}}",                data.ProjectDistrict ?? "" },
                 { "{{AÑO_ACTUAL}}",                       hoy.Year.ToString() },
@@ -777,19 +794,23 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             const string docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
             string fileUrl;
+            string? pagareItemId;
             using (var ms = new MemoryStream(docBytes))
             {
-                fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    fileName,
                     fileStream:  ms,
                     contentType: docxMime)
                     ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+
+                fileUrl      = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+                pagareItemId = spResult.ItemId;
             }
 
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.PromissoryNote, fileUrl, fileName, userId);
+                projectSubContractorId, AdjudicacionDocumentType.PromissoryNote, fileUrl, fileName, userId, pagareItemId);
 
             return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
         }
@@ -820,7 +841,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var fileName   = $"PRESUPUESTO_{data.ProjectSubContractorId:D4}.xlsx";
             const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-            var fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                 libraryName: "Adjudicaciones",
                 folderPath:  folderPath,
                 fileName:    fileName,
@@ -828,10 +849,107 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 contentType: xlsxMime)
                 ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
 
+            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.Budget, fileUrl, fileName, userId);
+                projectSubContractorId, AdjudicacionDocumentType.Budget, fileUrl, fileName, userId, spResult.ItemId);
 
             return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
+        }
+
+        public async Task<(byte[] Bytes, string FileUrl, string OriginalFileName)> GenerateContractPackageAsync(int projectSubContractorId, int userId)
+        {
+            var docs = await _projectSubContractorRepository.GetContractPackageUrlsAsync(projectSubContractorId);
+
+            // Validar que los documentos tengan SharepointItemId (necesario para la conversión a PDF).
+            // Si el registro es antiguo y no tiene ItemId, el usuario debe regenerar el documento en el paso 3.
+            if (string.IsNullOrEmpty(docs.SummarySheetItemId))
+                throw new AbrilException("La hoja resumen debe ser regenerada antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
+            if (string.IsNullOrEmpty(docs.ContractItemId))
+                throw new AbrilException("El contrato debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
+
+            // Orden: hoja resumen → contrato → pagaré (opcional)
+            var items = new List<string> { docs.SummarySheetItemId, docs.ContractItemId };
+            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))
+                items.Add(docs.PromissoryNoteItemId);
+            else if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
+                throw new AbrilException("El pagaré debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
+
+            // Convertir cada documento a PDF vía Graph API (endpoint por itemId, sin parsear webUrl)
+            var pdfBytesList = new List<byte[]>();
+            var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", items[0]);
+            summarySheetPdf = RotatePdfPages(summarySheetPdf); // <-- aquí
+            pdfBytesList.Add(summarySheetPdf);
+
+            // los demás sin rotar
+            foreach (var itemId in items.Skip(1))
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", itemId));
+
+            var mergedBytes = MergePdfs(pdfBytesList);
+
+            // ── Subir el paquete a SharePoint y persistir en BD ──────────────────
+            var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
+
+            // Nombre: primeras 3 letras del proyecto (mayúsculas) + _C + número de contrato con 3 dígitos
+            // Si no hay número de contrato, usamos el ID de la adjudicación como fallback.
+            string filePrefix;
+            if (docs.ContractNumber.HasValue)
+                filePrefix = $"{pathData.ProjectDescription[..Math.Min(3, pathData.ProjectDescription.Length)].ToUpperInvariant()}_C{docs.ContractNumber.Value:D3}";
+            else
+                filePrefix = $"{pathData.ProjectDescription[..Math.Min(3, pathData.ProjectDescription.Length)].ToUpperInvariant()}_ADJ{projectSubContractorId:D4}";
+
+            var fileName   = $"{filePrefix}.pdf";
+            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.ContractPackage);
+
+            using var ms = new MemoryStream(mergedBytes);
+            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                libraryName: "Adjudicaciones",
+                folderPath:  folderPath,
+                fileName:    fileName,
+                fileStream:  ms,
+                contentType: "application/pdf")
+                ?? throw new AbrilException("No se pudo obtener la URL del paquete subido a SharePoint.");
+
+            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del paquete subido a SharePoint.");
+
+            await _projectSubContractorRepository.SaveDocumentAsync(
+                projectSubContractorId, AdjudicacionDocumentType.ContractPackage, fileUrl, fileName, userId, spResult.ItemId);
+
+            return (mergedBytes, fileUrl, fileName);
+        }
+
+        private static byte[] MergePdfs(List<byte[]> pdfBytesList)
+        {
+            var outputDoc = new PdfDocument();
+            foreach (var pdfBytes in pdfBytesList)
+            {
+                using var inputStream = new MemoryStream(pdfBytes);
+                var inputDoc = PdfReader.Open(inputStream, PdfDocumentOpenMode.Import);
+                foreach (var page in inputDoc.Pages)
+                    outputDoc.AddPage(page);
+            }
+            using var resultStream = new MemoryStream();
+            outputDoc.Save(resultStream, false);
+            return resultStream.ToArray();
+        }
+
+        private static byte[] RotatePdfPages(byte[] pdfBytes)
+        {
+            using var inputStream = new MemoryStream(pdfBytes);
+            using var outputStream = new MemoryStream();
+
+            var document = PdfReader.Open(inputStream, PdfDocumentOpenMode.Modify);
+
+            foreach (var page in document.Pages)
+            {
+                if (page.Width > page.Height)
+                {
+                    page.Rotate = 270;
+                }
+            }
+
+            document.Save(outputStream);
+            return outputStream.ToArray();
         }
 
         private static void BuildBudget(IXLWorksheet ws, AdjudicacionSummarySheetDataDto data)
@@ -1222,6 +1340,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // ── Borde exterior general ─────────────────────────────────────────
             ws.Range("B2:N18").Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+
+            ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+            ws.PageSetup.FitToPages(1, 0);          // 1 página de ancho, alto libre
+            ws.PageSetup.PaperSize = XLPaperSize.A4Paper;
+            ws.PageSetup.Margins.Left = 0.5;
+            ws.PageSetup.Margins.Right = 0.5;
+            ws.PageSetup.Margins.Top = 0.5;
+            ws.PageSetup.Margins.Bottom = 0.5;
         }
 
         // ── Helpers de ruta SharePoint ───────────────────────────────────────
@@ -1250,6 +1376,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.ScannedDoc1        => "Escaneados",
             AdjudicacionDocumentType.ScannedDoc2        => "Escaneados",
             AdjudicacionDocumentType.ScannedDoc3        => "Escaneados",
+            AdjudicacionDocumentType.ContractPackage    => "Contrato completo",
             _ => throw new ArgumentOutOfRangeException(nameof(documentType))
         };
 

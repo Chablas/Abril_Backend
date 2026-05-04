@@ -59,5 +59,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public ProjectSubContractorFileDto? ScannedDoc1 { get; set; }
         public ProjectSubContractorFileDto? ScannedDoc2 { get; set; }
         public ProjectSubContractorFileDto? ScannedDoc3 { get; set; }
+        // Paquete de contrato completo (paso 4 — autogenerado)
+        public ProjectSubContractorFileDto? Package { get; set; }
     }
 }

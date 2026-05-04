@@ -10,6 +10,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.SctrVidaley
         public string? ArchivoUrl2 { get; set; }
         public string TipoPoliza { get; set; } = "Renovacion";
         public DateTime? FechaInicio { get; set; }
+        public DateTime? Vigencia { get; set; }
         public List<SctrWorkerInputDto> Workers { get; set; } = [];
     }
 }

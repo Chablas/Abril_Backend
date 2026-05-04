@@ -7,7 +7,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Validators
     {
         public SctrVidaLeyCreateValidator()
         {
-            RuleFor(x => x.ProyectoId).GreaterThan(0);
 
             RuleFor(x => x.Tipo).Must(t => t == "SCTR" || t == "VIDA_LEY")
                 .WithMessage("Tipo debe ser SCTR o VIDA_LEY.");

@@ -76,6 +76,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
 
                 using var stream = file.OpenReadStream();
                 var path = await _sharePoint.SubirArchivoAsync(stream, file.FileName, contexto);
+                var realUrl = await _sharePoint.GetDownloadUrlAsync(path);
 
                 if (request.HabTrabajadorId is int habId)
                 {
@@ -104,13 +105,14 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
 
                     return Ok(new
                     {
-                        url = path,
+                        path,
+                        url = realUrl,
                         habTrabajadorId = entregable.Id,
                         estado = entregable.Estado
                     });
                 }
 
-                return Ok(new { url = path });
+                return Ok(new { path, url = realUrl });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ArchivoHabilitacionController.Subir"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

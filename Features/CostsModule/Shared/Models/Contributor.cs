@@ -17,5 +17,6 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models {
         public int? UpdatedUserId { get; set; }
         public bool Active { get; set; }
         public bool State { get; set; }
+        public bool EsAbril { get; set; }
     }
 }

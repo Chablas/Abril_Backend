@@ -8,7 +8,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
     {
         public int Id { get; set; }
         public int EmpresaId { get; set; }
-        public int ProyectoId { get; set; }
+        public int? ProyectoId { get; set; }
         public string Tipo { get; set; } = string.Empty;
         public int Mes { get; set; }
         public int Anio { get; set; }

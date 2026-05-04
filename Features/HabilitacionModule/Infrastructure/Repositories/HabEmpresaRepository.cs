@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -104,6 +105,40 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             await ctx.SaveChangesAsync();
             return entregable;
+        }
+
+        public async Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoEmpresaAsync(int empresaId, int itemId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var habEmpresaIds = await ctx.SsHabEmpresa
+                .Where(h => h.EmpresaId == empresaId && h.ItemId == itemId)
+                .Select(h => h.Id)
+                .ToListAsync();
+
+            if (habEmpresaIds.Count == 0) return [];
+
+            var versiones = await ctx.SsHabDocumentoVersion
+                .Where(v => v.HabEmpresaId.HasValue && habEmpresaIds.Contains(v.HabEmpresaId.Value))
+                .OrderByDescending(v => v.Version)
+                .ToListAsync();
+
+            return versiones.Select(v => new SsHabDocumentoVersionDto
+            {
+                Id = v.Id,
+                HabTrabajadorId = v.HabTrabajadorId,
+                Version = v.Version,
+                ArchivoUrl = v.ArchivoUrl,
+                SubidoPorUserId = v.SubidoPorUserId,
+                SubidoPorEmpresaId = v.SubidoPorEmpresaId,
+                EstadoAlSubir = v.EstadoAlSubir,
+                EstadoAnterior = v.EstadoAnterior,
+                ProyectoId = v.ProyectoId,
+                EmpresaId = v.EmpresaId,
+                AprobadoPorUserId = v.AprobadoPorUserId,
+                MotivoRechazo = v.MotivoRechazo,
+                CreatedAt = v.CreatedAt
+            }).ToList();
         }
 
         public async Task InicializarEntregablesEmpresaAsync(int empresaId, int proyectoId)

@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
@@ -18,5 +19,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<ProyectoDisponibleDto>> GetProyectosDisponiblesAsync(int empresaId);
 
         Task DesactivarProyectoAsync(int empresaId, int proyectoId);
+
+        Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoEmpresaAsync(int empresaId, int itemId);
     }
 }

@@ -74,6 +74,18 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.UpdateEntregable"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("entregables/{itemId:int}/versiones")]
+        public async Task<IActionResult> GetVersionesEntregable(int empresaId, int itemId)
+        {
+            try
+            {
+                var versiones = await _repo.GetVersionesDocumentoEmpresaAsync(empresaId, itemId);
+                return Ok(versiones);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.GetVersionesEntregable"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("proyectos-disponibles")]
         public async Task<IActionResult> GetProyectosDisponibles(int empresaId)
         {

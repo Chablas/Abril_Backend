@@ -326,6 +326,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .OrderByDescending(v => v.Version)
                 .ToListAsync();
 
+            var userIds = versiones
+                .Where(v => v.SubidoPorUserId.HasValue)
+                .Select(v => v.SubidoPorUserId!.Value)
+                .Distinct()
+                .ToList();
+
+            var nombresPorUserId = new Dictionary<int, string?>();
+            if (userIds.Count > 0)
+            {
+                var users = await (
+                    from u in ctx.User
+                    join p in ctx.Person on u.UserId equals p.UserId
+                    where userIds.Contains(u.UserId)
+                    select new { u.UserId, p.FullName }
+                  ).ToListAsync();
+
+                foreach (var x in users)
+                    nombresPorUserId[x.UserId] = x.FullName;
+            }
+
             return versiones.Select(v => new SsHabDocumentoVersionDto
             {
                 Id = v.Id,
@@ -333,6 +353,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 Version = v.Version,
                 ArchivoUrl = v.ArchivoUrl,
                 SubidoPorUserId = v.SubidoPorUserId,
+                SubidoPorNombre = v.SubidoPorUserId.HasValue && nombresPorUserId.TryGetValue(v.SubidoPorUserId.Value, out var nombre)
+                    ? nombre
+                    : null,
                 SubidoPorEmpresaId = v.SubidoPorEmpresaId,
                 EstadoAlSubir = v.EstadoAlSubir,
                 EstadoAnterior = v.EstadoAnterior,

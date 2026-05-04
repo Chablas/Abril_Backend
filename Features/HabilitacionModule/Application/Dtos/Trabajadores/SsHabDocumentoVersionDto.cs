@@ -7,6 +7,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public int Version { get; set; }
         public string ArchivoUrl { get; set; } = string.Empty;
         public int? SubidoPorUserId { get; set; }
+        public string? SubidoPorNombre { get; set; }
         public int? SubidoPorEmpresaId { get; set; }
         public string? EstadoAlSubir { get; set; }
         public string? EstadoAnterior { get; set; }

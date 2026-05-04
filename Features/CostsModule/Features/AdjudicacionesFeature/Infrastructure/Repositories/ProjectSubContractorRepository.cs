@@ -1321,6 +1321,20 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             };
         }
 
+        public async Task<(string FileUrl, string OriginalFileName)?> GetPackageFileInfoAsync(int projectSubContractorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await (
+                from psc in ctx.ProjectSubContractor
+                join pkg in ctx.ProjectSubContractorPackage
+                    on psc.ProjectSubContractorPackageId equals pkg.ProjectSubContractorPackageId
+                where psc.ProjectSubContractorId == projectSubContractorId && psc.State
+                select new { pkg.FileUrl, pkg.OriginalFileName }
+            ).Select(x => ValueTuple.Create(x.FileUrl, x.OriginalFileName))
+             .FirstOrDefaultAsync();
+        }
+
         /// <summary>
         /// Actualiza el registro existente si ya hay un ID, o crea uno nuevo y devuelve su ID.
         /// </summary>

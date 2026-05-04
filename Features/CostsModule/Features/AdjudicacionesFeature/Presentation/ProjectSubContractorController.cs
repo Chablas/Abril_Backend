@@ -290,7 +290,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         [Authorize]
         [HttpPost("{id}/send-sc-notification")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> SendScNotification(int id, IFormFile file, [FromForm] string graphAccessToken)
+        public async Task<IActionResult> SendScNotification(int id, IFormFile? file, [FromForm] string graphAccessToken)
         {
             try
             {

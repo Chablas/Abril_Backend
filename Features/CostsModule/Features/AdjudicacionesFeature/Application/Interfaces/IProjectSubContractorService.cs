@@ -15,7 +15,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         Task UpdateDocumentStatusAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int? statusId, string? observation, int userId);
         Task UpdateStatusAsync(int projectSubContractorId, int statusId, int userId);
         Task AdvanceToStep4Async(int projectSubContractorId, int userId);
-        Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile file, int userId);
+        Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile? file, int userId);
         Task SetArrivalOptionAsync(int projectSubContractorId, bool arrivedWithObservations, int userId);
         Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, int userId);
         Task SendStep6NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId);

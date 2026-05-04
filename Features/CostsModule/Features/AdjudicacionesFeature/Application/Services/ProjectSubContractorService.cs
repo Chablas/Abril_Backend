@@ -219,32 +219,51 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             }
         }
 
-        public async Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile file, int userId)
+        public async Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile? file, int userId)
         {
             var data     = await _projectSubContractorRepository.GetScNotificationDataAsync(projectSubContractorId);
             var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
 
-            // Leer bytes una sola vez: se usan para SP y para el adjunto del correo
-            using var ms = new MemoryStream();
-            await file.CopyToAsync(ms);
-            var fileBytes = ms.ToArray();
+            byte[] fileBytes;
+            string fileName;
+            string contentType;
+
+            if (file != null)
+            {
+                // Caso normal: el usuario subió o generó el archivo en esta sesión
+                using var ms = new MemoryStream();
+                await file.CopyToAsync(ms);
+                fileBytes   = ms.ToArray();
+                fileName    = file.FileName;
+                contentType = file.ContentType ?? "application/pdf";
+            }
+            else
+            {
+                // Caso reapertura: el paquete ya estaba guardado en SharePoint — descargarlo por URL
+                var pkgInfo = await _projectSubContractorRepository.GetPackageFileInfoAsync(projectSubContractorId)
+                    ?? throw new AbrilException("No hay paquete de contrato generado. Por favor genere o seleccione el archivo antes de enviar.", 400);
+
+                fileBytes   = await _sharePointService.DownloadFromSharePointAsync(pkgInfo.FileUrl);
+                fileName    = pkgInfo.OriginalFileName;
+                contentType = "application/pdf";
+            }
 
             // Subir a SharePoint
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.ScPackage);
             await _sharePointService.UploadToSharePointLibraryAsync(
                 libraryName: "Adjudicaciones",
                 folderPath:  folderPath,
-                fileName:    file.FileName,
+                fileName:    fileName,
                 fileStream:  new MemoryStream(fileBytes),
-                contentType: file.ContentType);
+                contentType: contentType);
 
             // Construir y enviar el correo
-            var subject    = $"{data.ProjectDescription} : {file.FileName}";
-            var body       = BuildScEmailBody(file.FileName, data.WorkItemDescription);
+            var subject    = $"{data.ProjectDescription} : {fileName}";
+            var body       = BuildScEmailBody(fileName, data.WorkItemDescription);
             var attachment = new MailAttachmentDto
             {
-                FileName    = file.FileName,
-                ContentType = file.ContentType ?? "application/octet-stream",
+                FileName    = fileName,
+                ContentType = contentType,
                 Content     = fileBytes
             };
 
@@ -502,6 +521,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
 
+            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
+                ? data.ProjectDescription[..3].ToUpperInvariant()
+                : data.ProjectDescription.ToUpperInvariant();
+
             using var workbook = new XLWorkbook();
             var ws = workbook.Worksheets.Add("1.HOJA RESUMEN");
             BuildSummarySheet(ws, data);
@@ -520,7 +543,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
 
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.SummarySheet);
-            var fileName   = $"HOJA_RESUMEN_{data.ProjectSubContractorId:D4}.xlsx";
+            var fileName   = $"HOJA RESUMEN N°{data.ContractNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.xlsx";
             const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
             var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
@@ -671,7 +694,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
 
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.Contract);
-            var fileName   = $"CONTRATO_{data.ProjectSubContractorId:D4}.docx";
+            var fileName   = $"CONTRATO N°{data.ContractNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.docx";
             const string docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
             string fileUrl;
@@ -790,7 +813,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
 
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.PromissoryNote);
-            var fileName   = $"PAGARE_{data.ProjectSubContractorId:D4}.docx";
+            var fileName   = $"PAGARE N°{data.PromissoryNoteNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.docx";
             const string docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
             string fileUrl;
@@ -820,6 +843,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
 
+            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
+                ? data.ProjectDescription[..3].ToUpperInvariant()
+                : data.ProjectDescription.ToUpperInvariant();
+
             using var workbook = new XLWorkbook();
             var ws = workbook.Worksheets.Add("PRESUPUESTO");
             BuildBudget(ws, data);
@@ -838,7 +865,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
 
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.Budget);
-            var fileName   = $"PRESUPUESTO_{data.ProjectSubContractorId:D4}.xlsx";
+            var fileName   = $"PRESUPUESTO N°{data.ContractNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.xlsx";
             const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
             var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
@@ -1113,7 +1140,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // ── Column widths ──────────────────────────────────────────────────
             ws.Column("A").Width = 2;
             ws.Column("B").Width = 28;
-            ws.Column("C").Width = 8;
+            ws.Column("C").Width = 15;
             ws.Column("D").Width = 12;
             ws.Column("E").Width = 17;
             ws.Column("F").Width = 18;

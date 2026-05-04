@@ -1,3 +1,4 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using System.Net.Http.Headers;
@@ -76,6 +77,15 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
 
             if (!response.IsSuccessStatusCode)
             {
+                // Detectar error 423 (Locked) cuando el archivo está abierto en SharePoint
+                if ((int)response.StatusCode == 423)
+                {
+                    throw new AbrilException(
+                        "No se puede guardar el archivo porque ya existe un archivo con el mismo nombre que está abierto o en uso. " +
+                        "Por favor, cierre la pestaña o descarga del archivo en uso e intente de nuevo.",
+                        StatusCodes.Status409Conflict);
+                }
+
                 var error = await response.Content.ReadAsStringAsync();
                 throw new InvalidOperationException(
                     $"Upload falló [{(int)response.StatusCode}]: {error}");

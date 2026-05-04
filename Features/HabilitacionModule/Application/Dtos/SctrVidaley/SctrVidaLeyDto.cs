@@ -8,6 +8,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.SctrVidaley
         public int ProyectoId { get; set; }
         public string ProyectoNombre { get; set; } = string.Empty;
         public string Tipo { get; set; } = string.Empty;
+        public string TipoPoliza { get; set; } = string.Empty;
+        public DateTime? FechaInicio { get; set; }
         public int Mes { get; set; }
         public int Anio { get; set; }
         public string? ArchivoUrl { get; set; }

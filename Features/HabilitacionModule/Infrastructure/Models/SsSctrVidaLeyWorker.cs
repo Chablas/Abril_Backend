@@ -9,6 +9,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public int Id { get; set; }
         public int SctrVidaLeyId { get; set; }
         public int WorkerId { get; set; }
+        public DateTime? FechaInicioCobertura { get; set; }
 
         [ForeignKey(nameof(SctrVidaLeyId))]
         public SsSctrVidaley? SctrVidaley { get; set; }

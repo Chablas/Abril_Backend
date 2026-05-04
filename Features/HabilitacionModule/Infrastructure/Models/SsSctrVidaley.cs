@@ -15,6 +15,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public string? ArchivoUrl { get; set; }
         public string? ArchivoUrl2 { get; set; }
         public string Estado { get; set; } = "Falta";
+        public string TipoPoliza { get; set; } = "Renovacion";
+        public DateTime? FechaInicio { get; set; }
         public DateTime? Vigencia { get; set; }
         public string? ObsAbril { get; set; }
         public DateTime? CreatedAt { get; set; }

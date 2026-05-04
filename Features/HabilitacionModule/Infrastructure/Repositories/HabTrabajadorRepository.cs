@@ -518,6 +518,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 CreatedAt = now
             });
 
+            if (esCambioProyecto && !esContratista)
+            {
+                await SincronizarWorkerProyectoCambioAsync(
+                    ctx,
+                    workerId,
+                    currentProyectoId,
+                    dto.NuevoProyectoId,
+                    dto.NuevaEmpresaId ?? currentEmpresaId,
+                    fechaCambio,
+                    now);
+            }
+
             if (itemsToReset.Count > 0)
             {
                 var entregables = await ctx.SsHabTrabajador
@@ -701,6 +713,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 });
             }
 
+            if (esCambioProyecto && !esContratista && dto.NuevoProyectoId.HasValue)
+            {
+                await SincronizarWorkerProyectoCambioAsync(
+                    ctx,
+                    workerId,
+                    currentProyectoId,
+                    dto.NuevoProyectoId.Value,
+                    dto.NuevaEmpresaId ?? currentEmpresaId,
+                    fechaReingreso,
+                    now);
+            }
+
             if (itemsToReset.Count > 0)
             {
                 var entregables = await ctx.SsHabTrabajador
@@ -789,6 +813,61 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             {
                 _logger.LogWarning(ex, "Error al enviar correo de reingreso a {Destinatarios}", string.Join(", ", to));
             }
+        }
+
+        private static async Task SincronizarWorkerProyectoCambioAsync(
+            AppDbContext ctx,
+            int workerId,
+            int? proyectoAnteriorId,
+            int proyectoNuevoId,
+            int? empresaNuevaId,
+            DateOnly fechaCambio,
+            DateTimeOffset now)
+        {
+            if (proyectoAnteriorId.HasValue && proyectoAnteriorId.Value != proyectoNuevoId)
+            {
+                var activaAnterior = await ctx.WorkerProyecto
+                    .Where(wp => wp.WorkerId == workerId && wp.ProyectoId == proyectoAnteriorId.Value && wp.FechaFin == null)
+                    .OrderByDescending(wp => wp.CreatedAt)
+                    .ThenByDescending(wp => wp.Id)
+                    .FirstOrDefaultAsync();
+
+                if (activaAnterior != null)
+                {
+                    activaAnterior.FechaFin = fechaCambio;
+                    activaAnterior.UpdatedAt = now;
+                }
+            }
+
+            var yaActivoNuevo = await ctx.WorkerProyecto
+                .AnyAsync(wp => wp.WorkerId == workerId && wp.ProyectoId == proyectoNuevoId && wp.FechaFin == null);
+            if (yaActivoNuevo) return;
+
+            var previaCerrada = await ctx.WorkerProyecto
+                .Where(wp => wp.WorkerId == workerId && wp.ProyectoId == proyectoNuevoId && wp.FechaFin != null)
+                .OrderByDescending(wp => wp.CreatedAt)
+                .ThenByDescending(wp => wp.Id)
+                .FirstOrDefaultAsync();
+
+            if (previaCerrada != null)
+            {
+                previaCerrada.FechaFin = null;
+                previaCerrada.UpdatedAt = now;
+                return;
+            }
+
+            ctx.WorkerProyecto.Add(new WorkerProyecto
+            {
+                WorkerId = workerId,
+                ProyectoId = proyectoNuevoId,
+                EmpresaId = empresaNuevaId,
+                FechaInicio = fechaCambio,
+                FechaFin = null,
+                InduccionCompletada = false,
+                FechaInduccion = null,
+                CreatedAt = now,
+                UpdatedAt = null
+            });
         }
 
         public async Task<int?> GetEmpresaActivaWorkerAsync(int workerId)
@@ -1066,6 +1145,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 vinculacion.UpdatedAt = DateTimeOffset.UtcNow;
             }
 
+            var asignacionesActivas = await ctx.WorkerProyecto
+                .Where(wp => wp.WorkerId == workerId && wp.FechaFin == null)
+                .ToListAsync();
+
+            var nowOffset = DateTimeOffset.UtcNow;
+            foreach (var wp in asignacionesActivas)
+            {
+                wp.FechaFin = fechaRetiro;
+                wp.UpdatedAt = nowOffset;
+            }
+
             ctx.WorkerEvento.Add(new WorkerEvento
             {
                 WorkerId = workerId,
@@ -1108,6 +1198,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             {
                 v.FechaFin = fechaRetiro;
                 v.UpdatedAt = now;
+            }
+
+            var asignacionesActivas = await ctx.WorkerProyecto
+                .Where(wp => workerIds.Contains(wp.WorkerId) && wp.FechaFin == null)
+                .ToListAsync();
+
+            foreach (var wp in asignacionesActivas)
+            {
+                wp.FechaFin = fechaRetiro;
+                wp.UpdatedAt = now;
             }
 
             var vincMap = vinculaciones

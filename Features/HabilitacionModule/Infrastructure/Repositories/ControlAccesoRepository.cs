@@ -334,7 +334,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido");
 
                     faltantes = items
-                        .Where(h => h.Estado == "Falta" || h.Estado == "Rechazado")
+                        .Where(h => h.Estado == "Falta" || h.Estado == "Rechazado" ||
+                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < ahora))
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)
                         .ToList();

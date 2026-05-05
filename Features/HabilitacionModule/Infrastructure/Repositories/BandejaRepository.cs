@@ -40,7 +40,7 @@ SELECT
     p.project_description as proyecto_nombre,
     p.project_id as proyecto_id,
     ht.estado,
-    ht.vigencia,
+    CAST(ht.vigencia AS timestamp) as vigencia,
     ht.archivo_url,
     ht.obs_contratista,
     i.responsable,
@@ -58,6 +58,8 @@ LEFT JOIN LATERAL (
 LEFT JOIN ss_empresa_contratista ec ON ec.id = wv.empresa_id
 LEFT JOIN project p ON p.project_id = wv.proyecto_id
 WHERE ht.estado = 'Enviado'
+  AND ht.item_id NOT IN (11, 13)
+  AND NOT (ht.item_id IN (4, 25) AND w.contrata_casa = 'Casa')
   AND (@ProyectoId IS NULL OR wv.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR wv.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
@@ -70,10 +72,10 @@ SELECT
     i.nombre as nombre_entregable,
     ec.razon_social as entidad_nombre,
     ec.razon_social as empresa_nombre,
-    p.nombre as proyecto_nombre,
+    p.project_description as proyecto_nombre,
     he.proyecto_id,
     he.estado,
-    he.vigencia,
+    CAST(he.vigencia AS timestamp) as vigencia,
     he.archivo_url,
     he.obs_contratista,
     i.responsable,
@@ -81,7 +83,7 @@ SELECT
 FROM ss_hab_empresa he
 JOIN ss_item_empresa i ON i.id = he.item_id
 JOIN ss_empresa_contratista ec ON ec.id = he.empresa_id
-JOIN projects p ON p.id = he.proyecto_id
+JOIN project p ON p.project_id = he.proyecto_id
 WHERE he.estado = 'Enviado'
   AND (@ProyectoId IS NULL OR he.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR he.empresa_id = @EmpresaId)
@@ -95,10 +97,10 @@ SELECT
     i.nombre as nombre_entregable,
     CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) as entidad_nombre,
     ec.razon_social as empresa_nombre,
-    p.nombre as proyecto_nombre,
+    p.project_description as proyecto_nombre,
     eq.proyecto_id,
     heq.estado,
-    heq.vigencia,
+    CAST(heq.vigencia AS timestamp) as vigencia,
     heq.archivo_url,
     NULL as obs_contratista,
     'SSOMA' as responsable,
@@ -107,11 +109,36 @@ FROM ss_hab_equipo heq
 JOIN ss_item_equipo i ON i.id = heq.item_id
 JOIN ss_equipo eq ON eq.id = heq.equipo_id
 LEFT JOIN ss_empresa_contratista ec ON ec.id = eq.propietario_empresa_id
-JOIN projects p ON p.id = eq.proyecto_id
+JOIN project p ON p.project_id = eq.proyecto_id
 WHERE heq.estado = 'Enviado'
   AND (@ProyectoId IS NULL OR eq.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR eq.propietario_empresa_id = @EmpresaId)
   AND (@Tipo IS NULL OR @Tipo = 'EQUIPO')
+  AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
+
+UNION ALL
+
+SELECT
+    i.id, 'INDUCCION' as tipo,
+    'Inducción de Obra' as nombre_entregable,
+    w.apellido_nombre as entidad_nombre,
+    c.contributor_name as empresa_nombre,
+    p.project_description as proyecto_nombre,
+    p.project_id as proyecto_id,
+    i.estado,
+    NULL as vigencia,
+    NULL as archivo_url,
+    NULL as obs_contratista,
+    'SSOMA' as responsable,
+    i.created_at as fecha_envio
+FROM ss_induccion i
+JOIN workers w ON w.id = i.worker_id
+JOIN contributor c ON c.contributor_id = i.empresa_id
+JOIN project p ON p.project_id = i.proyecto_id
+WHERE i.estado = 'PROGRAMADA'
+  AND (@ProyectoId IS NULL OR i.proyecto_id = @ProyectoId)
+  AND (@EmpresaId IS NULL OR i.empresa_id = @EmpresaId)
+  AND (@Tipo IS NULL OR @Tipo = 'INDUCCION')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
 ";
 

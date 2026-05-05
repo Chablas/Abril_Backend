@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Inducciones;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -139,41 +140,46 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Workers que ya completaron inducción en ESTE proyecto → excluir
-            var conInduccionCompletada = await ctx.WorkerProyecto
-                .Where(wp => wp.ProyectoId == proyectoId
-                    && wp.InduccionCompletada
-                    && wp.FechaFin == null)
+            // Workers asignados al proyecto con inducción pendiente (sin filtro fecha_fin)
+            var workerIds = await ctx.WorkerProyecto
+                .Where(wp => wp.ProyectoId == proyectoId && !wp.InduccionCompletada)
                 .Select(wp => wp.WorkerId)
-                .ToListAsync();
-
-            var excluir = conInduccionCompletada.ToHashSet();
-
-            // Vinculaciones activas, opcionalmente filtradas por empresa
-            var q = ctx.WorkerVinculacion.Where(v => v.FechaFin == null);
-            if (empresaId.HasValue)
-                q = q.Where(v => v.EmpresaId == empresaId.Value);
-
-            var vinculaciones = await q
-                .Select(v => new { v.WorkerId, v.EmpresaId })
                 .Distinct()
                 .ToListAsync();
-
-            var workerIds = vinculaciones
-                .Where(v => !excluir.Contains(v.WorkerId))
-                .Select(v => v.WorkerId)
-                .Distinct()
-                .ToList();
 
             if (workerIds.Count == 0) return [];
 
+            // Si se filtra por empresa, reducir a workers con vinculación con esa empresa
+            if (empresaId.HasValue)
+            {
+                var conEmpresa = await ctx.WorkerVinculacion
+                    .Where(v => workerIds.Contains(v.WorkerId) && v.EmpresaId == empresaId.Value)
+                    .Select(v => v.WorkerId)
+                    .Distinct()
+                    .ToListAsync();
+                workerIds = conEmpresa;
+                if (workerIds.Count == 0) return [];
+            }
+
+            // Datos del worker
             var workers = await ctx.Worker
                 .Where(w => workerIds.Contains(w.Id))
                 .Select(w => new { w.Id, w.ApellidoNombre, w.Dni, w.ObraOficina })
                 .ToDictionaryAsync(w => w.Id);
 
-            var empresaIds = vinculaciones
-                .Where(v => !excluir.Contains(v.WorkerId) && v.EmpresaId.HasValue)
+            // Última vinculación de cada worker para resolver empresa
+            var todasVinculaciones = await ctx.WorkerVinculacion
+                .Where(v => workerIds.Contains(v.WorkerId))
+                .OrderByDescending(v => v.CreatedAt)
+                .ThenByDescending(v => v.Id)
+                .ToListAsync();
+
+            var ultimaVinculacion = todasVinculaciones
+                .GroupBy(v => v.WorkerId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var empresaIds = ultimaVinculacion.Values
+                .Where(v => v.EmpresaId.HasValue)
                 .Select(v => v.EmpresaId!.Value)
                 .Distinct()
                 .ToList();
@@ -182,17 +188,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(c => empresaIds.Contains(c.ContributorId))
                 .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
 
-            var vinculacionPorWorker = vinculaciones
-                .Where(v => !excluir.Contains(v.WorkerId))
-                .GroupBy(v => v.WorkerId)
-                .ToDictionary(g => g.Key, g => g.First());
+            // Badge futuro: workers que ya indujeron en este proyecto
+            var yaIndujeroSet = (await ctx.WorkerProyecto
+                .Where(wp => wp.ProyectoId == proyectoId && wp.InduccionCompletada)
+                .Select(wp => wp.WorkerId)
+                .ToListAsync()).ToHashSet();
 
             return workerIds
                 .Where(workers.ContainsKey)
                 .Select(wId =>
                 {
                     var w = workers[wId];
-                    var empId = vinculacionPorWorker.TryGetValue(wId, out var vin) ? vin.EmpresaId : null;
+                    var empId = ultimaVinculacion.TryGetValue(wId, out var vin) ? vin.EmpresaId : null;
                     empresaMap.TryGetValue(empId ?? 0, out var empNombre);
                     return new InduccionTrabajadorDto
                     {
@@ -201,7 +208,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         Dni = w.Dni ?? string.Empty,
                         ObraOficina = w.ObraOficina,
                         EmpresaId = empId,
-                        EmpresaNombre = empNombre ?? string.Empty
+                        EmpresaNombre = empNombre ?? string.Empty,
+                        YaIndujo = yaIndujeroSet.Contains(wId)
                     };
                 })
                 .OrderBy(d => d.ApellidoNombre)
@@ -254,6 +262,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             var now = DateTime.UtcNow;
+            var sentinel = HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null);
 
             // Actualizar ss_hab_trabajador para cada item
             var habs = await ctx.SsHabTrabajador
@@ -268,6 +277,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (hab is not null)
                 {
                     hab.Estado = "Aprobado";
+                    hab.Vigencia = sentinel;
                     hab.UpdatedAt = now;
                 }
                 else if (!habItemIds.Contains(itemId))
@@ -277,6 +287,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         WorkerId = induccion.WorkerId,
                         ItemId = itemId,
                         Estado = "Aprobado",
+                        Vigencia = sentinel,
                         CreatedAt = now,
                         UpdatedAt = now
                     });
@@ -286,8 +297,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // Marcar InduccionCompletada en ss_hab_worker_proyecto
             var workerProyecto = await ctx.WorkerProyecto
                 .Where(wp => wp.WorkerId == induccion.WorkerId
-                    && wp.ProyectoId == induccion.ProyectoId
-                    && wp.FechaFin == null)
+                    && wp.ProyectoId == induccion.ProyectoId)
                 .OrderByDescending(wp => wp.CreatedAt)
                 .ThenByDescending(wp => wp.Id)
                 .FirstOrDefaultAsync();

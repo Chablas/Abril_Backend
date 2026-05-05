@@ -8,5 +8,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Inducciones
         public string? ObraOficina { get; set; }
         public int? EmpresaId { get; set; }
         public string EmpresaNombre { get; set; } = string.Empty;
+        public bool YaIndujo { get; set; }
     }
 }

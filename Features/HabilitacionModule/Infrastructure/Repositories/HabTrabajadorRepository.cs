@@ -453,15 +453,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 proyectoDestino = await ctx.Project
                     .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId);
 
-                itemsToReset.Add(ItemInduccionObra);
+                var yaIndujoEnNuevoProyecto = await ctx.WorkerProyecto
+                    .AnyAsync(wp => wp.WorkerId == workerId
+                        && wp.ProyectoId == dto.NuevoProyectoId
+                        && wp.InduccionCompletada);
 
-                if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
+                if (!yaIndujoEnNuevoProyecto)
                 {
-                    pendingEmails.Add((
-                        [proyectoDestino.EmailCoordSsoma],
-                        $"{prefijoSubject}Cambio de obra — {worker.ApellidoNombre}",
-                        BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
-                    ));
+                    itemsToReset.Add(ItemInduccionObra);
+
+                    if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
+                    {
+                        pendingEmails.Add((
+                            [proyectoDestino.EmailCoordSsoma],
+                            $"{prefijoSubject}Cambio de obra — {worker.ApellidoNombre}",
+                            BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
+                        ));
+                    }
                 }
             }
 

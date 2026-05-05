@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 > Pega este archivo en la raíz del proyecto. Claude Code lo leerá al inicio de cada sesión.
-> Última actualización: 2026-05-03 (sprint trabajador multi-proyecto: tabla `ss_hab_worker_proyecto` + 4 endpoints + integración con CambiarObra/Reingreso/Baja/BajaMasiva; correos de Vida Ley por cambio de cargo Practicante→otro y por cambio ObraOficina→Staff/Oficina Central; prefijo `[PRUEBA - NO TOMAR EN CUENTA]` en subjects de trabajadores Abril; reset al cambiar de proyecto reducido a solo Inducción Obra + eliminado correo T-Registro a CoordAdmin)
+> Última actualización: 2026-05-04 (InduccionController completo + `GetTrabajadoresPorProgramar`; SCTR mejoras: `SctrTrabajadorEstadoDto` con `SctrId`/`SctrHabId`/`ObraOficina`, empresaId opcional, filtros multi-valor comma-separated, upload retorna URL real; FK `empresa_id` migrada a `contributor` en `ss_sctr_vidaley` y `ss_induccion`; `equipo_electrico` en `ss_induccion`; `EsAbril` mapeado en `Contributor`; auto-aprobación ítems Casa al aprobar inducción)
 
 ---
 
@@ -139,7 +139,8 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `SsHabDocumentoVersion` | `ss_hab_documento_version` | Historial versiones — campos nuevos 2026-04-30: `proyecto_id`, `empresa_id`, `estado_anterior`, `aprobado_por_user_id`, `motivo_rechazo` |
 | `WorkerEvento` | `worker_eventos` | Log ciclo de vida worker — creada manualmente en BD, sin migración EF |
 | `WorkerProyecto` | `ss_hab_worker_proyecto` | **Asignación multi-proyecto de un worker Casa**. Permite que un trabajador esté activo simultáneamente en N proyectos (a diferencia de `worker_vinculaciones` que es 1-activa-a-la-vez). Campos: `WorkerId`, `ProyectoId`, `EmpresaId?`, `FechaInicio`, `FechaFin?` (null = activa), `InduccionCompletada`, `FechaInduccion?`, `CreatedAt`, `UpdatedAt?`. Migración `20260504022041_AddWorkerProyectoTable`. **Solo workers Casa**: `AgregarProyectoAsync` valida `ContrataCasa == "Casa"` (400 si no). Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL` impide doble asignación activa al mismo proyecto. FKs: `worker_id → workers(id) CASCADE`, `proyecto_id → project(project_id) RESTRICT`, `empresa_id → contributor(id) SET NULL`. |
-| `Contributor` | `contributor` | **Entidad unificada de empresas** (reemplaza `companies` eliminada). Incluye `es_abril` (bool) e `id_sharepoint` (int?, temporal para migración). `EmpresaId` en `worker_vinculaciones`, `ss_empresa_proyecto` y `ss_hab_empresa` apunta a `contributor.id`. |
+| `Contributor` | `contributor` | **Entidad unificada de empresas** (reemplaza `companies` eliminada). Incluye `es_abril` (bool, mapeado como `public bool EsAbril { get; set; }` en `Features/CostsModule/Shared/Models/Contributor.cs`) e `id_sharepoint` (int?, temporal para migración). `EmpresaId` en `worker_vinculaciones`, `ss_empresa_proyecto`, `ss_hab_empresa`, `ss_sctr_vidaley` y `ss_induccion` apunta a `contributor.id`. |
+| `SsInduccion` | `ss_induccion` | Programación y aprobación de inducciones. Campos: `WorkerId`, `ProyectoId`, `EmpresaId` (→ `contributor`), `FechaProgramada`, `TrabajoAltura`, `EquipoElectrico` (bool, default false — creado manualmente en BD), `Estado` (`"PROGRAMADA"` / `"REALIZADA"`), `ProgramadoPor`, `CreatedAt`, `UpdatedAt`. |
 
 ### ⚠️ Pitfall histórico: `Project` (legacy) vs `Projects` (eliminada)
 
@@ -320,9 +321,17 @@ GET/PATCH   /api/v1/habilitacion/bandeja
 GET/PATCH   /api/v1/habilitacion/bandeja/cursor
 GET/POST    /api/v1/habilitacion/sctr-vidaley
 PATCH       /api/v1/habilitacion/sctr-vidaley/{id}/aprobar
+GET         /api/v1/habilitacion/sctr-vidaley/trabajadores-por-empresa?empresaId=&estadoSctr=&estadoVidaLey=
+            ← empresaId opcional (sin él → todas las empresas); estadoSctr/estadoVidaLey aceptan valores separados por coma (ej: "Falta,Vencido"); retorna SctrTrabajadorEstadoDto con SctrId, SctrHabId, ObraOficina, EmpresaNombre
+POST        /api/v1/habilitacion/inducciones          ← body InduccionCreateDto (WorkerIds[], ProyectoId, EmpresaId?, FechaProgramada, TrabajoAltura, EquipoElectrico)
+GET         /api/v1/habilitacion/inducciones?proyectoId=&empresaId=&estado=&fechaDesde=&fechaHasta=
+GET         /api/v1/habilitacion/inducciones/trabajadores-por-programar?proyectoId=X[&empresaId=Y]
+            ← retorna workers activos sin InduccionCompletada=true en ss_hab_worker_proyecto para ese proyecto; InduccionTrabajadorDto
+PATCH       /api/v1/habilitacion/inducciones/{id}/aprobar
+PATCH       /api/v1/habilitacion/inducciones/aprobar-batch   ← body { ids: int[] }
 GET/POST/PUT/DELETE /api/v1/habilitacion/reglas
 GET         /api/v1/habilitacion/auditoria
-POST        /api/v1/habilitacion/archivos/subir
+POST        /api/v1/habilitacion/archivos/subir       ← retorna { path, url } donde url es la URL real de descarga de SharePoint
 GET         /api/v1/habilitacion/archivos/url?path=   ← URLs absolutas legacy pasan directamente; relativas via Graph /content + 302
 GET         /api/v1/habilitacion/registros-modelo (público)
 ```
@@ -338,7 +347,7 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 - SCTR/Vida Ley → masivo, un documento cubre múltiples workers
 - Al aprobar con `requiere_vigencia = false` → forzar `Vigencia = 2040-12-31`
 
-### Estado actual del módulo (2026-05-03)
+### Estado actual del módulo (2026-05-04)
 
 - **Sprint trabajador multi-proyecto (FASE 1+2+3)** — `ss_hab_worker_proyecto` permite N proyectos activos en paralelo por worker Casa. Convive con `worker_vinculaciones` (que sigue siendo 1-activa-a-la-vez); ambas se sincronizan vía `SincronizarWorkerProyectoCambioAsync`. 4 endpoints nuevos (`POST/GET/DELETE/PATCH /proyectos`) + integración con flujos existentes.
 - **Sincronización en flujos existentes**:
@@ -350,6 +359,11 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 - **Correos Vida Ley por cambio ObraOficina (Casa)** — `UpdateAsync` detecta transición ObraOficina → `"Staff"` (correo a `EmailCoordAdmin` del proyecto activo) o → `"Oficina Central"` (correo a `EmailAsistentaSocial`). Solo notificación, no crea entregable.
 - **Practicante exclusión Vida Ley** — `InicializarEntregablesAsync` filtra `ItemVidaLey` cuando `workerType == "CASA" && Categoria == "Practicante"` (case-insensitive). Cuando deja de ser Practicante, `UpdateAsync` lo agrega.
 - **Prefijo `[PRUEBA - NO TOMAR EN CUENTA]`** en subjects de correos del módulo HabilitacionModule cuando el worker es Casa (Abril). Variable `prefijoSubject = esContratista ? "" : "[PRUEBA - NO TOMAR EN CUENTA] "` en `CambiarObraAsync` y `ReingresoAsync`. Aplicado siempre en correos nuevos de Vida Ley (cargo/obra-oficina) y Nuevo Proyecto (multi-proyecto). Pendiente: quitar antes de prod real.
+- **InduccionController (2026-05-04)** — módulo completo en `Features/HabilitacionModule/`. `POST /inducciones` programa batch de inducciones (omite workers que ya tienen estado `PROGRAMADA` en ese proyecto). `GET /inducciones` lista con filtros. `GET /inducciones/trabajadores-por-programar?proyectoId=X[&empresaId=Y]` retorna workers activos en `worker_vinculaciones` (FechaFin==null) que NO tienen `InduccionCompletada=true` en `ss_hab_worker_proyecto` para ese proyecto; workers con inducción en otro proyecto sí aparecen (necesitan homologación). `PATCH /{id}/aprobar` y `PATCH /aprobar-batch` marcan estado `REALIZADA`, actualizan `ss_hab_trabajador` (siempre `ItemInduccionObra=12`; si `es_abril=true` también `RegistroEpp=5`, `Risst=6`, `EntregaRecomendaciones=8`, `DifusionPts=10`) y marcan `InduccionCompletada=true` + `FechaInduccion` en `ss_hab_worker_proyecto`. Registrado en `HabilitacionModule.cs` como `IInduccionRepository`/`InduccionRepository`.
+- **FK empresa_id migrada a contributor (2026-05-04)** — `ss_sctr_vidaley.empresa_id` y `ss_induccion.empresa_id` ahora referencian `contributor.contributor_id` directamente. Eliminada la resolución intermedia via `ss_empresa_contratista`. `empresaNombre` en `SctrVidaLeyRepository.BuildDtosAsync` se obtiene con `ctx.Contributor.ContributorName`.
+- **`equipo_electrico` en `ss_induccion`** — columna bool añadida manualmente en BD (`ALTER TABLE ss_induccion ADD COLUMN equipo_electrico boolean NOT NULL DEFAULT false`). Migración vacía `20260504220000_AddInduccionEquipoElectrico`. Mapeada en `SsInduccion` como `public bool EquipoElectrico { get; set; }`.
+- **`EsAbril` en `Contributor`** — propiedad mapeada directamente en `Features/CostsModule/Shared/Models/Contributor.cs` (`[Column("es_abril")] public bool EsAbril { get; set; }`). Antes solo existía como campo computado en CatalogosRepository. Usada en `InduccionRepository.AprobarInduccionAsync` y `SctrVidaLeyRepository.CreateAsync` para determinar auto-aprobación de ítems Casa.
+- **SCTR mejoras (2026-05-04)** — `SctrTrabajadorEstadoDto` incluye `ObraOficina`, `SctrId` (póliza activa con estado `"Enviado"` o `"Parcial"` más reciente) y `SctrHabId` (id de `ss_hab_trabajador` para item SCTR). `GetTrabajadoresPorEmpresaAsync` acepta `empresaId` como `int?` (sin él retorna todos). Filtros `estadoSctr`/`estadoVidaLey` aceptan valores separados por coma (incluye decodificación de `%2C`). `POST /archivos/subir` retorna `{ path, url }` con URL real de SharePoint via `GetDownloadUrlAsync`.
 - **Baja individual y masiva de trabajadores** — `BajaAsync` / `BajaMasivaAsync`: marcan worker con `Estado = "RETIRADO"` y `FechaRetiro`, cierran vinculación activa
 - **Reingreso** — `ReingresoAsync`: reactiva worker, crea nueva vinculación; si cambia proyecto o empresa, resetea entregables según tipo (CONTRATISTA: siempre; CASA: solo si cambia proyecto), envía correos, inserta eventos
 - **CambiarObraAsync** — misma lógica que reingreso: resets de entregables + correos + eventos; `NuevoProyectoId` es no-nullable, comparar directamente sin `.HasValue`
@@ -374,6 +388,10 @@ GET         /api/v1/habilitacion/registros-modelo (público)
 - **Patch semantics en `UpdateEntregableAsync`**: solo asignar `ArchivoUrl`/`ObsAbril`/`ObsContratista` cuando `dto.X is not null`. Si el frontend manda `{ estado: "Aprobado", vigencia: "..." }` sin esos campos, **NO** los pises con null — borrarías el documento subido. Mismo principio en `UpdateAsync` de `WorkerUpdateDto` (todos los campos `is not null` o `HasValue`).
 - **`WorkerEntregableUpdateValidator.EstadosValidos`** debe incluir `"En Plazo"` y `"Vencido"` además de `Falta`/`Enviado`/`Aprobado`/`Rechazado`/`No Aplica`. El sistema usa los 7.
 - `BandejaRepository.SelectBase` segmento TRABAJADOR usa `LEFT JOIN project p ON p.project_id = wv.proyecto_id` con `p.project_description AS proyecto_nombre`. Los segmentos UNION ALL de EMPRESA y EQUIPO aún apuntan a `projects` plural — pendientes de revertir cuando esas tablas tengan datos.
+- **`ss_sctr_vidaley.empresa_id` y `ss_induccion.empresa_id` → `contributor`**: NO resolver via `ss_empresa_contratista`. El `empresaId` que llega en los DTOs ya es `contributor_id`. La tabla `ss_empresa_contratista` (si existe) ya no es la FK destino para estas columnas.
+- **`SctrVidaLeyRepository.sctrIdPorWorker`**: filtra por `s.Estado == "Enviado" || s.Estado == "Parcial"` antes de tomar el `Max`. Sin este filtro, pólizas en estado `"Pendiente"` o rechazadas contaminarían el lookup de póliza activa.
+- **`InduccionRepository.GetTrabajadoresPorProgramarAsync`**: la exclusión se basa en `WorkerProyecto.InduccionCompletada == true && FechaFin == null` para el `proyectoId` dado. Un worker retirado de ese proyecto (con `FechaFin != null`) **sí reaparece** si vuelve a ser vinculado — comportamiento correcto porque la inducción previa ya no está activa.
+- **`equipo_electrico` creada manualmente en BD**: columna de `ss_induccion` sin migración EF efectiva. Si se genera una nueva migración, EF **no** detectará esta columna como pendiente (el snapshot ya la tiene vía la migración vacía). No regenerar la migración vacía.
 - FluentValidation 11.3.1 usa API deprecated — migrar cuando bumpeemos v12
 - `AuditoriaInterceptor` debe ser **Singleton** — inyectar `IServiceScopeFactory`
 - `datos_anteriores`/`datos_nuevos` son `jsonb` → `HasColumnType("jsonb")` en `ConfigurePostgreSQL`

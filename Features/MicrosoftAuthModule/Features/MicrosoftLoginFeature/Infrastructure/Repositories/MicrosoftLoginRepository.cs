@@ -102,13 +102,14 @@ namespace Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Infrastructure.Rep
         public async Task<UserDTO> CreateUserFromGraphAsync(MicrosoftProfileDto profile)
         {
             using var ctx = _factory.CreateDbContext();
-            using var transaction = await ctx.Database.BeginTransactionAsync();
+            var strategy = ctx.Database.CreateExecutionStrategy();
 
-            try
+            return await strategy.ExecuteAsync(async () =>
             {
+                await using var transaction = await ctx.Database.BeginTransactionAsync();
+
                 var email = profile.Mail ?? profile.UserPrincipalName;
 
-                // 1. Crear User primero (tiene Email)
                 var user = new User
                 {
                     Email = email,
@@ -123,7 +124,6 @@ namespace Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Infrastructure.Rep
                 ctx.User.Add(user);
                 await ctx.SaveChangesAsync();
 
-                // 2. Crear Person apuntando al User recién creado
                 var person = new Person
                 {
                     UserId = user.UserId,
@@ -156,12 +156,7 @@ namespace Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Infrastructure.Rep
                     },
                     Roles = new()
                 };
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+            });
         }
     }
 }

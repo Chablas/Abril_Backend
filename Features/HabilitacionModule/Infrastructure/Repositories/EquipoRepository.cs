@@ -193,11 +193,62 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         Vigencia = h.Vigencia,
                         ArchivoUrl = h.ArchivoUrl,
                         ObsAbril = h.ObsAbril,
+                        ObsContratista = h.ObsContratista,
                         RequiereVigencia = item.RequiereVigencia
                     };
                 })
                 .OrderBy(d => itemMap[d.ItemId].Orden)
                 .ToList();
+        }
+
+        public async Task<List<SsHabDocumentoVersionEquipoDto>> GetVersionesAsync(int habEquipoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var versiones = await ctx.SsHabDocumentoVersion
+                .Where(v => v.HabEquipoId == habEquipoId)
+                .OrderByDescending(v => v.Version)
+                .ToListAsync();
+
+            var userIds = versiones
+                .Where(v => v.SubidoPorUserId.HasValue)
+                .Select(v => v.SubidoPorUserId!.Value)
+                .Distinct()
+                .ToList();
+
+            var nombresPorUserId = new Dictionary<int, string?>();
+            if (userIds.Count > 0)
+            {
+                var users = await (
+                    from u in ctx.User
+                    join p in ctx.Person on u.UserId equals p.UserId
+                    where userIds.Contains(u.UserId)
+                    select new { u.UserId, p.FullName }
+                ).ToListAsync();
+
+                foreach (var x in users)
+                    nombresPorUserId[x.UserId] = x.FullName;
+            }
+
+            return versiones.Select(v => new SsHabDocumentoVersionEquipoDto
+            {
+                Id = v.Id,
+                HabEquipoId = v.HabEquipoId,
+                Version = v.Version,
+                ArchivoUrl = v.ArchivoUrl,
+                SubidoPorUserId = v.SubidoPorUserId,
+                SubidoPorNombre = v.SubidoPorUserId.HasValue && nombresPorUserId.TryGetValue(v.SubidoPorUserId.Value, out var nombre)
+                    ? nombre
+                    : null,
+                SubidoPorEmpresaId = v.SubidoPorEmpresaId,
+                EstadoAlSubir = v.EstadoAlSubir,
+                EstadoAnterior = v.EstadoAnterior,
+                ProyectoId = v.ProyectoId,
+                EmpresaId = v.EmpresaId,
+                AprobadoPorUserId = v.AprobadoPorUserId,
+                MotivoRechazo = v.MotivoRechazo,
+                CreatedAt = v.CreatedAt
+            }).ToList();
         }
 
         public async Task<SsHabEquipo> UpdateEntregableAsync(int id, EquipoEntregableUpdateDto dto, int? userId, int? empresaId = null)
@@ -226,8 +277,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             entregable.Estado = dto.Estado;
             entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
-            entregable.ArchivoUrl = dto.ArchivoUrl;
-            entregable.ObsAbril = dto.ObsAbril;
+            if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
+            if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
+            if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;
             entregable.UpdatedAt = DateTime.UtcNow;
 
             if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))

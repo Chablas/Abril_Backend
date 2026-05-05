@@ -14,5 +14,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<SsEquipo> UpdateAsync(int id, EquipoCreateDto dto);
         Task<List<EquipoEntregableDto>> GetEntregablesAsync(int equipoId);
         Task<SsHabEquipo> UpdateEntregableAsync(int id, EquipoEntregableUpdateDto dto, int? userId, int? empresaId = null);
+        Task<List<SsHabDocumentoVersionEquipoDto>> GetVersionesAsync(int habEquipoId);
     }
 }

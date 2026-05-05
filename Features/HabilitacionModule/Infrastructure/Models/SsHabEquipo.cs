@@ -10,8 +10,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public int ItemId { get; set; }
         public string Estado { get; set; } = "Falta";
         public DateTime? Vigencia { get; set; }
+        [Column(TypeName = "text")]
         public string? ArchivoUrl { get; set; }
         public string? ObsAbril { get; set; }
+        public string? ObsContratista { get; set; }
         public int? AprobadoPor { get; set; }
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }

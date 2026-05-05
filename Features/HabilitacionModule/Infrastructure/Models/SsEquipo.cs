@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
@@ -24,7 +25,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public DateTime? UpdatedAt { get; set; }
 
         [ForeignKey(nameof(PropietarioEmpresaId))]
-        public SsEmpresaContratista? PropietarioEmpresa { get; set; }
+        public Contributor? PropietarioEmpresa { get; set; }
 
         [ForeignKey(nameof(ProyectoId))]
         public Project? Proyecto { get; set; }

@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-05 (AgregarProyectoAsync abierto a contratistas + POST/PUT/DELETE actividades AC)
+> Última actualización: 2026-05-05 (equipos habilitación — FK→contributor, ObsContratista, versiones; GET /equipos filtra por JWT para CONTRATISTA)
 
 ---
 
@@ -112,8 +112,8 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `SsInduccion` | `ss_induccion` | `id` | `empresa_id` → `contributor.contributor_id` (no `ss_empresa_contratista`). |
 | `SsHabTrabajador` | `ss_hab_trabajador` | `id` | Entregables por worker. |
 | `SsHabEmpresa` | `ss_hab_empresa` | `id` | `proyecto_id` → `project.project_id`. `empresa_id` → `contributor.contributor_id`. |
-| `SsEquipo` | `ss_equipo` | `id` | `proyecto_id` → `project.project_id`. |
-| `SsHabEquipo` | `ss_hab_equipo` | `id` | Entregables por equipo. |
+| `SsEquipo` | `ss_equipo` | `id` | `proyecto_id` → `project.project_id`. `propietario_empresa_id` → `contributor.contributor_id` (nav property `Contributor? PropietarioEmpresa`). |
+| `SsHabEquipo` | `ss_hab_equipo` | `id` | Entregables por equipo. Tiene `ObsContratista` (agregada directamente en BD). `archivo_url` es `text` (fue `varchar(1000)` — alterada manualmente). |
 | `SsItemTrabajador` | `ss_item_trabajador` | `id` | Catálogo de entregables con reglas. |
 | `WorkerEvento` | `worker_eventos` | `id` | Creada manualmente en BD (sin migración EF). |
 | `CatSubarea` | `cat_subarea` | `id` | Creada manualmente en BD (sin migración EF). |
@@ -176,7 +176,7 @@ Query Dapper con `NpgsqlConnection` directa. Cuatro segmentos:
 - `JOIN project p ON p.project_id = i.proyecto_id` + `p.project_description`
 - Entidad nombre: `w.apellido_nombre` (Worker no tiene apellido_paterno/materno separados)
 
-> **⚠️ En todo UNION ALL**: las tres tablas hab usan `ss_empresa_contratista`; solo INDUCCION usa `contributor`. Esta asimetría es intencional — `ss_hab_empresa.empresa_id` y `ss_hab_equipo → ss_equipo.propietario_empresa_id` apuntan a `ss_empresa_contratista.id`, pero `ss_induccion.empresa_id` apunta a `contributor.contributor_id`.
+> **⚠️ En todo UNION ALL**: las tres tablas hab usan `ss_empresa_contratista`; solo INDUCCION usa `contributor`. Esta asimetría existe en el SQL de Dapper — `ss_hab_empresa.empresa_id` y `ss_hab_equipo → ss_equipo.propietario_empresa_id` se joinean con `ss_empresa_contratista` en la query cruda. Sin embargo, el **modelo EF** de `SsEquipo.PropietarioEmpresa` fue cambiado a `Contributor` (2026-05-05) — el SQL de bandeja aún usa `ss_empresa_contratista` directamente y funciona porque los IDs son compartidos.
 
 ### 5c. EstadoCalc (badge habilitación worker)
 
@@ -300,8 +300,17 @@ PATCH     /api/v1/habilitacion/sctr-vidaley/{id}/aprobar
 GET       /api/v1/habilitacion/sctr-vidaley/trabajadores-por-empresa?empresaId=&estadoSctr=&estadoVidaLey=
           estadoSctr/estadoVidaLey aceptan valores comma-separated (ej: "Falta,Vencido")
 
+# Equipos
+GET    /api/v1/habilitacion/equipos?proyectoId=&empresaId=&search=&activo=&page=&pageSize=
+       → CONTRATISTA: ignora ?empresaId, fuerza empresaId del JWT claim
+GET    /api/v1/habilitacion/equipos/{id}/entregables
+GET    /api/v1/habilitacion/equipos/entregables/{id}/versiones     ← historial ss_hab_documento_version por hab_equipo_id
+POST   /api/v1/habilitacion/equipos
+PUT    /api/v1/habilitacion/equipos/{id}
+PUT    /api/v1/habilitacion/equipos/entregables/{id}               body: { estado, vigencia, archivoUrl, obsAbril, obsContratista }
+
 # Archivos
-POST  /api/v1/habilitacion/archivos/subir   → { path, url }
+POST  /api/v1/habilitacion/archivos/subir   → { path, url }  — guardar `path` (ruta relativa), NO `url` (larga SharePoint)
 GET   /api/v1/habilitacion/archivos/url?path=
 
 # Otros

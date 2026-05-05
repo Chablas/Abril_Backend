@@ -35,6 +35,15 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+
+                if (esContratista)
+                {
+                    var ec = User.FindFirst("empresaId")?.Value;
+                    if (int.TryParse(ec, out var eid)) empresaId = eid;
+                }
+
                 var (items, total) = await _repo.GetPagedAsync(proyectoId, empresaId, search, activo, page, pageSize);
                 var result = new PagedResult<EquipoListDto>
                 {
@@ -48,6 +57,14 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EquipoController.GetPaged"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("entregables/{id:int}/versiones")]
+        public async Task<IActionResult> GetVersiones(int id)
+        {
+            try { return Ok(await _repo.GetVersionesAsync(id)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EquipoController.GetVersiones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet("{id:int}/entregables")]

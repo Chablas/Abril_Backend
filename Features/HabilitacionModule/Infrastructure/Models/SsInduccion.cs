@@ -13,6 +13,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public int EmpresaId { get; set; }
         public DateTime FechaProgramada { get; set; }
         public bool TrabajoAltura { get; set; } = false;
+        public bool EquipoElectrico { get; set; } = false;
         public string Estado { get; set; } = "PROGRAMADA";
         public int? ProgramadoPor { get; set; }
         public DateTime? CreatedAt { get; set; }

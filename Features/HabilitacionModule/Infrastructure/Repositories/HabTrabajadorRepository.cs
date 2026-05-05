@@ -1256,8 +1256,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            if (!string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase))
-                throw new AbrilException("Solo trabajadores Casa pueden ser asignados a múltiples proyectos.", 400);
+            bool esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
+
+            if (esContratista)
+            {
+                var empresaId = await ctx.WorkerVinculacion
+                    .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+                    .Select(v => v.EmpresaId)
+                    .FirstOrDefaultAsync();
+
+                var tieneEntregables = empresaId.HasValue && await ctx.SsEmpresaProyecto
+                    .AnyAsync(ep => ep.EmpresaId == empresaId.Value && ep.ProyectoId == dto.ProyectoId);
+                if (!tieneEntregables)
+                    throw new AbrilException("La empresa no tiene entregables registrados en este proyecto.", 400);
+            }
 
             var proyecto = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == dto.ProyectoId)
                 ?? throw new AbrilException("Proyecto no encontrado.", 404);
@@ -1295,7 +1307,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(proyecto.EmailCoordSsoma))
             {
-                var subject = $"[PRUEBA - NO TOMAR EN CUENTA] Nuevo proyecto asignado — {worker.ApellidoNombre}";
+                var prefijoSubject = esContratista ? "" : "[PRUEBA - NO TOMAR EN CUENTA] ";
+                var subject = $"{prefijoSubject}Nuevo proyecto asignado — {worker.ApellidoNombre}";
                 var body = BuildBodyNuevoProyecto(worker, proyecto, fechaInicio);
                 await EnviarEmailSilenciosoAsync(new List<string> { proyecto.EmailCoordSsoma }, subject, body);
             }

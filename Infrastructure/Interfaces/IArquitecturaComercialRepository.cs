@@ -21,5 +21,8 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<List<AcCategoriaDTO>> GetCategorias();
         Task<List<AcEspecialidadDTO>> GetEspecialidades();
         Task<List<AcEtapaDTO>> GetEtapas();
+        Task<ActividadListItemDTO> CreateActividad(AcActividadCreateDTO dto);
+        Task<ActividadListItemDTO> UpdateActividad(int id, AcActividadUpdateDTO dto);
+        Task DeleteActividad(int id);
     }
 }

@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-04 (bandeja UNION ALL completo + induccion endpoint + pitfalls corregidos)
+> Última actualización: 2026-05-05 (AgregarProyectoAsync abierto a contratistas + POST/PUT/DELETE actividades AC)
 
 ---
 
@@ -227,9 +227,11 @@ Fuente: **`ctx.WorkerProyecto`** (no `WorkerVinculacion`):
 
 ### 5h. WorkerProyecto (ss_hab_worker_proyecto) — reglas
 
-- **Solo Casa**: `AgregarProyectoAsync` valida `ContrataCasa == "Casa"` (400 si no)
+- **`AgregarProyectoAsync` admite contratistas** (2026-05-05): ya no bloquea con 400. Si `ContrataCasa != "Casa"`, valida que exista una fila en `ss_empresa_proyecto` para (`EmpresaId de WorkerVinculacion activa`, `dto.ProyectoId`) — 400 si no hay entregables registrados. Si es Casa, pasa directo.
+- Email en `AgregarProyectoAsync`: prefijo `[PRUEBA - NO TOMAR EN CUENTA]` solo para Casa; contratistas envían email sin prefijo (igual que `CambiarObraAsync`).
+- `Worker` **no tiene** `EmpresaId` — obtenerla de `WorkerVinculacion WHERE fecha_fin IS NULL`.
 - Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL`
-- `CambiarObraAsync` / `ReingresoAsync`: gateados con `!esContratista`
+- `CambiarObraAsync` / `ReingresoAsync`: sincronización de `WorkerProyecto` gateada con `!esContratista`
 - `BajaAsync` / `BajaMasivaAsync`: cierran TODAS las filas activas
 - Reactivar fila previa **preserva** `InduccionCompletada`, `FechaInduccion` y `EmpresaId` históricos
 
@@ -353,12 +355,24 @@ En EF: `.OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id).FirstOr
 - **`contributor` PK = `contributor_id`** (no `id`)
 - Tabla `companies` eliminada. No usar ni referenciar.
 
-### 7e. ss_hab_worker_proyecto solo para Casa
+### 7e. ss_hab_worker_proyecto — contratistas validados por ss_empresa_proyecto
 ```csharp
-if (!esContratista)
-    await SincronizarWorkerProyectoCambioAsync(...);
+// AgregarProyectoAsync — lógica actual
+if (esContratista)
+{
+    var empresaId = await ctx.WorkerVinculacion
+        .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+        .Select(v => v.EmpresaId).FirstOrDefaultAsync();
+    var tieneEntregables = empresaId.HasValue &&
+        await ctx.SsEmpresaProyecto
+            .AnyAsync(ep => ep.EmpresaId == empresaId.Value && ep.ProyectoId == dto.ProyectoId);
+    if (!tieneEntregables)
+        throw new AbrilException("La empresa no tiene entregables registrados en este proyecto.", 400);
+}
+// CambiarObraAsync / SincronizarWorkerProyectoCambioAsync: solo Casa
+if (!esContratista) await SincronizarWorkerProyectoCambioAsync(...);
 ```
-`AgregarProyectoAsync` retorna 400 si `ContrataCasa != "Casa"`. Los contratistas solo usan `worker_vinculaciones`.
+`Worker` no tiene `EmpresaId` — siempre leer de `WorkerVinculacion` activa.
 
 ### 7f. Sentinel 2040 para requiere_vigencia=false
 ```csharp
@@ -427,7 +441,62 @@ Roles aprobadores habilitación: `["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP"
 
 ---
 
-## 9. Trabajo pendiente
+## 9. ArquitecturaComercial — detalle
+
+**Ubicación:** capa tradicional — `Controllers/ArquitecturaComercialController.cs`, `Application/Services/ArquitecturaComercialService.cs`, `Infrastructure/Repositories/ArquitecturaComercialRepository.cs`.
+
+### 9a. Tablas propias (prefijo `ac_`)
+
+| Tabla | Entidad | Rol |
+|-------|---------|-----|
+| `ac_actividades` | `AcActividad` | Actividad asignada a un proyecto |
+| `ac_etapas` | `AcEtapa` | Catálogo de etapas |
+| `ac_actividades_plantilla` | `AcActividadPlantilla` | Plantilla para inicializar actividades de un proyecto nuevo |
+| `ac_categorias` | `AcCategoria` | Catálogo de categorías |
+| `ac_especialidades` | `AcEspecialidad` | Catálogo de especialidades |
+
+Tablas compartidas: `project` (= "Proyecto" en AC, PK `project_id`) y `workers` (encargados).
+
+### 9b. AcActividad — campos
+
+`id`, `project_id` (FK→project), `user_id` (FK→workers, nullable), `nombre`, `tipo`, `etapa_id` (FK→ac_etapas, nullable), `prioridad`, `estado`, `activo` (bool), `indice` (int?), `inicio_programado` (DateOnly?), `fin_programado` (DateOnly?), `inicio_efectivo` (DateOnly?), `fin_efectivo` (DateOnly?), `observaciones`.
+
+Estado calculado dinámicamente al devolver el DTO (`ComputeEstado`): `VACIO` → `PENDIENTE` → `EN_PROCESO` → `VENCIDO` → `CULMINADO`. El campo `estado` en BD almacena el estado pero el DTO siempre lo recalcula.
+
+### 9c. Endpoints AC
+
+```
+GET    /api/v1/arquitectura-comercial/actividades           → lista paginada + filtros
+POST   /api/v1/arquitectura-comercial/actividades           → crea AcActividad (Estado="VACIO", Activo=true, Indice=max+1) → 201 + ActividadListItemDTO
+PUT    /api/v1/arquitectura-comercial/actividades/{id}      → sobreescribe 9 campos editables → 200 + ActividadListItemDTO
+DELETE /api/v1/arquitectura-comercial/actividades/{id}      → hard delete → 204
+PATCH  /api/v1/arquitectura-comercial/actividades/{id}      → patch parcial (campos opcionales por nombre)
+POST   /api/v1/arquitectura-comercial/actividades/reasignar-encargado
+POST   /api/v1/arquitectura-comercial/actividades/generar
+
+GET    /api/v1/arquitectura-comercial/proyectos-con-actividades
+GET    /api/v1/arquitectura-comercial/supervisores-ac
+GET    /api/v1/arquitectura-comercial/filtros
+GET    /api/v1/arquitectura-comercial/gantt
+GET    /api/v1/arquitectura-comercial/plantilla
+POST   /api/v1/arquitectura-comercial/plantilla
+PATCH  /api/v1/arquitectura-comercial/plantilla/{id}
+GET    /api/v1/arquitectura-comercial/categorias
+GET    /api/v1/arquitectura-comercial/especialidades
+GET    /api/v1/arquitectura-comercial/etapas
+```
+
+### 9d. DTOs clave
+
+| DTO | Uso |
+|-----|-----|
+| `AcActividadCreateDTO` | POST actividades — Nombre, Tipo, ProjectId, EtapaId?, UserId?, InicioProgramado?, FinProgramado?, Observaciones? |
+| `AcActividadUpdateDTO` | PUT actividades/{id} — mismo shape sin ProjectId ni Indice, más InicioEfectivo/FinEfectivo |
+| `ActividadListItemDTO` | Retorno de GET/POST/PUT — incluye estado calculado, retraso, EtapaNombre, ResponsableNombre |
+
+---
+
+## 10. Trabajo pendiente
 
 ### Alta prioridad
 - Quitar `[AllowAnonymous]` de los 4 endpoints `/trabajadores/{id}/proyectos*`, `GET /eventos` y endpoints SSOMA

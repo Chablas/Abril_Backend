@@ -81,5 +81,14 @@ namespace Abril_Backend.Application.Services
 
         public async Task<List<AcEtapaDTO>> GetEtapas()
             => await _repository.GetEtapas();
+
+        public async Task<ActividadListItemDTO> CreateActividad(AcActividadCreateDTO dto)
+            => await _repository.CreateActividad(dto);
+
+        public async Task<ActividadListItemDTO> UpdateActividad(int id, AcActividadUpdateDTO dto)
+            => await _repository.UpdateActividad(id, dto);
+
+        public async Task DeleteActividad(int id)
+            => await _repository.DeleteActividad(id);
     }
 }

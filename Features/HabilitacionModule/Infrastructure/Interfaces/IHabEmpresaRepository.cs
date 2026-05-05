@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
@@ -12,5 +13,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
             int id, EmpresaEntregableUpdateDto dto, int? userId, int? empresaId = null);
 
         Task InicializarEntregablesEmpresaAsync(int empresaId, int proyectoId);
+
+        Task ActivarProyectoAsync(int empresaId, int proyectoId);
+
+        Task<List<ProyectoDisponibleDto>> GetProyectosDisponiblesAsync(int empresaId);
+
+        Task DesactivarProyectoAsync(int empresaId, int proyectoId);
+
+        Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoEmpresaAsync(int empresaId, int itemId);
     }
 }

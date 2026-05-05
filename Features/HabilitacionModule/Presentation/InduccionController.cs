@@ -1,0 +1,104 @@
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Inducciones;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+
+namespace Abril_Backend.Features.Habilitacion.Presentation
+{
+    [ApiController]
+    [Route("api/v1/habilitacion/inducciones")]
+    [Authorize]
+    public class InduccionController : ControllerBase
+    {
+        private readonly IInduccionRepository _repo;
+        private readonly ILogger<InduccionController> _logger;
+
+        public InduccionController(IInduccionRepository repo, ILogger<InduccionController> logger)
+        {
+            _repo = repo;
+            _logger = logger;
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] InduccionCreateDto dto)
+        {
+            try
+            {
+                var userId = ParseUserIdOrZero();
+                var ids = await _repo.CreateAsync(dto, userId);
+                return StatusCode(201, new { ids, total = ids.Count });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.Create"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("trabajadores-por-programar")]
+        public async Task<IActionResult> GetTrabajadoresPorProgramar(
+            [FromQuery] int proyectoId,
+            [FromQuery] int? empresaId)
+        {
+            try
+            {
+                if (proyectoId <= 0)
+                    return BadRequest(new { message = "proyectoId es requerido." });
+
+                var items = await _repo.GetTrabajadoresPorProgramarAsync(empresaId, proyectoId);
+                return Ok(items);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.GetTrabajadoresPorProgramar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetList(
+            [FromQuery] int? proyectoId,
+            [FromQuery] int? empresaId,
+            [FromQuery] string? estado,
+            [FromQuery] DateTime? fechaDesde,
+            [FromQuery] DateTime? fechaHasta)
+        {
+            try
+            {
+                var items = await _repo.GetAsync(proyectoId, empresaId, estado, fechaDesde, fechaHasta);
+                return Ok(items);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.GetList"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("{id:int}/aprobar")]
+        public async Task<IActionResult> Aprobar(int id)
+        {
+            try
+            {
+                await _repo.AprobarAsync(id);
+                return Ok(new { message = "Inducción aprobada." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.Aprobar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("aprobar-batch")]
+        public async Task<IActionResult> AprobarBatch([FromBody] InduccionBatchAprobarDto dto)
+        {
+            try
+            {
+                if (dto.Ids.Count == 0)
+                    return BadRequest(new { message = "Debe enviar al menos un id." });
+
+                await _repo.AprobarBatchAsync(dto.Ids);
+                return Ok(new { message = $"{dto.Ids.Count} inducción(es) aprobada(s)." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.AprobarBatch"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        private int ParseUserIdOrZero()
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+            return claim != null && int.TryParse(claim.Value, out var id) ? id : 0;
+        }
+    }
+}

@@ -104,5 +104,39 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetCriterios"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        [HttpGet("areas")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetAreas()
+        {
+            try
+            {
+                var areas = await _repo.GetAreasAsync();
+                var result = areas.Select(a => new AreaSimpleDto { Area = a }).ToList();
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetAreas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("subareas")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetSubareas([FromQuery] string? area)
+        {
+            try
+            {
+                var items = await _repo.GetSubareasAsync(area);
+                var result = items.Select(x => new CatSubareaDto
+                {
+                    Id = x.Id,
+                    Subarea = x.Subarea,
+                    Area = x.Area,
+                    Jefatura = x.Jefatura
+                }).ToList();
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetSubareas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

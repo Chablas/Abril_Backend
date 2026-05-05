@@ -650,6 +650,146 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .ToListAsync();
         }
 
+        public async Task<ActividadListItemDTO> CreateActividad(AcActividadCreateDTO dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var proyectoExiste = await ctx.Project.AnyAsync(p => p.ProjectId == dto.ProjectId);
+            if (!proyectoExiste)
+                throw new AbrilException("Proyecto no encontrado.", 404);
+
+            var maxIndice = await ctx.AcActividad
+                .Where(a => a.ProjectId == dto.ProjectId)
+                .MaxAsync(a => (int?)a.Indice) ?? 0;
+
+            var actividad = new AcActividad
+            {
+                ProjectId = dto.ProjectId,
+                UserId = dto.UserId,
+                Nombre = dto.Nombre,
+                Tipo = dto.Tipo,
+                EtapaId = dto.EtapaId,
+                Estado = EstadoVacio,
+                Activo = true,
+                Indice = maxIndice + 1,
+                InicioProgramado = dto.InicioProgramado,
+                FinProgramado = dto.FinProgramado,
+                Observaciones = dto.Observaciones,
+            };
+
+            ctx.AcActividad.Add(actividad);
+            await ctx.SaveChangesAsync();
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var row = await (from a in ctx.AcActividad
+                             join p in ctx.Project on a.ProjectId equals p.ProjectId
+                             from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
+                             from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             where a.Id == actividad.Id
+                             select new
+                             {
+                                 Actividad = a,
+                                 ProjectNombre = p.ProjectDescription,
+                                 Encargado1 = p.ResponsableArqCom,
+                                 EtapaNombre = e != null ? e.Nombre : null,
+                                 ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                             }).FirstAsync();
+
+            var act = row.Actividad;
+            return new ActividadListItemDTO
+            {
+                Id = act.Id,
+                ProjectId = act.ProjectId,
+                ProjectNombre = row.ProjectNombre,
+                Indice = act.Indice,
+                Nombre = act.Nombre,
+                Tipo = act.Tipo,
+                EtapaId = act.EtapaId,
+                EtapaNombre = row.EtapaNombre,
+                UserId = act.UserId,
+                ResponsableNombre = row.ResponsableNombre,
+                Encargado1 = row.Encargado1,
+                InicioProgramado = act.InicioProgramado,
+                FinProgramado = act.FinProgramado,
+                InicioEfectivo = act.InicioEfectivo,
+                FinEfectivo = act.FinEfectivo,
+                Observaciones = act.Observaciones,
+                Activo = act.Activo,
+                Estado = ComputeEstado(act.InicioProgramado, act.FinProgramado, act.InicioEfectivo, act.FinEfectivo, today),
+                Retraso = ComputeRetraso(act.FinProgramado, act.FinEfectivo, today),
+            };
+        }
+
+        public async Task<ActividadListItemDTO> UpdateActividad(int id, AcActividadUpdateDTO dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var actividad = await ctx.AcActividad.FirstOrDefaultAsync(a => a.Id == id)
+                ?? throw new AbrilException("Actividad no encontrada.", 404);
+
+            actividad.Nombre = dto.Nombre;
+            actividad.Tipo = dto.Tipo;
+            actividad.EtapaId = dto.EtapaId;
+            actividad.UserId = dto.UserId;
+            actividad.InicioProgramado = dto.InicioProgramado;
+            actividad.FinProgramado = dto.FinProgramado;
+            actividad.InicioEfectivo = dto.InicioEfectivo;
+            actividad.FinEfectivo = dto.FinEfectivo;
+            actividad.Observaciones = dto.Observaciones;
+
+            await ctx.SaveChangesAsync();
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var row = await (from a in ctx.AcActividad
+                             join p in ctx.Project on a.ProjectId equals p.ProjectId
+                             from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
+                             from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             where a.Id == id
+                             select new
+                             {
+                                 Actividad = a,
+                                 ProjectNombre = p.ProjectDescription,
+                                 Encargado1 = p.ResponsableArqCom,
+                                 EtapaNombre = e != null ? e.Nombre : null,
+                                 ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                             }).FirstAsync();
+
+            var act = row.Actividad;
+            return new ActividadListItemDTO
+            {
+                Id = act.Id,
+                ProjectId = act.ProjectId,
+                ProjectNombre = row.ProjectNombre,
+                Indice = act.Indice,
+                Nombre = act.Nombre,
+                Tipo = act.Tipo,
+                EtapaId = act.EtapaId,
+                EtapaNombre = row.EtapaNombre,
+                UserId = act.UserId,
+                ResponsableNombre = row.ResponsableNombre,
+                Encargado1 = row.Encargado1,
+                InicioProgramado = act.InicioProgramado,
+                FinProgramado = act.FinProgramado,
+                InicioEfectivo = act.InicioEfectivo,
+                FinEfectivo = act.FinEfectivo,
+                Observaciones = act.Observaciones,
+                Activo = act.Activo,
+                Estado = ComputeEstado(act.InicioProgramado, act.FinProgramado, act.InicioEfectivo, act.FinEfectivo, today),
+                Retraso = ComputeRetraso(act.FinProgramado, act.FinEfectivo, today),
+            };
+        }
+
+        public async Task DeleteActividad(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var actividad = await ctx.AcActividad.FirstOrDefaultAsync(a => a.Id == id)
+                ?? throw new AbrilException("Actividad no encontrada.", 404);
+
+            ctx.AcActividad.Remove(actividad);
+            await ctx.SaveChangesAsync();
+        }
+
         private static async Task<PlantillaActividadDTO?> LoadPlantillaDto(AppDbContext ctx, int id)
         {
             return await (

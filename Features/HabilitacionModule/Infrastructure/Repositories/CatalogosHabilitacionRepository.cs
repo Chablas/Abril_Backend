@@ -49,5 +49,27 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .OrderBy(x => x.Orden)
                 .ToListAsync();
         }
+
+        public async Task<List<string>> GetAreasAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.CatSubarea
+                .Where(x => x.Activo)
+                .Select(x => x.Area)
+                .Distinct()
+                .OrderBy(a => a)
+                .ToListAsync();
+        }
+
+        public async Task<List<CatSubarea>> GetSubareasAsync(string? area)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var query = ctx.CatSubarea.Where(x => x.Activo);
+            if (!string.IsNullOrWhiteSpace(area))
+                query = query.Where(x => x.Area == area);
+            return await query
+                .OrderBy(x => x.Subarea)
+                .ToListAsync();
+        }
     }
 }

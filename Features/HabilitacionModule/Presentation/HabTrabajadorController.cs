@@ -13,7 +13,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     [Authorize]
     public class HabTrabajadorController : ControllerBase
     {
-        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP"];
+        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP", "ADMINISTRADOR ADMINISTRACION"];
 
         private readonly IHabTrabajadorRepository _repo;
         private readonly ILogger<HabTrabajadorController> _logger;
@@ -24,11 +24,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             _logger = logger;
         }
 
-        public class ReingresoRequest
-        {
-            public int ProyectoId { get; set; }
-            public int EmpresaId { get; set; }
-        }
 
         [HttpGet]
         public async Task<IActionResult> GetWorkers(
@@ -37,6 +32,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] int? proyectoId,
             [FromQuery] string? estadoHabilitacion,
             [FromQuery] string? contratistaCasa,
+            [FromQuery] bool soloRetirados = false,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
@@ -51,7 +47,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 }
 
                 var (items, total) = await _repo.GetWorkersHabilitacionAsync(
-                    search, empresaId, proyectoId, estadoHabilitacion, contratistaCasa, page, pageSize);
+                    search, empresaId, proyectoId, estadoHabilitacion, contratistaCasa, page, pageSize, soloRetirados);
 
                 var result = new PagedResult<WorkerHabilitacionListDto>
                 {
@@ -66,6 +62,32 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetWorkers"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> GetById(int id)
+        {
+            try
+            {
+                var worker = await _repo.GetByIdAsync(id);
+                if (worker is null)
+                    return NotFound(new { message = "Trabajador no encontrado." });
+                return Ok(worker);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetById"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] WorkerUpdateDto dto)
+        {
+            try
+            {
+                var actualizado = await _repo.UpdateAsync(id, dto);
+                return Ok(actualizado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.Update"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet("{workerId:int}/entregables")]
@@ -148,16 +170,122 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.CambiarObra"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [HttpPatch("{workerId:int}/reingreso")]
-        public async Task<IActionResult> Reingreso(int workerId, [FromBody] ReingresoRequest body)
+        [HttpPost("{workerId:int}/inicializar")]
+        public async Task<IActionResult> InicializarEntregables(int workerId)
         {
             try
             {
-                await _repo.ReingresoAsync(workerId, body.ProyectoId, body.EmpresaId);
-                return Ok(new { message = "Reingreso registrado." });
+                await _repo.InicializarEntregablesAsync(workerId);
+                return Ok(new { message = "Entregables inicializados correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.InicializarEntregables"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("{workerId:int}/reingreso")]
+        public async Task<IActionResult> Reingreso(int workerId, [FromBody] WorkerReingresoDto dto)
+        {
+            try
+            {
+                await _repo.ReingresoAsync(workerId, dto);
+                return Ok(new { message = "Trabajador reingresado correctamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.Reingreso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("baja-masiva")]
+        public async Task<IActionResult> BajaMasiva([FromBody] WorkerBajaMasivaDto dto)
+        {
+            try
+            {
+                if (dto.Ids == null || dto.Ids.Count == 0)
+                    return BadRequest(new { message = "Debe proporcionar al menos un ID de trabajador." });
+
+                var fechaRetiro = dto.FechaRetiro ?? DateOnly.FromDateTime(DateTime.UtcNow);
+                await _repo.BajaMasivaAsync(dto.Ids, fechaRetiro);
+                return Ok(new { message = $"{dto.Ids.Count} trabajador(es) dado(s) de baja correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.BajaMasiva"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("{workerId:int}/baja")]
+        public async Task<IActionResult> Baja(int workerId, [FromBody] WorkerBajaDto dto)
+        {
+            try
+            {
+                var fechaRetiro = dto.FechaRetiro ?? DateOnly.FromDateTime(DateTime.UtcNow);
+                await _repo.BajaAsync(workerId, fechaRetiro);
+                return Ok(new { message = "Trabajador dado de baja correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.Baja"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpGet("{workerId:int}/eventos")]
+        public async Task<IActionResult> GetEventos(int workerId)
+        {
+            try
+            {
+                var eventos = await _repo.GetEventosAsync(workerId);
+                return Ok(eventos);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetEventos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpPost("{workerId:int}/proyectos")]
+        public async Task<IActionResult> AgregarProyecto(int workerId, [FromBody] AgregarProyectoDto dto)
+        {
+            try
+            {
+                var creado = await _repo.AgregarProyectoAsync(workerId, dto);
+                return Ok(creado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.AgregarProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpGet("{workerId:int}/proyectos")]
+        public async Task<IActionResult> GetProyectos(int workerId)
+        {
+            try
+            {
+                var proyectos = await _repo.GetProyectosAsync(workerId);
+                return Ok(proyectos);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetProyectos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpDelete("{workerId:int}/proyectos/{proyectoId:int}")]
+        public async Task<IActionResult> RetirarDeProyecto(int workerId, int proyectoId)
+        {
+            try
+            {
+                await _repo.RetirarDeProyectoAsync(workerId, proyectoId);
+                return Ok(new { message = "Trabajador retirado del proyecto correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.RetirarDeProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpPatch("{workerId:int}/proyectos/{proyectoId:int}/induccion")]
+        public async Task<IActionResult> MarcarInduccion(int workerId, int proyectoId)
+        {
+            try
+            {
+                await _repo.MarcarInduccionAsync(workerId, proyectoId);
+                return Ok(new { message = "Inducción marcada como completada." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.MarcarInduccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
     }
 }

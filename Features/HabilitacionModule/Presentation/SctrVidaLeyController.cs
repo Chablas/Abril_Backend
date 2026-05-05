@@ -13,7 +13,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     [Authorize]
     public class SctrVidaLeyController : ControllerBase
     {
-        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP"];
+        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP", "ADMINISTRADOR ADMINISTRACION"];
 
         private readonly ISctrVidaLeyRepository _repo;
         private readonly ILogger<SctrVidaLeyController> _logger;
@@ -108,6 +108,54 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en SctrVidaLeyController.Create"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("trabajadores-por-empresa")]
+        public async Task<IActionResult> GetTrabajadoresPorEmpresa(
+            [FromQuery] int? empresaId,
+            [FromQuery] int? proyectoId,
+            [FromQuery] string? tipo,
+            [FromQuery] string? tipoPoliza,
+            [FromQuery] string? estadoSctr,
+            [FromQuery] string? estadoVidaLey)
+        {
+            try
+            {
+                var result = await _repo.GetTrabajadoresPorEmpresaAsync(
+                    empresaId, proyectoId, tipo, tipoPoliza, estadoSctr, estadoVidaLey);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en SctrVidaLeyController.GetTrabajadoresPorEmpresa"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] SctrVidaLeyCreateDto dto, [FromQuery] int? empresaId)
+        {
+            try
+            {
+                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+
+                int empresaResolved;
+                if (esContratista)
+                {
+                    var empresaClaim = User.FindFirst("empresaId")?.Value;
+                    if (!int.TryParse(empresaClaim, out empresaResolved))
+                        return StatusCode(403, new { message = "Token de contratista inválido." });
+                }
+                else
+                {
+                    if (!empresaId.HasValue)
+                        return BadRequest(new { message = "empresaId es requerido para usuarios internos." });
+                    empresaResolved = empresaId.Value;
+                }
+
+                var actualizado = await _repo.UpdateAsync(id, dto, empresaResolved);
+                return Ok(actualizado);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en SctrVidaLeyController.Update"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpPatch("{id:int}/aprobar")]

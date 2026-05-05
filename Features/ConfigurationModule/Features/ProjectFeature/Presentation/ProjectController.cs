@@ -45,7 +45,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
         }
 
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1)
+        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 200)
         {
             try
             {
@@ -53,7 +53,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetPaged(page);
+                var result = await _service.GetPaged(page, pageSize);
                 return Ok(result);
             }
             catch (Exception)

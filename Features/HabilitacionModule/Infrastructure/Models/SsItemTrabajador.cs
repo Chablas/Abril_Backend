@@ -8,6 +8,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public string AplicaA { get; set; } = "TODOS";
+        public string? AplicaCategoria { get; set; }
+        public string? AplicaObraOficina { get; set; }
+        public string? ExcluyeObraOficina { get; set; }
+        public string? ExcluyeCategoriaContratista { get; set; }
         public string Responsable { get; set; } = "SSOMA";
         public bool RequiereVigencia { get; set; } = true;
         public bool EsSctrVidaley { get; set; } = false;

@@ -15,6 +15,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         private string? _cachedToken;
         private DateTimeOffset _tokenExpiresAt = DateTimeOffset.MinValue;
 
+        private readonly Lazy<HttpClient> _noRedirectClient = new(() =>
+            new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }));
+
         public SharePointHabService(
             IHttpClientFactory httpClientFactory,
             IConfiguration configuration,
@@ -27,6 +30,14 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         public async Task<string?> GetDownloadUrlAsync(string archivoUrl)
         {
+            var trimmed = archivoUrl?.Trim() ?? string.Empty;
+            if (trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation("GetDownloadUrlAsync: URL absoluta detectada, devolviendo como está.");
+                return trimmed;
+            }
+
             var siteId = _configuration["SharePoint:SiteId"];
             if (string.IsNullOrWhiteSpace(siteId)) return null;
 
@@ -36,27 +47,28 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var driveId = await GetDriveIdAsync(siteId, token);
             if (string.IsNullOrWhiteSpace(driveId)) return null;
 
-            var client = _httpClientFactory.CreateClient();
-            client.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-
-            var path = archivoUrl.Trim().TrimStart('/');
+            var path = NormalizarPath(archivoUrl!);
             var encoded = Uri.EscapeDataString(path).Replace("%2F", "/");
-            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}";
+            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
+
+            var client = _noRedirectClient.Value;
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
 
             var response = await client.GetAsync(url);
-            if (!response.IsSuccessStatusCode)
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Found ||
+                response.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
             {
-                _logger.LogWarning("SharePoint metadata GET falló ({Status}) para {Path}", response.StatusCode, path);
+                var location = response.Headers.Location?.ToString();
+                if (!string.IsNullOrWhiteSpace(location))
+                    return location;
+
+                _logger.LogWarning("SharePoint /content devolvió redirect sin Location para {Path}", path);
                 return null;
             }
 
-            using var stream = await response.Content.ReadAsStreamAsync();
-            using var doc = await JsonDocument.ParseAsync(stream);
-
-            if (doc.RootElement.TryGetProperty("@microsoft.graph.downloadUrl", out var dl))
-                return dl.GetString();
-
+            _logger.LogWarning("SharePoint /content GET falló ({Status}) para {Path}", response.StatusCode, path);
             return null;
         }
 
@@ -73,6 +85,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 ?? throw new AbrilException("No se pudo resolver el drive de SharePoint.", 500);
 
             var contextoLimpio = (contexto ?? string.Empty).Trim().Trim('/');
+            if (contextoLimpio.StartsWith("habilitacion/", StringComparison.OrdinalIgnoreCase))
+                contextoLimpio = contextoLimpio["habilitacion/".Length..].TrimStart('/');
             var fechaPrefix = DateTime.UtcNow.ToString("yyyyMMdd");
             var fileNameLimpio = SanitizarNombreArchivo(fileName);
 
@@ -100,6 +114,15 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                     502);
             }
 
+            return path;
+        }
+
+        private static string NormalizarPath(string rawPath)
+        {
+            var path = rawPath.Trim().TrimStart('/');
+            const string prefix = "habilitacion/";
+            while (path.StartsWith(prefix + prefix, StringComparison.OrdinalIgnoreCase))
+                path = path[prefix.Length..];
             return path;
         }
 
@@ -173,6 +196,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             using var doc = await JsonDocument.ParseAsync(stream);
 
             _cachedDriveId = doc.RootElement.GetProperty("id").GetString();
+
+            var driveName   = doc.RootElement.TryGetProperty("name",   out var n) ? n.GetString() : "(sin nombre)";
+            var driveWebUrl = doc.RootElement.TryGetProperty("webUrl", out var w) ? w.GetString() : "(sin webUrl)";
+            _logger.LogInformation("SharePoint drive resuelto — id: {DriveId} | name: {Name} | webUrl: {WebUrl}",
+                _cachedDriveId, driveName, driveWebUrl);
+
             return _cachedDriveId;
         }
     }

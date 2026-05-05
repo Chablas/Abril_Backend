@@ -18,10 +18,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             _context = context;
         }
 
-        public async Task<PagedResult<ProjectDto>> GetPaged(int page)
+        public async Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize)
         {
-            const int pageSize = 10;
-
             var query = _context.Project
                 .Where(p => p.State)
                 .OrderByDescending(p => p.ProjectId);

@@ -100,6 +100,42 @@ namespace Abril_Backend.Controllers
             }
         }
 
+        [HttpPost("actividades")]
+        public async Task<IActionResult> CreateActividad([FromBody] AcActividadCreateDTO dto)
+        {
+            try
+            {
+                var result = await _service.CreateActividad(dto);
+                return StatusCode(201, result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("actividades/{id:int}")]
+        public async Task<IActionResult> UpdateActividad(int id, [FromBody] AcActividadUpdateDTO dto)
+        {
+            try
+            {
+                var result = await _service.UpdateActividad(id, dto);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("actividades/{id:int}")]
+        public async Task<IActionResult> DeleteActividad(int id)
+        {
+            try
+            {
+                await _service.DeleteActividad(id);
+                return NoContent();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPatch("actividades/{id:int}")]
         public async Task<IActionResult> PatchActividad(int id, [FromBody] Dictionary<string, JsonElement>? body)
         {

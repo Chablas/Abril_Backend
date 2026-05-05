@@ -1,25 +1,23 @@
 # CONTEXT.md — Abril Backend
-> Pega este archivo en la raíz del proyecto. Claude Code lo leerá al inicio de cada sesión.
-> Última actualización: 2026-04-28 (fixes interceptor/jsonb/Swagger, filtro CONTRATISTA, CRUD usuario)
+> Última actualización: 2026-05-05 (AgregarProyectoAsync abierto a contratistas + POST/PUT/DELETE actividades AC)
 
 ---
 
-## 1. Descripción del proyecto
+## 1. Stack
 
-Backend API REST para **Abril Grupo Inmobiliario** (Lima, Perú).
-Gestiona proyectos inmobiliarios, contratistas, costos, y el módulo SSOMA de Salud Ocupacional (EMOs).
-
-- **Framework:** ASP.NET Core (.NET 10)
-- **Base de datos:** PostgreSQL en **Aiven** (producción) / SQL Server (desarrollo local opcional)
-- **Auth:** JWT interno (`"Bearer"`) + Azure AD (`"AzureAd"`). Ambos esquemas coexisten.
-- **Puerto dev:** 5236 (http) / 7298 (https)
-- **Swagger:** solo en Development en `/swagger`
-- **Email:** PowerAutomate (configurado en appsettings)
-- **CronSecret:** leído via `IConfiguration["CronSecret"]` — NO usar `Environment.GetEnvironmentVariable`
-
----
-
-## 2. Comandos esenciales
+| Capa | Tecnología |
+|------|-----------|
+| Framework | ASP.NET Core (.NET 10) |
+| ORM | EF Core + `UseSnakeCaseNamingConvention()` (PG) |
+| BD principal | **PostgreSQL en Aiven** (cloud) |
+| BD alternativa | SQL Server (dev local, selector `Database:DatabaseProvider`) |
+| Auth | JWT Bearer interno (`Jwt:Key`) + Azure AD (Microsoft Entra) — ambos coexisten, política default acepta los dos |
+| Email | PowerAutomate / SendGrid / SMTP (selector `Email:EmailProvider`) |
+| Storage | Azure Blob / local `wwwroot/uploads` (selector `Storage:StorageProvider`) |
+| Queries complejas | **Dapper** + `NpgsqlConnection` directa (solo en `BandejaRepository`) |
+| Fechas UTC | `HabilitacionDateHelper` — `AsUtc()` y `ResolverVigencia()` |
+| Puerto dev | 5236 http / 7298 https |
+| Swagger | Solo en Development en `/swagger` |
 
 ```bash
 dotnet build Abril-Backend.csproj
@@ -27,31 +25,13 @@ dotnet run --project Abril-Backend.csproj
 # NO existe dotnet test
 ```
 
----
-
-## 3. Configuración
-
-`Program.cs` carga en este orden:
-```
-appsettings.json
-→ appsettings.{Environment}.json
-→ appsettings.Local.json      ← gitignored, contiene secrets reales
-→ variables de entorno
-```
-
-| Key | Valores |
-|-----|---------|
-| `Database:DatabaseProvider` | `"PostgreSQL"` / `"SqlServer"` |
-| `Email:EmailProvider` | `"SendGrid"` / `"PowerAutomate"` / SMTP |
-| `Storage:StorageProvider` | `"Azure"` / local `wwwroot/uploads` |
-
-**PostgreSQL** usa `UseSnakeCaseNamingConvention()`. Colisiones con palabras reservadas de PG → override en `ConfigurePostgreSQL` en `Shared/Data/AppContext.cs`.
+Config: `appsettings.json` → `appsettings.{Env}.json` → `appsettings.Local.json` (gitignored, secrets) → env vars.
 
 ---
 
-## 4. Arquitectura: dos patrones coexistentes
+## 2. Arquitectura
 
-### 4a. Layered tradicional (carpetas raíz)
+### 2a. Layered tradicional (carpetas raíz)
 
 ```
 Controllers/                  → [ApiController], ruta "api/v1/[controller]"
@@ -62,335 +42,481 @@ Application/Exceptions/       → AbrilException (con HTTP StatusCode)
 Infrastructure/Interfaces/    → I*Repository
 Infrastructure/Repositories/  → EF Core con IDbContextFactory
 Infrastructure/Models/        → entidades EF
-Shared/Data/AppContext.cs     → AppDbContext
+Shared/Data/AppContext.cs     → AppDbContext (namespace Abril_Backend.Infrastructure.Data)
 Shared/Services/              → Email, Excel, Jwt, Reniec, Storage, Sunat
+Shared/Models/                → Project, AuditoriaCambio
 ```
 
-### 4b. Vertical slice (Features/)
+### 2b. Vertical slice — Features/
 
 ```
 Features/<Modulo>Module/
-  <Modulo>Module.cs                     → AddXxxModule(IServiceCollection)
+  <Modulo>Module.cs                     → static AddXxxModule(IServiceCollection) — el ÚNICO punto que registra en Program.cs
   <Feature>Feature/
     Application/{Interfaces,Services,Dtos}
     Infrastructure/{Interfaces,Repositories,Models}
     Presentation/*Controller.cs
 ```
 
-**Módulos existentes:**
-- `ContractorsModule` — ContractorRegistration, ContractorManagement
-- `CostsModule` — Adjudicaciones
-- `MicrosoftAuthModule` — MicrosoftLogin, MicrosoftProfile
-- `SsomaModule` ← **módulo SSOMA activo** en `Features/SsomaModule/SaludOcupacionalFeature/`
+**Módulos activos:**
+| Módulo | Estado |
+|--------|--------|
+| `HabilitacionModule` | Principal activo — ver sección 5 |
+| `SsomaModule` | SaludOcupacionalFeature (EMO, SSOMA) |
+| `ContractorsModule` | ContractorRegistration, ContractorManagement |
+| `CostsModule` | Adjudicaciones, WorkItem, StaffProjectEmail |
+| `MicrosoftAuthModule` | Login/Profile Microsoft |
 
-**Regla:** Solo el `AddXxxModule()` se registra en `Program.cs`. Todo lo interno va dentro del módulo.
-**DbSets** se declaran en el `AppDbContext` compartido, no en contextos propios.
+**ArquitecturaComercial** vive en capa tradicional, no en Features.
 
 ---
 
-## 5. Convenciones obligatorias
+## 3. Convenciones obligatorias
 
-### Repositorios — siempre IDbContextFactory
+### Repositorios — IDbContextFactory siempre
 ```csharp
-public class MiRepo : IMiRepo
-{
-    private readonly IDbContextFactory<AppDbContext> _factory;
-    public MiRepo(IDbContextFactory<AppDbContext> factory) => _factory = factory;
-
-    public async Task DoWork()
-    {
-        using var ctx = _factory.CreateDbContext();
-        // ...
-    }
-}
+private readonly IDbContextFactory<AppDbContext> _factory;
+// ...
+using var ctx = _factory.CreateDbContext(); // contexto corto por llamada
 ```
 
-### Controladores — try/catch estándar
+### Controllers — try/catch estándar
 ```csharp
 try { ... return Ok(result); }
 catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-catch (Exception) { return StatusCode(500, new { message = "Error interno del servidor." }); }
+catch (Exception ex) { _logger.LogError(ex, "..."); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
 ```
 
-### Auth para cronjobs
+### Auth cronjobs
 ```csharp
 var authHeader = Request.Headers["Authorization"].FirstOrDefault();
 if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized();
+// NO usar Environment.GetEnvironmentVariable — usar IConfiguration
 ```
 
 ### Mensajes de error → siempre en español.
 
----
-
-## 6. Vocabulario de entidades — ⚠️ crítico
-
-| Nombre C# | Tabla PG | Notas |
-|-----------|----------|-------|
-| `Projects` | `projects` | **Entidad unificada** — fusiona los antiguos `Project` (legacy) y `Proyecto` (SSOMA). 32 columnas mapeadas con `[Column("...")]`. Propiedades clave: `Id`, `Nombre`, `Activo`, `Estado`, `ResponsableArqCom`, `ResponsableArqComId`, `Email{Residente,Responsable,Rrhh,CoordSsoma,CoordAdmin}`, `CreatedAt`, `UpdatedAt`. Navigation: `Incidences` (a `ResidentReportIncidence`). |
-| `User` | `app_user` | Override en ConfigurePostgreSQL |
-| `Company` | `companies` | Dominio inglés legacy |
-| `Empresa` | `companies` | **Misma tabla** — alias español en SSOMA |
-| `Worker` | `workers` | Personal SSOMA |
-| `WorkerEmo` | `worker_emos` | Registros EMO |
-
-**DTOs preservan nombres legacy**: `ProjectDTO`/`ProjectSimpleDTO`/`ProjectCreateDTO`/`ProjectEditDTO`/`ProjectEmailsUpdateDto` siguen usando `ProjectId`/`ProjectDescription`/`Active`/`CreatedDateTime`/`UpdatedDateTime`. La traducción entidad↔DTO ocurre dentro de los repos (p. ej. `ProjectId = entity.Id`, `ProjectDescription = entity.Nombre ?? string.Empty`, `Active = entity.Activo`, `CreatedDateTime = entity.CreatedAt ?? DateTime.MinValue`).
-
-**Auditoría perdida**: la tabla `projects` no tiene `created_user_id`/`updated_user_id`. Los métodos `Create`/`Update`/`DeleteSoftAsync`/`UpdateEmails` aún reciben `userId` por compat de firma, pero ese valor ya no se persiste sobre `Projects`.
+### DbSets → siempre en `Shared/Data/AppContext.cs`. Colisiones PG → override en `ConfigurePostgreSQL`.
 
 ---
 
-## 7. Módulo SSOMA — Salud Ocupacional
+## 4. Vocabulario de entidades — CRÍTICO
 
-**Ubicación:** `Features/SsomaModule/SaludOcupacionalFeature/`
+| Entidad C# | Tabla PG | PK | Notas |
+|------------|----------|----|-------|
+| `Project` | `project` | `project_id` | Entidad legacy ÚNICA para proyectos. Props: `ProjectId`, `ProjectDescription`. `Shared/Models/Project.cs`. **Siempre `ctx.Project` con `ProjectId`**. |
+| `Contributor` | `contributor` | `contributor_id` | Entidad unificada de empresas. Reemplazó `companies` (eliminada). Incluye `EsAbril` (bool) e `IdSharepoint` (int?, temporal). En `Features/CostsModule/Shared/Models/Contributor.cs`. |
+| `Worker` | `workers` | `id` | Personal con columnas explícitas `[Column("...")]`. No snake_case automático. |
+| `WorkerVinculacion` | `worker_vinculaciones` | `id` | 1 activa por worker (`fecha_fin IS NULL`). Para empresa y proyecto actual del worker. |
+| `WorkerProyecto` | `ss_hab_worker_proyecto` | `id` | Multi-proyecto **solo Casa**. N activos en paralelo. Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL`. |
+| `SsInduccion` | `ss_induccion` | `id` | `empresa_id` → `contributor.contributor_id` (no `ss_empresa_contratista`). |
+| `SsHabTrabajador` | `ss_hab_trabajador` | `id` | Entregables por worker. |
+| `SsHabEmpresa` | `ss_hab_empresa` | `id` | `proyecto_id` → `project.project_id`. `empresa_id` → `contributor.contributor_id`. |
+| `SsEquipo` | `ss_equipo` | `id` | `proyecto_id` → `project.project_id`. |
+| `SsHabEquipo` | `ss_hab_equipo` | `id` | Entregables por equipo. |
+| `SsItemTrabajador` | `ss_item_trabajador` | `id` | Catálogo de entregables con reglas. |
+| `WorkerEvento` | `worker_eventos` | `id` | Creada manualmente en BD (sin migración EF). |
+| `CatSubarea` | `cat_subarea` | `id` | Creada manualmente en BD (sin migración EF). |
+| `User` | `app_user` | — | Override en `ConfigurePostgreSQL` (`User` es palabra reservada PG). |
 
-### Estado de la BD (Aiven) — datos reales cargados
-
-| Tabla | Registros | Estado |
-|-------|-----------|--------|
-| `workers` | 2,466 | ✅ Migrados, únicos por DNI |
-| `worker_emos` | 813 | ✅ Con fecha_vencimiento calculada |
-| `worker_vinculaciones` | 2,466 | ✅ Una por worker activo |
-| `companies` | 23 | ✅ Razones sociales Abril |
-| `projects` | 27 | ✅ Con columnas email SSOMA |
-| `ss_emo_tipos` | 5 | ✅ Precargados |
-| `ss_clinicas` | 0 | ⏳ Pendiente cargar |
-| `ss_medicos_ocupacionales` | 0 | ⏳ Pendiente cargar |
-
-### Índice único workers
-```sql
-CREATE UNIQUE INDEX uq_workers_dni_activo ON workers(dni) WHERE estado = 'ACTIVO';
--- Solo puede haber un worker ACTIVO por DNI
--- Retirar: UPDATE workers SET estado='RETIRADO', fecha_retiro=NOW() WHERE id=X
-```
-
-### Reglas de negocio workers
-- `estado`: solo `'ACTIVO'` o `'RETIRADO'`
-- `obra_oficina = 'Oficina Central'` → vigencia EMO **2 años**
-- Resto → vigencia EMO **1 año**
-- DNI siempre 8 dígitos, rellenar con ceros a la izquierda
-
-### Reglas de negocio EMO
-- `worker_emos.estado`: `Vigente`, `Convalidado`, `Vencido`, `Reemplazado`
-- Al crear EMO nuevo: marcar anterior `activo=false, estado='Reemplazado'`
-- `fecha_vencimiento_calculada = fecha_emo + vigencia_meses`
-- En queries siempre: `COALESCE(fecha_vencimiento_calculada, fecha_vencimiento)`
-
-### Columnas especiales en `projects`
-```
-email_residente, email_responsable, email_rrhh, email_coord_ssoma, email_coord_admin
-```
-
-### Columnas especiales en `worker_emos`
-```
-interconsulta_resuelta (bool), fecha_levantamiento (date),
-coincide_empresa (bool), fecha_lectura (date)
-```
-
-### Sistema de alertas (implementado)
-- `GET /api/v1/ssoma/salud-ocupacional/alertas/procesar` — autenticado con CronSecret
-- Busca EMOs que vencen en 4 días hábiles (excluye domingos)
-- Idempotente via `ss_alertas_emo`
-- **Pendiente:** flujo Grupo A (Staff/OC → correo individual a clínica) vs Grupo B (Obra → correo agrupado por proyecto)
-
-### Repositorios — todos completos ✅
-`CatalogosRepository`, `ConvalidacionRepository`, `DashboardRepository`,
-`InterconsultaRepository`, `ProgramacionEmoRepository`, `WorkerSearchRepository`,
-`EmoRepository`, `EmoAlertaService`,
-`EmpresaContratistaRepository`, `HabTrabajadorRepository`,
-`HabEmpresaRepository`, `SctrVidaLeyRepository`, `EquipoRepository`,
-`BandejaRepository`, `ReglasTrabajadorRepository`, `CatalogosHabilitacionRepository`
-
-### Endpoints completos
-
-```
-GET/POST        /api/v1/ssoma/salud-ocupacional/emos
-GET/PUT         /api/v1/ssoma/salud-ocupacional/emos/{id}
-PATCH           /api/v1/ssoma/salud-ocupacional/emos/{id}/estado
-GET             /api/v1/ssoma/salud-ocupacional/emos/por-trabajador
-GET             /api/v1/ssoma/salud-ocupacional/workers/{id}/historial-emo
-GET/POST        /api/v1/ssoma/salud-ocupacional/convalidaciones
-PUT             /api/v1/ssoma/salud-ocupacional/convalidaciones/{id}
-GET/POST        /api/v1/ssoma/salud-ocupacional/programaciones
-PUT             /api/v1/ssoma/salud-ocupacional/programaciones/{id}
-PATCH           /api/v1/ssoma/salud-ocupacional/programaciones/{id}/estado
-GET/POST        /api/v1/ssoma/salud-ocupacional/interconsultas
-PUT             /api/v1/ssoma/salud-ocupacional/interconsultas/{id}
-PATCH           /api/v1/ssoma/salud-ocupacional/interconsultas/{id}/resultado
-GET             /api/v1/ssoma/salud-ocupacional/dashboard
-GET/POST/PUT    /api/v1/ssoma/salud-ocupacional/catalogos/clinicas
-GET/POST/PUT    /api/v1/ssoma/salud-ocupacional/catalogos/medicos
-GET/POST/PUT    /api/v1/ssoma/salud-ocupacional/catalogos/emo-tipos
-GET/POST/PUT    /api/v1/ssoma/salud-ocupacional/catalogos/examen-tipos
-GET/POST/PUT    /api/v1/ssoma/salud-ocupacional/catalogos/restriccion-tipos
-GET             /api/v1/ssoma/salud-ocupacional/catalogos/empresas
-GET             /api/v1/ssoma/salud-ocupacional/workers/search
-GET             /api/v1/ssoma/salud-ocupacional/alertas/procesar
-PATCH           /api/v1/project/{id}/emails
-```
+> **⚠️ `projects` (plural) NO EXISTE** — fue eliminada vía migración `SwitchProyectoFkToProjectLegacy`. Todo `proyecto_id` de cualquier tabla apunta a `project.project_id` legacy. Resolver siempre con `ctx.Project.Where(p => p.ProjectId == id)`.
 
 ---
 
-## 8. DbSets en AppDbContext — no duplicar
+## 5. HabilitacionModule — detalle completo
+
+**Ubicación:** `Features/HabilitacionModule/`
+
+**DI adicional:** BCrypt.Net-Next, FluentValidation, Dapper. `ISharePointHabService` registrado como **Singleton** (cachea token OAuth2 y driveId).
+
+### 5a. Catálogo ss_item_trabajador
+
+Items clave por ID:
+
+| id | nombre | aplica_a | requiere_vigencia | notas |
+|----|--------|----------|--------------------|-------|
+| 1 | DNI | TODOS | true | |
+| 4 | Certificado de Aptitud (EMO) | TODOS | true | EMO Contratista en ss_hab_trabajador; Casa en worker_emos |
+| 5 | Registro de Entrega de EPP | CASA | false | sentinel 2040 |
+| 6 | Entrega RISST | CASA | false | sentinel 2040 |
+| 8 | Entrega de Recomendaciones SST | CASA | false | sentinel 2040 |
+| 10 | Difusion de PTS | CASA | false | sentinel 2040 |
+| 11 | SCTR | TODOS | true | excluido de bandeja (NOT IN) |
+| 12 | Induccion Obra | TODOS | false | sentinel 2040; reset al cambiar proyecto |
+| 13 | Vida ley | TODOS | true | excluido de bandeja (NOT IN) |
+| 25 | Lectura de EMO | CASA | true | incluido en itemsEmoIds → excluido cálculo bloqueo Casa |
+
+`requiere_vigencia = false` → `HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null)` retorna sentinel **`2040-12-31 UTC`**.
+
+### 5b. BandejaRepository — SelectBase UNION ALL
+
+Query Dapper con `NpgsqlConnection` directa. Cuatro segmentos:
+
+**TRABAJADOR** (`ss_hab_trabajador WHERE estado='Enviado'`):
+- Excluye `item_id IN (11, 13)` — SCTR y Vida Ley
+- Excluye `item_id IN (4, 25) AND w.contrata_casa = 'Casa'` — EMO items para Casa
+- `CAST(ht.vigencia AS timestamp)` para columna vigencia
+- Proyecto via `LEFT JOIN LATERAL (worker_vinculaciones ORDER BY created_at DESC, id DESC LIMIT 1)`
+- Empresa via `ss_empresa_contratista`
+- Proyecto nombre/id via `LEFT JOIN project p ON p.project_id = wv.proyecto_id` + `p.project_description`
+
+**EMPRESA** (`ss_hab_empresa WHERE estado='Enviado'`):
+- `CAST(he.vigencia AS timestamp)`
+- `JOIN project p ON p.project_id = he.proyecto_id` + `p.project_description`
+- Empresa via `ss_empresa_contratista`
+
+**EQUIPO** (`ss_hab_equipo WHERE estado='Enviado'`):
+- `CAST(heq.vigencia AS timestamp)`
+- `JOIN project p ON p.project_id = eq.proyecto_id` + `p.project_description`
+- Empresa via `ss_empresa_contratista`
+
+**INDUCCION** (`ss_induccion WHERE estado='PROGRAMADA'`):
+- `vigencia = NULL` (la vigencia real la asigna AprobarInduccionAsync al aprobar)
+- `JOIN contributor c ON c.contributor_id = i.empresa_id` + `c.contributor_name`
+- `JOIN project p ON p.project_id = i.proyecto_id` + `p.project_description`
+- Entidad nombre: `w.apellido_nombre` (Worker no tiene apellido_paterno/materno separados)
+
+> **⚠️ En todo UNION ALL**: las tres tablas hab usan `ss_empresa_contratista`; solo INDUCCION usa `contributor`. Esta asimetría es intencional — `ss_hab_empresa.empresa_id` y `ss_hab_equipo → ss_equipo.propietario_empresa_id` apuntan a `ss_empresa_contratista.id`, pero `ss_induccion.empresa_id` apunta a `contributor.contributor_id`.
+
+### 5c. EstadoCalc (badge habilitación worker)
 
 ```csharp
-DbSet<Projects>               Projects           // tabla: projects (entidad unificada)
-DbSet<Worker>                 Worker
-DbSet<WorkerEmo>              WorkerEmo
-DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion
-DbSet<WorkerVinculacion>      WorkerVinculacion
-DbSet<Empresa>                Empresa            // tabla: companies
-DbSet<SsClinica>              SsClinica
-DbSet<SsMedicoOcupacional>    SsMedicoOcupacional
-DbSet<SsEmoTipo>              SsEmoTipo
-DbSet<SsExamenTipo>           SsExamenTipo
-DbSet<SsRestriccionTipo>      SsRestriccionTipo
-DbSet<SsEmoExamenDetalle>     SsEmoExamenDetalle
-DbSet<SsEmoRestriccion>       SsEmoRestriccion
-DbSet<SsInterconsulta>        SsInterconsulta
-DbSet<SsProgramacionEmo>      SsProgramacionEmo
-DbSet<SsSeguimientoMedico>    SsSeguimientoMedico
-DbSet<SsAlertaEmo>            SsAlertaEmo
+itemsEmoIds = ss_item_trabajador WHERE nombre CONTAINS "EMO"  // ids 4 y 25
+
+EstadoCalc =
+  (ss_hab_trabajador.Any(Estado IN {Falta,Rechazado,Vencido}
+       AND NOT (Casa AND itemsEmoIds))
+   OR (Casa AND NOT worker_emos.Any(Activo AND Estado IN {Vigente,Convalidado})))
+  ? "No Autorizado"
+  : ss_hab_trabajador.Any(Estado == "En Plazo"
+      AND NOT (Casa AND itemsEmoIds))
+  ? "Autorizado Temporalmente"
+  : "Habilitado"
+```
+
+### 5d. InicializarEntregablesAsync
+
+Crea registros `Estado="Falta"` filtrando en orden: `AplicaA` → `AplicaCategoria` → `AplicaObraOficina` → `ExcluyeObraOficina` → `ExcluyeCategoriaContratista`. Caso especial: Casa+Practicante omite `ItemVidaLey`. No toca `ss_hab_worker_proyecto`.
+
+### 5e. AprobarInduccionAsync (privado en InduccionRepository)
+
+Al aprobar una inducción:
+1. `ss_induccion.estado` → `"REALIZADA"`
+2. Sentinel `2040-12-31 UTC` via `HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null)` asignado a **todos** los ítems que se aprueban
+3. Siempre aprueba `ItemInduccionObra` (id=12) en `ss_hab_trabajador`
+4. Si `contributor.es_abril = true`: también aprueba ids 5, 6, 8, 10
+5. Busca `WorkerProyecto` donde `WorkerId + ProyectoId` **sin filtro `FechaFin`** → marca `InduccionCompletada=true`, `FechaInduccion=hoy`
+6. `SaveChangesAsync` lo llama el método público (`AprobarAsync` / `AprobarBatchAsync`)
+
+### 5f. CambiarObraAsync — lógica de reset
+
+Al cambiar de proyecto:
+1. Consulta `WorkerProyecto.AnyAsync(WorkerId + NuevoProyectoId + InduccionCompletada=true)` — sin filtro `FechaFin`
+2. Si ya indujo en el nuevo proyecto → **NO** resetea ítem 12, **NO** envía email a coord SSOMA
+3. Si no indujo → resetea `ItemInduccionObra` a `"Falta"` + envía email
+4. `esCambioEmpresa` (solo Casa): resetea SCTR/VidaLey/CertAptitud independientemente del punto 1
+5. Sincroniza `ss_hab_worker_proyecto` solo si `!esContratista`
+
+### 5g. GetTrabajadoresPorProgramarAsync
+
+Fuente: **`ctx.WorkerProyecto`** (no `WorkerVinculacion`):
+1. Filtra `ProyectoId == proyectoId && !InduccionCompletada` — **sin filtro `FechaFin`**
+2. Si `empresaId.HasValue` → intersecta con `WorkerVinculacion WHERE EmpresaId == empresaId`
+3. Empresa de cada worker: última `WorkerVinculacion` `ORDER BY CreatedAt DESC, Id DESC`
+4. `yaIndujeroSet` (workers con `InduccionCompletada=true` para el proyecto) se computa pero no filtra la lista — alimenta campo `YaIndujo` en `InduccionTrabajadorDto` (siempre `false` porque el paso 1 ya excluye)
+
+### 5h. WorkerProyecto (ss_hab_worker_proyecto) — reglas
+
+- **`AgregarProyectoAsync` admite contratistas** (2026-05-05): ya no bloquea con 400. Si `ContrataCasa != "Casa"`, valida que exista una fila en `ss_empresa_proyecto` para (`EmpresaId de WorkerVinculacion activa`, `dto.ProyectoId`) — 400 si no hay entregables registrados. Si es Casa, pasa directo.
+- Email en `AgregarProyectoAsync`: prefijo `[PRUEBA - NO TOMAR EN CUENTA]` solo para Casa; contratistas envían email sin prefijo (igual que `CambiarObraAsync`).
+- `Worker` **no tiene** `EmpresaId` — obtenerla de `WorkerVinculacion WHERE fecha_fin IS NULL`.
+- Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL`
+- `CambiarObraAsync` / `ReingresoAsync`: sincronización de `WorkerProyecto` gateada con `!esContratista`
+- `BajaAsync` / `BajaMasivaAsync`: cierran TODAS las filas activas
+- Reactivar fila previa **preserva** `InduccionCompletada`, `FechaInduccion` y `EmpresaId` históricos
+
+---
+
+## 6. Endpoints — HabilitacionModule
+
+```
+# Auth contratistas
+POST   /api/v1/habilitacion/auth/login
+POST   /api/v1/habilitacion/auth/activar|solicitar-reset|reset-password
+PATCH  /api/v1/habilitacion/auth/cambiar-password
+GET    /api/v1/habilitacion/auth/empresas
+
+# Empresas contratistas
+GET/POST/PUT  /api/v1/habilitacion/empresas
+POST          /api/v1/habilitacion/empresas/{id}/reenviar-activacion
+GET           /api/v1/habilitacion/empresas/{id}/entregables?proyectoId=&mes=&anio=
+PUT           /api/v1/habilitacion/empresas/{id}/entregables/{entregableId}
+GET           /api/v1/habilitacion/empresas/{id}/proyectos-disponibles
+POST          /api/v1/habilitacion/empresas/{id}/activar-proyecto
+DELETE        /api/v1/habilitacion/empresas/{id}/desactivar-proyecto
+
+# Catálogos
+GET  /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
+GET  /api/v1/habilitacion/catalogos/areas        (público)
+GET  /api/v1/habilitacion/catalogos/subareas     (público)
+GET  /api/v1/habilitacion/proyectos              (lista activos desde Project legacy)
+
+# Trabajadores
+GET    /api/v1/habilitacion/trabajadores?search=&empresaId=&proyectoId=&estadoHabilitacion=&contratistaCasa=&soloRetirados=
+GET    /api/v1/habilitacion/trabajadores/{id}
+PUT    /api/v1/habilitacion/trabajadores/{id}
+POST   /api/v1/habilitacion/trabajadores/{id}/inicializar
+GET    /api/v1/habilitacion/trabajadores/{id}/entregables
+PUT    /api/v1/habilitacion/trabajadores/{id}/entregables/{entregableId}
+GET    /api/v1/habilitacion/trabajadores/entregables/{id}/versiones
+PATCH  /api/v1/habilitacion/trabajadores/{id}/baja
+PATCH  /api/v1/habilitacion/trabajadores/baja-masiva
+PATCH  /api/v1/habilitacion/trabajadores/{id}/cambiar-obra
+PATCH  /api/v1/habilitacion/trabajadores/{id}/reingreso
+GET    /api/v1/habilitacion/trabajadores/{id}/eventos          [AllowAnonymous temporal]
+POST   /api/v1/habilitacion/trabajadores/{id}/proyectos        [AllowAnonymous temporal]
+GET    /api/v1/habilitacion/trabajadores/{id}/proyectos        [AllowAnonymous temporal]
+DELETE /api/v1/habilitacion/trabajadores/{id}/proyectos/{pId}  [AllowAnonymous temporal]
+PATCH  /api/v1/habilitacion/trabajadores/{id}/proyectos/{pId}/induccion  [AllowAnonymous temporal]
+
+# Bandeja de aprobaciones
+GET    /api/v1/habilitacion/bandeja?tipo=&proyectoId=&empresaId=&responsable=&page=&pageSize=
+GET    /api/v1/habilitacion/bandeja/cursor?tipo=&proyectoId=&empresaId=&responsable=&cursor=&pageSize=
+PATCH  /api/v1/habilitacion/bandeja/trabajador/{id}   body: { estado, obsAbril, vigencia }
+PATCH  /api/v1/habilitacion/bandeja/empresa/{id}      body: { estado, obsAbril, vigencia }
+PATCH  /api/v1/habilitacion/bandeja/equipo/{id}       body: { estado, obsAbril, vigencia }
+PATCH  /api/v1/habilitacion/bandeja/induccion/{id}    sin body — llama AprobarAsync
+
+# Inducciones
+POST   /api/v1/habilitacion/inducciones               body: InduccionCreateDto { WorkerIds[], ProyectoId, EmpresaId?, FechaProgramada, TrabajoAltura, EquipoElectrico }
+GET    /api/v1/habilitacion/inducciones?proyectoId=&empresaId=&estado=&fechaDesde=&fechaHasta=
+GET    /api/v1/habilitacion/inducciones/trabajadores-por-programar?proyectoId=&empresaId=
+PATCH  /api/v1/habilitacion/inducciones/{id}/aprobar
+PATCH  /api/v1/habilitacion/inducciones/aprobar-batch  body: { ids: int[] }
+
+# SCTR / Vida Ley
+GET/POST  /api/v1/habilitacion/sctr-vidaley
+PATCH     /api/v1/habilitacion/sctr-vidaley/{id}/aprobar
+GET       /api/v1/habilitacion/sctr-vidaley/trabajadores-por-empresa?empresaId=&estadoSctr=&estadoVidaLey=
+          estadoSctr/estadoVidaLey aceptan valores comma-separated (ej: "Falta,Vencido")
+
+# Archivos
+POST  /api/v1/habilitacion/archivos/subir   → { path, url }
+GET   /api/v1/habilitacion/archivos/url?path=
+
+# Otros
+GET/POST/PUT/DELETE  /api/v1/habilitacion/reglas
+GET                  /api/v1/habilitacion/auditoria
+GET                  /api/v1/habilitacion/registros-modelo  (público)
 ```
 
 ---
 
-## 9. Pitfalls conocidos
+## 7. Pitfalls críticos
 
-- **Una sola entidad para `projects`**: usar `Projects` (consolidada). Los archivos `Project.cs` y `Proyecto.cs` fueron eliminados; no recrearlos. Navigation properties en otras entidades (`ResidentReportIncidence.Project`, `ProjectSubContractor.Project`, `WorkerVinculacion.Proyecto`) son tipo `Projects` aunque conserven el nombre singular legacy.
-- **Property renames legacy → consolidado**: `.ProjectId` → `.Id`, `.ProjectDescription` → `.Nombre`, `.Active` → `.Activo`, `.CreatedDateTime` → `.CreatedAt`, `.UpdatedDateTime` → `.UpdatedAt`. Las propiedades `State`, `LevelDescription`, `CreatedUserId`, `UpdatedUserId` ya no existen en la entidad.
-- **DbSet renombrado**: `_context.Project` y `_context.Proyecto` ya no existen. Usar `_context.Projects`.
-- `Empresa`/`Company` → misma tabla `companies`. NO crear tabla `empresas`.
-- `User` → tabla `app_user` (override en ConfigurePostgreSQL).
-- `CronSecret` → `IConfiguration["CronSecret"]`, NO `Environment.GetEnvironmentVariable`. (Nota: `ReminderController.cs` aún usa la forma vieja — pendiente migrar.)
-- Controllers SSOMA tienen `[AllowAnonymous]` temporal — quitar antes de producción.
-- Archivos `* - copia.cs` causan CS0101 — eliminar siempre.
-- `IDbContextFactory` obligatorio en repos nuevos — el `ProjectRepository` legacy aún inyecta `AppDbContext` directo (no replicar ese patrón).
-- `Abril_Backend.sln` está en `.gitignore` — no commitear.
-- **`AuditoriaInterceptor` debe ser `Singleton`** — inyectar `IServiceScopeFactory` en el constructor; crear un scope puntual dentro de `SavingChangesAsync` para resolver `IHttpContextAccessor`. Registrarlo como `Scoped` produce "Cannot resolve scoped service from root provider" porque `DbContextFactory` resuelve desde el root provider.
-- **`datos_anteriores`/`datos_nuevos` son `jsonb`** — la propiedad C# es `string?` pero la columna PG es `jsonb`. Sin `HasColumnType("jsonb")` en `ConfigurePostgreSQL`, Npgsql envía el parámetro como `text` y PG rechaza con "expression is of type text". El override va en `ConfigurePostgreSQL`, no en el modelo (evita romper SQL Server).
-- **`ProjectController` tiene `[AllowAnonymous]` temporal a nivel de clase** — aplicado para pruebas; revertir antes de producción. `userId` está hardcodeado a `0` en Create/Edit/Delete.
-- `SsEmoTipo.VigenciaMeses` es `int?` (nullable) — el tipo "Retiro" tiene `NULL` y el cálculo de `fecha_vencimiento_calculada` se omite cuando es null (`tipo.VigenciaMeses > 0` descarta null).
-- Al retirar un worker (`PATCH /workers/{id}/retirar`) se cierran automáticamente todas sus `worker_vinculaciones` abiertas (`fecha_fin = today`) en la misma transacción.
-- `ProjectController` tiene `[AllowAnonymous]` a nivel de clase y la validación `User.FindFirst(ClaimTypes.NameIdentifier)` está comentada en sus 6 acciones — `userId` se reemplazó por `0` en `Create`/`Edit`/`Delete` (no se persiste en la tabla `projects`). Es estado temporal de pruebas, revertir antes de producción.
+### 7a. JOIN project — NUNCA projects
+```sql
+-- ✅ CORRECTO (tabla real en BD)
+JOIN project p ON p.project_id = t.proyecto_id
+SELECT p.project_description, p.project_id
+
+-- ❌ INCORRECTO (tabla eliminada)
+JOIN projects p ON p.id = t.proyecto_id
+SELECT p.nombre
+```
+`projects` (plural) fue eliminada vía migración `SwitchProyectoFkToProjectLegacy`. Solo existe `project` (singular, PK `project_id`).
+
+### 7b. CAST timestamp obligatorio en Dapper
+Dapper mapea `timestamp` de PG a `DateTime?` en C#. Sin el cast explícito, columnas `date` o `DateOnly` no mapean correctamente:
+```sql
+CAST(ht.vigencia AS timestamp) as vigencia
+CAST(i.fecha_programada AS timestamp) as vigencia
+```
+Aplica a todos los segmentos del UNION ALL en `BandejaRepository.SelectBase`.
+
+### 7c. worker_vinculaciones — ORDER BY estable
+`fecha_inicio` no es único. Para obtener la vinculación activa más reciente sin duplicar filas:
+```sql
+LEFT JOIN LATERAL (
+    SELECT empresa_id, proyecto_id
+    FROM worker_vinculaciones
+    WHERE worker_id = w.id AND fecha_fin IS NULL
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+) wv ON TRUE
+```
+En EF: `.OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id).FirstOrDefault()`.
+
+### 7d. contributor reemplazó companies
+- `worker_vinculaciones.empresa_id` → `contributor.contributor_id`
+- `ss_hab_empresa.empresa_id` → `contributor.contributor_id` (via `ss_empresa_contratista` para joins en bandeja)
+- `ss_induccion.empresa_id` → `contributor.contributor_id` directamente
+- `ss_sctr_vidaley.empresa_id` → `contributor.contributor_id`
+- **`contributor` PK = `contributor_id`** (no `id`)
+- Tabla `companies` eliminada. No usar ni referenciar.
+
+### 7e. ss_hab_worker_proyecto — contratistas validados por ss_empresa_proyecto
+```csharp
+// AgregarProyectoAsync — lógica actual
+if (esContratista)
+{
+    var empresaId = await ctx.WorkerVinculacion
+        .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+        .Select(v => v.EmpresaId).FirstOrDefaultAsync();
+    var tieneEntregables = empresaId.HasValue &&
+        await ctx.SsEmpresaProyecto
+            .AnyAsync(ep => ep.EmpresaId == empresaId.Value && ep.ProyectoId == dto.ProyectoId);
+    if (!tieneEntregables)
+        throw new AbrilException("La empresa no tiene entregables registrados en este proyecto.", 400);
+}
+// CambiarObraAsync / SincronizarWorkerProyectoCambioAsync: solo Casa
+if (!esContratista) await SincronizarWorkerProyectoCambioAsync(...);
+```
+`Worker` no tiene `EmpresaId` — siempre leer de `WorkerVinculacion` activa.
+
+### 7f. Sentinel 2040 para requiere_vigencia=false
+```csharp
+// Siempre via helper — NO construir la fecha inline
+var sentinel = HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null);
+// Retorna: DateTime.SpecifyKind(new DateOnly(2040, 12, 31).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)
+```
+El helper devuelve **2040** (no 2030). Aplica a items 12, 5, 6, 8, 10 al aprobar inducción.
+
+### 7g. FechaFin sin filtro en inducciones
+Tanto `AprobarInduccionAsync` como `GetTrabajadoresPorProgramarAsync` consultan `WorkerProyecto` **sin** `wp.FechaFin == null`. Un worker retirado del proyecto tras inducción no debe perder el estado `InduccionCompletada`.
+
+### 7h. DateTime UTC obligatorio para columnas timestamptz
+```csharp
+// ❌ Npgsql rechaza Kind=Unspecified
+entity.Fecha = dto.Fecha;
+
+// ✅ siempre AsUtc
+entity.Fecha = HabilitacionDateHelper.AsUtc(dto.Fecha);
+```
+JSON sin `Z` deserializa como `Kind=Unspecified` → Npgsql tira `"Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with time zone'"`.
+
+### 7i. Patch semantics en entregables
+Al aprobar/rechazar, solo asignar campos `when not null`:
+```csharp
+if (dto.ArchivoUrl is not null) entity.ArchivoUrl = dto.ArchivoUrl;
+```
+Pisar con null borra el documento ya subido.
+
+### 7j. LatestVinc no filtra por fecha_fin
+`GetWorkersHabilitacionAsync` usa `LatestVinc` = última vinculación sin importar si está cerrada. Permite ver empresa/proyecto de workers retirados.
+
+### 7k. SharePointHabService — Singleton
+El token OAuth2 y el `driveId` del sitio se cachean en la instancia. Registrar como `AddSingleton`.
+
+### 7l. Tablas creadas manualmente (sin migración EF efectiva)
+- `worker_eventos` — `DbSet` con `HasColumnType("jsonb")` para `Datos`
+- `cat_subarea` — `DbSet` declarado pero sin migración
+- `equipo_electrico` en `ss_induccion` — columna manual, migración vacía `AddInduccionEquipoElectrico`
+Antes de `dotnet ef migrations add`, revisar el archivo generado y limpiar operaciones ya aplicadas en BD.
+
+### 7m. BandejaRepository usa NpgsqlConnection directa
+`BandejaRepository` abre conexión PG directa (no EF) para el UNION ALL. La connection string viene de `_configuration["Database:PostgreSQL"]`. Solo funciona en modo PostgreSQL.
+
+### 7n. ProjectService acoplamiento con ISunatService
+Mitigado: factory null-safe en Program.cs. Solo `/company-lookup/{ruc}` usa Sunat en runtime.
+
+---
+
+## 8. Roles del sistema
+
+| role_id | descripción |
+|---------|-------------|
+| 1 | ADMINISTRADOR DEL SISTEMA |
+| 2 | ADMINISTRADOR DE UDP |
+| 3 | USUARIO DE UDP |
+| 4 | ADMINISTRADOR DE RESIDENTES |
+| 5 | RESIDENTE |
+| 6 | USUARIO DE COSTOS Y PRESUPUESTOS |
+| 7 | ADMINISTRADOR DE COSTOS Y PRESUPUESTOS |
+| 8 | USUARIO DE ARQUITECTURA COMERCIAL |
+| 9 | ADMINISTRADOR SSOMA |
+| 10 | ADMINISTRADOR ADMINISTRACION |
+
+Roles aprobadores habilitación: `["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP", "ADMINISTRADOR ADMINISTRACION"]`
+
+---
+
+## 9. ArquitecturaComercial — detalle
+
+**Ubicación:** capa tradicional — `Controllers/ArquitecturaComercialController.cs`, `Application/Services/ArquitecturaComercialService.cs`, `Infrastructure/Repositories/ArquitecturaComercialRepository.cs`.
+
+### 9a. Tablas propias (prefijo `ac_`)
+
+| Tabla | Entidad | Rol |
+|-------|---------|-----|
+| `ac_actividades` | `AcActividad` | Actividad asignada a un proyecto |
+| `ac_etapas` | `AcEtapa` | Catálogo de etapas |
+| `ac_actividades_plantilla` | `AcActividadPlantilla` | Plantilla para inicializar actividades de un proyecto nuevo |
+| `ac_categorias` | `AcCategoria` | Catálogo de categorías |
+| `ac_especialidades` | `AcEspecialidad` | Catálogo de especialidades |
+
+Tablas compartidas: `project` (= "Proyecto" en AC, PK `project_id`) y `workers` (encargados).
+
+### 9b. AcActividad — campos
+
+`id`, `project_id` (FK→project), `user_id` (FK→workers, nullable), `nombre`, `tipo`, `etapa_id` (FK→ac_etapas, nullable), `prioridad`, `estado`, `activo` (bool), `indice` (int?), `inicio_programado` (DateOnly?), `fin_programado` (DateOnly?), `inicio_efectivo` (DateOnly?), `fin_efectivo` (DateOnly?), `observaciones`.
+
+Estado calculado dinámicamente al devolver el DTO (`ComputeEstado`): `VACIO` → `PENDIENTE` → `EN_PROCESO` → `VENCIDO` → `CULMINADO`. El campo `estado` en BD almacena el estado pero el DTO siempre lo recalcula.
+
+### 9c. Endpoints AC
+
+```
+GET    /api/v1/arquitectura-comercial/actividades           → lista paginada + filtros
+POST   /api/v1/arquitectura-comercial/actividades           → crea AcActividad (Estado="VACIO", Activo=true, Indice=max+1) → 201 + ActividadListItemDTO
+PUT    /api/v1/arquitectura-comercial/actividades/{id}      → sobreescribe 9 campos editables → 200 + ActividadListItemDTO
+DELETE /api/v1/arquitectura-comercial/actividades/{id}      → hard delete → 204
+PATCH  /api/v1/arquitectura-comercial/actividades/{id}      → patch parcial (campos opcionales por nombre)
+POST   /api/v1/arquitectura-comercial/actividades/reasignar-encargado
+POST   /api/v1/arquitectura-comercial/actividades/generar
+
+GET    /api/v1/arquitectura-comercial/proyectos-con-actividades
+GET    /api/v1/arquitectura-comercial/supervisores-ac
+GET    /api/v1/arquitectura-comercial/filtros
+GET    /api/v1/arquitectura-comercial/gantt
+GET    /api/v1/arquitectura-comercial/plantilla
+POST   /api/v1/arquitectura-comercial/plantilla
+PATCH  /api/v1/arquitectura-comercial/plantilla/{id}
+GET    /api/v1/arquitectura-comercial/categorias
+GET    /api/v1/arquitectura-comercial/especialidades
+GET    /api/v1/arquitectura-comercial/etapas
+```
+
+### 9d. DTOs clave
+
+| DTO | Uso |
+|-----|-----|
+| `AcActividadCreateDTO` | POST actividades — Nombre, Tipo, ProjectId, EtapaId?, UserId?, InicioProgramado?, FinProgramado?, Observaciones? |
+| `AcActividadUpdateDTO` | PUT actividades/{id} — mismo shape sin ProjectId ni Indice, más InicioEfectivo/FinEfectivo |
+| `ActividadListItemDTO` | Retorno de GET/POST/PUT — incluye estado calculado, retraso, EtapaNombre, ResponsableNombre |
 
 ---
 
 ## 10. Trabajo pendiente
 
-### ✅ Completado recientemente
-- **Workers CRUD** — `POST` / `PUT /{id}` / `PATCH /{id}/retirar` (cierra vinculaciones abiertas). Validación DNI 8 dígitos en controller, unicidad de DNI activo en repo (409).
-- **Catálogos SSOMA funcionando** — clínicas, médicos, tipos EMO con CRUD completo. `vigencia_meses` ahora `int?`.
-- **Emails de proyectos** — `PATCH /api/v1/project/{id}/emails` (parcial: solo actualiza los campos que vienen no-null).
-- **Projects entity consolidada** — `Project.cs` y `Proyecto.cs` eliminados; única entidad `Projects` con `[Table("projects")]` y 32 columnas mapeadas explícitamente.
-- **`[AllowAnonymous]` temporal en `ProjectController`** — aplicado a nivel de clase para pruebas; revertir antes de producción.
-- **Flujo alertas A/B** — implementado en Sprints 1-4 del módulo Habilitación SSOMA.
-- **Auth contratistas completo** — registro, activación por email, login por email+password, reset de contraseña, cambio de contraseña.
-- **Endpoint reenviar activación para admins** — `POST /api/v1/habilitacion/empresas/{id}/reenviar-activacion`, gateado a `ADMINISTRADOR SSOMA` / `ADMINISTRADOR DE UDP`, invalida tokens previos.
-- **57 empresas contratistas migradas desde PowerApps** — vía `Database/migrations/002_migracion_datos.sql`; quedan con `password_hash='PENDIENTE_RESET'` hasta primer login.
-- **16 registros modelo insertados** — catálogo público disponible vía `GET /api/v1/habilitacion/registros-modelo` (`[AllowAnonymous]`).
-- **Tabla `ss_reset_token`** — soporta tokens de activación (48h) y reset de contraseña (2h); `usado=true` invalida re-uso y reenvíos.
-- **PUT /api/v1/user/{id} y PATCH /api/v1/user/{id}/toggle** — CRUD de usuario completo: edita nombre/email/rol (con reemplazo de `UserRole`); toggle activa/desactiva. `UpdatedUserId` se toma del JWT claim.
-- **Fix `AuditoriaInterceptor`** — registrado como `Singleton`; accede a `IHttpContextAccessor` vía `IServiceScopeFactory` (scope puntual en cada `SavingChangesAsync`). Resuelve "Cannot resolve scoped service from root provider".
-- **Fix jsonb** — `HasColumnType("jsonb")` para `DatosAnteriores`/`DatosNuevos` en `ConfigurePostgreSQL`. Resuelve "column datos_anteriores is of type jsonb but expression is of type text".
-- **Perfil `Development` en `launchSettings.json`** — `ASPNETCORE_ENVIRONMENT=Development`, puerto 5236. Arranca Swagger en `/swagger`.
-- **Fix Swagger `ArchivoHabilitacionController.Subir`** — `IFormFile` + `string` envueltos en `SubirArchivoRequest` DTO (`Features/HabilitacionModule/Application/Dtos/Archivos/`). Resuelve `SwaggerGeneratorException`.
-- **Filtro CONTRATISTA en `GET /habilitacion/trabajadores`** — si el rol es `CONTRATISTA`, se ignora el query param `empresaId` y se fuerza desde el claim JWT `"empresaId"`. Patrón idéntico al que ya existía en `GET /{workerId}/entregables`.
-
 ### Alta prioridad
-- **Auth real** — quitar `[AllowAnonymous]` de SSOMA y `ProjectController`, activar JWT
-- **Usuario admin** — `app_user` vacía, sin usuario no hay login
-- **Migración de datos PowerApps → `ss_empresa_contratista`** (IdLegacy mapping)
-- **Correlación `WorkerVinculacion.EmpresaId` con `ss_empresa_contratista.Id`**
-- **Crear primer usuario admin en `app_user`** — sin esto no hay login de Abril
-- **Resetear passwords de empresas migradas** — las 57 empresas tienen `password_hash='PENDIENTE_RESET'`; lanzar reenvío masivo de activación o disparar `solicitar-reset` por correo a cada una.
-- **Deploy a producción**
+- Quitar `[AllowAnonymous]` de los 4 endpoints `/trabajadores/{id}/proyectos*`, `GET /eventos` y endpoints SSOMA
+- Quitar prefijo `[PRUEBA - NO TOMAR EN CUENTA]` de subjects de correos antes de prod (en `CambiarObraAsync`, `ReingresoAsync`, correos Vida Ley)
+- Crear primer usuario admin en `app_user`
+- Deploy a producción
+- 42 empresas SharePoint con IDs 1656+ pendientes de migrar a `contributor`
+- Eliminar `id_sharepoint` de `contributor` cuando migración SharePoint esté completa
 
 ### Media prioridad
-- **Empresas contratistas** — 1,591 vinculaciones sin empresa
-- **tipo_emo_id** — los 813 EMOs migrados tienen NULL
+- Empresas contratistas: 1.591 vinculaciones sin empresa
+- `tipo_emo_id`: 813 EMOs migrados tienen NULL
+- Eliminar `id_trabajador` de `workers` tras confirmar migración completa
+- Multi-proyecto FASE 4: `BandejaRepository`, listados, EMO, SCTR y Vida Ley aún razonan sobre `worker_vinculaciones` (1-activa). Evaluar si pivotar a `ss_hab_worker_proyecto` para workers Casa en N proyectos
+- `InicializarEntregablesAsync` no crea fila inicial en `ss_hab_worker_proyecto` — considerar parámetro `proyectoInicialId?` en `POST /workers`
+- Separar `ISunatLookupService` de `ProjectService` para eliminar el acoplamiento de DI
 
 ### Baja prioridad
 - 8 EMOs sin match de DNI — insertar manualmente
 - 24 vinculaciones sin proyecto
-
----
-
-## 11. Módulo Habilitación SSOMA
-
-**Ubicación:** `Features/HabilitacionModule/`
-
-**Stack técnico agregado:**
-- BCrypt.Net-Next 4.1.0 — hash de passwords contratistas
-- FluentValidation.AspNetCore 11.3.1 — validaciones automáticas
-- Dapper 2.1.72 — queries optimizadas para bandeja y reportes
-
-**Auth contratistas:**
-- Endpoint: `POST /api/v1/habilitacion/auth/login`
-- JWT con claims: `NameIdentifier=empresaId`, `Role=CONTRATISTA`, `empresaId`, `tipo`
-- Expiración: 8 horas
-- Password hasheado con BCrypt
-
-**Interceptor de auditoría:**
-- `Shared/Interceptors/AuditoriaInterceptor.cs`
-- Registrado como **`Singleton`** en `Program.cs` (no Scoped)
-- Inyecta `IServiceScopeFactory`; crea scope puntual en cada `SavingChangesAsync` para leer `IHttpContextAccessor`
-- Auto-setea `CreatedAt`/`UpdatedAt` en todas las entidades
-- Audita tablas: `ss_hab_trabajador`, `ss_hab_empresa`, `ss_hab_equipo`,
-  `ss_sctr_vidaley`, `ss_empresa_contratista`, `ss_equipo`, `ss_induccion`,
-  `ss_eval_supervisor`
-- Lee `userId`, `usuarioNombre`, `empresaId` e IP del `HttpContext`
-- Columnas `datos_anteriores`/`datos_nuevos` son `jsonb` → override en `ConfigurePostgreSQL`
-
-**Control de versiones:**
-- Tabla: `ss_hab_documento_version`
-- Se activa automáticamente cuando cambia `archivo_url` en un entregable
-- Disponible para trabajador, empresa y equipo
-
-**Endpoints completos:**
-
-```
-POST/GET    /api/v1/habilitacion/auth/login|empresas
-POST        /api/v1/habilitacion/auth/activar
-POST        /api/v1/habilitacion/auth/solicitar-reset
-POST        /api/v1/habilitacion/auth/reset-password
-PATCH       /api/v1/habilitacion/auth/cambiar-password   (rol CONTRATISTA)
-GET/POST/PUT /api/v1/habilitacion/empresas
-POST        /api/v1/habilitacion/empresas/{id}/reenviar-activacion  (admin)
-GET         /api/v1/habilitacion/empresas/{id}/entregables
-PUT         /api/v1/habilitacion/empresas/{id}/entregables/{itemId}
-GET         /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
-GET         /api/v1/habilitacion/trabajadores
-GET/PUT     /api/v1/habilitacion/trabajadores/{id}/entregables
-GET         /api/v1/habilitacion/trabajadores/entregables/{id}/versiones
-PATCH       /api/v1/habilitacion/trabajadores/{id}/cambiar-obra|reingreso
-GET/PATCH   /api/v1/habilitacion/bandeja
-GET/PATCH   /api/v1/habilitacion/bandeja/cursor
-GET/POST    /api/v1/habilitacion/sctr-vidaley
-PATCH       /api/v1/habilitacion/sctr-vidaley/{id}/aprobar
-GET/POST/PUT/DELETE /api/v1/habilitacion/reglas
-GET         /api/v1/habilitacion/auditoria
-GET         /api/v1/habilitacion/archivos/ver|descargar
-POST        /api/v1/habilitacion/archivos/subir
-GET         /api/v1/habilitacion/registros-modelo  (público)
-```
-
-**Reglas de negocio críticas:**
-- Worker solo puede pertenecer a UNA empresa activa a la vez
-- Violación registrada en `ss_hab_bloqueo_log` y retorna 409
-- Contratista solo ve workers de su empresa (validado por JWT claim `empresaId`)
-- Contratista solo puede cambiar estado a `'Enviado'` (no puede aprobar)
-- EMO es read-only — lee de `worker_emos`, no de `ss_hab_trabajador`
-- SCTR/Vida Ley es masivo — un documento cubre múltiples workers
-- Estado SCTR: `Aprobado`/`Rechazado`/`Parcial` según workers aprobados
-
-**Pitfalls conocidos:**
-- `WorkerVinculacion.EmpresaId` apunta a tabla legacy `companies`, NO a
-  `ss_empresa_contratista.Id` — requiere correlación via `IdLegacy`
+- `ReminderController` aún usa `Environment.GetEnvironmentVariable` para CronSecret — migrar a `IConfiguration`
 - FluentValidation 11.3.1 usa API deprecated — migrar cuando bumpeemos v12
-- SharePoint: `/descargar` usa redirect 302, el browser ignora
-  `Content-Disposition` en redirect (limitación inherente)
-- `AuditoriaInterceptor` detecta `DateTimeOffset` vs `DateTime` por `ClrType`
-  para evitar type mismatch en `SaveChanges`
-- **Migración entregables** — 25,531 registros migrados desde PowerApps vía SQL a `ss_hab_trabajador`
-- **Catálogo `ss_item_trabajador` extendido** — items 18-22 agregados (sprints posteriores a migración inicial)
-- **`id_trabajador` en `workers`** — campo temporal usado como vinculador con el ID legacy de PowerApps; pendiente eliminar una vez consolidada la migración
+- Refactor `Sunat:Token` headers en Program.cs dentro del `if` null-safe

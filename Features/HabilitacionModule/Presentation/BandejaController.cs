@@ -14,11 +14,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     public class BandejaController : ControllerBase
     {
         private readonly IBandejaRepository _repo;
+        private readonly IInduccionRepository _induccionRepo;
         private readonly ILogger<BandejaController> _logger;
 
-        public BandejaController(IBandejaRepository repo, ILogger<BandejaController> logger)
+        public BandejaController(IBandejaRepository repo, IInduccionRepository induccionRepo, ILogger<BandejaController> logger)
         {
             _repo = repo;
+            _induccionRepo = induccionRepo;
             _logger = logger;
         }
 
@@ -94,6 +96,18 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.AprobarEmpresa"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("induccion/{id:int}")]
+        public async Task<IActionResult> AprobarInduccion(int id)
+        {
+            try
+            {
+                await _induccionRepo.AprobarAsync(id);
+                return Ok(new { message = "Inducción aprobada." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.AprobarInduccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpPatch("equipo/{id:int}")]

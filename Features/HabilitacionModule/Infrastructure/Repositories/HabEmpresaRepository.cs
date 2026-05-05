@@ -1,9 +1,12 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 {
@@ -21,46 +24,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var items = await ctx.SsItemEmpresa
-                .Where(i => i.Activo)
-                .OrderBy(i => i.Orden)
-                .ToListAsync();
+            var query = ctx.SsHabEmpresa
+                .Where(h => h.EmpresaId == empresaId && h.ProyectoId == proyectoId);
 
-            var itemIds = items.Select(i => i.Id).ToList();
+            if (mes.HasValue) query = query.Where(h => h.Mes == mes.Value);
+            if (anio.HasValue) query = query.Where(h => h.Anio == anio.Value);
 
-            var existentesQuery = ctx.SsHabEmpresa
-                .Where(h => h.EmpresaId == empresaId && h.ProyectoId == proyectoId && itemIds.Contains(h.ItemId));
+            var registros = await query.ToListAsync();
+            if (registros.Count == 0) return [];
 
-            if (mes.HasValue) existentesQuery = existentesQuery.Where(h => h.Mes == mes.Value);
-            if (anio.HasValue) existentesQuery = existentesQuery.Where(h => h.Anio == anio.Value);
+            var itemIds = registros.Select(h => h.ItemId).Distinct().ToList();
+            var itemMap = await ctx.SsItemEmpresa
+                .Where(i => itemIds.Contains(i.Id))
+                .ToDictionaryAsync(i => i.Id);
 
-            var existentes = await existentesQuery.ToListAsync();
-
-            var faltantes = items
-                .Where(i => !existentes.Any(h => h.ItemId == i.Id))
-                .Select(i => new SsHabEmpresa
-                {
-                    EmpresaId = empresaId,
-                    ProyectoId = proyectoId,
-                    ItemId = i.Id,
-                    Mes = mes,
-                    Anio = anio,
-                    Estado = "Falta",
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                })
-                .ToList();
-
-            if (faltantes.Count > 0)
-            {
-                ctx.SsHabEmpresa.AddRange(faltantes);
-                await ctx.SaveChangesAsync();
-                existentes.AddRange(faltantes);
-            }
-
-            var itemMap = items.ToDictionary(i => i.Id);
-
-            return existentes
+            return registros
                 .Where(h => itemMap.ContainsKey(h.ItemId))
                 .Select(h =>
                 {
@@ -111,7 +89,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             entregable.Estado = dto.Estado;
-            entregable.Vigencia = dto.Vigencia;
+            entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
             entregable.ArchivoUrl = dto.ArchivoUrl;
             entregable.ObsAbril = dto.ObsAbril;
             entregable.ObsContratista = dto.ObsContratista;
@@ -127,6 +105,63 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             await ctx.SaveChangesAsync();
             return entregable;
+        }
+
+        public async Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoEmpresaAsync(int empresaId, int itemId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var habEmpresaIds = await ctx.SsHabEmpresa
+                .Where(h => h.EmpresaId == empresaId && h.ItemId == itemId)
+                .Select(h => h.Id)
+                .ToListAsync();
+
+            if (habEmpresaIds.Count == 0) return [];
+
+            var versiones = await ctx.SsHabDocumentoVersion
+                .Where(v => v.HabEmpresaId.HasValue && habEmpresaIds.Contains(v.HabEmpresaId.Value))
+                .OrderByDescending(v => v.Version)
+                .ToListAsync();
+
+            var userIds = versiones
+                .Where(v => v.SubidoPorUserId.HasValue)
+                .Select(v => v.SubidoPorUserId!.Value)
+                .Distinct()
+                .ToList();
+
+            var nombresPorUserId = new Dictionary<int, string?>();
+            if (userIds.Count > 0)
+            {
+                var users = await (
+                    from u in ctx.User
+                    join p in ctx.Person on u.UserId equals p.UserId
+                    where userIds.Contains(u.UserId)
+                    select new { u.UserId, p.FullName }
+                  ).ToListAsync();
+
+                foreach (var x in users)
+                    nombresPorUserId[x.UserId] = x.FullName;
+            }
+
+            return versiones.Select(v => new SsHabDocumentoVersionDto
+            {
+                Id = v.Id,
+                HabTrabajadorId = v.HabTrabajadorId,
+                Version = v.Version,
+                ArchivoUrl = v.ArchivoUrl,
+                SubidoPorUserId = v.SubidoPorUserId,
+                SubidoPorNombre = v.SubidoPorUserId.HasValue && nombresPorUserId.TryGetValue(v.SubidoPorUserId.Value, out var nombre)
+                    ? nombre
+                    : null,
+                SubidoPorEmpresaId = v.SubidoPorEmpresaId,
+                EstadoAlSubir = v.EstadoAlSubir,
+                EstadoAnterior = v.EstadoAnterior,
+                ProyectoId = v.ProyectoId,
+                EmpresaId = v.EmpresaId,
+                AprobadoPorUserId = v.AprobadoPorUserId,
+                MotivoRechazo = v.MotivoRechazo,
+                CreatedAt = v.CreatedAt
+            }).ToList();
         }
 
         public async Task InicializarEntregablesEmpresaAsync(int empresaId, int proyectoId)
@@ -160,6 +195,77 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ctx.SsHabEmpresa.AddRange(faltantes);
                 await ctx.SaveChangesAsync();
             }
+        }
+
+        public async Task ActivarProyectoAsync(int empresaId, int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var empresaExiste = await ctx.SsEmpresaContratista.AnyAsync(e => e.Id == empresaId);
+            if (!empresaExiste)
+                throw new AbrilException("Empresa no encontrada.", 404);
+
+            var proyectoExiste = await ctx.Project.AnyAsync(p => p.ProjectId == proyectoId);
+            if (!proyectoExiste)
+                throw new AbrilException("Proyecto no encontrado.", 404);
+
+            var yaActiva = await ctx.SsEmpresaProyecto
+                .AnyAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId && ep.Activo);
+            if (yaActiva)
+                throw new AbrilException("La empresa ya está activa en este proyecto.", 409);
+
+            ctx.SsEmpresaProyecto.Add(new SsEmpresaProyecto
+            {
+                EmpresaId = empresaId,
+                ProyectoId = proyectoId,
+                Activo = true,
+                FechaInicio = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+            await ctx.SaveChangesAsync();
+
+            await InicializarEntregablesEmpresaAsync(empresaId, proyectoId);
+        }
+
+        public async Task<List<ProyectoDisponibleDto>> GetProyectosDisponiblesAsync(int empresaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var proyectos = await ctx.Project
+                .Where(p => p.State)
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new { p.ProjectId, p.ProjectDescription })
+                .ToListAsync();
+
+            var activas = await ctx.SsEmpresaProyecto
+                .Where(ep => ep.EmpresaId == empresaId && ep.Activo)
+                .Select(ep => new { ep.ProyectoId, ep.FechaInicio })
+                .ToListAsync();
+
+            var activasMap = activas.ToDictionary(ep => ep.ProyectoId, ep => ep.FechaInicio);
+
+            return proyectos.Select(p => new ProyectoDisponibleDto
+            {
+                Id = p.ProjectId,
+                Nombre = p.ProjectDescription,
+                EstaActiva = activasMap.ContainsKey(p.ProjectId),
+                FechaInicio = activasMap.TryGetValue(p.ProjectId, out var fi) && fi.HasValue
+                    ? DateOnly.FromDateTime(fi.Value)
+                    : null
+            }).ToList();
+        }
+
+        public async Task DesactivarProyectoAsync(int empresaId, int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var registro = await ctx.SsEmpresaProyecto
+                .FirstOrDefaultAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId && ep.Activo)
+                ?? throw new AbrilException("No existe una activación activa para esa empresa y proyecto.", 404);
+
+            registro.Activo = false;
+            registro.FechaFin = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
         }
     }
 }

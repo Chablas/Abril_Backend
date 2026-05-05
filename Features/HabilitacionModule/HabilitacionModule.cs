@@ -20,7 +20,9 @@ namespace Abril_Backend.Features.Habilitacion
             services.AddScoped<IHabEmpresaRepository, HabEmpresaRepository>();
             services.AddScoped<ISctrVidaLeyRepository, SctrVidaLeyRepository>();
             services.AddScoped<IEquipoRepository, EquipoRepository>();
-            services.AddScoped<ISharePointHabService, SharePointHabService>();
+            services.AddScoped<IProyectoHabRepository, ProyectoHabRepository>();
+            services.AddScoped<IInduccionRepository, InduccionRepository>();
+            services.AddSingleton<ISharePointHabService, SharePointHabService>();
             return services;
         }
     }

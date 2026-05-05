@@ -81,6 +81,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<WorkerEmo> WorkerEmo { get; set; }
         public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }
         public DbSet<WorkerVinculacion> WorkerVinculacion { get; set; }
+        public DbSet<WorkerProyecto> WorkerProyecto { get; set; }
         public DbSet<SsClinica> SsClinica { get; set; }
         public DbSet<SsMedicoOcupacional> SsMedicoOcupacional { get; set; }
         public DbSet<SsEmoTipo> SsEmoTipo { get; set; }
@@ -113,6 +114,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AuditoriaCambio> AuditoriaCambios => Set<AuditoriaCambio>();
         public DbSet<SsHabDocumentoVersion> SsHabDocumentoVersion => Set<SsHabDocumentoVersion>();
         public DbSet<SsResetToken> SsResetToken => Set<SsResetToken>();
+        public DbSet<CatSubarea> CatSubarea => Set<CatSubarea>();
+        public DbSet<WorkerEvento> WorkerEvento => Set<WorkerEvento>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -323,6 +326,8 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.DatosAnteriores).HasColumnType("jsonb");
                 entity.Property(e => e.DatosNuevos).HasColumnType("jsonb");
             });
+            modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
+            modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
         }
     }
 }

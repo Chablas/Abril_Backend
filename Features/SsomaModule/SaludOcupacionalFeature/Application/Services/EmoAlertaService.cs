@@ -66,7 +66,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .AsNoTracking()
                 .Where(v => workerIds.Contains(v.WorkerId)
                             && (v.FechaFin == null || v.FechaFin >= hoy))
-                .OrderByDescending(v => v.FechaInicio)
+                .OrderByDescending(v => v.CreatedAt)
+                .ThenByDescending(v => v.Id)
                 .ToListAsync();
 
             var vinculacionPorWorker = vinculaciones

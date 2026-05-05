@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
 {
     public interface IProjectService
     {
-        Task<PagedResult<ProjectDto>> GetPaged(int page);
+        Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize);
         Task Create(ProjectCreateDto dto, int userId);
         Task Update(ProjectEditDto dto, int userId);
         Task<bool> DeleteSoftAsync(int projectId, int userId);

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -13,11 +14,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     public class WorkersController : ControllerBase
     {
         private readonly IWorkerSearchService _service;
+        private readonly IHabTrabajadorRepository _habRepo;
         private readonly ILogger<WorkersController> _logger;
 
-        public WorkersController(IWorkerSearchService service, ILogger<WorkersController> logger)
+        public WorkersController(IWorkerSearchService service, IHabTrabajadorRepository habRepo, ILogger<WorkersController> logger)
         {
             _service = service;
+            _habRepo = habRepo;
             _logger = logger;
         }
 
@@ -44,6 +47,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                     return BadRequest(new { message = "dni debe tener exactamente 8 dígitos numéricos." });
 
                 var id = await _service.Create(dto);
+                await _habRepo.InicializarEntregablesAsync(id);
                 return StatusCode(201, new { id, message = "Trabajador creado exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

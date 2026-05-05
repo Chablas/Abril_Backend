@@ -10,8 +10,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
 
         Task<SctrVidaLeyDto?> GetByIdAsync(int id);
         Task<SctrVidaLeyDto> CreateAsync(SctrVidaLeyCreateDto dto, int empresaId);
+        Task<SctrVidaLeyDto> UpdateAsync(int id, SctrVidaLeyCreateDto dto, int empresaId);
         Task<SctrVidaLeyDto> AprobarAsync(int id, SctrVidaLeyAprobarDto dto, int userId);
         Task<List<SctrVidaLeyDto>> GetPorTrabajadorAsync(int workerId);
         Task<List<SctrVidaLeyDto>> GetProximosVencerAsync(int dias);
+        Task<List<SctrTrabajadorEstadoDto>> GetTrabajadoresPorEmpresaAsync(
+            int? empresaId, int? proyectoId, string? tipo, string? tipoPoliza,
+            string? estadoSctr, string? estadoVidaLey);
     }
 }

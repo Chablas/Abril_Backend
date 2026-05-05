@@ -8,7 +8,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Services;
 using Abril_Backend.Application.Services;
 using Abril_Backend.Application.Interfaces;
-using Abril_Backend.Features.MicrosoftAuth;
+using Abril_Backend.Features.AuthModule;
 using Microsoft.EntityFrameworkCore;
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Identity;

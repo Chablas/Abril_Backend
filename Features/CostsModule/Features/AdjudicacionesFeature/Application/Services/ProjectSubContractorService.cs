@@ -8,7 +8,10 @@ using Abril_Backend.Shared.Services.Email.Interfaces;
 using Abril_Backend.Shared.Services.Email.Dtos;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Dtos;
+using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using PdfSharpCore.Pdf;
+using PdfSharpCore.Pdf.IO;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
 using ClosedXML.Excel;
 using System.Text;
@@ -30,11 +33,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            "eaguinaga@abril.pe",
-            "apimentel@abril.pe",
-            "bquicana@abril.pe",
-            "cavila@abril.pe",
-            //"alvarezvillegaschristian@gmail.com"
+            //"eaguinaga@abril.pe",
+            //"apimentel@abril.pe",
+            //"bquicana@abril.pe",
+            //"cavila@abril.pe",
+            "alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -82,51 +85,21 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         public async Task<ProjectSubContractorFormDataDTO> GetFormData()
         {
-            var projectsTask = _projectRepository.GetAllFactory();
-            var contractsTask = _projectSubContractorRepository.GetContractsFactory();
-            var contractTypesTask = _projectSubContractorRepository.GetContractTypeFactory();
-            var contractOriginsTask = _projectSubContractorRepository.GetContractOriginFactory();
-            var paymentMethodsTask = _projectSubContractorRepository.GetPaymentMethodFactory();
-            var currenciesTask = _projectSubContractorRepository.GetCurrencyFactory();
-            var workItemsTask = _projectSubContractorRepository.GetWorkItemFactory();
-            var workItemCategoriesTask = _projectSubContractorRepository.GetWorkItemCategoryFactory();
-            var contributorsTask = _projectSubContractorRepository.GetCompanyFactory();
-
-            await Task.WhenAll(
-                projectsTask,
-                contractsTask,
-                contractTypesTask,
-                contractOriginsTask,
-                paymentMethodsTask,
-                currenciesTask,
-                workItemsTask,
-                workItemCategoriesTask,
-                contributorsTask);
-
-            return new ProjectSubContractorFormDataDTO
-            {
-                Projects = await projectsTask,
-                Contracts = await contractsTask,
-                ContractTypes = await contractTypesTask,
-                ContractOrigins = await contractOriginsTask,
-                PaymentMethods = await paymentMethodsTask,
-                Currencies = await currenciesTask,
-                WorkItems = await workItemsTask,
-                WorkItemCategories = await workItemCategoriesTask,
-                Contributors = await contributorsTask
-            };
+            // Usa una sola conexión a la BD compartida entre todas las queries del catálogo,
+            // en vez de abrir 9 contextos paralelos. Ver ProjectSubContractorRepository.GetFormDataAsync.
+            return await _projectSubContractorRepository.GetFormDataAsync();
         }
 
-        private async Task<List<(string Url, string OriginalFileName)>> UploadFilesToSharePoint(
+        private async Task<List<(string Url, string OriginalFileName, string? ItemId)>> UploadFilesToSharePoint(
             List<IFormFile>? files,
             AdjudicacionPathDataDto pathData,
             AdjudicacionDocumentType documentType)
         {
             if (files == null || files.Count == 0)
-                return new List<(string, string)>();
+                return new List<(string, string, string?)>();
 
             var folderPath = BuildSharePointPath(pathData, documentType);
-            var results    = new List<(string Url, string OriginalFileName)>();
+            var results    = new List<(string Url, string OriginalFileName, string? ItemId)>();
 
             foreach (var file in files)
             {
@@ -134,7 +107,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     throw new AbrilException("Se detectó un archivo vacío.");
 
                 using var stream = file.OpenReadStream();
-                var fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    file.FileName,
@@ -142,7 +115,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     contentType: file.ContentType)
                     ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
 
-                results.Add((fileUrl, file.FileName));
+                if (spResult.WebUrl is null)
+                    throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+
+                results.Add((spResult.WebUrl, file.FileName, spResult.ItemId));
             }
 
             return results;
@@ -243,32 +219,51 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             }
         }
 
-        public async Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile file, int userId)
+        public async Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile? file, int userId)
         {
             var data     = await _projectSubContractorRepository.GetScNotificationDataAsync(projectSubContractorId);
             var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
 
-            // Leer bytes una sola vez: se usan para SP y para el adjunto del correo
-            using var ms = new MemoryStream();
-            await file.CopyToAsync(ms);
-            var fileBytes = ms.ToArray();
+            byte[] fileBytes;
+            string fileName;
+            string contentType;
+
+            if (file != null)
+            {
+                // Caso normal: el usuario subió o generó el archivo en esta sesión
+                using var ms = new MemoryStream();
+                await file.CopyToAsync(ms);
+                fileBytes   = ms.ToArray();
+                fileName    = file.FileName;
+                contentType = file.ContentType ?? "application/pdf";
+            }
+            else
+            {
+                // Caso reapertura: el paquete ya estaba guardado en SharePoint — descargarlo por URL
+                var pkgInfo = await _projectSubContractorRepository.GetPackageFileInfoAsync(projectSubContractorId)
+                    ?? throw new AbrilException("No hay paquete de contrato generado. Por favor genere o seleccione el archivo antes de enviar.", 400);
+
+                fileBytes   = await _sharePointService.DownloadFromSharePointAsync(pkgInfo.FileUrl);
+                fileName    = pkgInfo.OriginalFileName;
+                contentType = "application/pdf";
+            }
 
             // Subir a SharePoint
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.ScPackage);
             await _sharePointService.UploadToSharePointLibraryAsync(
                 libraryName: "Adjudicaciones",
                 folderPath:  folderPath,
-                fileName:    file.FileName,
+                fileName:    fileName,
                 fileStream:  new MemoryStream(fileBytes),
-                contentType: file.ContentType);
+                contentType: contentType);
 
             // Construir y enviar el correo
-            var subject    = $"{data.ProjectDescription} : {file.FileName}";
-            var body       = BuildScEmailBody(file.FileName, data.WorkItemDescription);
+            var subject    = $"{data.ProjectDescription} : {fileName}";
+            var body       = BuildScEmailBody(fileName, data.WorkItemDescription);
             var attachment = new MailAttachmentDto
             {
-                FileName    = file.FileName,
-                ContentType = file.ContentType ?? "application/octet-stream",
+                FileName    = fileName,
+                ContentType = contentType,
                 Content     = fileBytes
             };
 
@@ -475,18 +470,22 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var fileName   = file.FileName;
 
             string fileUrl;
+            string? sharepointItemId;
             using (var stream = file.OpenReadStream())
             {
-                fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    fileName,
                     fileStream:  stream,
                     contentType: file.ContentType) ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+
+                fileUrl          = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+                sharepointItemId = spResult.ItemId;
             }
 
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, documentType, fileUrl, fileName, userId);
+                projectSubContractorId, documentType, fileUrl, fileName, userId, sharepointItemId);
 
             return new DocumentUploadResponseDto
             {
@@ -510,6 +509,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     await GenerateContractAsync(projectSubContractorId, userId),
                 AdjudicacionDocumentType.Budget =>
                     await GenerateBudgetAsync(projectSubContractorId, userId),
+                AdjudicacionDocumentType.PromissoryNote =>
+                    await GeneratePromissoryNoteAsync(projectSubContractorId, userId),
                 _ => throw new AbrilException(
                     $"La generación del documento '{documentType}' aún no está implementada.")
             };
@@ -519,6 +520,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             int projectSubContractorId, int userId)
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
+
+            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
+                ? data.ProjectDescription[..3].ToUpperInvariant()
+                : data.ProjectDescription.ToUpperInvariant();
 
             using var workbook = new XLWorkbook();
             var ws = workbook.Worksheets.Add("1.HOJA RESUMEN");
@@ -538,10 +543,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
 
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.SummarySheet);
-            var fileName   = $"HOJA_RESUMEN_{data.ProjectSubContractorId:D4}.xlsx";
+            var fileName   = $"HOJA RESUMEN N°{data.ContractNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.xlsx";
             const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-            var fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                 libraryName: "Adjudicaciones",
                 folderPath:  folderPath,
                 fileName:    fileName,
@@ -549,8 +554,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 contentType: xlsxMime)
                 ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
 
+            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.SummarySheet, fileUrl, fileName, userId);
+                projectSubContractorId, AdjudicacionDocumentType.SummarySheet, fileUrl, fileName, userId, spResult.ItemId);
 
             return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
         }
@@ -597,6 +604,37 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var monedaMayuscula = moneda.ToUpperInvariant();
             var montoEnPalabras = $"{palabras} con {centavos:D2}/100 {moneda}";
 
+            // Adelanto en palabras
+            var advanceEntero   = (long)Math.Truncate(advanceAmount);
+            var advanceCentavos = (int)Math.Round((advanceAmount - advanceEntero) * 100);
+            var advancePalabras = advanceEntero.ToWords(esCulture);
+            advancePalabras = char.ToUpper(advancePalabras[0]) + advancePalabras[1..];
+            var advanceAmountEnPalabras = $"{advancePalabras} con {advanceCentavos:D2}/100 {moneda}";
+
+            // Diferencia (monto total − adelanto)
+            var diferencia          = data.Amount - advanceAmount;
+            var diferenciaEntero    = (long)Math.Truncate(diferencia);
+            var diferenciaCentavos  = (int)Math.Round((diferencia - diferenciaEntero) * 100);
+            var diferenciaPalabras  = diferenciaEntero.ToWords(esCulture);
+            diferenciaPalabras = char.ToUpper(diferenciaPalabras[0]) + diferenciaPalabras[1..];
+            var diferenciaEnPalabras = $"{diferenciaPalabras} con {diferenciaCentavos:D2}/100 {moneda}";
+            var diferenciaFormato    = data.CurrencyCode == "USD"
+                ? $"US$. {diferencia:N2}"
+                : $"S/. {diferencia:N2}";
+
+            // Fondo de garantía (valores contractuales fijos: 5 % / 365 días / 1 año / 12 meses)
+            const int    fondoPorc  = 5;
+            const int    fondoDias  = 365;
+            const int    fondoAnios = 1;
+            const int    fondoMeses = 12;
+            var fondoPorcPalabras  = ((long)fondoPorc).ToWords(esCulture);   // "cinco"
+            var fondoMesesPalabras = ((long)fondoMeses).ToWords(esCulture);  // "doce"
+
+            // Plazo en palabras
+            var plazoPalabras = plazo > 0 ? ((long)plazo).ToWords(esCulture) : "";
+            if (!string.IsNullOrEmpty(plazoPalabras))
+                plazoPalabras = char.ToUpper(plazoPalabras[0]) + plazoPalabras[1..];
+
             var replacements = new Dictionary<string, string>
             {
                 // Contratista
@@ -624,8 +662,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{FECHA_INICIO}}",                  data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
                 { "{{FECHA_FIN}}",                     data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
                 { "{{PLAZO_NUM}}",                     plazo.ToString() },
+                { "{{PLAZO_EN_PALABRAS}}",             plazoPalabras },
                 { "{{ADVANCE_PERCENTAGE}}",            data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
                 { "{{ADVANCE_AMOUNT}}",                $"{currencySymbol} {advanceAmount:N2}" },
+                { "{{ADVANCE_AMOUNT_EN_PALABRAS}}",    advanceAmountEnPalabras },
+                { "{{DIFERENCIA_MONTO}}",              diferenciaFormato },
+                { "{{DIFERENCIA_MONTO_EN_PALABRAS}}", diferenciaEnPalabras },
+                { "{{FONDO_GARANTÍA_PORCENTAJE}}",     $"{fondoPorc}%" },
+                { "{{FONDO_GARANTÍA_EN_PALABRAS}}",    $"{fondoPorcPalabras} por ciento" },
+                { "{{FONDO_GARANTÍA_PLAZO_EN_DÍAS}}",  $"{fondoDias} días" },
+                { "{{FONDO_GARANTÍA_PLAZO_EN_AÑOS}}",  $"{fondoAnios} año" },
+                { "{{FONDO_GARANTÍA_PLAZO_NUM_PALABRA}}", $"{fondoMeses} ({fondoMesesPalabras})" },
                 { "{{TIPO_CONTRATO}}",                 data.ContractTypeDescription },
                 { "{{PARTIDA}}",                       data.WorkItemDescription },
                 { "{{AÑO_ACTUAL}}",                    DateTime.UtcNow.Year.ToString() },
@@ -647,23 +694,146 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
 
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.Contract);
-            var fileName   = $"CONTRATO_{data.ProjectSubContractorId:D4}.docx";
+            var fileName   = $"CONTRATO N°{data.ContractNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.docx";
             const string docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
             string fileUrl;
+            string? contractItemId;
             using (var ms = new MemoryStream(docBytes))
             {
-                fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    fileName,
                     fileStream:  ms,
                     contentType: docxMime)
                     ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+
+                fileUrl       = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+                contractItemId = spResult.ItemId;
             }
 
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.Contract, fileUrl, fileName, userId);
+                projectSubContractorId, AdjudicacionDocumentType.Contract, fileUrl, fileName, userId, contractItemId);
+
+            return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
+        }
+
+        private async Task<DocumentUploadResponseDto> GeneratePromissoryNoteAsync(
+            int projectSubContractorId, int userId)
+        {
+            var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
+
+            var templatePath = Path.Combine(
+                AppContext.BaseDirectory,
+                "Features", "CostsModule", "Features", "AdjudicacionesFeature",
+                "Templates", "plantilla_pagare_con_placeholders.docx");
+
+            if (!File.Exists(templatePath))
+                throw new AbrilException(
+                    "No se encontró la plantilla del pagaré en el servidor. " +
+                    "Contacte al administrador del sistema.");
+
+            var esCulture   = new CultureInfo("es");
+            var currencySymbol = data.CurrencyCode == "USD" ? "US$" : "S/";
+
+            var advanceAmount = data.AdvanceAmount
+                ?? (data.AdvancePercentage.HasValue
+                    ? Math.Round(data.AdvancePercentage.Value / 100m * data.Amount, 2)
+                    : 0m);
+
+            // Adelanto en palabras
+            var advanceEntero   = (long)Math.Truncate(advanceAmount);
+            var advanceCentavos = (int)Math.Round((advanceAmount - advanceEntero) * 100);
+            var advancePalabras = advanceEntero.ToWords(esCulture);
+            advancePalabras = char.ToUpper(advancePalabras[0]) + advancePalabras[1..];
+            var moneda = data.CurrencyCode == "USD" ? "dólares" : "soles";
+            var advanceAmountEnPalabras = $"{advancePalabras} con {advanceCentavos:D2}/100 {moneda}";
+
+            // Monto total en palabras
+            var entero   = (long)Math.Truncate(data.Amount);
+            var centavos = (int)Math.Round((data.Amount - entero) * 100);
+            var palabras = entero.ToWords(esCulture);
+            palabras = char.ToUpper(palabras[0]) + palabras[1..];
+            var montoEnPalabras = $"{palabras} con {centavos:D2}/100 {moneda}";
+
+            // ADVANCE_FECHA_FIN: end_date + 3 meses
+            var advanceFechaFin = data.EndDate.HasValue
+                ? data.EndDate.Value.AddMonths(3).ToString("dd/MM/yyyy")
+                : "";
+
+            // FECHA_ACTUAL: "09 DE FEBRERO 2026"
+            var mesesEs = new[] {
+                "ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO",
+                "JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"
+            };
+            var hoy = DateTime.UtcNow;
+            var fechaActual = $"{hoy.Day:D2} DE {mesesEs[hoy.Month - 1]} {hoy.Year}";
+
+            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
+                ? data.ProjectDescription[..3].ToUpperInvariant()
+                : data.ProjectDescription.ToUpperInvariant();
+
+            var replacements = new Dictionary<string, string>
+            {
+                { "{{PROYECTO_ABREVIATURA}}",             abreviaturaProyecto },
+                { "{{PROYECTO_RAZON_SOCIAL}}",            data.ProjectRazonSocial ?? "" },
+                { "{{PROYECTO_RUC}}",                     data.ProjectContributorRuc ?? "" },
+                { "{{PROYECTO_NOMBRE}}",                  data.ProjectDescription },
+                { "{{PROYECTO_DISTRITO}}",                data.ProjectDistrict ?? "" },
+                { "{{AÑO_ACTUAL}}",                       hoy.Year.ToString() },
+                { "{{NUM_PAGARE}}",                       data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },
+                { "{{NUM_CONTRATO}}",                     data.ContractNumber.HasValue ? data.ContractNumber.Value.ToString("D3") : "" },
+                { "{{ADVANCE_AMOUNT}}",                   $"{currencySymbol} {advanceAmount:N2}" },
+                { "{{ADVANCE_AMOUNT_EN_PALABRAS}}",       advanceAmountEnPalabras },
+                { "{{ADVANCE_FECHA_FIN}}",                advanceFechaFin },
+                { "{{MONTO_EN_PALABRAS}}",                montoEnPalabras },
+                { "{{PARTIDA}}",                          data.WorkItemDescription },
+                { "{{FECHA_ACTUAL}}",                     fechaActual },
+                { "{{CONTRATISTA_RAZON_SOCIAL}}",         data.ContributorName },
+                { "{{CONTRATISTA_RUC}}",                  data.ContributorRuc },
+                { "{{CONTRATISTA_REPRESENTANTE_NOMBRE}}", data.LegalRepresentativeFullName ?? "" },
+                { "{{CONTRATISTA_UBICACION}}",            data.ContributorAddress ?? "" },
+                { "{{CONTRATISTA_DISTRITO}}",             data.ContributorDistrict ?? "" },
+                { "{{CONTRATISTA_PROVINCIA}}",            data.ContributorProvince ?? "" },
+                { "{{CONTRATISTA_DEPARTAMENTO}}",         data.ContributorDepartment ?? "" },
+            };
+
+            byte[] docBytes;
+            using (var templateStream = File.OpenRead(templatePath))
+                docBytes = WordTemplateHelper.FillTemplate(templateStream, replacements);
+
+            var pathData = new AdjudicacionPathDataDto
+            {
+                ProjectSubContractorId = data.ProjectSubContractorId,
+                ProjectDescription     = data.ProjectDescription,
+                ContributorRuc         = data.ContributorRuc,
+                ContributorName        = data.ContributorName,
+                WorkItemDescription    = data.WorkItemDescription,
+            };
+
+            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.PromissoryNote);
+            var fileName   = $"PAGARE N°{data.PromissoryNoteNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.docx";
+            const string docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+            string fileUrl;
+            string? pagareItemId;
+            using (var ms = new MemoryStream(docBytes))
+            {
+                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                    libraryName: "Adjudicaciones",
+                    folderPath:  folderPath,
+                    fileName:    fileName,
+                    fileStream:  ms,
+                    contentType: docxMime)
+                    ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+
+                fileUrl      = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+                pagareItemId = spResult.ItemId;
+            }
+
+            await _projectSubContractorRepository.SaveDocumentAsync(
+                projectSubContractorId, AdjudicacionDocumentType.PromissoryNote, fileUrl, fileName, userId, pagareItemId);
 
             return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
         }
@@ -672,6 +842,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             int projectSubContractorId, int userId)
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
+
+            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
+                ? data.ProjectDescription[..3].ToUpperInvariant()
+                : data.ProjectDescription.ToUpperInvariant();
 
             using var workbook = new XLWorkbook();
             var ws = workbook.Worksheets.Add("PRESUPUESTO");
@@ -691,10 +865,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
 
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.Budget);
-            var fileName   = $"PRESUPUESTO_{data.ProjectSubContractorId:D4}.xlsx";
+            var fileName   = $"PRESUPUESTO N°{data.ContractNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.xlsx";
             const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-            var fileUrl = await _sharePointService.UploadToSharePointLibraryAsync(
+            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                 libraryName: "Adjudicaciones",
                 folderPath:  folderPath,
                 fileName:    fileName,
@@ -702,10 +876,107 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 contentType: xlsxMime)
                 ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
 
+            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.Budget, fileUrl, fileName, userId);
+                projectSubContractorId, AdjudicacionDocumentType.Budget, fileUrl, fileName, userId, spResult.ItemId);
 
             return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
+        }
+
+        public async Task<(byte[] Bytes, string FileUrl, string OriginalFileName)> GenerateContractPackageAsync(int projectSubContractorId, int userId)
+        {
+            var docs = await _projectSubContractorRepository.GetContractPackageUrlsAsync(projectSubContractorId);
+
+            // Validar que los documentos tengan SharepointItemId (necesario para la conversión a PDF).
+            // Si el registro es antiguo y no tiene ItemId, el usuario debe regenerar el documento en el paso 3.
+            if (string.IsNullOrEmpty(docs.SummarySheetItemId))
+                throw new AbrilException("La hoja resumen debe ser regenerada antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
+            if (string.IsNullOrEmpty(docs.ContractItemId))
+                throw new AbrilException("El contrato debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
+
+            // Orden: hoja resumen → contrato → pagaré (opcional)
+            var items = new List<string> { docs.SummarySheetItemId, docs.ContractItemId };
+            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))
+                items.Add(docs.PromissoryNoteItemId);
+            else if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
+                throw new AbrilException("El pagaré debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
+
+            // Convertir cada documento a PDF vía Graph API (endpoint por itemId, sin parsear webUrl)
+            var pdfBytesList = new List<byte[]>();
+            var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", items[0]);
+            summarySheetPdf = RotatePdfPages(summarySheetPdf); // <-- aquí
+            pdfBytesList.Add(summarySheetPdf);
+
+            // los demás sin rotar
+            foreach (var itemId in items.Skip(1))
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", itemId));
+
+            var mergedBytes = MergePdfs(pdfBytesList);
+
+            // ── Subir el paquete a SharePoint y persistir en BD ──────────────────
+            var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
+
+            // Nombre: primeras 3 letras del proyecto (mayúsculas) + _C + número de contrato con 3 dígitos
+            // Si no hay número de contrato, usamos el ID de la adjudicación como fallback.
+            string filePrefix;
+            if (docs.ContractNumber.HasValue)
+                filePrefix = $"{pathData.ProjectDescription[..Math.Min(3, pathData.ProjectDescription.Length)].ToUpperInvariant()}_C{docs.ContractNumber.Value:D3}";
+            else
+                filePrefix = $"{pathData.ProjectDescription[..Math.Min(3, pathData.ProjectDescription.Length)].ToUpperInvariant()}_ADJ{projectSubContractorId:D4}";
+
+            var fileName   = $"{filePrefix}.pdf";
+            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.ContractPackage);
+
+            using var ms = new MemoryStream(mergedBytes);
+            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                libraryName: "Adjudicaciones",
+                folderPath:  folderPath,
+                fileName:    fileName,
+                fileStream:  ms,
+                contentType: "application/pdf")
+                ?? throw new AbrilException("No se pudo obtener la URL del paquete subido a SharePoint.");
+
+            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del paquete subido a SharePoint.");
+
+            await _projectSubContractorRepository.SaveDocumentAsync(
+                projectSubContractorId, AdjudicacionDocumentType.ContractPackage, fileUrl, fileName, userId, spResult.ItemId);
+
+            return (mergedBytes, fileUrl, fileName);
+        }
+
+        private static byte[] MergePdfs(List<byte[]> pdfBytesList)
+        {
+            var outputDoc = new PdfDocument();
+            foreach (var pdfBytes in pdfBytesList)
+            {
+                using var inputStream = new MemoryStream(pdfBytes);
+                var inputDoc = PdfReader.Open(inputStream, PdfDocumentOpenMode.Import);
+                foreach (var page in inputDoc.Pages)
+                    outputDoc.AddPage(page);
+            }
+            using var resultStream = new MemoryStream();
+            outputDoc.Save(resultStream, false);
+            return resultStream.ToArray();
+        }
+
+        private static byte[] RotatePdfPages(byte[] pdfBytes)
+        {
+            using var inputStream = new MemoryStream(pdfBytes);
+            using var outputStream = new MemoryStream();
+
+            var document = PdfReader.Open(inputStream, PdfDocumentOpenMode.Modify);
+
+            foreach (var page in document.Pages)
+            {
+                if (page.Width > page.Height)
+                {
+                    page.Rotate = 270;
+                }
+            }
+
+            document.Save(outputStream);
+            return outputStream.ToArray();
         }
 
         private static void BuildBudget(IXLWorksheet ws, AdjudicacionSummarySheetDataDto data)
@@ -869,7 +1140,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // ── Column widths ──────────────────────────────────────────────────
             ws.Column("A").Width = 2;
             ws.Column("B").Width = 28;
-            ws.Column("C").Width = 8;
+            ws.Column("C").Width = 15;
             ws.Column("D").Width = 12;
             ws.Column("E").Width = 17;
             ws.Column("F").Width = 18;
@@ -1096,6 +1367,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // ── Borde exterior general ─────────────────────────────────────────
             ws.Range("B2:N18").Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+
+            ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+            ws.PageSetup.FitToPages(1, 0);          // 1 página de ancho, alto libre
+            ws.PageSetup.PaperSize = XLPaperSize.A4Paper;
+            ws.PageSetup.Margins.Left = 0.5;
+            ws.PageSetup.Margins.Right = 0.5;
+            ws.PageSetup.Margins.Top = 0.5;
+            ws.PageSetup.Margins.Bottom = 0.5;
         }
 
         // ── Helpers de ruta SharePoint ───────────────────────────────────────
@@ -1124,6 +1403,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.ScannedDoc1        => "Escaneados",
             AdjudicacionDocumentType.ScannedDoc2        => "Escaneados",
             AdjudicacionDocumentType.ScannedDoc3        => "Escaneados",
+            AdjudicacionDocumentType.ContractPackage    => "Contrato completo",
             _ => throw new ArgumentOutOfRangeException(nameof(documentType))
         };
 

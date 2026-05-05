@@ -14,6 +14,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         ScPackage,
         ScannedDoc1,
         ScannedDoc2,
-        ScannedDoc3
+        ScannedDoc3,
+        ContractPackage
     }
 }

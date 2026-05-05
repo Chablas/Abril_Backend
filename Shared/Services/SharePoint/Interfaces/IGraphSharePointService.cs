@@ -1,3 +1,5 @@
+using Abril_Backend.Shared.Services.SharePoint.Dtos;
+
 namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
 {
     public interface IGraphSharePointService
@@ -29,8 +31,8 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         /// <param name="fileName">Nombre del archivo incluyendo extensión.</param>
         /// <param name="fileStream">Contenido del archivo.</param>
         /// <param name="contentType">MIME type del archivo.</param>
-        /// <returns>URL web del archivo subido (webUrl), o null si falla.</returns>
-        Task<string?> UploadToSharePointLibraryAsync(
+        /// <returns>Resultado con WebUrl e ItemId del archivo subido, o null si falla.</returns>
+        Task<SharePointUploadResultDto?> UploadToSharePointLibraryAsync(
             string libraryName,
             string folderPath,
             string fileName,
@@ -44,5 +46,15 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         /// <param name="webUrl">URL web del archivo tal como fue guardada al subirlo.</param>
         /// <returns>Bytes del archivo.</returns>
         Task<byte[]> DownloadFromSharePointAsync(string webUrl);
+
+        /// <summary>
+        /// Descarga un archivo de SharePoint convertido a PDF mediante la Graph API (?format=pdf).
+        /// Funciona con Word (.docx) y Excel (.xlsx).
+        /// Usa el endpoint basado en itemId para evitar problemas con URLs del tipo _layouts/15/Doc.aspx.
+        /// </summary>
+        /// <param name="libraryName">Nombre de la biblioteca de documentos (ej. "Adjudicaciones").</param>
+        /// <param name="itemId">ID del item en Graph API (SharepointItemId guardado al subir el archivo).</param>
+        /// <returns>Bytes del PDF resultante.</returns>
+        Task<byte[]> DownloadAsPdfFromSharePointAsync(string libraryName, string itemId);
     }
 }

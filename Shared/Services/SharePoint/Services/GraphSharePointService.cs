@@ -1,3 +1,5 @@
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -32,12 +34,13 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             var itemPath = $"{folderPath.Trim('/')}/{fileName}";
             var url = $"https://graph.microsoft.com/v1.0/me/drive/root:/{itemPath}:/content";
 
-            return await UploadStreamAsync(accessToken, url, fileStream, contentType);
+            var result = await UploadStreamAsync(accessToken, url, fileStream, contentType);
+            return result?.WebUrl;
         }
 
         // ── SharePoint biblioteca compartida (aplicación) ────────────────────
 
-        public async Task<string?> UploadToSharePointLibraryAsync(
+        public async Task<SharePointUploadResultDto?> UploadToSharePointLibraryAsync(
             string libraryName,
             string folderPath,
             string fileName,
@@ -57,7 +60,7 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
 
         // ── Helpers compartidos ──────────────────────────────────────────────
 
-        private async Task<string?> UploadStreamAsync(
+        private async Task<SharePointUploadResultDto?> UploadStreamAsync(
             string token,
             string uploadUrl,
             Stream fileStream,
@@ -74,6 +77,15 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
 
             if (!response.IsSuccessStatusCode)
             {
+                // Detectar error 423 (Locked) cuando el archivo está abierto en SharePoint
+                if ((int)response.StatusCode == 423)
+                {
+                    throw new AbrilException(
+                        "No se puede guardar el archivo porque ya existe un archivo con el mismo nombre que está abierto o en uso. " +
+                        "Por favor, cierre la pestaña o descarga del archivo en uso e intente de nuevo.",
+                        StatusCodes.Status409Conflict);
+                }
+
                 var error = await response.Content.ReadAsStringAsync();
                 throw new InvalidOperationException(
                     $"Upload falló [{(int)response.StatusCode}]: {error}");
@@ -82,9 +94,15 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
 
-            return doc.RootElement.TryGetProperty("webUrl", out var webUrl)
-                ? webUrl.GetString()
+            var webUrl = doc.RootElement.TryGetProperty("webUrl", out var webUrlProp)
+                ? webUrlProp.GetString()
                 : null;
+
+            var itemId = doc.RootElement.TryGetProperty("id", out var idProp)
+                ? idProp.GetString()
+                : null;
+
+            return new SharePointUploadResultDto { WebUrl = webUrl, ItemId = itemId };
         }
 
         private async Task<string> EnsureSiteIdAsync(string token)
@@ -250,6 +268,30 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                 var error = await response.Content.ReadAsStringAsync();
                 throw new InvalidOperationException(
                     $"No se pudo descargar el archivo de SharePoint [{(int)response.StatusCode}]: {error}");
+            }
+
+            return await response.Content.ReadAsByteArrayAsync();
+        }
+
+        public async Task<byte[]> DownloadAsPdfFromSharePointAsync(string libraryName, string itemId)
+        {
+            var token   = await GetAppTokenAsync();
+            var siteId  = await EnsureSiteIdAsync(token);
+            var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
+
+            // Endpoint basado en itemId: evita el problema de URLs _layouts/15/Doc.aspx
+            var downloadUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/items/{itemId}/content?format=pdf";
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await client.GetAsync(downloadUrl);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"No se pudo convertir el archivo a PDF [{(int)response.StatusCode}]: {error}");
             }
 
             return await response.Content.ReadAsByteArrayAsync();

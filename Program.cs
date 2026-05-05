@@ -29,6 +29,10 @@ using FluentValidation;
 using FluentValidation.AspNetCore;
 using System.Threading.RateLimiting;
 
+// Configuración global de Dapper: mapea automáticamente columnas snake_case (BD)
+// a propiedades PascalCase (DTOs), igual que la convención que usa EF Core.
+Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration

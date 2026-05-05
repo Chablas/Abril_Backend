@@ -135,6 +135,79 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }).ToList();
         }
 
+        public async Task<List<InduccionTrabajadorDto>> GetTrabajadoresPorProgramarAsync(int? empresaId, int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Workers que ya completaron inducción en ESTE proyecto → excluir
+            var conInduccionCompletada = await ctx.WorkerProyecto
+                .Where(wp => wp.ProyectoId == proyectoId
+                    && wp.InduccionCompletada
+                    && wp.FechaFin == null)
+                .Select(wp => wp.WorkerId)
+                .ToListAsync();
+
+            var excluir = conInduccionCompletada.ToHashSet();
+
+            // Vinculaciones activas, opcionalmente filtradas por empresa
+            var q = ctx.WorkerVinculacion.Where(v => v.FechaFin == null);
+            if (empresaId.HasValue)
+                q = q.Where(v => v.EmpresaId == empresaId.Value);
+
+            var vinculaciones = await q
+                .Select(v => new { v.WorkerId, v.EmpresaId })
+                .Distinct()
+                .ToListAsync();
+
+            var workerIds = vinculaciones
+                .Where(v => !excluir.Contains(v.WorkerId))
+                .Select(v => v.WorkerId)
+                .Distinct()
+                .ToList();
+
+            if (workerIds.Count == 0) return [];
+
+            var workers = await ctx.Worker
+                .Where(w => workerIds.Contains(w.Id))
+                .Select(w => new { w.Id, w.ApellidoNombre, w.Dni, w.ObraOficina })
+                .ToDictionaryAsync(w => w.Id);
+
+            var empresaIds = vinculaciones
+                .Where(v => !excluir.Contains(v.WorkerId) && v.EmpresaId.HasValue)
+                .Select(v => v.EmpresaId!.Value)
+                .Distinct()
+                .ToList();
+
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
+
+            var vinculacionPorWorker = vinculaciones
+                .Where(v => !excluir.Contains(v.WorkerId))
+                .GroupBy(v => v.WorkerId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            return workerIds
+                .Where(workers.ContainsKey)
+                .Select(wId =>
+                {
+                    var w = workers[wId];
+                    var empId = vinculacionPorWorker.TryGetValue(wId, out var vin) ? vin.EmpresaId : null;
+                    empresaMap.TryGetValue(empId ?? 0, out var empNombre);
+                    return new InduccionTrabajadorDto
+                    {
+                        WorkerId = wId,
+                        ApellidoNombre = w.ApellidoNombre ?? string.Empty,
+                        Dni = w.Dni ?? string.Empty,
+                        ObraOficina = w.ObraOficina,
+                        EmpresaId = empId,
+                        EmpresaNombre = empNombre ?? string.Empty
+                    };
+                })
+                .OrderBy(d => d.ApellidoNombre)
+                .ToList();
+        }
+
         public async Task AprobarAsync(int id)
         {
             using var ctx = _factory.CreateDbContext();

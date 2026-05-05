@@ -8,6 +8,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<InduccionListDto>> GetAsync(
             int? proyectoId, int? empresaId, string? estado,
             DateTime? fechaDesde, DateTime? fechaHasta);
+        Task<List<InduccionTrabajadorDto>> GetTrabajadoresPorProgramarAsync(int? empresaId, int proyectoId);
         Task AprobarAsync(int id);
         Task AprobarBatchAsync(List<int> ids);
     }

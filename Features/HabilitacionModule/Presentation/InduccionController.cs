@@ -34,6 +34,23 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.Create"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("trabajadores-por-programar")]
+        public async Task<IActionResult> GetTrabajadoresPorProgramar(
+            [FromQuery] int proyectoId,
+            [FromQuery] int? empresaId)
+        {
+            try
+            {
+                if (proyectoId <= 0)
+                    return BadRequest(new { message = "proyectoId es requerido." });
+
+                var items = await _repo.GetTrabajadoresPorProgramarAsync(empresaId, proyectoId);
+                return Ok(items);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.GetTrabajadoresPorProgramar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetList(
             [FromQuery] int? proyectoId,

@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-05 (equipos habilitación — FK→contributor, ObsContratista, versiones; GET /equipos filtra por JWT para CONTRATISTA)
+> Última actualización: 2026-05-05 (control acceso completo; equipos FK→contributor, ObsContratista, versiones; SsTareo; IngresoConfirmado en SsInduccion)
 
 ---
 
@@ -109,7 +109,8 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `Worker` | `workers` | `id` | Personal con columnas explícitas `[Column("...")]`. No snake_case automático. |
 | `WorkerVinculacion` | `worker_vinculaciones` | `id` | 1 activa por worker (`fecha_fin IS NULL`). Para empresa y proyecto actual del worker. |
 | `WorkerProyecto` | `ss_hab_worker_proyecto` | `id` | Multi-proyecto **solo Casa**. N activos en paralelo. Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL`. |
-| `SsInduccion` | `ss_induccion` | `id` | `empresa_id` → `contributor.contributor_id` (no `ss_empresa_contratista`). |
+| `SsInduccion` | `ss_induccion` | `id` | `empresa_id` → `contributor.contributor_id` (no `ss_empresa_contratista`). Columnas manuales: `ingreso_confirmado` (bool NOT NULL DEFAULT false), `fecha_ingreso` (timestamptz). |
+| `SsTareo` | `ss_tareo` | `id` | Tabla manual (sin migración EF). `proyecto_id` → `project.project_id`. `fecha` (DateOnly). `observaciones` (text?). `creado_por` (int?, FK→app_user). Unique implícito en (`proyecto_id`, `fecha`). |
 | `SsHabTrabajador` | `ss_hab_trabajador` | `id` | Entregables por worker. |
 | `SsHabEmpresa` | `ss_hab_empresa` | `id` | `proyecto_id` → `project.project_id`. `empresa_id` → `contributor.contributor_id`. |
 | `SsEquipo` | `ss_equipo` | `id` | `proyecto_id` → `project.project_id`. `propietario_empresa_id` → `contributor.contributor_id` (nav property `Contributor? PropietarioEmpresa`). |
@@ -309,6 +310,24 @@ POST   /api/v1/habilitacion/equipos
 PUT    /api/v1/habilitacion/equipos/{id}
 PUT    /api/v1/habilitacion/equipos/entregables/{id}               body: { estado, vigencia, archivoUrl, obsAbril, obsContratista }
 
+# Control de Acceso
+GET   /api/v1/habilitacion/control-acceso/consulta?search=&proyectoId=
+      → busca workers; DNI exacto si search=8 dígitos, LIKE por nombre si no; filtra por proyectoId si viene
+      → esOficinaCentral (proyectoId==36): solo evalúa SCTR (ItemId=11, Aprobado, Vigencia>now)
+      → resto: evalúa todos los entregables; incluye lista completa Entregables[]
+GET   /api/v1/habilitacion/control-acceso/no-autorizados?proyectoId=
+      → workers del proyecto con algún entregable en {Falta, Rechazado, Vencido}
+GET   /api/v1/habilitacion/control-acceso/oficina-central?proyectoId=
+      → workers con ObraOficina ∈ {"Oficina Central","Staff"} con SCTR vigente
+GET   /api/v1/habilitacion/control-acceso/inducciones-hoy?proyectoId=
+      → ss_induccion WHERE estado='PROGRAMADA' AND fecha_programada = hoy UTC
+      → incluye IngresoConfirmado, FechaIngreso
+POST  /api/v1/habilitacion/control-acceso/inducciones/{id}/confirmar-ingreso
+      → marca IngresoConfirmado=true, FechaIngreso=UtcNow en ss_induccion
+GET   /api/v1/habilitacion/control-acceso/tareo?proyectoId=&fecha=YYYY-MM-DD
+POST  /api/v1/habilitacion/control-acceso/tareo       body: TareoCreateDto { ProyectoId, Fecha, Observaciones }
+PUT   /api/v1/habilitacion/control-acceso/tareo/{id}  body: TareoCreateDto
+
 # Archivos
 POST  /api/v1/habilitacion/archivos/subir   → { path, url }  — guardar `path` (ruta relativa), NO `url` (larga SharePoint)
 GET   /api/v1/habilitacion/archivos/url?path=
@@ -417,10 +436,15 @@ Pisar con null borra el documento ya subido.
 ### 7k. SharePointHabService — Singleton
 El token OAuth2 y el `driveId` del sitio se cachean en la instancia. Registrar como `AddSingleton`.
 
-### 7l. Tablas creadas manualmente (sin migración EF efectiva)
+### 7l. Tablas y columnas creadas manualmente (sin migración EF efectiva)
 - `worker_eventos` — `DbSet` con `HasColumnType("jsonb")` para `Datos`
 - `cat_subarea` — `DbSet` declarado pero sin migración
 - `equipo_electrico` en `ss_induccion` — columna manual, migración vacía `AddInduccionEquipoElectrico`
+- `obs_contratista` en `ss_hab_equipo` — columna manual, NO tiene migración EF
+- `ingreso_confirmado` (bool NOT NULL DEFAULT false) en `ss_induccion` — columna manual
+- `fecha_ingreso` (timestamptz) en `ss_induccion` — columna manual
+- `ss_tareo` — tabla completa creada manualmente; `DbSet<SsTareo>` registrado en AppDbContext
+- `ss_hab_equipo.archivo_url` fue `varchar(1000)` en BD — alterada con `ALTER TABLE ss_hab_equipo ALTER COLUMN archivo_url TYPE text;`; modelo EF lleva `[Column(TypeName = "text")]`
 Antes de `dotnet ef migrations add`, revisar el archivo generado y limpiar operaciones ya aplicadas en BD.
 
 ### 7m. BandejaRepository usa NpgsqlConnection directa
@@ -505,7 +529,49 @@ GET    /api/v1/arquitectura-comercial/etapas
 
 ---
 
-## 10. Trabajo pendiente
+## 10. Control de Acceso — notas de implementación
+
+**Repositorio:** `ControlAccesoRepository` — inyecta `IDbContextFactory<AppDbContext>` + `IConfiguration`.
+
+**OficinaCentral:** `appsettings.json → "OficinaCentral": { "ProjectId": 36 }`. Cuando `proyectoId == 36`, `BuildDtosAsync` evalúa **solo** SCTR (ItemId=11). El resto de proyectos evalúa todos los entregables.
+
+**BuildDtosAsync (batch helper privado):**
+1. Carga `WorkerVinculacion` activas (`FechaFin == null`) → empresa y proyecto por worker
+2. Carga `Contributor` por `EmpresaId` → `EmpresaNombre`, `EmpresaActiva`
+3. Carga `Project` por `ProyectoId` → `ProyectoNombre`
+4. Carga catálogo `SsItemTrabajador` completo
+5. Carga todos los `SsHabTrabajador` de los workers en lote
+6. Por worker: `DocumentosFaltantes`, `DocumentosPorVencer` (vencen en ≤30 días), `Entregables[]` completo
+
+**ControlAccesoWorkerDto:**
+- `EstadoHabilitacion`: `"Habilitado"` | `"No Autorizado"`
+- `Entregables`: lista de `EntregableResumenDto { Nombre, Estado, Vigencia }` — solo en endpoint no-OficinaCentral
+
+**InduccionHoyDto:** filtra `ss_induccion WHERE estado='PROGRAMADA' AND fecha_programada ∈ [hoyUtc, mañanaUtc)`.
+
+**SsTareo:** `(proyecto_id, fecha)` se considera clave de negocio — `CreateTareoAsync` tira 409 si ya existe el par.
+
+**Pendiente en BD (crear manualmente):**
+```sql
+ALTER TABLE ss_induccion ADD COLUMN IF NOT EXISTS ingreso_confirmado boolean NOT NULL DEFAULT false;
+ALTER TABLE ss_induccion ADD COLUMN IF NOT EXISTS fecha_ingreso timestamptz;
+CREATE TABLE IF NOT EXISTS ss_tareo (
+    id serial PRIMARY KEY,
+    proyecto_id int NOT NULL REFERENCES project(project_id),
+    fecha date NOT NULL,
+    observaciones text,
+    creado_por int,
+    created_at timestamptz,
+    updated_at timestamptz
+);
+```
+
+**Pendiente en código:**
+- Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetConsultaAsync` (líneas ~51-54)
+
+---
+
+## 11. Trabajo pendiente
 
 ### Alta prioridad
 - Quitar `[AllowAnonymous]` de los 4 endpoints `/trabajadores/{id}/proyectos*`, `GET /eventos` y endpoints SSOMA
@@ -515,6 +581,9 @@ GET    /api/v1/arquitectura-comercial/etapas
 - 42 empresas SharePoint con IDs 1656+ pendientes de migrar a `contributor`
 - Eliminar `id_sharepoint` de `contributor` cuando migración SharePoint esté completa
 
+- Crear tablas/columnas manuales en BD (ver sección 10 — `ss_tareo`, columnas `ss_induccion`)
+- Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetConsultaAsync`
+
 ### Media prioridad
 - Empresas contratistas: 1.591 vinculaciones sin empresa
 - `tipo_emo_id`: 813 EMOs migrados tienen NULL
@@ -522,6 +591,8 @@ GET    /api/v1/arquitectura-comercial/etapas
 - Multi-proyecto FASE 4: `BandejaRepository`, listados, EMO, SCTR y Vida Ley aún razonan sobre `worker_vinculaciones` (1-activa). Evaluar si pivotar a `ss_hab_worker_proyecto` para workers Casa en N proyectos
 - `InicializarEntregablesAsync` no crea fila inicial en `ss_hab_worker_proyecto` — considerar parámetro `proyectoInicialId?` en `POST /workers`
 - Separar `ISunatLookupService` de `ProjectService` para eliminar el acoplamiento de DI
+
+- `CONTRATISTA` multi-proyecto: `WorkerProyecto` soporta múltiples proyectos activos, pero `ControlAccesoRepository.BuildDtosAsync` toma solo la última `WorkerVinculacion` (1 empresa/proyecto mostrado). Evaluar si pivotar a `WorkerProyecto` para filtrado más fino.
 
 ### Baja prioridad
 - 8 EMOs sin match de DNI — insertar manualmente

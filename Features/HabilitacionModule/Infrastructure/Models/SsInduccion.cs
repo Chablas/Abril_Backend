@@ -16,6 +16,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public bool EquipoElectrico { get; set; } = false;
         public string Estado { get; set; } = "PROGRAMADA";
         public int? ProgramadoPor { get; set; }
+        public bool IngresoConfirmado { get; set; } = false;
+        public DateTime? FechaIngreso { get; set; }
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
 

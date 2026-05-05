@@ -15,47 +15,23 @@ namespace Abril_Backend.Controllers
     public class LessonController : ControllerBase
     {
         private readonly LessonRepository _lessonRepository;
-        private readonly ProjectRepository _projectRepository;
-        private readonly AreaRepository _areaRepository;
         private readonly PhaseStageSubStageSubSpecialtyRepository _phaseStageSubStageSubSpecialtyRepository;
         private readonly DashboardRepository _dashboardRepository;
         private readonly ExcelService _excelService;
-        private readonly PhaseRepository _phaseRepository;
-        private readonly StageRepository _stageRepository;
-        private readonly LayerRepository _layerRepository;
-        private readonly SubStageRepository _subStageRepository;
-        private readonly SubSpecialtyRepository _subSpecialtyRepository;
-        private readonly IUserRepository _userRepository;
         private readonly IEmailService _emailService;
-        
+
         public LessonController(
             LessonRepository lessonRepository,
-            ProjectRepository projectRepository,
-            AreaRepository areaRepository,
             PhaseStageSubStageSubSpecialtyRepository phaseStageSubStageSubSpecialtyRepository,
             DashboardRepository dashboardRepository,
             ExcelService excelService,
-            PhaseRepository phaseRepository,
-            StageRepository stageRepository,
-            LayerRepository layerRepository,
-            SubStageRepository subStageRepository,
-            SubSpecialtyRepository subSpecialtyRepository,
-            IUserRepository userRepository,
             IEmailService emailService
             )
         {
             _lessonRepository = lessonRepository;
-            _projectRepository = projectRepository;
-            _areaRepository = areaRepository;
             _phaseStageSubStageSubSpecialtyRepository = phaseStageSubStageSubSpecialtyRepository;
             _dashboardRepository = dashboardRepository;
             _excelService = excelService;
-            _phaseRepository = phaseRepository;
-            _stageRepository = stageRepository;
-            _layerRepository = layerRepository;
-            _subStageRepository = subStageRepository;
-            _subSpecialtyRepository = subSpecialtyRepository;
-            _userRepository = userRepository;
             _emailService = emailService;
         }
 
@@ -87,86 +63,6 @@ namespace Abril_Backend.Controllers
                 }
 
                 return Ok(new { message = "Lección creada exitosamente" });
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [Authorize]
-        [HttpGet("filters")]
-        public async Task<IActionResult> GetFilters()
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var areasTask = _areaRepository.GetAllFactory();
-                var projectsTask = _projectRepository.GetAllFactory();
-                var lessonPeriodsTask = _lessonRepository.GetAllPeriodsFactory();
-                var phasesTask = _phaseRepository.GetAllFactory();
-                var stagesTask = _stageRepository.GetAllFactory();
-                var layersTask = _layerRepository.GetAllFactory();
-                var subStagesTask = _subStageRepository.GetAllFactory();
-                var subSpecialtiesTask = _subSpecialtyRepository.GetAllFactory();
-                var usersTask = _userRepository.GetAllUsersFactory();
-
-                await Task.WhenAll(areasTask, projectsTask, lessonPeriodsTask, phasesTask, stagesTask, layersTask, subStagesTask, subSpecialtiesTask, usersTask);
-
-                var result = new
-                {
-                    Areas = areasTask.Result,
-                    Projects = projectsTask.Result,
-                    Periods = lessonPeriodsTask.Result,
-                    Phases = phasesTask.Result,
-                    Stages = stagesTask.Result,
-                    Layers = layersTask.Result,
-                    SubStages = subStagesTask.Result,
-                    SubSpecialties = subSpecialtiesTask.Result,
-                    Users = usersTask.Result
-                };
-
-                return Ok(result);
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [Authorize]
-        [HttpGet]
-        public async Task<IActionResult> GetLessonsUsingFilter(
-            [FromQuery] DateTime? periodDate,
-            [FromQuery] int? stateId,
-            [FromQuery] int? projectId,
-            [FromQuery] int? areaId,
-            [FromQuery] int? phaseId,
-            [FromQuery] int? stageId,
-            [FromQuery] int? layerId,
-            [FromQuery] int? subStageId,
-            [FromQuery] int? subSpecialtyId,
-            [FromQuery] int? userId,
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 10
-        )
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var result = await _lessonRepository.GetLessonsFilterPaged(
-                    periodDate, stateId, projectId, areaId, phaseId, stageId, layerId, subStageId, subSpecialtyId, userId, page, pageSize
-                );
-
-                return Ok(result);
             }
             catch (Exception)
             {

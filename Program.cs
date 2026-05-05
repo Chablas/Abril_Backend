@@ -22,6 +22,7 @@ using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Abril_Backend.Features.Contractors;
 using Abril_Backend.Features.Ssoma;
 using Abril_Backend.Features.Habilitacion;
+using Abril_Backend.Features.UnidadDeProyectosModule;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using Abril_Backend.Shared.Interceptors;
@@ -113,6 +114,7 @@ builder.Services.AddConfigurationModule();
 builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddSsomaModule();
 builder.Services.AddHabilitacionModule();
+builder.Services.AddUnidadDeProyectosModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();

@@ -65,6 +65,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                     BrochureFileUrl = x.ct.BrochureFileUrl,
                     FichaRucFileUrl = x.ct.FichaRucFileUrl,
                     ReferencesListFileUrl = x.ct.ReferencesListFileUrl,
+                    HasUser = ctx.ContractorUser.Any(cu => cu.ContractorId == x.ct.ContractorId && cu.Active),
                     CreatedDateTime = x.ct.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
                 })
                 .ToListAsync();
@@ -82,6 +83,25 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
             foreach (var item in items)
                 item.Emails = emailsByContractor.GetValueOrDefault(item.ContractorId, new());
+
+            var users = await (
+                from cu in ctx.ContractorUser
+                join u in ctx.User on cu.UserId equals u.UserId
+                where ids.Contains(cu.ContractorId) && cu.Active
+                select new { cu.ContractorId, cu.UserId, u.Email, cu.CreatedDateTime }
+            ).ToListAsync();
+
+            var usersByContractor = users
+                .GroupBy(u => u.ContractorId)
+                .ToDictionary(g => g.Key, g => g.Select(u => new ContractorUserItemDto
+                {
+                    UserId = u.UserId,
+                    Email = u.Email,
+                    CreatedDateTime = u.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
+                }).ToList());
+
+            foreach (var item in items)
+                item.Users = usersByContractor.GetValueOrDefault(item.ContractorId, new());
 
             return new PagedResult<ContributorPagedDto>
             {
@@ -112,6 +132,43 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             contractor.ContractorStateId = RejectedContractorStateId;
             contractor.UpdatedDateTime = DateTimeOffset.UtcNow;
             contractor.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<ContractorWithEmailsDto?> GetWithEmails(int contractorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var result = await (
+                from ct in ctx.Contractor
+                join c in ctx.Contributor on ct.ContributorId equals c.ContributorId
+                where ct.ContractorId == contractorId && ct.Active
+                select new ContractorWithEmailsDto
+                {
+                    ContractorId = ct.ContractorId,
+                    ContributorName = c.ContributorName,
+                    ContractorStateId = ct.ContractorStateId
+                }
+            ).FirstOrDefaultAsync();
+
+            if (result == null) return null;
+
+            result.Emails = await ctx.ContractorEmail
+                .Where(e => e.ContractorId == contractorId && e.Active)
+                .Select(e => e.Email)
+                .ToListAsync();
+
+            return result;
+        }
+
+        public async Task SetActivationToken(int contractorId, string token, DateTime expiry)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId);
+            if (contractor is null) return;
+            contractor.ActivationToken = token;
+            contractor.ActivationTokenExpiry = expiry;
+            contractor.UpdatedDateTime = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }
     }

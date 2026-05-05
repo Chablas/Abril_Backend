@@ -110,7 +110,7 @@ else
 builder.Services.AddCostsModule();
 builder.Services.AddContractorsModule();
 builder.Services.AddConfigurationModule();
-builder.Services.AddMicrosoftAuthModule(builder.Configuration);
+builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddSsomaModule();
 builder.Services.AddHabilitacionModule();
 

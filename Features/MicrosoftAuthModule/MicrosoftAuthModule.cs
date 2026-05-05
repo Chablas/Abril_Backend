@@ -5,11 +5,16 @@ using Abril_Backend.Features.MicrosoftAuth.MicrosoftLogin.Infrastructure.Reposit
 using Abril_Backend.Features.MicrosoftAuth.MicrosoftProfile.Application.Interfaces;
 using Abril_Backend.Features.MicrosoftAuth.MicrosoftProfile.Application.Services;
 
+using Abril_Backend.Features.MicrosoftAuth.ContractorCredentials.Application.Interfaces;
+using Abril_Backend.Features.MicrosoftAuth.ContractorCredentials.Application.Services;
+using Abril_Backend.Features.MicrosoftAuth.ContractorCredentials.Infrastructure.Interfaces;
+using Abril_Backend.Features.MicrosoftAuth.ContractorCredentials.Infrastructure.Repositories;
+
 namespace Abril_Backend.Features.MicrosoftAuth
 {
-    public static class MicrosoftAuthModule
+    public static class AuthModule
     {
-        public static IServiceCollection AddMicrosoftAuthModule(this IServiceCollection services, IConfiguration configuration)
+        public static IServiceCollection AddAuthModule(this IServiceCollection services, IConfiguration configuration)
         {
             services.AddHttpClient<IMicrosoftProfileService, MicrosoftProfileService>(client =>
             {
@@ -18,6 +23,10 @@ namespace Abril_Backend.Features.MicrosoftAuth
 
             services.AddScoped<IMicrosoftLoginRepository, MicrosoftLoginRepository>();
             services.AddScoped<IMicrosoftLoginService, MicrosoftLoginService>();
+
+            // ContractorCredentials
+            services.AddScoped<IContractorCredentialsRepository, ContractorCredentialsRepository>();
+            services.AddScoped<IContractorCredentialsService, ContractorCredentialsService>();
 
             return services;
         }

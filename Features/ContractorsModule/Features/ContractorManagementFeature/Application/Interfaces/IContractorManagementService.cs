@@ -8,5 +8,6 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.In
         Task<PagedResult<ContributorPagedDto>> GetPaged(ContributorFilterDto filter);
         Task Approve(int contractorId, int userId);
         Task Reject(int contractorId, int userId);
+        Task SendCredentials(int contractorId, int adminUserId);
     }
 }

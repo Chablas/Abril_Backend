@@ -1,3 +1,4 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Contractors.ContractorManagement.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorManagement.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -55,6 +56,25 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Presentation
                 var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
                 await _service.Reject(contractorId, userId);
                 return Ok(new { message = "Contratista rechazado exitosamente." });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost("{contractorId}/send-credentials")]
+        public async Task<IActionResult> SendCredentials(int contractorId)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+                await _service.SendCredentials(contractorId, userId);
+                return Ok(new { message = "Credenciales enviadas exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

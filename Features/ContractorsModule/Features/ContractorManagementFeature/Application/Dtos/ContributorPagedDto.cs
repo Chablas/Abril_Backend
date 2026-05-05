@@ -19,7 +19,9 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Dt
         public string? BrochureFileUrl { get; set; }
         public string? FichaRucFileUrl { get; set; }
         public string? ReferencesListFileUrl { get; set; }
+        public bool HasUser { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public List<string> Emails { get; set; } = new();
+        public List<ContractorUserItemDto> Users { get; set; } = new();
     }
 }

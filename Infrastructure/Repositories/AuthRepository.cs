@@ -23,31 +23,30 @@ namespace Abril_Backend.Infrastructure.Repositories
         {
             var query =
                 from u in _context.User
-                join p in _context.Person on u.UserId equals p.UserId
-                join ur in _context.UserRole on u.UserId equals ur.UserId
-                join r in _context.Role on ur.RoleId equals r.RoleId
+                join ur in _context.UserRole on u.UserId equals ur.UserId into urGroup
+                from ur in urGroup.DefaultIfEmpty()
+                join r in _context.Role on ur.RoleId equals r.RoleId into rGroup
+                from r in rGroup.DefaultIfEmpty()
                 where u.Email == email &&
                       u.Active &&
                       u.State
-                group new { u, p, r } by new
+                group new { u, r } by new
                 {
                     u.UserId,
                     u.Password,
                     u.Active,
-                    p.PersonId,
-                    p.DocumentIdentityCode,
-                    p.FullName,
                     u.Email
                 }
                 into g
                 select new
                 {
                     g.Key,
-                    Roles = g.Select(x => new RoleSimpleDTO
-                    {
-                        RoleId = x.r.RoleId,
-                        RoleDescription = x.r.RoleDescription
-                    }).ToList()
+                    Roles = g.Where(x => x.r != null)
+                              .Select(x => new RoleSimpleDTO
+                              {
+                                  RoleId = x.r.RoleId,
+                                  RoleDescription = x.r.RoleDescription
+                              }).ToList()
                 };
 
             var result = await query.FirstOrDefaultAsync();
@@ -72,9 +71,6 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Active = result.Key.Active,
                 Person = new PersonDTO
                 {
-                    PersonId = result.Key.PersonId,
-                    DocumentIdentityCode = result.Key.DocumentIdentityCode,
-                    FullName = result.Key.FullName,
                     Email = result.Key.Email
                 },
                 Roles = result.Roles

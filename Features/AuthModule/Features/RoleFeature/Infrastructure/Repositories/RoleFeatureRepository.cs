@@ -1,0 +1,88 @@
+using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Features.AuthModule.Role.Application.Dtos;
+using Abril_Backend.Features.AuthModule.Role.Infrastructure.Interfaces;
+using RoleEntity = Abril_Backend.Infrastructure.Models.Role;
+
+namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories
+{
+    public class RoleFeatureRepository : IRoleFeatureRepository
+    {
+        private readonly IDbContextFactory<AppDbContext> _factory;
+
+        public RoleFeatureRepository(IDbContextFactory<AppDbContext> factory)
+        {
+            _factory = factory;
+        }
+
+        public async Task<PagedResult<RoleDto>> GetPaged(int page, int pageSize)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var query = ctx.Role
+                .Where(r => r.State)
+                .OrderByDescending(r => r.RoleId);
+
+            var totalRecords = await query.CountAsync();
+
+            var data = await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(r => new RoleDto
+                {
+                    RoleId          = r.RoleId,
+                    RoleDescription = r.RoleDescription,
+                    CreatedDateTime = r.CreatedDateTime,
+                    Active          = r.Active
+                })
+                .ToListAsync();
+
+            return new PagedResult<RoleDto>
+            {
+                Page         = page,
+                PageSize     = pageSize,
+                TotalRecords = totalRecords,
+                TotalPages   = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data         = data
+            };
+        }
+
+        public async Task Create(RoleCreateDto dto, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var description = dto.RoleDescription.Trim().ToUpper();
+
+            var existing = await ctx.Role
+                .FirstOrDefaultAsync(r => r.RoleDescription.ToUpper() == description);
+
+            if (existing != null && existing.State)
+                throw new AbrilException("Ya existe un rol con esa descripción.");
+
+            if (existing != null && !existing.State)
+            {
+                existing.RoleDescription = description;
+                existing.State           = true;
+                existing.Active          = true;
+                existing.UpdatedDateTime = DateTime.UtcNow;
+                existing.UpdatedUserId   = userId;
+                await ctx.SaveChangesAsync();
+                return;
+            }
+
+            var role = new RoleEntity
+            {
+                RoleDescription = description,
+                Active          = true,
+                State           = true,
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId   = userId
+            };
+
+            ctx.Role.Add(role);
+            await ctx.SaveChangesAsync();
+        }
+    }
+}

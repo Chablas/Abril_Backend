@@ -10,6 +10,11 @@ using Abril_Backend.Features.AuthModule.ContractorCredentials.Application.Servic
 using Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure.Interfaces;
 using Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure.Repositories;
 
+using Abril_Backend.Features.AuthModule.Role.Application.Interfaces;
+using Abril_Backend.Features.AuthModule.Role.Application.Services;
+using Abril_Backend.Features.AuthModule.Role.Infrastructure.Interfaces;
+using Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories;
+
 namespace Abril_Backend.Features.AuthModule
 {
     public static class AuthModule
@@ -27,6 +32,10 @@ namespace Abril_Backend.Features.AuthModule
             // ContractorCredentials
             services.AddScoped<IContractorCredentialsRepository, ContractorCredentialsRepository>();
             services.AddScoped<IContractorCredentialsService, ContractorCredentialsService>();
+
+            // RoleFeature
+            services.AddScoped<IRoleFeatureRepository, RoleFeatureRepository>();
+            services.AddScoped<IRoleFeatureService, RoleFeatureService>();
 
             return services;
         }

@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-06 (trabajadores restringidos; soporte CE/DNI; validación worker activo otra empresa; cat_categoria / cat_ocupacion endpoints)
+> Última actualización: 2026-05-06 (motor vigilancia médica SSOMA: auth clínica, programación EMO flujo clínica, notificaciones, auto-programación, resumen diario, reflejo habilitación, EMO retiro en baja, reporte SUNAFIL; limpieza Console.WriteLine y prefijo PRUEBA)
 
 ---
 

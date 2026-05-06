@@ -48,9 +48,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var oficinaId = _configuration.GetValue<int>("OficinaCentral:ProjectId");
             var esOficinaCentral = proyectoId.HasValue && proyectoId.Value == oficinaId;
 
-            Console.WriteLine($"search={search}, proyectoId={proyectoId}");
             var workers = await query.Take(100).ToListAsync();
-            Console.WriteLine($"workers encontrados: {workers.Count}");
             return await BuildDtosAsync(ctx, workers, esOficinaCentral);
         }
 
@@ -132,22 +130,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var hoyLima = ahoraLima.Date;
             var mananaLima = hoyLima.AddDays(1);
             var fechaLimite = ahoraLima.Hour >= 12 ? mananaLima.AddDays(1) : mananaLima;
-            Console.WriteLine($"[DEBUG] AhoraLima: {ahoraLima}, HoyLima: {hoyLima}, FechaLimite: {fechaLimite}");
-
-            var totalProgramadas = await ctx.SsInduccion.CountAsync(i => i.Estado == "PROGRAMADA");
-            var primeraFecha = await ctx.SsInduccion
-                .Where(i => i.Estado == "PROGRAMADA")
-                .OrderBy(i => i.FechaProgramada)
-                .Select(i => i.FechaProgramada)
-                .FirstOrDefaultAsync();
-            Console.WriteLine($"[DEBUG] Total PROGRAMADAS en BD: {totalProgramadas}, PrimeraFecha: {primeraFecha}");
-
             var inducciones = await ctx.SsInduccion
                 .Where(i => i.Estado == "PROGRAMADA" &&
                             i.FechaProgramada >= hoyLima &&
                             i.FechaProgramada < fechaLimite)
                 .ToListAsync();
-            Console.WriteLine($"[DEBUG] Inducciones en rango: {inducciones.Count}");
 
             var workerIds = inducciones.Select(i => i.WorkerId).Distinct().ToList();
             var empresaIds = inducciones.Select(i => i.EmpresaId).Distinct().ToList();

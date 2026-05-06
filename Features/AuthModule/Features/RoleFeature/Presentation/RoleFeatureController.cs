@@ -62,5 +62,47 @@ namespace Abril_Backend.Features.AuthModule.Role.Presentation
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        [HttpGet("features/all")]
+        public async Task<IActionResult> GetAllFeatures()
+        {
+            try
+            {
+                var result = await _service.GetAllFeatures();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("{roleId:int}/features")]
+        public async Task<IActionResult> GetRoleFeatures(int roleId)
+        {
+            try
+            {
+                var result = await _service.GetRoleFeatureIds(roleId);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPut("{roleId:int}/features")]
+        public async Task<IActionResult> UpdateRoleFeatures(int roleId, [FromBody] RoleUpdateFeaturesDto dto)
+        {
+            try
+            {
+                await _service.UpdateRoleFeatures(roleId, dto.FeatureIds);
+                return Ok(new { message = "Funcionalidades actualizadas exitosamente." });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

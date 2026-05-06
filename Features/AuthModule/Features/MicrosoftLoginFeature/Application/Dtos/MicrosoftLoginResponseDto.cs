@@ -16,5 +16,6 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Dtos
         public List<string> BusinessPhones { get; set; } = new();
         public string? Department { get; set; }
         public string? PhotoBase64 { get; set; }
+        public List<string> AllowedFeatures { get; set; } = new();
     }
 }

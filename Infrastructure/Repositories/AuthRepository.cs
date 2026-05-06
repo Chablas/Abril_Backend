@@ -122,6 +122,26 @@ namespace Abril_Backend.Infrastructure.Repositories
             return (result.UserId, result.Email);
         }
 
+        public async Task<List<string>> GetAllowedFeaturesAsync(int userId)
+        {
+            try
+            {
+                return await _context.Database
+                    .SqlQuery<string>($"""
+                        SELECT DISTINCT f.feature_key
+                        FROM feature f
+                        JOIN role_feature rf ON rf.feature_id = f.feature_id
+                        JOIN user_role ur     ON ur.role_id   = rf.role_id
+                        WHERE ur.user_id = {userId}
+                        """)
+                    .ToListAsync();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+
         private string GenerateToken()
         {
             var bytes = RandomNumberGenerator.GetBytes(64);

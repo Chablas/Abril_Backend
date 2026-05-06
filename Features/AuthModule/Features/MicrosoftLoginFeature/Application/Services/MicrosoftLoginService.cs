@@ -51,25 +51,27 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
                 user.Person = await _repository.CreatePersonForUserAsync(user.UserId, profile);
             }
 
-            var accessToken = _jwtService.GenerateToken(user);
-            var session = await _authRepository.CreateSessionAsync(user.UserId);
+            var accessToken     = _jwtService.GenerateToken(user);
+            var session         = await _authRepository.CreateSessionAsync(user.UserId);
+            var allowedFeatures = await _authRepository.GetAllowedFeaturesAsync(user.UserId);
 
             return new MicrosoftLoginResponseDto
             {
-                AccessToken = accessToken,
-                SessionToken = session.Token,
-                ExpiresAt = session.ExpiresAt,
-                DisplayName = profile.DisplayName,
-                GivenName = profile.GivenName,
-                Surname = profile.Surname,
+                AccessToken     = accessToken,
+                SessionToken    = session.Token,
+                ExpiresAt       = session.ExpiresAt,
+                AllowedFeatures = allowedFeatures,
+                DisplayName       = profile.DisplayName,
+                GivenName         = profile.GivenName,
+                Surname           = profile.Surname,
                 UserPrincipalName = profile.UserPrincipalName,
-                Mail = profile.Mail,
-                JobTitle = profile.JobTitle,
-                OfficeLocation = profile.OfficeLocation,
-                MobilePhone = profile.MobilePhone,
-                BusinessPhones = profile.BusinessPhones,
-                Department = profile.Department,
-                PhotoBase64 = await photoTask
+                Mail              = profile.Mail,
+                JobTitle          = profile.JobTitle,
+                OfficeLocation    = profile.OfficeLocation,
+                MobilePhone       = profile.MobilePhone,
+                BusinessPhones    = profile.BusinessPhones,
+                Department        = profile.Department,
+                PhotoBase64       = await photoTask
             };
         }
     }

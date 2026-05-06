@@ -44,14 +44,16 @@ namespace Abril_Backend.Application.Services
             if (user == null)
                 throw new AbrilException("Credenciales inválidas.", 401);
 
-            var accessToken = _jwtService.GenerateToken(user);
-            var session = await _authRepository.CreateSessionAsync(user.UserId);
+            var accessToken     = _jwtService.GenerateToken(user);
+            var session         = await _authRepository.CreateSessionAsync(user.UserId);
+            var allowedFeatures = await _authRepository.GetAllowedFeaturesAsync(user.UserId);
 
             return new LoginResponseDTO
             {
-                AccessToken = accessToken,
-                SessionToken = session.Token,
-                ExpiresAt = session.ExpiresAt
+                AccessToken     = accessToken,
+                SessionToken    = session.Token,
+                ExpiresAt       = session.ExpiresAt,
+                AllowedFeatures = allowedFeatures
             };
         }
 

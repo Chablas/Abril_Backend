@@ -1,0 +1,13 @@
+using Abril_Backend.Application.DTOs;
+using Abril_Backend.Features.AuthModule.UserFeature.Application.Dtos;
+
+namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces
+{
+    public interface IUserFeatureService
+    {
+        Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize);
+        Task Create(UserFeatureCreateDto dto);
+        Task Update(int userId, UserFeatureUpdateDto dto, int updatedUserId);
+        Task ToggleActive(int userId, int updatedUserId);
+    }
+}

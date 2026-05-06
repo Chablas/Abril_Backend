@@ -25,5 +25,20 @@ namespace Abril_Backend.Features.AuthModule.Role.Application.Services
         {
             await _repository.Create(dto, userId);
         }
+
+        public async Task<List<FeatureDto>> GetAllFeatures()
+        {
+            return await _repository.GetAllFeatures();
+        }
+
+        public async Task<List<int>> GetRoleFeatureIds(int roleId)
+        {
+            return await _repository.GetRoleFeatureIds(roleId);
+        }
+
+        public async Task UpdateRoleFeatures(int roleId, List<int> featureIds)
+        {
+            await _repository.UpdateRoleFeatures(roleId, featureIds);
+        }
     }
 }

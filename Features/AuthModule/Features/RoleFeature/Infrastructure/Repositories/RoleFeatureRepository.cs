@@ -84,5 +84,34 @@ namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories
             ctx.Role.Add(role);
             await ctx.SaveChangesAsync();
         }
+
+        public async Task<List<FeatureDto>> GetAllFeatures()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Database
+                .SqlQuery<FeatureDto>($"""
+                    SELECT f.feature_id, f.feature_key, f.module_id, m.module_name
+                    FROM feature f
+                    LEFT JOIN module m ON m.module_id = f.module_id
+                    ORDER BY m.module_name, f.feature_key
+                    """)
+                .ToListAsync();
+        }
+
+        public async Task<List<int>> GetRoleFeatureIds(int roleId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Database
+                .SqlQuery<int>($"SELECT feature_id FROM role_feature WHERE role_id = {roleId}")
+                .ToListAsync();
+        }
+
+        public async Task UpdateRoleFeatures(int roleId, List<int> featureIds)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.ExecuteSqlAsync($"DELETE FROM role_feature WHERE role_id = {roleId}");
+            foreach (var featureId in featureIds)
+                await ctx.Database.ExecuteSqlAsync($"INSERT INTO role_feature (role_id, feature_id) VALUES ({roleId}, {featureId})");
+        }
     }
 }

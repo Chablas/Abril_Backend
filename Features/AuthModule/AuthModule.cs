@@ -14,6 +14,9 @@ using Abril_Backend.Features.AuthModule.Role.Application.Interfaces;
 using Abril_Backend.Features.AuthModule.Role.Application.Services;
 using Abril_Backend.Features.AuthModule.Role.Infrastructure.Interfaces;
 using Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories;
+using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
+using Abril_Backend.Features.AuthModule.UserFeature.Application.Services;
+using Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.AuthModule
 {
@@ -36,6 +39,10 @@ namespace Abril_Backend.Features.AuthModule
             // RoleFeature
             services.AddScoped<IRoleFeatureRepository, RoleFeatureRepository>();
             services.AddScoped<IRoleFeatureService, RoleFeatureService>();
+
+            // UserFeature
+            services.AddScoped<IUserFeatureRepository, UserFeatureRepository>();
+            services.AddScoped<IUserFeatureService, UserFeatureService>();
 
             return services;
         }

@@ -59,7 +59,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Medico = x.m != null ? x.m.ApellidoNombre : null,
                     Estado = x.p.Estado,
                     Motivo = x.p.Motivo,
-                    EmoResultadoId = x.p.EmoResultadoId
+                    EmoResultadoId = x.p.EmoResultadoId,
+                    Origen = x.p.Origen,
+                    CheckInHora = x.p.CheckInHora,
+                    MotivoRechazo = x.p.MotivoRechazo,
+                    FechaNotificacion = x.p.FechaNotificacion
                 })
                 .ToListAsync();
         }
@@ -82,6 +86,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 MedicoId = dto.MedicoId,
                 Motivo = dto.Motivo,
                 Notas = dto.Notas,
+                Origen = string.IsNullOrWhiteSpace(dto.Origen) ? "Manual" : dto.Origen,
                 Estado = "Programado",
                 RegistradoPorId = userId,
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -118,6 +123,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Programación no encontrada.", 404);
             ent.Estado = estado;
             if (emoResultadoId.HasValue) ent.EmoResultadoId = emoResultadoId;
+            ent.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task ClinicaAccion(int id, ProgramacionClinicaAccionDto dto, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id)
+                ?? throw new AbrilException("Programación no encontrada.", 404);
+
+            switch (dto.Accion.Trim())
+            {
+                case "Aceptar":
+                    ent.Estado = "Aceptado por Clínica";
+                    ent.MotivoRechazo = null;
+                    break;
+                case "Rechazar":
+                    ent.Estado = "Rechazado por Clínica";
+                    ent.MotivoRechazo = dto.MotivoRechazo;
+                    break;
+                case "CheckIn":
+                    ent.Estado = "En Atención";
+                    ent.CheckInHora = dto.CheckInHora ?? TimeOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
+                    break;
+                case "Completar":
+                    ent.Estado = "Completado";
+                    if (dto.EmoResultadoId.HasValue) ent.EmoResultadoId = dto.EmoResultadoId;
+                    break;
+            }
+
             ent.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }

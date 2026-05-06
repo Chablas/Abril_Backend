@@ -11,5 +11,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public int? MedicoId { get; set; }
         public string? Motivo { get; set; }
         public string? Notas { get; set; }
+        public string? Origen { get; set; }
     }
 }

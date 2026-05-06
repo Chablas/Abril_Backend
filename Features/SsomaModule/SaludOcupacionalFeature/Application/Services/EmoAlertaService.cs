@@ -4,6 +4,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -28,44 +29,48 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         public async Task<EmoAlertaResultDto> ProcesarAlertas()
         {
             var result = new EmoAlertaResultDto();
-
             using var ctx = _factory.CreateDbContext();
 
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5).Date);
-            var inicio = hoy.AddDays(1);
-            var fin = hoy.AddDays(5);
 
-            var emos = await ctx.WorkerEmo
-                .AsNoTracking()
-                .Where(e => e.Activo
-                            && e.FechaVencimiento != null
-                            && e.FechaVencimiento.Value >= inicio
-                            && e.FechaVencimiento.Value <= fin)
-                .ToListAsync();
+            // Ventana amplia en SQL: hasta 7 días calendario para cubrir cualquier
+            // combinación de 4 días hábiles (max: viernes→viernes anterior = 6 días cal.)
+            var ventanaInicio = hoy.AddDays(1);
+            var ventanaFin = hoy.AddDays(7);
 
-            // Excluir domingos en memoria — DateOnly.DayOfWeek no traduce a SQL portable.
-            emos = emos
-                .Where(e => e.FechaVencimiento!.Value.DayOfWeek != DayOfWeek.Sunday)
+            // Bug 1 fix: COALESCE(fecha_vencimiento_calculada, fecha_vencimiento)
+            // Bug 3 fix: JOIN con SsEmoTipo para leer VigenciaMeses real
+            // Bug 2 fix: JOIN con Worker para determinar calendario hábil en memoria
+            var candidatosRaw = await (
+                from e in ctx.WorkerEmo
+                join w in ctx.Worker on e.WorkerId equals w.Id
+                join t in ctx.SsEmoTipo on e.TipoEmoId equals t.Id into tj
+                from t in tj.DefaultIfEmpty()
+                where e.Activo
+                    && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
+                    && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) >= ventanaInicio
+                    && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) <= ventanaFin
+                select new { Emo = e, Worker = w, TipoEmo = t }
+            ).AsNoTracking().ToListAsync();
+
+            // Bug 2 fix: disparar alerta solo cuando hoy == fechaVenc - 4 días hábiles
+            var candidatos = candidatosRaw
+                .Where(x =>
+                {
+                    var fv = (x.Emo.FechaVencimientoCalculada ?? x.Emo.FechaVencimiento)!.Value;
+                    var fechaAlerta = RestarDiasHabiles(fv, 4, EsCalendarioOficina(x.Worker));
+                    return fechaAlerta == hoy;
+                })
                 .ToList();
 
-            if (emos.Count == 0)
-            {
-                return result;
-            }
+            if (candidatos.Count == 0) return result;
 
-            var emoIds = emos.Select(e => e.Id).ToList();
-            var workerIds = emos.Select(e => e.WorkerId).Distinct().ToList();
-
-            var workers = await ctx.Worker
-                .AsNoTracking()
-                .Where(w => workerIds.Contains(w.Id))
-                .ToListAsync();
-            var workersDict = workers.ToDictionary(w => w.Id);
+            var emoIds = candidatos.Select(x => x.Emo.Id).ToList();
+            var workerIds = candidatos.Select(x => x.Worker.Id).Distinct().ToList();
 
             var vinculaciones = await ctx.WorkerVinculacion
                 .AsNoTracking()
-                .Where(v => workerIds.Contains(v.WorkerId)
-                            && (v.FechaFin == null || v.FechaFin >= hoy))
+                .Where(v => workerIds.Contains(v.WorkerId) && (v.FechaFin == null || v.FechaFin >= hoy))
                 .OrderByDescending(v => v.CreatedAt)
                 .ThenByDescending(v => v.Id)
                 .ToListAsync();
@@ -77,26 +82,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             var proyectoIds = vinculaciones
                 .Where(v => v.ProyectoId.HasValue)
                 .Select(v => v.ProyectoId!.Value)
-                .Distinct()
-                .ToList();
+                .Distinct().ToList();
 
             var empresaIds = vinculaciones
                 .Where(v => v.EmpresaId.HasValue)
                 .Select(v => v.EmpresaId!.Value)
-                .Distinct()
-                .ToList();
+                .Distinct().ToList();
 
-            var proyectos = await ctx.Project
+            var proyectosDict = await ctx.Project
                 .AsNoTracking()
                 .Where(p => proyectoIds.Contains(p.ProjectId))
-                .ToListAsync();
-            var proyectosDict = proyectos.ToDictionary(p => p.ProjectId);
+                .ToDictionaryAsync(p => p.ProjectId);
 
-            var empresas = await ctx.Contributor
+            var empresasDict = await ctx.Contributor
                 .AsNoTracking()
                 .Where(em => empresaIds.Contains(em.ContributorId))
-                .ToListAsync();
-            var empresasDict = empresas.ToDictionary(em => em.ContributorId);
+                .ToDictionaryAsync(em => em.ContributorId);
 
             var alertasYaEnviadasHoy = await ctx.SsAlertaEmo
                 .AsNoTracking()
@@ -105,49 +106,42 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .ToListAsync();
             var alertasSet = new HashSet<int>(alertasYaEnviadasHoy);
 
-            foreach (var emo in emos)
+            foreach (var c in candidatos)
             {
                 result.TotalProcesados++;
 
-                if (alertasSet.Contains(emo.Id))
+                if (alertasSet.Contains(c.Emo.Id))
                 {
-                    result.Detalles.Add($"EMO {emo.Id} — alerta ya registrada hoy. Omitido.");
+                    result.Detalles.Add($"EMO {c.Emo.Id} — alerta ya registrada hoy. Omitido.");
                     continue;
                 }
 
-                if (!workersDict.TryGetValue(emo.WorkerId, out var worker))
-                {
-                    result.Detalles.Add($"EMO {emo.Id} — worker {emo.WorkerId} no encontrado. Omitido.");
-                    continue;
-                }
-
-                vinculacionPorWorker.TryGetValue(worker.Id, out var vinculacion);
+                vinculacionPorWorker.TryGetValue(c.Worker.Id, out var vinculacion);
 
                 Project? proyecto = null;
                 if (vinculacion?.ProyectoId.HasValue == true)
-                {
                     proyectosDict.TryGetValue(vinculacion.ProyectoId.Value, out proyecto);
-                }
 
                 Contributor? empresa = null;
                 if (vinculacion?.EmpresaId.HasValue == true)
-                {
                     empresasDict.TryGetValue(vinculacion.EmpresaId.Value, out empresa);
-                }
 
-                var destinatarios = BuildDestinatarios(worker.EmailPersonal, proyecto);
-
+                var destinatarios = BuildDestinatarios(c.Worker, proyecto);
                 if (destinatarios.Count == 0)
                 {
-                    result.Detalles.Add($"EMO {emo.Id} ({worker.ApellidoNombre}) — sin destinatarios. Omitido.");
+                    result.Detalles.Add($"EMO {c.Emo.Id} ({c.Worker.ApellidoNombre}) — sin destinatarios. Omitido.");
                     continue;
                 }
 
-                var vigenciaAnios = string.Equals(worker.ObraOficina?.Trim(), "Oficina Central",
-                    StringComparison.OrdinalIgnoreCase) ? 2 : 1;
+                // Bug 3 fix: leer vigencia real de SsEmoTipo.VigenciaMeses
+                var vigenciaMeses = c.TipoEmo?.VigenciaMeses ?? 12;
+                var vigenciaTexto = vigenciaMeses % 12 == 0
+                    ? $"{vigenciaMeses / 12} año(s)"
+                    : $"{vigenciaMeses} mes(es)";
 
-                var subject = $"Vencimiento de EMO - {worker.ApellidoNombre} - {emo.FechaVencimiento:yyyy-MM-dd}";
-                var body = BuildBody(worker, emo, proyecto, empresa, vigenciaAnios);
+                var fv = (c.Emo.FechaVencimientoCalculada ?? c.Emo.FechaVencimiento)!.Value;
+                var subject = $"Vencimiento de EMO - {c.Worker.ApellidoNombre} - {fv:yyyy-MM-dd}";
+                var body = BuildBody(c.Worker, c.Emo, fv, proyecto, empresa, vigenciaTexto);
 
                 try
                 {
@@ -159,8 +153,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                     ctx.SsAlertaEmo.Add(new SsAlertaEmo
                     {
-                        WorkerId = worker.Id,
-                        EmoId = emo.Id,
+                        WorkerId = c.Worker.Id,
+                        EmoId = c.Emo.Id,
                         TipoAlerta = "VENCIMIENTO",
                         FechaAlerta = hoy,
                         EnviadoEmail = true,
@@ -170,34 +164,66 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     });
 
                     result.TotalEnviados++;
-                    result.Detalles.Add($"EMO {emo.Id} ({worker.ApellidoNombre}) — enviado a {destinatarios.Count} destinatario(s).");
+                    result.Detalles.Add($"EMO {c.Emo.Id} ({c.Worker.ApellidoNombre}) — enviado a {destinatarios.Count} destinatario(s).");
                 }
                 catch (Exception ex)
                 {
                     result.TotalErrores++;
-                    _logger.LogError(ex, "Error enviando alerta de EMO {EmoId}", emo.Id);
-                    result.Detalles.Add($"EMO {emo.Id} ({worker.ApellidoNombre}) — error al enviar: {ex.Message}");
+                    _logger.LogError(ex, "Error enviando alerta de EMO {EmoId}", c.Emo.Id);
+                    result.Detalles.Add($"EMO {c.Emo.Id} ({c.Worker.ApellidoNombre}) — error al enviar: {ex.Message}");
                 }
             }
 
             await ctx.SaveChangesAsync();
-
             return result;
         }
 
-        private static List<string> BuildDestinatarios(
-            string? emailPersonal,
-            Project? proyecto)
+        // Retrocede `dias` días hábiles desde `fecha`.
+        // excluirSabado=true para calendarios Mon-Fri (staff/oficina central).
+        // excluirSabado=false para calendarios Mon-Sat (obra/contratista).
+        private static DateOnly RestarDiasHabiles(DateOnly fecha, int dias, bool excluirSabado)
         {
-            var raw = new[]
+            var resultado = fecha;
+            int conteo = 0;
+            while (conteo < dias)
             {
-                emailPersonal,
-                proyecto?.EmailResidente,
-                proyecto?.EmailResponsable,
-                proyecto?.EmailRrhh,
-                proyecto?.EmailCoordSsoma,
-                proyecto?.EmailCoordAdmin,
-            };
+                resultado = resultado.AddDays(-1);
+                var dow = resultado.DayOfWeek;
+                if (dow == DayOfWeek.Sunday) continue;
+                if (excluirSabado && dow == DayOfWeek.Saturday) continue;
+                conteo++;
+            }
+            return resultado;
+        }
+
+        // Casa + Staff u Oficina Central → Mon-Fri (excluye sáb y dom).
+        // Contratista u Obra → Mon-Sat (excluye solo dom).
+        private static bool EsCalendarioOficina(Worker worker)
+        {
+            return string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)
+                && (string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static List<string> BuildDestinatarios(Worker worker, Project? proyecto)
+        {
+            var raw = new List<string?> { worker.EmailPersonal };
+
+            // Casa y Staff: agregar también email corporativo
+            if (string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(worker.ContrataCasa, "Staff", StringComparison.OrdinalIgnoreCase))
+            {
+                raw.Add(worker.EmailCorporativo);
+            }
+
+            if (proyecto != null)
+            {
+                raw.Add(proyecto.EmailResidente);
+                raw.Add(proyecto.EmailResponsable);
+                raw.Add(proyecto.EmailRrhh);
+                raw.Add(proyecto.EmailCoordSsoma);
+                raw.Add(proyecto.EmailCoordAdmin);
+            }
 
             return raw
                 .Where(e => !string.IsNullOrWhiteSpace(e))
@@ -207,11 +233,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         }
 
         private static string BuildBody(
-            Abril_Backend.Infrastructure.Models.Worker worker,
-            Abril_Backend.Infrastructure.Models.WorkerEmo emo,
+            Worker worker,
+            WorkerEmo emo,
+            DateOnly fechaVencimiento,
             Project? proyecto,
             Contributor? empresa,
-            int vigenciaAnios)
+            string vigenciaTexto)
         {
             return $@"
             <p>Estimados,</p>
@@ -252,11 +279,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Fecha de vencimiento</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px; color: #b00020;'><strong>{emo.FechaVencimiento:dd/MM/yyyy}</strong></td>
+                    <td style='border: 1px solid #ddd; padding: 8px; color: #b00020;'><strong>{fechaVencimiento:dd/MM/yyyy}</strong></td>
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Vigencia de EMO</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{vigenciaAnios} año(s)</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{vigenciaTexto}</td>
                 </tr>
             </table>
 

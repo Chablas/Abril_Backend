@@ -142,6 +142,10 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithOne(u => u.Person)
                 .HasForeignKey<Person>(p => p.UserId);
 
+            modelBuilder.Entity<SsProgramacionEmo>()
+                .Property(e => e.Origen)
+                .HasDefaultValue("Manual");
+
             modelBuilder.Entity<ResidentReportIncidenceImage>()
                 .HasOne(i => i.ResidentReportIncidence)
                 .WithMany(r => r.Images)

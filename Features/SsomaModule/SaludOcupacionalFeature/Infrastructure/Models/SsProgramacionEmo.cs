@@ -43,6 +43,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("notas")]
         public string? Notas { get; set; }
 
+        [Column("origen")]
+        public string Origen { get; set; } = "Manual";
+
+        [Column("check_in_hora")]
+        public TimeOnly? CheckInHora { get; set; }
+
+        [Column("motivo_rechazo")]
+        public string? MotivoRechazo { get; set; }
+
+        [Column("fecha_notificacion")]
+        public DateTimeOffset? FechaNotificacion { get; set; }
+
         [Column("registrado_por_id")]
         public int? RegistradoPorId { get; set; }
 

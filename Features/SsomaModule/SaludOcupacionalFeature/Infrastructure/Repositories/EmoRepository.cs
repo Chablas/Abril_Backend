@@ -1,10 +1,12 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
@@ -449,6 +451,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
             }
 
+            await SincronizarEntregableEmoAsync(ctx, emo, worker);
+
             await ctx.SaveChangesAsync();
             return emo.Id;
         }
@@ -510,14 +514,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 });
             }
 
-            if (dto.Aptitud == "No Apto")
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == emo.WorkerId);
+            if (worker != null)
             {
-                var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == emo.WorkerId);
-                if (worker != null)
+                if (dto.Aptitud == "No Apto")
                 {
                     worker.HabilitadoObra = false;
                     worker.UpdatedAt = DateTimeOffset.UtcNow;
                 }
+                await SincronizarEntregableEmoAsync(ctx, emo, worker);
             }
 
             await ctx.SaveChangesAsync();
@@ -531,6 +536,37 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             emo.Estado = estado;
             emo.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        private static async Task SincronizarEntregableEmoAsync(AppDbContext ctx, WorkerEmo emo, Worker worker)
+        {
+            if (!string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var hab = await ctx.SsHabTrabajador
+                .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.CertAptitud);
+
+            if (hab == null) return;
+
+            switch (emo.Aptitud)
+            {
+                case "Apto":
+                case "Apto con Restricciones":
+                    hab.Estado = "Aprobado";
+                    var fv = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
+                    hab.Vigencia = fv.HasValue ? fv.Value.ToDateTime(TimeOnly.MinValue) : null;
+                    break;
+                case "No Apto":
+                    hab.Estado = "Rechazado";
+                    break;
+                case "Observado":
+                    hab.Estado = "En Plazo";
+                    break;
+                default:
+                    return;
+            }
+
+            hab.UpdatedAt = DateTime.UtcNow;
         }
     }
 }

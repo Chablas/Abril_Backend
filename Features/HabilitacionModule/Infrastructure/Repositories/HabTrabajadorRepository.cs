@@ -1,4 +1,5 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
@@ -23,16 +24,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         private const string MensajeRestriccion =
             "No se puede ingresar o reingresar al trabajador. Comuníquese con el área de Administración o SSOMA.";
 
-        private const int ItemInduccionObra = 12;
         private const int ItemRisst = 6;
         private const int ItemRegistroEpp = 5;
         private const int ItemDifusionPts = 10;
         private const int ItemEntregaRecomendaciones = 8;
         private const int ItemTRegistro = 7;
-        private const int ItemSctr = 11;
-        private const int ItemVidaLey = 13;
-        private const int ItemCertAptitud = 4;
-        private const int ItemLecturaEmo = 25;
 
         private const string CategoriaPracticante = "Practicante";
 
@@ -191,7 +187,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToList();
 
             var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)
-                                          && i.Id != ItemLecturaEmo
+                                          && i.Id != HabItemIds.LecturaEmo
                                           && !esContratista).ToList();
             var nonEmoItems = items.Except(emoItems).ToList();
             var nonEmoIds = nonEmoItems.Select(i => i.Id).ToList();
@@ -470,7 +466,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
                 if (!yaIndujoEnNuevoProyecto)
                 {
-                    itemsToReset.Add(ItemInduccionObra);
+                    itemsToReset.Add(HabItemIds.InduccionObra);
 
                     if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
                     {
@@ -485,9 +481,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (esCambioEmpresa)
             {
-                itemsToReset.Add(ItemSctr);
-                itemsToReset.Add(ItemVidaLey);
-                itemsToReset.Add(ItemCertAptitud);
+                itemsToReset.Add(HabItemIds.Sctr);
+                itemsToReset.Add(HabItemIds.VidaLey);
+                itemsToReset.Add(HabItemIds.CertAptitud);
 
                 if (proyectoDestino == null)
                 {
@@ -648,7 +644,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 proyectoDestino = await ctx.Project
                     .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId!.Value);
 
-                itemsToReset.Add(ItemInduccionObra);
+                itemsToReset.Add(HabItemIds.InduccionObra);
 
                 if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
                 {
@@ -662,9 +658,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (esCambioEmpresa)
             {
-                itemsToReset.Add(ItemSctr);
-                itemsToReset.Add(ItemVidaLey);
-                itemsToReset.Add(ItemCertAptitud);
+                itemsToReset.Add(HabItemIds.Sctr);
+                itemsToReset.Add(HabItemIds.VidaLey);
+                itemsToReset.Add(HabItemIds.CertAptitud);
 
                 if (proyectoDestino == null)
                 {
@@ -914,7 +910,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(i => CsvContiene(i.AplicaObraOficina, worker.ObraOficina))
                 .Where(i => !CsvExcluye(i.ExcluyeObraOficina, worker.ObraOficina))
                 .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, worker.Categoria))
-                .Where(i => !(esCasaPracticante && i.Id == ItemVidaLey))
+                .Where(i => !(esCasaPracticante && i.Id == HabItemIds.VidaLey))
                 .ToList();
 
             var itemIds = itemsAplicables.Select(i => i.Id).ToList();
@@ -1003,7 +999,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (transicionFueraDePracticante)
             {
                 var existeVidaLey = await ctx.SsHabTrabajador
-                    .AnyAsync(h => h.WorkerId == workerId && h.ItemId == ItemVidaLey);
+                    .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.VidaLey);
 
                 if (!existeVidaLey)
                 {
@@ -1011,7 +1007,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ctx.SsHabTrabajador.Add(new SsHabTrabajador
                     {
                         WorkerId = workerId,
-                        ItemId = ItemVidaLey,
+                        ItemId = HabItemIds.VidaLey,
                         Estado = "Falta",
                         Vigencia = null,
                         CreatedAt = nowUtc,

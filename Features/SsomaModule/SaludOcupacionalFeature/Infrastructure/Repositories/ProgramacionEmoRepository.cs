@@ -51,6 +51,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.p.Estado == filter.Estado);
             if (filter.WorkerId.HasValue)
                 q = q.Where(x => x.p.WorkerId == filter.WorkerId.Value);
+            if (filter.ClinicaId.HasValue)
+                q = q.Where(x => x.p.ClinicaId == filter.ClinicaId.Value);
 
             return await q
                 .OrderBy(x => x.p.FechaProgramada)

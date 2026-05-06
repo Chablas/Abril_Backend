@@ -24,5 +24,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public bool HabilitadoObra { get; set; } = false;
         public int? EmpresaId { get; set; }
         public int? ProyectoId { get; set; }
+        /// <summary>
+        /// "DNI" o "CE". No se persiste en BD — se usa solo para validación.
+        /// Si no se envía, se infiere del formato: 8 dígitos = DNI, resto = CE.
+        /// </summary>
+        public string? TipoDocumento { get; set; }
     }
 }

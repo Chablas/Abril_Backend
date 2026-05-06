@@ -138,5 +138,41 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetSubareas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        [HttpGet("categorias")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetCategorias()
+        {
+            try
+            {
+                var items = await _repo.GetCategoriasAsync();
+                var result = items.Select(x => new CatCategoriaDto
+                {
+                    Id = x.Id,
+                    Nombre = x.Nombre
+                }).ToList();
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetCategorias"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("ocupaciones")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetOcupaciones()
+        {
+            try
+            {
+                var items = await _repo.GetOcupacionesAsync();
+                var result = items.Select(x => new CatOcupacionDto
+                {
+                    Id = x.Id,
+                    Nombre = x.Nombre
+                }).ToList();
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetOcupaciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

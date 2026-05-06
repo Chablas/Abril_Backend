@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -16,7 +17,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
+        private readonly ITrabajadorRestringidoService _restringidoService;
         private readonly ILogger<HabTrabajadorRepository> _logger;
+
+        private const string MensajeRestriccion =
+            "No se puede ingresar o reingresar al trabajador. Comuníquese con el área de Administración o SSOMA.";
 
         private const int ItemInduccionObra = 12;
         private const int ItemRisst = 6;
@@ -38,10 +43,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public HabTrabajadorRepository(
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
+            ITrabajadorRestringidoService restringidoService,
             ILogger<HabTrabajadorRepository> logger)
         {
             _factory = factory;
             _emailService = emailService;
+            _restringidoService = restringidoService;
             _logger = logger;
         }
 
@@ -424,6 +431,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Dni))
+                throw new AbrilException(MensajeRestriccion, 400);
+
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -601,6 +611,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Dni))
+                throw new AbrilException(MensajeRestriccion, 400);
+
+            await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId);
 
             var fechaReingreso = dto.FechaReingreso ?? DateOnly.FromDateTime(DateTime.Today);
             var now = DateTimeOffset.UtcNow;
@@ -1222,6 +1237,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
         }
 
+        private static async Task VerificarNoActivoEnOtraEmpresaAsync(AppDbContext ctx, int workerId, int? empresaIdNueva)
+        {
+            var vinculActiva = await ctx.WorkerVinculacion
+                .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+                .Select(v => new { v.EmpresaId })
+                .FirstOrDefaultAsync();
+
+            if (vinculActiva != null && vinculActiva.EmpresaId.HasValue && vinculActiva.EmpresaId != empresaIdNueva)
+                throw new AbrilException(
+                    "El trabajador ya se encuentra activo en otra empresa. Debe ser retirado antes de poder registrarlo en una nueva empresa.",
+                    400);
+        }
+
         private static async Task ValidarExclusividadEmpresaAsync(
             AppDbContext ctx, int workerId, int empresaSolicitanteId)
         {
@@ -1255,6 +1283,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Dni))
+                throw new AbrilException(MensajeRestriccion, 400);
 
             bool esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
 

@@ -10,5 +10,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<SsCriterioEvaluacion>> GetCriteriosEvaluacionAsync();
         Task<List<string>> GetAreasAsync();
         Task<List<CatSubarea>> GetSubareasAsync(string? area);
+        Task<List<CatCategoria>> GetCategoriasAsync();
+        Task<List<CatOcupacion>> GetOcupacionesAsync();
     }
 }

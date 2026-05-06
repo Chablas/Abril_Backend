@@ -9,6 +9,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<ControlAccesoWorkerDto>> GetOficinaCentralAsync(int? proyectoId);
         Task<List<InduccionHoyDto>> GetInduccionesHoyAsync();
         Task ConfirmarIngresoAsync(int induccionId);
+        Task<List<TareoPartidaDto>> GetPartidasAsync();
+        Task<List<TareoEmpresaDto>> GetEmpresasContratistasByProyectoAsync(int proyectoId);
         Task<TareoDto?> GetTareoAsync(int proyectoId, DateOnly fecha);
         Task<TareoDto> CreateTareoAsync(TareoCreateDto dto, int? userId);
         Task<TareoDto> UpdateTareoAsync(int id, TareoCreateDto dto);

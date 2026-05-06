@@ -58,14 +58,24 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var workerIds = await ctx.WorkerVinculacion
+            var idsVinc = await ctx.WorkerVinculacion
                 .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
                 .Select(v => v.WorkerId)
                 .ToListAsync();
 
+            var idsProyecto = await ctx.WorkerProyecto
+                .Where(wp => wp.ProyectoId == proyectoId)
+                .Select(wp => wp.WorkerId)
+                .ToListAsync();
+
+            var workerIds = idsVinc.Union(idsProyecto).Distinct().ToList();
+
+            var ahora = DateTime.UtcNow;
+
             var noAutorizadosIds = await ctx.SsHabTrabajador
                 .Where(h => workerIds.Contains(h.WorkerId) &&
-                            (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido"))
+                            (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
+                             (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)))
                 .Select(h => h.WorkerId)
                 .Distinct()
                 .ToListAsync();
@@ -185,6 +195,33 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
         }
 
+        public async Task<List<TareoPartidaDto>> GetPartidasAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsTareoPartida
+                .Where(p => p.Activo)
+                .OrderBy(p => p.Orden)
+                .Select(p => new TareoPartidaDto { Id = p.Id, Nombre = p.Nombre })
+                .ToListAsync();
+        }
+
+        public async Task<List<TareoEmpresaDto>> GetEmpresasContratistasByProyectoAsync(int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var empresaIds = await ctx.WorkerVinculacion
+                .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null && v.EmpresaId.HasValue)
+                .Select(v => v.EmpresaId!.Value)
+                .Distinct()
+                .ToListAsync();
+
+            return await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId) && !c.EsAbril)
+                .OrderBy(c => c.ContributorName)
+                .Select(c => new TareoEmpresaDto { EmpresaId = c.ContributorId, EmpresaNombre = c.ContributorName })
+                .ToListAsync();
+        }
+
         public async Task<TareoDto?> GetTareoAsync(int proyectoId, DateOnly fecha)
         {
             using var ctx = _factory.CreateDbContext();
@@ -193,7 +230,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Include(t => t.Proyecto)
                 .FirstOrDefaultAsync(t => t.ProyectoId == proyectoId && t.Fecha == fecha);
 
-            return tareo == null ? null : MapTareoDto(tareo);
+            if (tareo == null) return null;
+
+            var (casa, contratista) = await LoadDetallesAsync(ctx, tareo.Id);
+            return MapTareoDto(tareo, casa, contratista);
         }
 
         public async Task<TareoDto> CreateTareoAsync(TareoCreateDto dto, int? userId)
@@ -218,8 +258,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             ctx.SsTareo.Add(tareo);
             await ctx.SaveChangesAsync();
 
+            InsertDetalles(ctx, tareo.Id, dto);
+            await ctx.SaveChangesAsync();
+
             await ctx.Entry(tareo).Reference(t => t.Proyecto).LoadAsync();
-            return MapTareoDto(tareo);
+            var (casa, contratista) = await LoadDetallesAsync(ctx, tareo.Id);
+            return MapTareoDto(tareo, casa, contratista);
         }
 
         public async Task<TareoDto> UpdateTareoAsync(int id, TareoCreateDto dto)
@@ -236,13 +280,70 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             tareo.Observaciones = dto.Observaciones;
             tareo.UpdatedAt = DateTime.UtcNow;
 
+            var oldCasa = await ctx.SsTareoDetalleCasa.Where(d => d.TareoId == id).ToListAsync();
+            ctx.SsTareoDetalleCasa.RemoveRange(oldCasa);
+
+            var oldContratista = await ctx.SsTareoDetalleContratista.Where(d => d.TareoId == id).ToListAsync();
+            ctx.SsTareoDetalleContratista.RemoveRange(oldContratista);
+
+            InsertDetalles(ctx, id, dto);
             await ctx.SaveChangesAsync();
-            return MapTareoDto(tareo);
+
+            var (casa, contratista) = await LoadDetallesAsync(ctx, id);
+            return MapTareoDto(tareo, casa, contratista);
         }
 
         // ─── helpers ───────────────────────────────────────────────────────────
 
-        private static TareoDto MapTareoDto(SsTareo t) => new()
+        private static void InsertDetalles(AppDbContext ctx, int tareoId, TareoCreateDto dto)
+        {
+            if (dto.DetallesCasa.Count > 0)
+                ctx.SsTareoDetalleCasa.AddRange(dto.DetallesCasa.Select(d => new SsTareoDetalleCasa
+                {
+                    TareoId = tareoId,
+                    PartidaId = d.PartidaId,
+                    CantidadPersonas = d.CantidadPersonas
+                }));
+
+            if (dto.DetallesContratista.Count > 0)
+                ctx.SsTareoDetalleContratista.AddRange(dto.DetallesContratista.Select(d => new SsTareoDetalleContratista
+                {
+                    TareoId = tareoId,
+                    EmpresaId = d.EmpresaId,
+                    CantidadPersonas = d.CantidadPersonas
+                }));
+        }
+
+        private static async Task<(List<TareoDetalleCasaDto> casa, List<TareoDetalleContratistaDto> contratista)>
+            LoadDetallesAsync(AppDbContext ctx, int tareoId)
+        {
+            var casa = await ctx.SsTareoDetalleCasa
+                .Where(d => d.TareoId == tareoId)
+                .Join(ctx.SsTareoPartida, d => d.PartidaId, p => p.Id, (d, p) => new TareoDetalleCasaDto
+                {
+                    PartidaId = d.PartidaId,
+                    PartidaNombre = p.Nombre,
+                    CantidadPersonas = d.CantidadPersonas
+                })
+                .ToListAsync();
+
+            var contratista = await ctx.SsTareoDetalleContratista
+                .Where(d => d.TareoId == tareoId)
+                .Join(ctx.Contributor, d => d.EmpresaId, c => c.ContributorId, (d, c) => new TareoDetalleContratistaDto
+                {
+                    EmpresaId = d.EmpresaId,
+                    EmpresaNombre = c.ContributorName,
+                    CantidadPersonas = d.CantidadPersonas
+                })
+                .ToListAsync();
+
+            return (casa, contratista);
+        }
+
+        private static TareoDto MapTareoDto(
+            SsTareo t,
+            List<TareoDetalleCasaDto>? detallesCasa = null,
+            List<TareoDetalleContratistaDto>? detallesContratista = null) => new()
         {
             Id = t.Id,
             ProyectoId = t.ProyectoId,
@@ -251,7 +352,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Observaciones = t.Observaciones,
             CreadoPor = t.CreadoPor,
             CreatedAt = t.CreatedAt,
-            UpdatedAt = t.UpdatedAt
+            UpdatedAt = t.UpdatedAt,
+            DetallesCasa = detallesCasa ?? [],
+            DetallesContratista = detallesContratista ?? []
         };
 
         private static async Task<List<ControlAccesoWorkerDto>> BuildDtosAsync(

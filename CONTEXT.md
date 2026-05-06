@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-05 (control acceso completo; equipos FK→contributor, ObsContratista, versiones; SsTareo; IngresoConfirmado en SsInduccion)
+> Última actualización: 2026-05-06 (tareo extendido con detalles Casa/Contratista; catálogo partidas; empresas por proyecto)
 
 ---
 
@@ -111,6 +111,9 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `WorkerProyecto` | `ss_hab_worker_proyecto` | `id` | Multi-proyecto **solo Casa**. N activos en paralelo. Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL`. |
 | `SsInduccion` | `ss_induccion` | `id` | `empresa_id` → `contributor.contributor_id` (no `ss_empresa_contratista`). Columnas manuales: `ingreso_confirmado` (bool NOT NULL DEFAULT false), `fecha_ingreso` (timestamptz). |
 | `SsTareo` | `ss_tareo` | `id` | Tabla manual (sin migración EF). `proyecto_id` → `project.project_id`. `fecha` (DateOnly). `observaciones` (text?). `creado_por` (int?, FK→app_user). Unique implícito en (`proyecto_id`, `fecha`). |
+| `SsTareoPartida` | `ss_tareo_partida` | `id` | Catálogo fijo de 17 partidas Casa. Columnas: `nombre`, `orden` (int), `activo` (bool). Tabla manual (sin migración EF). |
+| `SsTareoDetalleCasa` | `ss_tareo_detalle_casa` | `id` | Detalle de tareo para personal Casa. `tareo_id` → `ss_tareo.id`, `partida_id` → `ss_tareo_partida.id`, `cantidad_personas` (int). Tabla manual. |
+| `SsTareoDetalleContratista` | `ss_tareo_detalle_contratista` | `id` | Detalle de tareo para personal contratista. `tareo_id` → `ss_tareo.id`, `empresa_id` → `contributor.contributor_id`, `cantidad_personas` (int). Tabla manual. |
 | `SsHabTrabajador` | `ss_hab_trabajador` | `id` | Entregables por worker. |
 | `SsHabEmpresa` | `ss_hab_empresa` | `id` | `proyecto_id` → `project.project_id`. `empresa_id` → `contributor.contributor_id`. |
 | `SsEquipo` | `ss_equipo` | `id` | `proyecto_id` → `project.project_id`. `propietario_empresa_id` → `contributor.contributor_id` (nav property `Contributor? PropietarioEmpresa`). |
@@ -291,7 +294,8 @@ PATCH  /api/v1/habilitacion/bandeja/induccion/{id}    sin body — llama Aprobar
 # Inducciones
 POST   /api/v1/habilitacion/inducciones               body: InduccionCreateDto { WorkerIds[], ProyectoId, EmpresaId?, FechaProgramada, TrabajoAltura, EquipoElectrico }
 GET    /api/v1/habilitacion/inducciones?proyectoId=&empresaId=&estado=&fechaDesde=&fechaHasta=
-GET    /api/v1/habilitacion/inducciones/trabajadores-por-programar?proyectoId=&empresaId=
+GET    /api/v1/habilitacion/inducciones/trabajadores-por-programar?proyectoId=&empresaId=&search=
+GET    /api/v1/inducciones/trabajadores-por-programar?proyectoId=&empresaId=&search=   ← alias (misma action, ruta alternativa)
 PATCH  /api/v1/habilitacion/inducciones/{id}/aprobar
 PATCH  /api/v1/habilitacion/inducciones/aprobar-batch  body: { ids: int[] }
 
@@ -319,14 +323,23 @@ GET   /api/v1/habilitacion/control-acceso/no-autorizados?proyectoId=
       → workers del proyecto con algún entregable en {Falta, Rechazado, Vencido}
 GET   /api/v1/habilitacion/control-acceso/oficina-central?proyectoId=
       → workers con ObraOficina ∈ {"Oficina Central","Staff"} con SCTR vigente
-GET   /api/v1/habilitacion/control-acceso/inducciones-hoy?proyectoId=
-      → ss_induccion WHERE estado='PROGRAMADA' AND fecha_programada = hoy UTC
+GET   /api/v1/habilitacion/control-acceso/inducciones-hoy                             [AllowAnonymous temporal]
+      → ss_induccion WHERE estado='PROGRAMADA' AND fecha_programada ∈ [hoyLima, límite)
+      → límite = mañanaLima si hora Lima < 12; pasadoLima si hora Lima ≥ 12 (look-ahead)
+      → sin filtro por proyectoId — devuelve todas las inducciones del día
       → incluye IngresoConfirmado, FechaIngreso
 POST  /api/v1/habilitacion/control-acceso/inducciones/{id}/confirmar-ingreso
-      → marca IngresoConfirmado=true, FechaIngreso=UtcNow en ss_induccion
+      → marca ingreso_confirmado=true, fecha_ingreso=DateTime.UtcNow en ss_induccion
+GET   /api/v1/habilitacion/control-acceso/tareo/partidas
+      → ss_tareo_partida WHERE activo=true ORDER BY orden. DTO: { id, nombre }
+GET   /api/v1/habilitacion/control-acceso/tareo/empresas?proyectoId={id}
+      → empresas contratistas (EsAbril=false) con workers vinculados al proyecto (FechaFin IS NULL). DTO: { empresaId, empresaNombre }
 GET   /api/v1/habilitacion/control-acceso/tareo?proyectoId=&fecha=YYYY-MM-DD
-POST  /api/v1/habilitacion/control-acceso/tareo       body: TareoCreateDto { ProyectoId, Fecha, Observaciones }
+      → retorna cabecera + detallesCasa[] (con partidaNombre) + detallesContratista[] (con empresaNombre)
+POST  /api/v1/habilitacion/control-acceso/tareo       body: TareoCreateDto { ProyectoId, Fecha, Observaciones, DetallesCasa[], DetallesContratista[] }
+      → crea cabecera e inserta detalles. 409 si ya existe (ProyectoId, Fecha)
 PUT   /api/v1/habilitacion/control-acceso/tareo/{id}  body: TareoCreateDto
+      → actualiza cabecera, borra detalles anteriores e inserta los nuevos
 
 # Archivos
 POST  /api/v1/habilitacion/archivos/subir   → { path, url }  — guardar `path` (ruta relativa), NO `url` (larga SharePoint)
@@ -541,15 +554,32 @@ GET    /api/v1/arquitectura-comercial/etapas
 3. Carga `Project` por `ProyectoId` → `ProyectoNombre`
 4. Carga catálogo `SsItemTrabajador` completo
 5. Carga todos los `SsHabTrabajador` de los workers en lote
-6. Por worker: `DocumentosFaltantes`, `DocumentosPorVencer` (vencen en ≤30 días), `Entregables[]` completo
+6. **Para workers Casa** (`ContrataCasa == "Casa"`): pre-carga `WorkerEmo` activos (`Activo=true`) desde `worker_emos`, toma el más reciente por `FechaEmo DESC, Id DESC`. Sintetiza entregable id=4 ("Certificado de Aptitud (EMO)"): `Aptitud=="Apto"` → Estado="Aprobado"; cualquier otro caso o sin EMO → Estado="Falta". Vigencia = `FechaVencimiento`.
+7. Por worker: `DocumentosFaltantes`, `DocumentosPorVencer`, `Entregables[]` completo
+
+**Regla de vigencia (aplicada a ss_hab_trabajador y al EMO sintetizado):**
+- `vigencia > hoy + 7 días` → vigente (no aparece en faltantes ni porVencer)
+- `hoy < vigencia ≤ hoy + 7 días` → `DocumentosPorVencer`
+- `vigencia ≤ hoy` → `DocumentosFaltantes`, `hasPendientes = true`
 
 **ControlAccesoWorkerDto:**
 - `EstadoHabilitacion`: `"Habilitado"` | `"No Autorizado"`
 - `Entregables`: lista de `EntregableResumenDto { Nombre, Estado, Vigencia }` — solo en endpoint no-OficinaCentral
 
-**InduccionHoyDto:** filtra `ss_induccion WHERE estado='PROGRAMADA' AND fecha_programada ∈ [hoyUtc, mañanaUtc)`.
+**InduccionHoyDto:** filtra `ss_induccion WHERE estado='PROGRAMADA'` con rango fecha Lima (UTC-5). Sin filtro por proyecto.
+
+**GetTrabajadoresPorProgramarAsync — filtro `search`:**
+- Si `search` tiene 8 dígitos → `WHERE dni = search` (exacto)
+- Si no → `WHERE LOWER(apellido_nombre) LIKE '%search%'` (aplicado en la query SQL, no en memoria)
 
 **SsTareo:** `(proyecto_id, fecha)` se considera clave de negocio — `CreateTareoAsync` tira 409 si ya existe el par.
+
+**Tareo con detalles:**
+- `TareoCreateDto` incluye `DetallesCasa[]` (`PartidaId`, `CantidadPersonas`) y `DetallesContratista[]` (`EmpresaId`, `CantidadPersonas`). Ambas listas default a `[]` — retrocompatible.
+- `TareoDto` respuesta incluye `DetallesCasa[]` (con `PartidaNombre`) y `DetallesContratista[]` (con `EmpresaNombre`).
+- `UpdateTareoAsync`: borra todos los detalles anteriores (RemoveRange) e inserta los nuevos en el mismo SaveChanges.
+- Helper privado `LoadDetallesAsync(ctx, tareoId)`: hace JOIN `ss_tareo_detalle_casa → ss_tareo_partida` y `ss_tareo_detalle_contratista → contributor` para resolver nombres.
+- Helper privado `InsertDetalles(ctx, tareoId, dto)`: añade los nuevos registros al contexto sin llamar SaveChanges (lo llama el método público).
 
 **Pendiente en BD (crear manualmente):**
 ```sql
@@ -568,6 +598,8 @@ CREATE TABLE IF NOT EXISTS ss_tareo (
 
 **Pendiente en código:**
 - Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetConsultaAsync` (líneas ~51-54)
+- Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetInduccionesHoyAsync` (3 líneas DEBUG agregadas temporalmente)
+- Quitar `[AllowAnonymous]` de `GET /inducciones-hoy` en `ControlAccesoController` cuando se confirme fix de fechas
 
 ---
 
@@ -581,7 +613,7 @@ CREATE TABLE IF NOT EXISTS ss_tareo (
 - 42 empresas SharePoint con IDs 1656+ pendientes de migrar a `contributor`
 - Eliminar `id_sharepoint` de `contributor` cuando migración SharePoint esté completa
 
-- Crear tablas/columnas manuales en BD (ver sección 10 — `ss_tareo`, columnas `ss_induccion`)
+- Crear tablas/columnas manuales en BD (ver sección 10 — `ss_tareo`, columnas `ss_induccion`, `ss_tareo_partida`, `ss_tareo_detalle_casa`, `ss_tareo_detalle_contratista`)
 - Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetConsultaAsync`
 
 ### Media prioridad

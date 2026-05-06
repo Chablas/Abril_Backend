@@ -37,6 +37,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("no-autorizados")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetNoAutorizados([FromQuery] int proyectoId)
         {
             try
@@ -83,6 +84,30 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ControlAccesoController.ConfirmarIngreso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("tareo/partidas")]
+        public async Task<IActionResult> GetTareoPartidas()
+        {
+            try
+            {
+                var result = await _repo.GetPartidasAsync();
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ControlAccesoController.GetTareoPartidas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("tareo/empresas")]
+        public async Task<IActionResult> GetTareoEmpresas([FromQuery] int proyectoId)
+        {
+            try
+            {
+                var result = await _repo.GetEmpresasContratistasByProyectoAsync(proyectoId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ControlAccesoController.GetTareoEmpresas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet("tareo")]

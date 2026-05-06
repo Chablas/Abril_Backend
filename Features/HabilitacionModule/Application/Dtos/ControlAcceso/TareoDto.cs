@@ -10,5 +10,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.ControlAcceso
         public int? CreadoPor { get; set; }
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
+        public List<TareoDetalleCasaDto> DetallesCasa { get; set; } = [];
+        public List<TareoDetalleContratistaDto> DetallesContratista { get; set; } = [];
     }
 }

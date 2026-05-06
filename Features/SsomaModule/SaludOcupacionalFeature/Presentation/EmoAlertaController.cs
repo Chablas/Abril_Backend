@@ -9,11 +9,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     public class EmoAlertaController : ControllerBase
     {
         private readonly IEmoAlertaService _service;
+        private readonly IEmoAutoProgramacionService _autoProgramacionService;
+        private readonly IEmoResumenDiarioService _resumenDiarioService;
         private readonly IConfiguration _configuration;
 
-        public EmoAlertaController(IEmoAlertaService service, IConfiguration configuration)
+        public EmoAlertaController(
+            IEmoAlertaService service,
+            IEmoAutoProgramacionService autoProgramacionService,
+            IEmoResumenDiarioService resumenDiarioService,
+            IConfiguration configuration)
         {
             _service = service;
+            _autoProgramacionService = autoProgramacionService;
+            _resumenDiarioService = resumenDiarioService;
             _configuration = configuration;
         }
 
@@ -23,13 +31,54 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             try
             {
                 var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-
                 if (authHeader != $"Bearer {_configuration["CronSecret"]}")
-                {
                     return Unauthorized();
-                }
 
                 var result = await _service.ProcesarAlertas();
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("auto-programar")]
+        public async Task<IActionResult> AutoProgramar()
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}")
+                    return Unauthorized();
+
+                var result = await _autoProgramacionService.ProcesarAutoProgramacion();
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("resumen-diario")]
+        public async Task<IActionResult> ResumenDiario()
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}")
+                    return Unauthorized();
+
+                var result = await _resumenDiarioService.EnviarResumenDiario();
                 return Ok(result);
             }
             catch (AbrilException ex)

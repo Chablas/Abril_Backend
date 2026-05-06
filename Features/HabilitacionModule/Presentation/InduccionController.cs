@@ -35,16 +35,18 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("trabajadores-por-programar")]
+        [HttpGet("/api/v1/inducciones/trabajadores-por-programar")]
         public async Task<IActionResult> GetTrabajadoresPorProgramar(
             [FromQuery] int proyectoId,
-            [FromQuery] int? empresaId)
+            [FromQuery] int? empresaId,
+            [FromQuery] string? search)
         {
             try
             {
                 if (proyectoId <= 0)
                     return BadRequest(new { message = "proyectoId es requerido." });
 
-                var items = await _repo.GetTrabajadoresPorProgramarAsync(empresaId, proyectoId);
+                var items = await _repo.GetTrabajadoresPorProgramarAsync(empresaId, proyectoId, search);
                 return Ok(items);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

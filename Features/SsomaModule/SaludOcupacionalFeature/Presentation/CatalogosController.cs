@@ -8,7 +8,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/catalogos")]
-    [AllowAnonymous]
+    [Authorize(Roles = "ADMINISTRADOR SSOMA")]
     public class CatalogosController : ControllerBase
     {
         private readonly ICatalogosService _service;
@@ -21,6 +21,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         // ===== Clinicas =====
+        [AllowAnonymous]
         [HttpGet("clinicas")]
         public async Task<IActionResult> GetClinicas([FromQuery] bool soloActivos = true)
         {
@@ -46,6 +47,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         // ===== Medicos =====
+        [AllowAnonymous]
         [HttpGet("medicos")]
         public async Task<IActionResult> GetMedicos([FromQuery] bool soloActivos = true)
         {
@@ -71,6 +73,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         // ===== EMO Tipos =====
+        [AllowAnonymous]
         [HttpGet("emo-tipos")]
         public async Task<IActionResult> GetEmoTipos([FromQuery] bool soloActivos = true)
         {
@@ -96,6 +99,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         // ===== Examen Tipos =====
+        [AllowAnonymous]
         [HttpGet("examen-tipos")]
         public async Task<IActionResult> GetExamenTipos([FromQuery] bool soloActivos = true)
         {
@@ -121,6 +125,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         // ===== Restriccion Tipos =====
+        [AllowAnonymous]
         [HttpGet("restriccion-tipos")]
         public async Task<IActionResult> GetRestriccionTipos([FromQuery] bool soloActivos = true)
         {
@@ -146,6 +151,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         // ===== Empresas =====
+        [AllowAnonymous]
         [HttpGet("empresas")]
         public async Task<IActionResult> GetEmpresas([FromQuery] bool soloActivas = true)
         {

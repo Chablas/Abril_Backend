@@ -9,7 +9,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     {
         private static readonly HashSet<string> EstadosValidos = new()
         {
-            "Programado", "Confirmado", "Realizado", "No se presentó", "Cancelado", "Reprogramado"
+            "Programado", "Confirmado", "Realizado", "No se presentó", "Cancelado", "Reprogramado",
+            "Aceptado por Clínica", "Rechazado por Clínica", "En Atención", "Completado"
         };
 
         private readonly IProgramacionEmoRepository _repo;
@@ -39,6 +40,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             if (string.IsNullOrWhiteSpace(estado) || !EstadosValidos.Contains(estado))
                 throw new AbrilException("El estado de la programación no es válido.", 400);
             return _repo.UpdateEstado(id, estado, emoResultadoId, userId);
+        }
+
+        public Task ClinicaAccion(int id, ProgramacionClinicaAccionDto dto, int? userId)
+        {
+            var accion = dto.Accion?.Trim();
+            if (string.IsNullOrWhiteSpace(accion))
+                throw new AbrilException("La acción es obligatoria.", 400);
+
+            if (accion == "Rechazar" && string.IsNullOrWhiteSpace(dto.MotivoRechazo))
+                throw new AbrilException("El motivo de rechazo es obligatorio.", 400);
+
+            if (accion is not ("Aceptar" or "Rechazar" or "CheckIn" or "Completar"))
+                throw new AbrilException("Acción no reconocida. Use: Aceptar, Rechazar, CheckIn, Completar.", 400);
+
+            return _repo.ClinicaAccion(id, dto, userId);
         }
     }
 }

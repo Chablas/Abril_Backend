@@ -7,7 +7,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/dashboard")]
-    [AllowAnonymous]
+    [Authorize]
     public class DashboardController : ControllerBase
     {
         private readonly IDashboardService _service;

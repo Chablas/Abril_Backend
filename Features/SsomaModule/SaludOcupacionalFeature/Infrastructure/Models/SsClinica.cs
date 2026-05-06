@@ -23,6 +23,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("email")]
         public string? Email { get; set; }
 
+        [Column("password_hash")]
+        public string PasswordHash { get; set; } = "PENDIENTE_RESET";
+
         [Column("activo")]
         public bool Activo { get; set; }
 

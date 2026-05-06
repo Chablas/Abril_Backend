@@ -1,8 +1,10 @@
-using System.Text.RegularExpressions;
+using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Shared.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,17 +12,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/workers")]
-    [AllowAnonymous]
+    [Authorize]
     public class WorkersController : ControllerBase
     {
+        private const string MensajeRestriccion =
+            "No se puede ingresar o reingresar al trabajador. Comuníquese con el área de Administración o SSOMA.";
+
         private readonly IWorkerSearchService _service;
         private readonly IHabTrabajadorRepository _habRepo;
+        private readonly ITrabajadorRestringidoService _restringidoService;
         private readonly ILogger<WorkersController> _logger;
 
-        public WorkersController(IWorkerSearchService service, IHabTrabajadorRepository habRepo, ILogger<WorkersController> logger)
+        public WorkersController(
+            IWorkerSearchService service,
+            IHabTrabajadorRepository habRepo,
+            ITrabajadorRestringidoService restringidoService,
+            ILogger<WorkersController> logger)
         {
             _service = service;
             _habRepo = habRepo;
+            _restringidoService = restringidoService;
             _logger = logger;
         }
 
@@ -43,8 +54,28 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             {
                 if (string.IsNullOrWhiteSpace(dto.ApellidoNombre))
                     return BadRequest(new { message = "apellidoNombre es obligatorio." });
-                if (string.IsNullOrWhiteSpace(dto.Dni) || !Regex.IsMatch(dto.Dni, @"^\d{8}$"))
-                    return BadRequest(new { message = "dni debe tener exactamente 8 dígitos numéricos." });
+                if (string.IsNullOrWhiteSpace(dto.Dni) ||
+                    !DocumentoHelper.EsFormatoValido(dto.Dni, dto.TipoDocumento))
+                {
+                    var tipoMsg = dto.TipoDocumento?.ToUpper() == "CE"
+                        ? "El CE debe tener entre 6 y 12 caracteres alfanuméricos sin espacios."
+                        : dto.TipoDocumento?.ToUpper() == "DNI"
+                        ? "El DNI debe tener exactamente 8 dígitos numéricos."
+                        : "El documento debe ser un DNI (8 dígitos) o CE (6-12 caracteres alfanuméricos).";
+                    return BadRequest(new { message = tipoMsg });
+                }
+
+                if (await _restringidoService.EstaRestringidoPorDniAsync(dto.Dni))
+                    throw new AbrilException(MensajeRestriccion, 400);
+
+                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+                if (roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaIdJwt))
+                        return StatusCode(400, new { message = "No se pudo determinar la empresa del contratista." });
+                    dto.EmpresaId = empresaIdJwt;
+                    dto.ContrataCasa = "Contratista";
+                }
 
                 var id = await _service.Create(dto);
                 await _habRepo.InicializarEntregablesAsync(id);

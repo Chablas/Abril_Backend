@@ -87,9 +87,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             using var ctx = _factory.CreateDbContext();
 
             var existeActivo = await ctx.Worker
-                .AnyAsync(w => w.Dni == dto.Dni && w.Estado == "ACTIVO");
+                .AnyAsync(w => w.Dni != null && w.Dni.ToUpper() == dto.Dni.Trim().ToUpper() && w.Estado == "ACTIVO");
             if (existeActivo)
                 throw new AbrilException("Ya existe un trabajador activo con ese DNI.", 409);
+
+            var dniUpper = dto.Dni.Trim().ToUpper();
+            var workerExistente = await ctx.Worker
+                .Where(w => w.Dni != null && w.Dni.ToUpper() == dniUpper)
+                .Select(w => new { w.Id })
+                .FirstOrDefaultAsync();
+            if (workerExistente != null)
+                await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerExistente.Id, dto.EmpresaId);
 
             var now = DateTimeOffset.UtcNow;
 
@@ -224,6 +232,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
 
             await ctx.SaveChangesAsync();
+        }
+
+        private static async Task VerificarNoActivoEnOtraEmpresaAsync(AppDbContext ctx, int workerId, int? empresaIdNueva)
+        {
+            var vinculActiva = await ctx.WorkerVinculacion
+                .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+                .Select(v => new { v.EmpresaId })
+                .FirstOrDefaultAsync();
+
+            if (vinculActiva != null && vinculActiva.EmpresaId.HasValue && vinculActiva.EmpresaId != empresaIdNueva)
+                throw new AbrilException(
+                    "El trabajador ya se encuentra activo en otra empresa. Debe ser retirado antes de poder registrarlo en una nueva empresa.",
+                    400);
         }
     }
 }

@@ -16,7 +16,6 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftProfile.Presentation
             _service = service;
         }
 
-        [AllowAnonymous]
         [HttpGet("me")]
         public async Task<IActionResult> GetMe()
         {

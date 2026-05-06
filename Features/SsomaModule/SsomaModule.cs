@@ -40,6 +40,12 @@ namespace Abril_Backend.Features.Ssoma
             // Alertas EMO (cron)
             services.AddScoped<IEmoAlertaService, EmoAlertaService>();
 
+            // Auto-programación EMO (cron)
+            services.AddScoped<IEmoAutoProgramacionService, EmoAutoProgramacionService>();
+
+            // Resumen diario EMO (cron 4:30pm)
+            services.AddScoped<IEmoResumenDiarioService, EmoResumenDiarioService>();
+
             return services;
         }
     }

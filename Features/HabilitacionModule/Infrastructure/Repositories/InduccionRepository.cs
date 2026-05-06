@@ -1,9 +1,11 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Inducciones;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
@@ -17,15 +19,29 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         private const int ItemDifusionPts = 10;
 
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ITrabajadorRestringidoService _restringidoService;
 
-        public InduccionRepository(IDbContextFactory<AppDbContext> factory)
+        public InduccionRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ITrabajadorRestringidoService restringidoService)
         {
             _factory = factory;
+            _restringidoService = restringidoService;
         }
 
         public async Task<List<int>> CreateAsync(InduccionCreateDto dto, int programadoPor)
         {
             using var ctx = _factory.CreateDbContext();
+
+            // Validar restricciones antes de programar
+            foreach (var workerId in dto.WorkerIds)
+            {
+                var w = await ctx.Worker.FindAsync(workerId)
+                    ?? throw new AbrilException($"Trabajador {workerId} no encontrado.", 404);
+                if (await _restringidoService.EstaRestringidoPorDniAsync(w.Dni))
+                    throw new AbrilException(
+                        $"El trabajador {w.ApellidoNombre} está restringido. Comuníquese con el área de Administración o SSOMA.", 400);
+            }
 
             var fecha = DateTime.SpecifyKind(dto.FechaProgramada, DateTimeKind.Utc);
 
@@ -136,7 +152,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }).ToList();
         }
 
-        public async Task<List<InduccionTrabajadorDto>> GetTrabajadoresPorProgramarAsync(int? empresaId, int proyectoId)
+        public async Task<List<InduccionTrabajadorDto>> GetTrabajadoresPorProgramarAsync(int? empresaId, int proyectoId, string? search = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -161,11 +177,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (workerIds.Count == 0) return [];
             }
 
-            // Datos del worker
-            var workers = await ctx.Worker
-                .Where(w => workerIds.Contains(w.Id))
+            // Datos del worker con filtro de búsqueda aplicado en la query
+            var workersQuery = ctx.Worker.Where(w => workerIds.Contains(w.Id));
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim();
+                if (s.Length == 8 && s.All(char.IsDigit))
+                    workersQuery = workersQuery.Where(w => w.Dni == s);
+                else
+                    workersQuery = workersQuery.Where(w =>
+                        w.ApellidoNombre != null && w.ApellidoNombre.ToLower().Contains(s.ToLower()));
+            }
+
+            var workers = await workersQuery
                 .Select(w => new { w.Id, w.ApellidoNombre, w.Dni, w.ObraOficina })
                 .ToDictionaryAsync(w => w.Id);
+
+            workerIds = workers.Keys.ToList();
+            if (workerIds.Count == 0) return [];
 
             // Última vinculación de cada worker para resolver empresa
             var todasVinculaciones = await ctx.WorkerVinculacion

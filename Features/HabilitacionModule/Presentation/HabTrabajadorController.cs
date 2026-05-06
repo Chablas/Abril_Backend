@@ -223,7 +223,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.Baja"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [AllowAnonymous]
         [HttpGet("{workerId:int}/eventos")]
         public async Task<IActionResult> GetEventos(int workerId)
         {
@@ -236,7 +235,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetEventos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [AllowAnonymous]
         [HttpPost("{workerId:int}/proyectos")]
         public async Task<IActionResult> AgregarProyecto(int workerId, [FromBody] AgregarProyectoDto dto)
         {
@@ -249,7 +247,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.AgregarProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [AllowAnonymous]
         [HttpGet("{workerId:int}/proyectos")]
         public async Task<IActionResult> GetProyectos(int workerId)
         {
@@ -262,7 +259,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.GetProyectos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [AllowAnonymous]
         [HttpDelete("{workerId:int}/proyectos/{proyectoId:int}")]
         public async Task<IActionResult> RetirarDeProyecto(int workerId, int proyectoId)
         {
@@ -275,7 +271,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.RetirarDeProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [AllowAnonymous]
         [HttpPatch("{workerId:int}/proyectos/{proyectoId:int}/induccion")]
         public async Task<IActionResult> MarcarInduccion(int workerId, int proyectoId)
         {

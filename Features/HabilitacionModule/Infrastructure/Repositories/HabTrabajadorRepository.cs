@@ -1,6 +1,8 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -16,18 +18,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
+        private readonly ITrabajadorRestringidoService _restringidoService;
         private readonly ILogger<HabTrabajadorRepository> _logger;
 
-        private const int ItemInduccionObra = 12;
+        private const string MensajeRestriccion =
+            "No se puede ingresar o reingresar al trabajador. Comuníquese con el área de Administración o SSOMA.";
+
         private const int ItemRisst = 6;
         private const int ItemRegistroEpp = 5;
         private const int ItemDifusionPts = 10;
         private const int ItemEntregaRecomendaciones = 8;
         private const int ItemTRegistro = 7;
-        private const int ItemSctr = 11;
-        private const int ItemVidaLey = 13;
-        private const int ItemCertAptitud = 4;
-        private const int ItemLecturaEmo = 25;
 
         private const string CategoriaPracticante = "Practicante";
 
@@ -38,10 +39,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public HabTrabajadorRepository(
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
+            ITrabajadorRestringidoService restringidoService,
             ILogger<HabTrabajadorRepository> logger)
         {
             _factory = factory;
             _emailService = emailService;
+            _restringidoService = restringidoService;
             _logger = logger;
         }
 
@@ -184,7 +187,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToList();
 
             var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)
-                                          && i.Id != ItemLecturaEmo
+                                          && i.Id != HabItemIds.LecturaEmo
                                           && !esContratista).ToList();
             var nonEmoItems = items.Except(emoItems).ToList();
             var nonEmoIds = nonEmoItems.Select(i => i.Id).ToList();
@@ -424,6 +427,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Dni))
+                throw new AbrilException(MensajeRestriccion, 400);
+
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -460,7 +466,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
                 if (!yaIndujoEnNuevoProyecto)
                 {
-                    itemsToReset.Add(ItemInduccionObra);
+                    itemsToReset.Add(HabItemIds.InduccionObra);
 
                     if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
                     {
@@ -475,9 +481,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (esCambioEmpresa)
             {
-                itemsToReset.Add(ItemSctr);
-                itemsToReset.Add(ItemVidaLey);
-                itemsToReset.Add(ItemCertAptitud);
+                itemsToReset.Add(HabItemIds.Sctr);
+                itemsToReset.Add(HabItemIds.VidaLey);
+                itemsToReset.Add(HabItemIds.CertAptitud);
 
                 if (proyectoDestino == null)
                 {
@@ -602,6 +608,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Dni))
+                throw new AbrilException(MensajeRestriccion, 400);
+
+            await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId);
+
             var fechaReingreso = dto.FechaReingreso ?? DateOnly.FromDateTime(DateTime.Today);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -633,7 +644,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 proyectoDestino = await ctx.Project
                     .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId!.Value);
 
-                itemsToReset.Add(ItemInduccionObra);
+                itemsToReset.Add(HabItemIds.InduccionObra);
 
                 if (!string.IsNullOrWhiteSpace(proyectoDestino?.EmailCoordSsoma))
                 {
@@ -647,9 +658,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (esCambioEmpresa)
             {
-                itemsToReset.Add(ItemSctr);
-                itemsToReset.Add(ItemVidaLey);
-                itemsToReset.Add(ItemCertAptitud);
+                itemsToReset.Add(HabItemIds.Sctr);
+                itemsToReset.Add(HabItemIds.VidaLey);
+                itemsToReset.Add(HabItemIds.CertAptitud);
 
                 if (proyectoDestino == null)
                 {
@@ -899,7 +910,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(i => CsvContiene(i.AplicaObraOficina, worker.ObraOficina))
                 .Where(i => !CsvExcluye(i.ExcluyeObraOficina, worker.ObraOficina))
                 .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, worker.Categoria))
-                .Where(i => !(esCasaPracticante && i.Id == ItemVidaLey))
+                .Where(i => !(esCasaPracticante && i.Id == HabItemIds.VidaLey))
                 .ToList();
 
             var itemIds = itemsAplicables.Select(i => i.Id).ToList();
@@ -988,7 +999,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (transicionFueraDePracticante)
             {
                 var existeVidaLey = await ctx.SsHabTrabajador
-                    .AnyAsync(h => h.WorkerId == workerId && h.ItemId == ItemVidaLey);
+                    .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.VidaLey);
 
                 if (!existeVidaLey)
                 {
@@ -996,7 +1007,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ctx.SsHabTrabajador.Add(new SsHabTrabajador
                     {
                         WorkerId = workerId,
-                        ItemId = ItemVidaLey,
+                        ItemId = HabItemIds.VidaLey,
                         Estado = "Falta",
                         Vigencia = null,
                         CreatedAt = nowUtc,
@@ -1222,6 +1233,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
         }
 
+        private static async Task VerificarNoActivoEnOtraEmpresaAsync(AppDbContext ctx, int workerId, int? empresaIdNueva)
+        {
+            var vinculActiva = await ctx.WorkerVinculacion
+                .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+                .Select(v => new { v.EmpresaId })
+                .FirstOrDefaultAsync();
+
+            if (vinculActiva != null && vinculActiva.EmpresaId.HasValue && vinculActiva.EmpresaId != empresaIdNueva)
+                throw new AbrilException(
+                    "El trabajador ya se encuentra activo en otra empresa. Debe ser retirado antes de poder registrarlo en una nueva empresa.",
+                    400);
+        }
+
         private static async Task ValidarExclusividadEmpresaAsync(
             AppDbContext ctx, int workerId, int empresaSolicitanteId)
         {
@@ -1255,6 +1279,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Dni))
+                throw new AbrilException(MensajeRestriccion, 400);
 
             bool esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
 

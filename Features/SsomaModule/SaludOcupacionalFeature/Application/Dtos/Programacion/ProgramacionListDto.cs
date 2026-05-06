@@ -15,5 +15,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public string Estado { get; set; } = string.Empty;
         public string? Motivo { get; set; }
         public int? EmoResultadoId { get; set; }
+        public string Origen { get; set; } = "Manual";
+        public TimeOnly? CheckInHora { get; set; }
+        public string? MotivoRechazo { get; set; }
+        public DateTimeOffset? FechaNotificacion { get; set; }
     }
 }

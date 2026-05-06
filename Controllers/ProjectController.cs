@@ -11,7 +11,7 @@ namespace Abril_Backend.Controllers
 {
     [ApiController]
     [Route("api/v1/[controller]")]
-    [AllowAnonymous]
+    [Authorize]
     public class ProjectController : ControllerBase
     {
         private readonly IProjectService _projectService;

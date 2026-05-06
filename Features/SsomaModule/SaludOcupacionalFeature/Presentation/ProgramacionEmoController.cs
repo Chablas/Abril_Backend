@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/programaciones")]
-    [AllowAnonymous]
+    [Authorize]
     public class ProgramacionEmoController : ControllerBase
     {
         private readonly IProgramacionEmoService _service;
@@ -66,6 +66,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             {
                 await _service.UpdateEstado(id, dto.Estado, dto.EmoResultadoId, CurrentUserId());
                 return Ok(new { message = "Estado de programación actualizado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("{id:int}/clinica-accion")]
+        public async Task<IActionResult> ClinicaAccion(int id, [FromBody] ProgramacionClinicaAccionDto dto)
+        {
+            try
+            {
+                await _service.ClinicaAccion(id, dto, CurrentUserId());
+                return Ok(new { message = "Acción registrada exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

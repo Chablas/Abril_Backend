@@ -115,8 +115,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AuditoriaCambio> AuditoriaCambios => Set<AuditoriaCambio>();
         public DbSet<SsHabDocumentoVersion> SsHabDocumentoVersion => Set<SsHabDocumentoVersion>();
         public DbSet<SsResetToken> SsResetToken => Set<SsResetToken>();
+        public DbSet<SsTareo> SsTareo => Set<SsTareo>();
+        public DbSet<SsTareoPartida> SsTareoPartida => Set<SsTareoPartida>();
+        public DbSet<SsTareoDetalleCasa> SsTareoDetalleCasa => Set<SsTareoDetalleCasa>();
+        public DbSet<SsTareoDetalleContratista> SsTareoDetalleContratista => Set<SsTareoDetalleContratista>();
         public DbSet<CatSubarea> CatSubarea => Set<CatSubarea>();
+        public DbSet<CatCategoria> CatCategoria => Set<CatCategoria>();
+        public DbSet<CatOcupacion> CatOcupacion => Set<CatOcupacion>();
         public DbSet<WorkerEvento> WorkerEvento => Set<WorkerEvento>();
+        public DbSet<SsTrabajadorRestringido> SsTrabajadorRestringido => Set<SsTrabajadorRestringido>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -135,6 +142,10 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(p => p.User)
                 .WithOne(u => u.Person)
                 .HasForeignKey<Person>(p => p.UserId);
+
+            modelBuilder.Entity<SsProgramacionEmo>()
+                .Property(e => e.Origen)
+                .HasDefaultValue("Manual");
 
             modelBuilder.Entity<ResidentReportIncidenceImage>()
                 .HasOne(i => i.ResidentReportIncidence)

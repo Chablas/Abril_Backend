@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-05 (equipos habilitación — FK→contributor, ObsContratista, versiones; GET /equipos filtra por JWT para CONTRATISTA)
+> Última actualización: 2026-05-06 (trabajadores restringidos; soporte CE/DNI; validación worker activo otra empresa; cat_categoria / cat_ocupacion endpoints)
 
 ---
 
@@ -109,7 +109,11 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `Worker` | `workers` | `id` | Personal con columnas explícitas `[Column("...")]`. No snake_case automático. |
 | `WorkerVinculacion` | `worker_vinculaciones` | `id` | 1 activa por worker (`fecha_fin IS NULL`). Para empresa y proyecto actual del worker. |
 | `WorkerProyecto` | `ss_hab_worker_proyecto` | `id` | Multi-proyecto **solo Casa**. N activos en paralelo. Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL`. |
-| `SsInduccion` | `ss_induccion` | `id` | `empresa_id` → `contributor.contributor_id` (no `ss_empresa_contratista`). |
+| `SsInduccion` | `ss_induccion` | `id` | `empresa_id` → `contributor.contributor_id` (no `ss_empresa_contratista`). Columnas manuales: `ingreso_confirmado` (bool NOT NULL DEFAULT false), `fecha_ingreso` (timestamptz). |
+| `SsTareo` | `ss_tareo` | `id` | Tabla manual (sin migración EF). `proyecto_id` → `project.project_id`. `fecha` (DateOnly). `observaciones` (text?). `creado_por` (int?, FK→app_user). Unique implícito en (`proyecto_id`, `fecha`). |
+| `SsTareoPartida` | `ss_tareo_partida` | `id` | Catálogo fijo de 17 partidas Casa. Columnas: `nombre`, `orden` (int), `activo` (bool). Tabla manual (sin migración EF). |
+| `SsTareoDetalleCasa` | `ss_tareo_detalle_casa` | `id` | Detalle de tareo para personal Casa. `tareo_id` → `ss_tareo.id`, `partida_id` → `ss_tareo_partida.id`, `cantidad_personas` (int). Tabla manual. |
+| `SsTareoDetalleContratista` | `ss_tareo_detalle_contratista` | `id` | Detalle de tareo para personal contratista. `tareo_id` → `ss_tareo.id`, `empresa_id` → `contributor.contributor_id`, `cantidad_personas` (int). Tabla manual. |
 | `SsHabTrabajador` | `ss_hab_trabajador` | `id` | Entregables por worker. |
 | `SsHabEmpresa` | `ss_hab_empresa` | `id` | `proyecto_id` → `project.project_id`. `empresa_id` → `contributor.contributor_id`. |
 | `SsEquipo` | `ss_equipo` | `id` | `proyecto_id` → `project.project_id`. `propietario_empresa_id` → `contributor.contributor_id` (nav property `Contributor? PropietarioEmpresa`). |
@@ -117,6 +121,9 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `SsItemTrabajador` | `ss_item_trabajador` | `id` | Catálogo de entregables con reglas. |
 | `WorkerEvento` | `worker_eventos` | `id` | Creada manualmente en BD (sin migración EF). |
 | `CatSubarea` | `cat_subarea` | `id` | Creada manualmente en BD (sin migración EF). |
+| `SsTrabajadorRestringido` | `ss_trabajador_restringido` | `id` | Blacklist de trabajadores. `Dni varchar(15)`, `WorkerId int?`, `Activo bool`. UNIQUE(dni). SQL en `Database/migrations/ss_trabajador_restringido.sql`. |
+| `CatCategoria` | `cat_categoria` | `id` | Catálogo de categorías de workers. `Nombre`, `Orden`, `Activo`. DbSet registrado — crear tabla manualmente en BD. |
+| `CatOcupacion` | `cat_ocupacion` | `id` | Catálogo de ocupaciones de workers. `Nombre`, `Orden`, `Activo`. DbSet registrado — crear tabla manualmente en BD. |
 | `User` | `app_user` | — | Override en `ConfigurePostgreSQL` (`User` es palabra reservada PG). |
 
 > **⚠️ `projects` (plural) NO EXISTE** — fue eliminada vía migración `SwitchProyectoFkToProjectLegacy`. Todo `proyecto_id` de cualquier tabla apunta a `project.project_id` legacy. Resolver siempre con `ctx.Project.Where(p => p.ProjectId == id)`.
@@ -258,8 +265,15 @@ DELETE        /api/v1/habilitacion/empresas/{id}/desactivar-proyecto
 # Catálogos
 GET  /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
 GET  /api/v1/habilitacion/catalogos/areas        (público)
-GET  /api/v1/habilitacion/catalogos/subareas     (público)
+GET  /api/v1/habilitacion/catalogos/subareas     (público, ?area= opcional)
+GET  /api/v1/habilitacion/catalogos/categorias   (público)
+GET  /api/v1/habilitacion/catalogos/ocupaciones  (público)
 GET  /api/v1/habilitacion/proyectos              (lista activos desde Project legacy)
+
+# Trabajadores restringidos
+GET    /api/v1/habilitacion/restringidos?soloActivos=&dni=   (cualquier usuario autenticado)
+POST   /api/v1/habilitacion/restringidos         body: { dni?, apellidoNombre?, motivo, proyectoOrigen?, restringidoPor?, fechaRestriccion? }  [solo ADMINISTRADOR SSOMA / ADMINISTRADOR ADMINISTRACION]
+DELETE /api/v1/habilitacion/restringidos/{id}    desactiva (soft delete) [solo ADMINISTRADOR SSOMA / ADMINISTRADOR ADMINISTRACION]
 
 # Trabajadores
 GET    /api/v1/habilitacion/trabajadores?search=&empresaId=&proyectoId=&estadoHabilitacion=&contratistaCasa=&soloRetirados=
@@ -290,7 +304,8 @@ PATCH  /api/v1/habilitacion/bandeja/induccion/{id}    sin body — llama Aprobar
 # Inducciones
 POST   /api/v1/habilitacion/inducciones               body: InduccionCreateDto { WorkerIds[], ProyectoId, EmpresaId?, FechaProgramada, TrabajoAltura, EquipoElectrico }
 GET    /api/v1/habilitacion/inducciones?proyectoId=&empresaId=&estado=&fechaDesde=&fechaHasta=
-GET    /api/v1/habilitacion/inducciones/trabajadores-por-programar?proyectoId=&empresaId=
+GET    /api/v1/habilitacion/inducciones/trabajadores-por-programar?proyectoId=&empresaId=&search=
+GET    /api/v1/inducciones/trabajadores-por-programar?proyectoId=&empresaId=&search=   ← alias (misma action, ruta alternativa)
 PATCH  /api/v1/habilitacion/inducciones/{id}/aprobar
 PATCH  /api/v1/habilitacion/inducciones/aprobar-batch  body: { ids: int[] }
 
@@ -308,6 +323,33 @@ GET    /api/v1/habilitacion/equipos/entregables/{id}/versiones     ← historial
 POST   /api/v1/habilitacion/equipos
 PUT    /api/v1/habilitacion/equipos/{id}
 PUT    /api/v1/habilitacion/equipos/entregables/{id}               body: { estado, vigencia, archivoUrl, obsAbril, obsContratista }
+
+# Control de Acceso
+GET   /api/v1/habilitacion/control-acceso/consulta?search=&proyectoId=
+      → busca workers; DNI exacto si search=8 dígitos, LIKE por nombre si no; filtra por proyectoId si viene
+      → esOficinaCentral (proyectoId==36): solo evalúa SCTR (ItemId=11, Aprobado, Vigencia>now)
+      → resto: evalúa todos los entregables; incluye lista completa Entregables[]
+GET   /api/v1/habilitacion/control-acceso/no-autorizados?proyectoId=
+      → workers del proyecto con algún entregable en {Falta, Rechazado, Vencido}
+GET   /api/v1/habilitacion/control-acceso/oficina-central?proyectoId=
+      → workers con ObraOficina ∈ {"Oficina Central","Staff"} con SCTR vigente
+GET   /api/v1/habilitacion/control-acceso/inducciones-hoy                             [AllowAnonymous temporal]
+      → ss_induccion WHERE estado='PROGRAMADA' AND fecha_programada ∈ [hoyLima, límite)
+      → límite = mañanaLima si hora Lima < 12; pasadoLima si hora Lima ≥ 12 (look-ahead)
+      → sin filtro por proyectoId — devuelve todas las inducciones del día
+      → incluye IngresoConfirmado, FechaIngreso
+POST  /api/v1/habilitacion/control-acceso/inducciones/{id}/confirmar-ingreso
+      → marca ingreso_confirmado=true, fecha_ingreso=DateTime.UtcNow en ss_induccion
+GET   /api/v1/habilitacion/control-acceso/tareo/partidas
+      → ss_tareo_partida WHERE activo=true ORDER BY orden. DTO: { id, nombre }
+GET   /api/v1/habilitacion/control-acceso/tareo/empresas?proyectoId={id}
+      → empresas contratistas (EsAbril=false) con workers vinculados al proyecto (FechaFin IS NULL). DTO: { empresaId, empresaNombre }
+GET   /api/v1/habilitacion/control-acceso/tareo?proyectoId=&fecha=YYYY-MM-DD
+      → retorna cabecera + detallesCasa[] (con partidaNombre) + detallesContratista[] (con empresaNombre)
+POST  /api/v1/habilitacion/control-acceso/tareo       body: TareoCreateDto { ProyectoId, Fecha, Observaciones, DetallesCasa[], DetallesContratista[] }
+      → crea cabecera e inserta detalles. 409 si ya existe (ProyectoId, Fecha)
+PUT   /api/v1/habilitacion/control-acceso/tareo/{id}  body: TareoCreateDto
+      → actualiza cabecera, borra detalles anteriores e inserta los nuevos
 
 # Archivos
 POST  /api/v1/habilitacion/archivos/subir   → { path, url }  — guardar `path` (ruta relativa), NO `url` (larga SharePoint)
@@ -417,10 +459,15 @@ Pisar con null borra el documento ya subido.
 ### 7k. SharePointHabService — Singleton
 El token OAuth2 y el `driveId` del sitio se cachean en la instancia. Registrar como `AddSingleton`.
 
-### 7l. Tablas creadas manualmente (sin migración EF efectiva)
+### 7l. Tablas y columnas creadas manualmente (sin migración EF efectiva)
 - `worker_eventos` — `DbSet` con `HasColumnType("jsonb")` para `Datos`
 - `cat_subarea` — `DbSet` declarado pero sin migración
 - `equipo_electrico` en `ss_induccion` — columna manual, migración vacía `AddInduccionEquipoElectrico`
+- `obs_contratista` en `ss_hab_equipo` — columna manual, NO tiene migración EF
+- `ingreso_confirmado` (bool NOT NULL DEFAULT false) en `ss_induccion` — columna manual
+- `fecha_ingreso` (timestamptz) en `ss_induccion` — columna manual
+- `ss_tareo` — tabla completa creada manualmente; `DbSet<SsTareo>` registrado en AppDbContext
+- `ss_hab_equipo.archivo_url` fue `varchar(1000)` en BD — alterada con `ALTER TABLE ss_hab_equipo ALTER COLUMN archivo_url TYPE text;`; modelo EF lleva `[Column(TypeName = "text")]`
 Antes de `dotnet ef migrations add`, revisar el archivo generado y limpiar operaciones ya aplicadas en BD.
 
 ### 7m. BandejaRepository usa NpgsqlConnection directa
@@ -428,6 +475,15 @@ Antes de `dotnet ef migrations add`, revisar el archivo generado y limpiar opera
 
 ### 7n. ProjectService acoplamiento con ISunatService
 Mitigado: factory null-safe en Program.cs. Solo `/company-lookup/{ruc}` usa Sunat en runtime.
+
+### 7o. DocumentoHelper — validación DNI / CE
+`Shared/Helpers/DocumentoHelper.cs` centraliza la validación de documentos de identidad.
+- **DNI**: `^\d{8}$` — exactamente 8 dígitos numéricos
+- **CE**: `^[A-Za-z0-9]{6,12}$` — 6-12 caracteres alfanuméricos sin espacios
+- `WorkerCreateDto.TipoDocumento` (string?) — solo transporte para validación, **no persiste en BD**
+- Si `TipoDocumento` es null, acepta cualquier formato válido (DNI o CE)
+- Todas las comparaciones de documentos en DB usan `.ToUpper()` en ambos lados (case-insensitive para CE con letras)
+- El campo `workers.dni` es `text` sin límite — ya soporta CE. `ss_trabajador_restringido.dni` es `varchar(15)` — también suficiente.
 
 ---
 
@@ -505,7 +561,80 @@ GET    /api/v1/arquitectura-comercial/etapas
 
 ---
 
-## 10. Trabajo pendiente
+## 10. Control de Acceso — notas de implementación
+
+**Repositorio:** `ControlAccesoRepository` — inyecta `IDbContextFactory<AppDbContext>` + `IConfiguration`.
+
+**OficinaCentral:** `appsettings.json → "OficinaCentral": { "ProjectId": 36 }`. Cuando `proyectoId == 36`, `BuildDtosAsync` evalúa **solo** SCTR (ItemId=11). El resto de proyectos evalúa todos los entregables.
+
+**BuildDtosAsync (batch helper privado):**
+1. Carga `WorkerVinculacion` activas (`FechaFin == null`) → empresa y proyecto por worker
+2. Carga `Contributor` por `EmpresaId` → `EmpresaNombre`, `EmpresaActiva`
+3. Carga `Project` por `ProyectoId` → `ProyectoNombre`
+4. Carga catálogo `SsItemTrabajador` completo
+5. Carga todos los `SsHabTrabajador` de los workers en lote
+6. **Para workers Casa** (`ContrataCasa == "Casa"`): pre-carga `WorkerEmo` activos (`Activo=true`) desde `worker_emos`, toma el más reciente por `FechaEmo DESC, Id DESC`. Sintetiza entregable id=4 ("Certificado de Aptitud (EMO)"): `Aptitud=="Apto"` → Estado="Aprobado"; cualquier otro caso o sin EMO → Estado="Falta". Vigencia = `FechaVencimiento`.
+7. Por worker: `DocumentosFaltantes`, `DocumentosPorVencer`, `Entregables[]` completo
+
+**Regla de vigencia (aplicada a ss_hab_trabajador y al EMO sintetizado):**
+- `vigencia > hoy + 7 días` → vigente (no aparece en faltantes ni porVencer)
+- `hoy < vigencia ≤ hoy + 7 días` → `DocumentosPorVencer`
+- `vigencia ≤ hoy` → `DocumentosFaltantes`, `hasPendientes = true`
+
+**ControlAccesoWorkerDto:**
+- `EstadoHabilitacion`: `"Habilitado"` | `"No Autorizado"`
+- `Entregables`: lista de `EntregableResumenDto { Nombre, Estado, Vigencia }` — solo en endpoint no-OficinaCentral
+
+**InduccionHoyDto:** filtra `ss_induccion WHERE estado='PROGRAMADA'` con rango fecha Lima (UTC-5). Sin filtro por proyecto.
+
+**GetTrabajadoresPorProgramarAsync — filtro `search`:**
+- Si `search` tiene 8 dígitos → `WHERE dni = search` (exacto)
+- Si no → `WHERE LOWER(apellido_nombre) LIKE '%search%'` (aplicado en la query SQL, no en memoria)
+
+**SsTareo:** `(proyecto_id, fecha)` se considera clave de negocio — `CreateTareoAsync` tira 409 si ya existe el par.
+
+**Tareo con detalles:**
+- `TareoCreateDto` incluye `DetallesCasa[]` (`PartidaId`, `CantidadPersonas`) y `DetallesContratista[]` (`EmpresaId`, `CantidadPersonas`). Ambas listas default a `[]` — retrocompatible.
+- `TareoDto` respuesta incluye `DetallesCasa[]` (con `PartidaNombre`) y `DetallesContratista[]` (con `EmpresaNombre`).
+- `UpdateTareoAsync`: borra todos los detalles anteriores (RemoveRange) e inserta los nuevos en el mismo SaveChanges.
+- Helper privado `LoadDetallesAsync(ctx, tareoId)`: hace JOIN `ss_tareo_detalle_casa → ss_tareo_partida` y `ss_tareo_detalle_contratista → contributor` para resolver nombres.
+- Helper privado `InsertDetalles(ctx, tareoId, dto)`: añade los nuevos registros al contexto sin llamar SaveChanges (lo llama el método público).
+
+**Pendiente en BD (crear manualmente):**
+```sql
+ALTER TABLE ss_induccion ADD COLUMN IF NOT EXISTS ingreso_confirmado boolean NOT NULL DEFAULT false;
+ALTER TABLE ss_induccion ADD COLUMN IF NOT EXISTS fecha_ingreso timestamptz;
+CREATE TABLE IF NOT EXISTS ss_tareo (
+    id serial PRIMARY KEY,
+    proyecto_id int NOT NULL REFERENCES project(project_id),
+    fecha date NOT NULL,
+    observaciones text,
+    creado_por int,
+    created_at timestamptz,
+    updated_at timestamptz
+);
+```
+
+**Validaciones de acceso al registrar / reingresar trabajadores (5 puntos de control):**
+
+1. **`WorkersController.Create` (POST /workers)** — antes de crear: `EstaRestringidoPorDniAsync` bloquea con 400 si el DNI está en la blacklist activa.
+2. **`HabTrabajadorRepository.ReingresoAsync`** — tras cargar el worker: `EstaRestringidoPorDniAsync` (400) → `VerificarNoActivoEnOtraEmpresaAsync` (400 si tiene vinculación activa en empresa distinta).
+3. **`HabTrabajadorRepository.CambiarObraAsync`** — valida `EstaRestringidoPorDniAsync` y `ValidarExclusividadEmpresaAsync` (409 + log en `ss_hab_bloqueo_log`).
+4. **`HabTrabajadorRepository.AgregarProyectoAsync`** — valida `EstaRestringidoPorDniAsync`.
+5. **`InduccionRepository.CreateAsync`** — itera `WorkerIds[]`, para cada uno valida `EstaRestringidoPorDniAsync`; si está restringido lanza 400 con el nombre del trabajador.
+
+`VerificarNoActivoEnOtraEmpresaAsync` (privado en `WorkerSearchRepository` y `HabTrabajadorRepository`): consulta `worker_vinculaciones WHERE fecha_fin IS NULL`, lanza 400 si `EmpresaId != empresaIdNueva`. Mensaje: *"El trabajador ya se encuentra activo en otra empresa. Debe ser retirado antes de poder registrarlo en una nueva empresa."*
+
+`ValidarExclusividadEmpresaAsync` (privado en `HabTrabajadorRepository`): mismo check pero lanza 409 y escribe registro en `ss_hab_bloqueo_log`. Usado solo en `CambiarObraAsync`.
+
+**Pendiente en código:**
+- Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetConsultaAsync` (líneas ~51-54)
+- Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetInduccionesHoyAsync` (3 líneas DEBUG agregadas temporalmente)
+- Quitar `[AllowAnonymous]` de `GET /inducciones-hoy` en `ControlAccesoController` cuando se confirme fix de fechas
+
+---
+
+## 11. Trabajo pendiente
 
 ### Alta prioridad
 - Quitar `[AllowAnonymous]` de los 4 endpoints `/trabajadores/{id}/proyectos*`, `GET /eventos` y endpoints SSOMA
@@ -515,6 +644,11 @@ GET    /api/v1/arquitectura-comercial/etapas
 - 42 empresas SharePoint con IDs 1656+ pendientes de migrar a `contributor`
 - Eliminar `id_sharepoint` de `contributor` cuando migración SharePoint esté completa
 
+- Crear tablas/columnas manuales en BD (ver sección 10 — `ss_tareo`, columnas `ss_induccion`, `ss_tareo_partida`, `ss_tareo_detalle_casa`, `ss_tareo_detalle_contratista`)
+- Crear tablas manuales en BD: `cat_categoria` y `cat_ocupacion` (DbSets registrados, endpoints listos — faltan las tablas físicas)
+- Ejecutar `Database/migrations/ss_trabajador_restringido.sql` en Aiven si no se hizo ya
+- Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetConsultaAsync`
+
 ### Media prioridad
 - Empresas contratistas: 1.591 vinculaciones sin empresa
 - `tipo_emo_id`: 813 EMOs migrados tienen NULL
@@ -522,6 +656,8 @@ GET    /api/v1/arquitectura-comercial/etapas
 - Multi-proyecto FASE 4: `BandejaRepository`, listados, EMO, SCTR y Vida Ley aún razonan sobre `worker_vinculaciones` (1-activa). Evaluar si pivotar a `ss_hab_worker_proyecto` para workers Casa en N proyectos
 - `InicializarEntregablesAsync` no crea fila inicial en `ss_hab_worker_proyecto` — considerar parámetro `proyectoInicialId?` en `POST /workers`
 - Separar `ISunatLookupService` de `ProjectService` para eliminar el acoplamiento de DI
+
+- `CONTRATISTA` multi-proyecto: `WorkerProyecto` soporta múltiples proyectos activos, pero `ControlAccesoRepository.BuildDtosAsync` toma solo la última `WorkerVinculacion` (1 empresa/proyecto mostrado). Evaluar si pivotar a `WorkerProyecto` para filtrado más fino.
 
 ### Baja prioridad
 - 8 EMOs sin match de DNI — insertar manualmente

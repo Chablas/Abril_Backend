@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional")]
-    [AllowAnonymous]
+    [Authorize]
     public class EmoController : ControllerBase
     {
         private readonly IEmoService _service;

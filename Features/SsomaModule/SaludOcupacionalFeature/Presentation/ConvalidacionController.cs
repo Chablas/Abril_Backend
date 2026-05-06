@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/convalidaciones")]
-    [AllowAnonymous]
+    [Authorize]
     public class ConvalidacionController : ControllerBase
     {
         private readonly IConvalidacionService _service;

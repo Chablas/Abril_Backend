@@ -37,7 +37,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("no-autorizados")]
-        [AllowAnonymous]
         public async Task<IActionResult> GetNoAutorizados([FromQuery] int proyectoId)
         {
             try
@@ -62,7 +61,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("inducciones-hoy")]
-        [AllowAnonymous]
+        [AllowAnonymous] // TODO: Quitar [AllowAnonymous] cuando se confirme fix de fechas Lima UTC-5
         public async Task<IActionResult> GetInduccionesHoy()
         {
             try

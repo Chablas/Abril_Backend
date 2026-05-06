@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-06 (tareo extendido con detalles Casa/Contratista; catálogo partidas; empresas por proyecto)
+> Última actualización: 2026-05-06 (trabajadores restringidos; soporte CE/DNI; validación worker activo otra empresa; cat_categoria / cat_ocupacion endpoints)
 
 ---
 
@@ -121,6 +121,9 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `SsItemTrabajador` | `ss_item_trabajador` | `id` | Catálogo de entregables con reglas. |
 | `WorkerEvento` | `worker_eventos` | `id` | Creada manualmente en BD (sin migración EF). |
 | `CatSubarea` | `cat_subarea` | `id` | Creada manualmente en BD (sin migración EF). |
+| `SsTrabajadorRestringido` | `ss_trabajador_restringido` | `id` | Blacklist de trabajadores. `Dni varchar(15)`, `WorkerId int?`, `Activo bool`. UNIQUE(dni). SQL en `Database/migrations/ss_trabajador_restringido.sql`. |
+| `CatCategoria` | `cat_categoria` | `id` | Catálogo de categorías de workers. `Nombre`, `Orden`, `Activo`. DbSet registrado — crear tabla manualmente en BD. |
+| `CatOcupacion` | `cat_ocupacion` | `id` | Catálogo de ocupaciones de workers. `Nombre`, `Orden`, `Activo`. DbSet registrado — crear tabla manualmente en BD. |
 | `User` | `app_user` | — | Override en `ConfigurePostgreSQL` (`User` es palabra reservada PG). |
 
 > **⚠️ `projects` (plural) NO EXISTE** — fue eliminada vía migración `SwitchProyectoFkToProjectLegacy`. Todo `proyecto_id` de cualquier tabla apunta a `project.project_id` legacy. Resolver siempre con `ctx.Project.Where(p => p.ProjectId == id)`.
@@ -262,8 +265,15 @@ DELETE        /api/v1/habilitacion/empresas/{id}/desactivar-proyecto
 # Catálogos
 GET  /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
 GET  /api/v1/habilitacion/catalogos/areas        (público)
-GET  /api/v1/habilitacion/catalogos/subareas     (público)
+GET  /api/v1/habilitacion/catalogos/subareas     (público, ?area= opcional)
+GET  /api/v1/habilitacion/catalogos/categorias   (público)
+GET  /api/v1/habilitacion/catalogos/ocupaciones  (público)
 GET  /api/v1/habilitacion/proyectos              (lista activos desde Project legacy)
+
+# Trabajadores restringidos
+GET    /api/v1/habilitacion/restringidos?soloActivos=&dni=   (cualquier usuario autenticado)
+POST   /api/v1/habilitacion/restringidos         body: { dni?, apellidoNombre?, motivo, proyectoOrigen?, restringidoPor?, fechaRestriccion? }  [solo ADMINISTRADOR SSOMA / ADMINISTRADOR ADMINISTRACION]
+DELETE /api/v1/habilitacion/restringidos/{id}    desactiva (soft delete) [solo ADMINISTRADOR SSOMA / ADMINISTRADOR ADMINISTRACION]
 
 # Trabajadores
 GET    /api/v1/habilitacion/trabajadores?search=&empresaId=&proyectoId=&estadoHabilitacion=&contratistaCasa=&soloRetirados=
@@ -466,6 +476,15 @@ Antes de `dotnet ef migrations add`, revisar el archivo generado y limpiar opera
 ### 7n. ProjectService acoplamiento con ISunatService
 Mitigado: factory null-safe en Program.cs. Solo `/company-lookup/{ruc}` usa Sunat en runtime.
 
+### 7o. DocumentoHelper — validación DNI / CE
+`Shared/Helpers/DocumentoHelper.cs` centraliza la validación de documentos de identidad.
+- **DNI**: `^\d{8}$` — exactamente 8 dígitos numéricos
+- **CE**: `^[A-Za-z0-9]{6,12}$` — 6-12 caracteres alfanuméricos sin espacios
+- `WorkerCreateDto.TipoDocumento` (string?) — solo transporte para validación, **no persiste en BD**
+- Si `TipoDocumento` es null, acepta cualquier formato válido (DNI o CE)
+- Todas las comparaciones de documentos en DB usan `.ToUpper()` en ambos lados (case-insensitive para CE con letras)
+- El campo `workers.dni` es `text` sin límite — ya soporta CE. `ss_trabajador_restringido.dni` es `varchar(15)` — también suficiente.
+
 ---
 
 ## 8. Roles del sistema
@@ -596,6 +615,18 @@ CREATE TABLE IF NOT EXISTS ss_tareo (
 );
 ```
 
+**Validaciones de acceso al registrar / reingresar trabajadores (5 puntos de control):**
+
+1. **`WorkersController.Create` (POST /workers)** — antes de crear: `EstaRestringidoPorDniAsync` bloquea con 400 si el DNI está en la blacklist activa.
+2. **`HabTrabajadorRepository.ReingresoAsync`** — tras cargar el worker: `EstaRestringidoPorDniAsync` (400) → `VerificarNoActivoEnOtraEmpresaAsync` (400 si tiene vinculación activa en empresa distinta).
+3. **`HabTrabajadorRepository.CambiarObraAsync`** — valida `EstaRestringidoPorDniAsync` y `ValidarExclusividadEmpresaAsync` (409 + log en `ss_hab_bloqueo_log`).
+4. **`HabTrabajadorRepository.AgregarProyectoAsync`** — valida `EstaRestringidoPorDniAsync`.
+5. **`InduccionRepository.CreateAsync`** — itera `WorkerIds[]`, para cada uno valida `EstaRestringidoPorDniAsync`; si está restringido lanza 400 con el nombre del trabajador.
+
+`VerificarNoActivoEnOtraEmpresaAsync` (privado en `WorkerSearchRepository` y `HabTrabajadorRepository`): consulta `worker_vinculaciones WHERE fecha_fin IS NULL`, lanza 400 si `EmpresaId != empresaIdNueva`. Mensaje: *"El trabajador ya se encuentra activo en otra empresa. Debe ser retirado antes de poder registrarlo en una nueva empresa."*
+
+`ValidarExclusividadEmpresaAsync` (privado en `HabTrabajadorRepository`): mismo check pero lanza 409 y escribe registro en `ss_hab_bloqueo_log`. Usado solo en `CambiarObraAsync`.
+
 **Pendiente en código:**
 - Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetConsultaAsync` (líneas ~51-54)
 - Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetInduccionesHoyAsync` (3 líneas DEBUG agregadas temporalmente)
@@ -614,6 +645,8 @@ CREATE TABLE IF NOT EXISTS ss_tareo (
 - Eliminar `id_sharepoint` de `contributor` cuando migración SharePoint esté completa
 
 - Crear tablas/columnas manuales en BD (ver sección 10 — `ss_tareo`, columnas `ss_induccion`, `ss_tareo_partida`, `ss_tareo_detalle_casa`, `ss_tareo_detalle_contratista`)
+- Crear tablas manuales en BD: `cat_categoria` y `cat_ocupacion` (DbSets registrados, endpoints listos — faltan las tablas físicas)
+- Ejecutar `Database/migrations/ss_trabajador_restringido.sql` en Aiven si no se hizo ya
 - Quitar `Console.WriteLine` de debug en `ControlAccesoRepository.GetConsultaAsync`
 
 ### Media prioridad

@@ -433,7 +433,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
-            var prefijoSubject = esContratista ? "" : "[PRUEBA - NO TOMAR EN CUENTA] ";
 
             var activas = await ctx.WorkerVinculacion
                 .Where(v => v.WorkerId == workerId && v.FechaFin == null)
@@ -472,7 +471,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     {
                         pendingEmails.Add((
                             [proyectoDestino.EmailCoordSsoma],
-                            $"{prefijoSubject}Cambio de obra — {worker.ApellidoNombre}",
+                            $"Cambio de obra — {worker.ApellidoNombre}",
                             BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
                         ));
                     }
@@ -501,7 +500,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (!string.IsNullOrWhiteSpace(emailSctr))
                     pendingEmails.Add((
                         [emailSctr!],
-                        $"{prefijoSubject}Cambio de obra — SCTR — {worker.ApellidoNombre}",
+                        $"Cambio de obra — SCTR — {worker.ApellidoNombre}",
                         BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
                     ));
 
@@ -509,13 +508,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (!string.IsNullOrWhiteSpace(emailVidaLey))
                     pendingEmails.Add((
                         [emailVidaLey!],
-                        $"{prefijoSubject}Cambio de obra — Vida Ley — {worker.ApellidoNombre}",
+                        $"Cambio de obra — Vida Ley — {worker.ApellidoNombre}",
                         BuildBodyReingreso(worker, proyectoDestino, "• Vida Ley")
                     ));
 
                 pendingEmails.Add((
                     [EmailMedico],
-                    $"{prefijoSubject}Cambio de obra — Certificado de Aptitud — {worker.ApellidoNombre}",
+                    $"Cambio de obra — Certificado de Aptitud — {worker.ApellidoNombre}",
                     BuildBodyReingreso(worker, proyectoDestino, "• Certificado de Aptitud (Homologación)")
                 ));
             }
@@ -616,7 +615,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var fechaReingreso = dto.FechaReingreso ?? DateOnly.FromDateTime(DateTime.Today);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
-            var prefijoSubject = esContratista ? "" : "[PRUEBA - NO TOMAR EN CUENTA] ";
 
             worker.Estado = "ACTIVO";
             worker.FechaRetiro = null;
@@ -650,7 +648,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     pendingEmails.Add((
                         [proyectoDestino.EmailCoordSsoma],
-                        $"{prefijoSubject}Reingreso de trabajador — {worker.ApellidoNombre}",
+                        $"Reingreso de trabajador — {worker.ApellidoNombre}",
                         BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
                     ));
                 }
@@ -678,7 +676,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (!string.IsNullOrWhiteSpace(emailSctr))
                     pendingEmails.Add((
                         [emailSctr!],
-                        $"{prefijoSubject}Reingreso de trabajador — SCTR — {worker.ApellidoNombre}",
+                        $"Reingreso de trabajador — SCTR — {worker.ApellidoNombre}",
                         BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
                     ));
 
@@ -686,13 +684,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (!string.IsNullOrWhiteSpace(emailVidaLey))
                     pendingEmails.Add((
                         [emailVidaLey!],
-                        $"{prefijoSubject}Reingreso de trabajador — Vida Ley — {worker.ApellidoNombre}",
+                        $"Reingreso de trabajador — Vida Ley — {worker.ApellidoNombre}",
                         BuildBodyReingreso(worker, proyectoDestino, "• Vida Ley")
                     ));
 
                 pendingEmails.Add((
                     [EmailMedico],
-                    $"{prefijoSubject}Reingreso de trabajador — Certificado de Aptitud — {worker.ApellidoNombre}",
+                    $"Reingreso de trabajador — Certificado de Aptitud — {worker.ApellidoNombre}",
                     BuildBodyReingreso(worker, proyectoDestino, "• Certificado de Aptitud (Homologación)")
                 ));
             }
@@ -1054,14 +1052,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (vidaLeyCreada)
             {
-                var subject = $"[PRUEBA - NO TOMAR EN CUENTA] Vida Ley pendiente — Cambio de cargo — {w.ApellidoNombre}";
+                var subject = $"Vida Ley pendiente — Cambio de cargo — {w.ApellidoNombre}";
                 var body = BuildBodyVidaLeyCambioCargo(w, categoriaAnterior, w.Categoria);
                 await EnviarEmailSilenciosoAsync(new List<string> { EmailAsistentaSocial }, subject, body);
             }
 
             if (cambioObraOficinaDestino is not null && cambioObraOficinaEmail is not null)
             {
-                var subject = $"[PRUEBA - NO TOMAR EN CUENTA] Vida Ley pendiente — Cambio a {cambioObraOficinaDestino} — {w.ApellidoNombre}";
+                var subject = $"Vida Ley pendiente — Cambio a {cambioObraOficinaDestino} — {w.ApellidoNombre}";
                 var body = BuildBodyVidaLeyCambioObraOficina(w, obraOficinaAnterior, w.ObraOficina);
                 await EnviarEmailSilenciosoAsync(new List<string> { cambioObraOficinaEmail }, subject, body);
             }
@@ -1334,8 +1332,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(proyecto.EmailCoordSsoma))
             {
-                var prefijoSubject = esContratista ? "" : "[PRUEBA - NO TOMAR EN CUENTA] ";
-                var subject = $"{prefijoSubject}Nuevo proyecto asignado — {worker.ApellidoNombre}";
+                var subject = $"Nuevo proyecto asignado — {worker.ApellidoNombre}";
                 var body = BuildBodyNuevoProyecto(worker, proyecto, fechaInicio);
                 await EnviarEmailSilenciosoAsync(new List<string> { proyecto.EmailCoordSsoma }, subject, body);
             }

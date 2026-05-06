@@ -12,9 +12,12 @@ namespace Abril_Backend.Controllers
     public class ReminderController : ControllerBase
     {
         private readonly IReminderService _service;
-        public ReminderController(IReminderService service)
+        private readonly IConfiguration _configuration;
+
+        public ReminderController(IReminderService service, IConfiguration configuration)
         {
             _service = service;
+            _configuration = configuration;
         }
 
         [HttpGet]
@@ -24,7 +27,7 @@ namespace Abril_Backend.Controllers
             {
                 var authHeader = Request.Headers["Authorization"].FirstOrDefault();
 
-                if (authHeader != $"Bearer {Environment.GetEnvironmentVariable("CronSecret")}")
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}")
                 {
                     return Unauthorized();
                 }

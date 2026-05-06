@@ -101,8 +101,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             var alertasYaEnviadasHoy = await ctx.SsAlertaEmo
                 .AsNoTracking()
-                .Where(a => emoIds.Contains(a.EmoId) && a.FechaAlerta == hoy)
-                .Select(a => a.EmoId)
+                .Where(a => a.EmoId != null && emoIds.Contains(a.EmoId.Value) && a.FechaAlerta == hoy)
+                .Select(a => a.EmoId!.Value)
                 .ToListAsync();
             var alertasSet = new HashSet<int>(alertasYaEnviadasHoy);
 

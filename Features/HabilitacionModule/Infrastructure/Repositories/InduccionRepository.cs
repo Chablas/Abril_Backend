@@ -136,7 +136,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }).ToList();
         }
 
-        public async Task<List<InduccionTrabajadorDto>> GetTrabajadoresPorProgramarAsync(int? empresaId, int proyectoId)
+        public async Task<List<InduccionTrabajadorDto>> GetTrabajadoresPorProgramarAsync(int? empresaId, int proyectoId, string? search = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -161,11 +161,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (workerIds.Count == 0) return [];
             }
 
-            // Datos del worker
-            var workers = await ctx.Worker
-                .Where(w => workerIds.Contains(w.Id))
+            // Datos del worker con filtro de búsqueda aplicado en la query
+            var workersQuery = ctx.Worker.Where(w => workerIds.Contains(w.Id));
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim();
+                if (s.Length == 8 && s.All(char.IsDigit))
+                    workersQuery = workersQuery.Where(w => w.Dni == s);
+                else
+                    workersQuery = workersQuery.Where(w =>
+                        w.ApellidoNombre != null && w.ApellidoNombre.ToLower().Contains(s.ToLower()));
+            }
+
+            var workers = await workersQuery
                 .Select(w => new { w.Id, w.ApellidoNombre, w.Dni, w.ObraOficina })
                 .ToDictionaryAsync(w => w.Id);
+
+            workerIds = workers.Keys.ToList();
+            if (workerIds.Count == 0) return [];
 
             // Última vinculación de cada worker para resolver empresa
             var todasVinculaciones = await ctx.WorkerVinculacion

@@ -61,11 +61,12 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("inducciones-hoy")]
-        public async Task<IActionResult> GetInduccionesHoy([FromQuery] int? proyectoId)
+        [AllowAnonymous]
+        public async Task<IActionResult> GetInduccionesHoy()
         {
             try
             {
-                var result = await _repo.GetInduccionesHoyAsync(proyectoId);
+                var result = await _repo.GetInduccionesHoyAsync();
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

@@ -113,22 +113,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return await BuildDtosAsync(ctx, workers);
         }
 
-        public async Task<List<InduccionHoyDto>> GetInduccionesHoyAsync(int? proyectoId)
+        public async Task<List<InduccionHoyDto>> GetInduccionesHoyAsync()
         {
             using var ctx = _factory.CreateDbContext();
 
-            var hoyUtc = DateTime.UtcNow.Date;
-            var mananaUtc = hoyUtc.AddDays(1);
+            // fecha_programada se almacena en hora local Lima (UTC-5)
+            var ahoraLima = DateTime.UtcNow.AddHours(-5);
+            var hoyLima = ahoraLima.Date;
+            var mananaLima = hoyLima.AddDays(1);
+            var fechaLimite = ahoraLima.Hour >= 12 ? mananaLima.AddDays(1) : mananaLima;
+            Console.WriteLine($"[DEBUG] AhoraLima: {ahoraLima}, HoyLima: {hoyLima}, FechaLimite: {fechaLimite}");
 
-            var query = ctx.SsInduccion
+            var totalProgramadas = await ctx.SsInduccion.CountAsync(i => i.Estado == "PROGRAMADA");
+            var primeraFecha = await ctx.SsInduccion
+                .Where(i => i.Estado == "PROGRAMADA")
+                .OrderBy(i => i.FechaProgramada)
+                .Select(i => i.FechaProgramada)
+                .FirstOrDefaultAsync();
+            Console.WriteLine($"[DEBUG] Total PROGRAMADAS en BD: {totalProgramadas}, PrimeraFecha: {primeraFecha}");
+
+            var inducciones = await ctx.SsInduccion
                 .Where(i => i.Estado == "PROGRAMADA" &&
-                            i.FechaProgramada >= hoyUtc &&
-                            i.FechaProgramada < mananaUtc);
-
-            if (proyectoId.HasValue)
-                query = query.Where(i => i.ProyectoId == proyectoId.Value);
-
-            var inducciones = await query.ToListAsync();
+                            i.FechaProgramada >= hoyLima &&
+                            i.FechaProgramada < fechaLimite)
+                .ToListAsync();
+            Console.WriteLine($"[DEBUG] Inducciones en rango: {inducciones.Count}");
 
             var workerIds = inducciones.Select(i => i.WorkerId).Distinct().ToList();
             var empresaIds = inducciones.Select(i => i.EmpresaId).Distinct().ToList();
@@ -291,8 +300,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToDictionary(g => g.Key, g => g.ToList());
 
             var ahora = DateTime.UtcNow;
-            var en30dias = ahora.AddDays(30);
+            var en7dias = ahora.AddDays(7);
             const int sctrItemId = ItemSctr;
+            const string itemEmoNombre = "Certificado de Aptitud (EMO)";
+
+            var casaIds = workers
+                .Where(w => string.Equals(w.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase))
+                .Select(w => w.Id)
+                .ToHashSet();
+
+            Dictionary<int, WorkerEmo> emoByWorker = [];
+            if (!esOficinaCentral && casaIds.Count > 0)
+            {
+                var emos = await ctx.WorkerEmo
+                    .Where(e => casaIds.Contains(e.WorkerId) && e.Activo)
+                    .ToListAsync();
+                emoByWorker = emos
+                    .GroupBy(e => e.WorkerId)
+                    .ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.FechaEmo).ThenByDescending(e => e.Id).First());
+            }
 
             return workers.Select(w =>
             {
@@ -331,18 +357,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 else
                 {
                     hasPendientes = items.Any(h =>
-                        h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido");
+                        h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
+                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora));
 
                     faltantes = items
                         .Where(h => h.Estado == "Falta" || h.Estado == "Rechazado" ||
-                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value < ahora))
+                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora))
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)
                         .ToList();
 
                     porVencer = items
                         .Where(h => h.Estado == "Aprobado" && h.Vigencia.HasValue
-                                    && h.Vigencia.Value > ahora && h.Vigencia.Value <= en30dias)
+                                    && h.Vigencia.Value > ahora && h.Vigencia.Value <= en7dias)
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)
                         .ToList();
@@ -356,6 +383,42 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         })
                         .Where(e => e.Nombre != "")
                         .ToList();
+
+                    if (casaIds.Contains(w.Id))
+                    {
+                        emoByWorker.TryGetValue(w.Id, out var emo);
+
+                        string emoEstado;
+                        DateTime? emoVigencia = null;
+
+                        if (emo != null && string.Equals(emo.Aptitud, "Apto", StringComparison.OrdinalIgnoreCase))
+                        {
+                            emoEstado = "Aprobado";
+                            if (emo.FechaVencimiento.HasValue)
+                                emoVigencia = emo.FechaVencimiento.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+                        }
+                        else
+                        {
+                            emoEstado = "Falta";
+                        }
+
+                        entregables.Add(new EntregableResumenDto
+                        {
+                            Nombre = itemEmoNombre,
+                            Estado = emoEstado,
+                            Vigencia = emoVigencia
+                        });
+
+                        var emoEsFaltante = emoEstado == "Falta" ||
+                                            (emoEstado == "Aprobado" && emoVigencia.HasValue && emoVigencia.Value <= ahora);
+                        if (emoEsFaltante)
+                        {
+                            hasPendientes = true;
+                            faltantes.Add(itemEmoNombre);
+                        }
+                        if (emoEstado == "Aprobado" && emoVigencia.HasValue && emoVigencia.Value > ahora && emoVigencia.Value <= en7dias)
+                            porVencer.Add(itemEmoNombre);
+                    }
                 }
 
                 return new ControlAccesoWorkerDto

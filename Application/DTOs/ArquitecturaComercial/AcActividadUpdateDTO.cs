@@ -11,5 +11,7 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public DateOnly? InicioEfectivo { get; set; }
         public DateOnly? FinEfectivo { get; set; }
         public string? Observaciones { get; set; }
+        public int? CategoriaId { get; set; }
+        public int? EspecialidadId { get; set; }
     }
 }

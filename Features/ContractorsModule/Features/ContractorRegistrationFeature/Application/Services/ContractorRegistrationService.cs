@@ -13,9 +13,9 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
     {
         private static readonly List<string> _costoYPresupuestosEmails = new()
         {
-            "eaguinaga@abril.pe",
-            "apimentel@abril.pe",
-            "bquicana@abril.pe",
+            //"eaguinaga@abril.pe",
+            //"apimentel@abril.pe",
+            //"bquicana@abril.pe",
             "cavila@abril.pe",
             //"alvarezvillegaschristian@gmail.com",
         };

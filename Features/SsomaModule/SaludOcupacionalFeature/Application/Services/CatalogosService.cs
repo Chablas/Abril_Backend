@@ -99,5 +99,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         }
 
         public Task<List<EmpresaCatalogoDto>> ListEmpresas(bool soloActivas) => _repo.ListEmpresas(soloActivas);
+
+        public Task<List<ClinicaEmailDto>> ListClinicaEmails(int clinicaId) =>
+            _repo.ListClinicaEmails(clinicaId);
+
+        public Task<ClinicaEmailDto> CreateClinicaEmail(int clinicaId, ClinicaEmailCreateDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Email))
+                throw new AbrilException("El email es obligatorio.", 400);
+            return _repo.CreateClinicaEmail(clinicaId, dto);
+        }
+
+        public Task DeleteClinicaEmail(int clinicaId, int emailId) =>
+            _repo.DeleteClinicaEmail(clinicaId, emailId);
     }
 }

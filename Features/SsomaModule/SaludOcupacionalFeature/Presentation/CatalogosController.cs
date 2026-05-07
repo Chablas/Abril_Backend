@@ -159,5 +159,30 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        // ===== Clinica Emails =====
+        [HttpGet("clinicas/{id:int}/emails")]
+        public async Task<IActionResult> GetClinicaEmails(int id)
+        {
+            try { return Ok(await _service.ListClinicaEmails(id)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("clinicas/{id:int}/emails")]
+        public async Task<IActionResult> CreateClinicaEmail(int id, [FromBody] ClinicaEmailCreateDto dto)
+        {
+            try { return Ok(await _service.CreateClinicaEmail(id, dto)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("clinicas/{id:int}/emails/{emailId:int}")]
+        public async Task<IActionResult> DeleteClinicaEmail(int id, int emailId)
+        {
+            try { await _service.DeleteClinicaEmail(id, emailId); return NoContent(); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

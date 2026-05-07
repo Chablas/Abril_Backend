@@ -25,5 +25,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task<RestriccionTipoDto> UpdateRestriccionTipo(int id, RestriccionTipoUpsertDto dto);
 
         Task<List<EmpresaCatalogoDto>> ListEmpresas(bool soloActivas);
+
+        // Clinica Emails
+        Task<List<ClinicaEmailDto>> ListClinicaEmails(int clinicaId);
+        Task<ClinicaEmailDto> CreateClinicaEmail(int clinicaId, ClinicaEmailCreateDto dto);
+        Task DeleteClinicaEmail(int clinicaId, int emailId);
     }
 }

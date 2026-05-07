@@ -665,3 +665,92 @@ CREATE TABLE IF NOT EXISTS ss_tareo (
 - `ReminderController` aún usa `Environment.GetEnvironmentVariable` para CronSecret — migrar a `IConfiguration`
 - FluentValidation 11.3.1 usa API deprecated — migrar cuando bumpeemos v12
 - Refactor `Sunat:Token` headers en Program.cs dentro del `if` null-safe
+
+---
+
+## Sesión 2026-05-06 — Módulo Vigilancia Médica Ocupacional
+
+### Nuevas columnas en BD (aplicadas en PgAdmin — inicio de sesión):
+- ss_programacion_emos: origen varchar NOT NULL DEFAULT 'Manual', check_in_hora time, motivo_rechazo varchar, fecha_notificacion timestamptz
+- ss_clinicas: password_hash text NOT NULL DEFAULT 'PENDIENTE_RESET'
+- ss_alertas_emo: worker_id y emo_id pasaron a nullable
+- ss_clinica_reset_token: tabla nueva creada
+- role: nuevo registro role_id=14 'CLINICA'
+
+### Nuevas tablas pendientes de crear en BD (PgAdmin):
+```sql
+CREATE TABLE cat_jefatura (
+    id     serial PRIMARY KEY,
+    nombre varchar NOT NULL,
+    email  varchar,
+    activo boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE ss_clinica_emails (
+    id         serial PRIMARY KEY,
+    clinica_id int NOT NULL REFERENCES ss_clinicas(id),
+    nombre     varchar,
+    email      varchar NOT NULL,
+    activo     boolean NOT NULL DEFAULT true
+);
+```
+
+### Nuevos archivos creados:
+- Shared/Constants/HabItemIds.cs — constantes CertAptitud=4, LecturaEmo=25, InduccionObra=12, Sctr=11, VidaLey=13
+- Features/SsomaModule/.../Presentation/ClinicaAuthController.cs — POST /auth/login, POST /auth/solicitar-activacion, POST /auth/activar
+- Features/SsomaModule/.../Application/Services/EmoAutoProgramacionService.cs
+- Features/SsomaModule/.../Application/Services/EmoResumenDiarioService.cs
+- Features/SsomaModule/.../Presentation/ReporteController.cs
+- Features/SsomaModule/.../Infrastructure/Models/SsClinicaResetToken.cs
+- Infrastructure/Models/CatJefatura.cs — tabla cat_jefatura (nombre, email?, activo)
+- Features/SsomaModule/.../Infrastructure/Models/SsClinicaEmail.cs — tabla ss_clinica_emails (clinica_id, nombre?, email, activo)
+- Features/SsomaModule/.../Application/Dtos/Catalogos/ClinicaEmailDto.cs — ClinicaEmailDto + ClinicaEmailCreateDto
+
+### Cambios en archivos existentes:
+- EmoAlertaService.cs — 3 bugs corregidos: FechaVencimientoCalculada??FechaVencimiento, ventana 4 días hábiles por tipo worker, vigencia desde TipoEmo.VigenciaMeses
+- SsProgramacionEmo.cs — 4 propiedades nuevas: Origen, CheckInHora, MotivoRechazo, FechaNotificacion
+- SsClinica.cs — propiedad PasswordHash agregada
+- ProgramacionEmoService.cs — estados nuevos: "Aceptado por Clínica", "Rechazado por Clínica", "En Atención", "Completado"
+- ProgramacionEmoController.cs — endpoint PATCH /{id}/clinica-accion
+- ProgramacionFilterDto.cs — campo ClinicaId? agregado
+- ProgramacionListDto.cs — campos Origen, CheckInHora, MotivoRechazo, FechaNotificacion agregados
+- EmoRepository.cs — método SincronizarEntregableEmoAsync() para reflejar aptitud en ss_hab_trabajador para contratistas
+- HabTrabajadorRepository.cs — BajaAsync y BajaMasivaAsync crean EMO retiro automático. Prefijo [PRUEBA - NO TOMAR EN CUENTA] eliminado de 10 subjects
+- ControlAccesoRepository.cs — 5 Console.WriteLine debug eliminados
+- ReminderController.cs — migrado de Environment.GetEnvironmentVariable a IConfiguration ✓
+- SsomaModule.cs — registros nuevos: IEmoAutoProgramacionService, IEmoResumenDiarioService
+- AppDbContext — DbSet<SsClinicaResetToken>, DbSet<CatJefatura>, DbSet<SsClinicaEmail> agregados
+- EmoAutoProgramacionService.cs — fechaProg = Max(fechaDesdeVencimiento, fechaMinima) donde fechaMinima = hoy + 2 días hábiles (antes: fallback solo si ya pasó)
+- ProgramacionEmoRepository.cs — IConfiguration inyectado; EnviarNotificacionCreacionAsync reescrito: To=ss_clinica_emails (fallback ss_clinicas.email), CC diferenciado por tipo worker, EmoResumen:Destinatarios siempre en CC, contratistas no reciben email; BuildDestinatariosCreacion eliminado; label "Empresa" → "Proyecto" en body
+- ICatalogosRepository + ICatalogosService + CatalogosRepository + CatalogosService + CatalogosController — 3 métodos/endpoints para gestión de ss_clinica_emails
+- appsettings.Local.json + appsettings.Production.json — sección EmailsArea agregada
+
+### Cron (confirmado): patrón externo igual que ReminderController
+Los endpoints /alertas/auto-programar y /alertas/resumen-diario siguen el mismo patrón que GET /api/v1/reminder:
+autenticación por header `Authorization: Bearer {CronSecret}`, sin BackgroundService ni IHostedService.
+Configurar el cron externo (Azure Logic App / GitHub Actions / EasyCron) para llamar a esas URLs.
+- /alertas/auto-programar → correr cada mañana (ej. 7:00 am hora Lima)
+- /alertas/resumen-diario → correr a las 4:30 pm hora Lima
+
+### Lógica de tipos de worker para notificaciones EMO (ProgramacionEmoRepository):
+- Obrero: contrata_casa='Casa' AND obra_oficina='Ninguno' → To=clínica, CC=EmailResidente+EmailResponsable+MedicinaOcupacional
+- Staff: contrata_casa='Casa' AND obra_oficina='Staff' → To=clínica, CC=EmailCorporativo+EmailResidente+EmailResponsable+MedicinaOcupacional
+- Oficina Central: obra_oficina='Oficina Central' → To=clínica, CC=EmailCorporativo+GTH+MedicinaOcupacional+cat_jefatura.email
+- Contratista: sin email
+
+### Endpoints nuevos bajo /api/v1/ssoma/salud-ocupacional/:
+- PATCH /programaciones/{id}/clinica-accion
+- GET /alertas/auto-programar (CronSecret)
+- GET /alertas/resumen-diario (CronSecret)
+- POST /auth/login
+- POST /auth/solicitar-activacion
+- POST /auth/activar
+- GET /reportes/sunafil-mensual?mes=&anio=
+- GET /catalogos/clinicas/{id}/emails
+- POST /catalogos/clinicas/{id}/emails    body: { email, nombre? }
+- DELETE /catalogos/clinicas/{id}/emails/{emailId}
+
+### Pendiente de configurar en appsettings.Production.json:
+- "EmoResumen:Destinatarios": "correo1@abril.pe,correo2@abril.pe"
+- "App:FrontendUrl": "https://..."
+- (ya agregado) "EmailsArea": { "MedicinaOcupacional": "medicinaocupacionalnm@abril.pe", "GTH": "gthnm@abril.pe" }

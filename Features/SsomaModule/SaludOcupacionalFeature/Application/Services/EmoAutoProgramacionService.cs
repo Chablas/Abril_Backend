@@ -97,11 +97,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                     var fv = (c.Emo.FechaVencimientoCalculada ?? c.Emo.FechaVencimiento)!.Value;
                     var esOficina = EsCalendarioOficina(c.Worker);
-                    var fechaProg = RestarDiasHabiles(fv, 4, esOficina);
-
-                    // Si la fecha calculada ya pasó, usar el próximo día hábil desde hoy
-                    if (fechaProg <= hoy)
-                        fechaProg = SiguienteDiaHabil(hoy, esOficina);
+                    var fechaDesdeVencimiento = RestarDiasHabiles(fv, 4, esOficina);
+                    var fechaMinima = SiguienteDiaHabil(SiguienteDiaHabil(hoy, esOficina), esOficina);
+                    var fechaProg = fechaDesdeVencimiento > fechaMinima ? fechaDesdeVencimiento : fechaMinima;
 
                     var nueva = new SsProgramacionEmo
                     {

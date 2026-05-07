@@ -31,5 +31,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
 
         // Empresas
         Task<List<EmpresaCatalogoDto>> ListEmpresas(bool soloActivas);
+
+        // Clinica Emails
+        Task<List<ClinicaEmailDto>> ListClinicaEmails(int clinicaId);
+        Task<ClinicaEmailDto> CreateClinicaEmail(int clinicaId, ClinicaEmailCreateDto dto);
+        Task DeleteClinicaEmail(int clinicaId, int emailId);
     }
 }

@@ -357,6 +357,59 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
         }
 
+        // ===== Clinica Emails =====
+        public async Task<List<ClinicaEmailDto>> ListClinicaEmails(int clinicaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsClinicaEmail
+                .AsNoTracking()
+                .Where(e => e.ClinicaId == clinicaId)
+                .OrderBy(e => e.Nombre)
+                .ThenBy(e => e.Email)
+                .Select(e => new ClinicaEmailDto
+                {
+                    Id = e.Id,
+                    Email = e.Email,
+                    Nombre = e.Nombre,
+                    Activo = e.Activo
+                })
+                .ToListAsync();
+        }
+
+        public async Task<ClinicaEmailDto> CreateClinicaEmail(int clinicaId, ClinicaEmailCreateDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var clinicaExiste = await ctx.SsClinica.AnyAsync(c => c.Id == clinicaId);
+            if (!clinicaExiste)
+                throw new AbrilException("Clínica no encontrada.", 404);
+            var ent = new SsClinicaEmail
+            {
+                ClinicaId = clinicaId,
+                Email = dto.Email.Trim(),
+                Nombre = dto.Nombre?.Trim(),
+                Activo = true
+            };
+            ctx.SsClinicaEmail.Add(ent);
+            await ctx.SaveChangesAsync();
+            return new ClinicaEmailDto
+            {
+                Id = ent.Id,
+                Email = ent.Email,
+                Nombre = ent.Nombre,
+                Activo = ent.Activo
+            };
+        }
+
+        public async Task DeleteClinicaEmail(int clinicaId, int emailId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsClinicaEmail
+                .FirstOrDefaultAsync(e => e.Id == emailId && e.ClinicaId == clinicaId)
+                ?? throw new AbrilException("Email de clínica no encontrado.", 404);
+            ctx.SsClinicaEmail.Remove(ent);
+            await ctx.SaveChangesAsync();
+        }
+
         // ===== Empresas (razones sociales) =====
         // Lee desde la tabla `contributor`. Mapea los campos al shape de EmpresaCatalogoDto
         // que es el que consume tanto SSOMA como Configuración → Razones Sociales.

@@ -126,6 +126,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<CatOcupacion> CatOcupacion => Set<CatOcupacion>();
         public DbSet<WorkerEvento> WorkerEvento => Set<WorkerEvento>();
         public DbSet<SsTrabajadorRestringido> SsTrabajadorRestringido => Set<SsTrabajadorRestringido>();
+        public DbSet<CatJefatura> CatJefatura => Set<CatJefatura>();
+        public DbSet<SsClinicaEmail> SsClinicaEmail => Set<SsClinicaEmail>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

@@ -91,6 +91,25 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
             }
         }
 
+        [HttpPost("sync-instructivos")]
+        public async Task<IActionResult> SyncInstructivos()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                var result = await _service.SyncInstructivosAsync(userId);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpDelete("{workItemCategoryId}")]
         public async Task<IActionResult> Delete(int workItemCategoryId)
         {

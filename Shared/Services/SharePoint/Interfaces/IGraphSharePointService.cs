@@ -5,6 +5,20 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
     public interface IGraphSharePointService
     {
         /// <summary>
+        /// Lista los hijos directos de una carpeta en un drive de OneDrive/SharePoint,
+        /// excluyendo subcarpetas cuyos nombres estén en <paramref name="excludedFolderNames"/>.
+        /// </summary>
+        Task<List<OneDriveFolderItemDto>> GetFolderChildrenAsync(
+            string driveId,
+            string folderPath,
+            IEnumerable<string>? excludedFolderNames = null);
+
+        /// <summary>
+        /// Descarga el contenido de un archivo en un drive de OneDrive/SharePoint por su itemId.
+        /// </summary>
+        Task<(byte[] Content, string? ContentType)> DownloadFromOneDriveByItemIdAsync(string driveId, string itemId);
+
+        /// <summary>
         /// Sube un archivo al OneDrive personal del usuario autenticado (permiso delegado).
         /// </summary>
         /// <param name="accessToken">Token de acceso Graph del usuario (delegado).</param>

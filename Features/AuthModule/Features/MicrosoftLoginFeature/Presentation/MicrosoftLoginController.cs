@@ -16,7 +16,6 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Presentation
             _service = service;
         }
 
-        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login()
         {

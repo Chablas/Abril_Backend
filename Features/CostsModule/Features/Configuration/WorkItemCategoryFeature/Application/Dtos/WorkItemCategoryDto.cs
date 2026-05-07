@@ -9,5 +9,19 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         public DateTime? UpdatedDateTime { get; set; }
         public int? UpdatedUserId { get; set; }
         public bool Active { get; set; }
+        public string? InstructivosFolderId { get; set; }
+        public string? InstructivosFolderName { get; set; }
+        public int? InstructivosSyncStatus { get; set; }
+        public DateTime? InstructivosSyncedAt { get; set; }
+    }
+
+    public class WorkItemCategorySyncResultDto
+    {
+        public int Total { get; set; }
+        public int Matched { get; set; }
+        public int Unmatched { get; set; }
+        public int Created { get; set; }
+        public List<string> UnmatchedDescriptions { get; set; } = [];
+        public List<string> CreatedDescriptions { get; set; } = [];
     }
 }

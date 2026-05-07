@@ -17,14 +17,16 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Options;
 using Abril_Backend.Shared.Services.SharePoint.Services;
 
 namespace Abril_Backend.Features.Costs
 {
     public static class CostsModule
     {
-        public static IServiceCollection AddCostsModule(this IServiceCollection services)
+        public static IServiceCollection AddCostsModule(this IServiceCollection services, IConfiguration configuration)
         {
+            services.Configure<OneDriveOptions>(configuration.GetSection("OneDrive"));
             // Shared
             services.AddScoped<IGraphUserService, GraphUserService>();
             services.AddScoped<IGraphSharePointService, GraphSharePointService>();

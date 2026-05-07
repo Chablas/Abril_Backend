@@ -296,10 +296,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cWorkItemActive = ctx.Col<WorkItem>(nameof(WorkItem.Active));
 
             // WorkItemCategory
-            string tWorkItemCategory       = ctx.Table<WorkItemCategory>();
-            string cWorkItemCategoryId     = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryId));
-            string cWorkItemCategoryDesc   = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryDescription));
-            string cWorkItemCategoryActive = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
+            string tWorkItemCategory            = ctx.Table<WorkItemCategory>();
+            string cWorkItemCategoryId          = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryId));
+            string cWorkItemCategoryDesc        = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryDescription));
+            string cWorkItemCategoryActive      = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
+            string cWorkItemCategorySyncStatus  = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.InstructivosSyncStatus));
 
             // Contractor + Contributor
             string tContractor          = ctx.Table<Contractor>();
@@ -360,7 +361,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cWorkItemActive} = TRUE
                  ORDER BY {cWorkItemDesc};
 
-                SELECT {cWorkItemCategoryId}, {cWorkItemCategoryDesc}
+                SELECT {cWorkItemCategoryId}, {cWorkItemCategoryDesc}, {cWorkItemCategorySyncStatus}
                   FROM {tWorkItemCategory}
                  WHERE {cWorkItemCategoryActive} = TRUE
                  ORDER BY {cWorkItemCategoryDesc};
@@ -1528,6 +1529,15 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                         e => e.ProjectSubContractorPackageId);
                     break;
 
+                case AdjudicacionDocumentType.Instructivo:
+                    psc.ProjectSubContractorInstructivoId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorInstructivo,
+                        psc.ProjectSubContractorInstructivoId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorInstructivo { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorInstructivoId);
+                    break;
+
                 case AdjudicacionDocumentType.ScannedDoc1:
                 case AdjudicacionDocumentType.ScannedDoc2:
                 case AdjudicacionDocumentType.ScannedDoc3:
@@ -1693,6 +1703,12 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     promissoryNote.ProjectSubContractorFileStatusId = statusId; promissoryNote.Observation = observation; promissoryNote.UpdatedDatetime = now; promissoryNote.UpdatedUserId = userId;
                     break;
 
+                case AdjudicacionDocumentType.Instructivo:
+                    if (!psc.ProjectSubContractorInstructivoId.HasValue) throw new AbrilException("No existe un registro de Instructivo para actualizar.");
+                    var instructivo = await _context.ProjectSubContractorInstructivo.FindAsync(psc.ProjectSubContractorInstructivoId.Value) ?? throw new AbrilException("Documento no encontrado.");
+                    instructivo.ProjectSubContractorFileStatusId = statusId; instructivo.Observation = observation; instructivo.UpdatedDatetime = now; instructivo.UpdatedUserId = userId;
+                    break;
+
                 default:
                     throw new AbrilException("Tipo de documento no válido.");
             }
@@ -1810,6 +1826,22 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             return result != null
                 ? (result.FileUrl, result.OriginalFileName)
                 : null;
+        }
+
+        public async Task<(string? FolderId, string? FolderName)?> GetInstructivosFolderAsync(int projectSubContractorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var result = await (
+                from psc in ctx.ProjectSubContractor
+                join wic in ctx.WorkItemCategory
+                    on psc.WorkItemCategoryId equals wic.WorkItemCategoryId
+                where psc.ProjectSubContractorId == projectSubContractorId && psc.State
+                select new { wic.InstructivosFolderId, wic.InstructivosFolderName }
+            ).FirstOrDefaultAsync();
+
+            if (result is null) return null;
+            return (result.InstructivosFolderId, result.InstructivosFolderName);
         }
 
         /// <summary>

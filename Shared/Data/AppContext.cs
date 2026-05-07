@@ -71,6 +71,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorPromissoryNote> ProjectSubContractorPromissoryNote { get; set; }
         public DbSet<ProjectSubContractorScannedDoc> ProjectSubContractorScannedDoc { get; set; }
         public DbSet<ProjectSubContractorPackage> ProjectSubContractorPackage { get; set; }
+        public DbSet<ProjectSubContractorInstructivo> ProjectSubContractorInstructivo { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
         public DbSet<StaffProjectEmailType> StaffProjectEmailType { get; set; }
         public DbSet<AcActividad> AcActividad { get; set; }

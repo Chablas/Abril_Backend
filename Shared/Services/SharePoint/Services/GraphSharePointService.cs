@@ -297,6 +297,75 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             return await response.Content.ReadAsByteArrayAsync();
         }
 
+        public async Task<(byte[] Content, string? ContentType)> DownloadFromOneDriveByItemIdAsync(string driveId, string itemId)
+        {
+            var token = await GetAppTokenAsync();
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var url = $"https://graph.microsoft.com/v1.0/drives/{driveId}/items/{itemId}/content";
+            var response = await client.GetAsync(url);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"No se pudo descargar el archivo de OneDrive [{(int)response.StatusCode}]: {error}");
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var contentType = response.Content.Headers.ContentType?.MediaType;
+            return (bytes, contentType);
+        }
+
+        public async Task<List<OneDriveFolderItemDto>> GetFolderChildrenAsync(
+            string driveId,
+            string folderPath,
+            IEnumerable<string>? excludedFolderNames = null)
+        {
+            var token = await GetAppTokenAsync();
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var escapedPath = EscapePath(folderPath.Trim('/'));
+            var url = $"https://graph.microsoft.com/v1.0/drives/{driveId}/root:/{escapedPath}:/children?$select=id,name,folder,file";
+
+            var response = await client.GetAsync(url);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"No se pudo listar la carpeta de OneDrive [{(int)response.StatusCode}]: {error}");
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+
+            var excluded = excludedFolderNames?
+                .Select(s => s.ToUpperInvariant())
+                .ToHashSet() ?? [];
+
+            var items = new List<OneDriveFolderItemDto>();
+            foreach (var item in doc.RootElement.GetProperty("value").EnumerateArray())
+            {
+                var name = item.GetProperty("name").GetString()!;
+                var isFolder = item.TryGetProperty("folder", out _);
+
+                if (isFolder && excluded.Contains(name.ToUpperInvariant()))
+                    continue;
+
+                items.Add(new OneDriveFolderItemDto
+                {
+                    Id = item.GetProperty("id").GetString()!,
+                    Name = name,
+                    IsFolder = isFolder
+                });
+            }
+
+            return items;
+        }
+
         private static string EscapePath(string path)
             => string.Join("/", path.Split('/').Select(Uri.EscapeDataString));
 

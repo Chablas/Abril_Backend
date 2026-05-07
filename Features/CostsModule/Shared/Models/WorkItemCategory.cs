@@ -10,5 +10,12 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models
         public int? UpdatedUserId { get; set; }
         public bool Active { get; set; }
         public bool State { get; set; }
+
+        // Sync con carpeta de Instructivos en OneDrive
+        public string? InstructivosFolderId { get; set; }
+        public string? InstructivosFolderName { get; set; }
+        // 1 = automático, 2 = manual, 3 = sin instructivo
+        public int? InstructivosSyncStatus { get; set; }
+        public DateTimeOffset? InstructivosSyncedAt { get; set; }
     }
 }

@@ -10,6 +10,8 @@ using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Options;
+using Microsoft.Extensions.Options;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
@@ -30,14 +32,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IEmailService _emailService;
         private readonly IGraphUserService _graphUserService;
         private readonly IGraphSharePointService _sharePointService;
+        private readonly OneDriveOptions _oneDriveOptions;
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            //"eaguinaga@abril.pe",
-            //"apimentel@abril.pe",
-            //"bquicana@abril.pe",
-            //"cavila@abril.pe",
-            "alvarezvillegaschristian@gmail.com"
+            "eaguinaga@abril.pe",
+            "apimentel@abril.pe",
+            "bquicana@abril.pe",
+            "cavila@abril.pe",
+            //"alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -50,7 +53,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             IDelegatedMailService delegatedMailService,
             IEmailService emailService,
             IGraphUserService graphUserService,
-            IGraphSharePointService sharePointService)
+            IGraphSharePointService sharePointService,
+            IOptions<OneDriveOptions> oneDriveOptions)
         {
             _projectSubContractorRepository = projectSubContractorRepository;
             _fileStorageService = fileStorageService;
@@ -60,6 +64,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _emailService = emailService;
             _graphUserService = graphUserService;
             _sharePointService = sharePointService;
+            _oneDriveOptions = oneDriveOptions.Value;
         }
 
         public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
@@ -519,8 +524,61 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     await GenerateBudgetAsync(projectSubContractorId, userId),
                 AdjudicacionDocumentType.PromissoryNote =>
                     await GeneratePromissoryNoteAsync(projectSubContractorId, userId),
+                AdjudicacionDocumentType.Instructivo =>
+                    await GenerateInstructivoAsync(projectSubContractorId, userId),
                 _ => throw new AbrilException(
                     $"La generación del documento '{documentType}' aún no está implementada.")
+            };
+        }
+
+        private async Task<DocumentUploadResponseDto> GenerateInstructivoAsync(
+            int projectSubContractorId, int userId)
+        {
+            var folderInfo = await _projectSubContractorRepository.GetInstructivosFolderAsync(projectSubContractorId)
+                ?? throw new AbrilException("No se encontró la adjudicación.");
+
+            if (string.IsNullOrEmpty(folderInfo.FolderId))
+                throw new AbrilException(
+                    "Esta partida de control no tiene instructivo sincronizado. " +
+                    "Ejecute la sincronización desde Configuración → Partidas de control o suba el archivo manualmente.");
+
+            var driveId = _oneDriveOptions.AdjudicacionesFeature.Instructivos.DriveId;
+            var folderPath = $"{_oneDriveOptions.AdjudicacionesFeature.Instructivos.FolderPath}/{folderInfo.FolderName}";
+
+            var children = await _sharePointService.GetFolderChildrenAsync(
+                driveId, folderPath, excludedFolderNames: ["OBSOLETOS"]);
+
+            var file = children.FirstOrDefault(c => !c.IsFolder)
+                ?? throw new AbrilException(
+                    $"No se encontró ningún instructivo vigente en la carpeta '{folderInfo.FolderName}'. " +
+                    "Verifique que el área de Calidad haya publicado el archivo.");
+
+            var (content, contentType) = await _sharePointService.DownloadFromOneDriveByItemIdAsync(driveId, file.Id);
+
+            var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
+            var folderPath2 = BuildSharePointPath(pathData, AdjudicacionDocumentType.Instructivo);
+
+            using var stream = new MemoryStream(content);
+            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                libraryName: "Adjudicaciones",
+                folderPath: folderPath2,
+                fileName: file.Name,
+                fileStream: stream,
+                contentType: contentType ?? "application/octet-stream")
+                ?? throw new AbrilException("No se pudo subir el instructivo a SharePoint.");
+
+            await _projectSubContractorRepository.SaveDocumentAsync(
+                projectSubContractorId,
+                AdjudicacionDocumentType.Instructivo,
+                spResult.WebUrl!,
+                file.Name,
+                userId,
+                spResult.ItemId);
+
+            return new DocumentUploadResponseDto
+            {
+                FileUrl = spResult.WebUrl!,
+                OriginalFileName = file.Name,
             };
         }
 
@@ -1412,6 +1470,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.ScannedDoc2        => "Escaneados",
             AdjudicacionDocumentType.ScannedDoc3        => "Escaneados",
             AdjudicacionDocumentType.ContractPackage    => "Contrato completo",
+            AdjudicacionDocumentType.Instructivo        => "Instructivos",
             _ => throw new ArgumentOutOfRangeException(nameof(documentType))
         };
 

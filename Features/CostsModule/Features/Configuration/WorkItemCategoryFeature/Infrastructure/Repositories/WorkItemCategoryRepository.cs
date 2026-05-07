@@ -42,7 +42,13 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                         ? x.UpdatedDateTime.Value.ToOffset(TimeSpan.FromHours(-5)).DateTime
                         : null,
                     UpdatedUserId = x.UpdatedUserId,
-                    Active = x.Active
+                    Active = x.Active,
+                    InstructivosFolderId = x.InstructivosFolderId,
+                    InstructivosFolderName = x.InstructivosFolderName,
+                    InstructivosSyncStatus = x.InstructivosSyncStatus,
+                    InstructivosSyncedAt = x.InstructivosSyncedAt.HasValue
+                        ? x.InstructivosSyncedAt.Value.ToOffset(TimeSpan.FromHours(-5)).DateTime
+                        : null
                 })
                 .ToListAsync();
 
@@ -116,6 +122,42 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
 
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        public async Task<List<WorkItemCategory>> GetAllActive()
+            => await _context.WorkItemCategory.Where(x => x.State && x.Active).ToListAsync();
+
+        public async Task CreateWithSync(string description, string folderId, string folderName, int userId)
+        {
+            var record = new WorkItemCategory
+            {
+                WorkItemCategoryDescription = description,
+                Active = true,
+                State = true,
+                CreatedDateTime = DateTimeOffset.UtcNow,
+                CreatedUserId = userId,
+                InstructivosFolderId = folderId,
+                InstructivosFolderName = folderName,
+                InstructivosSyncStatus = 1,
+                InstructivosSyncedAt = DateTimeOffset.UtcNow,
+            };
+            _context.WorkItemCategory.Add(record);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task UpdateInstructivosSync(int workItemCategoryId, string? folderId, string? folderName, int syncStatus)
+        {
+            var record = await _context.WorkItemCategory
+                .FirstOrDefaultAsync(x => x.WorkItemCategoryId == workItemCategoryId);
+
+            if (record is null) return;
+
+            record.InstructivosFolderId = folderId;
+            record.InstructivosFolderName = folderName;
+            record.InstructivosSyncStatus = syncStatus;
+            record.InstructivosSyncedAt = DateTimeOffset.UtcNow;
+
+            await _context.SaveChangesAsync();
         }
     }
 }

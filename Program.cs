@@ -108,7 +108,7 @@ else
     builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
 }
 
-builder.Services.AddCostsModule();
+builder.Services.AddCostsModule(builder.Configuration);
 builder.Services.AddContractorsModule();
 builder.Services.AddConfigurationModule();
 builder.Services.AddAuthModule(builder.Configuration);

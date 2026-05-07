@@ -587,9 +587,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
 
-            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
-                ? data.ProjectDescription[..3].ToUpperInvariant()
-                : data.ProjectDescription.ToUpperInvariant();
+            var abreviaturaProyecto = !string.IsNullOrWhiteSpace(data.Abbreviation)
+                ? data.Abbreviation
+                : (data.ProjectDescription.Length >= 3
+                    ? data.ProjectDescription[..3].ToUpperInvariant()
+                    : data.ProjectDescription.ToUpperInvariant());
 
             using var workbook = new XLWorkbook();
             var ws = workbook.Worksheets.Add("1.HOJA RESUMEN");
@@ -652,9 +654,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             var currencySymbol = data.CurrencyCode == "USD" ? "US$" : "S/";
 
-            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
-                ? data.ProjectDescription[..3].ToUpperInvariant()
-                : data.ProjectDescription.ToUpperInvariant();
+            var abreviaturaProyecto = !string.IsNullOrWhiteSpace(data.Abbreviation)
+                ? data.Abbreviation
+                : (data.ProjectDescription.Length >= 3
+                    ? data.ProjectDescription[..3].ToUpperInvariant()
+                    : data.ProjectDescription.ToUpperInvariant());
 
             var advanceAmount = data.AdvanceAmount
                 ?? (data.AdvancePercentage.HasValue
@@ -836,9 +840,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var hoy = DateTime.UtcNow;
             var fechaActual = $"{hoy.Day:D2} DE {mesesEs[hoy.Month - 1]} {hoy.Year}";
 
-            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
-                ? data.ProjectDescription[..3].ToUpperInvariant()
-                : data.ProjectDescription.ToUpperInvariant();
+            var abreviaturaProyecto = !string.IsNullOrWhiteSpace(data.Abbreviation)
+                ? data.Abbreviation
+                : (data.ProjectDescription.Length >= 3
+                    ? data.ProjectDescription[..3].ToUpperInvariant()
+                    : data.ProjectDescription.ToUpperInvariant());
 
             var replacements = new Dictionary<string, string>
             {
@@ -909,9 +915,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
 
-            var abreviaturaProyecto = data.ProjectDescription.Length >= 3
-                ? data.ProjectDescription[..3].ToUpperInvariant()
-                : data.ProjectDescription.ToUpperInvariant();
+            var abreviaturaProyecto = !string.IsNullOrWhiteSpace(data.Abbreviation)
+                ? data.Abbreviation
+                : (data.ProjectDescription.Length >= 3
+                    ? data.ProjectDescription[..3].ToUpperInvariant()
+                    : data.ProjectDescription.ToUpperInvariant());
 
             using var workbook = new XLWorkbook();
             var ws = workbook.Worksheets.Add("PRESUPUESTO");
@@ -960,36 +968,60 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 throw new AbrilException("La hoja resumen debe ser regenerada antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
             if (string.IsNullOrEmpty(docs.ContractItemId))
                 throw new AbrilException("El contrato debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
-
-            // Orden: hoja resumen → contrato → pagaré (opcional)
-            var items = new List<string> { docs.SummarySheetItemId, docs.ContractItemId };
-            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))
-                items.Add(docs.PromissoryNoteItemId);
-            else if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
+            if (!string.IsNullOrEmpty(docs.NonConformingOutputUrl) && string.IsNullOrEmpty(docs.NonConformingOutputItemId))
+                throw new AbrilException("Las salidas no conformes deben ser recargadas antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
+            if (!string.IsNullOrEmpty(docs.ToleranceChartUrl) && string.IsNullOrEmpty(docs.ToleranceChartItemId))
+                throw new AbrilException("El cuadro de tolerancias debe ser recargado antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
+            if (!string.IsNullOrEmpty(docs.InstructivoUrl) && string.IsNullOrEmpty(docs.InstructivoItemId))
+                throw new AbrilException("El instructivo debe ser recargado antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
+            if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
                 throw new AbrilException("El pagaré debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
 
-            // Convertir cada documento a PDF vía Graph API (endpoint por itemId, sin parsear webUrl)
+            // Orden: 1-Resumen, 2-Contrato, 3-Salidas no conforme, 4-Cuadro de tolerancias, 5-Instructivo, 6-Pagaré
             var pdfBytesList = new List<byte[]>();
-            var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", items[0]);
-            summarySheetPdf = RotatePdfPages(summarySheetPdf); // <-- aquí
-            pdfBytesList.Add(summarySheetPdf);
 
-            // los demás sin rotar
-            foreach (var itemId in items.Skip(1))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", itemId));
+            var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.SummarySheetItemId);
+            pdfBytesList.Add(RotatePdfPages(summarySheetPdf));
+
+            pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.ContractItemId));
+
+            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.NonConformingOutputItemId));
+
+            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.ToleranceChartItemId));
+
+            if (!string.IsNullOrEmpty(docs.InstructivoItemId))
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.InstructivoItemId));
+
+            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.PromissoryNoteItemId));
 
             var mergedBytes = MergePdfs(pdfBytesList);
 
             // ── Subir el paquete a SharePoint y persistir en BD ──────────────────
             var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
 
-            // Nombre: primeras 3 letras del proyecto (mayúsculas) + _C + número de contrato con 3 dígitos
+            // Abreviatura del proyecto: usa el campo Abbreviation; si está vacío, primeras 3 letras.
+            var proyAbrev = !string.IsNullOrWhiteSpace(pathData.Abbreviation)
+                ? pathData.Abbreviation
+                : pathData.ProjectDescription[..Math.Min(3, pathData.ProjectDescription.Length)].ToUpperInvariant();
+
+            // Abreviatura del contratista: primeras 4 letras alfanuméricas del nombre, en mayúsculas.
+            var contratAbbrev = new string(
+                pathData.ContributorName
+                    .Where(char.IsLetterOrDigit)
+                    .Take(4)
+                    .ToArray()
+            ).ToUpperInvariant();
+
+            // Nombre: {AbrevProyecto}{NumContrato:D3}-{AbrevContratista4}
             // Si no hay número de contrato, usamos el ID de la adjudicación como fallback.
             string filePrefix;
             if (docs.ContractNumber.HasValue)
-                filePrefix = $"{pathData.ProjectDescription[..Math.Min(3, pathData.ProjectDescription.Length)].ToUpperInvariant()}_C{docs.ContractNumber.Value:D3}";
+                filePrefix = $"{proyAbrev}{docs.ContractNumber.Value:D3}-{contratAbbrev}";
             else
-                filePrefix = $"{pathData.ProjectDescription[..Math.Min(3, pathData.ProjectDescription.Length)].ToUpperInvariant()}_ADJ{projectSubContractorId:D4}";
+                filePrefix = $"{proyAbrev}ADJ{projectSubContractorId:D4}-{contratAbbrev}";
 
             var fileName   = $"{filePrefix}.pdf";
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.ContractPackage);
@@ -1066,8 +1098,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // ── Row 2: Title ───────────────────────────────────────────────────
             ws.Range("B2:F2").Merge();
+            var contractLabel = data.ContractNumber.HasValue
+                ? data.ContractNumber.Value.ToString("D3")
+                : data.ProjectSubContractorId.ToString("D4");
             ws.Cell("B2").Value =
-                $"PRESUPUESTO CONTRATO N° {data.ProjectSubContractorId:D4} " +
+                $"PRESUPUESTO CONTRATO N° {contractLabel} " +
                 $"A {data.ContractTypeDescription.ToUpper()} " +
                 $"POR {data.WorkItemDescription.ToUpper()}";
             ws.Range("B2:F2").Style.Font.Bold                = true;
@@ -1237,7 +1272,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // ── Row 2: Title ───────────────────────────────────────────────────
             ws.Range("B2:N2").Merge();
-            ws.Cell("B2").Value = $"RESUMEN DEL CONTRATO N°{data.ProjectSubContractorId:D4} " +
+            var contractLabel = data.ContractNumber.HasValue
+                ? data.ContractNumber.Value.ToString("D3")
+                : data.ProjectSubContractorId.ToString("D4");
+            ws.Cell("B2").Value = $"RESUMEN DEL CONTRATO N°{contractLabel} " +
                                   $"{data.ContractTypeDescription.ToUpper()} POR EL SERVICIO DE " +
                                   $"{data.WorkItemDescription.ToUpper()}";
             ws.Range("B2:N2").Style.Font.Bold       = true;
@@ -1470,7 +1508,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.ScannedDoc2        => "Escaneados",
             AdjudicacionDocumentType.ScannedDoc3        => "Escaneados",
             AdjudicacionDocumentType.ContractPackage    => "Contrato completo",
-            AdjudicacionDocumentType.Instructivo        => "Instructivos",
+            AdjudicacionDocumentType.Instructivo           => "Instructivos",
+            AdjudicacionDocumentType.NonConformingOutput   => "Salidas No Conforme",
+            AdjudicacionDocumentType.ToleranceChart        => "Cuadro de Tolerancias",
             _ => throw new ArgumentOutOfRangeException(nameof(documentType))
         };
 

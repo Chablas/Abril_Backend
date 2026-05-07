@@ -7,6 +7,7 @@ namespace Abril_Backend.Shared.Models {
         public int ProjectId {get; set;}
         public string ProjectDescription {get; set;}
         public string? Codigo {get; set;}
+        public string? Abbreviation {get; set;}
         public string? LevelDescription {get; set;}
 
         // Estado del proyecto (vigente, finalizado, etc.)

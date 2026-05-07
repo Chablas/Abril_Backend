@@ -5,6 +5,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
     {
         public int    ProjectSubContractorId { get; set; }
         public string ProjectDescription    { get; set; } = null!;
+        public string? Abbreviation         { get; set; }
         public string ContributorRuc        { get; set; } = null!;
         public string ContributorName       { get; set; } = null!;
         public string WorkItemDescription   { get; set; } = null!;

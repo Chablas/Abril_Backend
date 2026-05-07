@@ -72,6 +72,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorScannedDoc> ProjectSubContractorScannedDoc { get; set; }
         public DbSet<ProjectSubContractorPackage> ProjectSubContractorPackage { get; set; }
         public DbSet<ProjectSubContractorInstructivo> ProjectSubContractorInstructivo { get; set; }
+        public DbSet<ProjectSubContractorNonConformingOutput> ProjectSubContractorNonConformingOutput { get; set; }
+        public DbSet<ProjectSubContractorToleranceChart> ProjectSubContractorToleranceChart { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
         public DbSet<StaffProjectEmailType> StaffProjectEmailType { get; set; }
         public DbSet<AcActividad> AcActividad { get; set; }
@@ -318,6 +320,30 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(s => s.Package)
                 .WithMany()
                 .HasForeignKey(s => s.ProjectSubContractorPackageId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.NonConformingOutput)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorNonConformingOutputId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.ToleranceChart)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorToleranceChartId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractorNonConformingOutput>()
+                .HasOne(e => e.FileStatus)
+                .WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractorToleranceChart>()
+                .HasOne(e => e.FileStatus)
+                .WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
                 .IsRequired(false);
 
             modelBuilder.Entity<StaffProjectEmail>()

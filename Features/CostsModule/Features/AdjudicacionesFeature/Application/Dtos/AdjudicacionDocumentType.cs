@@ -16,6 +16,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         ScannedDoc2,
         ScannedDoc3,
         ContractPackage,
-        Instructivo
+        Instructivo,
+        NonConformingOutput,
+        ToleranceChart
     }
 }

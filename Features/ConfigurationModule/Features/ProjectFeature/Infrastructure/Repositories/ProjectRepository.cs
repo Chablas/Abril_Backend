@@ -34,6 +34,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     ProjectId          = p.ProjectId,
                     ProjectDescription = p.ProjectDescription,
                     Codigo             = p.Codigo,
+                    Abbreviation       = p.Abbreviation,
                     LevelDescription   = p.LevelDescription,
                     Estado             = p.Estado,
 
@@ -242,7 +243,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         private static void ApplyDtoToEntity(Project project, ProjectCreateDto dto)
         {
             project.ProjectDescription = dto.ProjectDescription.Trim();
-            project.Codigo             = string.IsNullOrWhiteSpace(dto.Codigo) ? null : dto.Codigo.Trim();
+            project.Codigo             = string.IsNullOrWhiteSpace(dto.Codigo)        ? null : dto.Codigo.Trim();
+            project.Abbreviation       = string.IsNullOrWhiteSpace(dto.Abbreviation)  ? null : dto.Abbreviation.Trim();
             project.LevelDescription   = dto.LevelDescription?.Trim();
             project.Estado             = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim();
 
@@ -279,7 +281,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         private static void ApplyDtoToEntity(Project project, ProjectEditDto dto)
         {
             project.ProjectDescription = dto.ProjectDescription.Trim();
-            project.Codigo             = string.IsNullOrWhiteSpace(dto.Codigo) ? null : dto.Codigo.Trim();
+            project.Codigo             = string.IsNullOrWhiteSpace(dto.Codigo)        ? null : dto.Codigo.Trim();
+            project.Abbreviation       = string.IsNullOrWhiteSpace(dto.Abbreviation)  ? null : dto.Abbreviation.Trim();
             project.LevelDescription   = dto.LevelDescription?.Trim();
             project.Estado             = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim();
 

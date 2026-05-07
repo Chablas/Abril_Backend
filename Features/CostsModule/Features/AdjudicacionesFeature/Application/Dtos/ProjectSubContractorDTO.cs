@@ -61,5 +61,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public ProjectSubContractorFileDto? ScannedDoc3 { get; set; }
         // Paquete de contrato completo (paso 4 — autogenerado)
         public ProjectSubContractorFileDto? Package { get; set; }
+        // Instructivo (paso 3 — obtenido desde OneDrive de Calidad)
+        public ProjectSubContractorFileDto? Instructivo { get; set; }
+        // Salidas no conforme y cuadro de tolerancias (paso 3 — solo subida)
+        public ProjectSubContractorFileDto? NonConformingOutput { get; set; }
+        public ProjectSubContractorFileDto? ToleranceChart { get; set; }
     }
 }

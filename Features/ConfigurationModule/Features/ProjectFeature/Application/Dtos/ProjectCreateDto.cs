@@ -4,6 +4,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
     {
         public string ProjectDescription { get; set; } = null!;
         public string? Codigo { get; set; }
+        public string? Abbreviation { get; set; }
         public string? LevelDescription { get; set; }
         public string? Estado { get; set; }
 

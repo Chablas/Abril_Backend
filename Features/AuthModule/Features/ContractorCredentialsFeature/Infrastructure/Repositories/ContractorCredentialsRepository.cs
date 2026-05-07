@@ -77,6 +77,16 @@ namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure
                 State = true
             });
 
+            ctx.UserRole.Add(new UserRole
+            {
+                UserId = user.UserId,
+                RoleId = 11,
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId = user.UserId,
+                Active = true,
+                State = true
+            });
+
             var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId);
             if (contractor != null)
             {

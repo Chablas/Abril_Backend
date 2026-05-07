@@ -308,7 +308,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var userId = int.Parse(userIdClaim.Value);
-                await _projectSubContractorService.ConfirmStep5Async(id, dto.ArrivedWithObservations, userId);
+                await _projectSubContractorService.ConfirmStep5Async(id, dto.ArrivedWithObservations, dto.GraphAccessToken, userId);
                 return Ok(new { message = "Recepción confirmada exitosamente." });
             }
             catch (AbrilException ex)
@@ -348,7 +348,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
         [Authorize]
         [HttpPost("{id}/send-step6-notification")]
-        public async Task<IActionResult> SendStep6Notification(int id, [FromBody] SendStep6NotificationDto dto)
+        public async Task<IActionResult> SendStep6Notification(int id)
         {
             try
             {
@@ -357,8 +357,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var userId = int.Parse(userIdClaim.Value);
-                await _projectSubContractorService.SendStep6NotificationAsync(id, dto.GraphAccessToken, userId);
-                return Ok(new { message = "Correo de proceso de firma enviado exitosamente." });
+                await _projectSubContractorService.SendStep6NotificationAsync(id, userId);
+                return Ok(new { message = "Paso 6 confirmado exitosamente." });
             }
             catch (AbrilException ex)
             {

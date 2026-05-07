@@ -39,8 +39,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             //"eaguinaga@abril.pe",
             //"apimentel@abril.pe",
             //"bquicana@abril.pe",
-            "cavila@abril.pe",
-            //"alvarezvillegaschristian@gmail.com"
+            //"cavila@abril.pe",
+            "alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -303,13 +303,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.SetArrivalOptionAsync(projectSubContractorId, arrivedWithObservations, userId);
         }
 
-        public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, int userId)
+        public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, string graphAccessToken, int userId)
         {
             await _projectSubContractorRepository.ConfirmStep5Async(projectSubContractorId, arrivedWithObservations, userId);
-        }
 
-        public async Task SendStep6NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId)
-        {
             var data = await _projectSubContractorRepository.GetStep6NotificationDataAsync(projectSubContractorId);
 
             var toEmails = data.StaffObraEmails
@@ -317,19 +314,22 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 .Distinct()
                 .ToList();
 
-            if (toEmails.Count == 0)
-                throw new AbrilException("No hay correos de staff de obra ni de costos configurados para este proyecto.");
+            if (toEmails.Count > 0)
+            {
+                var subject = $"PROCESO DE FIRMA / {data.ProjectDescription}";
+                var body    = BuildStep6EmailBody(data);
 
-            var subject = $"PROCESO DE FIRMA / {data.ProjectDescription}";
-            var body    = BuildStep6EmailBody(data);
+                await _delegatedMailService.SendAsync(
+                    graphAccessToken: graphAccessToken,
+                    to:               toEmails,
+                    subject:          subject,
+                    body:             body,
+                    isHtml:           true);
+            }
+        }
 
-            await _delegatedMailService.SendAsync(
-                graphAccessToken: graphAccessToken,
-                to:               toEmails,
-                subject:          subject,
-                body:             body,
-                isHtml:           true);
-
+        public async Task SendStep6NotificationAsync(int projectSubContractorId, int userId)
+        {
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 7, userId);
         }
 

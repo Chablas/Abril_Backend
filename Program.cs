@@ -182,6 +182,10 @@ builder.Services.AddHttpClient<ISunatService, DecolectaSunatService>(client =>
     var baseUrl = builder.Configuration["Sunat:BaseUrl"];
     if (!string.IsNullOrEmpty(baseUrl))
         client.BaseAddress = new Uri(baseUrl);
+
+    var token = builder.Configuration["Sunat:Token"];
+    if (!string.IsNullOrEmpty(token))
+        client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
 });
 builder.Services.AddRateLimiter(options =>
 {

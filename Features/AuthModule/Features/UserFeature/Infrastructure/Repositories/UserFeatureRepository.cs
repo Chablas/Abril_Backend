@@ -244,6 +244,18 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
             user.UpdatedUserId = updatedUserId;
             await ctx.SaveChangesAsync();
         }
+
+        public async Task Delete(int userId, int updatedUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == userId && u.State)
+                ?? throw new AbrilException("Usuario no encontrado.", 404);
+
+            user.State = false;
+            user.UpdatedDateTime = DateTime.UtcNow;
+            user.UpdatedUserId = updatedUserId;
+            await ctx.SaveChangesAsync();
+        }
     }
 
     internal class UserBaseRow

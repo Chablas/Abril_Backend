@@ -104,5 +104,28 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Presentation
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        [Authorize]
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> Delete(int id)
+        {
+            try
+            {
+                var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (claim == null) return Unauthorized(new { message = "Inicie sesión" });
+
+                var updatedUserId = int.Parse(claim.Value);
+                await _service.Delete(id, updatedUserId);
+                return Ok(new { message = "Usuario eliminado correctamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

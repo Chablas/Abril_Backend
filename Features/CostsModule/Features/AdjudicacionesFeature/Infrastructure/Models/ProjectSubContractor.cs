@@ -30,6 +30,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? ContractNumber { get; set; }
         public int? PromissoryNoteNumber { get; set; }
 
+        // Fondo de garantía (paso 2)
+        public int? GuaranteeFundPercentage { get; set; }
+        public int? GuaranteeFundDays { get; set; }
+
         // Llegada a Of. Central (paso 5)
         public bool? ArrivedWithObservations { get; set; }
 

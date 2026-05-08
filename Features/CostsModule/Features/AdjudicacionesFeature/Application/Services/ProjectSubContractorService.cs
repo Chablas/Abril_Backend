@@ -692,13 +692,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 ? $"US$. {diferencia:N2}"
                 : $"S/. {diferencia:N2}";
 
-            // Fondo de garantía (valores contractuales fijos: 5 % / 365 días / 1 año / 12 meses)
-            const int    fondoPorc  = 5;
-            const int    fondoDias  = 365;
-            const int    fondoAnios = 1;
-            const int    fondoMeses = 12;
-            var fondoPorcPalabras  = ((long)fondoPorc).ToWords(esCulture);   // "cinco"
-            var fondoMesesPalabras = ((long)fondoMeses).ToWords(esCulture);  // "doce"
+            // Fondo de garantía — valores registrados en el paso 2 (con fallback a los anteriores por defecto)
+            var fondoPorc  = data.GuaranteeFundPercentage ?? 5;
+            var fondoDias  = data.GuaranteeFundDays       ?? 365;
+            var fondoAnios = fondoDias / 365;
+            var fondoMeses = (int)Math.Round(fondoDias / 30.0);
+            var fondoPorcPalabras  = ((long)fondoPorc).ToWords(esCulture);
+            var fondoMesesPalabras = ((long)fondoMeses).ToWords(esCulture);
 
             // Plazo en palabras
             var plazoPalabras = plazo > 0 ? ((long)plazo).ToWords(esCulture) : "";
@@ -734,6 +734,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PLAZO_NUM}}",                     plazo.ToString() },
                 { "{{PLAZO_EN_PALABRAS}}",             plazoPalabras },
                 { "{{ADVANCE_PERCENTAGE}}",            data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
+                { "{{FORMA_DE_PAGO_ADVANCE_PERCENTAGE}}", data.PaymentMethodId == 2 && data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
                 { "{{ADVANCE_AMOUNT}}",                $"{currencySymbol} {advanceAmount:N2}" },
                 { "{{ADVANCE_AMOUNT_EN_PALABRAS}}",    advanceAmountEnPalabras },
                 { "{{DIFERENCIA_MONTO}}",              diferenciaFormato },

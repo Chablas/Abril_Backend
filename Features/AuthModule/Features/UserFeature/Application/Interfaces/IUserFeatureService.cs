@@ -9,5 +9,6 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces
         Task Create(UserFeatureCreateDto dto);
         Task Update(int userId, UserFeatureUpdateDto dto, int updatedUserId);
         Task ToggleActive(int userId, int updatedUserId);
+        Task Delete(int userId, int updatedUserId);
     }
 }

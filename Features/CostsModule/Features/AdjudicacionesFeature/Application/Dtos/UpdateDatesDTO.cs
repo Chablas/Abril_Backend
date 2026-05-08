@@ -5,5 +5,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public DateOnly EndDate { get; set; }
         public int? ContractNumber { get; set; }
         public int? PromissoryNoteNumber { get; set; }
+        public int? GuaranteeFundPercentage { get; set; }
+        public int? GuaranteeFundDays { get; set; }
     }
 }

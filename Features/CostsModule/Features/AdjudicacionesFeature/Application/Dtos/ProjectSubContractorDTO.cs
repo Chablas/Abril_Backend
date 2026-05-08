@@ -43,6 +43,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int?   TermDays               { get; set; }
         public int?   ContractNumber            { get; set; }
         public int?   PromissoryNoteNumber      { get; set; }
+        public int?   GuaranteeFundPercentage   { get; set; }
+        public int?   GuaranteeFundDays         { get; set; }
         public bool?  ArrivedWithObservations   { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public List<ProjectSubContractorFileDto> QuotationFiles { get; set; } = new();

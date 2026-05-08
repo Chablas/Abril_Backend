@@ -522,6 +522,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     TermDays = x.psc.TermDays,
                     ContractNumber           = x.psc.ContractNumber,
                     PromissoryNoteNumber     = x.psc.PromissoryNoteNumber,
+                    GuaranteeFundPercentage  = x.psc.GuaranteeFundPercentage,
+                    GuaranteeFundDays        = x.psc.GuaranteeFundDays,
                     ArrivedWithObservations  = x.psc.ArrivedWithObservations,
                     CreatedDateTime          = x.psc.CreatedDateTime,
                     Contract          = x.contractDoc == null          ? null : new ProjectSubContractorFileDto { FileUrl = x.contractDoc.FileUrl!,          OriginalFileName = x.contractDoc.OriginalFileName,          StatusId = x.contractDoc.ProjectSubContractorFileStatusId,          StatusDescription = x.contractDoc.FileStatus == null          ? null : x.contractDoc.FileStatus.ProjectSubContractorFileStatusDescription,          Observation = x.contractDoc.Observation },
@@ -655,6 +657,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscTermDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.TermDays));
             string cPscContractNumber = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractNumber));
             string cPscPromissoryNoteNumber = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.PromissoryNoteNumber));
+            string cPscGuaranteeFundPercentage = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeFundPercentage));
+            string cPscGuaranteeFundDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeFundDays));
             string cPscArrivedWithObservations = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivedWithObservations));
             string cPscCreatedDateTime = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.CreatedDateTime));
             string cPscAdvancePercentage = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.AdvancePercentage));
@@ -900,6 +904,8 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscTermDays} AS ""TermDays"",
        psc.{cPscContractNumber} AS ""ContractNumber"",
        psc.{cPscPromissoryNoteNumber} AS ""PromissoryNoteNumber"",
+       psc.{cPscGuaranteeFundPercentage} AS ""GuaranteeFundPercentage"",
+       psc.{cPscGuaranteeFundDays} AS ""GuaranteeFundDays"",
        psc.{cPscArrivedWithObservations} AS ""ArrivedWithObservations"",
        psc.{cPscCreatedDateTime} AS ""CreatedDateTime"",
        contractDoc.{cContractDocFileUrl} AS contract_file_url,
@@ -1088,6 +1094,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     TermDays = (int?)raw.TermDays,
                     ContractNumber = (int?)raw.ContractNumber,
                     PromissoryNoteNumber = (int?)raw.PromissoryNoteNumber,
+                    GuaranteeFundPercentage = (int?)raw.GuaranteeFundPercentage,
+                    GuaranteeFundDays = (int?)raw.GuaranteeFundDays,
                     ArrivedWithObservations = (bool?)raw.ArrivedWithObservations,
                     CreatedDateTime = (DateTime)raw.CreatedDateTime,
                     Contract = raw.contract_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.contract_file_url, OriginalFileName = raw.contract_file_name, StatusId = (int?)raw.contract_status_id, StatusDescription = raw.contract_status_desc, Observation = raw.contract_observation } : null,
@@ -1459,8 +1467,10 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             psc.SigningDate = dto.SigningDate;
             psc.StartDate = dto.StartDate;
             psc.EndDate = dto.EndDate;
-            psc.ContractNumber       = dto.ContractNumber;
-            psc.PromissoryNoteNumber = dto.PromissoryNoteNumber;
+            psc.ContractNumber          = dto.ContractNumber;
+            psc.PromissoryNoteNumber    = dto.PromissoryNoteNumber;
+            psc.GuaranteeFundPercentage = dto.GuaranteeFundPercentage;
+            psc.GuaranteeFundDays       = dto.GuaranteeFundDays;
             psc.TermDays = (dto.StartDate != default && dto.EndDate != default)
                 ? (int)(dto.EndDate.ToDateTime(TimeOnly.MinValue) - dto.StartDate.ToDateTime(TimeOnly.MinValue)).TotalDays
                 : null;
@@ -1702,6 +1712,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     ContractDescription       = contract.ContractDescription,
                     ContractTypeDescription   = ctype.ContractTypeDescription,
                     ContractOriginDescription = co.ContractOriginDescription,
+                    PaymentMethodId           = psc.PaymentMethodId,
                     PaymentMethodDescription  = pm.PaymentMethodDescription,
                     CurrencyCode              = cur.CurrencyCode,
                     Amount                    = psc.Amount,
@@ -1714,6 +1725,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     EndDate                   = psc.EndDate,
                     ContractNumber            = psc.ContractNumber,
                     PromissoryNoteNumber      = psc.PromissoryNoteNumber,
+                    GuaranteeFundPercentage   = psc.GuaranteeFundPercentage,
+                    GuaranteeFundDays         = psc.GuaranteeFundDays,
                 }
             ).FirstOrDefaultAsync();
 

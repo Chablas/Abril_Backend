@@ -74,6 +74,9 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
         public Task ToggleActive(int userId, int updatedUserId) =>
             _repo.ToggleActive(userId, updatedUserId);
 
+        public Task Delete(int userId, int updatedUserId) =>
+            _repo.Delete(userId, updatedUserId);
+
         private static string GenerateToken()
         {
             var bytes = RandomNumberGenerator.GetBytes(64);

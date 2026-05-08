@@ -129,13 +129,17 @@ public static class WordTemplateHelper
                     rPr = rPrInRun.Success ? rPrInRun.Value : "";
                 }
 
+                // Párrafo separador: mismas propiedades que el original PERO sin <w:numPr>
+                // para que el contador de la lista no avance y no aparezca un número vacío.
+                var separatorPPr = Regex.Replace(pPr, @"<w:numPr>.*?</w:numPr>", "", RegexOptions.Singleline);
+
                 var sb = new StringBuilder();
                 for (int vi = 0; vi < values.Count; vi++)
                 {
                     sb.Append(BuildParagraphWithText(pPr, rPr, values[vi]));
-                    // Párrafo vacío de separación entre cláusulas (línea en blanco)
+                    // Línea en blanco entre cláusulas (sin numeración)
                     if (vi < values.Count - 1)
-                        sb.Append($"<w:p>{pPr}</w:p>");
+                        sb.Append($"<w:p>{separatorPPr}</w:p>");
                 }
 
                 return sb.ToString();

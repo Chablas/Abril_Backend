@@ -16,8 +16,8 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             //"eaguinaga@abril.pe",
             //"apimentel@abril.pe",
             //"bquicana@abril.pe",
-            //"cavila@abril.pe",
-            "alvarezvillegaschristian@gmail.com",
+            "cavila@abril.pe",
+            //"alvarezvillegaschristian@gmail.com",
         };
 
         private readonly IContractorRegistrationRepository _repository;

@@ -39,8 +39,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             //"eaguinaga@abril.pe",
             //"apimentel@abril.pe",
             //"bquicana@abril.pe",
-            //"cavila@abril.pe",
-            "alvarezvillegaschristian@gmail.com"
+            "cavila@abril.pe",
+            //"alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -750,12 +750,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{NUM_PAGARE}}",                    data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },
             };
 
-            // Construir lista de cláusulas especiales numeradas a partir de 9.35.
-            // El \t entre el número y el texto se convierte en <w:tab/> en Word,
-            // alineando el texto al mismo tabulador que usan las cláusulas del template.
-            var clauseParagraphs = data.SpecialClauses
-                .Select((text, i) => $"9.{35 + i}.\t{text}")
-                .ToList();
+            // Las cláusulas se insertan como texto puro: el auto-numerado de Word
+            // (configurado en la plantilla, continuando desde 9.34) genera el número
+            // y el tabulador de posición automáticamente.
+            var clauseParagraphs = data.SpecialClauses.ToList();
 
             byte[] docBytes;
             using (var templateStream = File.OpenRead(templatePath))

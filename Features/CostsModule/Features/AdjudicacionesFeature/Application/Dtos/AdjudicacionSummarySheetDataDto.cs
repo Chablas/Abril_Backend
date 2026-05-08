@@ -34,5 +34,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public DateOnly? EndDate { get; set; }
         public int? ContractNumber { get; set; }
         public int? PromissoryNoteNumber { get; set; }
+
+        /// <summary>Cláusulas especiales de la partida de control, ordenadas por SortOrder.</summary>
+        public List<string> SpecialClauses { get; set; } = [];
     }
 }

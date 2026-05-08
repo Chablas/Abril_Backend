@@ -1,5 +1,12 @@
 namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCategoryFeature.Application.Dtos
 {
+    public class WorkItemCategoryClauseDto
+    {
+        public int    WorkItemCategoryClauseId { get; set; }
+        public string ClauseText              { get; set; } = null!;
+        public int    SortOrder               { get; set; }
+    }
+
     public class WorkItemCategoryDto
     {
         public int WorkItemCategoryId { get; set; }
@@ -13,6 +20,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         public string? InstructivosFolderName { get; set; }
         public int? InstructivosSyncStatus { get; set; }
         public DateTime? InstructivosSyncedAt { get; set; }
+        public List<WorkItemCategoryClauseDto> Clauses { get; set; } = [];
     }
 
     public class WorkItemCategorySyncResultDto

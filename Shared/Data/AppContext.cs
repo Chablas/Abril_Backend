@@ -56,6 +56,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ContractorUser> ContractorUser { get; set; }
         public DbSet<Currency> Currency { get; set; }
         public DbSet<WorkItemCategory> WorkItemCategory { get; set; }
+        public DbSet<WorkItemCategoryClause> WorkItemCategoryClause { get; set; }
         public DbSet<WorkItem> WorkItem { get; set; }
         public DbSet<ProjectSubContractor> ProjectSubContractor { get; set; }
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
@@ -363,6 +364,12 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.ToTable("app_user");
             });
+
+            modelBuilder.Entity<WorkItemCategoryClause>()
+                .HasOne(c => c.WorkItemCategory)
+                .WithMany()
+                .HasForeignKey(c => c.WorkItemCategoryId)
+                .IsRequired();
             modelBuilder.Entity<Phase>(entity =>
             {
                 entity.Property(e => e.Order).HasColumnName("phase_order");

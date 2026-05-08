@@ -24,7 +24,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
             var query = _context.WorkItemCategory.Where(x => x.State);
 
             if (!string.IsNullOrWhiteSpace(filter.Description))
-                query = query.Where(x => x.WorkItemCategoryDescription.Contains(filter.Description));
+                query = query.Where(x => EF.Functions.ILike(x.WorkItemCategoryDescription, $"%{filter.Description}%"));
 
             var totalRecords = await query.CountAsync();
 
@@ -48,7 +48,17 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                     InstructivosSyncStatus = x.InstructivosSyncStatus,
                     InstructivosSyncedAt = x.InstructivosSyncedAt.HasValue
                         ? x.InstructivosSyncedAt.Value.ToOffset(TimeSpan.FromHours(-5)).DateTime
-                        : null
+                        : null,
+                    Clauses = _context.WorkItemCategoryClause
+                        .Where(c => c.WorkItemCategoryId == x.WorkItemCategoryId && c.State)
+                        .OrderBy(c => c.SortOrder)
+                        .Select(c => new WorkItemCategoryClauseDto
+                        {
+                            WorkItemCategoryClauseId = c.WorkItemCategoryClauseId,
+                            ClauseText = c.ClauseText,
+                            SortOrder  = c.SortOrder,
+                        })
+                        .ToList()
                 })
                 .ToListAsync();
 
@@ -103,6 +113,55 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
             record.Active = dto.Active;
             record.UpdatedDateTime = DateTimeOffset.UtcNow;
             record.UpdatedUserId = userId;
+
+            // ── Cláusulas: upsert completo ──────────────────────────────────
+            var now = DateTimeOffset.UtcNow;
+            var incomingIds = dto.Clauses
+                .Where(c => c.WorkItemCategoryClauseId.HasValue)
+                .Select(c => c.WorkItemCategoryClauseId!.Value)
+                .ToHashSet();
+
+            // Soft-delete de las que ya no están en la lista
+            var toDelete = await _context.WorkItemCategoryClause
+                .Where(c => c.WorkItemCategoryId == dto.WorkItemCategoryId
+                         && c.State
+                         && !incomingIds.Contains(c.WorkItemCategoryClauseId))
+                .ToListAsync();
+            foreach (var c in toDelete)
+            {
+                c.State          = false;
+                c.UpdatedDatetime = now;
+                c.UpdatedUserId   = userId;
+            }
+
+            // Actualizar existentes e insertar nuevas
+            foreach (var clauseDto in dto.Clauses)
+            {
+                if (clauseDto.WorkItemCategoryClauseId.HasValue)
+                {
+                    var existing = await _context.WorkItemCategoryClause
+                        .FirstOrDefaultAsync(c => c.WorkItemCategoryClauseId == clauseDto.WorkItemCategoryClauseId.Value);
+                    if (existing is not null)
+                    {
+                        existing.ClauseText       = clauseDto.ClauseText.Trim();
+                        existing.SortOrder        = clauseDto.SortOrder;
+                        existing.UpdatedDatetime  = now;
+                        existing.UpdatedUserId    = userId;
+                    }
+                }
+                else
+                {
+                    _context.WorkItemCategoryClause.Add(new WorkItemCategoryClause
+                    {
+                        WorkItemCategoryId = dto.WorkItemCategoryId,
+                        ClauseText         = clauseDto.ClauseText.Trim(),
+                        SortOrder          = clauseDto.SortOrder,
+                        State              = true,
+                        CreatedDatetime    = now,
+                        CreatedUserId      = userId,
+                    });
+                }
+            }
 
             await _context.SaveChangesAsync();
         }

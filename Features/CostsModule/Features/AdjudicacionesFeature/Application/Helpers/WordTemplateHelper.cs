@@ -12,7 +12,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
 /// </summary>
 public static class WordTemplateHelper
 {
-    public static byte[] FillTemplate(Stream templateStream, Dictionary<string, string> replacements)
+    /// <param name="multiParagraphReplacements">
+    /// Reemplazos que expanden un único párrafo &lt;w:p&gt; que contiene la clave
+    /// en N párrafos (uno por elemento de la lista). Si la lista está vacía el párrafo
+    /// se elimina. Útil para marcadores como <c>{{CLÁUSULAS}}</c>.
+    /// </param>
+    public static byte[] FillTemplate(
+        Stream templateStream,
+        Dictionary<string, string> replacements,
+        Dictionary<string, List<string>>? multiParagraphReplacements = null)
     {
         var ms = new MemoryStream();
         templateStream.CopyTo(ms);
@@ -30,7 +38,7 @@ public static class WordTemplateHelper
                 .ToList();
 
             foreach (var name in entryNames)
-                ProcessZipEntry(zip, name, replacements);
+                ProcessZipEntry(zip, name, replacements, multiParagraphReplacements);
         }
 
         ms.Position = 0;
@@ -39,7 +47,11 @@ public static class WordTemplateHelper
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static void ProcessZipEntry(ZipArchive zip, string entryName, Dictionary<string, string> replacements)
+    private static void ProcessZipEntry(
+        ZipArchive zip,
+        string entryName,
+        Dictionary<string, string> replacements,
+        Dictionary<string, List<string>>? multiParagraphReplacements)
     {
         var entry = zip.GetEntry(entryName);
         if (entry is null) return;
@@ -55,17 +67,153 @@ public static class WordTemplateHelper
         xml = Regex.Replace(xml, @"<w:bookmarkEnd\b[^>]*/?>",        "");
         xml = Regex.Replace(xml, @"<w:rPrChange\b.*?</w:rPrChange>", "", RegexOptions.Singleline);
 
-        // Procesar cada párrafo
+        // Reemplazos simples: un valor por placeholder (dentro del mismo párrafo)
         xml = Regex.Replace(
             xml,
             @"<w:p[\s>].*?</w:p>",
             m => ReplaceInParagraphXml(m.Value, replacements),
             RegexOptions.Singleline);
 
+        // Reemplazos multi-párrafo: un placeholder → N párrafos (uno por valor)
+        if (multiParagraphReplacements is { Count: > 0 })
+        {
+            foreach (var (placeholder, values) in multiParagraphReplacements)
+                xml = ReplaceWithMultipleParagraphs(xml, placeholder, values);
+        }
+
         entry.Delete();
         var newEntry = zip.CreateEntry(entryName);
         using var writer = new StreamWriter(newEntry.Open(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         writer.Write(xml);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Reemplazo multi-párrafo
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Localiza el párrafo &lt;w:p&gt; que contiene <paramref name="placeholder"/> y lo
+    /// sustituye por tantos párrafos como elementos tenga <paramref name="values"/>.
+    /// Si <paramref name="values"/> está vacío, el párrafo se elimina.
+    /// Los saltos de línea (\n) dentro de cada valor se convierten en &lt;w:br/&gt;.
+    /// </summary>
+    private static string ReplaceWithMultipleParagraphs(string xml, string placeholder, List<string> values)
+    {
+        return Regex.Replace(
+            xml,
+            @"<w:p[\s>].*?</w:p>",
+            m =>
+            {
+                var paraXml = m.Value;
+
+                // Comprobar si este párrafo contiene el placeholder en su texto visible
+                if (!ExtractPlainText(paraXml).Contains(placeholder, StringComparison.Ordinal))
+                    return paraXml;
+
+                // Sin valores → eliminar el párrafo del documento
+                if (values.Count == 0) return "";
+
+                // Extraer propiedades del párrafo (<w:pPr>) para clonarlas
+                var pPrMatch = Regex.Match(paraXml, @"<w:pPr>.*?</w:pPr>", RegexOptions.Singleline);
+                var pPr = pPrMatch.Success ? pPrMatch.Value : "";
+
+                // Extraer <w:rPr> del primer <w:r> real del párrafo.
+                // IMPORTANTE: <w:pPr> también puede contener un <w:rPr> (del marcador de párrafo ¶)
+                // que aparece antes que los runs de texto, por lo que no se puede usar un
+                // Regex.Match simple sobre todo el XML del párrafo.
+                var rPr = "";
+                var firstRunMatch = Regex.Match(paraXml, @"<w:r\b[^>]*>(.*?)</w:r>", RegexOptions.Singleline);
+                if (firstRunMatch.Success)
+                {
+                    var rPrInRun = Regex.Match(firstRunMatch.Groups[1].Value, @"<w:rPr>.*?</w:rPr>", RegexOptions.Singleline);
+                    rPr = rPrInRun.Success ? rPrInRun.Value : "";
+                }
+
+                var sb = new StringBuilder();
+                for (int vi = 0; vi < values.Count; vi++)
+                {
+                    sb.Append(BuildParagraphWithText(pPr, rPr, values[vi]));
+                    // Párrafo vacío de separación entre cláusulas (línea en blanco)
+                    if (vi < values.Count - 1)
+                        sb.Append($"<w:p>{pPr}</w:p>");
+                }
+
+                return sb.ToString();
+            },
+            RegexOptions.Singleline);
+    }
+
+    /// <summary>
+    /// Emite los runs de una sola línea de texto, dividiendo por tabulaciones (\t).
+    /// Cada \t produce un run con &lt;w:tab/&gt; seguido del siguiente segmento de texto.
+    /// </summary>
+    private static void AppendLineRuns(StringBuilder sb, string rPr, string line)
+    {
+        var segments = line.Split('\t');
+        bool firstSeg = true;
+        foreach (var seg in segments)
+        {
+            if (!firstSeg)
+            {
+                // Run de tabulación
+                sb.Append("<w:r>");
+                if (!string.IsNullOrEmpty(rPr)) sb.Append(rPr);
+                sb.Append("<w:tab/>");
+                sb.Append("</w:r>");
+            }
+            firstSeg = false;
+
+            // Emitir el run de texto (incluso si está vacío, para no perder la posición)
+            var spaceAttr = (seg.StartsWith(' ') || seg.EndsWith(' '))
+                ? " xml:space=\"preserve\""
+                : "";
+            sb.Append("<w:r>");
+            if (!string.IsNullOrEmpty(rPr)) sb.Append(rPr);
+            sb.Append($"<w:t{spaceAttr}>{XmlEscape(seg)}</w:t>");
+            sb.Append("</w:r>");
+        }
+    }
+
+    private static string BuildParagraphWithText(string pPr, string rPr, string text)
+    {
+        // Normalizar saltos de línea (CRLF / CR → LF)
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var lines = normalized.Split('\n');
+
+        var sb = new StringBuilder();
+        sb.Append("<w:p>");
+        if (!string.IsNullOrEmpty(pPr)) sb.Append(pPr);
+
+        bool firstLine = true;
+        foreach (var rawLine in lines)
+        {
+            if (!firstLine)
+            {
+                // Run de salto de línea suave (Shift+Enter en Word)
+                sb.Append("<w:r>");
+                if (!string.IsNullOrEmpty(rPr)) sb.Append(rPr);
+                sb.Append("<w:br/>");
+                sb.Append("</w:r>");
+            }
+            firstLine = false;
+
+            AppendLineRuns(sb, rPr, rawLine);
+        }
+
+        sb.Append("</w:p>");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Extrae el texto plano visible de un párrafo Word (concatena el contenido de
+    /// todos los nodos &lt;w:t&gt;), decodificando entidades XML.
+    /// </summary>
+    private static string ExtractPlainText(string paraXml)
+    {
+        var sb = new StringBuilder();
+        foreach (Match m in Regex.Matches(paraXml, @"<w:t[^>]*>([^<]*)</w:t>"))
+            sb.Append(XmlUnescape(m.Groups[1].Value));
+        return sb.ToString();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

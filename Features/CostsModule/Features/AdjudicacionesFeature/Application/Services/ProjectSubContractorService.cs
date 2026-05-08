@@ -750,9 +750,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{NUM_PAGARE}}",                    data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },
             };
 
+            // Construir lista de cláusulas especiales numeradas a partir de 9.35.
+            // El \t entre el número y el texto se convierte en <w:tab/> en Word,
+            // alineando el texto al mismo tabulador que usan las cláusulas del template.
+            var clauseParagraphs = data.SpecialClauses
+                .Select((text, i) => $"9.{35 + i}.\t{text}")
+                .ToList();
+
             byte[] docBytes;
             using (var templateStream = File.OpenRead(templatePath))
-                docBytes = WordTemplateHelper.FillTemplate(templateStream, replacements);
+                docBytes = WordTemplateHelper.FillTemplate(
+                    templateStream,
+                    replacements,
+                    new Dictionary<string, List<string>> { { "{{CLÁUSULAS}}", clauseParagraphs } });
 
             var pathData = new AdjudicacionPathDataDto
             {

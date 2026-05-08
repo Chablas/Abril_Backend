@@ -1720,6 +1720,21 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             if (data is null)
                 throw new AbrilException("La adjudicación no existe.");
 
+            // Cargar cláusulas especiales de la partida de control asociada
+            var wicId = await ctx.ProjectSubContractor
+                .Where(p => p.ProjectSubContractorId == projectSubContractorId && p.State)
+                .Select(p => p.WorkItemCategoryId)
+                .FirstOrDefaultAsync();
+
+            if (wicId > 0)
+            {
+                data.SpecialClauses = await ctx.WorkItemCategoryClause
+                    .Where(c => c.WorkItemCategoryId == wicId && c.State)
+                    .OrderBy(c => c.SortOrder)
+                    .Select(c => c.ClauseText)
+                    .ToListAsync();
+            }
+
             return data;
         }
 

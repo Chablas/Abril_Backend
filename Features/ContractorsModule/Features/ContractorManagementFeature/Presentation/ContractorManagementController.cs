@@ -63,6 +63,26 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Presentation
             }
         }
 
+        [HttpPut("{contractorId}")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> Update(int contractorId, [FromForm] ContractorUpdateDto dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+                await _service.Update(contractorId, dto, userId);
+                return Ok(new { message = "Contratista actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPost("{contractorId}/send-credentials")]
         public async Task<IActionResult> SendCredentials(int contractorId)
         {

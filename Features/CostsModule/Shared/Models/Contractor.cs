@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models {
         public int ContractorStateId { get; set; }
         public string? ActivationToken { get; set; }
         public DateTime? ActivationTokenExpiry { get; set; }
+        public string? LogoFileUrl { get; set; }
         public string? BrochureFileUrl { get; set; }
         public string? FichaRucFileUrl { get; set; }
         public string? ReferencesListFileUrl { get; set; }

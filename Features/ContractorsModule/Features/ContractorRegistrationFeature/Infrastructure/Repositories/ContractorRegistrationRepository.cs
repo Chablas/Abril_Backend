@@ -18,7 +18,21 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
             _factory = factory;
         }
 
-        public async Task Create(ContributorCreateDto dto, int? userId, string? brochureUrl, string? fichaRucUrl, string? referencesUrl)
+        public async Task<List<ContractorPersonTypeDto>> GetPersonTypes()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.ContractorPersonType
+                .Where(t => t.State)
+                .OrderBy(t => t.ContractorPersonTypeId)
+                .Select(t => new ContractorPersonTypeDto
+                {
+                    ContractorPersonTypeId = t.ContractorPersonTypeId,
+                    Description            = t.Description,
+                })
+                .ToListAsync();
+        }
+
+        public async Task Create(ContributorCreateDto dto, int? userId, string? logoUrl, string? brochureUrl, string? fichaRucUrl, string? referencesUrl)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -81,26 +95,33 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
 
             var contractor = new Contractor
             {
-                ContributorId = contributor.ContributorId,
-                ContractorStateId = PendingContractorStateId,
-                BrochureFileUrl = brochureUrl,
-                FichaRucFileUrl = fichaRucUrl,
+                ContributorId         = contributor.ContributorId,
+                ContractorStateId     = PendingContractorStateId,
+                LogoFileUrl           = logoUrl,
+                BrochureFileUrl       = brochureUrl,
+                FichaRucFileUrl       = fichaRucUrl,
                 ReferencesListFileUrl = referencesUrl,
-                CreatedDateTime = DateTimeOffset.UtcNow,
-                CreatedUserId = userId,
+                CreatedDateTime       = DateTimeOffset.UtcNow,
+                CreatedUserId         = userId,
                 Active = true,
-                State = true
+                State  = true
             };
 
-            foreach (var email in dto.ContributorEmails)
+            for (int i = 0; i < dto.ContributorEmails.Count; i++)
             {
+                int? personTypeId = null;
+                if (i < dto.ContributorEmailPersonTypeIds.Count
+                    && int.TryParse(dto.ContributorEmailPersonTypeIds[i], out var ptId))
+                    personTypeId = ptId;
+
                 contractor.Emails.Add(new ContractorEmail
                 {
-                    Email = email,
-                    CreatedDateTime = DateTimeOffset.UtcNow,
-                    CreatedUserId = userId,
+                    Email                  = dto.ContributorEmails[i],
+                    ContractorPersonTypeId = personTypeId,
+                    CreatedDateTime        = DateTimeOffset.UtcNow,
+                    CreatedUserId          = userId,
                     Active = true,
-                    State = true
+                    State  = true
                 });
             }
 

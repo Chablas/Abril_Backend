@@ -10,5 +10,6 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
         Task Reject(int contractorId, int userId);
         Task<ContractorWithEmailsDto?> GetWithEmails(int contractorId);
         Task SetActivationToken(int contractorId, string token, DateTime expiry);
+        Task Update(int contractorId, ContractorUpdateDto dto, string? logoUrl, string? brochureUrl, string? fichaRucUrl, string? referencesUrl, int userId);
     }
 }

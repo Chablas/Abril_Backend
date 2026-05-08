@@ -52,6 +52,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Contributor> Contributor { get; set; }
         public DbSet<Contractor> Contractor { get; set; }
         public DbSet<ContractorEmail> ContractorEmail { get; set; }
+        public DbSet<ContractorPersonType> ContractorPersonType { get; set; }
         public DbSet<ContractorState> ContractorState { get; set; }
         public DbSet<ContractorUser> ContractorUser { get; set; }
         public DbSet<Currency> Currency { get; set; }
@@ -199,6 +200,12 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(e => e.Contractor)
                 .WithMany(c => c.Emails)
                 .HasForeignKey(e => e.ContractorId);
+
+            modelBuilder.Entity<ContractorEmail>()
+                .HasOne(e => e.PersonType)
+                .WithMany()
+                .HasForeignKey(e => e.ContractorPersonTypeId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ContractorUser>()
                 .HasOne(cu => cu.Contractor)

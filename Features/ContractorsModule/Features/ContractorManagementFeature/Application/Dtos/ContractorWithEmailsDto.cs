@@ -4,6 +4,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Dt
     {
         public int ContractorId { get; set; }
         public string ContributorName { get; set; } = null!;
+        public string ContributorRuc { get; set; } = null!;
         public int ContractorStateId { get; set; }
         public List<string> Emails { get; set; } = new();
     }

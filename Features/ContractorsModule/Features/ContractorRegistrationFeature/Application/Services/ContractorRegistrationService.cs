@@ -40,10 +40,16 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             _emailService = emailService;
         }
 
+        public async Task<List<ContractorPersonTypeDto>> GetPersonTypes()
+        {
+            return await _repository.GetPersonTypes();
+        }
+
         public async Task Create(ContributorCreateDto dto, int? userId, string? accessToken = null)
         {
-            string? brochureUrl = null;
-            string? fichaRucUrl = null;
+            string? logoUrl       = null;
+            string? brochureUrl   = null;
+            string? fichaRucUrl   = null;
             string? referencesUrl = null;
 
             // Subir archivos a SharePoint usando permisos de aplicación (no requiere token del usuario).
@@ -51,6 +57,9 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             var listId     = _configuration["SharePoint:ContractorListId"]
                              ?? throw new InvalidOperationException("SharePoint:ContractorListId no está configurado.");
             var folderPath = Sanitize($"{dto.ContributorRuc} - {dto.ContributorName}");
+
+            if (dto.LogoFile is not null)
+                logoUrl = await UploadFile(listId, folderPath, "logo", dto.LogoFile);
 
             if (dto.BrochureFile is not null)
                 brochureUrl = await UploadFile(listId, folderPath, "brochure", dto.BrochureFile);
@@ -61,7 +70,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             if (dto.ReferencesListFile is not null)
                 referencesUrl = await UploadFile(listId, folderPath, "lista_referencias", dto.ReferencesListFile);
 
-            await _repository.Create(dto, userId, brochureUrl, fichaRucUrl, referencesUrl);
+            await _repository.Create(dto, userId, logoUrl, brochureUrl, fichaRucUrl, referencesUrl);
 
             await SendNewContractorNotificationAsync(dto);
         }

@@ -10,10 +10,14 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
         public string? LegalRepresentativeDni { get; set; }
         public string? LegalRepresentativeFullName { get; set; }
         public string? LegalEntityRegistryNumber { get; set; }
+        public IFormFile? LogoFile { get; set; }
         public IFormFile? BrochureFile { get; set; }
         public IFormFile? FichaRucFile { get; set; }
         public IFormFile? ReferencesListFile { get; set; }
-        public List<string> ContributorEmails { get; set; }
+        /// <summary>Lista de correos. En multipart/form-data se envía como campos repetidos: ContributorEmails=a&amp;ContributorEmails=b</summary>
+        public List<string> ContributorEmails { get; set; } = [];
+        /// <summary>Clasificaciones paralelas a ContributorEmails (mismo orden). Valor vacío = sin clasificación.</summary>
+        public List<string?> ContributorEmailPersonTypeIds { get; set; } = [];
         public string? GraphAccessToken { get; set; }
     }
 }

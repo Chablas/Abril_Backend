@@ -6,6 +6,7 @@ using Abril_Backend.Features.Contractors.ContractorManagement.Application.Interf
 using Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Microsoft.Extensions.Options;
 
 namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Services
@@ -17,15 +18,21 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
         private readonly IContractorManagementRepository _repository;
         private readonly IEmailService _emailService;
         private readonly FrontendSettings _frontendSettings;
+        private readonly IGraphSharePointService _sharePointService;
+        private readonly IConfiguration _configuration;
 
         public ContractorManagementService(
             IContractorManagementRepository repository,
             IEmailService emailService,
-            IOptions<FrontendSettings> frontendSettings)
+            IOptions<FrontendSettings> frontendSettings,
+            IGraphSharePointService sharePointService,
+            IConfiguration configuration)
         {
             _repository = repository;
             _emailService = emailService;
             _frontendSettings = frontendSettings.Value;
+            _sharePointService = sharePointService;
+            _configuration = configuration;
         }
 
         public async Task<PagedResult<ContributorPagedDto>> GetPaged(ContributorFilterDto filter)
@@ -82,6 +89,58 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
                 body: body,
                 isHtml: true
             );
+        }
+
+        public async Task Update(int contractorId, ContractorUpdateDto dto, int userId)
+        {
+            var existing = await _repository.GetWithEmails(contractorId)
+                ?? throw new AbrilException("Contratista no encontrado.", 404);
+
+            string? logoUrl       = null;
+            string? brochureUrl   = null;
+            string? fichaRucUrl   = null;
+            string? referencesUrl = null;
+
+            var listId = _configuration["SharePoint:ContractorListId"]
+                ?? throw new InvalidOperationException("SharePoint:ContractorListId no está configurado.");
+
+            // La carpeta sigue siendo {ruc} - {nombre_original} para no romper archivos previos
+            var folderPath = Sanitize($"{existing.ContributorRuc} - {existing.ContributorName}");
+
+            if (dto.LogoFile is not null)
+                logoUrl = await UploadFile(listId, folderPath, "logo", dto.LogoFile);
+
+            if (dto.BrochureFile is not null)
+                brochureUrl = await UploadFile(listId, folderPath, "brochure", dto.BrochureFile);
+
+            if (dto.FichaRucFile is not null)
+                fichaRucUrl = await UploadFile(listId, folderPath, "ficha_ruc", dto.FichaRucFile);
+
+            if (dto.ReferencesListFile is not null)
+                referencesUrl = await UploadFile(listId, folderPath, "lista_referencias", dto.ReferencesListFile);
+
+            await _repository.Update(contractorId, dto, logoUrl, brochureUrl, fichaRucUrl, referencesUrl, userId);
+        }
+
+        private async Task<string?> UploadFile(string listId, string folderPath, string baseName, IFormFile file)
+        {
+            var extension = Path.GetExtension(file.FileName);
+            var fileName  = $"{baseName}{extension}";
+            using var stream = file.OpenReadStream();
+            var result = await _sharePointService.UploadToSharePointLibraryAsync(
+                libraryName: listId,
+                folderPath:  folderPath,
+                fileName:    fileName,
+                fileStream:  stream,
+                contentType: file.ContentType);
+            return result?.WebUrl;
+        }
+
+        private static string Sanitize(string name)
+        {
+            var invalid = new HashSet<char> { '\\', '/', ':', '*', '?', '"', '<', '>', '|', '#', '%' };
+            var result  = string.Concat(name.Select(c => invalid.Contains(c) ? '-' : c)).Trim();
+            return result.Length > 60 ? result[..60].TrimEnd() : result;
         }
 
         private static string GenerateToken()

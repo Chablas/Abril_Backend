@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Interfaces;
 using Abril_Backend.Shared.Services.Reniec.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
@@ -19,6 +20,21 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Presentation
         {
             _service = service;
             _reniecService = reniecService;
+        }
+
+        [HttpGet("person-types")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetPersonTypes()
+        {
+            try
+            {
+                var result = await _service.GetPersonTypes();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
         }
 
         [HttpGet("dni/{dni}")]

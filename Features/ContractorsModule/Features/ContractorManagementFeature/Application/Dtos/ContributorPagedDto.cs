@@ -16,6 +16,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Dt
         public string? LegalEntityRegistryNumber { get; set; }
         public int ContractorStateId { get; set; }
         public string ContractorStateDescription { get; set; } = null!;
+        public string? LogoFileUrl { get; set; }
         public string? BrochureFileUrl { get; set; }
         public string? FichaRucFileUrl { get; set; }
         public string? ReferencesListFileUrl { get; set; }

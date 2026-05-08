@@ -4,6 +4,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
 {
     public interface IContractorRegistrationRepository
     {
-        Task Create(ContributorCreateDto dto, int? userId, string? brochureUrl, string? fichaRucUrl, string? referencesUrl);
+        Task<List<ContractorPersonTypeDto>> GetPersonTypes();
+        Task Create(ContributorCreateDto dto, int? userId, string? logoUrl, string? brochureUrl, string? fichaRucUrl, string? referencesUrl);
     }
 }

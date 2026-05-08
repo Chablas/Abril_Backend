@@ -9,5 +9,6 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.In
         Task Approve(int contractorId, int userId);
         Task Reject(int contractorId, int userId);
         Task SendCredentials(int contractorId, int adminUserId);
+        Task Update(int contractorId, ContractorUpdateDto dto, int userId);
     }
 }

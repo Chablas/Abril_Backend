@@ -23,6 +23,12 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("etapa_id")]
         public int? EtapaId { get; set; }
 
+        [Column("categoria_id")]
+        public int? CategoriaId { get; set; }
+
+        [Column("especialidad_id")]
+        public int? EspecialidadId { get; set; }
+
         [Column("prioridad")]
         public string? Prioridad { get; set; }
 

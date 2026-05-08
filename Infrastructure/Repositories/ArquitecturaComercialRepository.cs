@@ -348,6 +348,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                             join p in ctx.Project on a.ProjectId equals p.ProjectId
                             from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                             from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                            from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
+                            from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                             select new
                             {
                                 Actividad = a,
@@ -355,6 +357,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                                 Encargado1 = p.ResponsableArqCom,
                                 EtapaNombre = e != null ? e.Nombre : null,
                                 ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                                CategoriaNombre = c != null ? c.Nombre : null,
+                                EspecialidadNombre = s != null ? s.Nombre : null,
                             };
 
             if (proyectoId.HasValue && proyectoId.Value > 0)
@@ -402,9 +406,13 @@ namespace Abril_Backend.Infrastructure.Repositories
                     ProjectNombre = x.ProjectNombre,
                     Indice = a.Indice,
                     Nombre = a.Nombre,
-                    Tipo = a.Tipo,
+                    PartidaDeControl = a.Tipo,
                     EtapaId = a.EtapaId,
                     EtapaNombre = x.EtapaNombre,
+                    CategoriaId = a.CategoriaId,
+                    CategoriaNombre = x.CategoriaNombre,
+                    EspecialidadId = a.EspecialidadId,
+                    EspecialidadNombre = x.EspecialidadNombre,
                     UserId = a.UserId,
                     ResponsableNombre = x.ResponsableNombre,
                     Encargado1 = x.Encargado1,
@@ -484,6 +492,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
+                             from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == id
                              select new
                              {
@@ -492,6 +502,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                                 CategoriaNombre = c != null ? c.Nombre : null,
+                                 EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstOrDefaultAsync();
 
             if (row == null) return null;
@@ -510,9 +522,13 @@ namespace Abril_Backend.Infrastructure.Repositories
                 ProjectNombre = row.ProjectNombre,
                 Indice = act.Indice,
                 Nombre = act.Nombre,
-                Tipo = act.Tipo,
+                PartidaDeControl = act.Tipo,
                 EtapaId = act.EtapaId,
                 EtapaNombre = row.EtapaNombre,
+                CategoriaId = act.CategoriaId,
+                CategoriaNombre = row.CategoriaNombre,
+                EspecialidadId = act.EspecialidadId,
+                EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
                 Encargado1 = row.Encargado1,
@@ -669,6 +685,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Nombre = dto.Nombre,
                 Tipo = dto.Tipo,
                 EtapaId = dto.EtapaId,
+                CategoriaId = dto.CategoriaId,
+                EspecialidadId = dto.EspecialidadId,
                 Estado = EstadoVacio,
                 Activo = true,
                 Indice = maxIndice + 1,
@@ -685,6 +703,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
+                             from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == actividad.Id
                              select new
                              {
@@ -693,6 +713,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                                 CategoriaNombre = c != null ? c.Nombre : null,
+                                 EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
 
             var act = row.Actividad;
@@ -703,9 +725,13 @@ namespace Abril_Backend.Infrastructure.Repositories
                 ProjectNombre = row.ProjectNombre,
                 Indice = act.Indice,
                 Nombre = act.Nombre,
-                Tipo = act.Tipo,
+                PartidaDeControl = act.Tipo,
                 EtapaId = act.EtapaId,
                 EtapaNombre = row.EtapaNombre,
+                CategoriaId = act.CategoriaId,
+                CategoriaNombre = row.CategoriaNombre,
+                EspecialidadId = act.EspecialidadId,
+                EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
                 Encargado1 = row.Encargado1,
@@ -730,6 +756,8 @@ namespace Abril_Backend.Infrastructure.Repositories
             actividad.Nombre = dto.Nombre;
             actividad.Tipo = dto.Tipo;
             actividad.EtapaId = dto.EtapaId;
+            actividad.CategoriaId = dto.CategoriaId;
+            actividad.EspecialidadId = dto.EspecialidadId;
             actividad.UserId = dto.UserId;
             actividad.InicioProgramado = dto.InicioProgramado;
             actividad.FinProgramado = dto.FinProgramado;
@@ -744,6 +772,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
+                             from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == id
                              select new
                              {
@@ -752,6 +782,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                                 CategoriaNombre = c != null ? c.Nombre : null,
+                                 EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
 
             var act = row.Actividad;
@@ -762,9 +794,13 @@ namespace Abril_Backend.Infrastructure.Repositories
                 ProjectNombre = row.ProjectNombre,
                 Indice = act.Indice,
                 Nombre = act.Nombre,
-                Tipo = act.Tipo,
+                PartidaDeControl = act.Tipo,
                 EtapaId = act.EtapaId,
                 EtapaNombre = row.EtapaNombre,
+                CategoriaId = act.CategoriaId,
+                CategoriaNombre = row.CategoriaNombre,
+                EspecialidadId = act.EspecialidadId,
+                EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
                 Encargado1 = row.Encargado1,

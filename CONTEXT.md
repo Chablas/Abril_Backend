@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-06 (motor vigilancia médica SSOMA: auth clínica, programación EMO flujo clínica, notificaciones, auto-programación, resumen diario, reflejo habilitación, EMO retiro en baja, reporte SUNAFIL; limpieza Console.WriteLine y prefijo PRUEBA)
+> Última actualización: 2026-05-07 (AC: categoria_id + especialidad_id en ac_actividades; ActividadListItemDTO: Tipo→PartidaDeControl + CategoriaId/CategoriaNombre/EspecialidadId/EspecialidadNombre; CreateDTO + UpdateDTO actualizados; GetActividades hace join con ac_categorias y ac_especialidades)
 
 ---
 
@@ -524,7 +524,7 @@ Tablas compartidas: `project` (= "Proyecto" en AC, PK `project_id`) y `workers` 
 
 ### 9b. AcActividad — campos
 
-`id`, `project_id` (FK→project), `user_id` (FK→workers, nullable), `nombre`, `tipo`, `etapa_id` (FK→ac_etapas, nullable), `prioridad`, `estado`, `activo` (bool), `indice` (int?), `inicio_programado` (DateOnly?), `fin_programado` (DateOnly?), `inicio_efectivo` (DateOnly?), `fin_efectivo` (DateOnly?), `observaciones`.
+`id`, `project_id` (FK→project), `user_id` (FK→workers, nullable), `nombre`, `tipo`, `etapa_id` (FK→ac_etapas, nullable), `categoria_id` (FK→ac_categorias, nullable — creada manualmente en BD), `especialidad_id` (FK→ac_especialidades, nullable — creada manualmente en BD), `prioridad`, `estado`, `activo` (bool), `indice` (int?), `inicio_programado` (DateOnly?), `fin_programado` (DateOnly?), `inicio_efectivo` (DateOnly?), `fin_efectivo` (DateOnly?), `observaciones`.
 
 Estado calculado dinámicamente al devolver el DTO (`ComputeEstado`): `VACIO` → `PENDIENTE` → `EN_PROCESO` → `VENCIDO` → `CULMINADO`. El campo `estado` en BD almacena el estado pero el DTO siempre lo recalcula.
 
@@ -555,9 +555,9 @@ GET    /api/v1/arquitectura-comercial/etapas
 
 | DTO | Uso |
 |-----|-----|
-| `AcActividadCreateDTO` | POST actividades — Nombre, Tipo, ProjectId, EtapaId?, UserId?, InicioProgramado?, FinProgramado?, Observaciones? |
-| `AcActividadUpdateDTO` | PUT actividades/{id} — mismo shape sin ProjectId ni Indice, más InicioEfectivo/FinEfectivo |
-| `ActividadListItemDTO` | Retorno de GET/POST/PUT — incluye estado calculado, retraso, EtapaNombre, ResponsableNombre |
+| `AcActividadCreateDTO` | POST actividades — Nombre, Tipo, ProjectId, EtapaId?, UserId?, CategoriaId?, EspecialidadId?, InicioProgramado?, FinProgramado?, Observaciones? |
+| `AcActividadUpdateDTO` | PUT actividades/{id} — mismo shape sin ProjectId ni Indice, más InicioEfectivo/FinEfectivo, CategoriaId?, EspecialidadId? |
+| `ActividadListItemDTO` | Retorno de GET/POST/PUT — incluye estado calculado, retraso, EtapaNombre, ResponsableNombre, **PartidaDeControl** (=campo `tipo` en BD), CategoriaId, CategoriaNombre, EspecialidadId, EspecialidadNombre |
 
 ---
 

@@ -2,9 +2,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
 {
     public class ContractPackageUrlsDto
     {
-        public string  SummarySheetUrl     { get; init; } = "";
+        public string? SummarySheetUrl     { get; init; }
         public string? SummarySheetItemId  { get; init; }
-        public string  ContractUrl         { get; init; } = "";
+        public string? ContractUrl         { get; init; }
         public string? ContractItemId      { get; init; }
         public string? NonConformingOutputUrl    { get; init; }
         public string? NonConformingOutputItemId { get; init; }

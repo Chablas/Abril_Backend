@@ -39,8 +39,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             //"eaguinaga@abril.pe",
             //"apimentel@abril.pe",
             //"bquicana@abril.pe",
-            "cavila@abril.pe",
-            //"alvarezvillegaschristian@gmail.com"
+            //"cavila@abril.pe",
+            "alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -970,11 +970,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var docs = await _projectSubContractorRepository.GetContractPackageUrlsAsync(projectSubContractorId);
 
-            // Validar que los documentos tengan SharepointItemId (necesario para la conversión a PDF).
-            // Si el registro es antiguo y no tiene ItemId, el usuario debe regenerar el documento en el paso 3.
-            if (string.IsNullOrEmpty(docs.SummarySheetItemId))
+            // Validar solo el caso legacy: archivo existe pero le falta el ItemId de SharePoint.
+            // Si no hay archivo (marcado como "No aplica" en paso 3) se omite sin error.
+            if (!string.IsNullOrEmpty(docs.SummarySheetUrl) && string.IsNullOrEmpty(docs.SummarySheetItemId))
                 throw new AbrilException("La hoja resumen debe ser regenerada antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
-            if (string.IsNullOrEmpty(docs.ContractItemId))
+            if (!string.IsNullOrEmpty(docs.ContractUrl) && string.IsNullOrEmpty(docs.ContractItemId))
                 throw new AbrilException("El contrato debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
             if (!string.IsNullOrEmpty(docs.NonConformingOutputUrl) && string.IsNullOrEmpty(docs.NonConformingOutputItemId))
                 throw new AbrilException("Las salidas no conformes deben ser recargadas antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
@@ -986,12 +986,22 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 throw new AbrilException("El pagaré debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
 
             // Orden: 1-Resumen, 2-Contrato, 3-Salidas no conforme, 4-Cuadro de tolerancias, 5-Instructivo, 6-Pagaré
+            // Los documentos sin archivo (No aplica) simplemente no se incluyen.
             var pdfBytesList = new List<byte[]>();
 
-            var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.SummarySheetItemId);
-            pdfBytesList.Add(RotatePdfPages(summarySheetPdf));
+            if (!string.IsNullOrEmpty(docs.SummarySheetItemId))
+            {
+                var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.SummarySheetItemId);
+                pdfBytesList.Add(RotatePdfPages(summarySheetPdf));
+            }
 
-            pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.ContractItemId));
+            if (!string.IsNullOrEmpty(docs.ContractItemId))
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.ContractItemId));
+
+            if (pdfBytesList.Count == 0 && string.IsNullOrEmpty(docs.NonConformingOutputItemId)
+                && string.IsNullOrEmpty(docs.ToleranceChartItemId) && string.IsNullOrEmpty(docs.InstructivoItemId)
+                && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
+                throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
 
             if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))
                 pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.NonConformingOutputItemId));

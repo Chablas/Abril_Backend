@@ -1893,46 +1893,49 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     .FirstOrDefaultAsync()
                 : null;
 
+            // Los documentos opcionales se excluyen del paquete si tienen estado "No aplica" (statusId = 1),
+            // aunque tengan un archivo subido. En ese caso se retorna null y el servicio los omite.
             var nonConformingOutput = ids.ProjectSubContractorNonConformingOutputId.HasValue
                 ? await ctx.ProjectSubContractorNonConformingOutput
-                    .Where(x => x.ProjectSubContractorNonConformingOutputId == ids.ProjectSubContractorNonConformingOutputId.Value)
+                    .Where(x => x.ProjectSubContractorNonConformingOutputId == ids.ProjectSubContractorNonConformingOutputId.Value
+                             && x.ProjectSubContractorFileStatusId != 1)
                     .Select(x => new { x.FileUrl, x.SharepointItemId })
                     .FirstOrDefaultAsync()
                 : null;
 
             var toleranceChart = ids.ProjectSubContractorToleranceChartId.HasValue
                 ? await ctx.ProjectSubContractorToleranceChart
-                    .Where(x => x.ProjectSubContractorToleranceChartId == ids.ProjectSubContractorToleranceChartId.Value)
+                    .Where(x => x.ProjectSubContractorToleranceChartId == ids.ProjectSubContractorToleranceChartId.Value
+                             && x.ProjectSubContractorFileStatusId != 1)
                     .Select(x => new { x.FileUrl, x.SharepointItemId })
                     .FirstOrDefaultAsync()
                 : null;
 
             var instructivo = ids.ProjectSubContractorInstructivoId.HasValue
                 ? await ctx.ProjectSubContractorInstructivo
-                    .Where(x => x.ProjectSubContractorInstructivoId == ids.ProjectSubContractorInstructivoId.Value)
+                    .Where(x => x.ProjectSubContractorInstructivoId == ids.ProjectSubContractorInstructivoId.Value
+                             && x.ProjectSubContractorFileStatusId != 1)
                     .Select(x => new { x.FileUrl, x.SharepointItemId })
                     .FirstOrDefaultAsync()
                 : null;
 
             var promissoryNote = ids.ProjectSubContractorPromissoryNoteId.HasValue
                 ? await ctx.ProjectSubContractorPromissoryNote
-                    .Where(x => x.ProjectSubContractorPromissoryNoteId == ids.ProjectSubContractorPromissoryNoteId.Value)
+                    .Where(x => x.ProjectSubContractorPromissoryNoteId == ids.ProjectSubContractorPromissoryNoteId.Value
+                             && x.ProjectSubContractorFileStatusId != 1)
                     .Select(x => new { x.FileUrl, x.SharepointItemId })
                     .FirstOrDefaultAsync()
                 : null;
 
-            if (string.IsNullOrEmpty(summarySheet?.FileUrl))
-                throw new AbrilException("La hoja resumen no ha sido generada. Genérela primero en el paso 3.");
-
-            if (string.IsNullOrEmpty(contract?.FileUrl))
-                throw new AbrilException("El contrato no ha sido generado. Genérelo primero en el paso 3.");
-
+            // Si los documentos principales no tienen archivo (se marcaron como "No aplica" en paso 3)
+            // simplemente no se incluyen en el paquete; la validación fuerte solo aplica
+            // cuando existe un archivo pero le falta el ItemId de SharePoint (registro legacy).
             return new ContractPackageUrlsDto
             {
-                SummarySheetUrl             = summarySheet.FileUrl,
-                SummarySheetItemId          = summarySheet.SharepointItemId,
-                ContractUrl                 = contract.FileUrl,
-                ContractItemId              = contract.SharepointItemId,
+                SummarySheetUrl             = summarySheet?.FileUrl,
+                SummarySheetItemId          = summarySheet?.SharepointItemId,
+                ContractUrl                 = contract?.FileUrl,
+                ContractItemId              = contract?.SharepointItemId,
                 NonConformingOutputUrl      = nonConformingOutput?.FileUrl,
                 NonConformingOutputItemId   = nonConformingOutput?.SharepointItemId,
                 ToleranceChartUrl           = toleranceChart?.FileUrl,

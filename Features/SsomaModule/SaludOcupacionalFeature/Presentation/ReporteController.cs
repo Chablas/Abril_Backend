@@ -48,11 +48,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                     join med in ctx.SsMedicoOcupacional on e.MedicoId equals med.Id into medj
                     from med in medj.DefaultIfEmpty()
                     where e.FechaEmo.Month == mes && e.FechaEmo.Year == anio
-                    orderby e.FechaEmo, w.ApellidoNombre
+                    orderby e.FechaEmo, w.Person != null ? w.Person.FullName : null
                     select new
                     {
                         Emo = e,
                         Worker = w,
+                        WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                        WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                         EmpresaNombre = emp != null ? emp.ContributorName : null,
                         TipoNombre = tipo != null ? tipo.Nombre : null,
                         ClinicaNombre = cli != null ? cli.Nombre : null,
@@ -149,8 +151,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                     var restricText = restricList is { Count: > 0 } ? string.Join(", ", restricList) : string.Empty;
 
                     ws.Cell(row, 1).Value = row - 1;
-                    ws.Cell(row, 2).Value = x.Worker.ApellidoNombre;
-                    ws.Cell(row, 3).Value = x.Worker.Dni;
+                    ws.Cell(row, 2).Value = x.WorkerNombre ?? string.Empty;
+                    ws.Cell(row, 3).Value = x.WorkerDni ?? string.Empty;
                     ws.Cell(row, 4).Value = x.EmpresaNombre ?? string.Empty;
                     ws.Cell(row, 5).Value = proyNombre ?? string.Empty;
                     ws.Cell(row, 6).Value = x.TipoNombre ?? string.Empty;

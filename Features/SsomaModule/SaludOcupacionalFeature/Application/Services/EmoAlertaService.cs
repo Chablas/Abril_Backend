@@ -50,7 +50,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) >= ventanaInicio
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) <= ventanaFin
-                select new { Emo = e, Worker = w, TipoEmo = t }
+                select new
+                {
+                    Emo = e,
+                    Worker = w,
+                    TipoEmo = t,
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null
+                }
             ).AsNoTracking().ToListAsync();
 
             // Bug 2 fix: disparar alerta solo cuando hoy == fechaVenc - 4 días hábiles
@@ -129,7 +136,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 var destinatarios = BuildDestinatarios(c.Worker, proyecto);
                 if (destinatarios.Count == 0)
                 {
-                    result.Detalles.Add($"EMO {c.Emo.Id} ({c.Worker.ApellidoNombre}) — sin destinatarios. Omitido.");
+                    result.Detalles.Add($"EMO {c.Emo.Id} ({c.WorkerNombre}) — sin destinatarios. Omitido.");
                     continue;
                 }
 
@@ -140,8 +147,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     : $"{vigenciaMeses} mes(es)";
 
                 var fv = (c.Emo.FechaVencimientoCalculada ?? c.Emo.FechaVencimiento)!.Value;
-                var subject = $"Vencimiento de EMO - {c.Worker.ApellidoNombre} - {fv:yyyy-MM-dd}";
-                var body = BuildBody(c.Worker, c.Emo, fv, proyecto, empresa, vigenciaTexto);
+                var subject = $"Vencimiento de EMO - {c.WorkerNombre} - {fv:yyyy-MM-dd}";
+                var body = BuildBody(c.Worker, c.WorkerNombre, c.WorkerDni, c.Emo, fv, proyecto, empresa, vigenciaTexto);
 
                 try
                 {
@@ -164,13 +171,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     });
 
                     result.TotalEnviados++;
-                    result.Detalles.Add($"EMO {c.Emo.Id} ({c.Worker.ApellidoNombre}) — enviado a {destinatarios.Count} destinatario(s).");
+                    result.Detalles.Add($"EMO {c.Emo.Id} ({c.WorkerNombre}) — enviado a {destinatarios.Count} destinatario(s).");
                 }
                 catch (Exception ex)
                 {
                     result.TotalErrores++;
                     _logger.LogError(ex, "Error enviando alerta de EMO {EmoId}", c.Emo.Id);
-                    result.Detalles.Add($"EMO {c.Emo.Id} ({c.Worker.ApellidoNombre}) — error al enviar: {ex.Message}");
+                    result.Detalles.Add($"EMO {c.Emo.Id} ({c.WorkerNombre}) — error al enviar: {ex.Message}");
                 }
             }
 
@@ -234,6 +241,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         private static string BuildBody(
             Worker worker,
+            string? workerNombre,
+            string? workerDni,
             WorkerEmo emo,
             DateOnly fechaVencimiento,
             Project? proyecto,
@@ -251,11 +260,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             <table style='border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;'>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Trabajador</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{worker.ApellidoNombre}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{workerNombre}</td>
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>DNI</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{worker.Dni}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{workerDni}</td>
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Ocupación</strong></td>

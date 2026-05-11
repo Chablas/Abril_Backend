@@ -45,7 +45,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                             a.ProjectId,
                             ProjectDescription = p.ProjectDescription ?? string.Empty,
                             a.UserId,
-                            SupervisorFullName = w != null ? w.ApellidoNombre : null,
+                            SupervisorFullName = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
                             a.InicioProgramado,
                             a.FinProgramado,
                             a.InicioEfectivo,
@@ -299,7 +299,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                     Nombre = p.ProjectDescription ?? string.Empty,
                     Estado = p.Estado ?? string.Empty,
                     ResponsableArqComId = p.ResponsableArqComId,
-                    ResponsableArqCom = w != null ? w.ApellidoNombre : p.ResponsableArqCom,
+                    ResponsableArqCom = w != null ? (w.Person != null ? w.Person.FullName : null) : p.ResponsableArqCom,
                     TotalActividades = ctx.AcActividad.Count(a => a.ProjectId == p.ProjectId),
                     Activas = ctx.AcActividad.Count(a => a.ProjectId == p.ProjectId && a.Activo),
                 }
@@ -319,11 +319,11 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             return await ctx.Worker
                 .Where(w => w.Estado == "ACTIVO" && w.Subarea == "Arquitectura Comercial")
-                .OrderBy(w => w.ApellidoNombre)
+                .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                 .Select(w => new SupervisorAcDTO
                 {
                     Id = w.Id,
-                    ApellidoNombre = w.ApellidoNombre ?? string.Empty,
+                    ApellidoNombre = (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
                 })
                 .ToListAsync();
         }
@@ -356,7 +356,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                 ProjectNombre = p.ProjectDescription,
                                 Encargado1 = p.ResponsableArqCom,
                                 EtapaNombre = e != null ? e.Nombre : null,
-                                ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                                ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
                                 CategoriaNombre = c != null ? c.Nombre : null,
                                 EspecialidadNombre = s != null ? s.Nombre : null,
                             };
@@ -501,7 +501,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  ProjectNombre = p.ProjectDescription,
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
-                                 ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                                 ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstOrDefaultAsync();
@@ -712,7 +712,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  ProjectNombre = p.ProjectDescription,
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
-                                 ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                                 ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
@@ -781,7 +781,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  ProjectNombre = p.ProjectDescription,
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
-                                 ResponsableNombre = w != null ? w.ApellidoNombre : null,
+                                 ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
@@ -1090,7 +1090,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             {
                 nombreResuelto = await ctx.Worker
                     .Where(w => w.Id == body.ResponsableArqComId.Value)
-                    .Select(w => w.ApellidoNombre)
+                    .Select(w => w.Person != null ? w.Person.FullName : null)
                     .FirstOrDefaultAsync();
 
                 if (nombreResuelto == null)

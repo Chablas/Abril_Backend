@@ -36,11 +36,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // Validar restricciones antes de programar
             foreach (var workerId in dto.WorkerIds)
             {
-                var w = await ctx.Worker.FindAsync(workerId)
+                var w = await ctx.Worker
+                    .Include(x => x.Person)
+                    .FirstOrDefaultAsync(x => x.Id == workerId)
                     ?? throw new AbrilException($"Trabajador {workerId} no encontrado.", 404);
-                if (await _restringidoService.EstaRestringidoPorDniAsync(w.Dni))
+                if (await _restringidoService.EstaRestringidoPorDniAsync(w.Person?.DocumentIdentityCode))
                     throw new AbrilException(
-                        $"El trabajador {w.ApellidoNombre} está restringido. Comuníquese con el área de Administración o SSOMA.", 400);
+                        $"El trabajador {w.Person?.FullName} está restringido. Comuníquese con el área de Administración o SSOMA.", 400);
             }
 
             var fecha = DateTime.SpecifyKind(dto.FechaProgramada, DateTimeKind.Utc);
@@ -115,7 +117,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var workers = await ctx.Worker
                 .Where(w => workerIds.Contains(w.Id))
-                .Select(w => new { w.Id, w.ApellidoNombre, w.Dni })
+                .Select(w => new
+                {
+                    w.Id,
+                    ApellidoNombre = w.Person != null ? w.Person.FullName : null,
+                    Dni = w.Person != null ? w.Person.DocumentIdentityCode : null
+                })
                 .ToDictionaryAsync(w => w.Id);
 
             var proyectos = await ctx.Project
@@ -184,14 +191,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             {
                 var s = search.Trim();
                 if (s.Length == 8 && s.All(char.IsDigit))
-                    workersQuery = workersQuery.Where(w => w.Dni == s);
+                    workersQuery = workersQuery.Where(w => w.Person != null && w.Person.DocumentIdentityCode == s);
                 else
                     workersQuery = workersQuery.Where(w =>
-                        w.ApellidoNombre != null && w.ApellidoNombre.ToLower().Contains(s.ToLower()));
+                        w.Person != null && w.Person.FullName != null && w.Person.FullName.ToLower().Contains(s.ToLower()));
             }
 
             var workers = await workersQuery
-                .Select(w => new { w.Id, w.ApellidoNombre, w.Dni, w.ObraOficina })
+                .Select(w => new
+                {
+                    w.Id,
+                    ApellidoNombre = w.Person != null ? w.Person.FullName : null,
+                    Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                    w.ObraOficina
+                })
                 .ToDictionaryAsync(w => w.Id);
 
             workerIds = workers.Keys.ToList();

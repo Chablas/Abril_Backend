@@ -56,8 +56,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     Id = x.e.Id,
                     WorkerId = x.e.WorkerId,
-                    WorkerNombre = x.w.ApellidoNombre,
-                    WorkerDni = x.w.Dni,
+                    WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
+                    WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
                     TipoEmo = x.t != null ? x.t.Nombre : null,
                     Empresa = x.em != null ? x.em.ContributorName : null,
                     FechaEmo = x.e.FechaEmo,
@@ -120,8 +120,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 var term = filter.Search.Trim();
                 q = q.Where(x =>
-                    (x.w.ApellidoNombre != null && x.w.ApellidoNombre.Contains(term))
-                    || (x.w.Dni != null && x.w.Dni.Contains(term)));
+                    (x.w.Person != null && x.w.Person.FullName != null && x.w.Person.FullName.Contains(term))
+                    || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null && x.w.Person.DocumentIdentityCode.Contains(term)));
             }
             if (!string.IsNullOrWhiteSpace(filter.Aptitud))
                 q = q.Where(x => x.ue != null && x.ue.Aptitud == filter.Aptitud);
@@ -141,14 +141,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var total = await q.CountAsync();
 
             var rows = await q
-                .OrderBy(x => x.w.ApellidoNombre)
+                .OrderBy(x => x.w.Person != null ? x.w.Person.FullName : null)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .Select(x => new EmoPorTrabajadorDto
                 {
                     WorkerId = x.w.Id,
-                    NombreCompleto = x.w.ApellidoNombre ?? string.Empty,
-                    Dni = x.w.Dni ?? string.Empty,
+                    NombreCompleto = (x.w.Person != null ? x.w.Person.FullName : null) ?? string.Empty,
+                    Dni = (x.w.Person != null ? x.w.Person.DocumentIdentityCode : null) ?? string.Empty,
                     EmpresaId = x.vv != null ? x.vv.EmpresaId : null,
                     Empresa = x.em != null ? x.em.ContributorName : null,
                     TipoContrata = x.w.ContrataCasa,
@@ -195,7 +195,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 join m in ctx.SsMedicoOcupacional on e.MedicoId equals m.Id into mj
                 from m in mj.DefaultIfEmpty()
                 where e.Id == id
-                select new { e, w, t, em, c, m }
+                select new
+                {
+                    e, w, t, em, c, m,
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null
+                }
             ).FirstOrDefaultAsync()
               ?? throw new AbrilException("EMO no encontrado.", 404);
 
@@ -253,8 +258,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 Id = row.e.Id,
                 WorkerId = row.e.WorkerId,
-                WorkerNombre = row.w.ApellidoNombre,
-                WorkerDni = row.w.Dni,
+                WorkerNombre = row.WorkerNombre,
+                WorkerDni = row.WorkerDni,
                 TipoEmoId = row.e.TipoEmoId,
                 TipoEmoNombre = row.t != null ? row.t.Nombre : null,
                 EmpresaOrigenId = row.e.EmpresaOrigenId,
@@ -285,7 +290,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             using var ctx = _factory.CreateDbContext();
             var hoy = DateOnly.FromDateTime(DateTime.Today);
 
-            var w = await ctx.Worker.FirstOrDefaultAsync(x => x.Id == workerId)
+            var w = await ctx.Worker
+                .Include(x => x.Person)
+                .FirstOrDefaultAsync(x => x.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var vinculaciones = await (
@@ -318,8 +325,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     Id = e.Id,
                     WorkerId = e.WorkerId,
-                    WorkerNombre = w.ApellidoNombre,
-                    WorkerDni = w.Dni,
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     TipoEmo = t != null ? t.Nombre : null,
                     Empresa = em != null ? em.ContributorName : null,
                     FechaEmo = e.FechaEmo,
@@ -343,8 +350,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             return new WorkerEmoHistorialDto
             {
                 WorkerId = w.Id,
-                ApellidoNombre = w.ApellidoNombre,
-                Dni = w.Dni,
+                ApellidoNombre = w.Person?.FullName,
+                Dni = w.Person?.DocumentIdentityCode,
                 ContrataCasa = w.ContrataCasa,
                 HabilitadoObra = w.HabilitadoObra,
                 Vinculaciones = vinculaciones

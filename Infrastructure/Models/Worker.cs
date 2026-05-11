@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Models
 {
@@ -11,14 +12,11 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("id_trabajador")]
         public int? IdTrabajador { get; set; }
 
-        [Column("apellido_nombre")]
-        public string? ApellidoNombre { get; set; }
+        [Column("person_id")]
+        public int? PersonId { get; set; }
 
-        [Column("dni")]
-        public string? Dni { get; set; }
-
-        [Column("ruc")]
-        public string? Ruc { get; set; }
+        [Column("contributor_id")]
+        public int? ContributorId { get; set; }
 
         [Column("celular")]
         public string? Celular { get; set; }
@@ -85,5 +83,8 @@ namespace Abril_Backend.Infrastructure.Models
 
         [Column("updated_at")]
         public DateTimeOffset? UpdatedAt { get; set; }
+
+        public Person? Person { get; set; }
+        public Contributor? Contributor { get; set; }
     }
 }

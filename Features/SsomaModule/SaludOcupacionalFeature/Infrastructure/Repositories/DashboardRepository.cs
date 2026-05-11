@@ -93,8 +93,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 select new
                 {
                     e.WorkerId,
-                    Nombre = w.ApellidoNombre ?? string.Empty,
-                    Dni = w.Dni ?? string.Empty,
+                    Nombre = (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
+                    Dni = (w.Person != null ? w.Person.DocumentIdentityCode : null) ?? string.Empty,
                     FechaVencimiento = fv!.Value,
                     Empresa = em != null ? (em.ContributorName ?? string.Empty) : string.Empty
                 })

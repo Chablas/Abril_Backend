@@ -47,8 +47,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 where p.FechaProgramada == hoy
                 select new FilaProgramacion
                 {
-                    WorkerNombre = w.ApellidoNombre ?? "—",
-                    WorkerDni = w.Dni ?? "—",
+                    WorkerNombre = (w.Person != null ? w.Person.FullName : null) ?? "—",
+                    WorkerDni = (w.Person != null ? w.Person.DocumentIdentityCode : null) ?? "—",
                     Empresa = em != null ? em.ContributorName : "—",
                     TipoEmo = t != null ? t.Nombre : "—",
                     Estado = p.Estado,

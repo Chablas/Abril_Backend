@@ -65,6 +65,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(w => new
                 {
                     Worker = w,
+                    PersonFullName = w.Person != null ? w.Person.FullName : null,
+                    PersonDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     LatestVinc = ctx.WorkerVinculacion
                         .Where(v => v.WorkerId == w.Id)
                         .OrderByDescending(v => v.CreatedAt)
@@ -92,8 +94,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             {
                 var s = search.ToLower();
                 baseQuery = baseQuery.Where(x =>
-                    (x.Worker.ApellidoNombre != null && x.Worker.ApellidoNombre.ToLower().Contains(s)) ||
-                    (x.Worker.Dni != null && x.Worker.Dni.Contains(s)));
+                    (x.PersonFullName != null && x.PersonFullName.ToLower().Contains(s)) ||
+                    (x.PersonDni != null && x.PersonDni.Contains(s)));
             }
 
             if (empresaId.HasValue)
@@ -114,7 +116,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var total = await baseQuery.CountAsync();
 
             var pageRows = await baseQuery
-                .OrderBy(x => x.Worker.ApellidoNombre)
+                .OrderBy(x => x.PersonFullName)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
@@ -145,8 +147,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var items = pageRows.Select(r => new WorkerHabilitacionListDto
             {
                 WorkerId = r.Worker.Id,
-                ApellidoNombre = r.Worker.ApellidoNombre ?? string.Empty,
-                Dni = r.Worker.Dni ?? string.Empty,
+                ApellidoNombre = r.PersonFullName ?? string.Empty,
+                Dni = r.PersonDni ?? string.Empty,
                 EmpresaId = r.LatestVinc?.EmpresaId,
                 EmpresaNombre = r.LatestVinc?.EmpresaId is int eid && empresaMap.TryGetValue(eid, out var en) ? en : null,
                 ProyectoActualId = r.LatestVinc?.ProyectoId,
@@ -425,10 +427,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
+            var worker = await ctx.Worker
+                .Include(w => w.Person)
+                .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Dni))
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
@@ -472,7 +476,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     {
                         pendingEmails.Add((
                             [proyectoDestino.EmailCoordSsoma],
-                            $"Cambio de obra — {worker.ApellidoNombre}",
+                            $"Cambio de obra — {worker.Person?.FullName}",
                             BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
                         ));
                     }
@@ -501,7 +505,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (!string.IsNullOrWhiteSpace(emailSctr))
                     pendingEmails.Add((
                         [emailSctr!],
-                        $"Cambio de obra — SCTR — {worker.ApellidoNombre}",
+                        $"Cambio de obra — SCTR — {worker.Person?.FullName}",
                         BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
                     ));
 
@@ -509,13 +513,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (!string.IsNullOrWhiteSpace(emailVidaLey))
                     pendingEmails.Add((
                         [emailVidaLey!],
-                        $"Cambio de obra — Vida Ley — {worker.ApellidoNombre}",
+                        $"Cambio de obra — Vida Ley — {worker.Person?.FullName}",
                         BuildBodyReingreso(worker, proyectoDestino, "• Vida Ley")
                     ));
 
                 pendingEmails.Add((
                     [EmailMedico],
-                    $"Cambio de obra — Certificado de Aptitud — {worker.ApellidoNombre}",
+                    $"Cambio de obra — Certificado de Aptitud — {worker.Person?.FullName}",
                     BuildBodyReingreso(worker, proyectoDestino, "• Certificado de Aptitud (Homologación)")
                 ));
             }
@@ -605,10 +609,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
+            var worker = await ctx.Worker
+                .Include(w => w.Person)
+                .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Dni))
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
             await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId);
@@ -649,7 +655,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     pendingEmails.Add((
                         [proyectoDestino.EmailCoordSsoma],
-                        $"Reingreso de trabajador — {worker.ApellidoNombre}",
+                        $"Reingreso de trabajador — {worker.Person?.FullName}",
                         BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
                     ));
                 }
@@ -677,7 +683,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (!string.IsNullOrWhiteSpace(emailSctr))
                     pendingEmails.Add((
                         [emailSctr!],
-                        $"Reingreso de trabajador — SCTR — {worker.ApellidoNombre}",
+                        $"Reingreso de trabajador — SCTR — {worker.Person?.FullName}",
                         BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
                     ));
 
@@ -685,13 +691,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (!string.IsNullOrWhiteSpace(emailVidaLey))
                     pendingEmails.Add((
                         [emailVidaLey!],
-                        $"Reingreso de trabajador — Vida Ley — {worker.ApellidoNombre}",
+                        $"Reingreso de trabajador — Vida Ley — {worker.Person?.FullName}",
                         BuildBodyReingreso(worker, proyectoDestino, "• Vida Ley")
                     ));
 
                 pendingEmails.Add((
                     [EmailMedico],
-                    $"Reingreso de trabajador — Certificado de Aptitud — {worker.ApellidoNombre}",
+                    $"Reingreso de trabajador — Certificado de Aptitud — {worker.Person?.FullName}",
                     BuildBodyReingreso(worker, proyectoDestino, "• Certificado de Aptitud (Homologación)")
                 ));
             }
@@ -796,8 +802,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return $@"<p>Estimados,</p>
 <p>Se notifica el <strong>reingreso del siguiente trabajador</strong>. Los entregables indicados deben ser actualizados:</p>
 <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
-  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.ApellidoNombre}</td></tr>
-  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Dni}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.FullName}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.DocumentIdentityCode}</td></tr>
   <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Modalidad</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.ContrataCasa}</td></tr>
   <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Proyecto</strong></td><td style='border:1px solid #ddd;padding:8px;'>{proyectoNombre}</td></tr>
 </table>
@@ -951,21 +957,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<WorkerDetalleDto?> GetByIdAsync(int workerId)
         {
             using var ctx = _factory.CreateDbContext();
-            var w = await ctx.Worker.FirstOrDefaultAsync(x => x.Id == workerId);
+            var w = await ctx.Worker
+                .Include(x => x.Person)
+                .Include(x => x.Contributor)
+                .FirstOrDefaultAsync(x => x.Id == workerId);
             return w is null ? null : MapToDetalle(w);
         }
 
         public async Task<WorkerDetalleDto> UpdateAsync(int workerId, WorkerUpdateDto dto)
         {
             using var ctx = _factory.CreateDbContext();
-            var w = await ctx.Worker.FirstOrDefaultAsync(x => x.Id == workerId)
+            var w = await ctx.Worker
+                .Include(x => x.Person)
+                .Include(x => x.Contributor)
+                .FirstOrDefaultAsync(x => x.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var categoriaAnterior = w.Categoria;
             var obraOficinaAnterior = w.ObraOficina;
 
-            if (dto.ApellidoNombre is not null) w.ApellidoNombre = dto.ApellidoNombre;
-            if (dto.Ruc is not null) w.Ruc = dto.Ruc;
+            if (dto.ApellidoNombre is not null && w.Person is not null) w.Person.FullName = dto.ApellidoNombre;
             if (dto.Celular is not null) w.Celular = dto.Celular;
             if (dto.EmailPersonal is not null) w.EmailPersonal = dto.EmailPersonal;
             if (dto.EmailCorporativo is not null) w.EmailCorporativo = dto.EmailCorporativo;
@@ -1053,14 +1064,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (vidaLeyCreada)
             {
-                var subject = $"Vida Ley pendiente — Cambio de cargo — {w.ApellidoNombre}";
+                var subject = $"Vida Ley pendiente — Cambio de cargo — {w.Person?.FullName}";
                 var body = BuildBodyVidaLeyCambioCargo(w, categoriaAnterior, w.Categoria);
                 await EnviarEmailSilenciosoAsync(new List<string> { EmailAsistentaSocial }, subject, body);
             }
 
             if (cambioObraOficinaDestino is not null && cambioObraOficinaEmail is not null)
             {
-                var subject = $"Vida Ley pendiente — Cambio a {cambioObraOficinaDestino} — {w.ApellidoNombre}";
+                var subject = $"Vida Ley pendiente — Cambio a {cambioObraOficinaDestino} — {w.Person?.FullName}";
                 var body = BuildBodyVidaLeyCambioObraOficina(w, obraOficinaAnterior, w.ObraOficina);
                 await EnviarEmailSilenciosoAsync(new List<string> { cambioObraOficinaEmail }, subject, body);
             }
@@ -1073,8 +1084,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return $@"<p>Estimados,</p>
 <p>Se notifica que el siguiente trabajador <strong>cambió de modalidad de obra/oficina</strong>; corresponde gestionar su <strong>Vida Ley</strong>:</p>
 <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
-  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.ApellidoNombre}</td></tr>
-  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Dni}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.FullName}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.DocumentIdentityCode}</td></tr>
   <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Obra/Oficina anterior</strong></td><td style='border:1px solid #ddd;padding:8px;'>{obraOficinaAnterior}</td></tr>
   <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Obra/Oficina nueva</strong></td><td style='border:1px solid #ddd;padding:8px;'>{obraOficinaNueva}</td></tr>
 </table>
@@ -1086,8 +1097,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return $@"<p>Estimada,</p>
 <p>Se notifica que el siguiente trabajador <strong>cambió de cargo</strong>; corresponde gestionar su <strong>Vida Ley</strong>:</p>
 <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
-  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.ApellidoNombre}</td></tr>
-  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Dni}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.FullName}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.DocumentIdentityCode}</td></tr>
   <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Cargo anterior</strong></td><td style='border:1px solid #ddd;padding:8px;'>{cargoAnterior}</td></tr>
   <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Cargo nuevo</strong></td><td style='border:1px solid #ddd;padding:8px;'>{cargoNuevo}</td></tr>
 </table>
@@ -1098,9 +1109,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             Id = w.Id,
             IdTrabajador = w.IdTrabajador,
-            ApellidoNombre = w.ApellidoNombre,
-            Dni = w.Dni,
-            Ruc = w.Ruc,
+            ApellidoNombre = w.Person?.FullName,
+            Dni = w.Person?.DocumentIdentityCode,
+            Ruc = w.Contributor?.ContributorRuc,
             Celular = w.Celular,
             EmailPersonal = w.EmailPersonal,
             EmailCorporativo = w.EmailCorporativo,
@@ -1333,10 +1344,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
+            var worker = await ctx.Worker
+                .Include(w => w.Person)
+                .FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Dni))
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
             bool esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -1390,7 +1403,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(proyecto.EmailCoordSsoma))
             {
-                var subject = $"Nuevo proyecto asignado — {worker.ApellidoNombre}";
+                var subject = $"Nuevo proyecto asignado — {worker.Person?.FullName}";
                 var body = BuildBodyNuevoProyecto(worker, proyecto, fechaInicio);
                 await EnviarEmailSilenciosoAsync(new List<string> { proyecto.EmailCoordSsoma }, subject, body);
             }
@@ -1504,8 +1517,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return $@"<p>Estimados,</p>
 <p>Se notifica el <strong>nuevo ingreso</strong> del siguiente trabajador al proyecto:</p>
 <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
-  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.ApellidoNombre}</td></tr>
-  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Dni}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.FullName}</td></tr>
+  <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.DocumentIdentityCode}</td></tr>
   <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Proyecto</strong></td><td style='border:1px solid #ddd;padding:8px;'>{proyecto.ProjectDescription}</td></tr>
   <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Fecha de ingreso</strong></td><td style='border:1px solid #ddd;padding:8px;'>{fechaInicio:dd/MM/yyyy}</td></tr>
 </table>

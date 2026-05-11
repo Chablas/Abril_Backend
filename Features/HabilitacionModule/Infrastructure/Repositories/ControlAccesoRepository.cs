@@ -24,16 +24,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var query = ctx.Worker.AsQueryable();
+            var query = ctx.Worker.Include(w => w.Person).AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var s = search.Trim();
                 var esDni = s.Length == 8 && s.All(char.IsDigit);
                 if (esDni)
-                    query = query.Where(w => w.Dni != null && w.Dni == s);
+                    query = query.Where(w => w.Person != null && w.Person.DocumentIdentityCode == s);
                 else
-                    query = query.Where(w => w.ApellidoNombre != null && w.ApellidoNombre.ToLower().Contains(s.ToLower()));
+                    query = query.Where(w => w.Person != null && w.Person.FullName != null && w.Person.FullName.ToLower().Contains(s.ToLower()));
             }
 
             if (proyectoId.HasValue)
@@ -79,6 +79,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             var workers = await ctx.Worker
+                .Include(w => w.Person)
                 .Where(w => noAutorizadosIds.Contains(w.Id))
                 .ToListAsync();
 
@@ -115,6 +116,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             var workers = await ctx.Worker
+                .Include(w => w.Person)
                 .Where(w => conSctrIds.Contains(w.Id))
                 .ToListAsync();
 
@@ -140,6 +142,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var empresaIds = inducciones.Select(i => i.EmpresaId).Distinct().ToList();
 
             var workerMap = await ctx.Worker
+                .Include(w => w.Person)
                 .Where(w => workerIds.Contains(w.Id))
                 .ToDictionaryAsync(w => w.Id);
 
@@ -156,8 +159,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     InduccionId = i.Id,
                     WorkerId = i.WorkerId,
-                    ApellidoNombre = w?.ApellidoNombre ?? "",
-                    Dni = w?.Dni ?? "",
+                    ApellidoNombre = w?.Person?.FullName ?? "",
+                    Dni = w?.Person?.DocumentIdentityCode ?? "",
                     EmpresaNombre = empNombre ?? "",
                     FechaProgramada = i.FechaProgramada,
                     TrabajoAltura = i.TrabajoAltura,
@@ -514,8 +517,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 return new ControlAccesoWorkerDto
                 {
                     WorkerId = w.Id,
-                    ApellidoNombre = w.ApellidoNombre ?? "",
-                    Dni = w.Dni ?? "",
+                    ApellidoNombre = w.Person?.FullName ?? "",
+                    Dni = w.Person?.DocumentIdentityCode ?? "",
                     EmpresaNombre = empresaNombre,
                     ProyectoNombre = proyectoNombre,
                     EstadoHabilitacion = hasPendientes ? "No Autorizado" : "Habilitado",

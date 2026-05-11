@@ -64,8 +64,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     Id = x.p.Id,
                     WorkerId = x.p.WorkerId,
-                    WorkerNombre = x.w.ApellidoNombre,
-                    WorkerDni = x.w.Dni,
+                    WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
+                    WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
                     Empresa = x.em != null ? x.em.ContributorName : null,
                     TipoEmo = x.t != null ? x.t.Nombre : null,
                     FechaProgramada = x.p.FechaProgramada,
@@ -87,7 +87,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
-            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == dto.WorkerId)
+            var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == dto.WorkerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var ent = new SsProgramacionEmo
@@ -271,7 +271,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     return;
                 }
 
-                var subject = $"Programación EMO — {worker.ApellidoNombre} — {prog.FechaProgramada:dd/MM/yyyy}";
+                var subject = $"Programación EMO — {worker.Person?.FullName} — {prog.FechaProgramada:dd/MM/yyyy}";
                 var body = BuildBodyCreacion(worker, prog, tipoEmo?.Nombre, clinica?.Nombre, medico?.ApellidoNombre, proyecto);
 
                 await _emailService.SendAsync(
@@ -320,11 +320,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
                 <tr>
                     <td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td>
-                    <td style='border:1px solid #ddd;padding:8px;'>{worker.ApellidoNombre}</td>
+                    <td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.FullName}</td>
                 </tr>
                 <tr>
                     <td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td>
-                    <td style='border:1px solid #ddd;padding:8px;'>{worker.Dni}</td>
+                    <td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.DocumentIdentityCode}</td>
                 </tr>
                 <tr>
                     <td style='border:1px solid #ddd;padding:8px;'><strong>Proyecto</strong></td>

@@ -47,7 +47,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     Emo = e,
                     Worker = w,
                     TipoEmo = t,
-                    Vinculacion = v
+                    Vinculacion = v,
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null
                 }
             ).AsNoTracking().ToListAsync();
 
@@ -91,7 +92,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     {
                         result.YaTenianProgramacion++;
                         result.Detalle.Add(
-                            $"Worker {c.Worker.Id} ({c.Worker.ApellidoNombre}) / TipoEMO {tipoEmoId} — ya tiene programación activa. Omitido.");
+                            $"Worker {c.Worker.Id} ({c.WorkerNombre}) / TipoEMO {tipoEmoId} — ya tiene programación activa. Omitido.");
                         continue;
                     }
 
@@ -121,14 +122,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                     result.Procesados++;
                     result.Detalle.Add(
-                        $"Worker {c.Worker.Id} ({c.Worker.ApellidoNombre}) / TipoEMO {tipoEmoId} — programado para {fechaProg:yyyy-MM-dd}.");
+                        $"Worker {c.Worker.Id} ({c.WorkerNombre}) / TipoEMO {tipoEmoId} — programado para {fechaProg:yyyy-MM-dd}.");
                 }
                 catch (Exception ex)
                 {
                     result.Errores++;
                     _logger.LogError(ex, "Error procesando auto-programación para Worker {WorkerId}", c.Worker.Id);
                     result.Detalle.Add(
-                        $"Worker {c.Worker.Id} ({c.Worker.ApellidoNombre}) — error: {ex.Message}");
+                        $"Worker {c.Worker.Id} ({c.WorkerNombre}) — error: {ex.Message}");
                 }
             }
 

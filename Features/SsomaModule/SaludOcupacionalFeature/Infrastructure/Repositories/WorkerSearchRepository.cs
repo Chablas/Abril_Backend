@@ -27,18 +27,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 var term = q.Trim().ToLower();
                 workers = workers.Where(w =>
-                    (w.ApellidoNombre != null && w.ApellidoNombre.ToLower().Contains(term))
-                    || (w.Dni != null && w.Dni.ToLower().Contains(term)));
+                    (w.Person != null && w.Person.FullName != null && w.Person.FullName.ToLower().Contains(term))
+                    || (w.Person != null && w.Person.DocumentIdentityCode != null && w.Person.DocumentIdentityCode.ToLower().Contains(term)));
             }
 
             var baseList = await workers
-                .OrderBy(w => w.ApellidoNombre)
+                .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                 .Take(limit)
                 .Select(w => new
                 {
                     w.Id,
-                    w.ApellidoNombre,
-                    w.Dni,
+                    ApellidoNombre = w.Person != null ? w.Person.FullName : null,
+                    Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     w.Ocupacion,
                     w.Estado
                 })
@@ -87,13 +87,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             using var ctx = _factory.CreateDbContext();
 
             var existeActivo = await ctx.Worker
-                .AnyAsync(w => w.Dni != null && w.Dni.ToUpper() == dto.Dni.Trim().ToUpper() && w.Estado == "ACTIVO");
+                .AnyAsync(w => w.Person != null && w.Person.DocumentIdentityCode != null
+                            && w.Person.DocumentIdentityCode.ToUpper() == dto.Dni.Trim().ToUpper()
+                            && w.Estado == "ACTIVO");
             if (existeActivo)
                 throw new AbrilException("Ya existe un trabajador activo con ese DNI.", 409);
 
             var dniUpper = dto.Dni.Trim().ToUpper();
             var workerExistente = await ctx.Worker
-                .Where(w => w.Dni != null && w.Dni.ToUpper() == dniUpper)
+                .Where(w => w.Person != null && w.Person.DocumentIdentityCode != null
+                         && w.Person.DocumentIdentityCode.ToUpper() == dniUpper)
                 .Select(w => new { w.Id })
                 .FirstOrDefaultAsync();
             if (workerExistente != null)
@@ -103,8 +106,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var worker = new Worker
             {
-                ApellidoNombre = dto.ApellidoNombre,
-                Dni = dto.Dni,
+                Person = new Person
+                {
+                    FullName = dto.ApellidoNombre,
+                    DocumentIdentityCode = dto.Dni.Trim().ToUpper(),
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = DateTime.UtcNow
+                },
                 Celular = dto.Celular,
                 EmailPersonal = dto.EmailPersonal,
                 EmailCorporativo = dto.EmailCorporativo,
@@ -117,7 +126,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ContrataCasa = dto.ContrataCasa,
                 ObraOficina = dto.ObraOficina,
                 Jefatura = dto.Jefatura,
-                Ruc = dto.Ruc,
                 Procedencia = dto.Procedencia,
                 CondicionMedica = dto.CondicionMedica,
                 Notas = dto.Notas,
@@ -151,11 +159,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
-            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == id);
+            var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == id);
             if (worker == null)
                 throw new AbrilException("Trabajador no encontrado.", 404);
 
-            worker.ApellidoNombre = dto.ApellidoNombre;
+            if (worker.Person != null) worker.Person.FullName = dto.ApellidoNombre;
             worker.Celular = dto.Celular;
             worker.EmailPersonal = dto.EmailPersonal;
             worker.EmailCorporativo = dto.EmailCorporativo;
@@ -168,7 +176,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.ContrataCasa = dto.ContrataCasa;
             worker.ObraOficina = dto.ObraOficina;
             worker.Jefatura = dto.Jefatura;
-            worker.Ruc = dto.Ruc;
             worker.Procedencia = dto.Procedencia;
             worker.CondicionMedica = dto.CondicionMedica;
             worker.Notas = dto.Notas;

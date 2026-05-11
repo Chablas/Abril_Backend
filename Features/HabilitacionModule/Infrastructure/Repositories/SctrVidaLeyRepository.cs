@@ -498,7 +498,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var workers = await ctx.Worker
                 .Where(w => workerIds.Contains(w.Id))
-                .Select(w => new { w.Id, w.ApellidoNombre, w.Dni, w.ObraOficina })
+                .Select(w => new
+                {
+                    w.Id,
+                    ApellidoNombre = w.Person != null ? w.Person.FullName : null,
+                    Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                    w.ObraOficina
+                })
                 .ToListAsync();
 
             // Items SCTR y VidaLey del catálogo
@@ -610,8 +616,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                          svw.SctrVidaLeyId,
                                          svw.WorkerId,
                                          svw.FechaInicioCobertura,
-                                         w.ApellidoNombre,
-                                         w.Dni
+                                         ApellidoNombre = w.Person != null ? w.Person.FullName : null,
+                                         Dni = w.Person != null ? w.Person.DocumentIdentityCode : null
                                      }).ToListAsync();
 
             var sctrItem = await ctx.SsItemTrabajador

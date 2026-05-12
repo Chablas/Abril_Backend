@@ -3,6 +3,8 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -47,6 +49,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<UserProject> UserProject { get; set; }
         public DbSet<Contract> Contract { get; set; }
         public DbSet<ContractType> ContractType { get; set; }
+        public DbSet<ContractModality> ContractModality { get; set; }
         public DbSet<ContractOrigin> ContractOrigin { get; set; }
         public DbSet<PaymentMethod> PaymentMethod { get; set; }
         public DbSet<Contributor> Contributor { get; set; }
@@ -132,6 +135,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsTrabajadorRestringido> SsTrabajadorRestringido => Set<SsTrabajadorRestringido>();
         public DbSet<CatJefatura> CatJefatura => Set<CatJefatura>();
         public DbSet<SsClinicaEmail> SsClinicaEmail => Set<SsClinicaEmail>();
+        public DbSet<GaHoraOpcion> GaHoraOpcion { get; set; }
+        public DbSet<GaLugar> GaLugar { get; set; }
+        public DbSet<GaMotivoSalida> GaMotivoSalida { get; set; }
+        public DbSet<GaSolicitudSalida> GaSolicitudSalida { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

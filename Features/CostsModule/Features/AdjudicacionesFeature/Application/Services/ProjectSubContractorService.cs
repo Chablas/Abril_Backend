@@ -635,10 +635,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
 
+            var templateFileName = data.ContractModalityId switch
+            {
+                1 => "plantilla_suministro_e_instalacion_con_placeholders.docx",
+                2 => "plantilla_suministro_con_placeholders.docx",
+                3 => "plantilla_instalacion_con_placeholders.docx",
+                _ => "plantilla_contrato_con_placeholders.docx",
+            };
+
             var templatePath = Path.Combine(
                 AppContext.BaseDirectory,
                 "Features", "CostsModule", "Features", "AdjudicacionesFeature",
-                "Templates", "plantilla_contrato_con_placeholders.docx");
+                "Templates", templateFileName);
 
             if (!File.Exists(templatePath))
                 throw new AbrilException(

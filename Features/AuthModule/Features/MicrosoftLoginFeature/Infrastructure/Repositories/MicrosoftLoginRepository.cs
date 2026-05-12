@@ -1,4 +1,5 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Interfaces;
@@ -66,6 +67,94 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
                     Email                = result.Key.Email ?? string.Empty
                 },
                 Roles = result.Roles
+            };
+        }
+
+        public async Task<PersonDTO?> GetPersonByWorkerEmailAsync(string email)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await ctx.Worker
+                .Where(w => w.EmailCorporativo != null
+                         && w.EmailCorporativo.ToLower() == email.ToLower()
+                         && w.Person != null)
+                .Select(w => new PersonDTO
+                {
+                    PersonId             = w.Person!.PersonId,
+                    DocumentIdentityCode = w.Person.DocumentIdentityCode,
+                    FullName             = w.Person.FullName ?? string.Empty,
+                    Email                = email
+                })
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<UserDTO> CreateUserAndLinkPersonAsync(MicrosoftProfileDto profile, int personId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var strategy = ctx.Database.CreateExecutionStrategy();
+
+            return await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await ctx.Database.BeginTransactionAsync();
+
+                var email = profile.Mail ?? profile.UserPrincipalName;
+
+                var user = new User
+                {
+                    Email           = email,
+                    Password        = null,
+                    EmailConfirmed  = true,
+                    Active          = true,
+                    State           = true,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId   = null
+                };
+
+                ctx.User.Add(user);
+                await ctx.SaveChangesAsync();
+
+                var person = await ctx.Person.FindAsync(personId)
+                    ?? throw new AbrilException("Persona no encontrada.", 404);
+
+                person.UserId          = user.UserId;
+                person.UpdatedDateTime = DateTime.UtcNow;
+                await ctx.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return new UserDTO
+                {
+                    UserId = user.UserId,
+                    Active = user.Active,
+                    Person = new PersonDTO
+                    {
+                        PersonId             = person.PersonId,
+                        DocumentIdentityCode = person.DocumentIdentityCode,
+                        FullName             = person.FullName ?? string.Empty,
+                        Email                = email ?? string.Empty
+                    },
+                    Roles = new()
+                };
+            });
+        }
+
+        public async Task<PersonDTO> LinkPersonToUserAsync(int userId, int personId, string email)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var person = await ctx.Person.FindAsync(personId)
+                ?? throw new AbrilException("Persona no encontrada.", 404);
+
+            person.UserId          = userId;
+            person.UpdatedDateTime = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+
+            return new PersonDTO
+            {
+                PersonId             = person.PersonId,
+                DocumentIdentityCode = person.DocumentIdentityCode,
+                FullName             = person.FullName ?? string.Empty,
+                Email                = email
             };
         }
 

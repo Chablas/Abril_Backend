@@ -1,19 +1,12 @@
-using Abril_Backend.Infrastructure.Interfaces;
-using System.Net;
-using System.Net.Mail;
-using Microsoft.Extensions.Options;
-using Abril_Backend.Infrastructure.Models;
-using System.IO;
 using Abril_Backend.Application.DTOs;
 using ClosedXML.Excel;
 
-namespace Abril_Backend.Infrastructure.Services
+namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedFeature.Application.Services
 {
     public class ExcelService
     {
         public ExcelService()
         {
-            
         }
 
         public async Task<byte[]> GenerateLessonsExcel(List<LessonListDTO> lessons)
@@ -64,13 +57,11 @@ namespace Abril_Backend.Infrastructure.Services
                 for (int i = 0; i < oportunidadImages.Count; i++)
                 {
                     var img = oportunidadImages[i];
-
                     var imagePath = Path.Combine(
                         Directory.GetCurrentDirectory(),
                         "wwwroot",
                         img.ImageUrl.TrimStart('/').Replace("/", Path.DirectorySeparatorChar.ToString())
                     );
-                    Console.WriteLine(imagePath);
                     if (File.Exists(imagePath))
                     {
                         worksheet.AddPicture(imagePath)
@@ -82,13 +73,11 @@ namespace Abril_Backend.Infrastructure.Services
                 for (int i = 0; i < mejoraImages.Count; i++)
                 {
                     var img = mejoraImages[i];
-
                     var imagePath = Path.Combine(
                         Directory.GetCurrentDirectory(),
                         "wwwroot",
                         img.ImageUrl.TrimStart('/').Replace("/", Path.DirectorySeparatorChar.ToString())
                     );
-                    Console.WriteLine(imagePath);
                     if (File.Exists(imagePath))
                     {
                         worksheet.AddPicture(imagePath)
@@ -98,11 +87,9 @@ namespace Abril_Backend.Infrastructure.Services
                 }
 
                 worksheet.Row(row).Height = 120;
-
                 row++;
             }
 
-            //worksheet.Rows(8, row-1).AdjustToContents(2, 12);
             using var stream = new MemoryStream();
             workbook.SaveAs(stream);
             return stream.ToArray();

@@ -43,12 +43,17 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
 
             if (user is null)
             {
-                user = await _repository.CreateUserFromGraphAsync(profile);
+                var existingPerson = await _repository.GetPersonByWorkerEmailAsync(email);
+                user = existingPerson is not null
+                    ? await _repository.CreateUserAndLinkPersonAsync(profile, existingPerson.PersonId)
+                    : await _repository.CreateUserFromGraphAsync(profile);
             }
             else if (user.Person is null || user.Person.PersonId == 0)
             {
-                // El usuario existe en app_user pero le falta su fila en person → crearla.
-                user.Person = await _repository.CreatePersonForUserAsync(user.UserId, profile);
+                var existingPerson = await _repository.GetPersonByWorkerEmailAsync(email);
+                user.Person = existingPerson is not null
+                    ? await _repository.LinkPersonToUserAsync(user.UserId, existingPerson.PersonId, email)
+                    : await _repository.CreatePersonForUserAsync(user.UserId, profile);
             }
 
             var accessToken     = _jwtService.GenerateToken(user);

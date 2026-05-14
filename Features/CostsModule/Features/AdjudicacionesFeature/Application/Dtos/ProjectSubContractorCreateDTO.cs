@@ -2,7 +2,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
     public class ProjectSubContractorCreateDTO {
         public int ProjectId { get; set; }
         public int ContractorId { get; set; }
-        public int ContractId { get; set; }
         public int ContractTypeId { get; set; }
         public int? ContractModalityId { get; set; }
         public int ContractOriginId { get; set; }

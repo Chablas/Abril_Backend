@@ -3,7 +3,7 @@ using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Application.DTOs;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
-using Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Services;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Exceptions;
 
@@ -15,21 +15,18 @@ namespace Abril_Backend.Controllers
     public class LessonController : ControllerBase
     {
         private readonly LessonRepository _lessonRepository;
-        private readonly PhaseStageSubStageSubSpecialtyRepository _phaseStageSubStageSubSpecialtyRepository;
         private readonly DashboardRepository _dashboardRepository;
         private readonly ExcelService _excelService;
         private readonly IEmailService _emailService;
 
         public LessonController(
             LessonRepository lessonRepository,
-            PhaseStageSubStageSubSpecialtyRepository phaseStageSubStageSubSpecialtyRepository,
             DashboardRepository dashboardRepository,
             ExcelService excelService,
             IEmailService emailService
             )
         {
             _lessonRepository = lessonRepository;
-            _phaseStageSubStageSubSpecialtyRepository = phaseStageSubStageSubSpecialtyRepository;
             _dashboardRepository = dashboardRepository;
             _excelService = excelService;
             _emailService = emailService;
@@ -41,34 +38,6 @@ namespace Abril_Backend.Controllers
             var data = await _lessonRepository.GetAll();
             return Ok(data);
         }*/
-
-        [Authorize]
-        [HttpPost]
-        [Consumes("multipart/form-data")]
-        public async Task<IActionResult> Create([FromForm] LessonCreateDTO dto)
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var userId = int.Parse(userIdClaim.Value);
-
-                var lessonId = await _lessonRepository.Create(dto, userId);
-                if (lessonId == null)
-                {
-                    return BadRequest(new { message = "Escoger una relación válida" });
-                }
-
-                return Ok(new { message = "Lección creada exitosamente" });
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
 
         [Authorize]
         [HttpGet("all")]
@@ -168,30 +137,6 @@ namespace Abril_Backend.Controllers
                 if (!result)
                     return NotFound(new { message = "Lección no encontrada." });
                 return Ok(new { message = "Lección eliminada exitosamente." });
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [Authorize]
-        [HttpGet("filters/create")]
-        public async Task<IActionResult> GetFiltersCreate()
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var data = await _phaseStageSubStageSubSpecialtyRepository.GetAll();
-
-                if (data == null || !data.Any())
-                    return NoContent();
-
-                return Ok(data);
             }
             catch (Exception)
             {

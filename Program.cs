@@ -5,7 +5,8 @@ using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
-using Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule;
 using Abril_Backend.Application.Services;
 using Abril_Backend.Infrastructure.Services;
 using Abril_Backend.Application.Interfaces;
@@ -118,6 +119,7 @@ builder.Services.AddSsomaModule();
 builder.Services.AddGestionAdministrativaModule();
 builder.Services.AddHabilitacionModule();
 builder.Services.AddUnidadDeProyectosModule();
+builder.Services.AddMejoraContinuaModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();

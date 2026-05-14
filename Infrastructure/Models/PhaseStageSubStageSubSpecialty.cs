@@ -6,6 +6,7 @@ namespace Abril_Backend.Infrastructure.Models {
         public int? LayerId {get;set;}
         public int? SubStageId {get; set;}
         public int? SubSpecialtyId {get; set;}
+        public int? PartidaId {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

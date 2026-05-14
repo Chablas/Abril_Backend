@@ -28,7 +28,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             {
                 ProjectId = dto.ProjectId,
                 ContractorId = dto.ContractorId,
-                ContractId = dto.ContractId,
                 ContractTypeId = dto.ContractTypeId,
                 ContractModalityId = dto.ContractModalityId,
                 ContractOriginId = dto.ContractOriginId,
@@ -94,20 +93,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             }
 
             await ctx.SaveChangesAsync();
-        }
-
-        public async Task<List<ContractSimpleDTO>> GetContractsFactory()
-        {
-            using var ctx = _factory.CreateDbContext();
-            var registros = ctx.Contract
-                .Where(item => item.Active)
-                .OrderBy(item => item.ContractDescription)
-                .Select(item => new ContractSimpleDTO
-                {
-                    ContractId = item.ContractId,
-                    ContractDescription = item.ContractDescription,
-                });
-            return await registros.ToListAsync();
         }
 
         public async Task<List<ContractTypeSimpleDTO>> GetContractTypeFactory()
@@ -258,12 +243,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cProjectActive = ctx.Col<ProjectModel>(nameof(ProjectModel.Active));
             string cProjectState  = ctx.Col<ProjectModel>(nameof(ProjectModel.State));
 
-            // Contract
-            string tContract       = ctx.Table<Contract>();
-            string cContractId     = ctx.Col<Contract>(nameof(Contract.ContractId));
-            string cContractDesc   = ctx.Col<Contract>(nameof(Contract.ContractDescription));
-            string cContractActive = ctx.Col<Contract>(nameof(Contract.Active));
-
             // ContractType
             string tContractType       = ctx.Table<ContractType>();
             string cContractTypeId     = ctx.Col<ContractType>(nameof(ContractType.ContractTypeId));
@@ -338,11 +317,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cProjectActive} = TRUE AND {cProjectState} = TRUE
                  ORDER BY {cProjectDesc};
 
-                SELECT {cContractId}, {cContractDesc}
-                  FROM {tContract}
-                 WHERE {cContractActive} = TRUE
-                 ORDER BY {cContractDesc};
-
                 SELECT {cContractTypeId}, {cContractTypeDesc}
                   FROM {tContractType}
                  WHERE {cContractTypeActive} = TRUE
@@ -404,7 +378,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             using var multi = await connection.QueryMultipleAsync(sql);
 
             var projects           = (await multi.ReadAsync<ProjectSimpleDTO>()).ToList();
-            var contracts          = (await multi.ReadAsync<ContractSimpleDTO>()).ToList();
             var contractTypes      = (await multi.ReadAsync<ContractTypeSimpleDTO>()).ToList();
             var contractModalities = (await multi.ReadAsync<ContractModalitySimpleDTO>()).ToList();
             var contractOrigins    = (await multi.ReadAsync<ContractOriginSimpleDTO>()).ToList();
@@ -427,7 +400,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             return new ProjectSubContractorFormDataDTO
             {
                 Projects           = projects,
-                Contracts          = contracts,
                 ContractTypes      = contractTypes,
                 ContractModalities = contractModalities,
                 ContractOrigins    = contractOrigins,
@@ -455,7 +427,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join pm in ctx.PaymentMethod on psc.PaymentMethodId equals pm.PaymentMethodId
                 join cur in ctx.Currency on psc.CurrencyId equals cur.CurrencyId
                 join wi in ctx.WorkItem on psc.WorkItemId equals wi.WorkItemId
-                join contract in ctx.Contract on psc.ContractId equals contract.ContractId
                 join pscs in ctx.ProjectSubContractorStatus on psc.ProjectSubContractorStatusId equals pscs.ProjectSubContractorStatusId
                 join wic in ctx.WorkItemCategory on psc.WorkItemCategoryId equals wic.WorkItemCategoryId
                 join cmJoin in ctx.ContractModality on psc.ContractModalityId equals cmJoin.ContractModalityId into cmGroup
@@ -483,7 +454,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join toleranceChartDocJoin in ctx.ProjectSubContractorToleranceChart on psc.ProjectSubContractorToleranceChartId equals toleranceChartDocJoin.ProjectSubContractorToleranceChartId into toleranceChartDocGroup
                 from toleranceChartDoc in toleranceChartDocGroup.DefaultIfEmpty()
                 where psc.State
-                select new { psc, p, contractor, c, ct, cm, co, pm, cur, wi, contract, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc };
+                select new { psc, p, contractor, c, ct, cm, co, pm, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -512,8 +483,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     ContractorId = x.psc.ContractorId,
                     ContributorId = x.c.ContributorId,
                     ContributorName = x.c.ContributorName,
-                    ContractId = x.psc.ContractId,
-                    ContractDescription = x.contract.ContractDescription,
                     ContractTypeId = x.psc.ContractTypeId,
                     ContractTypeDescription = x.ct.ContractTypeDescription,
                     ContractModalityId = x.psc.ContractModalityId,
@@ -658,7 +627,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorId));
             string cPscProjectId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectId));
             string cPscContractorId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractorId));
-            string cPscContractId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractId));
             string cPscContractTypeId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractTypeId));
             string cPscContractModalityId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractModalityId));
             string cPscContractOriginId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractOriginId));
@@ -748,11 +716,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cWorkItemCategoryId = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryId));
             string cWorkItemCategoryDesc = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryDescription));
             string cWorkItemCategoryActive = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
-
-            string tContract = ctx.Table<Contract>();
-            string cContractId = ctx.Col<Contract>(nameof(Contract.ContractId));
-            string cContractDesc = ctx.Col<Contract>(nameof(Contract.ContractDescription));
-            string cContractActive = ctx.Col<Contract>(nameof(Contract.Active));
 
             string tStatus = ctx.Table<ProjectSubContractorStatus>();
             string cStatusId = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusId));
@@ -902,8 +865,6 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscContractorId} AS ""ContractorId"",
        c.{cContributorId} AS ""ContributorId"",
        c.{cContributorName} AS ""ContributorName"",
-       psc.{cPscContractId} AS ""ContractId"",
-       contract.{cContractDesc} AS ""ContractDescription"",
        psc.{cPscContractTypeId} AS ""ContractTypeId"",
        ct.{cContractTypeDesc} AS ""ContractTypeDescription"",
        psc.{cPscContractModalityId} AS ""ContractModalityId"",
@@ -996,7 +957,6 @@ JOIN {tContractOrigin} co ON psc.{cPscContractOriginId} = co.{cContractOriginId}
 JOIN {tPaymentMethod} pm ON psc.{cPscPaymentMethodId} = pm.{cPaymentMethodId}
 JOIN {tCurrency} cur ON psc.{cPscCurrencyId} = cur.{cCurrencyId}
 JOIN {tWorkItem} wi ON psc.{cPscWorkItemId} = wi.{cWorkItemId}
-JOIN {tContract} contract ON psc.{cPscContractId} = contract.{cContractId}
 JOIN {tStatus} pscs ON psc.{cPscStatusId} = pscs.{cStatusId}
 JOIN {tWorkItemCategory} wic ON psc.{cPscWorkItemCategoryId} = wic.{cWorkItemCategoryId}
 LEFT JOIN {tContractDoc} contractDoc ON psc.{cPscContractDocId} = contractDoc.{cContractDocId}
@@ -1026,7 +986,6 @@ LIMIT @PageSize OFFSET @PageOffset;
 
 -- 3-12. Form data queries (10 simple selects con aliases PascalCase para mapeo a DTOs)
 SELECT {cProjectId} AS ""ProjectId"", {cProjectDesc} AS ""ProjectDescription"" FROM {tProject} WHERE {cProjectActive} = TRUE ORDER BY {cProjectDesc};
-SELECT {cContractId} AS ""ContractId"", {cContractDesc} AS ""ContractDescription"" FROM {tContract} WHERE {cContractActive} = TRUE ORDER BY {cContractDesc};
 SELECT {cContractTypeId} AS ""ContractTypeId"", {cContractTypeDesc} AS ""ContractTypeDescription"" FROM {tContractType} WHERE {cContractTypeActive} = TRUE ORDER BY {cContractTypeDesc};
 SELECT {cContractModalityIdDapper} AS ""ContractModalityId"", {cContractModalityDescDapper} AS ""ContractModalityDescription"" FROM {tContractModalityDapper} WHERE {cContractModalityStateDapper} = TRUE ORDER BY {cContractModalityIdDapper};
 SELECT {cContractOriginId} AS ""ContractOriginId"", {cContractOriginDesc} AS ""ContractOriginDescription"" FROM {tContractOrigin} WHERE {cContractOriginActive} = TRUE ORDER BY {cContractOriginDesc};
@@ -1057,7 +1016,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
 
             // Read form data queries
             var projects = (await multi.ReadAsync<ProjectSimpleDTO>()).ToList();
-            var contracts = (await multi.ReadAsync<ContractSimpleDTO>()).ToList();
             var contractTypes = (await multi.ReadAsync<ContractTypeSimpleDTO>()).ToList();
             var contractModalities = (await multi.ReadAsync<ContractModalitySimpleDTO>()).ToList();
             var contractOrigins = (await multi.ReadAsync<ContractOriginSimpleDTO>()).ToList();
@@ -1097,8 +1055,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     ContractorId = (int)raw.ContractorId,
                     ContributorId = (int)raw.ContributorId,
                     ContributorName = raw.ContributorName ?? "",
-                    ContractId = (int)raw.ContractId,
-                    ContractDescription = raw.ContractDescription ?? "",
                     ContractTypeId = (int)raw.ContractTypeId,
                     ContractTypeDescription = raw.ContractTypeDescription ?? "",
                     ContractModalityId = (int?)raw.ContractModalityId,
@@ -1146,7 +1102,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             var formDataDto = new ProjectSubContractorFormDataDTO
             {
                 Projects = projects,
-                Contracts = contracts,
                 ContractTypes = contractTypes,
                 ContractModalities = contractModalities,
                 ContractOrigins = contractOrigins,
@@ -1418,9 +1373,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 select contrib
             ).FirstOrDefaultAsync();
 
-            var contract = await _context.Contract
-                .FirstOrDefaultAsync(c => c.ContractId == psc.ContractId);
-
             var workItem = await _context.WorkItem
                 .FirstOrDefaultAsync(w => w.WorkItemId == psc.WorkItemId);
 
@@ -1432,7 +1384,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             return new Step6NotificationDataDto
             {
                 ProjectDescription  = projectDescription,
-                ContractDescription = contract?.ContractDescription  ?? string.Empty,
                 ContributorName     = contributor?.ContributorName   ?? string.Empty,
                 WorkItemDescription = workItem?.WorkItemDescription  ?? string.Empty,
                 ContractNumber      = psc.ContractNumber,
@@ -1461,9 +1412,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 select contrib
             ).FirstOrDefaultAsync();
 
-            var contract = await _context.Contract
-                .FirstOrDefaultAsync(c => c.ContractId == psc.ContractId);
-
             var ofTecnicaEmails = await _context.StaffProjectEmail
                 .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 3 && s.State && s.Active)
                 .Select(s => s.Email)
@@ -1478,7 +1426,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             return new Step8NotificationDataDto
             {
                 ProjectDescription  = projectDescription,
-                ContractDescription = contract?.ContractDescription ?? string.Empty,
                 ContributorName     = contributor?.ContributorName  ?? string.Empty,
                 OfTecnicaEmails     = ofTecnicaEmails,
                 ScannedDocs         = scannedDocs
@@ -1710,7 +1657,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 join ct       in ctx.Contractor     on psc.ContractorId     equals ct.ContractorId
                 join contrib  in ctx.Contributor    on ct.ContributorId     equals contrib.ContributorId
                 join wi       in ctx.WorkItem       on psc.WorkItemId       equals wi.WorkItemId
-                join contract in ctx.Contract       on psc.ContractId       equals contract.ContractId
                 join ctype    in ctx.ContractType   on psc.ContractTypeId   equals ctype.ContractTypeId
                 join co       in ctx.ContractOrigin on psc.ContractOriginId equals co.ContractOriginId
                 join pm       in ctx.PaymentMethod  on psc.PaymentMethodId  equals pm.PaymentMethodId
@@ -1744,7 +1690,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     LegalRepresentativeDni    = legalRep != null ? legalRep.DocumentIdentityCode : null,
                     LegalEntityRegistryNumber = contrib.LegalEntityRegistryNumber,
                     WorkItemDescription       = wi.WorkItemDescription,
-                    ContractDescription       = contract.ContractDescription,
                     ContractTypeDescription   = ctype.ContractTypeDescription,
                     ContractModalityId        = psc.ContractModalityId,
                     ContractOriginDescription = co.ContractOriginDescription,

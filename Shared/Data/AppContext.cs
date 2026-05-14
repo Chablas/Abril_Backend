@@ -18,6 +18,7 @@ namespace Abril_Backend.Infrastructure.Data
             _provider = config["Database:DatabaseProvider"] ?? "SqlServer";
         }
         public DbSet<Area> Area { get; set; }
+        public DbSet<SubArea> SubArea { get; set; }
         public DbSet<ConstructionSiteLogbookControl> ConstructionSiteLogbookControl { get;set; }
         public DbSet<DocumentIdentityType> DocumentIdentityType { get; set; }
         public DbSet<ImageType> ImageType { get; set; }
@@ -139,6 +140,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaLugar> GaLugar { get; set; }
         public DbSet<GaMotivoSalida> GaMotivoSalida { get; set; }
         public DbSet<GaSolicitudSalida> GaSolicitudSalida { get; set; }
+        public DbSet<Partida> Partida => Set<Partida>();
+        public DbSet<PsssScope> PsssScope => Set<PsssScope>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

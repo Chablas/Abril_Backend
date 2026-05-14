@@ -93,19 +93,27 @@ namespace Abril_Backend.Infrastructure.Repositories
                 from lesson in _context.Lesson
 
                 join project in _context.Project
-                    on lesson.ProjectId equals project.ProjectId
+                    on lesson.ProjectId equals project.ProjectId into pj
+                from project in pj.DefaultIfEmpty()
 
                 join area in _context.Area
                     on lesson.AreaId equals area.AreaId
 
                 join psss in _context.PhaseStageSubStageSubSpecialty
-                    on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId
+                    on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId into pssj
+                from psss in pssj.DefaultIfEmpty()
 
                 join phase in _context.Phase
-                    on psss.PhaseId equals phase.PhaseId
+                    on psss.PhaseId equals phase.PhaseId into ph
+                from phase in ph.DefaultIfEmpty()
 
                 join stage in _context.Stage
-                    on psss.StageId equals stage.StageId
+                    on psss.StageId equals stage.StageId into stj
+                from stage in stj.DefaultIfEmpty()
+
+                join layer in _context.Layer
+                    on psss.LayerId equals layer.LayerId into lj
+                from layer in lj.DefaultIfEmpty()
 
                 join substage in _context.SubStage
                     on psss.SubStageId equals substage.SubStageId into ss
@@ -114,6 +122,10 @@ namespace Abril_Backend.Infrastructure.Repositories
                 join subspecialty in _context.SubSpecialty
                     on psss.SubSpecialtyId equals subspecialty.SubSpecialtyId into sp
                 from subspecialty in sp.DefaultIfEmpty()
+
+                join partida in _context.Partida
+                    on psss.PartidaId equals partida.PartidaId into paj
+                from partida in paj.DefaultIfEmpty()
 
                 join user in _context.User
                     on lesson.CreatedUserId equals user.UserId into us
@@ -139,28 +151,30 @@ namespace Abril_Backend.Infrastructure.Repositories
                     ImpactDescription = lesson.ImpactDescription,
 
                     ProjectId = lesson.ProjectId,
-                    ProjectDescription = project.ProjectDescription,
+                    ProjectDescription = project != null ? project.ProjectDescription : null,
 
                     AreaId = lesson.AreaId,
                     AreaDescription = area.AreaDescription,
 
                     PhaseStageSubStageSubSpecialtyId = lesson.PhaseStageSubStageSubSpecialtyId,
 
-                    PhaseId = psss.PhaseId,
-                    PhaseDescription = phase.PhaseDescription,
+                    PhaseId = psss != null ? (int?)psss.PhaseId : null,
+                    PhaseDescription = phase != null ? phase.PhaseDescription : null,
 
-                    StageId = psss.StageId,
-                    StageDescription = stage.StageDescription,
+                    StageId = psss != null ? psss.StageId : null,
+                    StageDescription = stage != null ? stage.StageDescription : null,
 
-                    SubStageId = psss.SubStageId,
-                    SubStageDescription = substage != null
-                        ? substage.SubStageDescription
-                        : null,
+                    LayerId = psss != null ? psss.LayerId : null,
+                    LayerDescription = layer != null ? layer.LayerDescription : null,
 
-                    SubSpecialtyId = psss.SubSpecialtyId,
-                    SubSpecialtyDescription = subspecialty != null
-                        ? subspecialty.SubSpecialtyDescription
-                        : null,
+                    SubStageId = psss != null ? psss.SubStageId : null,
+                    SubStageDescription = substage != null ? substage.SubStageDescription : null,
+
+                    SubSpecialtyId = psss != null ? psss.SubSpecialtyId : null,
+                    SubSpecialtyDescription = subspecialty != null ? subspecialty.SubSpecialtyDescription : null,
+
+                    PartidaId = psss != null ? psss.PartidaId : null,
+                    PartidaDescription = partida != null ? partida.PartidaDescription : null,
 
                     StateId = lesson.StateId,
                     StateDescription = state.StateDescription,
@@ -463,88 +477,6 @@ namespace Abril_Backend.Infrastructure.Repositories
             return true;
         }
         */
-        public async Task<object> Create(LessonCreateDTO dto, int userId)
-        {
-            int? stageId = dto.StageId > 0 ? dto.StageId : null;
-            int? layerId = dto.LayerId > 0 ? dto.LayerId : null;
-            int? subStageId = dto.SubStageId > 0 ? dto.SubStageId : null;
-            int? subSpecialtyId = dto.SubSpecialtyId > 0 ? dto.SubSpecialtyId : null;
-
-            int? psssId = null;
-
-            if (dto.PhaseId > 0)
-            {
-                var query = _context.PhaseStageSubStageSubSpecialty
-                    .Where(x =>
-                        x.Active && x.State &&
-                        x.PhaseId == dto.PhaseId
-                    );
-
-                if (stageId.HasValue)
-                    query = query.Where(x => x.StageId == stageId);
-                else
-                    query = query.Where(x => x.StageId == null);
-
-                if (layerId.HasValue)
-                    query = query.Where(x => x.LayerId == layerId);
-                else
-                    query = query.Where(x => x.LayerId == null);
-
-                if (subStageId.HasValue)
-                    query = query.Where(x => x.SubStageId == subStageId);
-                else
-                    query = query.Where(x => x.SubStageId == null);
-
-                if (subSpecialtyId.HasValue)
-                    query = query.Where(x => x.SubSpecialtyId == subSpecialtyId);
-                else
-                    query = query.Where(x => x.SubSpecialtyId == null);
-
-                psssId = await query
-                    .Select(x => (int?)x.PhaseStageSubStageSubSpecialtyId)
-                    .FirstOrDefaultAsync();
-
-                if (psssId == null)
-                    return null;
-            }
-
-            var lesson = new Lesson
-            {
-                Period = DateTime.UtcNow.ToString("MM-yyyy"),
-                PeriodDate = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc),
-                ProblemDescription = dto.ProblemDescription,
-                ReasonDescription = dto.ReasonDescription,
-                LessonDescription = dto.LessonDescription,
-                ImpactDescription = dto.ImpactDescription,
-
-                ProjectId = dto.ProjectId,
-                AreaId = dto.AreaId,
-                PhaseStageSubStageSubSpecialtyId = psssId,
-                StateId = 2,
-
-                CreatedDateTime = DateTime.UtcNow,
-                CreatedUserId = userId,
-                UpdatedDateTime = null,
-                Active = true,
-                State = true
-            };
-
-            _context.Lesson.Add(lesson);
-            await _context.SaveChangesAsync();
-
-            if (dto.OpportunityImages?.Any() == true)
-            {
-                await SaveImages(dto.OpportunityImages, lesson.LessonId, 1);
-            }
-
-            if (dto.ImprovementImages?.Any() == true)
-            {
-                await SaveImages(dto.ImprovementImages, lesson.LessonId, 2);
-            }
-
-            return lesson.LessonId;
-        }
-
         public async Task<bool> DeleteSoftAsync(int lessonId, int userId)
         {
             var lesson = await _context.Lesson

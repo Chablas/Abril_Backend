@@ -6,7 +6,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int ProjectSubContractorId {get; set;}
         public int ProjectId {get; set;}
         public int ContractorId {get; set;}
-        public int ContractId {get; set;}
         public int ContractTypeId {get; set;}
         public int? ContractModalityId { get; set; }
         public int ContractOriginId {get; set;}

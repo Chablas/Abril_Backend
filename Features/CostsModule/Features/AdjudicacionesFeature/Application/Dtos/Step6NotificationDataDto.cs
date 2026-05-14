@@ -3,7 +3,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
     public class Step6NotificationDataDto
     {
         public string ProjectDescription  { get; set; } = null!;
-        public string ContractDescription { get; set; } = null!;
         public string ContributorName     { get; set; } = null!;
         public string WorkItemDescription { get; set; } = null!;
         public int?   ContractNumber      { get; set; }

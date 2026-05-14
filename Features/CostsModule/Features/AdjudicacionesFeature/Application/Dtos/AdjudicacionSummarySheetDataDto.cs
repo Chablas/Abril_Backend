@@ -19,7 +19,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? ProjectDistrict { get; set; }
         public string? ProjectLegalEntityRegistryNumber { get; set; }
         public string WorkItemDescription { get; set; } = null!;
-        public string ContractDescription { get; set; } = null!;
         public string ContractTypeDescription { get; set; } = null!;
         public int? ContractModalityId { get; set; }
         public string ContractOriginDescription { get; set; } = null!;

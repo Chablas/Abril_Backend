@@ -15,6 +15,14 @@ namespace Abril_Backend.Application.DTOs
         public int? LinkId { get; set; }
         public List<LayerFilterDTO>? Layers { get; set; }
         public List<SubStageFilterDTO>? SubStages { get; set; }
+        public List<PartidaFilterDTO>? Partidas { get; set; }
+    }
+
+    public class PartidaFilterDTO
+    {
+        public int PartidaId { get; set; }
+        public string PartidaDescription { get; set; }
+        public int LinkId { get; set; }
     }
 
     public class LayerFilterDTO

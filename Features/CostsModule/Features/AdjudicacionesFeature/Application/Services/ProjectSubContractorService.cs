@@ -342,7 +342,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">Proyecto</td>"        + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
             sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">Subcontratista</td>" + $"<td style=\"padding:4px 0;\">{data.ContributorName}</td></tr>");
             sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">Partida</td>"        + $"<td style=\"padding:4px 0;\">{data.WorkItemDescription}</td></tr>");
-            sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">Contrato</td>"       + $"<td style=\"padding:4px 0;\">{data.ContractDescription}</td></tr>");
             if (data.ContractNumber.HasValue)
                 sb.AppendLine("  <tr><td style=\"padding:4px 12px 4px 0; color:#888;\">N° de contrato</td>" + $"<td style=\"padding:4px 0;\">{data.ContractNumber}</td></tr>");
             sb.AppendLine("</table>");
@@ -363,7 +362,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var attachments = await DownloadAttachmentsAsync(data.ScannedDocs);
 
             var subject = $"CONTRATOS FIRMADOS / {data.ProjectDescription}";
-            var body    = BuildStep8EmailBody(data.ContributorName, data.ContractDescription);
+            var body    = BuildStep8EmailBody(data.ContributorName);
 
             await _delegatedMailService.SendAsync(
                 graphAccessToken: graphAccessToken,
@@ -376,14 +375,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 9, userId);
         }
 
-        private static string BuildStep8EmailBody(string contributorName, string contractDescription)
+        private static string BuildStep8EmailBody(string contributorName)
         {
             var sb = new StringBuilder();
             sb.AppendLine("<p>Estimados buenas tardes,</p>");
             sb.AppendLine("<p>Adjunto contratos escaneados y firmados. Se encuentran en recepción para su recojo.</p>");
             sb.AppendLine("<p><strong>CONTRATOS:</strong></p>");
             sb.AppendLine("<ul>");
-            sb.AppendLine($"  <li>{contractDescription}: {contributorName}</li>");
+            sb.AppendLine($"  <li>{contributorName}</li>");
             sb.AppendLine("</ul>");
             sb.AppendLine("<p>Saludos.</p>");
             return sb.ToString();
@@ -1396,7 +1395,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // F – N° DOC
             ws.Range("F13:F14").Merge();
-            ws.Cell("F13").Value = data.ContractDescription;
+            ws.Cell("F13").Value = "";
             ws.Cell("F13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("F13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("F13:F14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;

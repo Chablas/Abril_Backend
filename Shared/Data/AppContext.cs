@@ -142,6 +142,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaSolicitudSalida> GaSolicitudSalida { get; set; }
         public DbSet<Partida> Partida => Set<Partida>();
         public DbSet<PsssScope> PsssScope => Set<PsssScope>();
+        public DbSet<PsssTemplate> PsssTemplate => Set<PsssTemplate>();
+        public DbSet<PsssTemplateDetail> PsssTemplateDetail => Set<PsssTemplateDetail>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

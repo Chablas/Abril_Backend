@@ -1,12 +1,19 @@
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.AreasYSubareasFeature.Application.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.AreasYSubareasFeature.Application.Services;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.AreasYSubareasFeature.Infrastructure.Interfaces;
-using AreaRepository = Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.AreasYSubareasFeature.Infrastructure.Repositories.AreaRepository;
-using SubAreaRepository = Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.AreasYSubareasFeature.Infrastructure.Repositories.SubAreaRepository;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.AreasYSubareasFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Services;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.MejoraContinuaModule
 {
@@ -20,9 +27,21 @@ namespace Abril_Backend.Features.MejoraContinuaModule
             services.AddScoped<ISubAreaRepository, SubAreaRepository>();
             services.AddScoped<ISubAreaService, SubAreaService>();
 
+            // PsssScope (área y subárea)
+            services.AddScoped<IPsssScopeRepository, PsssScopeRepository>();
+            services.AddScoped<IPsssScopeService, PsssScopeService>();
+
             // LessonsLearned
             services.AddScoped<ILessonRepository, LessonRepository>();
             services.AddScoped<ILessonService, LessonService>();
+
+            // PsssTemplate
+            services.AddScoped<IPsssTemplateRepository, PsssTemplateRepository>();
+            services.AddScoped<IPsssTemplateService, PsssTemplateService>();
+
+            // Relations
+            services.AddScoped<IRelationsRepository, RelationsRepository>();
+            services.AddScoped<IRelationsService, RelationsService>();
 
             return services;
         }

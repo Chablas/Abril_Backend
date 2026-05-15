@@ -303,7 +303,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
         [Authorize]
         [HttpPatch("{id}/arrival-option")]
-        public async Task<IActionResult> SetArrivalOption(int id, [FromBody] ConfirmStep5DTO dto)
+        public async Task<IActionResult> SetArrivalOption(int id, [FromBody] SetArrivalOptionDto dto)
         {
             try
             {

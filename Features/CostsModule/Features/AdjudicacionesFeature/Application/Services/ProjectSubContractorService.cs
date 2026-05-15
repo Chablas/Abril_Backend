@@ -377,11 +377,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetStep8NotificationDataAsync(projectSubContractorId);
 
-            if (data.OfTecnicaEmails.Count == 0)
-                throw new AbrilException("No hay correos de Oficina Técnica configurados para este proyecto.");
-
             if (data.ScannedDocs.Count == 0)
                 throw new AbrilException("No hay documentos escaneados adjuntos para enviar.");
+
+            var toEmails = data.OfTecnicaEmails
+                .Concat(data.StaffObraEmails)
+                .Distinct()
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .ToList();
+
+            if (toEmails.Count == 0)
+                throw new AbrilException("No hay correos de Oficina Técnica ni de Staff de Obra configurados para este proyecto.");
 
             var attachments   = await DownloadAttachmentsAsync(data.ScannedDocs);
             var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
@@ -391,7 +397,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             await _delegatedMailService.SendAsync(
                 graphAccessToken: graphAccessToken,
-                to:               data.OfTecnicaEmails,
+                to:               toEmails,
                 subject:          subject,
                 body:             body,
                 isHtml:           true,

@@ -91,6 +91,30 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
             }
         }
 
+        [HttpPost("{workItemCategoryId}/upload-instructivo")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadInstructivo(int workItemCategoryId, IFormFile file)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _service.UploadInstructivoAsync(workItemCategoryId, file, userId);
+                return Ok(new { message = "Instructivo subido exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPost("sync-instructivos")]
         public async Task<IActionResult> SyncInstructivos()
         {

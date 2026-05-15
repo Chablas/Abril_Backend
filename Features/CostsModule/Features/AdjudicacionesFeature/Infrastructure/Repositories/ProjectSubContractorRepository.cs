@@ -454,8 +454,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 from nonConformingDoc in nonConformingDocGroup.DefaultIfEmpty()
                 join toleranceChartDocJoin in ctx.ProjectSubContractorToleranceChart on psc.ProjectSubContractorToleranceChartId equals toleranceChartDocJoin.ProjectSubContractorToleranceChartId into toleranceChartDocGroup
                 from toleranceChartDoc in toleranceChartDocGroup.DefaultIfEmpty()
+                join personCreatorJoin in ctx.Person on psc.CreatedUserId equals personCreatorJoin.UserId into personCreatorGroup
+                from personCreator in personCreatorGroup.DefaultIfEmpty()
                 where psc.State
-                select new { psc, p, contractor, c, ct, cm, co, pm, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc };
+                select new { psc, p, contractor, c, ct, cm, co, pm, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc, personCreator };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -514,6 +516,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     GuaranteeFundDays        = x.psc.GuaranteeFundDays,
                     ArrivedWithObservations  = x.psc.ArrivedWithObservations,
                     CreatedDateTime          = x.psc.CreatedDateTime,
+                    CreatedUserFullName      = x.personCreator != null ? x.personCreator.FullName : null,
                     Contract          = x.contractDoc == null          ? null : new ProjectSubContractorFileDto { FileUrl = x.contractDoc.FileUrl!,          OriginalFileName = x.contractDoc.OriginalFileName,          StatusId = x.contractDoc.ProjectSubContractorFileStatusId,          StatusDescription = x.contractDoc.FileStatus == null          ? null : x.contractDoc.FileStatus.ProjectSubContractorFileStatusDescription,          Observation = x.contractDoc.Observation },
                     SummarySheet      = x.summarySheetDoc == null      ? null : new ProjectSubContractorFileDto { FileUrl = x.summarySheetDoc.FileUrl!,      OriginalFileName = x.summarySheetDoc.OriginalFileName,      StatusId = x.summarySheetDoc.ProjectSubContractorFileStatusId,      StatusDescription = x.summarySheetDoc.FileStatus == null      ? null : x.summarySheetDoc.FileStatus.ProjectSubContractorFileStatusDescription,      Observation = x.summarySheetDoc.Observation },
                     Budget            = x.budgetDoc == null            ? null : new ProjectSubContractorFileDto { FileUrl = x.budgetDoc.FileUrl!,            OriginalFileName = x.budgetDoc.OriginalFileName,            StatusId = x.budgetDoc.ProjectSubContractorFileStatusId,            StatusDescription = x.budgetDoc.FileStatus == null            ? null : x.budgetDoc.FileStatus.ProjectSubContractorFileStatusDescription,            Observation = x.budgetDoc.Observation },
@@ -1447,6 +1450,11 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 .Select(s => s.Email)
                 .ToListAsync();
 
+            var staffObraEmails = await _context.StaffProjectEmail
+                .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 1 && s.State && s.Active)
+                .Select(s => s.Email)
+                .ToListAsync();
+
             var scannedDocs = await _context.ProjectSubContractorScannedDoc
                 .Where(f => f.ProjectSubContractorId == projectSubContractorId && f.State)
                 .OrderBy(f => f.Slot)
@@ -1458,6 +1466,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ProjectDescription  = projectDescription,
                 ContributorName     = contributor?.ContributorName  ?? string.Empty,
                 OfTecnicaEmails     = ofTecnicaEmails,
+                StaffObraEmails     = staffObraEmails,
                 ScannedDocs         = scannedDocs
             };
         }

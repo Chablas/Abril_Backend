@@ -144,6 +144,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<PsssScope> PsssScope => Set<PsssScope>();
         public DbSet<PsssTemplate> PsssTemplate => Set<PsssTemplate>();
         public DbSet<PsssTemplateDetail> PsssTemplateDetail => Set<PsssTemplateDetail>();
+        public DbSet<CatalogType> CatalogType => Set<CatalogType>();
+        public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();
+        public DbSet<AreaSubarea> AreaSubarea => Set<AreaSubarea>();
+        public DbSet<ScopeItem> ScopeItem => Set<ScopeItem>();
+        public DbSet<ScopeTemplate> ScopeTemplate => Set<ScopeTemplate>();
+        public DbSet<ScopeTemplateItem> ScopeTemplateItem => Set<ScopeTemplateItem>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -371,6 +377,25 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(s => s.StaffProjectEmailTypeId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // CatalogItem: self-referential parent/children
+            modelBuilder.Entity<CatalogItem>()
+                .HasOne(c => c.Parent)
+                .WithMany(c => c.Children)
+                .HasForeignKey(c => c.CatalogItemParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // AreaSubarea: unique (area_id, sub_area_id)
+            modelBuilder.Entity<AreaSubarea>()
+                .HasIndex(a => new { a.AreaId, a.SubAreaId })
+                .IsUnique();
+
+            // ScopeItem: self-referential parent/children
+            modelBuilder.Entity<ScopeItem>()
+                .HasOne(s => s.Parent)
+                .WithMany(s => s.Children)
+                .HasForeignKey(s => s.ScopeItemParentId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)
@@ -408,6 +433,16 @@ namespace Abril_Backend.Infrastructure.Data
             });
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
+
+            // CatalogItem: evitar ambigüedad en FK self-referential con snake_case
+            modelBuilder.Entity<CatalogItem>()
+                .Property(c => c.CatalogItemParentId)
+                .HasColumnName("catalog_item_parent_id");
+
+            // ScopeItem: evitar ambigüedad en FK self-referential con snake_case
+            modelBuilder.Entity<ScopeItem>()
+                .Property(s => s.ScopeItemParentId)
+                .HasColumnName("scope_item_parent_id");
         }
     }
 }

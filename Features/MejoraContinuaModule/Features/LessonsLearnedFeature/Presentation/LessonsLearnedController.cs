@@ -1,4 +1,5 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Application.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -12,10 +13,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
     public class LessonsLearnedController : ControllerBase
     {
         private readonly ILessonService _lessonService;
+        private readonly IScopeService _scopeService;
 
-        public LessonsLearnedController(ILessonService lessonService)
+        public LessonsLearnedController(ILessonService lessonService, IScopeService scopeService)
         {
             _lessonService = lessonService;
+            _scopeService = scopeService;
         }
 
         [Authorize]
@@ -139,12 +142,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 if (areaId <= 0)
                     return BadRequest(new { message = "Debe seleccionar un área" });
 
-                var data = await _lessonService.GetFiltersForCreateAsync(areaId, subAreaId);
+                var tree = await _scopeService.GetScopeForLessonAsync(areaId, subAreaId);
 
-                if (data == null || !data.Any())
+                if (tree == null || !tree.Any())
                     return NoContent();
 
-                return Ok(data);
+                return Ok(tree);
             }
             catch (Exception)
             {

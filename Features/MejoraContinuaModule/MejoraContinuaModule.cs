@@ -14,6 +14,14 @@ using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Relatio
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Application.Services;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.CatalogFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.CatalogFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.CatalogFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.CatalogFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.MejoraContinuaModule
 {
@@ -42,6 +50,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule
             // Relations
             services.AddScoped<IRelationsRepository, RelationsRepository>();
             services.AddScoped<IRelationsService, RelationsService>();
+
+            // Catalog
+            services.AddScoped<ICatalogRepository, CatalogRepository>();
+            services.AddScoped<ICatalogService, CatalogService>();
+
+            // Scope (AreaSubarea + ScopeItem + ScopeTemplate)
+            services.AddScoped<IScopeRepository, ScopeRepository>();
+            services.AddScoped<IScopeService, ScopeService>();
 
             return services;
         }

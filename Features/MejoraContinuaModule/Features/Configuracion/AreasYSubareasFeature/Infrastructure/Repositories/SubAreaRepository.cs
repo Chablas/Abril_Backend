@@ -71,6 +71,41 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
                 .ToListAsync();
         }
 
+        public async Task<bool> AreaHasScopeAsync(int areaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var areaSubarea = await ctx.AreaSubarea
+                .FirstOrDefaultAsync(a => a.AreaId == areaId && a.SubAreaId == null);
+            if (areaSubarea == null) return false;
+            return await ctx.ScopeItem
+                .AnyAsync(s => s.AreaSubareaId == areaSubarea.AreaSubareaId && s.Active);
+        }
+
+        private async Task DeleteAreaScopeAsync(int areaId, AppDbContext ctx)
+        {
+            var areaSubarea = await ctx.AreaSubarea
+                .FirstOrDefaultAsync(a => a.AreaId == areaId && a.SubAreaId == null);
+            if (areaSubarea == null) return;
+
+            var scopeItems = await ctx.ScopeItem
+                .Where(s => s.AreaSubareaId == areaSubarea.AreaSubareaId)
+                .ToListAsync();
+            ctx.ScopeItem.RemoveRange(scopeItems);
+
+            // Eliminar también templates del área
+            var templates = await ctx.ScopeTemplate
+                .Where(t => t.AreaSubareaId == areaSubarea.AreaSubareaId)
+                .ToListAsync();
+            foreach (var template in templates)
+            {
+                var items = await ctx.ScopeTemplateItem
+                    .Where(i => i.ScopeTemplateId == template.ScopeTemplateId)
+                    .ToListAsync();
+                ctx.ScopeTemplateItem.RemoveRange(items);
+            }
+            ctx.ScopeTemplate.RemoveRange(templates);
+        }
+
         public async Task CreateAsync(SubAreaCreateDTO dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -85,6 +120,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
 
             if (duplicate != null && duplicate.State)
                 throw new AbrilException("La subárea ya existe en esta área");
+
+            // Si es la primera subárea del área, eliminar el scope del área
+            var isFirstSubArea = !await ctx.SubArea.AnyAsync(sa => sa.AreaId == dto.AreaId && sa.State);
+            if (isFirstSubArea)
+                await DeleteAreaScopeAsync(dto.AreaId, ctx);
 
             if (duplicate != null && !duplicate.State)
             {

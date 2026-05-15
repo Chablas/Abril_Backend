@@ -16,6 +16,9 @@ namespace Abril_Backend.Application.DTOs
         public int ProjectId { get; set; }
         public int AreaId { get; set; }
         public int? SubAreaId { get; set; }
+        /// <summary>Nodo hoja seleccionado del árbol de scope (reemplaza PhaseId/StageId/etc).</summary>
+        public int? CatalogItemId { get; set; }
+        // Campos legacy — se mantienen para lecciones antiguas creadas antes de la migración
         public int PhaseId { get; set; }
         public int? StageId { get; set; }
         public int? LayerId { get; set; }

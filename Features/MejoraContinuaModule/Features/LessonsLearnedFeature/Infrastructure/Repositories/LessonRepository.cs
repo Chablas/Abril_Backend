@@ -582,44 +582,44 @@ ORDER BY pe.{cPersonFullName};
 
         public async Task<object?> CreateAsync(LessonCreateDTO dto, int userId)
         {
-            int? stageId = dto.StageId > 0 ? dto.StageId : null;
-            int? layerId = dto.LayerId > 0 ? dto.LayerId : null;
-            int? subStageId = dto.SubStageId > 0 ? dto.SubStageId : null;
-            int? subSpecialtyId = dto.SubSpecialtyId > 0 ? dto.SubSpecialtyId : null;
-            int? partidaId = dto.PartidaId > 0 ? dto.PartidaId : null;
-
             using var ctx = _factory.CreateDbContext();
 
             int? psssId = null;
-            if (dto.PhaseId > 0)
+            int? catalogItemId = dto.CatalogItemId > 0 ? dto.CatalogItemId : null;
+
+            // Flujo nuevo: CatalogItemId enviado directamente desde el árbol de scope
+            if (catalogItemId.HasValue)
             {
+                var itemExists = await ctx.CatalogItem.AnyAsync(c => c.CatalogItemId == catalogItemId.Value && c.Active);
+                if (!itemExists)
+                    return null;
+            }
+            // Flujo legacy: buscar PSSS por fase/etapa/etc (lecciones antiguas)
+            else if (dto.PhaseId > 0)
+            {
+                int? stageId = dto.StageId > 0 ? dto.StageId : null;
+                int? layerId = dto.LayerId > 0 ? dto.LayerId : null;
+                int? subStageId = dto.SubStageId > 0 ? dto.SubStageId : null;
+                int? subSpecialtyId = dto.SubSpecialtyId > 0 ? dto.SubSpecialtyId : null;
+                int? partidaId = dto.PartidaId > 0 ? dto.PartidaId : null;
+
                 var query = ctx.PhaseStageSubStageSubSpecialty
                     .Where(x => x.Active && x.State && x.PhaseId == dto.PhaseId);
 
-                if (stageId.HasValue)
-                    query = query.Where(x => x.StageId == stageId);
-                else
-                    query = query.Where(x => x.StageId == null);
+                if (stageId.HasValue) query = query.Where(x => x.StageId == stageId);
+                else query = query.Where(x => x.StageId == null);
 
-                if (layerId.HasValue)
-                    query = query.Where(x => x.LayerId == layerId);
-                else
-                    query = query.Where(x => x.LayerId == null);
+                if (layerId.HasValue) query = query.Where(x => x.LayerId == layerId);
+                else query = query.Where(x => x.LayerId == null);
 
-                if (subStageId.HasValue)
-                    query = query.Where(x => x.SubStageId == subStageId);
-                else
-                    query = query.Where(x => x.SubStageId == null);
+                if (subStageId.HasValue) query = query.Where(x => x.SubStageId == subStageId);
+                else query = query.Where(x => x.SubStageId == null);
 
-                if (subSpecialtyId.HasValue)
-                    query = query.Where(x => x.SubSpecialtyId == subSpecialtyId);
-                else
-                    query = query.Where(x => x.SubSpecialtyId == null);
+                if (subSpecialtyId.HasValue) query = query.Where(x => x.SubSpecialtyId == subSpecialtyId);
+                else query = query.Where(x => x.SubSpecialtyId == null);
 
-                if (partidaId.HasValue)
-                    query = query.Where(x => x.PartidaId == partidaId);
-                else
-                    query = query.Where(x => x.PartidaId == null);
+                if (partidaId.HasValue) query = query.Where(x => x.PartidaId == partidaId);
+                else query = query.Where(x => x.PartidaId == null);
 
                 psssId = await query
                     .Select(x => (int?)x.PhaseStageSubStageSubSpecialtyId)
@@ -642,6 +642,7 @@ ORDER BY pe.{cPersonFullName};
                 AreaId = dto.AreaId,
                 SubAreaId = dto.SubAreaId,
                 PhaseStageSubStageSubSpecialtyId = psssId,
+                CatalogItemId = catalogItemId,
                 StateId = 2,
                 CreatedDateTime = now,
                 CreatedUserId = userId,

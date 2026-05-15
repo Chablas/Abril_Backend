@@ -12,6 +12,7 @@ namespace Abril_Backend.Infrastructure.Models {
         public int AreaId {get; set;}
         public int? SubAreaId {get; set;}
         public int? PhaseStageSubStageSubSpecialtyId {get; set;}
+        public int? CatalogItemId {get; set;}
         public int StateId {get; set;}
         public DateTimeOffset CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}

@@ -3,6 +3,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
     public class AdjudicacionSummarySheetDataDto
     {
         public int ProjectSubContractorId { get; set; }
+        public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = null!;
         public string? Abbreviation { get; set; }
         public string ContributorName { get; set; } = null!;

@@ -14,6 +14,10 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeature.Application.Services;
+using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Application.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Application.Services;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
@@ -46,6 +50,10 @@ namespace Abril_Backend.Features.Costs
             // WorkItem
             services.AddScoped<IWorkItemRepository, WorkItemRepository>();
             services.AddScoped<IWorkItemService, WorkItemService>();
+
+            // ProjectLink
+            services.AddScoped<IProjectLinkRepository, ProjectLinkRepository>();
+            services.AddScoped<IProjectLinkService, ProjectLinkService>();
 
             return services;
         }

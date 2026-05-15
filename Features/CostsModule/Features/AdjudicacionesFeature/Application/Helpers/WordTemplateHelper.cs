@@ -17,10 +17,19 @@ public static class WordTemplateHelper
     /// en N párrafos (uno por elemento de la lista). Si la lista está vacía el párrafo
     /// se elimina. Útil para marcadores como <c>{{CLÁUSULAS}}</c>.
     /// </param>
+    /// <param name="boldAwareMultiParagraphReplacements">
+    /// Igual que <paramref name="multiParagraphReplacements"/> pero cada entrada incluye
+    /// un <c>baseRPr</c> (bloque <c>&lt;w:rPr&gt;…&lt;/w:rPr&gt;</c> con fuente y tamaño
+    /// deseados) y una lista de ítems donde cada uno lleva un flag <c>bold</c> que fuerza
+    /// o elimina la negrita independientemente del formato del placeholder en la plantilla.
+    /// Útil para marcadores como <c>{{LINKS}}</c> donde se necesita fuente fija (p.ej.
+    /// Arial Narrow 9 pt) y algunos párrafos van en negrita y otros no.
+    /// </param>
     public static byte[] FillTemplate(
         Stream templateStream,
         Dictionary<string, string> replacements,
-        Dictionary<string, List<string>>? multiParagraphReplacements = null)
+        Dictionary<string, List<string>>? multiParagraphReplacements = null,
+        Dictionary<string, (string baseRPr, List<(string text, bool bold)> items)>? boldAwareMultiParagraphReplacements = null)
     {
         var ms = new MemoryStream();
         templateStream.CopyTo(ms);
@@ -38,7 +47,7 @@ public static class WordTemplateHelper
                 .ToList();
 
             foreach (var name in entryNames)
-                ProcessZipEntry(zip, name, replacements, multiParagraphReplacements);
+                ProcessZipEntry(zip, name, replacements, multiParagraphReplacements, boldAwareMultiParagraphReplacements);
         }
 
         ms.Position = 0;
@@ -51,7 +60,8 @@ public static class WordTemplateHelper
         ZipArchive zip,
         string entryName,
         Dictionary<string, string> replacements,
-        Dictionary<string, List<string>>? multiParagraphReplacements)
+        Dictionary<string, List<string>>? multiParagraphReplacements,
+        Dictionary<string, (string baseRPr, List<(string text, bool bold)> items)>? boldAwareMultiParagraphReplacements)
     {
         var entry = zip.GetEntry(entryName);
         if (entry is null) return;
@@ -79,6 +89,13 @@ public static class WordTemplateHelper
         {
             foreach (var (placeholder, values) in multiParagraphReplacements)
                 xml = ReplaceWithMultipleParagraphs(xml, placeholder, values);
+        }
+
+        // Reemplazos multi-párrafo con control explícito de negrita por ítem
+        if (boldAwareMultiParagraphReplacements is { Count: > 0 })
+        {
+            foreach (var (placeholder, (baseRPr, items)) in boldAwareMultiParagraphReplacements)
+                xml = ReplaceWithBoldAwareMultipleParagraphs(xml, placeholder, baseRPr, items);
         }
 
         entry.Delete();
@@ -147,12 +164,124 @@ public static class WordTemplateHelper
             RegexOptions.Singleline);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Reemplazo multi-párrafo con control de negrita por ítem
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Igual que <see cref="ReplaceWithMultipleParagraphs"/> pero cada elemento lleva
+    /// un flag <c>bold</c> que fuerza o elimina la negrita en ese párrafo.
+    /// <paramref name="baseRPr"/> define la fuente y el tamaño fijos que se aplican
+    /// a todos los runs (p.ej. Arial Narrow 9 pt); la negrita se añade encima cuando
+    /// el flag lo requiere.  Si se pasa <c>""</c> los runs heredan el estilo del párrafo.
+    /// </summary>
+    private static string ReplaceWithBoldAwareMultipleParagraphs(
+        string xml, string placeholder, string baseRPr, List<(string text, bool bold)> values)
+    {
+        return Regex.Replace(
+            xml,
+            @"<w:p[\s>].*?</w:p>",
+            m =>
+            {
+                var paraXml = m.Value;
+
+                if (!ExtractPlainText(paraXml).Contains(placeholder, StringComparison.Ordinal))
+                    return paraXml;
+
+                if (values.Count == 0) return "";
+
+                var pPrMatch = Regex.Match(paraXml, @"<w:pPr>.*?</w:pPr>", RegexOptions.Singleline);
+                var pPr = pPrMatch.Success ? pPrMatch.Value : "";
+
+                // Limpiar la herencia de estilos del pPr para que nuestro rPr explícito
+                // tenga precedencia absoluta sobre fuente y tamaño:
+                //  · Eliminar <w:pStyle> → evita que el estilo de párrafo aporte fuente/color vía tema
+                //  · Eliminar <w:rPr> interior → elimina el rPr del marcador de ¶ del placeholder
+                var pPrClean = pPr;
+                if (!string.IsNullOrEmpty(pPrClean))
+                {
+                    pPrClean = Regex.Replace(pPrClean, @"<w:pStyle\b[^>]*/?>",    "", RegexOptions.Singleline);
+                    pPrClean = Regex.Replace(pPrClean, @"<w:rPr>.*?</w:rPr>", "", RegexOptions.Singleline);
+                }
+
+                var separatorPPr = Regex.Replace(pPrClean, @"<w:numPr>.*?</w:numPr>", "", RegexOptions.Singleline);
+
+                var sb = new StringBuilder();
+                for (int vi = 0; vi < values.Count; vi++)
+                {
+                    var (text, bold) = values[vi];
+                    var itemRPr = bold ? ForceBold(baseRPr) : StripBold(baseRPr);
+                    sb.Append(BuildParagraphWithText(pPrClean, itemRPr, text));
+                    if (vi < values.Count - 1)
+                        sb.Append($"<w:p>{separatorPPr}</w:p>");
+                }
+
+                return sb.ToString();
+            },
+            RegexOptions.Singleline);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helpers de negrita sobre <w:rPr>
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Elimina <c>&lt;w:b/&gt;</c> y <c>&lt;w:bCs/&gt;</c> del bloque rPr.</summary>
+    private static string StripBold(string rPr)
+    {
+        if (string.IsNullOrEmpty(rPr)) return rPr;
+        var r = Regex.Replace(rPr, @"<w:b\b[^>]*/?>",   "");
+        r     = Regex.Replace(r,   @"<w:bCs\b[^>]*/?>", "");
+        return r;
+    }
+
+    /// <summary>
+    /// Garantiza que <c>&lt;w:b/&gt;</c> y <c>&lt;w:bCs/&gt;</c> estén presentes
+    /// en el bloque rPr, independientemente de lo que haya en la plantilla.
+    /// </summary>
+    private static string ForceBold(string rPr)
+    {
+        // Primero limpiar cualquier vestigio de bold previo y añadir el explícito
+        var stripped = StripBold(rPr);
+        if (string.IsNullOrEmpty(stripped))
+            return "<w:rPr><w:b/><w:bCs/></w:rPr>";
+        return stripped.Replace("</w:rPr>", "<w:b/><w:bCs/></w:rPr>");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
     /// <summary>
     /// Emite los runs de una sola línea de texto, dividiendo por tabulaciones (\t).
     /// Cada \t produce un run con &lt;w:tab/&gt; seguido del siguiente segmento de texto.
+    /// Admite marcadores de negrita inline <c>**texto**</c>: cada fragmento entre
+    /// asteriscos dobles se emite con <see cref="ForceBold"/> sobre el <paramref name="rPr"/> base.
     /// </summary>
     private static void AppendLineRuns(StringBuilder sb, string rPr, string line)
     {
+        // Negrita inline: si el texto contiene ** tomamos un camino alternativo
+        if (line.Contains("**"))
+        {
+            // Dividir por ** → partes alternadas: normal, bold, normal, bold, …
+            var parts = Regex.Split(line, @"\*\*");
+            bool inBold = false;
+            foreach (var part in parts)
+            {
+                if (part.Length > 0)
+                {
+                    var partRPr = inBold ? ForceBold(rPr) : rPr;
+                    var spaceAttr = (part.StartsWith(' ') || part.EndsWith(' '))
+                        ? " xml:space=\"preserve\""
+                        : "";
+                    sb.Append("<w:r>");
+                    if (!string.IsNullOrEmpty(partRPr)) sb.Append(partRPr);
+                    sb.Append($"<w:t{spaceAttr}>{XmlEscape(part)}</w:t>");
+                    sb.Append("</w:r>");
+                }
+                inBold = !inBold;
+            }
+            return;
+        }
+
+        // Camino habitual: separar por tabulaciones
         var segments = line.Split('\t');
         bool firstSeg = true;
         foreach (var seg in segments)

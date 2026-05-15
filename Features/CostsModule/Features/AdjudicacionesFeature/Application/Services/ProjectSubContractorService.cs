@@ -15,6 +15,7 @@ using Microsoft.Extensions.Options;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
+using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Interfaces;
 using ClosedXML.Excel;
 using System.Text;
 using Humanizer;
@@ -33,6 +34,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IGraphUserService _graphUserService;
         private readonly IGraphSharePointService _sharePointService;
         private readonly OneDriveOptions _oneDriveOptions;
+        private readonly IProjectLinkRepository _projectLinkRepository;
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
@@ -54,7 +56,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             IEmailService emailService,
             IGraphUserService graphUserService,
             IGraphSharePointService sharePointService,
-            IOptions<OneDriveOptions> oneDriveOptions)
+            IOptions<OneDriveOptions> oneDriveOptions,
+            IProjectLinkRepository projectLinkRepository)
         {
             _projectSubContractorRepository = projectSubContractorRepository;
             _fileStorageService = fileStorageService;
@@ -65,6 +68,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _graphUserService = graphUserService;
             _sharePointService = sharePointService;
             _oneDriveOptions = oneDriveOptions.Value;
+            _projectLinkRepository = projectLinkRepository;
         }
 
         public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
@@ -763,12 +767,34 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // y el tabulador de posición automáticamente.
             var clauseParagraphs = data.SpecialClauses.ToList();
 
+            // Links de planos del proyecto (Planos de especialidades = type 1, Planos de detalles = type 2)
+            // La plantilla ya tiene el texto estático ("ENLACE DE ACCESO", "Se adjunta…") y
+            // solo expone {{LINK1}} y {{LINK2}} como marcadores de URL.
+            var projectLinks = await _projectLinkRepository.GetByProjectIdAsync(data.ProjectId);
+            var linkEspecialidades = projectLinks.FirstOrDefault(l => l.ProjectLinkTypeId == 1 && l.Active);
+            var linkDetalles       = projectLinks.FirstOrDefault(l => l.ProjectLinkTypeId == 2 && l.Active);
+
+            var missingLinks = new List<string>();
+            if (linkEspecialidades == null) missingLinks.Add("Planos de Especialidades");
+            if (linkDetalles       == null) missingLinks.Add("Planos de Detalles");
+
+            if (missingLinks.Count > 0)
+                throw new AbrilException(
+                    $"Para generar el contrato falta registrar el link de: {string.Join(" y ", missingLinks)}.",
+                    400);
+
+            replacements["{{LINK1}}"] = linkEspecialidades!.LinkUrl;
+            replacements["{{LINK2}}"] = linkDetalles!.LinkUrl;
+
             byte[] docBytes;
             using (var templateStream = File.OpenRead(templatePath))
                 docBytes = WordTemplateHelper.FillTemplate(
                     templateStream,
                     replacements,
-                    new Dictionary<string, List<string>> { { "{{CLÁUSULAS}}", clauseParagraphs } });
+                    multiParagraphReplacements: new Dictionary<string, List<string>>
+                    {
+                        { "{{CLÁUSULAS}}", clauseParagraphs }
+                    });
 
             var pathData = new AdjudicacionPathDataDto
             {

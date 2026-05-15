@@ -6,6 +6,7 @@ using Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Extensions;
 using Dapper;
 using System.Data;
@@ -41,7 +42,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 WorkItemId = dto.WorkItemId,
                 WorkItemCategoryId = dto.WorkItemCategoryId,
                 ProjectSubContractorStatusId = 1,
-                CreatedDateTime = DateTime.UtcNow,
+                CreatedDateTime = DateTimeOffset.UtcNow,
                 CreatedUserId = userId,
                 Active = true,
                 State = true
@@ -60,7 +61,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var now = DateTime.UtcNow;
+            var now = DateTimeOffset.UtcNow;
 
             foreach (var file in quotationFiles)
             {
@@ -663,6 +664,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscToleranceChartDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorToleranceChartId));
             string cPscCreatedUserId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.CreatedUserId));
 
+            string tPersonCreator = ctx.Table<Person>();
+            string cPersonCreatorUserId = ctx.Col<Person>(nameof(Person.UserId));
+            string cPersonCreatorFullName = ctx.Col<Person>(nameof(Person.FullName));
+
             string tProject = ctx.Table<ProjectModel>();
             string cProjectId = ctx.Col<ProjectModel>(nameof(ProjectModel.ProjectId));
             string cProjectDesc = ctx.Col<ProjectModel>(nameof(ProjectModel.ProjectDescription));
@@ -842,6 +847,24 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 parameters.Add("@ContributorRuc", $"%{filter.ContributorRuc}%");
             }
 
+            if (filter.ContractTypeId.HasValue)
+            {
+                whereConditions.Add($"psc.{cPscContractTypeId} = @ContractTypeId");
+                parameters.Add("@ContractTypeId", filter.ContractTypeId.Value);
+            }
+
+            if (filter.ContractModalityId.HasValue)
+            {
+                whereConditions.Add($"psc.{cPscContractModalityId} = @ContractModalityId");
+                parameters.Add("@ContractModalityId", filter.ContractModalityId.Value);
+            }
+
+            if (filter.PaymentMethodId.HasValue)
+            {
+                whereConditions.Add($"psc.{cPscPaymentMethodId} = @PaymentMethodId");
+                parameters.Add("@PaymentMethodId", filter.PaymentMethodId.Value);
+            }
+
             if (filter.CreatedUserId.HasValue)
             {
                 whereConditions.Add($"psc.{cPscCreatedUserId} = @CreatedUserId");
@@ -895,6 +918,7 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscGuaranteeFundDays} AS ""GuaranteeFundDays"",
        psc.{cPscArrivedWithObservations} AS ""ArrivedWithObservations"",
        psc.{cPscCreatedDateTime} AS ""CreatedDateTime"",
+       creator_p.{cPersonCreatorFullName} AS ""CreatedUserFullName"",
        contractDoc.{cContractDocFileUrl} AS contract_file_url,
        contractDoc.{cContractDocFileName} AS contract_file_name,
        contractDoc.{cContractDocStatusId} AS contract_status_id,
@@ -980,6 +1004,7 @@ LEFT JOIN {tNonConformingDoc} nonConformingDoc ON psc.{cPscNonConformingOutputDo
 LEFT JOIN {tFileStatus} fs_non_conforming ON nonConformingDoc.{cNonConformingDocStatusId} = fs_non_conforming.{cFileStatusId}
 LEFT JOIN {tToleranceChartDoc} toleranceChartDoc ON psc.{cPscToleranceChartDocId} = toleranceChartDoc.{cToleranceChartDocId}
 LEFT JOIN {tFileStatus} fs_tolerance_chart ON toleranceChartDoc.{cToleranceChartDocStatusId} = fs_tolerance_chart.{cFileStatusId}
+LEFT JOIN {tPersonCreator} creator_p ON creator_p.{cPersonCreatorUserId} = psc.{cPscCreatedUserId}
 WHERE {whereClause}
 ORDER BY psc.{cPscId} DESC
 LIMIT @PageSize OFFSET @PageOffset;
@@ -1039,7 +1064,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             var quotationByPsc = quotationFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
             var comparativeByPsc = comparativeFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
 
-            // Map contractors with emails
+            // Map contractors with emails (for form data / create dropdown)
             foreach (var contractor in contractors)
                 contractor.Emails = emailsByContractor.GetValueOrDefault(contractor.ContractorId, new());
 
@@ -1084,7 +1109,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     GuaranteeFundPercentage = (int?)raw.GuaranteeFundPercentage,
                     GuaranteeFundDays = (int?)raw.GuaranteeFundDays,
                     ArrivedWithObservations = (bool?)raw.ArrivedWithObservations,
-                    CreatedDateTime = (DateTime)raw.CreatedDateTime,
+                    CreatedDateTime = new DateTimeOffset((DateTime)raw.CreatedDateTime, TimeSpan.Zero),
+                    CreatedUserFullName = (string?)raw.CreatedUserFullName,
                     Contract = raw.contract_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.contract_file_url, OriginalFileName = raw.contract_file_name, StatusId = (int?)raw.contract_status_id, StatusDescription = raw.contract_status_desc, Observation = raw.contract_observation } : null,
                     SummarySheet = raw.summary_sheet_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.summary_sheet_file_url, OriginalFileName = raw.summary_sheet_file_name, StatusId = (int?)raw.summary_sheet_status_id, StatusDescription = raw.summary_sheet_status_desc, Observation = raw.summary_sheet_observation } : null,
                     Budget = raw.budget_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.budget_file_url, OriginalFileName = raw.budget_file_name, StatusId = (int?)raw.budget_status_id, StatusDescription = raw.budget_status_desc, Observation = raw.budget_observation } : null,
@@ -1098,6 +1124,10 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     ToleranceChart = raw.tolerance_chart_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.tolerance_chart_file_url, OriginalFileName = raw.tolerance_chart_file_name, StatusId = (int?)raw.tolerance_chart_status_id, StatusDescription = raw.tolerance_chart_status_desc, Observation = raw.tolerance_chart_observation } : null,
                 });
             }
+
+            // Map contractor emails onto each paged item
+            foreach (var item in items)
+                item.ContractorEmails = emailsByContractor.GetValueOrDefault(item.ContractorId, new());
 
             var formDataDto = new ProjectSubContractorFormDataDTO
             {
@@ -1204,7 +1234,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 throw new AbrilException("La adjudicación no existe.");
 
             psc.ProjectSubContractorStatusId = 2;
-            psc.UpdatedDateTime = DateTime.UtcNow;
+            psc.UpdatedDateTime = DateTimeOffset.UtcNow;
             psc.UpdatedUserId = userId;
 
             await _context.SaveChangesAsync();
@@ -1217,7 +1247,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ?? throw new AbrilException("La adjudicación no existe.");
 
             psc.ProjectSubContractorStatusId = statusId;
-            psc.UpdatedDateTime = DateTime.UtcNow;
+            psc.UpdatedDateTime = DateTimeOffset.UtcNow;
             psc.UpdatedUserId = userId;
 
             await _context.SaveChangesAsync();
@@ -1233,7 +1263,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 throw new AbrilException("La adjudicación no está en el paso de llegada a oficina central.");
 
             psc.ArrivedWithObservations = arrivedWithObservations;
-            psc.UpdatedDateTime         = DateTime.UtcNow;
+            psc.UpdatedDateTime         = DateTimeOffset.UtcNow;
             psc.UpdatedUserId           = userId;
 
             await _context.SaveChangesAsync();
@@ -1250,7 +1280,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
 
             psc.ArrivedWithObservations    = arrivedWithObservations;
             psc.ProjectSubContractorStatusId = 6;
-            psc.UpdatedDateTime            = DateTime.UtcNow;
+            psc.UpdatedDateTime            = DateTimeOffset.UtcNow;
             psc.UpdatedUserId              = userId;
 
             await _context.SaveChangesAsync();
@@ -1454,7 +1484,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ? (int)(dto.EndDate.ToDateTime(TimeOnly.MinValue) - dto.StartDate.ToDateTime(TimeOnly.MinValue)).TotalDays
                 : null;
             psc.ProjectSubContractorStatusId = 3;
-            psc.UpdatedDateTime = DateTime.UtcNow;
+            psc.UpdatedDateTime = DateTimeOffset.UtcNow;
             psc.UpdatedUserId = userId;
 
             await _context.SaveChangesAsync();
@@ -1642,7 +1672,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     throw new AbrilException("Tipo de documento no válido.");
             }
 
-            psc.UpdatedDateTime = DateTime.UtcNow;
+            psc.UpdatedDateTime = DateTimeOffset.UtcNow;
             psc.UpdatedUserId = userId;
             await _context.SaveChangesAsync();
         }
@@ -1674,6 +1704,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 select new AdjudicacionSummarySheetDataDto
                 {
                     ProjectSubContractorId    = psc.ProjectSubContractorId,
+                    ProjectId                 = psc.ProjectId,
                     ProjectDescription        = p.ProjectDescription,
                     Abbreviation              = p.Abbreviation,
                     ProjectDistrict           = p.ProjectDistrict,
@@ -1811,7 +1842,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     throw new AbrilException("Tipo de documento no válido.");
             }
 
-            psc.UpdatedDateTime = DateTime.UtcNow;
+            psc.UpdatedDateTime = DateTimeOffset.UtcNow;
             psc.UpdatedUserId = userId;
             await _context.SaveChangesAsync();
         }

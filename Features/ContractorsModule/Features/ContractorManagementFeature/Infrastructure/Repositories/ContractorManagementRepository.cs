@@ -40,6 +40,21 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             if (!string.IsNullOrWhiteSpace(filter.ContributorRuc))
                 query = query.Where(x => x.c.ContributorRuc.Contains(filter.ContributorRuc));
 
+            if (filter.ContractorStateId.HasValue)
+                query = query.Where(x => x.ct.ContractorStateId == filter.ContractorStateId.Value);
+
+            if (!string.IsNullOrWhiteSpace(filter.LegalRepresentativeDni))
+                query = query.Where(x => x.p != null && x.p.DocumentIdentityCode != null &&
+                    x.p.DocumentIdentityCode.Contains(filter.LegalRepresentativeDni));
+
+            if (!string.IsNullOrWhiteSpace(filter.LegalRepresentativeName))
+                query = query.Where(x => x.p != null && x.p.FullName != null &&
+                    x.p.FullName.ToLower().Contains(filter.LegalRepresentativeName.ToLower()));
+
+            if (!string.IsNullOrWhiteSpace(filter.LegalEntityRegistryNumber))
+                query = query.Where(x => x.c.LegalEntityRegistryNumber != null &&
+                    x.c.LegalEntityRegistryNumber.Contains(filter.LegalEntityRegistryNumber));
+
             var totalRecords = await query.CountAsync();
 
             var items = await query

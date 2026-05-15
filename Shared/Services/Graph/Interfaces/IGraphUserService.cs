@@ -19,5 +19,11 @@ namespace Abril_Backend.Shared.Services.Graph.Interfaces
         /// Retorna una lista plana de perfiles individuales listos para mostrar en una tabla.
         /// </summary>
         Task<List<GraphUserProfileDto>> GetResolvedProfilesAsync(List<string> emails);
+
+        /// <summary>
+        /// Obtiene el perfil del usuario autenticado (GET /me) usando un token delegado.
+        /// Retorna null si el token es inválido o el perfil no puede obtenerse.
+        /// </summary>
+        Task<GraphUserProfileDto?> GetCurrentUserProfileAsync(string graphAccessToken);
     }
 }

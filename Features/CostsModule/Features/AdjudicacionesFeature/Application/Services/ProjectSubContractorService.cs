@@ -47,6 +47,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private const string BccEmail = "calvarez@abril.pe";
 
+        // ── Firma de correo ──────────────────────────────────────────────────
+        private const string SignatureGifContentId = "abril-firma-logo";
+
+        private static readonly Lazy<byte[]?> _signatureGifBytes = new(() =>
+        {
+            var path = Path.Combine(
+                AppContext.BaseDirectory,
+                "Shared", "Services", "Graph", "Resources", "abril-correo.gif");
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        });
+
         public ProjectSubContractorService(
             IProjectSubContractorRepository projectSubContractorRepository,
             IFileStorageService fileStorageService,
@@ -190,15 +201,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // --- Correo único: subcontratista ---
             // TO: subcontratista | CC: todos los internos (staff + oficina central + costos) | Adjunto: cotización
             // Matriz de comunicaciones: solo staff de obra (staffProfiles).
-            var emailBody = BuildSubcontractorEmailBody(data, staffProfiles);
+            var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature     = BuildEmailSignature(senderProfile);
+            var emailBody     = BuildSubcontractorEmailBody(data, staffProfiles) + signature;
+
             await _delegatedMailService.SendAsync(
                 graphAccessToken: dto.GraphAccessToken,
-                to: data.ContractorEmails,
-                subject: subject,
-                body: emailBody,
-                isHtml: true,
-                cc: internalRecipients,
-                attachments: quotationAttachments
+                to:          data.ContractorEmails,
+                subject:     subject,
+                body:        emailBody,
+                isHtml:      true,
+                cc:          internalRecipients,
+                attachments: WithSignatureAttachment(quotationAttachments)
             );
 
             // Actualizar estado de la adjudicación a 2 (notificada)
@@ -276,7 +290,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // Construir y enviar el correo
             var subject    = $"{data.ProjectDescription} : {fileName}";
-            var body       = BuildScEmailBody(fileName, data.WorkItemDescription);
+            var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
+            var signature     = BuildEmailSignature(senderProfile);
+            var body          = BuildScEmailBody(fileName, data.WorkItemDescription) + signature;
+
             var attachment = new MailAttachmentDto
             {
                 FileName    = fileName,
@@ -296,7 +313,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 body:        body,
                 isHtml:      true,
                 cc:          ccEmails,
-                attachments: new List<MailAttachmentDto> { attachment });
+                attachments: WithSignatureAttachment(new List<MailAttachmentDto> { attachment }));
 
             // Avanzar al estado 5
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 5, userId);
@@ -320,15 +337,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             if (toEmails.Count > 0)
             {
-                var subject = $"PROCESO DE FIRMA / {data.ProjectDescription}";
-                var body    = BuildStep6EmailBody(data);
+                var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
+                var signature     = BuildEmailSignature(senderProfile);
+                var subject       = $"PROCESO DE FIRMA / {data.ProjectDescription}";
+                var body          = BuildStep6EmailBody(data) + signature;
 
                 await _delegatedMailService.SendAsync(
                     graphAccessToken: graphAccessToken,
                     to:               toEmails,
                     subject:          subject,
                     body:             body,
-                    isHtml:           true);
+                    isHtml:           true,
+                    attachments:      WithSignatureAttachment());
             }
         }
 
@@ -363,10 +383,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (data.ScannedDocs.Count == 0)
                 throw new AbrilException("No hay documentos escaneados adjuntos para enviar.");
 
-            var attachments = await DownloadAttachmentsAsync(data.ScannedDocs);
-
-            var subject = $"CONTRATOS FIRMADOS / {data.ProjectDescription}";
-            var body    = BuildStep8EmailBody(data.ContributorName);
+            var attachments   = await DownloadAttachmentsAsync(data.ScannedDocs);
+            var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
+            var signature     = BuildEmailSignature(senderProfile);
+            var subject       = $"CONTRATOS FIRMADOS / {data.ProjectDescription}";
+            var body          = BuildStep8EmailBody(data.ContributorName) + signature;
 
             await _delegatedMailService.SendAsync(
                 graphAccessToken: graphAccessToken,
@@ -374,7 +395,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 subject:          subject,
                 body:             body,
                 isHtml:           true,
-                attachments:      attachments);
+                attachments:      WithSignatureAttachment(attachments));
 
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 9, userId);
         }
@@ -389,6 +410,84 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             sb.AppendLine($"  <li>{contributorName}</li>");
             sb.AppendLine("</ul>");
             sb.AppendLine("<p>Saludos.</p>");
+            return sb.ToString();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // Paso 3 — Correo de observaciones a Costos y Oficina Técnica
+        // ─────────────────────────────────────────────────────────────────────────
+
+        public async Task SendObservationEmailAsync(
+            int projectSubContractorId,
+            AdjudicacionDocumentType documentType,
+            SendObservationEmailDto dto,
+            int userId)
+        {
+            var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
+
+            // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
+            var toEmails = CostosYPresupuestos
+                .Concat(data.OfTecnicaEmails)
+                .Distinct()
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .ToList();
+
+            if (toEmails.Count == 0)
+                throw new AbrilException(
+                    "No hay destinatarios configurados para enviar el correo. " +
+                    "Verifique que existan correos de Oficina Técnica registrados para este proyecto.", 400);
+
+            var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature     = BuildEmailSignature(senderProfile);
+            var subject       = $"OBSERVACIÓN EN DOCUMENTOS / {data.ProjectDescription} / {data.ContributorName}";
+            var body          = BuildObservationEmailBody(data, dto.DocumentLabel, dto.Observation) + signature;
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: dto.GraphAccessToken,
+                to:               toEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                attachments:      WithSignatureAttachment());
+        }
+
+        private static string BuildObservationEmailBody(
+            Step3ApprovalDataDto data,
+            string documentLabel,
+            string? observation)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Estimados,</p>");
+            sb.AppendLine(
+                $"<p>Se comunica que el documento <strong>{documentLabel}</strong> correspondiente a la siguiente " +
+                "adjudicación presenta observaciones que requieren atención:</p>");
+
+            sb.AppendLine("<table style=\"border-collapse:collapse; font-size:13px; margin-bottom:16px;\">");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Proyecto</td>"
+                        + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Subcontratista</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.ContributorName}</td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Partida</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.WorkItemDescription}</td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Documento</td>"
+                        + $"<td style=\"padding:4px 0;\">{documentLabel}</td></tr>");
+            sb.AppendLine("</table>");
+
+            if (!string.IsNullOrWhiteSpace(observation))
+            {
+                sb.AppendLine("<p><strong>Detalle de la observación:</strong></p>");
+                sb.AppendLine(
+                    "<p style=\"" +
+                    "background:#fff8e1; border-left:4px solid #f9a825; " +
+                    "padding:10px 14px; margin:0 0 16px; " +
+                    "font-family:Arial,sans-serif; font-size:13px; color:#444; line-height:1.5;\">" +
+                    $"{System.Net.WebUtility.HtmlEncode(observation)}" +
+                    "</p>");
+            }
+
+            sb.AppendLine("<p>Por favor, tome las acciones necesarias para la corrección del documento indicado.</p>");
+            sb.AppendLine("</div>");
             return sb.ToString();
         }
 
@@ -419,6 +518,67 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             sb.AppendLine($"<p>Se adjuntan los archivos de cotización y cuadro comparativo correspondientes a la adjudicación de " +
                           $"<strong>{data.WorkItemDescription}</strong> para el proyecto <strong>{data.ProjectDescription}</strong> " +
                           $"con la empresa <strong>{data.ContributorName}</strong>.</p>");
+            return sb.ToString();
+        }
+
+        // ── Firma de correo ──────────────────────────────────────────────────
+
+        private static MailAttachmentDto? GetSignatureAttachment()
+        {
+            var bytes = _signatureGifBytes.Value;
+            if (bytes is null) return null;
+            return new MailAttachmentDto
+            {
+                FileName    = "abril-correo.gif",
+                ContentType = "image/gif",
+                Content     = bytes,
+                IsInline    = true,
+                ContentId   = SignatureGifContentId,
+            };
+        }
+
+        /// <summary>
+        /// Devuelve una nueva lista que incluye todos los adjuntos existentes
+        /// más el GIF de firma (si está disponible).
+        /// </summary>
+        private static List<MailAttachmentDto> WithSignatureAttachment(List<MailAttachmentDto>? existing = null)
+        {
+            var list = existing != null
+                ? new List<MailAttachmentDto>(existing)
+                : new List<MailAttachmentDto>();
+            var sig = GetSignatureAttachment();
+            if (sig is not null) list.Add(sig);
+            return list;
+        }
+
+        /// <summary>
+        /// Genera el bloque HTML de firma con el logo inline y los datos del remitente.
+        /// Omite cada campo si no está disponible en el perfil.
+        /// </summary>
+        private static string BuildEmailSignature(GraphUserProfileDto? profile)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<table style=\"margin-top:24px; border-top:1px solid #e0e0e0; padding-top:12px; ");
+            sb.Append("font-family:Arial,sans-serif; font-size:12px; color:#333; border-collapse:collapse;\">");
+            sb.Append("<tr>");
+            sb.Append("<td style=\"padding-right:16px; vertical-align:top;\">");
+            sb.Append($"<img src=\"cid:{SignatureGifContentId}\" alt=\"Abril\" style=\"width:130px;\" />");
+            sb.Append("</td>");
+            sb.Append("<td style=\"vertical-align:top; border-left:2px solid #e0e0e0; padding-left:16px; line-height:1.7;\">");
+
+            if (!string.IsNullOrWhiteSpace(profile?.DisplayName))
+                sb.Append($"<div><strong>{profile.DisplayName}</strong></div>");
+            if (!string.IsNullOrWhiteSpace(profile?.JobTitle))
+                sb.Append($"<div style=\"color:#64BC04;\">{profile.JobTitle}</div>");
+            if (!string.IsNullOrWhiteSpace(profile?.Phone))
+                sb.Append($"<div>{profile.Phone}</div>");
+            if (!string.IsNullOrWhiteSpace(profile?.Mail))
+                sb.Append($"<div><a href=\"mailto:{profile.Mail}\" style=\"color:#333; text-decoration:none;\">{profile.Mail}</a></div>");
+
+            sb.Append("<div><a href=\"https://abril.pe\" style=\"color:#333; text-decoration:none;\">abril.pe</a></div>");
+            sb.Append("</td>");
+            sb.Append("</tr>");
+            sb.Append("</table>");
             return sb.ToString();
         }
 

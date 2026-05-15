@@ -114,11 +114,20 @@ namespace Abril_Backend.Shared.Services.Email.Services
             if (attachments != null && attachments.Count > 0)
             {
                 sb.Append(string.Join(",", attachments.Select(a =>
-                    $"{{\"@odata.type\":\"#microsoft.graph.fileAttachment\"," +
-                    $"\"name\":{JsonSerializer.Serialize(a.FileName)}," +
-                    $"\"contentType\":{JsonSerializer.Serialize(a.ContentType)}," +
-                    $"\"contentBytes\":{JsonSerializer.Serialize(Convert.ToBase64String(a.Content))}}}"
-                )));
+                {
+                    var att = $"{{\"@odata.type\":\"#microsoft.graph.fileAttachment\"," +
+                              $"\"name\":{JsonSerializer.Serialize(a.FileName)}," +
+                              $"\"contentType\":{JsonSerializer.Serialize(a.ContentType)}," +
+                              $"\"contentBytes\":{JsonSerializer.Serialize(Convert.ToBase64String(a.Content))}";
+                    if (a.IsInline)
+                    {
+                        att += ",\"isInline\":true";
+                        if (!string.IsNullOrEmpty(a.ContentId))
+                            att += $",\"contentId\":{JsonSerializer.Serialize(a.ContentId)}";
+                    }
+                    att += "}";
+                    return att;
+                })));
             }
             sb.Append("]");
 

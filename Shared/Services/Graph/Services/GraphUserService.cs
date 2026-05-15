@@ -154,6 +154,38 @@ namespace Abril_Backend.Shared.Services.Graph.Services
             return result;
         }
 
+        public async Task<GraphUserProfileDto?> GetCurrentUserProfileAsync(string graphAccessToken)
+        {
+            if (string.IsNullOrEmpty(graphAccessToken))
+                return null;
+
+            try
+            {
+                var client = _httpClientFactory.CreateClient();
+                client.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", graphAccessToken);
+
+                var response = await client.GetAsync(
+                    "https://graph.microsoft.com/v1.0/me" +
+                    "?$select=displayName,mail,jobTitle,mobilePhone,businessPhones");
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"[GraphUserService] GetCurrentUserProfileAsync error: {(int)response.StatusCode}");
+                    return null;
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                return ParseUserProfile(doc.RootElement);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GraphUserService] EXCEPCIÓN en GetCurrentUserProfileAsync: {ex.Message}");
+                return null;
+            }
+        }
+
         // ── Helpers privados ─────────────────────────────────────────────────
 
         private HttpClient BuildClient(string appToken)

@@ -29,7 +29,7 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
                 from ur in urGroup.DefaultIfEmpty()
                 join r in ctx.Role on ur.RoleId equals r.RoleId into rGroup
                 from r in rGroup.DefaultIfEmpty()
-                where u.Email == email && u.Active && u.State
+                where u.Email.ToLower() == email.ToLower() && u.Active && u.State
                 group new { u, p, r } by new
                 {
                     u.UserId,

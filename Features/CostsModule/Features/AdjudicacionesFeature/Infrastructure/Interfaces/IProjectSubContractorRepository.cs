@@ -33,6 +33,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task<Step8NotificationDataDto> GetStep8NotificationDataAsync(int projectSubContractorId);
         Task<ContractPackageUrlsDto> GetContractPackageUrlsAsync(int projectSubContractorId);
         Task<(string FileUrl, string OriginalFileName)?> GetPackageFileInfoAsync(int projectSubContractorId);
-        Task<(string? FolderId, string? FolderName)?> GetInstructivosFolderAsync(int projectSubContractorId);
+        Task<(string? FolderId, string? FolderName, int? SyncStatus)?> GetInstructivosFolderAsync(int projectSubContractorId);
     }
 }

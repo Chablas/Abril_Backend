@@ -711,27 +711,43 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     "Esta partida de control no tiene instructivo sincronizado. " +
                     "Ejecute la sincronización desde Configuración → Partidas de control o suba el archivo manualmente.");
 
-            var driveId = _oneDriveOptions.AdjudicacionesFeature.Instructivos.DriveId;
-            var folderPath = $"{_oneDriveOptions.AdjudicacionesFeature.Instructivos.FolderPath}/{folderInfo.FolderName}";
+            byte[] content;
+            string? contentType;
+            string fileName;
 
-            var children = await _sharePointService.GetFolderChildrenAsync(
-                driveId, folderPath, excludedFolderNames: ["OBSOLETOS"]);
+            if (folderInfo.SyncStatus == 2)
+            {
+                // Instructivo subido manualmente: FolderId contiene la URL de SharePoint
+                content     = await _sharePointService.DownloadFromSharePointAsync(folderInfo.FolderId);
+                contentType = "application/octet-stream";
+                fileName    = folderInfo.FolderName ?? "instructivo";
+            }
+            else
+            {
+                // Instructivo sincronizado automáticamente: FolderId es un folder ID de OneDrive
+                var driveId    = _oneDriveOptions.AdjudicacionesFeature.Instructivos.DriveId;
+                var folderPath = $"{_oneDriveOptions.AdjudicacionesFeature.Instructivos.FolderPath}/{folderInfo.FolderName}";
 
-            var file = children.FirstOrDefault(c => !c.IsFolder)
-                ?? throw new AbrilException(
-                    $"No se encontró ningún instructivo vigente en la carpeta '{folderInfo.FolderName}'. " +
-                    "Verifique que el área de Calidad haya publicado el archivo.");
+                var children = await _sharePointService.GetFolderChildrenAsync(
+                    driveId, folderPath, excludedFolderNames: ["OBSOLETOS"]);
 
-            var (content, contentType) = await _sharePointService.DownloadFromOneDriveByItemIdAsync(driveId, file.Id);
+                var file = children.FirstOrDefault(c => !c.IsFolder)
+                    ?? throw new AbrilException(
+                        $"No se encontró ningún instructivo vigente en la carpeta '{folderInfo.FolderName}'. " +
+                        "Verifique que el área de Calidad haya publicado el archivo.");
 
-            var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
-            var folderPath2 = BuildSharePointPath(pathData, AdjudicacionDocumentType.Instructivo);
+                (content, contentType) = await _sharePointService.DownloadFromOneDriveByItemIdAsync(driveId, file.Id);
+                fileName = file.Name;
+            }
+
+            var pathData  = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
+            var destFolder = BuildSharePointPath(pathData, AdjudicacionDocumentType.Instructivo);
 
             using var stream = new MemoryStream(content);
             var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
                 libraryName: "Adjudicaciones",
-                folderPath: folderPath2,
-                fileName: file.Name,
+                folderPath: destFolder,
+                fileName:   fileName,
                 fileStream: stream,
                 contentType: contentType ?? "application/octet-stream")
                 ?? throw new AbrilException("No se pudo subir el instructivo a SharePoint.");
@@ -740,14 +756,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 projectSubContractorId,
                 AdjudicacionDocumentType.Instructivo,
                 spResult.WebUrl!,
-                file.Name,
+                fileName,
                 userId,
                 spResult.ItemId);
 
             return new DocumentUploadResponseDto
             {
                 FileUrl = spResult.WebUrl!,
-                OriginalFileName = file.Name,
+                OriginalFileName = fileName,
             };
         }
 

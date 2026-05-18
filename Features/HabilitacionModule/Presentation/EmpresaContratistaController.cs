@@ -78,10 +78,17 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPost]
+        [AllowAnonymous]
         public async Task<IActionResult> Create([FromBody] EmpresaContratistaCreateDto dto)
         {
             try
             {
+                if (await _repo.ExisteRucEnEmpresaContratistaAsync(dto.Ruc))
+                    return StatusCode(400, new { message = "Ya existe una empresa contratista registrada con ese RUC." });
+
+                if (await _repo.ExisteRucEnContributorAsync(dto.Ruc))
+                    return StatusCode(400, new { message = "El RUC ya está registrado en el sistema como empresa. Contacte al administrador." });
+
                 var empresa = new SsEmpresaContratista
                 {
                     Ruc = dto.Ruc,

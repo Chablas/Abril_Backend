@@ -1,10 +1,12 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Auth;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Empresa;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -33,23 +35,29 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         {
             using var ctx = _factory.CreateDbContext();
 
-            var email = dto.Email.Trim();
-            var empresa = await ctx.SsEmpresaContratista
-                .FirstOrDefaultAsync(e =>
-                    (e.EmailAdmin == email || e.EmailSsoma == email || e.EmailGerente == email)
-                    && e.Activo);
+            var email = dto.Email.Trim().ToLower();
 
-            if (empresa is null)
+            var user = await ctx.User
+                .FirstOrDefaultAsync(u => u.Email == email && u.Active && u.State);
+
+            if (user is null || string.IsNullOrEmpty(user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 
-            if (empresa.PasswordHash == "PENDIENTE_RESET")
-                throw new AbrilException(
-                    "Tu cuenta no ha sido activada. Revisa tu correo electrónico.", 401);
-
-            if (!BCrypt.Net.BCrypt.Verify(dto.Password, empresa.PasswordHash))
+            if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 
-            return GenerarTokenDto(empresa);
+            var contractorEmail = await ctx.ContractorEmail
+                .Include(ce => ce.Contractor)
+                    .ThenInclude(c => c.Contributor)
+                .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State);
+
+            if (contractorEmail is null)
+                throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
+
+            var contractor = contractorEmail.Contractor;
+            var contributor = contractor.Contributor;
+
+            return GenerarTokenDto(user, contractor, contributor);
         }
 
         public async Task<List<EmpresaSimpleDto>> GetEmpresasParaLoginAsync()
@@ -76,17 +84,20 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var empresa = await ctx.SsEmpresaContratista.FirstOrDefaultAsync(e => e.Id == empresaId)
                 ?? throw new AbrilException("Empresa no encontrada.", 404);
 
-            var destinatario = empresa.EmailAdmin ?? empresa.EmailSsoma ?? empresa.EmailGerente;
+            var destinatario = (empresa.EmailAdmin ?? empresa.EmailSsoma ?? empresa.EmailGerente)?.Trim().ToLower();
             if (string.IsNullOrWhiteSpace(destinatario))
                 throw new AbrilException("La empresa no tiene email registrado.", 400);
 
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == destinatario)
+                ?? throw new AbrilException("No existe un usuario registrado para este email.", 400);
+
             var tokensPrevios = await ctx.SsResetToken
-                .Where(t => t.EmpresaId == empresa.Id && !t.Usado)
+                .Where(t => t.UserId == user.UserId && !t.Usado)
                 .ToListAsync();
             foreach (var t in tokensPrevios) t.Usado = true;
             if (tokensPrevios.Count > 0) await ctx.SaveChangesAsync();
 
-            var token = await CrearTokenAsync(ctx, empresa.Id, TimeSpan.FromHours(48));
+            var token = await CrearTokenAsync(ctx, user.UserId, TimeSpan.FromHours(48));
 
             var baseUrl = _configuration["FrontendSettings:SetPasswordUrl"];
             var link = $"{baseUrl}?token={token}&tipo=activacion-contratista";
@@ -126,37 +137,60 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             await ctx.SaveChangesAsync();
 
-            return GenerarTokenDto(empresa);
+            var emailBuscar = (empresa.EmailAdmin ?? empresa.EmailSsoma ?? empresa.EmailGerente)!.Trim().ToLower();
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == emailBuscar && u.Active && u.State)
+                ?? throw new AbrilException("Usuario no encontrado en el sistema.", 404);
+
+            // Si el registro se creó antes de que UserId existiera, enlazarlo ahora.
+            var huerfano = await ctx.ContractorEmail
+                .FirstOrDefaultAsync(ce => ce.Email.ToLower() == emailBuscar && ce.UserId == null && ce.Active && ce.State);
+            if (huerfano != null)
+            {
+                huerfano.UserId = user.UserId;
+                await ctx.SaveChangesAsync();
+            }
+
+            var contractorEmail = await ctx.ContractorEmail
+                .Include(ce => ce.Contractor)
+                    .ThenInclude(c => c.Contributor)
+                .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
+                ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
+
+            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor);
         }
 
         public async Task SolicitarResetPasswordAsync(SolicitarResetDto dto)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var email = dto.Email.Trim();
-            var empresa = await ctx.SsEmpresaContratista.FirstOrDefaultAsync(e =>
-                (e.EmailAdmin == email || e.EmailSsoma == email || e.EmailGerente == email)
-                && e.Activo);
+            var email = dto.Email.Trim().ToLower();
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == email && u.Active && u.State);
+            if (user is null) return;
 
-            if (empresa is null) return;
+            var esContratista = await ctx.ContractorEmail
+                .AnyAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State);
+            if (!esContratista) return;
 
-            var destinatario = empresa.EmailAdmin ?? empresa.EmailGerente ?? empresa.EmailSsoma;
-            if (string.IsNullOrWhiteSpace(destinatario)) return;
+            var tokensPrevios = await ctx.SsResetToken
+                .Where(t => t.UserId == user.UserId && !t.Usado)
+                .ToListAsync();
+            foreach (var t in tokensPrevios) t.Usado = true;
+            if (tokensPrevios.Count > 0) await ctx.SaveChangesAsync();
 
-            var token = await CrearTokenAsync(ctx, empresa.Id, TimeSpan.FromHours(2));
+            var token = await CrearTokenAsync(ctx, user.UserId, TimeSpan.FromHours(2));
 
             var baseUrl = _configuration["FrontendSettings:SetPasswordUrl"];
             var link = $"{baseUrl}?token={token}&tipo=reset-contratista";
 
             var html = $@"<h2>Restablece tu contraseña</h2>
-<p>Hola, recibimos una solicitud para restablecer la contraseña de la cuenta de <strong>{empresa.RazonSocial}</strong>.</p>
+<p>Hola, recibimos una solicitud para restablecer tu contraseña.</p>
 <p>Haz clic en el siguiente enlace para crear una nueva contraseña:</p>
 <a href='{link}' style='background:#64bc04;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin:16px 0'>Restablecer contraseña</a>
 <p>Este enlace expira en 2 horas.</p>
 <p>Si no solicitaste este cambio, ignora este correo.</p>";
 
             await _emailService.SendAsync(
-                to: new List<string> { destinatario },
+                to: new List<string> { email },
                 subject: "Restablece tu contraseña - Abril Grupo Inmobiliario",
                 body: html,
                 isHtml: true);
@@ -172,39 +206,38 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (string.IsNullOrEmpty(dto.NuevaPassword) || dto.NuevaPassword.Length < 6)
                 throw new AbrilException("La contraseña debe tener al menos 6 caracteres.", 400);
 
-            var empresa = await ctx.SsEmpresaContratista.FirstOrDefaultAsync(e => e.Id == token.EmpresaId)
-                ?? throw new AbrilException("Empresa no encontrada.", 404);
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == token.UserId)
+                ?? throw new AbrilException("Usuario no encontrado.", 404);
 
-            empresa.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NuevaPassword);
-            empresa.UpdatedAt = DateTime.UtcNow;
-
+            user.Password = BCrypt.Net.BCrypt.HashPassword(dto.NuevaPassword);
+            user.UpdatedDateTime = DateTime.UtcNow;
             token.Usado = true;
 
             await ctx.SaveChangesAsync();
         }
 
-        public async Task CambiarPasswordAsync(int empresaId, CambiarPasswordDto dto)
+        public async Task CambiarPasswordAsync(int userId, CambiarPasswordDto dto)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var empresa = await ctx.SsEmpresaContratista.FirstOrDefaultAsync(e => e.Id == empresaId)
-                ?? throw new AbrilException("Empresa no encontrada.", 404);
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == userId)
+                ?? throw new AbrilException("Usuario no encontrado.", 404);
 
-            if (!BCrypt.Net.BCrypt.Verify(dto.PasswordActual, empresa.PasswordHash))
+            if (!BCrypt.Net.BCrypt.Verify(dto.PasswordActual, user.Password))
                 throw new AbrilException("Contraseña actual incorrecta.", 400);
 
-            empresa.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.PasswordNuevo);
-            empresa.UpdatedAt = DateTime.UtcNow;
+            user.Password = BCrypt.Net.BCrypt.HashPassword(dto.PasswordNuevo);
+            user.UpdatedDateTime = DateTime.UtcNow;
 
             await ctx.SaveChangesAsync();
         }
 
-        private static async Task<string> CrearTokenAsync(AppDbContext ctx, int empresaId, TimeSpan duracion)
+        private static async Task<string> CrearTokenAsync(AppDbContext ctx, int userId, TimeSpan duracion)
         {
             var raw = Guid.NewGuid().ToString("N");
             ctx.SsResetToken.Add(new SsResetToken
             {
-                EmpresaId = empresaId,
+                UserId = userId,
                 Token = raw,
                 ExpiraAt = DateTime.UtcNow.Add(duracion),
                 Usado = false,
@@ -218,14 +251,14 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             => ctx.SsResetToken.FirstOrDefaultAsync(t =>
                 t.Token == token && !t.Usado && t.ExpiraAt > DateTime.UtcNow);
 
-        private ContratistaTokenDto GenerarTokenDto(SsEmpresaContratista empresa)
+        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor)
         {
             var claims = new List<Claim>
             {
-                new Claim(ClaimTypes.NameIdentifier, empresa.Id.ToString()),
-                new Claim(ClaimTypes.Name, empresa.RazonSocial),
+                new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
+                new Claim(ClaimTypes.Name, contributor.ContributorName),
                 new Claim(ClaimTypes.Role, "CONTRATISTA"),
-                new Claim("empresaId", empresa.Id.ToString()),
+                new Claim("empresaId", contractor.ContractorId.ToString()),
                 new Claim("tipo", "CONTRATISTA"),
             };
 
@@ -243,9 +276,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return new ContratistaTokenDto
             {
                 Token = new JwtSecurityTokenHandler().WriteToken(token),
-                EmpresaId = empresa.Id,
-                RazonSocial = empresa.RazonSocial,
-                Tipo = empresa.Tipo,
+                EmpresaId = contractor.ContractorId,
+                RazonSocial = contributor.ContributorName,
+                Tipo = "CONTRATISTA",
                 AllowedFeatures = ["habilitacion.trabajadores", "habilitacion.registros-modelo"]
             };
         }

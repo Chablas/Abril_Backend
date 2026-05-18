@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260518193906_AddWorkerMissingColumns")]
+    partial class AddWorkerMissingColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1614,10 +1617,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("updated_user_id");
 
-                    b.Property<int?>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
-
                     b.HasKey("ContractorEmailId")
                         .HasName("pk_contractor_email");
 
@@ -1626,9 +1625,6 @@ namespace Abril_Backend.Migrations
 
                     b.HasIndex("ContractorPersonTypeId")
                         .HasDatabaseName("ix_contractor_email_contractor_person_type_id");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_contractor_email_user_id");
 
                     b.ToTable("contractor_email", (string)null);
                 });
@@ -3318,7 +3314,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<int?>("EmpresaId")
+                    b.Property<int>("EmpresaId")
                         .HasColumnType("integer")
                         .HasColumnName("empresa_id");
 
@@ -3335,18 +3331,11 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("usado");
 
-                    b.Property<int?>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
-
                     b.HasKey("Id")
                         .HasName("pk_ss_reset_token");
 
                     b.HasIndex("EmpresaId")
                         .HasDatabaseName("ix_ss_reset_token_empresa_id");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_ss_reset_token_user_id");
 
                     b.ToTable("ss_reset_token", (string)null);
                 });
@@ -6467,6 +6456,10 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("categoria");
 
+                    b.Property<string>("Celular")
+                        .HasColumnType("text")
+                        .HasColumnName("celular");
+
                     b.Property<string>("CondicionMedica")
                         .HasColumnType("text")
                         .HasColumnName("condicion_medica");
@@ -7367,16 +7360,9 @@ namespace Abril_Backend.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_contractor_email_contractor_person_type_contractor_person_t");
 
-                    b.HasOne("Abril_Backend.Infrastructure.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .HasConstraintName("fk_contractor_email_user_user_id");
-
                     b.Navigation("Contractor");
 
                     b.Navigation("PersonType");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.CostsModule.Shared.Models.ContractorUser", b =>
@@ -7707,16 +7693,11 @@ namespace Abril_Backend.Migrations
                     b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", "Empresa")
                         .WithMany()
                         .HasForeignKey("EmpresaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
                         .HasConstraintName("fk_ss_reset_token_ss_empresa_contratista_empresa_id");
 
-                    b.HasOne("Abril_Backend.Infrastructure.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .HasConstraintName("fk_ss_reset_token_user_user_id");
-
                     b.Navigation("Empresa");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsSctrVidaLeyWorker", b =>

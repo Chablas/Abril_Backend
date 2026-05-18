@@ -52,23 +52,24 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             string? fichaRucUrl   = null;
             string? referencesUrl = null;
 
-            // Subir archivos a SharePoint usando permisos de aplicación (no requiere token del usuario).
-            // Carpeta: {ruc} - {razonsocial}  (dentro de la biblioteca de contratistas)
-            var listId     = _configuration["SharePoint:ContractorListId"]
-                             ?? throw new InvalidOperationException("SharePoint:ContractorListId no está configurado.");
-            var folderPath = Sanitize($"{dto.ContributorRuc} - {dto.ContributorName}");
+            if (dto.LogoFile is not null || dto.BrochureFile is not null || dto.FichaRucFile is not null || dto.ReferencesListFile is not null)
+            {
+                var listId     = _configuration["SharePoint:ContractorListId"]
+                                 ?? throw new InvalidOperationException("SharePoint:ContractorListId no está configurado.");
+                var folderPath = Sanitize($"{dto.ContributorRuc} - {dto.ContributorName}");
 
-            if (dto.LogoFile is not null)
-                logoUrl = await UploadFile(listId, folderPath, "logo", dto.LogoFile);
+                if (dto.LogoFile is not null)
+                    logoUrl = await UploadFile(listId, folderPath, "logo", dto.LogoFile);
 
-            if (dto.BrochureFile is not null)
-                brochureUrl = await UploadFile(listId, folderPath, "brochure", dto.BrochureFile);
+                if (dto.BrochureFile is not null)
+                    brochureUrl = await UploadFile(listId, folderPath, "brochure", dto.BrochureFile);
 
-            if (dto.FichaRucFile is not null)
-                fichaRucUrl = await UploadFile(listId, folderPath, "ficha_ruc", dto.FichaRucFile);
+                if (dto.FichaRucFile is not null)
+                    fichaRucUrl = await UploadFile(listId, folderPath, "ficha_ruc", dto.FichaRucFile);
 
-            if (dto.ReferencesListFile is not null)
-                referencesUrl = await UploadFile(listId, folderPath, "lista_referencias", dto.ReferencesListFile);
+                if (dto.ReferencesListFile is not null)
+                    referencesUrl = await UploadFile(listId, folderPath, "lista_referencias", dto.ReferencesListFile);
+            }
 
             await _repository.Create(dto, userId, logoUrl, brochureUrl, fichaRucUrl, referencesUrl);
 

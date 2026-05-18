@@ -11,6 +11,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Interfaces
         Task<ContratistaTokenDto> ActivarCuentaAsync(ActivarCuentaDto dto);
         Task SolicitarResetPasswordAsync(SolicitarResetDto dto);
         Task ResetPasswordAsync(ResetPasswordDto dto);
-        Task CambiarPasswordAsync(int empresaId, CambiarPasswordDto dto);
+        Task CambiarPasswordAsync(int userId, CambiarPasswordDto dto);
     }
 }

@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-18 (módulos nuevos: AuthModule, ConfigurationModule, GestionAdministrativaModule, MejoraContinuaModule, UnidadDeProyectosModule; Worker.PersonId+ContributorId nav props; ClinicaUsuariosModule; adjudicaciones contrato completo; motor EMO automático)
+> Última actualización: 2026-05-18 (módulos nuevos: AuthModule, ConfigurationModule, GestionAdministrativaModule, MejoraContinuaModule, UnidadDeProyectosModule; Worker.PersonId+ContributorId nav props; ClinicaUsuariosModule; adjudicaciones contrato completo; motor EMO automático; ContractorEmail.UserId; SsResetToken.UserId; fix registro contratistas SharePoint lazy; NuGet vulns corregidas)
 
 ---
 
@@ -129,6 +129,8 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `CatCategoria` | `cat_categoria` | `id` | Catálogo de categorías de workers. `Nombre`, `Orden`, `Activo`. DbSet registrado — crear tabla manualmente en BD. |
 | `CatOcupacion` | `cat_ocupacion` | `id` | Catálogo de ocupaciones de workers. `Nombre`, `Orden`, `Activo`. DbSet registrado — crear tabla manualmente en BD. |
 | `User` | `app_user` | — | Override en `ConfigurePostgreSQL` (`User` es palabra reservada PG). |
+| `ContractorEmail` | `contractor_email` | `contractor_email_id` | Email por contratista. Tiene `UserId int?` (FK→`app_user`) para vincular con cuenta del sistema. La FK `fk_contractor_email_user_user_id` se agrega con la migración `MigrateResetTokenToUserId`. |
+| `SsResetToken` | `ss_reset_token` | — | Token de reset/activación. `EmpresaId` es nullable. Tiene `UserId int?` (FK→`app_user`) para reset de cuentas de usuario directo. |
 
 > **⚠️ `projects` (plural) NO EXISTE** — fue eliminada vía migración `SwitchProyectoFkToProjectLegacy`. Todo `proyecto_id` de cualquier tabla apunta a `project.project_id` legacy. Resolver siempre con `ctx.Project.Where(p => p.ProjectId == id)`.
 
@@ -895,3 +897,55 @@ Configurar el cron externo (Azure Logic App / GitHub Actions / EasyCron) para ll
 - "EmoResumen:Destinatarios": "correo1@abril.pe,correo2@abril.pe"
 - "App:FrontendUrl": "https://..."
 - (ya agregado) "EmailsArea": { "MedicinaOcupacional": "medicinaocupacionalnm@abril.pe", "GTH": "gthnm@abril.pe" }
+
+---
+
+## Sesión 2026-05-18 (segunda parte) — ContractorsModule y ContractorEmail.UserId
+
+### ContractorEmail — nuevo campo UserId
+
+`Features/CostsModule/Shared/Models/ContractorEmail.cs`:
+- `public int? UserId { get; set; }` — FK→`app_user.user_id`
+- `public User? User { get; set; }` — nav property
+
+Al registrar un contratista nuevo (`ContractorRegistrationRepository.Create`), el sistema busca en `app_user` por el email del contacto y asigna el `UserId` si existe. Si el usuario ya tenía cuenta antes del campo (registros huérfanos), `ContratistaAuthService.ActivarCuentaAsync` repara el `UserId` antes de procesar la activación.
+
+### SsResetToken — EmpresaId nullable, UserId añadido
+
+`Features/HabilitacionModule/Infrastructure/Models/SsResetToken.cs`:
+- `EmpresaId int?` — era NOT NULL, ahora nullable
+- `public int? UserId { get; set; }` — nuevo FK→`app_user`
+- `public User? User { get; set; }` — nav property
+
+### EmpresaContratistaController.Create — [AllowAnonymous] + validación RUC
+
+`Features/HabilitacionModule/Presentation/EmpresaContratistaController.cs`:
+- `POST /habilitacion/empresas` tiene `[AllowAnonymous]` — ruta pública de auto-registro
+- Antes de crear, valida que el RUC no exista en `ss_empresa_contratista` (400) ni en `contributor` (400)
+- Dos métodos nuevos en `IEmpresaContratistaRepository`/`EmpresaContratistaRepository`: `ExisteRucEnEmpresaContratistaAsync` y `ExisteRucEnContributorAsync`
+
+### ContractorRegistrationService — SharePoint lazy
+
+`Features/ContractorsModule/.../Application/Services/ContractorRegistrationService.cs`:
+- El bloque SharePoint (fetch de `SharePoint:ContractorListId` y uploads) ahora está dentro de un `if (dto.LogoFile is not null || ...)`. Si no se suben archivos, no requiere configuración SharePoint. Antes fallaba siempre si el key no estaba en config.
+
+### Logging en ContractorRegistrationController y ContractorRegistrationRepository
+
+Ambos ahora inyectan `ILogger<T>` y tienen `_logger.LogError(ex, ...)` en los bloques catch, lo que permite ver el error real en consola del servidor.
+
+### Migraciones nuevas (rama feature/arquitectura-comercial)
+
+| Migration ID | Descripción |
+|---|---|
+| `20260518193906_AddWorkerMissingColumns` | ~26 columnas worker, tablas nuevas, FKs — Up() reescrito como SQL idempotente |
+| `20260518220129_MigrateResetTokenToUserId` | `user_id` en `ss_reset_token` y `contractor_email`; FKs; `empresa_id` nullable en reset_token |
+| `20260518223250_AddContractorEmailUserId` | Migración vacía — columna ya añadida por la anterior vía SQL |
+
+La migración `20260505173114_AddContractorUserCredentials` también fue reescrita como SQL idempotente (la DB estaba por delante de EF).
+
+### NuGet — vulnerabilidades corregidas
+
+`Abril-Backend.csproj`:
+- Eliminado `Microsoft.AspNetCore.Mvc` 2.3.9 (NU1510 — incluido en framework net10.0)
+- Sobrescrito `SixLabors.ImageSharp` → 3.1.12 (7 CVEs de `PdfSharpCore` 1.3.67; el código solo hace merge/lectura de PDF sin imágenes, seguro)
+- Sobrescrito `Microsoft.Kiota.Abstractions` → 1.22.2 (GHSA-7j59-v9qr-6fq9; compatible con Microsoft.Graph 5.x)

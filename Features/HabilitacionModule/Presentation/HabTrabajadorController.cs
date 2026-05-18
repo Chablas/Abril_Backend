@@ -38,6 +38,10 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                _logger.LogInformation("DEBUG tipo={tipo} empresaId={emp}",
+                    User.FindFirst("tipo")?.Value ?? "NULL",
+                    User.FindFirst("empresaId")?.Value ?? "NULL");
+
                 if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
                 {
                     if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))

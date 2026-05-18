@@ -52,6 +52,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return (items, total);
         }
 
+        public async Task<bool> ExisteRucEnEmpresaContratistaAsync(string ruc)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsEmpresaContratista.AnyAsync(e => e.Ruc == ruc);
+        }
+
+        public async Task<bool> ExisteRucEnContributorAsync(string ruc)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Contributor.AnyAsync(c => c.ContributorRuc == ruc);
+        }
+
         public async Task<SsEmpresaContratista> CreateAsync(SsEmpresaContratista empresa)
         {
             using var ctx = _factory.CreateDbContext();

@@ -12,10 +12,14 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
         private const int PendingContractorStateId = 1;
 
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ILogger<ContractorRegistrationRepository> _logger;
 
-        public ContractorRegistrationRepository(IDbContextFactory<AppDbContext> factory)
+        public ContractorRegistrationRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ILogger<ContractorRegistrationRepository> logger)
         {
             _factory = factory;
+            _logger = logger;
         }
 
         public async Task<List<ContractorPersonTypeDto>> GetPersonTypes()
@@ -34,6 +38,8 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
 
         public async Task Create(ContributorCreateDto dto, int? userId, string? logoUrl, string? brochureUrl, string? fichaRucUrl, string? referencesUrl)
         {
+            try
+            {
             using var ctx = _factory.CreateDbContext();
 
             // Resolve legal representative → find or create Person by DNI
@@ -114,12 +120,17 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                     && int.TryParse(dto.ContributorEmailPersonTypeIds[i], out var ptId))
                     personTypeId = ptId;
 
+                var emailNorm = dto.ContributorEmails[i].Trim().ToLower();
+                var linkedUser = await ctx.User
+                    .FirstOrDefaultAsync(u => u.Email == emailNorm && u.Active && u.State);
+
                 contractor.Emails.Add(new ContractorEmail
                 {
                     Email                  = dto.ContributorEmails[i],
                     ContractorPersonTypeId = personTypeId,
                     CreatedDateTime        = DateTimeOffset.UtcNow,
                     CreatedUserId          = userId,
+                    UserId                 = linkedUser?.UserId,
                     Active = true,
                     State  = true
                 });
@@ -127,6 +138,12 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
 
             ctx.Contractor.Add(contractor);
             await ctx.SaveChangesAsync();
+            } // end try
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR REGISTRO CONTRATISTA: {msg}", ex.ToString());
+                throw;
+            }
         }
     }
 }

@@ -75,12 +75,11 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var claim = User.FindFirst("empresaId")?.Value
-                    ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (!int.TryParse(claim, out var empresaId))
+                var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (!int.TryParse(claim, out var userId))
                     return StatusCode(401, new { message = "Token inválido." });
 
-                await _service.CambiarPasswordAsync(empresaId, dto);
+                await _service.CambiarPasswordAsync(userId, dto);
                 return Ok(new { message = "Contraseña actualizada correctamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

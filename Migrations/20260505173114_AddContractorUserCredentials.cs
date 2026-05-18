@@ -12,178 +12,82 @@ namespace Abril_Backend.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_sctr_vidaley_project_proyecto_id",
-                table: "ss_sctr_vidaley");
+            migrationBuilder.Sql(@"
+                -- Drop FKs if they exist
+                ALTER TABLE ss_sctr_vidaley DROP CONSTRAINT IF EXISTS ""fk_ss_sctr_vidaley_project_proyecto_id"";
+                ALTER TABLE ss_sctr_vidaley_worker DROP CONSTRAINT IF EXISTS ""fk_ss_sctr_vidaley_worker_ss_sctr_vidaley_sctr_vida_ley_id"";
 
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_sctr_vidaley_worker_ss_sctr_vidaley_sctr_vida_ley_id",
-                table: "ss_sctr_vidaley_worker");
+                -- Rename column/index if old name still exists
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ss_sctr_vidaley_worker' AND column_name='sctr_vida_ley_id') THEN
+                        ALTER TABLE ss_sctr_vidaley_worker RENAME COLUMN sctr_vida_ley_id TO sctr_vidaley_id;
+                    END IF;
+                END $$;
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='ss_sctr_vidaley_worker' AND indexname='ix_ss_sctr_vidaley_worker_sctr_vida_ley_id') THEN
+                        ALTER INDEX ix_ss_sctr_vidaley_worker_sctr_vida_ley_id RENAME TO ix_ss_sctr_vidaley_worker_sctr_vidaley_id;
+                    END IF;
+                END $$;
 
-            migrationBuilder.RenameColumn(
-                name: "sctr_vida_ley_id",
-                table: "ss_sctr_vidaley_worker",
-                newName: "sctr_vidaley_id");
+                -- Add columns IF NOT EXISTS
+                ALTER TABLE ss_sctr_vidaley_worker ADD COLUMN IF NOT EXISTS fecha_inicio_cobertura timestamp with time zone;
+                ALTER TABLE ss_sctr_vidaley ALTER COLUMN proyecto_id DROP NOT NULL;
+                ALTER TABLE ss_sctr_vidaley ADD COLUMN IF NOT EXISTS fecha_inicio timestamp with time zone;
+                ALTER TABLE ss_sctr_vidaley ADD COLUMN IF NOT EXISTS tipo_poliza text NOT NULL DEFAULT '';
+                ALTER TABLE ss_induccion ADD COLUMN IF NOT EXISTS equipo_electrico boolean NOT NULL DEFAULT false;
+                ALTER TABLE project_sub_contractor_summary_sheet ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor_service_order ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor_schedule ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor_scanned_doc ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor_quotation_file ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor_promissory_note ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor_contract ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor_comparative_file ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor_budget ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor_attached_quotation ADD COLUMN IF NOT EXISTS sharepoint_item_id text;
+                ALTER TABLE project_sub_contractor ADD COLUMN IF NOT EXISTS project_sub_contractor_package_id integer;
+                ALTER TABLE contributor ADD COLUMN IF NOT EXISTS es_abril boolean NOT NULL DEFAULT false;
 
-            migrationBuilder.RenameIndex(
-                name: "ix_ss_sctr_vidaley_worker_sctr_vida_ley_id",
-                table: "ss_sctr_vidaley_worker",
-                newName: "ix_ss_sctr_vidaley_worker_sctr_vidaley_id");
+                -- Create table IF NOT EXISTS
+                CREATE TABLE IF NOT EXISTS project_sub_contractor_package (
+                    project_sub_contractor_package_id serial PRIMARY KEY,
+                    file_url text,
+                    original_file_name text,
+                    sharepoint_item_id text,
+                    created_datetime timestamp with time zone NOT NULL,
+                    created_user_id integer NOT NULL,
+                    updated_datetime timestamp with time zone,
+                    updated_user_id integer,
+                    active boolean NOT NULL,
+                    state boolean NOT NULL
+                );
 
-            migrationBuilder.AddColumn<DateTime>(
-                name: "fecha_inicio_cobertura",
-                table: "ss_sctr_vidaley_worker",
-                type: "timestamp with time zone",
-                nullable: true);
+                -- Create index IF NOT EXISTS
+                CREATE INDEX IF NOT EXISTS ix_project_sub_contractor_project_sub_contractor_package_id
+                    ON project_sub_contractor(project_sub_contractor_package_id);
+                CREATE INDEX IF NOT EXISTS ix_ss_sctr_vidaley_worker_sctr_vidaley_id
+                    ON ss_sctr_vidaley_worker(sctr_vidaley_id);
 
-            migrationBuilder.AlterColumn<int>(
-                name: "proyecto_id",
-                table: "ss_sctr_vidaley",
-                type: "integer",
-                nullable: true,
-                oldClrType: typeof(int),
-                oldType: "integer");
-
-            migrationBuilder.AddColumn<DateTime>(
-                name: "fecha_inicio",
-                table: "ss_sctr_vidaley",
-                type: "timestamp with time zone",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "tipo_poliza",
-                table: "ss_sctr_vidaley",
-                type: "text",
-                nullable: false,
-                defaultValue: "");
-
-            migrationBuilder.AddColumn<bool>(
-                name: "equipo_electrico",
-                table: "ss_induccion",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_summary_sheet",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_service_order",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_schedule",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_scanned_doc",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_quotation_file",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_promissory_note",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_contract",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_comparative_file",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_budget",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "sharepoint_item_id",
-                table: "project_sub_contractor_attached_quotation",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<int>(
-                name: "project_sub_contractor_package_id",
-                table: "project_sub_contractor",
-                type: "integer",
-                nullable: true);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "es_abril",
-                table: "contributor",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.CreateTable(
-                name: "project_sub_contractor_package",
-                columns: table => new
-                {
-                    project_sub_contractor_package_id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    file_url = table.Column<string>(type: "text", nullable: true),
-                    original_file_name = table.Column<string>(type: "text", nullable: true),
-                    sharepoint_item_id = table.Column<string>(type: "text", nullable: true),
-                    created_datetime = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    created_user_id = table.Column<int>(type: "integer", nullable: false),
-                    updated_datetime = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    updated_user_id = table.Column<int>(type: "integer", nullable: true),
-                    active = table.Column<bool>(type: "boolean", nullable: false),
-                    state = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_project_sub_contractor_package", x => x.project_sub_contractor_package_id);
-                });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_project_sub_contractor_project_sub_contractor_package_id",
-                table: "project_sub_contractor",
-                column: "project_sub_contractor_package_id");
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_project_sub_contractor_project_sub_contractor_package_proje",
-                table: "project_sub_contractor",
-                column: "project_sub_contractor_package_id",
-                principalTable: "project_sub_contractor_package",
-                principalColumn: "project_sub_contractor_package_id");
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_ss_sctr_vidaley_project_proyecto_id",
-                table: "ss_sctr_vidaley",
-                column: "proyecto_id",
-                principalTable: "project",
-                principalColumn: "project_id");
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_ss_sctr_vidaley_worker_ss_sctr_vidaley_sctr_vidaley_id",
-                table: "ss_sctr_vidaley_worker",
-                column: "sctr_vidaley_id",
-                principalTable: "ss_sctr_vidaley",
-                principalColumn: "id",
-                onDelete: ReferentialAction.Cascade);
+                -- Add FKs IF NOT EXISTS
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_project_sub_contractor_project_sub_contractor_package_proje') THEN
+                        ALTER TABLE project_sub_contractor ADD CONSTRAINT fk_project_sub_contractor_project_sub_contractor_package_proje
+                            FOREIGN KEY (project_sub_contractor_package_id) REFERENCES project_sub_contractor_package(project_sub_contractor_package_id);
+                    END IF;
+                END $$;
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_ss_sctr_vidaley_project_proyecto_id') THEN
+                        ALTER TABLE ss_sctr_vidaley ADD CONSTRAINT fk_ss_sctr_vidaley_project_proyecto_id
+                            FOREIGN KEY (proyecto_id) REFERENCES project(project_id);
+                    END IF;
+                END $$;
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_ss_sctr_vidaley_worker_ss_sctr_vidaley_sctr_vidaley_id') THEN
+                        ALTER TABLE ss_sctr_vidaley_worker ADD CONSTRAINT fk_ss_sctr_vidaley_worker_ss_sctr_vidaley_sctr_vidaley_id
+                            FOREIGN KEY (sctr_vidaley_id) REFERENCES ss_sctr_vidaley(id) ON DELETE CASCADE;
+                    END IF;
+                END $$;
+            ");
         }
 
         /// <inheritdoc />

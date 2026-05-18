@@ -977,7 +977,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var obraOficinaAnterior = w.ObraOficina;
 
             if (dto.ApellidoNombre is not null && w.Person is not null) w.Person.FullName = dto.ApellidoNombre;
-            if (dto.Celular is not null) w.Celular = dto.Celular;
+            if (dto.Celular is not null && w.Person is not null) w.Person.PhoneNumber = int.TryParse(dto.Celular, out var ph) ? ph : (int?)null;
             if (dto.EmailPersonal is not null) w.EmailPersonal = dto.EmailPersonal;
             if (dto.EmailCorporativo is not null) w.EmailCorporativo = dto.EmailCorporativo;
             if (dto.FechaNacimiento.HasValue) w.FechaNacimiento = dto.FechaNacimiento;
@@ -1112,7 +1112,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             ApellidoNombre = w.Person?.FullName,
             Dni = w.Person?.DocumentIdentityCode,
             Ruc = w.Contributor?.ContributorRuc,
-            Celular = w.Celular,
+            Celular = w.Person?.PhoneNumber?.ToString(),
             EmailPersonal = w.EmailPersonal,
             EmailCorporativo = w.EmailCorporativo,
             FechaNacimiento = w.FechaNacimiento,

@@ -468,6 +468,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             if (!string.IsNullOrWhiteSpace(filter.ContributorRuc))
                 query = query.Where(x => x.c.ContributorRuc.Contains(filter.ContributorRuc));
 
+            if (filter.ContractTypeId.HasValue)
+                query = query.Where(x => x.psc.ContractTypeId == filter.ContractTypeId.Value);
+
+            if (filter.ContractModalityId.HasValue)
+                query = query.Where(x => x.psc.ContractModalityId == filter.ContractModalityId.Value);
+
+            if (filter.PaymentMethodId.HasValue)
+                query = query.Where(x => x.psc.PaymentMethodId == filter.PaymentMethodId.Value);
+
             if (filter.CreatedUserId.HasValue)
                 query = query.Where(x => x.psc.CreatedUserId == filter.CreatedUserId.Value);
 
@@ -2002,7 +2011,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 : null;
         }
 
-        public async Task<(string? FolderId, string? FolderName)?> GetInstructivosFolderAsync(int projectSubContractorId)
+        public async Task<(string? FolderId, string? FolderName, int? SyncStatus)?> GetInstructivosFolderAsync(int projectSubContractorId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -2011,11 +2020,11 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 join wic in ctx.WorkItemCategory
                     on psc.WorkItemCategoryId equals wic.WorkItemCategoryId
                 where psc.ProjectSubContractorId == projectSubContractorId && psc.State
-                select new { wic.InstructivosFolderId, wic.InstructivosFolderName }
+                select new { wic.InstructivosFolderId, wic.InstructivosFolderName, wic.InstructivosSyncStatus }
             ).FirstOrDefaultAsync();
 
             if (result is null) return null;
-            return (result.InstructivosFolderId, result.InstructivosFolderName);
+            return (result.InstructivosFolderId, result.InstructivosFolderName, result.InstructivosSyncStatus);
         }
 
         /// <summary>

@@ -110,11 +110,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     FullName = dto.ApellidoNombre,
                     DocumentIdentityCode = dto.Dni.Trim().ToUpper(),
+                    PhoneNumber = int.TryParse(dto.Celular, out var ph1) ? ph1 : (int?)null,
                     Active = true,
                     State = true,
                     CreatedDateTime = DateTime.UtcNow
                 },
-                Celular = dto.Celular,
                 EmailPersonal = dto.EmailPersonal,
                 EmailCorporativo = dto.EmailCorporativo,
                 FechaNacimiento = dto.FechaNacimiento,
@@ -163,8 +163,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (worker == null)
                 throw new AbrilException("Trabajador no encontrado.", 404);
 
-            if (worker.Person != null) worker.Person.FullName = dto.ApellidoNombre;
-            worker.Celular = dto.Celular;
+            if (worker.Person != null)
+            {
+                worker.Person.FullName      = dto.ApellidoNombre;
+                worker.Person.PhoneNumber   = int.TryParse(dto.Celular, out var ph2) ? ph2 : (int?)null;
+            }
             worker.EmailPersonal = dto.EmailPersonal;
             worker.EmailCorporativo = dto.EmailCorporativo;
             worker.FechaNacimiento = dto.FechaNacimiento;

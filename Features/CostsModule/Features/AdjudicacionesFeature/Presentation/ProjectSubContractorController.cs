@@ -24,6 +24,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             [FromQuery] int? projectId,
             [FromQuery] string? contributorName,
             [FromQuery] string? contributorRuc,
+            [FromQuery] int? contractTypeId,
+            [FromQuery] int? contractModalityId,
+            [FromQuery] int? paymentMethodId,
             [FromQuery] int? createdUserId,
             [FromQuery] int page = 1)
         {
@@ -39,6 +42,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     ProjectId = projectId,
                     ContributorName = contributorName,
                     ContributorRuc = contributorRuc,
+                    ContractTypeId = contractTypeId,
+                    ContractModalityId = contractModalityId,
+                    PaymentMethodId = paymentMethodId,
                     CreatedUserId = createdUserId,
                     Page = page
                 };
@@ -112,6 +118,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             [FromQuery] int? projectId,
             [FromQuery] string? contributorName,
             [FromQuery] string? contributorRuc,
+            [FromQuery] int? contractTypeId,
+            [FromQuery] int? contractModalityId,
+            [FromQuery] int? paymentMethodId,
             [FromQuery] int? createdUserId,
             [FromQuery] int page = 1)
         {
@@ -127,6 +136,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     ProjectId = projectId,
                     ContributorName = contributorName,
                     ContributorRuc = contributorRuc,
+                    ContractTypeId = contractTypeId,
+                    ContractModalityId = contractModalityId,
+                    PaymentMethodId = paymentMethodId,
                     CreatedUserId = createdUserId,
                     Page = page
                 };

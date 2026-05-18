@@ -18,8 +18,8 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("contributor_id")]
         public int? ContributorId { get; set; }
 
-        [Column("celular")]
-        public string? Celular { get; set; }
+        /*[Column("celular")]
+        public string? Celular { get; set; }*/
 
         [Column("email_personal")]
         public string? EmailPersonal { get; set; }

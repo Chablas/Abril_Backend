@@ -30,6 +30,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [AllowAnonymous]
+        [HttpGet("clinicas/{id:int}")]
+        public async Task<IActionResult> GetClinica(int id)
+        {
+            try { return Ok(await _service.GetClinicaById(id)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPost("clinicas")]
         public async Task<IActionResult> CreateClinica([FromBody] ClinicaUpsertDto dto)
         {

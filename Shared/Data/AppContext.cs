@@ -131,6 +131,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsTrabajadorRestringido> SsTrabajadorRestringido => Set<SsTrabajadorRestringido>();
         public DbSet<CatJefatura> CatJefatura => Set<CatJefatura>();
         public DbSet<SsClinicaEmail> SsClinicaEmail => Set<SsClinicaEmail>();
+        public DbSet<SsClinicaUsuario> SsClinicaUsuario => Set<SsClinicaUsuario>();
+        public DbSet<SsClinicaToken> SsClinicaToken => Set<SsClinicaToken>();
+        public DbSet<SsClinicaAuditoria> SsClinicaAuditoria => Set<SsClinicaAuditoria>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -352,6 +355,10 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(s => s.StaffProjectEmailTypeId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SsClinicaUsuario>().HasKey(x => x.ClinicaUsuarioId);
+            modelBuilder.Entity<SsClinicaToken>().HasKey(x => x.TokenId);
+            modelBuilder.Entity<SsClinicaAuditoria>().HasKey(x => x.AuditoriaId);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)
@@ -389,6 +396,7 @@ namespace Abril_Backend.Infrastructure.Data
             });
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
+            modelBuilder.Entity<SsClinicaAuditoria>().Property(e => e.DetalleAdicional).HasColumnType("jsonb");
         }
     }
 }

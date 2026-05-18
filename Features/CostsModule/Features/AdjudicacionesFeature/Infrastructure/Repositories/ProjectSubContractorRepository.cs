@@ -1482,6 +1482,9 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             if (psc.ProjectSubContractorStatusId != 2)
                 throw new AbrilException("La adjudicación no está en el paso de datos del contrato.");
 
+            if (dto.StartDate != default && dto.EndDate != default && dto.StartDate > dto.EndDate)
+                throw new AbrilException("La fecha de inicio no puede ser posterior a la fecha fin del contrato.");
+
             psc.SigningDate = dto.SigningDate;
             psc.StartDate = dto.StartDate;
             psc.EndDate = dto.EndDate;

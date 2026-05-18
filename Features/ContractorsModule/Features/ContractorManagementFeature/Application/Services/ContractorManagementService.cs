@@ -43,6 +43,36 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
         public async Task Approve(int contractorId, int userId)
         {
             await _repository.Approve(contractorId, userId);
+
+            var contractor = await _repository.GetWithEmails(contractorId);
+            if (contractor == null || contractor.Emails.Count == 0) return;
+
+            var token = GenerateToken();
+            var expiry = DateTime.UtcNow.AddHours(24);
+            await _repository.SetActivationToken(contractorId, token, expiry);
+
+            var link = $"{_frontendSettings.ContractorCredentialsUrl}?token={token}";
+            var body = $@"
+                <p>Estimado representante de <strong>{contractor.ContributorName}</strong>,</p>
+                <p>Su empresa ha sido aprobada en el proceso de homologación de contratistas de <strong>Abril Grupo Inmobiliario</strong>.</p>
+                <p>Para activar su acceso al sistema, haga clic en el siguiente enlace y registre sus credenciales:</p>
+                <p>
+                    <a href='{link}' target='_blank'
+                    style='display:inline-block; padding:10px 20px; background-color:#64BC04; color:#ffffff; text-decoration:none; border-radius:6px; font-weight:bold;'>
+                        Registrar credenciales
+                    </a>
+                </p>
+                <p style='font-size: 12px; color: #666;'>
+                    Este enlace expirará en 24 horas. Si no solicitó este acceso, puede ignorar este correo.
+                </p>
+            ";
+
+            await _emailService.SendAsync(
+                to: contractor.Emails,
+                subject: "Activa tu cuenta de contratista — Abril Grupo Inmobiliario",
+                body: body,
+                isHtml: true
+            );
         }
 
         public async Task Reject(int contractorId, int userId)

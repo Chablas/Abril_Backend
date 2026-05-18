@@ -245,7 +245,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 Token = new JwtSecurityTokenHandler().WriteToken(token),
                 EmpresaId = empresa.Id,
                 RazonSocial = empresa.RazonSocial,
-                Tipo = empresa.Tipo
+                Tipo = empresa.Tipo,
+                AllowedFeatures = ["habilitacion.trabajadores", "habilitacion.registros-modelo"]
             };
         }
     }

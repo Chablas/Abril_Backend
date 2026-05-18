@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
     {
         // Clinicas
         Task<List<ClinicaDto>> ListClinicas(bool soloActivos);
+        Task<ClinicaDto> GetClinicaById(int id);
         Task<ClinicaDto> CreateClinica(ClinicaUpsertDto dto);
         Task<ClinicaDto> UpdateClinica(int id, ClinicaUpsertDto dto);
 

@@ -80,8 +80,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
 
                 if (request.HabTrabajadorId is int habId)
                 {
-                    var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                    var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                    var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
 
                     var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
                     int? userId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;

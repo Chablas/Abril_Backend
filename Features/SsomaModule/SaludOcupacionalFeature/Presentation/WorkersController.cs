@@ -68,8 +68,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 if (await _restringidoService.EstaRestringidoPorDniAsync(dto.Dni))
                     throw new AbrilException(MensajeRestriccion, 400);
 
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                if (roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase)))
+                if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
                 {
                     if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaIdJwt))
                         return StatusCode(400, new { message = "No se pudo determinar la empresa del contratista." });

@@ -35,8 +35,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
 
                 if (esContratista)
                 {
@@ -100,9 +99,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
-                var esAprobador = roles.Any(r => RolesAprobadores.Contains(r, StringComparer.OrdinalIgnoreCase));
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
+                var esAprobador = User.FindAll(ClaimTypes.Role).Any(c => RolesAprobadores.Contains(c.Value, StringComparer.OrdinalIgnoreCase));
 
                 if (esContratista && !string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase))
                     return StatusCode(403, new { message = "Los contratistas solo pueden enviar entregables; la aprobación es interna." });

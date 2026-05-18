@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-07 (AC: categoria_id + especialidad_id en ac_actividades; ActividadListItemDTO: Tipo→PartidaDeControl + CategoriaId/CategoriaNombre/EspecialidadId/EspecialidadNombre; CreateDTO + UpdateDTO actualizados; GetActividades hace join con ac_categorias y ac_especialidades)
+> Última actualización: 2026-05-18 (módulos nuevos: AuthModule, ConfigurationModule, GestionAdministrativaModule, MejoraContinuaModule, UnidadDeProyectosModule; Worker.PersonId+ContributorId nav props; ClinicaUsuariosModule; adjudicaciones contrato completo; motor EMO automático)
 
 ---
 
@@ -59,13 +59,17 @@ Features/<Modulo>Module/
 ```
 
 **Módulos activos:**
-| Módulo | Estado |
-|--------|--------|
-| `HabilitacionModule` | Principal activo — ver sección 5 |
-| `SsomaModule` | SaludOcupacionalFeature (EMO, SSOMA) |
-| `ContractorsModule` | ContractorRegistration, ContractorManagement |
-| `CostsModule` | Adjudicaciones, WorkItem, StaffProjectEmail |
-| `MicrosoftAuthModule` | Login/Profile Microsoft |
+| Módulo | Registro DI | Contenido |
+|--------|-------------|-----------|
+| `HabilitacionModule` | `AddHabilitacionModule` | Principal activo — ver sección 5 |
+| `SsomaModule` | `AddSsomaModule` | EMO, programación, alertas automáticas, clínica, reportes SUNAFIL |
+| `AuthModule` | `AddAuthModule` | MicrosoftLogin, MicrosoftProfile, ContractorCredentials, RoleFeature, UserFeature |
+| `ContractorsModule` | `AddContractorsModule` | ContractorRegistration, ContractorManagement |
+| `CostsModule` | `AddCostsModule` | Adjudicaciones (contrato completo), WorkItem, StaffProjectEmail, ProjectLink |
+| `ConfigurationModule` | `AddConfigurationModule` | ProjectFeature (CRUD proyectos AC) |
+| `GestionAdministrativaModule` | `AddGestionAdministrativaModule` | SolicitudSalidas, GestionSalidas, Lugares, MotivosSalida |
+| `MejoraContinuaModule` | `AddMejoraContinuaModule` | LessonsLearned, AreasYSubareas, PsssTemplate, Relations |
+| `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | LessonsLearnedDashboard |
 
 **ArquitecturaComercial** vive en capa tradicional, no en Features.
 
@@ -106,7 +110,7 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 |------------|----------|----|-------|
 | `Project` | `project` | `project_id` | Entidad legacy ÚNICA para proyectos. Props: `ProjectId`, `ProjectDescription`. `Shared/Models/Project.cs`. **Siempre `ctx.Project` con `ProjectId`**. |
 | `Contributor` | `contributor` | `contributor_id` | Entidad unificada de empresas. Reemplazó `companies` (eliminada). Incluye `EsAbril` (bool) e `IdSharepoint` (int?, temporal). En `Features/CostsModule/Shared/Models/Contributor.cs`. |
-| `Worker` | `workers` | `id` | Personal con columnas explícitas `[Column("...")]`. No snake_case automático. |
+| `Worker` | `workers` | `id` | Personal con columnas explícitas `[Column("...")]`. No snake_case automático. Tiene `PersonId int?` (FK→`person`) y `ContributorId int?` (FK→`contributor`) con nav properties `Person?` y `Contributor?` (agregadas 2026-05-11). `EmpresaId` NO existe en el modelo — siempre leer de `WorkerVinculacion`. |
 | `WorkerVinculacion` | `worker_vinculaciones` | `id` | 1 activa por worker (`fecha_fin IS NULL`). Para empresa y proyecto actual del worker. |
 | `WorkerProyecto` | `ss_hab_worker_proyecto` | `id` | Multi-proyecto **solo Casa**. N activos en paralelo. Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL`. |
 | `SsInduccion` | `ss_induccion` | `id` | `empresa_id` → `contributor.contributor_id` (no `ss_empresa_contratista`). Columnas manuales: `ingreso_confirmado` (bool NOT NULL DEFAULT false), `fecha_ingreso` (timestamptz). |
@@ -634,7 +638,144 @@ CREATE TABLE IF NOT EXISTS ss_tareo (
 
 ---
 
-## 11. Trabajo pendiente
+## 11. Módulos nuevos 2026-05 — resumen de arquitectura
+
+### 11a. AuthModule (`Features/AuthModule/`)
+
+Consolida toda la autenticación. Reemplaza y amplía el anterior `MicrosoftAuthModule`.
+
+| Feature | Responsabilidad |
+|---------|-----------------|
+| MicrosoftLoginFeature | Login con Microsoft Entra, emite JWT interno |
+| MicrosoftProfileFeature | Perfil Microsoft Graph (HttpClient) |
+| ContractorCredentialsFeature | Credenciales JWT para contratistas (tabla `contractor_users`) |
+| RoleFeature | CRUD roles + asignación de funcionalidades a roles |
+| UserFeature | Gestión de usuarios del sistema |
+
+Migración: `20260505173114_AddContractorUserCredentials` (tabla `contractor_users`).
+
+---
+
+### 11b. ConfigurationModule (`Features/ConfigurationModule/`)
+
+`ProjectFeature` — CRUD completo de proyectos AC (`Proyecto` en español). Controlador: `ProjectController`.
+
+---
+
+### 11c. GestionAdministrativaModule (`Features/GestionAdministrativaModule/`)
+
+Prefijo de entidades: `Ga*` (`GaLugar`, `GaMotivoSalida`, `GaHoraOpcion`, `GaSolicitudSalida`).
+
+| Feature | Responsabilidad |
+|---------|-----------------|
+| SolicitudSalidasFeature | Solicitudes de salida del personal |
+| GestionSalidasFeature | Aprobación y gestión de salidas |
+| LugaresFeature | Catálogo de lugares |
+| MotivosSalidaFeature | Catálogo de motivos de salida |
+
+---
+
+### 11d. MejoraContinuaModule (`Features/MejoraContinuaModule/`)
+
+| Feature | Responsabilidad |
+|---------|-----------------|
+| LessonsLearnedFeature | Lecciones aprendidas — CRUD, filtros paginados, exportación Excel |
+| AreasYSubareasFeature | CRUD áreas, subáreas y scopes PSSS |
+| PsssTemplateFeature | Plantillas PSSS (relación área/subárea → partidas) |
+| RelationsFeature | Relaciones área/subárea para lecciones (2026-05-14) |
+
+Modelos compartidos: `Partida`, `PsssScope`, `PsssTemplate`, `PsssTemplateDetail`, `SubArea` en `MejoraContinuaModule/Shared/Models/`.
+
+---
+
+### 11e. UnidadDeProyectosModule (`Features/UnidadDeProyectosModule/`)
+
+`LessonsLearnedDashboard` — dashboard consolidado de lecciones entre proyectos.
+
+---
+
+### 11f. CostsModule — nuevas sub-features de Configuration
+
+`Features/CostsModule/Features/Configuration/`:
+- `ProjectLinkFeature` — vínculos entre proyectos
+- `StaffProjectEmailFeature` — emails de staff por proyecto
+- `WorkItemCategoryFeature` — categorías de partidas
+- `WorkItemFeature` — catálogo de partidas
+
+**Adjudicaciones extendidas (2026-05-07 al 2026-05-15):**
+- Generación de contrato Word con cláusulas (`WordTemplateHelper` + `WorkItemCategoryClause`)
+- Generación de pagaré
+- Instructivo en paso de documentos
+- Notificación de correo en paso 5 (antes paso 6)
+- Filtro por proyectos en listado de adjudicaciones
+- Validación: 400 si ya existe un documento abierto al generar nuevo
+
+---
+
+### 11g. SsomaModule — nuevos controladores y servicios (2026-05-06 al 2026-05-18)
+
+| Controlador | Ruta | Descripción |
+|-------------|------|-------------|
+| `ClinicaUsuariosController` | `/catalogos/clinicas/{id}/usuarios` | CRUD usuarios por clínica — ver sección 12 |
+| `EmoAlertaController` | `/alertas/procesar|auto-programar|resumen-diario` | Triggers manuales de cron jobs |
+| `ReporteController` | `/reportes/sunafil-mensual` | Excel SUNAFIL mensual (ClosedXML) |
+
+Nuevos servicios registrados en `SsomaModule`:
+- `IEmoAlertaService` — evalúa vencimientos EMO
+- `IEmoAutoProgramacionService` — motor de auto-programación (cron mañana)
+- `IEmoResumenDiarioService` — resumen diario a clínicas (cron 4:30 pm Lima)
+
+Nuevos modelos:
+- `SsClinicaResetToken` — tokens de activación/reset de cuenta clínica
+- `SsSeguimientoMedico` — seguimiento médico post-EMO
+- `SsEmoRestriccion` — restricciones médicas por EMO
+- `SsClinicaEmail` — emails por clínica (`ss_clinica_emails`)
+
+---
+
+### 11h. HabilitacionModule — controladores nuevos (2026-05-04 al 2026-05-18)
+
+| Controlador | Ruta | Descripción |
+|-------------|------|-------------|
+| `InduccionController` | `/inducciones` | Programar, listar, aprobar inducciones |
+| `ControlAccesoController` | `/control-acceso` | Consulta habilitación en tiempo real, tareo, inducciones del día |
+| `TrabajadorRestringidoController` | `/restringidos` | Blacklist trabajadores (roles: ADMINISTRADOR SSOMA / ADMINISTRADOR ADMINISTRACION) |
+| `EmpresaContratistaController` | `/empresas` | CRUD empresas contratistas |
+| `CatalogosHabilitacionController` | `/catalogos` | Catálogos del módulo (items, áreas, subareas, categorías, ocupaciones) |
+| `RegistrosModeloController` | `/registros-modelo` | Registros modelo (público) |
+
+---
+
+## 12. ClinicaUsuariosModule — detalle
+
+**Tablas creadas manualmente en pgAdmin (sin migración EF):**
+
+| Tabla | Columnas clave |
+|-------|----------------|
+| `ss_clinica_usuarios` | `clinica_usuario_id`, `clinica_id`, `nombre`, `email`, `password_hash`, `activo`, `creado_por int`, `modificado_por int`, `desactivado_por int` |
+| `ss_clinica_tokens` | `token_id`, `clinica_usuario_id`, `token`, `tipo`, `expiracion`, `usado_en`, `ip_solicitud` |
+| `ss_clinica_auditoria` | `auditoria_id`, `clinica_usuario_id`, `clinica_id`, `accion`, `ip_origen`, `detalle_adicional jsonb` |
+
+**⚠️ creado_por / modificado_por / desactivado_por son `int?` en modelo, servicio, interfaz, DTO y controller — NO string.**
+
+**Archivos:**
+- `Infrastructure/Models/SsClinicaUsuario.cs` — PK no convencional, requiere `HasKey` en `OnModelCreating`
+- `Infrastructure/Models/SsClinicaToken.cs`
+- `Infrastructure/Models/SsClinicaAuditoria.cs`
+- `Application/Dtos/ClinicaUsuarios/ClinicaUsuarioDtos.cs`
+- `Application/Interfaces/IClinicaUsuarioService.cs` → `Application/Services/ClinicaUsuarioService.cs`
+- `Presentation/ClinicaUsuariosController.cs` — ruta: `api/v1/ssoma/salud-ocupacional/catalogos/clinicas/{clinicaId}/usuarios`
+- `Shared/ClinicaClaimsHelper.cs` — extrae `clinicaId` / `clinicaUsuarioId`; `ValidarAcceso()` restringe scope CLINICA
+
+**Estado actual:**
+- `[AllowAnonymous]` a nivel de clase en `ClinicaUsuariosController` — **temporal para desarrollo**
+- Validación scope: solo aplica si NO tiene rol ADMINISTRADOR SSOMA ni SSOMA
+
+**Pendiente:** quitar `[AllowAnonymous]` y reemplazar por auth correcta.
+
+---
+
+## 13. Trabajo pendiente
 
 ### Alta prioridad
 - Quitar `[AllowAnonymous]` de los 4 endpoints `/trabajadores/{id}/proyectos*`, `GET /eventos` y endpoints SSOMA

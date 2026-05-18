@@ -86,8 +86,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
 
                 int empresaResolved;
                 if (esContratista)
@@ -134,8 +133,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
 
                 int empresaResolved;
                 if (esContratista)

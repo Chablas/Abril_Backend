@@ -1362,7 +1362,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .FirstOrDefaultAsync();
 
                 var tieneEntregables = empresaId.HasValue && await ctx.SsEmpresaProyecto
-                    .AnyAsync(ep => ep.EmpresaId == empresaId.Value && ep.ProyectoId == dto.ProyectoId);
+                    .AnyAsync(ep => ep.Empresa != null && ep.Empresa.IdLegacy == empresaId.Value
+                                 && ep.ProyectoId == dto.ProyectoId);
                 if (!tieneEntregables)
                     throw new AbrilException("La empresa no tiene entregables registrados en este proyecto.", 400);
             }

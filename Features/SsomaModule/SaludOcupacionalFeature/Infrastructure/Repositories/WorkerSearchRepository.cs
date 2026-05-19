@@ -86,14 +86,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
+            var dniUpper = dto.Dni.Trim().ToUpper();
+
             var existeActivo = await ctx.Worker
                 .AnyAsync(w => w.Person != null && w.Person.DocumentIdentityCode != null
-                            && w.Person.DocumentIdentityCode.ToUpper() == dto.Dni.Trim().ToUpper()
+                            && w.Person.DocumentIdentityCode.ToUpper() == dniUpper
                             && w.Estado == "ACTIVO");
             if (existeActivo)
                 throw new AbrilException("Ya existe un trabajador activo con ese DNI.", 409);
 
-            var dniUpper = dto.Dni.Trim().ToUpper();
             var workerExistente = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.DocumentIdentityCode != null
                          && w.Person.DocumentIdentityCode.ToUpper() == dniUpper)
@@ -104,17 +105,28 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var now = DateTimeOffset.UtcNow;
 
-            var worker = new Worker
+            // Reusar Person existente para evitar error 23505 (unique en document_identity_code)
+            var person = await ctx.Person
+                .FirstOrDefaultAsync(p => p.DocumentIdentityCode != null
+                                       && p.DocumentIdentityCode.ToUpper() == dniUpper);
+            if (person == null)
             {
-                Person = new Person
+                person = new Person
                 {
                     FullName = dto.ApellidoNombre,
-                    DocumentIdentityCode = dto.Dni.Trim().ToUpper(),
+                    DocumentIdentityCode = dniUpper,
                     PhoneNumber = int.TryParse(dto.Celular, out var ph1) ? ph1 : (int?)null,
                     Active = true,
                     State = true,
                     CreatedDateTime = DateTime.UtcNow
-                },
+                };
+                ctx.Person.Add(person);
+                await ctx.SaveChangesAsync();
+            }
+
+            var worker = new Worker
+            {
+                Person = person,
                 EmailPersonal = dto.EmailPersonal,
                 EmailCorporativo = dto.EmailCorporativo,
                 FechaNacimiento = dto.FechaNacimiento,

@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-18 (segunda parte) — flujo completo auth contratistas: homologación auto-envía email, ContractorCredentials tolera app_user existente, allowedFeatures desde BD, empresaId claim usa ContributorId; FrontendSettings.ContractorCredentialsUrl añadida a appsettings
+> Última actualización: 2026-05-19 — flujo completo contratistas: worker create con proyecto+entregables automáticos, fix id_legacy en AgregarProyectoAsync, soloVerificacion bypass en GetWorkers, alias WorkerUpdateDto para ambigüedad namespace
 
 ---
 
@@ -413,16 +413,29 @@ En EF: `.OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id).FirstOr
 - Tabla `companies` eliminada. No usar ni referenciar.
 
 ### 7e. ss_hab_worker_proyecto — contratistas validados por ss_empresa_proyecto
+
+**IDs en juego (crítico — bug corregido 2026-05-19):**
+| Tabla | `EmpresaId` FK apunta a |
+|---|---|
+| `worker_vinculaciones` | `contributor.contributor_id` (ContributorId) |
+| `ss_empresa_proyecto` | `ss_empresa_contratista.id` (SsId) |
+| `ss_hab_worker_proyecto` | `contributor.contributor_id` (ContributorId) |
+
+La traducción se hace vía `SsEmpresaContratista.IdLegacy == ContributorId`.
+
 ```csharp
-// AgregarProyectoAsync — lógica actual
+// AgregarProyectoAsync — lógica actual (fix 2026-05-19)
 if (esContratista)
 {
     var empresaId = await ctx.WorkerVinculacion
         .Where(v => v.WorkerId == workerId && v.FechaFin == null)
         .Select(v => v.EmpresaId).FirstOrDefaultAsync();
+    // empresaId = ContributorId; SsEmpresaProyecto.EmpresaId = ss_empresa_contratista.id
+    // → traducir vía navigation property IdLegacy (no comparar directamente)
     var tieneEntregables = empresaId.HasValue &&
         await ctx.SsEmpresaProyecto
-            .AnyAsync(ep => ep.EmpresaId == empresaId.Value && ep.ProyectoId == dto.ProyectoId);
+            .AnyAsync(ep => ep.Empresa != null && ep.Empresa.IdLegacy == empresaId.Value
+                         && ep.ProyectoId == dto.ProyectoId);
     if (!tieneEntregables)
         throw new AbrilException("La empresa no tiene entregables registrados en este proyecto.", 400);
 }
@@ -1002,3 +1015,53 @@ La migración `20260505173114_AddContractorUserCredentials` también fue reescri
 - Eliminado `Microsoft.AspNetCore.Mvc` 2.3.9 (NU1510 — incluido en framework net10.0)
 - Sobrescrito `SixLabors.ImageSharp` → 3.1.12 (7 CVEs de `PdfSharpCore` 1.3.67; el código solo hace merge/lectura de PDF sin imágenes, seguro)
 - Sobrescrito `Microsoft.Kiota.Abstractions` → 1.22.2 (GHSA-7j59-v9qr-6fq9; compatible con Microsoft.Graph 5.x)
+
+---
+
+## Sesión 2026-05-19 — flujo completo creación trabajador contratista
+
+### WorkersController.Create — AgregarProyectoAsync + InicializarEntregablesAsync
+
+`Features/SsomaModule/.../Presentation/WorkersController.cs`:
+- Agregado `using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;`
+- Agregado alias `using WorkerUpdateDto = Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers.WorkerUpdateDto;` — resuelve ambigüedad con el `WorkerUpdateDto` del namespace Habilitacion que se importó con el using anterior
+- Después de `_service.Create(dto)`, si `dto.ProyectoId.HasValue`, llama `_habRepo.AgregarProyectoAsync(id, new AgregarProyectoDto { ProyectoId, EmpresaId, FechaInicio = dto.FechaIngreso })`
+- `InicializarEntregablesAsync(id)` se llama siempre (ya existía, ahora va después del bloque AgregarProyecto)
+
+Flujo completo para un contratista:
+1. `_service.Create(dto)` → crea `Worker` + `Person` (lookup-or-create) + `WorkerVinculacion` con `EmpresaId = ContributorId`
+2. `AgregarProyectoAsync` → crea fila en `ss_hab_worker_proyecto` + envía email coord SSOMA
+3. `InicializarEntregablesAsync` → genera checklist en `ss_hab_trabajador`
+
+### WorkerSearchRepository.Create — Person lookup-or-create (fix error 23505)
+
+`Features/SsomaModule/.../Infrastructure/Repositories/WorkerSearchRepository.cs`:
+- Antes de crear `Person`, busca si ya existe un registro en `ctx.Person` con el mismo `document_identity_code`
+- Si existe: reutiliza el objeto tracked (EF usa FK, no INSERT duplicado)
+- Si no existe: crea `Person` nuevo y llama `SaveChangesAsync` antes de crear `Worker`
+- Evita el error `23505 — duplicate key value violates unique constraint "person_document_identity_code_key"`
+
+### HabTrabajadorRepository.AgregarProyectoAsync — fix IdLegacy (bug crítico)
+
+`Features/HabilitacionModule/Infrastructure/Repositories/HabTrabajadorRepository.cs` línea ~1364:
+
+Bug: `WorkerVinculacion.EmpresaId` almacena `ContributorId`, pero `SsEmpresaProyecto.EmpresaId` almacena `ss_empresa_contratista.id` (SsId). La comparación directa siempre fallaba → `tieneEntregables = false` → excepción 400 siempre para contratistas.
+
+Fix aplicado:
+```csharp
+// Antes (bug):
+.AnyAsync(ep => ep.EmpresaId == empresaId.Value && ep.ProyectoId == dto.ProyectoId)
+
+// Después (fix):
+.AnyAsync(ep => ep.Empresa != null && ep.Empresa.IdLegacy == empresaId.Value
+             && ep.ProyectoId == dto.ProyectoId)
+```
+`SsEmpresaContratista.IdLegacy` == `ContributorId` — es el puente entre los dos espacios de IDs.
+
+### HabTrabajadorController.GetWorkers — parámetro soloVerificacion
+
+`Features/HabilitacionModule/Presentation/HabTrabajadorController.cs`:
+- Nuevo `[FromQuery] bool soloVerificacion = false`
+- Cuando `soloVerificacion = true`, el filtro `empresaId = empresaIdJwt` del contratista NO se aplica
+- Permite al frontend verificar si un DNI ya existe en cualquier empresa antes de registrar un nuevo trabajador
+- El frontend lo llama con `soloVerificacion: true` solo al verificar duplicados en `verificarExistenciaEnBd()`

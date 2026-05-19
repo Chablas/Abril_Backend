@@ -33,16 +33,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] string? estadoHabilitacion,
             [FromQuery] string? contratistaCasa,
             [FromQuery] bool soloRetirados = false,
+            [FromQuery] bool soloVerificacion = false,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
             try
             {
-                _logger.LogInformation("DEBUG tipo={tipo} empresaId={emp}",
-                    User.FindFirst("tipo")?.Value ?? "NULL",
-                    User.FindFirst("empresaId")?.Value ?? "NULL");
-
-                if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
+                if (User.FindFirst("tipo")?.Value == "CONTRATISTA" && !soloVerificacion)
                 {
                     if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))
                         return StatusCode(403, new { message = "Token de contratista inválido." });

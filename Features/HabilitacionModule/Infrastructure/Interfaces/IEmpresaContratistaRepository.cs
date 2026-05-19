@@ -9,6 +9,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
             string? search, string? tipo, bool? activo, int page, int pageSize);
         Task<bool> ExisteRucEnEmpresaContratistaAsync(string ruc);
         Task<bool> ExisteRucEnContributorAsync(string ruc);
+        Task<int?> GetContributorIdByRucAsync(string ruc);
         Task<SsEmpresaContratista> CreateAsync(SsEmpresaContratista empresa);
         Task<SsEmpresaContratista> UpdateAsync(SsEmpresaContratista empresa);
         Task<List<SsEmpresaProyecto>> GetProyectosAsync(int empresaId);

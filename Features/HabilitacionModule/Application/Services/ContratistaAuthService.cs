@@ -293,7 +293,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return new ContratistaTokenDto
             {
                 Token = new JwtSecurityTokenHandler().WriteToken(token),
-                EmpresaId = contractor.ContractorId,
+                EmpresaId = contractor.ContributorId,
                 RazonSocial = contributor.ContributorName,
                 Tipo = "CONTRATISTA",
                 AllowedFeatures = allowedFeatures

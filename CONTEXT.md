@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-19 — flujo completo contratistas: worker create con proyecto+entregables automáticos, fix id_legacy en AgregarProyectoAsync, soloVerificacion bypass en GetWorkers, alias WorkerUpdateDto para ambigüedad namespace
+> Última actualización: 2026-05-19 — flujo completo contratistas: worker create/baja/reingreso, entregables automáticos, fix id_legacy en AgregarProyectoAsync y GetProyectosAsync, auto-creación ss_empresa_contratista al aprobar homologación, fix claim empresaId=ContributorId, fix subido_por_empresa_id × 3 repos, fix archivo_url path relativo
 
 ---
 
@@ -530,6 +530,34 @@ Añadida en `appsettings.Production.json` y `appsettings.Local.json`:
 La propiedad existía en `FrontendSettings.cs` pero faltaba en los archivos de config.
 
 ---
+
+### 7p. IdLegacy — propagación automática al aprobar homologación
+
+`ContractorManagementRepository.Approve()` (2026-05-19): al aprobar un contratista, garantiza que `ss_empresa_contratista` tenga el `id_legacy` correcto:
+1. Si no existe fila con el mismo RUC → la crea con `IdLegacy = contributor.ContributorId`, `Activo = false`, `PasswordHash = "PENDIENTE_RESET"`.
+2. Si existe pero `IdLegacy == null` → lo asigna.
+
+Esto evita que el flujo de habilitación falle por ausencia del vínculo IdLegacy cuando el contratista aún no ha completado el registro SSOMA.
+
+### 7q. EmpresaContratistaRepository.GetProyectosAsync — doble lookup ContributorId/SsId
+
+`GetProyectosAsync(empresaId)` acepta tanto `ContributorId` (contratistas vía JWT) como `ss_empresa_contratista.id` (admin). Lógica:
+```csharp
+var ssId = await ctx.SsEmpresaContratista
+    .Where(e => e.IdLegacy == empresaId)
+    .Select(e => e.Id)
+    .FirstOrDefaultAsync();
+var idEfectivo = ssId != 0 ? ssId : empresaId;  // ContributorId si no hay match
+```
+Fallback al valor directo si no hay fila con `id_legacy` coincidente (ej. admin pasando `ss_empresa_contratista.id`).
+
+### 7r. EmpresaContratistaController.Create — auto-resolución IdLegacy por RUC
+
+Al crear una empresa contratista, si `dto.IdLegacy` es null, el controller intenta resolverlo:
+```csharp
+var idLegacy = dto.IdLegacy ?? await _repo.GetContributorIdByRucAsync(dto.Ruc);
+```
+`GetContributorIdByRucAsync` busca `contributor WHERE contributor_ruc = ruc → contributor_id`. Devuelve `null` si no existe. Ya no retorna 400 cuando el RUC ya está en `contributor` — ahora vincula automáticamente vía `IdLegacy`.
 
 ### 7l. Tablas y columnas creadas manualmente (sin migración EF efectiva)
 - `worker_eventos` — `DbSet` con `HasColumnType("jsonb")` para `Datos`

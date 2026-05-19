@@ -86,8 +86,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 if (await _repo.ExisteRucEnEmpresaContratistaAsync(dto.Ruc))
                     return StatusCode(400, new { message = "Ya existe una empresa contratista registrada con ese RUC." });
 
-                if (await _repo.ExisteRucEnContributorAsync(dto.Ruc))
-                    return StatusCode(400, new { message = "El RUC ya está registrado en el sistema como empresa. Contacte al administrador." });
+                // Si no se proporcionó IdLegacy, intentar resolverlo desde contributor por RUC
+                var idLegacy = dto.IdLegacy ?? await _repo.GetContributorIdByRucAsync(dto.Ruc);
 
                 var empresa = new SsEmpresaContratista
                 {
@@ -107,7 +107,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     Activo = dto.Activo,
                     ActivoRetirado = dto.ActivoRetirado,
                     ProyectoId = dto.ProyectoId,
-                    IdLegacy = dto.IdLegacy,
+                    IdLegacy = idLegacy,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };

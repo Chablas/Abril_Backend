@@ -64,6 +64,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return await ctx.Contributor.AnyAsync(c => c.ContributorRuc == ruc);
         }
 
+        public async Task<int?> GetContributorIdByRucAsync(string ruc)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var id = await ctx.Contributor
+                .Where(c => c.ContributorRuc == ruc)
+                .Select(c => c.ContributorId)
+                .FirstOrDefaultAsync();
+            return id == 0 ? null : id;
+        }
+
         public async Task<SsEmpresaContratista> CreateAsync(SsEmpresaContratista empresa)
         {
             using var ctx = _factory.CreateDbContext();
@@ -83,9 +93,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<List<SsEmpresaProyecto>> GetProyectosAsync(int empresaId)
         {
             using var ctx = _factory.CreateDbContext();
+
+            // empresaId puede ser ContributorId (contratista vía JWT) o ss_empresa_contratista.Id (admin).
+            // Se prueba id_legacy primero; si no hay match se usa el Id directo.
+            var ssId = await ctx.SsEmpresaContratista
+                .Where(e => e.IdLegacy == empresaId)
+                .Select(e => e.Id)
+                .FirstOrDefaultAsync();
+
+            var idEfectivo = ssId != 0 ? ssId : empresaId;
+
             return await ctx.SsEmpresaProyecto
                 .Include(ep => ep.Proyecto)
-                .Where(ep => ep.EmpresaId == empresaId)
+                .Where(ep => ep.EmpresaId == idEfectivo)
                 .ToListAsync();
         }
 

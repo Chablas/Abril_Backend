@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-19 — fix proyectos afiliados en programar induccion, fix res.path en empresa/sctr/registro, fix badges inducciones contratista; InduccionListDto con IngresoConfirmado/FechaIngreso; InduccionController.GetList inyecta empresaId del JWT para CONTRATISTA
+> Última actualización: 2026-05-19 — SctrVidaLeyController empresaId JWT para CONTRATISTA; SctrVidaLeyRepository WorkerVinculacion primario + SctrHabId; ArchivoHabilitacionController [AllowAnonymous] en Descargar; ReingresoAsync safety check vinculación; endpoint reparar-vinculaciones
 
 ---
 
@@ -1266,3 +1266,36 @@ Commit `23f2b7f`.
 | `SctrVidaLeyController.GetPaged`: inyecta `empresaId` del JWT para CONTRATISTA | `SctrVidaLeyController.cs` | `4a8363d` |
 | `GetPagedAsync`: `HasPendientes = true` cuando no hay entregables | `EquipoRepository.cs` | `c225e14` |
 | `worker_vinculaciones` id=7672 `fecha_fin` → NULL (dato corrupto) | pgAdmin manual | — |
+
+---
+
+## Sesión 2026-05-19 (tarde) — feature/arquitectura-comercial
+
+### SctrVidaLeyController — inyección empresaId JWT para CONTRATISTA
+
+`GET /habilitacion/sctr-vidaley` (GetPaged): si el rol del JWT es `CONTRATISTA`, se extrae `empresaId` del claim y se sobreescribe el parámetro de query — el contratista solo ve sus propias pólizas.
+
+### SctrVidaLeyRepository — fix Contains("ABRIL") → ContributorId directo
+
+`GetTrabajadoresPorEmpresaAsync`: el check `contributor.ContributorName.ToUpper().Contains("ABRIL")` fue reemplazado por comprobar simplemente que `contributor != null` (si el registro existe en la tabla contributor, ya es un ContributorId válido para Abril). Elimina falsos negativos si el nombre cambia.
+
+### SctrVidaLeyRepository — WorkerVinculacion como fuente primaria
+
+`GetTrabajadoresPorEmpresaAsync`: `WorkerVinculacion` es siempre la fuente primaria; `WorkerProyecto` se añade como unión suplementaria solo cuando `proyectoId.HasValue`. Antes, `WorkerProyecto` era primario y `WorkerVinculacion` era fallback → devolvía 1 de 3 workers en ciertos proyectos.
+
+### SctrWorkerDto — nuevo campo SctrHabId
+
+`SctrWorkerDto.cs`: añadido `public int? SctrHabId { get; set; }`.  
+`BuildDtosAsync`: captura `hab?.Id` del `SsHabTrabajador` correspondiente al worker y al itemTipo — permite al frontend mostrar el historial de versiones de documentos por worker en el tab Pólizas.
+
+### ArchivoHabilitacionController — [AllowAnonymous] en Descargar
+
+`GET /habilitacion/archivos/descargar`: añadido `[AllowAnonymous]`. El botón de descarga usa `window.open()` que no envía el JWT → sin este atributo retornaba 401 silencioso.
+
+### HabTrabajadorRepository — ReingresoAsync safety check vinculación
+
+Después de `SaveChanges`, si el trabajador no tiene ninguna vinculación abierta (no `FechaFin IS NULL`), se crea automáticamente una nueva con la empresa/proyecto de la última vinculación cerrada. Previene que el trabajador quede sin vinculación activa y desaparezca de los listados filtrados.
+
+### Endpoint GET /habilitacion/trabajadores/reparar-vinculaciones
+
+Endpoint de mantenimiento disponible solo para roles aprobadores. Detecta y repara trabajadores con vinculaciones en estado inconsistente (sin ninguna vinculación abierta). Usado para correcciones masivas de datos históricos sin intervención directa en base de datos.

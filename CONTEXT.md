@@ -1065,3 +1065,37 @@ Fix aplicado:
 - Cuando `soloVerificacion = true`, el filtro `empresaId = empresaIdJwt` del contratista NO se aplica
 - Permite al frontend verificar si un DNI ya existe en cualquier empresa antes de registrar un nuevo trabajador
 - El frontend lo llama con `soloVerificacion: true` solo al verificar duplicados en `verificarExistenciaEnBd()`
+
+### SubidoPorEmpresaId — fix ContributorId → SsId en tres repositorios
+
+`SsHabDocumentoVersion.SubidoPorEmpresaId` espera `ss_empresa_contratista.id` (SsId), pero el JWT `empresaId` claim es `ContributorId` desde 2026-05-18. Los tres repositorios que crean versiones de documento tenían el mismo bug:
+
+| Archivo | Método |
+|---|---|
+| `HabTrabajadorRepository.cs` ~línea 290 | `UpdateEntregableAsync` |
+| `HabEmpresaRepository.cs` ~línea 76 | `UpdateEntregableEmpresaAsync` |
+| `EquipoRepository.cs` ~línea 261 | `UpdateEntregableEquipoAsync` |
+
+Fix aplicado en los tres (mismo patrón):
+```csharp
+int? ssEmpresaId = null;
+if (empresaId.HasValue)
+    ssEmpresaId = await ctx.SsEmpresaContratista
+        .Where(e => e.IdLegacy == empresaId.Value)
+        .Select(e => (int?)e.Id)
+        .FirstOrDefaultAsync();
+// ... luego:
+SubidoPorEmpresaId = ssEmpresaId,
+```
+Si `IdLegacy` no tiene match → `null` (sin error).
+
+### SharePointHabService — arquitectura de storage
+
+`SubirArchivoAsync` devuelve siempre el **path relativo** (`habilitacion/contexto/YYYYMMDD_archivo.pdf`).  
+`GetDownloadUrlAsync` genera la URL absoluta firmada de SharePoint bajo demanda (Graph API redirect).  
+`GetDownloadUrlAsync` tiene fallback: si recibe una URL absoluta (`https://...`) la devuelve tal cual con log `"URL absoluta detectada"` — indica que `archivo_url` en BD contiene una URL expirada en lugar del path relativo.
+
+Endpoints de visualización (`ArchivoHabilitacionController`):
+- `GET /archivos/url?path=` → `{ url }` para abrir en nueva pestaña
+- `GET /archivos/ver?url=` → `302 Redirect` directo
+- `GET /archivos/descargar?url=` → `302 Redirect` con `Content-Disposition: attachment`

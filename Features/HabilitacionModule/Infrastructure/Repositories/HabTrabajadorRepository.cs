@@ -287,6 +287,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .ThenByDescending(v => v.Id)
                     .FirstOrDefaultAsync();
 
+                int? ssEmpresaId = null;
+                if (empresaId.HasValue)
+                    ssEmpresaId = await ctx.SsEmpresaContratista
+                        .Where(e => e.IdLegacy == empresaId.Value)
+                        .Select(e => (int?)e.Id)
+                        .FirstOrDefaultAsync();
+
                 var versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v => v.HabTrabajadorId == id);
 
@@ -296,7 +303,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Version = versionActual + 1,
                     ArchivoUrl = (esArchivoNuevo ? dto.ArchivoUrl : entregable.ArchivoUrl) ?? string.Empty,
                     SubidoPorUserId = userId,
-                    SubidoPorEmpresaId = empresaId,
+                    SubidoPorEmpresaId = ssEmpresaId,
                     EstadoAlSubir = dto.Estado,
                     EstadoAnterior = estadoAnterior,
                     ProyectoId = vinculacion?.ProyectoId,

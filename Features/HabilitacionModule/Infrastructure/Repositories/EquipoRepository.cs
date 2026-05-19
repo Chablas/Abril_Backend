@@ -260,6 +260,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
             {
+                int? ssEmpresaId = null;
+                if (empresaId.HasValue)
+                    ssEmpresaId = await ctx.SsEmpresaContratista
+                        .Where(e => e.IdLegacy == empresaId.Value)
+                        .Select(e => (int?)e.Id)
+                        .FirstOrDefaultAsync();
+
                 var versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v => v.HabEquipoId == id);
 
@@ -269,7 +276,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Version = versionActual + 1,
                     ArchivoUrl = dto.ArchivoUrl,
                     SubidoPorUserId = userId,
-                    SubidoPorEmpresaId = empresaId,
+                    SubidoPorEmpresaId = ssEmpresaId,
                     EstadoAlSubir = dto.Estado,
                     CreatedAt = DateTime.UtcNow
                 });

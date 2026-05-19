@@ -835,6 +835,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             await ctx.SaveChangesAsync();
 
+            // Safety check: garantiza que el worker tiene al menos una vinculación activa.
+            // Cubre casos de datos corruptos previos o race conditions inesperadas.
+            var openCount = await ctx.WorkerVinculacion
+                .CountAsync(v => v.WorkerId == workerId && v.FechaFin == null);
+            if (openCount == 0)
+            {
+                var ultimaCerrada = await ctx.WorkerVinculacion
+                    .Where(v => v.WorkerId == workerId)
+                    .OrderByDescending(v => v.CreatedAt)
+                    .ThenByDescending(v => v.Id)
+                    .FirstOrDefaultAsync();
+                ctx.WorkerVinculacion.Add(new WorkerVinculacion
+                {
+                    WorkerId    = workerId,
+                    EmpresaId   = ultimaCerrada?.EmpresaId,
+                    ProyectoId  = ultimaCerrada?.ProyectoId,
+                    FechaInicio = fechaReingreso,
+                    CreatedAt   = DateTimeOffset.UtcNow,
+                });
+                await ctx.SaveChangesAsync();
+                _logger.LogWarning(
+                    "[ReingresoAsync] Safety check activado: worker {WorkerId} quedó sin vinculación activa — reparada (empresa={Empresa}, proyecto={Proyecto}).",
+                    workerId, ultimaCerrada?.EmpresaId, ultimaCerrada?.ProyectoId);
+            }
+
             foreach (var (to, subject, body) in pendingEmails)
                 await EnviarEmailSilenciosoAsync(to, subject, body);
         }
@@ -1554,6 +1579,72 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             asignacion.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<WorkerReparacionVinculacionDto>> RepararVinculacionesAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // 1. Todos los workers con estado ACTIVO
+            var activoIds = await ctx.Worker
+                .Where(w => w.Estado == "ACTIVO")
+                .Select(w => w.Id)
+                .ToListAsync();
+
+            if (activoIds.Count == 0) return [];
+
+            // 2. Subset que YA tiene vinculación abierta
+            var conVincActiva = await ctx.WorkerVinculacion
+                .Where(v => activoIds.Contains(v.WorkerId) && v.FechaFin == null)
+                .Select(v => v.WorkerId)
+                .Distinct()
+                .ToListAsync();
+
+            var sinVincActiva = activoIds.Except(conVincActiva).ToList();
+
+            if (sinVincActiva.Count == 0) return [];
+
+            // 3. Recuperar en bloque todas las vinculaciones (cerradas) de esos workers
+            var todasCerradas = await ctx.WorkerVinculacion
+                .Where(v => sinVincActiva.Contains(v.WorkerId))
+                .OrderByDescending(v => v.CreatedAt)
+                .ThenByDescending(v => v.Id)
+                .ToListAsync();
+
+            // La query ya viene ordenada desc; First() da la más reciente por worker
+            var ultimaPorWorker = todasCerradas
+                .GroupBy(v => v.WorkerId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+            var now = DateTimeOffset.UtcNow;
+            var reparados = new List<WorkerReparacionVinculacionDto>();
+
+            foreach (var workerId in sinVincActiva)
+            {
+                ultimaPorWorker.TryGetValue(workerId, out var ultima);
+                ctx.WorkerVinculacion.Add(new WorkerVinculacion
+                {
+                    WorkerId    = workerId,
+                    EmpresaId   = ultima?.EmpresaId,
+                    ProyectoId  = ultima?.ProyectoId,
+                    FechaInicio = hoy,
+                    CreatedAt   = now,
+                });
+                reparados.Add(new WorkerReparacionVinculacionDto
+                {
+                    WorkerId   = workerId,
+                    EmpresaId  = ultima?.EmpresaId,
+                    ProyectoId = ultima?.ProyectoId,
+                });
+                _logger.LogWarning(
+                    "[RepararVinculaciones] Worker {WorkerId} reparado (empresa={Empresa}, proyecto={Proyecto}).",
+                    workerId, ultima?.EmpresaId, ultima?.ProyectoId);
+            }
+
+            await ctx.SaveChangesAsync();
+            _logger.LogWarning("[RepararVinculaciones] Total reparados: {Count}.", reparados.Count);
+            return reparados;
         }
 
         private static string BuildBodyNuevoProyecto(Worker worker, Project proyecto, DateOnly fechaInicio)

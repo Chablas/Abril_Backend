@@ -41,5 +41,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task RetirarDeProyectoAsync(int workerId, int proyectoId);
 
         Task MarcarInduccionAsync(int workerId, int proyectoId);
+
+        Task<List<WorkerReparacionVinculacionDto>> RepararVinculacionesAsync();
     }
 }

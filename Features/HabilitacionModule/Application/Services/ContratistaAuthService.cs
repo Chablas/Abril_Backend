@@ -279,7 +279,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
                 new Claim(ClaimTypes.Name, contributor.ContributorName),
                 new Claim(ClaimTypes.Role, "CONTRATISTA"),
-                new Claim("empresaId", contractor.ContractorId.ToString()),
+                new Claim("empresaId", contractor.ContributorId.ToString()),
                 new Claim("tipo", "CONTRATISTA"),
             };
 

@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-18 (módulos nuevos: AuthModule, ConfigurationModule, GestionAdministrativaModule, MejoraContinuaModule, UnidadDeProyectosModule; Worker.PersonId+ContributorId nav props; ClinicaUsuariosModule; adjudicaciones contrato completo; motor EMO automático; ContractorEmail.UserId; SsResetToken.UserId; fix registro contratistas SharePoint lazy; NuGet vulns corregidas)
+> Última actualización: 2026-05-18 (segunda parte) — flujo completo auth contratistas: homologación auto-envía email, ContractorCredentials tolera app_user existente, allowedFeatures desde BD, empresaId claim usa ContributorId; FrontendSettings.ContractorCredentialsUrl añadida a appsettings
 
 ---
 
@@ -464,6 +464,59 @@ Pisar con null borra el documento ya subido.
 
 ### 7k. SharePointHabService — Singleton
 El token OAuth2 y el `driveId` del sitio se cachean en la instancia. Registrar como `AddSingleton`.
+
+---
+
+## 8. Sesión 2026-05-18 (segunda parte) — flujo auth contratistas
+
+### Homologación → auto-envío de credenciales
+
+`ContractorManagementService.Approve()` ahora incluye la lógica de `SendCredentials`: genera token de activación, lo guarda en `contractor.activation_token` y envía el email inmediatamente. Si el contratista no tiene emails registrados, la aprobación igual completa sin error.
+
+### ContractorCredentialsRepository.Create() — tolera app_user existente
+
+Antes lanzaba `AbrilException("Ya existe un usuario con este correo electrónico.", 400)`.  
+Ahora: si el `app_user` ya existe, reutiliza el usuario y actualiza la contraseña. Si no existe, crea el registro. En ambos casos verifica con `AnyAsync` antes de insertar `ContractorUser` y `UserRole` para evitar duplicados.
+
+### ContratistaAuthService — allowedFeatures desde BD
+
+`GenerarTokenDto` recibe `List<string> allowedFeatures` como parámetro (antes era array hardcodeado).  
+Nuevo helper privado:
+```csharp
+private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx)
+    => ctx.Database.SqlQuery<string>($"""
+        SELECT f.feature_key
+        FROM feature f
+        JOIN role_feature rf ON rf.feature_id = f.feature_id
+        JOIN role r ON r.role_id = rf.role_id
+        WHERE r.role_description = 'CONTRATISTA'
+        """).ToListAsync();
+```
+Llamado desde `LoginAsync` y `ActivarCuentaAsync`. Gestionar features del contratista directamente en `role_feature` BD.
+
+### ContratistaAuthService — claim empresaId usa ContributorId
+
+```csharp
+// ANTES
+new Claim("empresaId", contractor.ContractorId.ToString())
+// AHORA
+new Claim("empresaId", contractor.ContributorId.ToString())
+```
+
+### ContratistaAuthService — ILogger y debug BCrypt
+
+Inyectado `ILogger<ContratistaAuthService>`. Log temporal en `LoginAsync` tras BCrypt.Verify para diagnóstico. **Eliminar antes de merge a master.**
+
+### FrontendSettings — ContractorCredentialsUrl
+
+Añadida en `appsettings.Production.json` y `appsettings.Local.json`:
+```json
+"ContractorCredentialsUrl": "https://abril-frontend.onrender.com/auth/contractor-credentials"
+```
+`appsettings.Local.json` tiene temporalmente `http://localhost:4200/auth/contractor-credentials` — **revertir antes de merge a master**.  
+La propiedad existía en `FrontendSettings.cs` pero faltaba en los archivos de config.
+
+---
 
 ### 7l. Tablas y columnas creadas manualmente (sin migración EF efectiva)
 - `worker_eventos` — `DbSet` con `HasColumnType("jsonb")` para `Datos`

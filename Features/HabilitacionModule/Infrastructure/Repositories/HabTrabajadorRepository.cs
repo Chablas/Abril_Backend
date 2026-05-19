@@ -68,7 +68,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     PersonFullName = w.Person != null ? w.Person.FullName : null,
                     PersonDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     LatestVinc = ctx.WorkerVinculacion
-                        .Where(v => v.WorkerId == w.Id)
+                        .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
                         .OrderByDescending(v => v.CreatedAt)
                         .ThenByDescending(v => v.Id)
                         .FirstOrDefault(),

@@ -280,5 +280,25 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.MarcarInduccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        [HttpGet("reparar-vinculaciones")]
+        public async Task<IActionResult> RepararVinculaciones()
+        {
+            if (!User.Claims.Any(c => c.Type == ClaimTypes.Role && RolesAprobadores.Contains(c.Value)))
+                return StatusCode(403, new { message = "Solo administradores pueden ejecutar esta operación." });
+            try
+            {
+                var reparados = await _repo.RepararVinculacionesAsync();
+                return Ok(new
+                {
+                    total = reparados.Count,
+                    message = reparados.Count == 0
+                        ? "No se encontraron workers con vinculaciones inconsistentes."
+                        : $"{reparados.Count} worker(s) reparados.",
+                    workers = reparados,
+                });
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.RepararVinculaciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

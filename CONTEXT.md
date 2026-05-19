@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-19 — fix proyectos afiliados en programar induccion, fix res.path en empresa/sctr/registro, fix badges inducciones contratista; InduccionListDto con IngresoConfirmado/FechaIngreso; InduccionController.GetList inyecta empresaId del JWT para CONTRATISTA
+> Última actualización: 2026-05-19 — SctrVidaLeyController empresaId JWT para CONTRATISTA; SctrVidaLeyRepository WorkerVinculacion primario + SctrHabId; ArchivoHabilitacionController [AllowAnonymous] en Descargar; ReingresoAsync safety check vinculación; endpoint reparar-vinculaciones
 
 ---
 
@@ -1158,3 +1158,144 @@ Mismo patrón que `EquiposController` y `HabTrabajadorController`. El `empresaId
 ### Notas para el frontend (registradas en su CONTEXT.md)
 - `programar-induccion` en `trabajadores/components/` y en `inducciones/components/`: ambos corregidos para CONTRATISTA — cargan proyectos vía `EmpresaContratistaService.getProyectos()` en vez de todos los proyectos del sistema.
 - `empresa.ts`, `sctr-subir.ts`, `registro-empresa.ts`: corregidos para usar `res.path` en vez de `res.url` al guardar resultado del upload. `trabajadores.ts` y `equipos.ts` ya estaban correctos.
+
+## Sesión 2026-05-19 (tercera parte) — bugs contratista retirados/reingreso/proyectos afiliados
+
+### Bug fix EmpresaContratistaRepository: resolución IdLegacy dos pasos para proyectos afiliados
+
+`GetProyectosAsync` usaba `ssId != 0 ? ssId : empresaId` como fallback directo, lo que pasaba el `ContributorId` como si fuera un `ss_empresa_contratista.id` cuando `IdLegacy` era null. Corregido con resolución de dos pasos:
+1. Buscar `SsEmpresaContratista` por `IdLegacy == empresaId`
+2. Si no encuentra, resolver vía RUC: `Contributor.ContributorRuc` → `SsEmpresaContratista` por RUC
+
+Solo si ambos fallan se usa `empresaId` directamente (fallback admin). Esto garantiza que los contratistas vean sus proyectos afiliados correctamente.
+
+### Bug fix HabTrabajadorRepository: LatestVincActiva vs LatestVincCualquiera según soloRetirados
+
+`GetWorkersHabilitacionAsync` usaba una sola subquery `LatestVinc` con `FechaFin == null`. Al agregar ese filtro para corregir el 403 de trabajadores activos, los retirados (cuya vinculación tiene `FechaFin` seteada al momento del retiro) dejaban de aparecer en la vista de retirados de la empresa contratista.
+
+Solución: dos subqueries paralelas en la proyección EF:
+- `LatestVincActiva` — `WHERE fecha_fin IS NULL`, ordenado por `CreatedAt DESC, Id DESC`
+- `LatestVincCualquiera` — sin filtro de `FechaFin`, misma ordenación
+
+El filtro de `empresaId` y `proyectoId` usa `LatestVincActiva` cuando `soloRetirados=false` y `LatestVincCualquiera` cuando `soloRetirados=true`. El mapeo al DTO final también usa la subquery correcta según el flag.
+
+### Bug fix ReingresoAsync: siempre crea vinculación nueva al reingresar
+
+`ReingresoAsync` solo creaba nueva `WorkerVinculacion` dentro de `if (esCambioProyecto || esCambioEmpresa)`. Para contratistas, `esCambioEmpresa` es siempre `false` (`!esContratista = false`) y si el reingreso era al mismo proyecto, `esCambioProyecto` también era `false` — resultado: vinculación anterior cerrada, ninguna nueva creada, trabajador quedaba sin vinculación activa.
+
+Corregido eliminando el guard `if (esCambioProyecto || esCambioEmpresa)`. El reingreso siempre cierra la vinculación anterior (si existe) y crea una nueva con `FechaInicio = fechaReingreso` y `FechaFin = null`.
+
+### Dato corrupto worker 2473 corregido manualmente en BD
+
+`worker_vinculaciones` id=7672 (worker_id=2473, empresa_id=408, proyecto_id=8) tenía `fecha_fin = fecha_inicio = 2026-05-19`. Investigación exhaustiva del código descartó bug: no hay triggers de negocio en `worker_vinculaciones` (solo `RI_ConstraintTrigger` de FK), ningún método C# establece `FechaFin` al crear una vinculación. Dato corrupto por acción manual puntual. Corregido directamente en BD: `fecha_fin = NULL`.
+
+---
+
+## Sesión 2026-05-19 (cuarta parte) — bugs contratista Equipos y SCTR
+
+### EquipoRepository: HasPendientes corregido cuando no hay entregables
+
+`GetPagedAsync` calculaba `HasPendientes = Any(entregable NOT IN {Aprobado, NoAplica})`. Sin entregables registrados, `Any(...)` retorna `false` → badge "Habilitado" incorrecto para equipos sin documentación.
+
+Fix:
+```csharp
+HasPendientes = !ctx.SsHabEquipo.Any(h => h.EquipoId == e.Id)
+             || ctx.SsHabEquipo.Any(h => h.EquipoId == e.Id
+                    && h.Estado != "No Aplica" && h.Estado != "Aprobado")
+```
+Sin entregables → `HasPendientes = true` → badge "No Autorizado". Commit `c225e14`.
+
+### SctrVidaLeyController.GetPaged — scope empresaId para CONTRATISTA
+
+Mismo patrón que `EquiposController` e `InduccionController`:
+```csharp
+if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
+{
+    if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var contraId))
+        return StatusCode(403, new { message = "Token de contratista inválido." });
+    empresaId = contraId;
+}
+```
+Sin este bloque, CONTRATISTA veía todas las pólizas del sistema. Commit `4a8363d`.
+
+### SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync — quitado check Contains("ABRIL")
+
+**Bug**: cuando `empresaId` es ContributorId de contratista, el `contributor` SÍ se encuentra en la tabla (es un ContributorId válido), pero el nombre no contiene "ABRIL" → caía al `else` que hacía `WHERE ss_empresa_contratista.id == empresaId` (tratando ContributorId como SsId) → 0 workers.
+
+**Fix**: si `contributor != null`, ya es ContributorId directo (independientemente del nombre). El lookup vía `IdLegacy` solo corre cuando `contributor == null`.
+
+```csharp
+// ANTES:
+if (contributor != null
+    && contributor.ContributorName != null
+    && contributor.ContributorName.ToUpper().Contains("ABRIL"))
+
+// DESPUÉS:
+if (contributor != null)  // si está en la tabla contributor, ya es ContributorId válido
+```
+Commit `23f2b7f`.
+
+### ReingresoAsync — recuperar empresa/proyecto de última vinculación cerrada
+
+**Bug**: cuando el trabajador fue correctamente retirado (vinculación cerrada con `FechaFin`), `vinculActual == null` → `currentEmpresaId = null`, `currentProyectoId = null` → nueva vinculación creada con nulls → trabajador no aparece en listados filtrados por empresa/proyecto.
+
+**Fix**: cuando `vinculActual == null`, recuperar la última vinculación cerrada:
+```csharp
+if (vinculActual == null)
+{
+    var vinculAnterior = await ctx.WorkerVinculacion
+        .Where(v => v.WorkerId == workerId)
+        .OrderByDescending(v => v.CreatedAt)
+        .ThenByDescending(v => v.Id)
+        .FirstOrDefaultAsync();
+    currentProyectoId = vinculAnterior?.ProyectoId;
+    currentEmpresaId  = vinculAnterior?.EmpresaId;
+}
+```
+Commit `23f2b7f`.
+
+### Resumen acumulado de todos los fixes CONTRATISTA de la sesión 2026-05-19
+
+| Fix | Archivo | Commit |
+|-----|---------|--------|
+| `EmpresaContratistaRepository.GetProyectosAsync`: resolución IdLegacy en dos pasos (por `IdLegacy`, luego por RUC) | `EmpresaContratistaRepository.cs` | tercera parte |
+| `GetWorkersHabilitacionAsync`: dos subqueries `LatestVincActiva` (FechaFin IS NULL) y `LatestVincCualquiera` (sin filtro) según `soloRetirados` | `HabTrabajadorRepository.cs` | tercera parte |
+| `ReingresoAsync`: eliminado guard `if (esCambioProyecto \|\| esCambioEmpresa)` — siempre crea vinculación nueva al reingresar | `HabTrabajadorRepository.cs` | tercera parte |
+| `ReingresoAsync`: recupera empresa/proyecto de última vinculación cerrada cuando `vinculActual == null` | `HabTrabajadorRepository.cs` | `23f2b7f` |
+| `GetTrabajadoresPorEmpresaAsync`: quitado check `Contains("ABRIL")` | `SctrVidaLeyRepository.cs` | `23f2b7f` |
+| `SctrVidaLeyController.GetPaged`: inyecta `empresaId` del JWT para CONTRATISTA | `SctrVidaLeyController.cs` | `4a8363d` |
+| `GetPagedAsync`: `HasPendientes = true` cuando no hay entregables | `EquipoRepository.cs` | `c225e14` |
+| `worker_vinculaciones` id=7672 `fecha_fin` → NULL (dato corrupto) | pgAdmin manual | — |
+
+---
+
+## Sesión 2026-05-19 (tarde) — feature/arquitectura-comercial
+
+### SctrVidaLeyController — inyección empresaId JWT para CONTRATISTA
+
+`GET /habilitacion/sctr-vidaley` (GetPaged): si el rol del JWT es `CONTRATISTA`, se extrae `empresaId` del claim y se sobreescribe el parámetro de query — el contratista solo ve sus propias pólizas.
+
+### SctrVidaLeyRepository — fix Contains("ABRIL") → ContributorId directo
+
+`GetTrabajadoresPorEmpresaAsync`: el check `contributor.ContributorName.ToUpper().Contains("ABRIL")` fue reemplazado por comprobar simplemente que `contributor != null` (si el registro existe en la tabla contributor, ya es un ContributorId válido para Abril). Elimina falsos negativos si el nombre cambia.
+
+### SctrVidaLeyRepository — WorkerVinculacion como fuente primaria
+
+`GetTrabajadoresPorEmpresaAsync`: `WorkerVinculacion` es siempre la fuente primaria; `WorkerProyecto` se añade como unión suplementaria solo cuando `proyectoId.HasValue`. Antes, `WorkerProyecto` era primario y `WorkerVinculacion` era fallback → devolvía 1 de 3 workers en ciertos proyectos.
+
+### SctrWorkerDto — nuevo campo SctrHabId
+
+`SctrWorkerDto.cs`: añadido `public int? SctrHabId { get; set; }`.  
+`BuildDtosAsync`: captura `hab?.Id` del `SsHabTrabajador` correspondiente al worker y al itemTipo — permite al frontend mostrar el historial de versiones de documentos por worker en el tab Pólizas.
+
+### ArchivoHabilitacionController — [AllowAnonymous] en Descargar
+
+`GET /habilitacion/archivos/descargar`: añadido `[AllowAnonymous]`. El botón de descarga usa `window.open()` que no envía el JWT → sin este atributo retornaba 401 silencioso.
+
+### HabTrabajadorRepository — ReingresoAsync safety check vinculación
+
+Después de `SaveChanges`, si el trabajador no tiene ninguna vinculación abierta (no `FechaFin IS NULL`), se crea automáticamente una nueva con la empresa/proyecto de la última vinculación cerrada. Previene que el trabajador quede sin vinculación activa y desaparezca de los listados filtrados.
+
+### Endpoint GET /habilitacion/trabajadores/reparar-vinculaciones
+
+Endpoint de mantenimiento disponible solo para roles aprobadores. Detecta y repara trabajadores con vinculaciones en estado inconsistente (sin ninguna vinculación abierta). Usado para correcciones masivas de datos históricos sin intervención directa en base de datos.

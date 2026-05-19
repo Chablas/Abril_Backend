@@ -446,7 +446,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     PartidaRegistral = e.LegalEntityRegistryNumber,
                     TipoActividad    = e.ContributorEconomicActivityDescription,
                     Activo           = e.Active,
-                    EsAbril          = e.ContributorName != null && e.ContributorName.ToUpper().Contains("ABRIL")
+                    EsAbril          = e.EsAbril
                 })
                 .ToListAsync();
         }

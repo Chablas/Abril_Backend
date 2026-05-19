@@ -67,7 +67,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Worker = w,
                     PersonFullName = w.Person != null ? w.Person.FullName : null,
                     PersonDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
-                    LatestVinc = ctx.WorkerVinculacion
+                    // Vinculación activa (FechaFin == null) — usada para vista de activos
+                    LatestVincActiva = ctx.WorkerVinculacion
+                        .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                        .OrderByDescending(v => v.CreatedAt)
+                        .ThenByDescending(v => v.Id)
+                        .FirstOrDefault(),
+                    // Última vinculación sin importar FechaFin — usada para vista de retirados
+                    LatestVincCualquiera = ctx.WorkerVinculacion
                         .Where(v => v.WorkerId == w.Id)
                         .OrderByDescending(v => v.CreatedAt)
                         .ThenByDescending(v => v.Id)
@@ -99,10 +106,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             if (empresaId.HasValue)
-                baseQuery = baseQuery.Where(x => x.LatestVinc != null && x.LatestVinc.EmpresaId == empresaId.Value);
+            {
+                if (soloRetirados)
+                    baseQuery = baseQuery.Where(x => x.LatestVincCualquiera != null && x.LatestVincCualquiera.EmpresaId == empresaId.Value);
+                else
+                    baseQuery = baseQuery.Where(x => x.LatestVincActiva != null && x.LatestVincActiva.EmpresaId == empresaId.Value);
+            }
 
             if (proyectoId.HasValue)
-                baseQuery = baseQuery.Where(x => x.LatestVinc != null && x.LatestVinc.ProyectoId == proyectoId.Value);
+            {
+                if (soloRetirados)
+                    baseQuery = baseQuery.Where(x => x.LatestVincCualquiera != null && x.LatestVincCualquiera.ProyectoId == proyectoId.Value);
+                else
+                    baseQuery = baseQuery.Where(x => x.LatestVincActiva != null && x.LatestVincActiva.ProyectoId == proyectoId.Value);
+            }
 
             if (!string.IsNullOrWhiteSpace(contratistaCasa))
             {
@@ -122,14 +139,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             var empresaIds = pageRows
-                .Where(r => r.LatestVinc != null && r.LatestVinc.EmpresaId.HasValue)
-                .Select(r => r.LatestVinc!.EmpresaId!.Value)
+                .Select(r => (soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva)?.EmpresaId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
                 .Distinct()
                 .ToList();
 
             var proyectoIds = pageRows
-                .Where(r => r.LatestVinc != null && r.LatestVinc.ProyectoId.HasValue)
-                .Select(r => r.LatestVinc!.ProyectoId!.Value)
+                .Select(r => (soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva)?.ProyectoId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
                 .Distinct()
                 .ToList();
 
@@ -144,21 +163,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var proyectoMap = proyectos.ToDictionary(p => p.ProjectId, p => p.ProjectDescription);
 
-            var items = pageRows.Select(r => new WorkerHabilitacionListDto
+            var items = pageRows.Select(r =>
             {
-                WorkerId = r.Worker.Id,
-                ApellidoNombre = r.PersonFullName ?? string.Empty,
-                Dni = r.PersonDni ?? string.Empty,
-                EmpresaId = r.LatestVinc?.EmpresaId,
-                EmpresaNombre = r.LatestVinc?.EmpresaId is int eid && empresaMap.TryGetValue(eid, out var en) ? en : null,
-                ProyectoActualId = r.LatestVinc?.ProyectoId,
-                ProyectoActual = r.LatestVinc?.ProyectoId is int pid && proyectoMap.TryGetValue(pid, out var pn) ? pn : null,
-                EstadoHabilitacion = r.EstadoCalc,
-                Categoria = r.Worker.Categoria,
-                Ocupacion = r.Worker.Ocupacion,
-                ContrataCasa = r.Worker.ContrataCasa,
-                ObraOficina = r.Worker.ObraOficina,
-                EstadoWorker = r.Worker.Estado ?? "ACTIVO"
+                var vinc = soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva;
+                return new WorkerHabilitacionListDto
+                {
+                    WorkerId = r.Worker.Id,
+                    ApellidoNombre = r.PersonFullName ?? string.Empty,
+                    Dni = r.PersonDni ?? string.Empty,
+                    EmpresaId = vinc?.EmpresaId,
+                    EmpresaNombre = vinc?.EmpresaId is int eid && empresaMap.TryGetValue(eid, out var en) ? en : null,
+                    ProyectoActualId = vinc?.ProyectoId,
+                    ProyectoActual = vinc?.ProyectoId is int pid && proyectoMap.TryGetValue(pid, out var pn) ? pn : null,
+                    EstadoHabilitacion = r.EstadoCalc,
+                    Categoria = r.Worker.Categoria,
+                    Ocupacion = r.Worker.Ocupacion,
+                    ContrataCasa = r.Worker.ContrataCasa,
+                    ObraOficina = r.Worker.ObraOficina,
+                    EstadoWorker = r.Worker.Estado ?? "ACTIVO"
+                };
             }).ToList();
 
             return (items, total);
@@ -643,6 +666,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var currentProyectoId = vinculActual?.ProyectoId;
             var currentEmpresaId = vinculActual?.EmpresaId;
 
+            // Si el trabajador fue retirado correctamente, no habrá vinculación abierta.
+            // Recuperamos la última (cerrada) para preservar empresa/proyecto en el reingreso.
+            if (vinculActual == null)
+            {
+                var vinculAnterior = await ctx.WorkerVinculacion
+                    .Where(v => v.WorkerId == workerId)
+                    .OrderByDescending(v => v.CreatedAt)
+                    .ThenByDescending(v => v.Id)
+                    .FirstOrDefaultAsync();
+                currentProyectoId = vinculAnterior?.ProyectoId;
+                currentEmpresaId  = vinculAnterior?.EmpresaId;
+            }
+
             var esCambioProyecto = dto.NuevoProyectoId.HasValue && dto.NuevoProyectoId != currentProyectoId;
             var esCambioEmpresa = dto.NuevaEmpresaId.HasValue && !esContratista;
 
@@ -709,23 +745,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ));
             }
 
-            if (esCambioProyecto || esCambioEmpresa)
+            // Siempre cerrar la vinculación anterior (si quedó abierta) y crear una nueva.
+            // La vinculación fue cerrada al momento del retiro; el reingreso siempre necesita
+            // una nueva vinculación activa independientemente de si cambia proyecto o empresa.
+            if (vinculActual != null)
             {
-                if (vinculActual != null)
-                {
-                    vinculActual.FechaFin = fechaReingreso;
-                    vinculActual.UpdatedAt = now;
-                }
-
-                ctx.WorkerVinculacion.Add(new WorkerVinculacion
-                {
-                    WorkerId = workerId,
-                    EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
-                    ProyectoId = dto.NuevoProyectoId ?? currentProyectoId,
-                    FechaInicio = fechaReingreso,
-                    CreatedAt = now
-                });
+                vinculActual.FechaFin = fechaReingreso;
+                vinculActual.UpdatedAt = now;
             }
+
+            ctx.WorkerVinculacion.Add(new WorkerVinculacion
+            {
+                WorkerId = workerId,
+                EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
+                ProyectoId = dto.NuevoProyectoId ?? currentProyectoId,
+                FechaInicio = fechaReingreso,
+                CreatedAt = now
+            });
 
             if (esCambioProyecto && !esContratista && dto.NuevoProyectoId.HasValue)
             {
@@ -798,6 +834,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 });
 
             await ctx.SaveChangesAsync();
+
+            // Safety check: garantiza que el worker tiene al menos una vinculación activa.
+            // Cubre casos de datos corruptos previos o race conditions inesperadas.
+            var openCount = await ctx.WorkerVinculacion
+                .CountAsync(v => v.WorkerId == workerId && v.FechaFin == null);
+            if (openCount == 0)
+            {
+                var ultimaCerrada = await ctx.WorkerVinculacion
+                    .Where(v => v.WorkerId == workerId)
+                    .OrderByDescending(v => v.CreatedAt)
+                    .ThenByDescending(v => v.Id)
+                    .FirstOrDefaultAsync();
+                ctx.WorkerVinculacion.Add(new WorkerVinculacion
+                {
+                    WorkerId    = workerId,
+                    EmpresaId   = ultimaCerrada?.EmpresaId,
+                    ProyectoId  = ultimaCerrada?.ProyectoId,
+                    FechaInicio = fechaReingreso,
+                    CreatedAt   = DateTimeOffset.UtcNow,
+                });
+                await ctx.SaveChangesAsync();
+                _logger.LogWarning(
+                    "[ReingresoAsync] Safety check activado: worker {WorkerId} quedó sin vinculación activa — reparada (empresa={Empresa}, proyecto={Proyecto}).",
+                    workerId, ultimaCerrada?.EmpresaId, ultimaCerrada?.ProyectoId);
+            }
 
             foreach (var (to, subject, body) in pendingEmails)
                 await EnviarEmailSilenciosoAsync(to, subject, body);
@@ -1518,6 +1579,72 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             asignacion.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<WorkerReparacionVinculacionDto>> RepararVinculacionesAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // 1. Todos los workers con estado ACTIVO
+            var activoIds = await ctx.Worker
+                .Where(w => w.Estado == "ACTIVO")
+                .Select(w => w.Id)
+                .ToListAsync();
+
+            if (activoIds.Count == 0) return [];
+
+            // 2. Subset que YA tiene vinculación abierta
+            var conVincActiva = await ctx.WorkerVinculacion
+                .Where(v => activoIds.Contains(v.WorkerId) && v.FechaFin == null)
+                .Select(v => v.WorkerId)
+                .Distinct()
+                .ToListAsync();
+
+            var sinVincActiva = activoIds.Except(conVincActiva).ToList();
+
+            if (sinVincActiva.Count == 0) return [];
+
+            // 3. Recuperar en bloque todas las vinculaciones (cerradas) de esos workers
+            var todasCerradas = await ctx.WorkerVinculacion
+                .Where(v => sinVincActiva.Contains(v.WorkerId))
+                .OrderByDescending(v => v.CreatedAt)
+                .ThenByDescending(v => v.Id)
+                .ToListAsync();
+
+            // La query ya viene ordenada desc; First() da la más reciente por worker
+            var ultimaPorWorker = todasCerradas
+                .GroupBy(v => v.WorkerId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+            var now = DateTimeOffset.UtcNow;
+            var reparados = new List<WorkerReparacionVinculacionDto>();
+
+            foreach (var workerId in sinVincActiva)
+            {
+                ultimaPorWorker.TryGetValue(workerId, out var ultima);
+                ctx.WorkerVinculacion.Add(new WorkerVinculacion
+                {
+                    WorkerId    = workerId,
+                    EmpresaId   = ultima?.EmpresaId,
+                    ProyectoId  = ultima?.ProyectoId,
+                    FechaInicio = hoy,
+                    CreatedAt   = now,
+                });
+                reparados.Add(new WorkerReparacionVinculacionDto
+                {
+                    WorkerId   = workerId,
+                    EmpresaId  = ultima?.EmpresaId,
+                    ProyectoId = ultima?.ProyectoId,
+                });
+                _logger.LogWarning(
+                    "[RepararVinculaciones] Worker {WorkerId} reparado (empresa={Empresa}, proyecto={Proyecto}).",
+                    workerId, ultima?.EmpresaId, ultima?.ProyectoId);
+            }
+
+            await ctx.SaveChangesAsync();
+            _logger.LogWarning("[RepararVinculaciones] Total reparados: {Count}.", reparados.Count);
+            return reparados;
         }
 
         private static string BuildBodyNuevoProyecto(Worker worker, Project proyecto, DateOnly fechaInicio)

@@ -136,6 +136,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("descargar")]
+        [AllowAnonymous]
         public async Task<IActionResult> Descargar([FromQuery] string url)
         {
             try

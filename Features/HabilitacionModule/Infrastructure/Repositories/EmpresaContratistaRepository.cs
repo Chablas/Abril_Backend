@@ -95,11 +95,24 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             // empresaId puede ser ContributorId (contratista vía JWT) o ss_empresa_contratista.Id (admin).
-            // Se prueba id_legacy primero; si no hay match se usa el Id directo.
+            // Resolución: id_legacy → RUC → Id directo como SsId (fallback admin).
             var ssId = await ctx.SsEmpresaContratista
                 .Where(e => e.IdLegacy == empresaId)
                 .Select(e => e.Id)
                 .FirstOrDefaultAsync();
+
+            if (ssId == 0)
+            {
+                var ruc = await ctx.Contributor
+                    .Where(c => c.ContributorId == empresaId)
+                    .Select(c => c.ContributorRuc)
+                    .FirstOrDefaultAsync();
+                if (ruc != null)
+                    ssId = await ctx.SsEmpresaContratista
+                        .Where(e => e.Ruc == ruc)
+                        .Select(e => e.Id)
+                        .FirstOrDefaultAsync();
+            }
 
             var idEfectivo = ssId != 0 ? ssId : empresaId;
 

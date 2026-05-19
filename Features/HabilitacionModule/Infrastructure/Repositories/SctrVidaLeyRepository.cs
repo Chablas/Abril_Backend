@@ -438,55 +438,52 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .FirstOrDefaultAsync();
 
                 int contributorId;
-                if (contributor != null
-                    && contributor.ContributorName != null
-                    && contributor.ContributorName.ToUpper().Contains("ABRIL"))
+                if (contributor != null)
                 {
+                    // empresaId ya es un ContributorId válido (Abril o contratista)
                     contributorId = empresaId.Value;
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Empresa Abril detectada en contributor. contributorId={ContributorId} nombre='{Nombre}'",
+                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Empresa encontrada en contributor. contributorId={ContributorId} nombre='{Nombre}'",
                         contributorId, contributor.ContributorName);
                 }
                 else
                 {
+                    // empresaId es un ss_empresa_contratista.id → resolver via id_legacy
                     var idLegacy = await ctx.SsEmpresaContratista
                         .Where(e => e.Id == empresaId.Value)
                         .Select(e => e.IdLegacy)
                         .FirstOrDefaultAsync();
 
                     contributorId = idLegacy ?? empresaId.Value;
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Contratista: ss_empresa_contratista.id={EmpresaId} → id_legacy={IdLegacy} → contributorId={ContributorId}",
+                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] SsId: ss_empresa_contratista.id={EmpresaId} → id_legacy={IdLegacy} → contributorId={ContributorId}",
                         empresaId.Value, idLegacy, contributorId);
                 }
 
-                // Workers activos en la empresa (y en el proyecto si se especifica)
-                workerIds = await ctx.WorkerProyecto
-                    .Where(wp => wp.EmpresaId == contributorId
-                        && (!proyectoId.HasValue || wp.ProyectoId == proyectoId.Value)
-                        && wp.FechaFin == null)
-                    .Select(wp => wp.WorkerId)
+                // WorkerVinculacion como fuente de verdad para empresa/proyecto activo
+                workerIds = await ctx.WorkerVinculacion
+                    .Where(v => v.EmpresaId == contributorId
+                        && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
+                        && v.FechaFin == null)
+                    .Select(v => v.WorkerId)
                     .Distinct()
                     .ToListAsync();
 
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerProyecto → {Count} workerIds: [{Ids}]",
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerVinculacion → {Count} workerIds: [{Ids}]",
                     workerIds.Count, string.Join(",", workerIds));
 
-                // Fallback: worker_vinculaciones (empresas Casa o cuando worker_proyectos no tiene registros).
-                if (workerIds.Count == 0)
+                // Suplemento: WorkerProyecto (multi-proyecto Casa) solo cuando hay filtro de proyecto
+                if (proyectoId.HasValue)
                 {
-                    var vinculacionEmpresaIds = contributorId == empresaId.Value
-                        ? new List<int> { contributorId }
-                        : new List<int> { contributorId, empresaId.Value };
-
-                    workerIds = await ctx.WorkerVinculacion
-                        .Where(v => vinculacionEmpresaIds.Contains(v.EmpresaId!.Value)
-                            && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
-                            && v.FechaFin == null)
-                        .Select(v => v.WorkerId)
+                    var idsProyecto = await ctx.WorkerProyecto
+                        .Where(wp => wp.EmpresaId == contributorId
+                            && wp.ProyectoId == proyectoId.Value
+                            && wp.FechaFin == null)
+                        .Select(wp => wp.WorkerId)
                         .Distinct()
                         .ToListAsync();
 
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Fallback WorkerVinculacion (empresaIds=[{Ids}]) → {Count} workerIds: [{WorkerIds}]",
-                        string.Join(",", vinculacionEmpresaIds), workerIds.Count, string.Join(",", workerIds));
+                    workerIds = workerIds.Union(idsProyecto).ToList();
+                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Suplemento WorkerProyecto (proyectoId={ProyectoId}) → union total {Count} workerIds",
+                        proyectoId.Value, workerIds.Count);
                 }
 
                 if (workerIds.Count == 0)
@@ -639,10 +636,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 var workersDto = workersDeEste.Select(w =>
                 {
                     var aprobado = false;
+                    int? sctrHabId = null;
                     if (itemTipo is not null)
                     {
                         var hab = habs.FirstOrDefault(h => h.WorkerId == w.WorkerId && h.ItemId == itemTipo.Id);
-                        aprobado = hab is not null && hab.Estado == "Aprobado";
+                        if (hab is not null)
+                        {
+                            aprobado = hab.Estado == "Aprobado";
+                            sctrHabId = hab.Id;
+                        }
                     }
                     return new SctrWorkerDto
                     {
@@ -650,6 +652,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         ApellidoNombre = w.ApellidoNombre ?? string.Empty,
                         Dni = w.Dni ?? string.Empty,
                         Aprobado = aprobado,
+                        SctrHabId = sctrHabId,
                         FechaInicioCobertura = w.FechaInicioCobertura
                     };
                 }).ToList();

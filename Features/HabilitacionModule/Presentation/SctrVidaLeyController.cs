@@ -37,6 +37,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
+                {
+                    if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var contraId))
+                        return StatusCode(403, new { message = "Token de contratista inválido." });
+                    empresaId = contraId;
+                }
+
                 var (items, total) = await _repo.GetPagedAsync(empresaId, proyectoId, tipo, mes, anio, estado, page, pageSize);
                 var result = new PagedResult<SctrVidaLeyDto>
                 {

@@ -154,7 +154,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     FechaProgramada = r.FechaProgramada,
                     TrabajoAltura = r.TrabajoAltura,
                     EquipoElectrico = r.EquipoElectrico,
-                    Estado = r.Estado
+                    Estado = r.Estado,
+                    IngresoConfirmado = r.IngresoConfirmado,
+                    FechaIngreso = r.FechaIngreso
                 };
             }).ToList();
         }

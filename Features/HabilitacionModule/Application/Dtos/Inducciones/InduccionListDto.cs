@@ -14,5 +14,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Inducciones
         public bool TrabajoAltura { get; set; }
         public bool EquipoElectrico { get; set; }
         public string Estado { get; set; } = string.Empty;
+        public bool IngresoConfirmado { get; set; }
+        public DateTime? FechaIngreso { get; set; }
     }
 }

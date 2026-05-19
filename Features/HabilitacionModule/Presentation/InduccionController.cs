@@ -63,6 +63,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
+                {
+                    if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))
+                        return StatusCode(403, new { message = "Token de contratista inválido." });
+                    empresaId = empresaJwt;
+                }
+
                 var items = await _repo.GetAsync(proyectoId, empresaId, estado, fechaDesde, fechaHasta);
                 return Ok(items);
             }

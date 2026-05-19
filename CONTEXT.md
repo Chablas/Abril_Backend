@@ -1188,3 +1188,81 @@ Corregido eliminando el guard `if (esCambioProyecto || esCambioEmpresa)`. El rei
 ### Dato corrupto worker 2473 corregido manualmente en BD
 
 `worker_vinculaciones` id=7672 (worker_id=2473, empresa_id=408, proyecto_id=8) tenía `fecha_fin = fecha_inicio = 2026-05-19`. Investigación exhaustiva del código descartó bug: no hay triggers de negocio en `worker_vinculaciones` (solo `RI_ConstraintTrigger` de FK), ningún método C# establece `FechaFin` al crear una vinculación. Dato corrupto por acción manual puntual. Corregido directamente en BD: `fecha_fin = NULL`.
+
+---
+
+## Sesión 2026-05-19 (cuarta parte) — bugs contratista Equipos y SCTR
+
+### EquipoRepository: HasPendientes corregido cuando no hay entregables
+
+`GetPagedAsync` calculaba `HasPendientes = Any(entregable NOT IN {Aprobado, NoAplica})`. Sin entregables registrados, `Any(...)` retorna `false` → badge "Habilitado" incorrecto para equipos sin documentación.
+
+Fix:
+```csharp
+HasPendientes = !ctx.SsHabEquipo.Any(h => h.EquipoId == e.Id)
+             || ctx.SsHabEquipo.Any(h => h.EquipoId == e.Id
+                    && h.Estado != "No Aplica" && h.Estado != "Aprobado")
+```
+Sin entregables → `HasPendientes = true` → badge "No Autorizado". Commit `c225e14`.
+
+### SctrVidaLeyController.GetPaged — scope empresaId para CONTRATISTA
+
+Mismo patrón que `EquiposController` e `InduccionController`:
+```csharp
+if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
+{
+    if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var contraId))
+        return StatusCode(403, new { message = "Token de contratista inválido." });
+    empresaId = contraId;
+}
+```
+Sin este bloque, CONTRATISTA veía todas las pólizas del sistema. Commit `4a8363d`.
+
+### SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync — quitado check Contains("ABRIL")
+
+**Bug**: cuando `empresaId` es ContributorId de contratista, el `contributor` SÍ se encuentra en la tabla (es un ContributorId válido), pero el nombre no contiene "ABRIL" → caía al `else` que hacía `WHERE ss_empresa_contratista.id == empresaId` (tratando ContributorId como SsId) → 0 workers.
+
+**Fix**: si `contributor != null`, ya es ContributorId directo (independientemente del nombre). El lookup vía `IdLegacy` solo corre cuando `contributor == null`.
+
+```csharp
+// ANTES:
+if (contributor != null
+    && contributor.ContributorName != null
+    && contributor.ContributorName.ToUpper().Contains("ABRIL"))
+
+// DESPUÉS:
+if (contributor != null)  // si está en la tabla contributor, ya es ContributorId válido
+```
+Commit `23f2b7f`.
+
+### ReingresoAsync — recuperar empresa/proyecto de última vinculación cerrada
+
+**Bug**: cuando el trabajador fue correctamente retirado (vinculación cerrada con `FechaFin`), `vinculActual == null` → `currentEmpresaId = null`, `currentProyectoId = null` → nueva vinculación creada con nulls → trabajador no aparece en listados filtrados por empresa/proyecto.
+
+**Fix**: cuando `vinculActual == null`, recuperar la última vinculación cerrada:
+```csharp
+if (vinculActual == null)
+{
+    var vinculAnterior = await ctx.WorkerVinculacion
+        .Where(v => v.WorkerId == workerId)
+        .OrderByDescending(v => v.CreatedAt)
+        .ThenByDescending(v => v.Id)
+        .FirstOrDefaultAsync();
+    currentProyectoId = vinculAnterior?.ProyectoId;
+    currentEmpresaId  = vinculAnterior?.EmpresaId;
+}
+```
+Commit `23f2b7f`.
+
+### Resumen acumulado de todos los fixes CONTRATISTA de la sesión 2026-05-19
+
+| Fix | Archivo | Commit |
+|-----|---------|--------|
+| `EmpresaContratistaRepository.GetProyectosAsync`: resolución IdLegacy en dos pasos (por `IdLegacy`, luego por RUC) | `EmpresaContratistaRepository.cs` | tercera parte |
+| `GetWorkersHabilitacionAsync`: dos subqueries `LatestVincActiva` (FechaFin IS NULL) y `LatestVincCualquiera` (sin filtro) según `soloRetirados` | `HabTrabajadorRepository.cs` | tercera parte |
+| `ReingresoAsync`: eliminado guard `if (esCambioProyecto \|\| esCambioEmpresa)` — siempre crea vinculación nueva al reingresar | `HabTrabajadorRepository.cs` | tercera parte |
+| `ReingresoAsync`: recupera empresa/proyecto de última vinculación cerrada cuando `vinculActual == null` | `HabTrabajadorRepository.cs` | `23f2b7f` |
+| `GetTrabajadoresPorEmpresaAsync`: quitado check `Contains("ABRIL")` | `SctrVidaLeyRepository.cs` | `23f2b7f` |
+| `SctrVidaLeyController.GetPaged`: inyecta `empresaId` del JWT para CONTRATISTA | `SctrVidaLeyController.cs` | `4a8363d` |
+| `GetPagedAsync`: `HasPendientes = true` cuando no hay entregables | `EquipoRepository.cs` | `c225e14` |
+| `worker_vinculaciones` id=7672 `fecha_fin` → NULL (dato corrupto) | pgAdmin manual | — |

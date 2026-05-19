@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-19 — flujo completo contratistas: worker create/baja/reingreso, entregables automáticos, fix id_legacy en AgregarProyectoAsync y GetProyectosAsync, auto-creación ss_empresa_contratista al aprobar homologación, fix claim empresaId=ContributorId, fix subido_por_empresa_id × 3 repos, fix archivo_url path relativo
+> Última actualización: 2026-05-19 — fix proyectos afiliados en programar induccion, fix res.path en empresa/sctr/registro, fix badges inducciones contratista; InduccionListDto con IngresoConfirmado/FechaIngreso; InduccionController.GetList inyecta empresaId del JWT para CONTRATISTA
 
 ---
 
@@ -310,6 +310,8 @@ PATCH  /api/v1/habilitacion/bandeja/induccion/{id}    sin body — llama Aprobar
 # Inducciones
 POST   /api/v1/habilitacion/inducciones               body: InduccionCreateDto { WorkerIds[], ProyectoId, EmpresaId?, FechaProgramada, TrabajoAltura, EquipoElectrico }
 GET    /api/v1/habilitacion/inducciones?proyectoId=&empresaId=&estado=&fechaDesde=&fechaHasta=
+       → CONTRATISTA: ignora ?empresaId, fuerza empresaId del JWT claim (igual que EquiposController)
+       → Retorna InduccionListDto[] con IngresoConfirmado y FechaIngreso (para badges frontend)
 GET    /api/v1/habilitacion/inducciones/trabajadores-por-programar?proyectoId=&empresaId=&search=
 GET    /api/v1/inducciones/trabajadores-por-programar?proyectoId=&empresaId=&search=   ← alias (misma action, ruta alternativa)
 PATCH  /api/v1/habilitacion/inducciones/{id}/aprobar
@@ -358,7 +360,8 @@ PUT   /api/v1/habilitacion/control-acceso/tareo/{id}  body: TareoCreateDto
       → actualiza cabecera, borra detalles anteriores e inserta los nuevos
 
 # Archivos
-POST  /api/v1/habilitacion/archivos/subir   → { path, url }  — guardar `path` (ruta relativa), NO `url` (larga SharePoint)
+POST  /api/v1/habilitacion/archivos/subir   → { path, url }  — guardar `path` (ruta relativa), NO `url` (URL firmada que expira)
+      ⚠️ En el frontend, SIEMPRE usar res.path al guardar el resultado del upload (empresa.ts, sctr-subir.ts, registro-empresa.ts corregidos 2026-05-19)
 GET   /api/v1/habilitacion/archivos/url?path=
 
 # Otros
@@ -564,8 +567,8 @@ var idLegacy = dto.IdLegacy ?? await _repo.GetContributorIdByRucAsync(dto.Ruc);
 - `cat_subarea` — `DbSet` declarado pero sin migración
 - `equipo_electrico` en `ss_induccion` — columna manual, migración vacía `AddInduccionEquipoElectrico`
 - `obs_contratista` en `ss_hab_equipo` — columna manual, NO tiene migración EF
-- `ingreso_confirmado` (bool NOT NULL DEFAULT false) en `ss_induccion` — columna manual
-- `fecha_ingreso` (timestamptz) en `ss_induccion` — columna manual
+- `ingreso_confirmado` (bool NOT NULL DEFAULT false) en `ss_induccion` — columna manual; mapeada en `InduccionListDto.IngresoConfirmado` (2026-05-19)
+- `fecha_ingreso` (timestamptz) en `ss_induccion` — columna manual; mapeada en `InduccionListDto.FechaIngreso` (2026-05-19)
 - `ss_tareo` — tabla completa creada manualmente; `DbSet<SsTareo>` registrado en AppDbContext
 - `ss_hab_equipo.archivo_url` fue `varchar(1000)` en BD — alterada con `ALTER TABLE ss_hab_equipo ALTER COLUMN archivo_url TYPE text;`; modelo EF lleva `[Column(TypeName = "text")]`
 Antes de `dotnet ef migrations add`, revisar el archivo generado y limpiar operaciones ya aplicadas en BD.
@@ -1127,3 +1130,31 @@ Endpoints de visualización (`ArchivoHabilitacionController`):
 - `GET /archivos/url?path=` → `{ url }` para abrir en nueva pestaña
 - `GET /archivos/ver?url=` → `302 Redirect` directo
 - `GET /archivos/descargar?url=` → `302 Redirect` con `Content-Disposition: attachment`
+
+---
+
+## Sesión 2026-05-19 (segunda parte) — inducciones contratista, fix badges, fix res.path
+
+### InduccionListDto — IngresoConfirmado + FechaIngreso
+
+`Features/HabilitacionModule/Application/Dtos/Inducciones/InduccionListDto.cs`:
+- Añadidos `bool IngresoConfirmado` y `DateTime? FechaIngreso`
+- `InduccionRepository.GetAsync()` los mapea directamente desde `SsInduccion` (columnas manuales en BD)
+- Estos campos alimentan el badge de estado en el frontend contratista: `REALIZADA`→verde, `ingresoConfirmado=true`→amarillo, `false`→rojo
+
+### InduccionController.GetList — scope empresaId para CONTRATISTA
+
+`Features/HabilitacionModule/Presentation/InduccionController.cs`:
+```csharp
+if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
+{
+    if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))
+        return StatusCode(403, new { message = "Token de contratista inválido." });
+    empresaId = empresaJwt;
+}
+```
+Mismo patrón que `EquiposController` y `HabTrabajadorController`. El `empresaId` del JWT es `ContributorId`. El filtro en `InduccionRepository.GetAsync()` es `WHERE empresa_id = empresaId` — `ss_induccion.empresa_id` apunta a `contributor.contributor_id` directamente (no a `ss_empresa_contratista.id`).
+
+### Notas para el frontend (registradas en su CONTEXT.md)
+- `programar-induccion` en `trabajadores/components/` y en `inducciones/components/`: ambos corregidos para CONTRATISTA — cargan proyectos vía `EmpresaContratistaService.getProyectos()` en vez de todos los proyectos del sistema.
+- `empresa.ts`, `sctr-subir.ts`, `registro-empresa.ts`: corregidos para usar `res.path` en vez de `res.url` al guardar resultado del upload. `trabajadores.ts` y `equipos.ts` ya estaban correctos.

@@ -46,10 +46,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (user is null || string.IsNullOrEmpty(user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 
-            _logger.LogInformation("DEBUG BCrypt result: {result}, password hash: {hash}",
-                BCrypt.Net.BCrypt.Verify(dto.Password, user.Password),
-                user.Password?[..20] ?? "null");
-
             if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 

@@ -42,8 +42,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var withState = query.Select(e => new
             {
                 Equipo = e,
-                HasPendientes = ctx.SsHabEquipo
-                    .Any(h => h.EquipoId == e.Id && h.Estado != "No Aplica" && h.Estado != "Aprobado")
+                HasPendientes = !ctx.SsHabEquipo.Any(h => h.EquipoId == e.Id)
+                             || ctx.SsHabEquipo.Any(h => h.EquipoId == e.Id && h.Estado != "No Aplica" && h.Estado != "Aprobado")
             });
 
             var total = await withState.CountAsync();

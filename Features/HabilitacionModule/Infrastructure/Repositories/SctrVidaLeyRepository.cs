@@ -636,10 +636,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 var workersDto = workersDeEste.Select(w =>
                 {
                     var aprobado = false;
+                    int? sctrHabId = null;
                     if (itemTipo is not null)
                     {
                         var hab = habs.FirstOrDefault(h => h.WorkerId == w.WorkerId && h.ItemId == itemTipo.Id);
-                        aprobado = hab is not null && hab.Estado == "Aprobado";
+                        if (hab is not null)
+                        {
+                            aprobado = hab.Estado == "Aprobado";
+                            sctrHabId = hab.Id;
+                        }
                     }
                     return new SctrWorkerDto
                     {
@@ -647,6 +652,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         ApellidoNombre = w.ApellidoNombre ?? string.Empty,
                         Dni = w.Dni ?? string.Empty,
                         Aprobado = aprobado,
+                        SctrHabId = sctrHabId,
                         FechaInicioCobertura = w.FechaInicioCobertura
                     };
                 }).ToList();

@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.SctrVidaley
         public string ApellidoNombre { get; set; } = string.Empty;
         public string Dni { get; set; } = string.Empty;
         public bool Aprobado { get; set; }
+        public int? SctrHabId { get; set; }
         public DateTime? FechaInicioCobertura { get; set; }
     }
 }

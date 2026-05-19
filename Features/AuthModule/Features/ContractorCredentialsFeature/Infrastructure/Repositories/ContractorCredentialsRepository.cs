@@ -50,42 +50,56 @@ namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure
             using var ctx = _factory.CreateDbContext();
 
             var existingUser = await ctx.User.FirstOrDefaultAsync(u => u.Email == email);
+            User user;
+
             if (existingUser != null)
-                throw new AbrilException("Ya existe un usuario con este correo electrónico.", 400);
-
-            var user = new User
             {
-                Email = email,
-                EmailConfirmed = true,
-                Active = true,
-                State = true,
-                CreatedDateTime = DateTime.UtcNow
-            };
+                user = existingUser;
+                var hasher = new PasswordHasher<User>();
+                user.Password = hasher.HashPassword(user, password);
+                user.UpdatedDateTime = DateTime.UtcNow;
+            }
+            else
+            {
+                user = new User
+                {
+                    Email = email,
+                    EmailConfirmed = true,
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = DateTime.UtcNow
+                };
+                var hasher = new PasswordHasher<User>();
+                user.Password = hasher.HashPassword(user, password);
+                ctx.User.Add(user);
+            }
 
-            var hasher = new PasswordHasher<User>();
-            user.Password = hasher.HashPassword(user, password);
-
-            ctx.User.Add(user);
             await ctx.SaveChangesAsync();
 
-            ctx.ContractorUser.Add(new ContractorUser
-            {
-                ContractorId = contractorId,
-                UserId = user.UserId,
-                CreatedDateTime = DateTimeOffset.UtcNow,
-                Active = true,
-                State = true
-            });
+            var contractorUserExists = await ctx.ContractorUser
+                .AnyAsync(cu => cu.ContractorId == contractorId && cu.UserId == user.UserId && cu.Active);
+            if (!contractorUserExists)
+                ctx.ContractorUser.Add(new ContractorUser
+                {
+                    ContractorId = contractorId,
+                    UserId = user.UserId,
+                    CreatedDateTime = DateTimeOffset.UtcNow,
+                    Active = true,
+                    State = true
+                });
 
-            ctx.UserRole.Add(new UserRole
-            {
-                UserId = user.UserId,
-                RoleId = 11,
-                CreatedDateTime = DateTime.UtcNow,
-                CreatedUserId = user.UserId,
-                Active = true,
-                State = true
-            });
+            var roleExists = await ctx.UserRole
+                .AnyAsync(ur => ur.UserId == user.UserId && ur.RoleId == 11 && ur.Active);
+            if (!roleExists)
+                ctx.UserRole.Add(new UserRole
+                {
+                    UserId = user.UserId,
+                    RoleId = 11,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = user.UserId,
+                    Active = true,
+                    State = true
+                });
 
             var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId);
             if (contractor != null)

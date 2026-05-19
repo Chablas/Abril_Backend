@@ -20,15 +20,18 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IConfiguration _configuration;
         private readonly IEmailService _emailService;
+        private readonly ILogger<ContratistaAuthService> _logger;
 
         public ContratistaAuthService(
             IDbContextFactory<AppDbContext> factory,
             IConfiguration configuration,
-            IEmailService emailService)
+            IEmailService emailService,
+            ILogger<ContratistaAuthService> logger)
         {
             _factory = factory;
             _configuration = configuration;
             _emailService = emailService;
+            _logger = logger;
         }
 
         public async Task<ContratistaTokenDto> LoginAsync(ContratistaLoginDto dto)
@@ -43,6 +46,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (user is null || string.IsNullOrEmpty(user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 
+            _logger.LogInformation("DEBUG BCrypt result: {result}, password hash: {hash}",
+                BCrypt.Net.BCrypt.Verify(dto.Password, user.Password),
+                user.Password?[..20] ?? "null");
+
             if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 
@@ -54,10 +61,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (contractorEmail is null)
                 throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
+            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx);
+
             var contractor = contractorEmail.Contractor;
             var contributor = contractor.Contributor;
 
-            return GenerarTokenDto(user, contractor, contributor);
+            return GenerarTokenDto(user, contractor, contributor, allowedFeatures);
         }
 
         public async Task<List<EmpresaSimpleDto>> GetEmpresasParaLoginAsync()
@@ -156,7 +165,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
                 ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
-            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor);
+            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx);
+
+            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures);
         }
 
         public async Task SolicitarResetPasswordAsync(SolicitarResetDto dto)
@@ -251,7 +262,17 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             => ctx.SsResetToken.FirstOrDefaultAsync(t =>
                 t.Token == token && !t.Usado && t.ExpiraAt > DateTime.UtcNow);
 
-        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor)
+        private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx)
+            => ctx.Database.SqlQuery<string>($"""
+                SELECT f.feature_key
+                FROM feature f
+                JOIN role_feature rf ON rf.feature_id = f.feature_id
+                JOIN role r ON r.role_id = rf.role_id
+                WHERE r.role_description = 'CONTRATISTA'
+                """)
+                .ToListAsync();
+
+        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor, List<string> allowedFeatures)
         {
             var claims = new List<Claim>
             {
@@ -279,7 +300,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 EmpresaId = contractor.ContractorId,
                 RazonSocial = contributor.ContributorName,
                 Tipo = "CONTRATISTA",
-                AllowedFeatures = ["habilitacion.trabajadores", "habilitacion.registros-modelo"]
+                AllowedFeatures = allowedFeatures
             };
         }
     }

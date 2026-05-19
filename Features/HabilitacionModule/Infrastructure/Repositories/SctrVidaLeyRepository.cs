@@ -438,23 +438,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .FirstOrDefaultAsync();
 
                 int contributorId;
-                if (contributor != null
-                    && contributor.ContributorName != null
-                    && contributor.ContributorName.ToUpper().Contains("ABRIL"))
+                if (contributor != null)
                 {
+                    // empresaId ya es un ContributorId válido (Abril o contratista)
                     contributorId = empresaId.Value;
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Empresa Abril detectada en contributor. contributorId={ContributorId} nombre='{Nombre}'",
+                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Empresa encontrada en contributor. contributorId={ContributorId} nombre='{Nombre}'",
                         contributorId, contributor.ContributorName);
                 }
                 else
                 {
+                    // empresaId es un ss_empresa_contratista.id → resolver via id_legacy
                     var idLegacy = await ctx.SsEmpresaContratista
                         .Where(e => e.Id == empresaId.Value)
                         .Select(e => e.IdLegacy)
                         .FirstOrDefaultAsync();
 
                     contributorId = idLegacy ?? empresaId.Value;
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Contratista: ss_empresa_contratista.id={EmpresaId} → id_legacy={IdLegacy} → contributorId={ContributorId}",
+                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] SsId: ss_empresa_contratista.id={EmpresaId} → id_legacy={IdLegacy} → contributorId={ContributorId}",
                         empresaId.Value, idLegacy, contributorId);
                 }
 

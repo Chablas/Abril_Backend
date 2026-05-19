@@ -666,6 +666,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var currentProyectoId = vinculActual?.ProyectoId;
             var currentEmpresaId = vinculActual?.EmpresaId;
 
+            // Si el trabajador fue retirado correctamente, no habrá vinculación abierta.
+            // Recuperamos la última (cerrada) para preservar empresa/proyecto en el reingreso.
+            if (vinculActual == null)
+            {
+                var vinculAnterior = await ctx.WorkerVinculacion
+                    .Where(v => v.WorkerId == workerId)
+                    .OrderByDescending(v => v.CreatedAt)
+                    .ThenByDescending(v => v.Id)
+                    .FirstOrDefaultAsync();
+                currentProyectoId = vinculAnterior?.ProyectoId;
+                currentEmpresaId  = vinculAnterior?.EmpresaId;
+            }
+
             var esCambioProyecto = dto.NuevoProyectoId.HasValue && dto.NuevoProyectoId != currentProyectoId;
             var esCambioEmpresa = dto.NuevaEmpresaId.HasValue && !esContratista;
 

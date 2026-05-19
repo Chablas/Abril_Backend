@@ -458,35 +458,32 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         empresaId.Value, idLegacy, contributorId);
                 }
 
-                // Workers activos en la empresa (y en el proyecto si se especifica)
-                workerIds = await ctx.WorkerProyecto
-                    .Where(wp => wp.EmpresaId == contributorId
-                        && (!proyectoId.HasValue || wp.ProyectoId == proyectoId.Value)
-                        && wp.FechaFin == null)
-                    .Select(wp => wp.WorkerId)
+                // WorkerVinculacion como fuente de verdad para empresa/proyecto activo
+                workerIds = await ctx.WorkerVinculacion
+                    .Where(v => v.EmpresaId == contributorId
+                        && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
+                        && v.FechaFin == null)
+                    .Select(v => v.WorkerId)
                     .Distinct()
                     .ToListAsync();
 
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerProyecto → {Count} workerIds: [{Ids}]",
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerVinculacion → {Count} workerIds: [{Ids}]",
                     workerIds.Count, string.Join(",", workerIds));
 
-                // Fallback: worker_vinculaciones (empresas Casa o cuando worker_proyectos no tiene registros).
-                if (workerIds.Count == 0)
+                // Suplemento: WorkerProyecto (multi-proyecto Casa) solo cuando hay filtro de proyecto
+                if (proyectoId.HasValue)
                 {
-                    var vinculacionEmpresaIds = contributorId == empresaId.Value
-                        ? new List<int> { contributorId }
-                        : new List<int> { contributorId, empresaId.Value };
-
-                    workerIds = await ctx.WorkerVinculacion
-                        .Where(v => vinculacionEmpresaIds.Contains(v.EmpresaId!.Value)
-                            && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
-                            && v.FechaFin == null)
-                        .Select(v => v.WorkerId)
+                    var idsProyecto = await ctx.WorkerProyecto
+                        .Where(wp => wp.EmpresaId == contributorId
+                            && wp.ProyectoId == proyectoId.Value
+                            && wp.FechaFin == null)
+                        .Select(wp => wp.WorkerId)
                         .Distinct()
                         .ToListAsync();
 
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Fallback WorkerVinculacion (empresaIds=[{Ids}]) → {Count} workerIds: [{WorkerIds}]",
-                        string.Join(",", vinculacionEmpresaIds), workerIds.Count, string.Join(",", workerIds));
+                    workerIds = workerIds.Union(idsProyecto).ToList();
+                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Suplemento WorkerProyecto (proyectoId={ProyectoId}) → union total {Count} workerIds",
+                        proyectoId.Value, workerIds.Count);
                 }
 
                 if (workerIds.Count == 0)

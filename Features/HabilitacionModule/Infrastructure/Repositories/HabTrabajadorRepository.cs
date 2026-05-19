@@ -732,23 +732,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ));
             }
 
-            if (esCambioProyecto || esCambioEmpresa)
+            // Siempre cerrar la vinculación anterior (si quedó abierta) y crear una nueva.
+            // La vinculación fue cerrada al momento del retiro; el reingreso siempre necesita
+            // una nueva vinculación activa independientemente de si cambia proyecto o empresa.
+            if (vinculActual != null)
             {
-                if (vinculActual != null)
-                {
-                    vinculActual.FechaFin = fechaReingreso;
-                    vinculActual.UpdatedAt = now;
-                }
-
-                ctx.WorkerVinculacion.Add(new WorkerVinculacion
-                {
-                    WorkerId = workerId,
-                    EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
-                    ProyectoId = dto.NuevoProyectoId ?? currentProyectoId,
-                    FechaInicio = fechaReingreso,
-                    CreatedAt = now
-                });
+                vinculActual.FechaFin = fechaReingreso;
+                vinculActual.UpdatedAt = now;
             }
+
+            ctx.WorkerVinculacion.Add(new WorkerVinculacion
+            {
+                WorkerId = workerId,
+                EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
+                ProyectoId = dto.NuevoProyectoId ?? currentProyectoId,
+                FechaInicio = fechaReingreso,
+                CreatedAt = now
+            });
 
             if (esCambioProyecto && !esContratista && dto.NuevoProyectoId.HasValue)
             {

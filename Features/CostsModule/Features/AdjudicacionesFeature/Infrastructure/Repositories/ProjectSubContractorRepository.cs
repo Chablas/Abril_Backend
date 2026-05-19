@@ -31,7 +31,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 ContractorId = dto.ContractorId,
                 ContractTypeId = dto.ContractTypeId,
                 ContractModalityId = dto.ContractModalityId,
-                ContractOriginId = dto.ContractOriginId,
                 PaymentMethodId = dto.PaymentMethodId,
                 AdvancePercentage = dto.AdvancePercentage,
                 AdvanceAmount = dto.AdvanceAmount,
@@ -106,20 +105,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 {
                     ContractTypeId = item.ContractTypeId,
                     ContractTypeDescription = item.ContractTypeDescription,
-                });
-            return await registros.ToListAsync();
-        }
-
-        public async Task<List<ContractOriginSimpleDTO>> GetContractOriginFactory()
-        {
-            using var ctx = _factory.CreateDbContext();
-            var registros = ctx.ContractOrigin
-                .Where(item => item.Active)
-                .OrderBy(item => item.ContractOriginDescription)
-                .Select(item => new ContractOriginSimpleDTO
-                {
-                    ContractOriginId = item.ContractOriginId,
-                    ContractOriginDescription = item.ContractOriginDescription,
                 });
             return await registros.ToListAsync();
         }
@@ -256,12 +241,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cContractModalityDesc   = ctx.Col<ContractModality>(nameof(ContractModality.ContractModalityDescription));
             string cContractModalityState  = ctx.Col<ContractModality>(nameof(ContractModality.State));
 
-            // ContractOrigin
-            string tContractOrigin       = ctx.Table<ContractOrigin>();
-            string cContractOriginId     = ctx.Col<ContractOrigin>(nameof(ContractOrigin.ContractOriginId));
-            string cContractOriginDesc   = ctx.Col<ContractOrigin>(nameof(ContractOrigin.ContractOriginDescription));
-            string cContractOriginActive = ctx.Col<ContractOrigin>(nameof(ContractOrigin.Active));
-
             // PaymentMethod
             string tPaymentMethod       = ctx.Table<PaymentMethod>();
             string cPaymentMethodId     = ctx.Col<PaymentMethod>(nameof(PaymentMethod.PaymentMethodId));
@@ -328,11 +307,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cContractModalityState} = TRUE
                  ORDER BY {cContractModalityId};
 
-                SELECT {cContractOriginId}, {cContractOriginDesc}
-                  FROM {tContractOrigin}
-                 WHERE {cContractOriginActive} = TRUE
-                 ORDER BY {cContractOriginDesc};
-
                 SELECT {cPaymentMethodId}, {cPaymentMethodDesc}
                   FROM {tPaymentMethod}
                  WHERE {cPaymentMethodActive} = TRUE
@@ -381,7 +355,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var projects           = (await multi.ReadAsync<ProjectSimpleDTO>()).ToList();
             var contractTypes      = (await multi.ReadAsync<ContractTypeSimpleDTO>()).ToList();
             var contractModalities = (await multi.ReadAsync<ContractModalitySimpleDTO>()).ToList();
-            var contractOrigins    = (await multi.ReadAsync<ContractOriginSimpleDTO>()).ToList();
             var paymentMethods     = (await multi.ReadAsync<PaymentMethodSimpleDTO>()).ToList();
             var currencies         = (await multi.ReadAsync<CurrencySimpleDTO>()).ToList();
             var workItems          = (await multi.ReadAsync<WorkItemSimpleDTO>()).ToList();
@@ -403,7 +376,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 Projects           = projects,
                 ContractTypes      = contractTypes,
                 ContractModalities = contractModalities,
-                ContractOrigins    = contractOrigins,
                 PaymentMethods     = paymentMethods,
                 Currencies         = currencies,
                 WorkItems          = workItems,
@@ -424,7 +396,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join contractor in ctx.Contractor on psc.ContractorId equals contractor.ContractorId
                 join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
                 join ct in ctx.ContractType on psc.ContractTypeId equals ct.ContractTypeId
-                join co in ctx.ContractOrigin on psc.ContractOriginId equals co.ContractOriginId
                 join pm in ctx.PaymentMethod on psc.PaymentMethodId equals pm.PaymentMethodId
                 join cur in ctx.Currency on psc.CurrencyId equals cur.CurrencyId
                 join wi in ctx.WorkItem on psc.WorkItemId equals wi.WorkItemId
@@ -457,7 +428,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join personCreatorJoin in ctx.Person on psc.CreatedUserId equals personCreatorJoin.UserId into personCreatorGroup
                 from personCreator in personCreatorGroup.DefaultIfEmpty()
                 where psc.State
-                select new { psc, p, contractor, c, ct, cm, co, pm, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc, personCreator };
+                select new { psc, p, contractor, c, ct, cm, pm, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc, personCreator };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -499,8 +470,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     ContractTypeDescription = x.ct.ContractTypeDescription,
                     ContractModalityId = x.psc.ContractModalityId,
                     ContractModalityDescription = x.cm != null ? x.cm.ContractModalityDescription : null,
-                    ContractOriginId = x.psc.ContractOriginId,
-                    ContractOriginDescription = x.co.ContractOriginDescription,
                     PaymentMethodId = x.psc.PaymentMethodId,
                     PaymentMethodDescription = x.pm.PaymentMethodDescription,
                     AdvancePercentage = x.psc.AdvancePercentage,
@@ -642,7 +611,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscContractorId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractorId));
             string cPscContractTypeId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractTypeId));
             string cPscContractModalityId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractModalityId));
-            string cPscContractOriginId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractOriginId));
             string cPscPaymentMethodId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.PaymentMethodId));
             string cPscAmount = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.Amount));
             string cPscCurrencyId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.CurrencyId));
@@ -706,11 +674,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cContractModalityIdDapper   = ctx.Col<ContractModality>(nameof(ContractModality.ContractModalityId));
             string cContractModalityDescDapper = ctx.Col<ContractModality>(nameof(ContractModality.ContractModalityDescription));
             string cContractModalityStateDapper = ctx.Col<ContractModality>(nameof(ContractModality.State));
-
-            string tContractOrigin = ctx.Table<ContractOrigin>();
-            string cContractOriginId = ctx.Col<ContractOrigin>(nameof(ContractOrigin.ContractOriginId));
-            string cContractOriginDesc = ctx.Col<ContractOrigin>(nameof(ContractOrigin.ContractOriginDescription));
-            string cContractOriginActive = ctx.Col<ContractOrigin>(nameof(ContractOrigin.Active));
 
             string tPaymentMethod = ctx.Table<PaymentMethod>();
             string cPaymentMethodId = ctx.Col<PaymentMethod>(nameof(PaymentMethod.PaymentMethodId));
@@ -904,8 +867,6 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        ct.{cContractTypeDesc} AS ""ContractTypeDescription"",
        psc.{cPscContractModalityId} AS ""ContractModalityId"",
        cm.{cContractModalityDescDapper} AS ""ContractModalityDescription"",
-       psc.{cPscContractOriginId} AS ""ContractOriginId"",
-       co.{cContractOriginDesc} AS ""ContractOriginDescription"",
        psc.{cPscPaymentMethodId} AS ""PaymentMethodId"",
        pm.{cPaymentMethodDesc} AS ""PaymentMethodDescription"",
        psc.{cPscAdvancePercentage} AS ""AdvancePercentage"",
@@ -989,7 +950,6 @@ JOIN {tContractor} contractor ON psc.{cPscContractorId} = contractor.{cContracto
 JOIN {tContributor} c ON contractor.{cContractorContribId} = c.{cContributorId}
 JOIN {tContractType} ct ON psc.{cPscContractTypeId} = ct.{cContractTypeId}
 LEFT JOIN {tContractModalityDapper} cm ON psc.{cPscContractModalityId} = cm.{cContractModalityIdDapper}
-JOIN {tContractOrigin} co ON psc.{cPscContractOriginId} = co.{cContractOriginId}
 JOIN {tPaymentMethod} pm ON psc.{cPscPaymentMethodId} = pm.{cPaymentMethodId}
 JOIN {tCurrency} cur ON psc.{cPscCurrencyId} = cur.{cCurrencyId}
 JOIN {tWorkItem} wi ON psc.{cPscWorkItemId} = wi.{cWorkItemId}
@@ -1025,7 +985,6 @@ LIMIT @PageSize OFFSET @PageOffset;
 SELECT {cProjectId} AS ""ProjectId"", {cProjectDesc} AS ""ProjectDescription"" FROM {tProject} WHERE {cProjectActive} = TRUE ORDER BY {cProjectDesc};
 SELECT {cContractTypeId} AS ""ContractTypeId"", {cContractTypeDesc} AS ""ContractTypeDescription"" FROM {tContractType} WHERE {cContractTypeActive} = TRUE ORDER BY {cContractTypeDesc};
 SELECT {cContractModalityIdDapper} AS ""ContractModalityId"", {cContractModalityDescDapper} AS ""ContractModalityDescription"" FROM {tContractModalityDapper} WHERE {cContractModalityStateDapper} = TRUE ORDER BY {cContractModalityIdDapper};
-SELECT {cContractOriginId} AS ""ContractOriginId"", {cContractOriginDesc} AS ""ContractOriginDescription"" FROM {tContractOrigin} WHERE {cContractOriginActive} = TRUE ORDER BY {cContractOriginDesc};
 SELECT {cPaymentMethodId} AS ""PaymentMethodId"", {cPaymentMethodDesc} AS ""PaymentMethodDescription"" FROM {tPaymentMethod} WHERE {cPaymentMethodActive} = TRUE ORDER BY {cPaymentMethodDesc};
 SELECT {cCurrencyId} AS ""CurrencyId"", {cCurrencyDesc} AS ""CurrencyDescription"", {cCurrencyCode} AS ""CurrencyCode"", {cCurrencySymbol} AS ""CurrencySymbol"" FROM {tCurrency} WHERE {cCurrencyActive} = TRUE ORDER BY {cCurrencyCode};
 SELECT {cWorkItemId} AS ""WorkItemId"", {cWorkItemDesc} AS ""WorkItemDescription"" FROM {tWorkItem} WHERE {cWorkItemActive} = TRUE ORDER BY {cWorkItemDesc};
@@ -1055,7 +1014,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             var projects = (await multi.ReadAsync<ProjectSimpleDTO>()).ToList();
             var contractTypes = (await multi.ReadAsync<ContractTypeSimpleDTO>()).ToList();
             var contractModalities = (await multi.ReadAsync<ContractModalitySimpleDTO>()).ToList();
-            var contractOrigins = (await multi.ReadAsync<ContractOriginSimpleDTO>()).ToList();
             var paymentMethods = (await multi.ReadAsync<PaymentMethodSimpleDTO>()).ToList();
             var currencies = (await multi.ReadAsync<CurrencySimpleDTO>()).ToList();
             var workItems = (await multi.ReadAsync<WorkItemSimpleDTO>()).ToList();
@@ -1096,8 +1054,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     ContractTypeDescription = raw.ContractTypeDescription ?? "",
                     ContractModalityId = (int?)raw.ContractModalityId,
                     ContractModalityDescription = (string?)raw.ContractModalityDescription,
-                    ContractOriginId = (int)raw.ContractOriginId,
-                    ContractOriginDescription = raw.ContractOriginDescription ?? "",
                     PaymentMethodId = (int)raw.PaymentMethodId,
                     PaymentMethodDescription = raw.PaymentMethodDescription ?? "",
                     AdvancePercentage = (decimal?)raw.AdvancePercentage,
@@ -1146,7 +1102,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 Projects = projects,
                 ContractTypes = contractTypes,
                 ContractModalities = contractModalities,
-                ContractOrigins = contractOrigins,
                 PaymentMethods = paymentMethods,
                 Currencies = currencies,
                 WorkItems = workItems,
@@ -1709,7 +1664,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 join contrib  in ctx.Contributor    on ct.ContributorId     equals contrib.ContributorId
                 join wi       in ctx.WorkItem       on psc.WorkItemId       equals wi.WorkItemId
                 join ctype    in ctx.ContractType   on psc.ContractTypeId   equals ctype.ContractTypeId
-                join co       in ctx.ContractOrigin on psc.ContractOriginId equals co.ContractOriginId
                 join pm       in ctx.PaymentMethod  on psc.PaymentMethodId  equals pm.PaymentMethodId
                 join cur      in ctx.Currency       on psc.CurrencyId       equals cur.CurrencyId
                 // modalidad de contrato (opcional)
@@ -1744,7 +1698,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     WorkItemDescription       = wi.WorkItemDescription,
                     ContractTypeDescription   = ctype.ContractTypeDescription,
                     ContractModalityId        = psc.ContractModalityId,
-                    ContractOriginDescription = co.ContractOriginDescription,
                     PaymentMethodId           = psc.PaymentMethodId,
                     PaymentMethodDescription  = pm.PaymentMethodDescription,
                     CurrencyCode              = cur.CurrencyCode,
@@ -1904,6 +1857,186 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 WorkItemDescription = workItem?.WorkItemDescription ?? string.Empty,
                 OfTecnicaEmails     = ofTecnicaEmails,
             };
+        }
+
+        public async Task<List<DocumentObservationDto>> GetStep3DocumentObservationsAsync(int projectSubContractorId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            if (psc.ProjectSubContractorStatusId != 3)
+                throw new AbrilException("La adjudicación no está en el paso de preparación de documentos.");
+
+            const int ObservacionStatusId = 3;
+            var result = new List<DocumentObservationDto>();
+
+            // Query each document FK, add to result when status == 3 (Con observaciones)
+            if (psc.ProjectSubContractorContractId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorContract
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorContractId == psc.ProjectSubContractorContractId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Contrato", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorSummarySheetId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorSummarySheet
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorSummarySheetId == psc.ProjectSubContractorSummarySheetId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Hoja Resumen", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorBudgetId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorBudget
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorBudgetId == psc.ProjectSubContractorBudgetId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Presupuesto", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorScheduleId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorSchedule
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorScheduleId == psc.ProjectSubContractorScheduleId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Cronograma", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorAttachedQuotationId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorAttachedQuotation
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorAttachedQuotationId == psc.ProjectSubContractorAttachedQuotationId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Cotización Adjunta", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorServiceOrderId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorServiceOrder
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorServiceOrderId == psc.ProjectSubContractorServiceOrderId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Orden de Servicio", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorPromissoryNoteId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorPromissoryNote
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorPromissoryNoteId == psc.ProjectSubContractorPromissoryNoteId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Pagaré", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorInstructivoId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorInstructivo
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorInstructivoId == psc.ProjectSubContractorInstructivoId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Instructivo", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorNonConformingOutputId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorNonConformingOutput
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorNonConformingOutputId == psc.ProjectSubContractorNonConformingOutputId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Salidas No Conforme", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorToleranceChartId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorToleranceChart
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorToleranceChartId == psc.ProjectSubContractorToleranceChartId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Cuadro de Tolerancias", Observation = d.Observation });
+            }
+
+            return result;
+        }
+
+        public async Task<List<DocumentObservationDto>> GetLevantamientoDocumentsAsync(int projectSubContractorId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            const int LevantamientoStatusId = 5;
+            var result = new List<DocumentObservationDto>();
+
+            if (psc.ProjectSubContractorContractId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorContract
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorContractId == psc.ProjectSubContractorContractId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Contrato", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorSummarySheetId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorSummarySheet
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorSummarySheetId == psc.ProjectSubContractorSummarySheetId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Hoja Resumen", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorScheduleId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorSchedule
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorScheduleId == psc.ProjectSubContractorScheduleId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Cronograma", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorAttachedQuotationId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorAttachedQuotation
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorAttachedQuotationId == psc.ProjectSubContractorAttachedQuotationId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Cotización Adjunta", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorServiceOrderId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorServiceOrder
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorServiceOrderId == psc.ProjectSubContractorServiceOrderId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Orden de Servicio", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorPromissoryNoteId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorPromissoryNote
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorPromissoryNoteId == psc.ProjectSubContractorPromissoryNoteId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Pagaré", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorInstructivoId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorInstructivo
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorInstructivoId == psc.ProjectSubContractorInstructivoId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Instructivo", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorNonConformingOutputId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorNonConformingOutput
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorNonConformingOutputId == psc.ProjectSubContractorNonConformingOutputId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Salidas No Conforme", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorToleranceChartId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorToleranceChart
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorToleranceChartId == psc.ProjectSubContractorToleranceChartId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Cuadro de Tolerancias", Observation = d.Observation });
+            }
+
+            return result;
         }
 
         public async Task<ContractPackageUrlsDto> GetContractPackageUrlsAsync(int projectSubContractorId)

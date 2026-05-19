@@ -14,6 +14,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         Task<DocumentUploadResponseDto> UploadDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, IFormFile file, int userId);
         Task<DocumentUploadResponseDto> GenerateDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int userId);
         Task UpdateDocumentStatusAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int? statusId, string? observation, int userId);
+        Task SendAllLevantamientoEmailAsync(int projectSubContractorId, SendAllObservationsEmailDto dto, int userId);
         Task UpdateStatusAsync(int projectSubContractorId, int statusId, int userId);
         Task AdvanceToStep4Async(int projectSubContractorId, int userId);
         Task SendScNotificationAsync(int projectSubContractorId, string graphAccessToken, IFormFile? file, int userId);
@@ -23,5 +24,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         Task SendStep8NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId);
         Task<(byte[] Bytes, string FileUrl, string OriginalFileName)> GenerateContractPackageAsync(int projectSubContractorId, int userId);
         Task SendObservationEmailAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, SendObservationEmailDto dto, int userId);
+        Task SendAllObservationsEmailAsync(int projectSubContractorId, SendAllObservationsEmailDto dto, int userId);
     }
 }

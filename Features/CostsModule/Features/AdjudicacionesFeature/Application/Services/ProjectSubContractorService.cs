@@ -38,11 +38,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         private static readonly List<string> CostosYPresupuestos = new()
         {
-            "eaguinaga@abril.pe",
-            "apimentel@abril.pe",
-            "bquicana@abril.pe",
-            "cavila@abril.pe",
-            //"alvarezvillegaschristian@gmail.com"
+            //"eaguinaga@abril.pe",
+            //"apimentel@abril.pe",
+            //"bquicana@abril.pe",
+            //"cavila@abril.pe",
+            "alvarezvillegaschristian@gmail.com"
         };
 
         private const string BccEmail = "calvarez@abril.pe";
@@ -457,6 +457,94 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 attachments:      WithSignatureAttachment());
         }
 
+        public async Task SendAllObservationsEmailAsync(
+            int projectSubContractorId,
+            SendAllObservationsEmailDto dto,
+            int userId)
+        {
+            var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
+
+            var observations = await _projectSubContractorRepository
+                .GetStep3DocumentObservationsAsync(projectSubContractorId);
+
+            if (observations.Count == 0)
+                throw new AbrilException(
+                    "No hay documentos con observaciones registradas en este momento. " +
+                    "Marque al menos un documento como 'Con observaciones' antes de enviar el correo.", 400);
+
+            // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
+            var toEmails = CostosYPresupuestos
+                .Concat(data.OfTecnicaEmails)
+                .Distinct()
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .ToList();
+
+            if (toEmails.Count == 0)
+                throw new AbrilException(
+                    "No hay destinatarios configurados para enviar el correo. " +
+                    "Verifique que existan correos de Oficina Técnica registrados para este proyecto.", 400);
+
+            var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature     = BuildEmailSignature(senderProfile);
+            var subject       = $"OBSERVACIÓN EN DOCUMENTOS / {data.ProjectDescription} / {data.ContributorName}";
+            var body          = BuildAllObservationsEmailBody(data, observations) + signature;
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: dto.GraphAccessToken,
+                to:               toEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                attachments:      WithSignatureAttachment());
+        }
+
+        private static string BuildAllObservationsEmailBody(
+            Step3ApprovalDataDto data,
+            List<DocumentObservationDto> observations)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Estimados,</p>");
+
+            var docList = string.Join(", ", observations.Select(o => $"<strong>{o.DocumentLabel}</strong>"));
+            sb.AppendLine(
+                $"<p>Se comunica que los siguientes documentos correspondientes a la adjudicación presentan " +
+                $"observaciones que requieren atención: {docList}.</p>");
+
+            sb.AppendLine("<table style=\"border-collapse:collapse; font-size:13px; margin-bottom:16px;\">");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Proyecto</td>"
+                        + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Subcontratista</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.ContributorName}</td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Partida</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.WorkItemDescription}</td></tr>");
+            sb.AppendLine("</table>");
+
+            sb.AppendLine("<p><strong>Detalle de observaciones:</strong></p>");
+
+            foreach (var obs in observations)
+            {
+                sb.AppendLine(
+                    "<div style=\"margin-bottom:14px; border-left:4px solid #f9a825; padding:10px 14px; background:#fff8e1;\">");
+                sb.AppendLine(
+                    $"<p style=\"margin:0 0 6px; font-size:13px; font-weight:bold; color:#333;\">{obs.DocumentLabel}</p>");
+
+                if (!string.IsNullOrWhiteSpace(obs.Observation))
+                    sb.AppendLine(
+                        $"<p style=\"margin:0; font-size:13px; color:#444; line-height:1.5;\">" +
+                        $"{System.Net.WebUtility.HtmlEncode(obs.Observation)}</p>");
+                else
+                    sb.AppendLine(
+                        "<p style=\"margin:0; font-size:13px; color:#999; font-style:italic;\">Sin detalle de observación.</p>");
+
+                sb.AppendLine("</div>");
+            }
+
+            sb.AppendLine("<p>Por favor, tome las acciones necesarias para la corrección de los documentos indicados.</p>");
+            sb.AppendLine("</div>");
+            return sb.ToString();
+        }
+
         private static string BuildObservationEmailBody(
             Step3ApprovalDataDto data,
             string documentLabel,
@@ -638,6 +726,97 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 projectSubContractorId, documentType, statusId, observation, userId);
         }
 
+        public async Task SendAllLevantamientoEmailAsync(
+            int projectSubContractorId,
+            SendAllObservationsEmailDto dto,
+            int userId)
+        {
+            var data     = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
+            var levDocs  = await _projectSubContractorRepository.GetLevantamientoDocumentsAsync(projectSubContractorId);
+
+            if (levDocs.Count == 0)
+                throw new AbrilException(
+                    "No hay documentos en estado 'Levantamiento de observación'. Marque al menos un documento antes de enviar el correo.", 400);
+
+            var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature     = BuildEmailSignature(senderProfile);
+            var subject       = $"LEVANTAMIENTO DE OBSERVACIÓN / {data.ProjectDescription} / {data.ContributorName}";
+            var body          = BuildAllLevantamientoEmailBody(data, levDocs) + signature;
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: dto.GraphAccessToken,
+                to:               CostosYPresupuestos,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                attachments:      WithSignatureAttachment());
+        }
+
+        private static string BuildLiftObservationEmailBody(Step3ApprovalDataDto data, string documentLabel)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Estimados,</p>");
+            sb.AppendLine(
+                $"<p>Se comunica que el documento <strong>{documentLabel}</strong> de la siguiente " +
+                "adjudicación ha sido subsanado por Oficina Técnica:</p>");
+            sb.AppendLine("<table style=\"border-collapse:collapse; font-size:13px; margin-bottom:16px;\">");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Proyecto</td>"
+                        + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Subcontratista</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.ContributorName}</td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Partida</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.WorkItemDescription}</td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Documento</td>"
+                        + $"<td style=\"padding:4px 0;\">{documentLabel}</td></tr>");
+            sb.AppendLine("</table>");
+            sb.AppendLine("<p>Por favor, proceda con la revisión correspondiente.</p>");
+            sb.AppendLine("</div>");
+            return sb.ToString();
+        }
+
+        private static string BuildAllLevantamientoEmailBody(
+            Step3ApprovalDataDto data,
+            List<DocumentObservationDto> docs)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Estimados,</p>");
+            sb.AppendLine(
+                "<p>Se comunica que Oficina Técnica ha levantado la observación de los siguientes documentos:</p>");
+            sb.AppendLine("<table style=\"border-collapse:collapse; font-size:13px; margin-bottom:16px;\">");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Proyecto</td>"
+                        + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Subcontratista</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.ContributorName}</td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Partida</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.WorkItemDescription}</td></tr>");
+            sb.AppendLine("</table>");
+            sb.AppendLine("<p style=\"margin-bottom:6px;\"><strong>Documentos levantados:</strong></p>");
+            sb.AppendLine("<ul style=\"margin:0; padding-left:20px;\">");
+            foreach (var doc in docs)
+                sb.AppendLine($"  <li style=\"margin-bottom:4px;\">{doc.DocumentLabel}</li>");
+            sb.AppendLine("</ul>");
+            sb.AppendLine("<p style=\"margin-top:14px;\">Por favor, proceda con la revisión correspondiente.</p>");
+            sb.AppendLine("</div>");
+            return sb.ToString();
+        }
+
+        private static string GetDocumentLabel(AdjudicacionDocumentType documentType) => documentType switch
+        {
+            AdjudicacionDocumentType.Contract           => "Contrato",
+            AdjudicacionDocumentType.SummarySheet       => "Hoja Resumen",
+            AdjudicacionDocumentType.Budget             => "Presupuesto",
+            AdjudicacionDocumentType.Schedule           => "Cronograma",
+            AdjudicacionDocumentType.AttachedQuotation  => "Cotización Adjunta",
+            AdjudicacionDocumentType.ServiceOrder       => "Orden de Servicio",
+            AdjudicacionDocumentType.PromissoryNote     => "Pagaré",
+            AdjudicacionDocumentType.Instructivo        => "Instructivo",
+            AdjudicacionDocumentType.NonConformingOutput => "Causales de Conformidad",
+            AdjudicacionDocumentType.ToleranceChart     => "Cuadro de Tolerancias",
+            _                                           => documentType.ToString(),
+        };
+
         public async Task<DocumentUploadResponseDto> UploadDocumentAsync(
             int projectSubContractorId,
             AdjudicacionDocumentType documentType,
@@ -689,8 +868,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     await GenerateSummarySheetAsync(projectSubContractorId, userId),
                 AdjudicacionDocumentType.Contract =>
                     await GenerateContractAsync(projectSubContractorId, userId),
-                AdjudicacionDocumentType.Budget =>
-                    await GenerateBudgetAsync(projectSubContractorId, userId),
                 AdjudicacionDocumentType.PromissoryNote =>
                     await GeneratePromissoryNoteAsync(projectSubContractorId, userId),
                 AdjudicacionDocumentType.Instructivo =>
@@ -1134,54 +1311,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
         }
 
-        private async Task<DocumentUploadResponseDto> GenerateBudgetAsync(
-            int projectSubContractorId, int userId)
-        {
-            var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
-
-            var abreviaturaProyecto = !string.IsNullOrWhiteSpace(data.Abbreviation)
-                ? data.Abbreviation
-                : (data.ProjectDescription.Length >= 3
-                    ? data.ProjectDescription[..3].ToUpperInvariant()
-                    : data.ProjectDescription.ToUpperInvariant());
-
-            using var workbook = new XLWorkbook();
-            var ws = workbook.Worksheets.Add("PRESUPUESTO");
-            BuildBudget(ws, data);
-
-            using var ms = new MemoryStream();
-            workbook.SaveAs(ms);
-            ms.Position = 0;
-
-            var pathData = new AdjudicacionPathDataDto
-            {
-                ProjectSubContractorId = data.ProjectSubContractorId,
-                ProjectDescription     = data.ProjectDescription,
-                ContributorRuc         = data.ContributorRuc,
-                ContributorName        = data.ContributorName,
-                WorkItemDescription    = data.WorkItemDescription,
-            };
-
-            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.Budget);
-            var fileName   = $"PRESUPUESTO N°{data.ContractNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.xlsx";
-            const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                libraryName: "Adjudicaciones",
-                folderPath:  folderPath,
-                fileName:    fileName,
-                fileStream:  ms,
-                contentType: xlsxMime)
-                ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
-
-            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
-
-            await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.Budget, fileUrl, fileName, userId, spResult.ItemId);
-
-            return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
-        }
-
         public async Task<(byte[] Bytes, string FileUrl, string OriginalFileName)> GenerateContractPackageAsync(int projectSubContractorId, int userId)
         {
             var docs = await _projectSubContractorRepository.GetContractPackageUrlsAsync(projectSubContractorId);
@@ -1309,165 +1438,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             document.Save(outputStream);
             return outputStream.ToArray();
-        }
-
-        private static void BuildBudget(IXLWorksheet ws, AdjudicacionSummarySheetDataDto data)
-        {
-            // ── Column widths ──────────────────────────────────────────────────
-            ws.Column("A").Width = 2;    // left margin
-            ws.Column("B").Width = 50;   // DESCRIPCIÓN
-            ws.Column("C").Width = 10;   // UND
-            ws.Column("D").Width = 14;   // METRADO
-            ws.Column("E").Width = 16;   // P.U.
-            ws.Column("F").Width = 16;   // COSTO TOTAL
-            ws.Column("G").Width = 2;    // right margin
-
-            // ── Row heights ────────────────────────────────────────────────────
-            ws.Row(2).Height  = 32;
-            ws.Row(10).Height = 22;
-            ws.Row(11).Height = 22;
-
-            var currencySymbol = data.CurrencyCode == "USD" ? "US$" : "S/";
-            var currencyFmt    = $"\"{currencySymbol}\" #,##0.00";
-
-            // ── Row 2: Title ───────────────────────────────────────────────────
-            ws.Range("B2:F2").Merge();
-            var contractLabel = data.ContractNumber.HasValue
-                ? data.ContractNumber.Value.ToString("D3")
-                : data.ProjectSubContractorId.ToString("D4");
-            ws.Cell("B2").Value =
-                $"PRESUPUESTO CONTRATO N° {contractLabel} " +
-                $"A {data.ContractTypeDescription.ToUpper()} " +
-                $"POR {data.WorkItemDescription.ToUpper()}";
-            ws.Range("B2:F2").Style.Font.Bold                = true;
-            ws.Range("B2:F2").Style.Font.FontSize            = 11;
-            ws.Range("B2:F2").Style.Alignment.Horizontal     = XLAlignmentHorizontalValues.Center;
-            ws.Range("B2:F2").Style.Alignment.Vertical       = XLAlignmentVerticalValues.Center;
-            ws.Range("B2:F2").Style.Alignment.WrapText       = true;
-            ws.Range("B2:F2").Style.Border.OutsideBorder     = XLBorderStyleValues.Medium;
-
-            // ── Rows 5–8: Info block ───────────────────────────────────────────
-            void InfoLabel(string cell, string text)
-            {
-                ws.Cell(cell).Value = text;
-                ws.Cell(cell).Style.Font.Bold = true;
-            }
-
-            InfoLabel("B5", "Proyecto:");
-            ws.Cell("C5").Value = data.ProjectDescription;
-            ws.Range("C5:F5").Merge();
-
-            InfoLabel("B6", "Contratista:");
-            ws.Cell("C6").Value = data.ContributorName;
-            ws.Range("C6:F6").Merge();
-
-            InfoLabel("B7", "N° de niveles:");
-            // (no data available — the user fills this in)
-            ws.Range("C7:F7").Merge();
-
-            InfoLabel("B8", "Fecha:");
-            if (data.SigningDate.HasValue)
-            {
-                ws.Cell("C8").Value = data.SigningDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("C8").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
-            ws.Range("C8:F8").Merge();
-
-            // ── Row 10: Section header ─────────────────────────────────────────
-            ws.Range("B10:F10").Merge();
-            ws.Cell("B10").Value = data.WorkItemDescription.ToUpper();
-            ws.Range("B10:F10").Style.Font.Bold                = true;
-            ws.Range("B10:F10").Style.Fill.BackgroundColor     = XLColor.FromHtml("#D9D9D9");
-            ws.Range("B10:F10").Style.Alignment.Horizontal     = XLAlignmentHorizontalValues.Center;
-            ws.Range("B10:F10").Style.Alignment.Vertical       = XLAlignmentVerticalValues.Center;
-            ws.Range("B10:F10").Style.Border.OutsideBorder     = XLBorderStyleValues.Medium;
-
-            // ── Row 11: Column headers ─────────────────────────────────────────
-            void SetColHeader(string cell, string text)
-            {
-                ws.Cell(cell).Value = text;
-                ws.Cell(cell).Style.Font.Bold                = true;
-                ws.Cell(cell).Style.Fill.BackgroundColor     = XLColor.FromHtml("#D9D9D9");
-                ws.Cell(cell).Style.Alignment.Horizontal     = XLAlignmentHorizontalValues.Center;
-                ws.Cell(cell).Style.Alignment.Vertical       = XLAlignmentVerticalValues.Center;
-                ws.Cell(cell).Style.Alignment.WrapText       = true;
-                ws.Cell(cell).Style.Border.OutsideBorder     = XLBorderStyleValues.Thin;
-            }
-
-            SetColHeader("B11", "DESCRIPCIÓN");
-            SetColHeader("C11", "UND");
-            SetColHeader("D11", "METRADO");
-            SetColHeader("E11", "P.U.");
-            SetColHeader("F11", "COSTO TOTAL");
-
-            // ── Row 12: Category row (work item category) ──────────────────────
-            ws.Range("B12:F12").Style.Fill.BackgroundColor = XLColor.FromHtml("#F2F2F2");
-            ws.Cell("B12").Value = data.WorkItemDescription.ToUpper();
-            ws.Cell("B12").Style.Font.Bold = true;
-            foreach (var col in new[] { "B", "C", "D", "E", "F" })
-                ws.Cell($"{col}12").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-
-            // ── Rows 13–17: Empty item rows (template) ─────────────────────────
-            const int firstItemRow = 13;
-            const int lastItemRow  = 17;
-
-            for (int r = firstItemRow; r <= lastItemRow; r++)
-            {
-                ws.Row(r).Height = 18;
-                // COSTO TOTAL = METRADO * P.U.
-                ws.Cell(r, 6).FormulaA1 = $"=IF(AND(D{r}<>\"\",E{r}<>\"\"),D{r}*E{r},\"\")";
-                ws.Cell(r, 6).Style.NumberFormat.Format = currencyFmt;
-
-                foreach (var col in new[] { "B", "C", "D", "E", "F" })
-                {
-                    ws.Cell($"{col}{r}").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                    ws.Cell($"{col}{r}").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
-                }
-                // Currency hint for P.U. column
-                ws.Cell(r, 5).Style.NumberFormat.Format = currencyFmt;
-            }
-
-            // ── Summary rows ──────────────────────────────────────────────────
-            int subtotalRow = lastItemRow + 2;   // 19
-            int igvRow      = subtotalRow + 1;   // 20
-            int totalRow    = igvRow + 1;         // 21
-
-            ws.Row(subtotalRow).Height = 18;
-            ws.Row(igvRow).Height      = 18;
-            ws.Row(totalRow).Height    = 18;
-
-            void SummaryLabel(int row, string text)
-            {
-                ws.Cell(row, 4).Value = text;
-                ws.Cell(row, 4).Style.Font.Bold            = true;
-                ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-                ws.Cell(row, 4).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                ws.Cell(row, 5).Style.Border.OutsideBorder = XLBorderStyleValues.Thin; // P.U. col left border
-            }
-
-            // SUBTOTAL
-            SummaryLabel(subtotalRow, "SUBTOTAL");
-            ws.Cell(subtotalRow, 6).FormulaA1      = $"=SUM(F{firstItemRow}:F{lastItemRow})";
-            ws.Cell(subtotalRow, 6).Style.NumberFormat.Format  = currencyFmt;
-            ws.Cell(subtotalRow, 6).Style.Font.Bold            = true;
-            ws.Cell(subtotalRow, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-
-            // IGV (18%)
-            SummaryLabel(igvRow, "IGV (18%)");
-            ws.Cell(igvRow, 6).FormulaA1      = $"=F{subtotalRow}*0.18";
-            ws.Cell(igvRow, 6).Style.NumberFormat.Format  = currencyFmt;
-            ws.Cell(igvRow, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-
-            // TOTAL
-            SummaryLabel(totalRow, "TOTAL");
-            ws.Cell(totalRow, 6).FormulaA1      = $"=F{subtotalRow}+F{igvRow}";
-            ws.Cell(totalRow, 6).Style.NumberFormat.Format  = currencyFmt;
-            ws.Cell(totalRow, 6).Style.Font.Bold            = true;
-            ws.Cell(totalRow, 6).Style.Font.FontColor       = XLColor.FromHtml("#E26B0A");
-            ws.Cell(totalRow, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-
-            // ── Outer border around the whole table ───────────────────────────
-            ws.Range($"B10:F{totalRow}").Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
         }
 
         private static void BuildSummarySheet(IXLWorksheet ws, AdjudicacionSummarySheetDataDto data)

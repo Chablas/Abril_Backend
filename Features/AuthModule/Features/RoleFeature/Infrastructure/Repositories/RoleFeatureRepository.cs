@@ -113,5 +113,26 @@ namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories
             foreach (var featureId in featureIds)
                 await ctx.Database.ExecuteSqlAsync($"INSERT INTO role_feature (role_id, feature_id) VALUES ({roleId}, {featureId})");
         }
+
+        public async Task UpdateRoleDescription(int roleId, string description, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var role = await ctx.Role.FirstOrDefaultAsync(r => r.RoleId == roleId && r.State)
+                ?? throw new AbrilException("El rol no existe.");
+
+            var normalized = description.Trim().ToUpper();
+
+            var duplicate = await ctx.Role
+                .FirstOrDefaultAsync(r => r.RoleId != roleId && r.State && r.RoleDescription.ToUpper() == normalized);
+
+            if (duplicate != null)
+                throw new AbrilException("Ya existe otro rol con esa descripción.");
+
+            role.RoleDescription = normalized;
+            role.UpdatedDateTime = DateTime.UtcNow;
+            role.UpdatedUserId   = userId;
+            await ctx.SaveChangesAsync();
+        }
     }
 }

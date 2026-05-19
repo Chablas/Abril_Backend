@@ -8,7 +8,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task<int> Create(ProjectSubContractorCreateDTO dto, int userId);
         Task SaveInitialFilesAsync(int projectSubContractorId, List<(string Url, string OriginalFileName, string? ItemId)> quotationFiles, List<(string Url, string OriginalFileName, string? ItemId)> comparativeFiles, int userId);
         Task<List<ContractTypeSimpleDTO>> GetContractTypeFactory();
-        Task<List<ContractOriginSimpleDTO>> GetContractOriginFactory();
         Task<List<PaymentMethodSimpleDTO>> GetPaymentMethodFactory();
         Task<List<CurrencySimpleDTO>> GetCurrencyFactory();
         Task<List<WorkItemSimpleDTO>> GetWorkItemFactory();
@@ -29,6 +28,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task SetArrivalOptionAsync(int projectSubContractorId, bool arrivedWithObservations, int userId);
         Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, int userId);
         Task<Step3ApprovalDataDto> GetStep3ApprovalDataAsync(int projectSubContractorId);
+        Task<List<DocumentObservationDto>> GetStep3DocumentObservationsAsync(int projectSubContractorId);
+        Task<List<DocumentObservationDto>> GetLevantamientoDocumentsAsync(int projectSubContractorId);
         Task<Step6NotificationDataDto> GetStep6NotificationDataAsync(int projectSubContractorId);
         Task<Step8NotificationDataDto> GetStep8NotificationDataAsync(int projectSubContractorId);
         Task<ContractPackageUrlsDto> GetContractPackageUrlsAsync(int projectSubContractorId);

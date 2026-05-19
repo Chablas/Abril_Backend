@@ -20,8 +20,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public string ContractTypeDescription { get; set; }
         public int? ContractModalityId { get; set; }
         public string? ContractModalityDescription { get; set; }
-        public int ContractOriginId { get; set; }
-        public string ContractOriginDescription { get; set; }
         public int PaymentMethodId { get; set; }
         public string PaymentMethodDescription { get; set; }
         public decimal? AdvancePercentage {get;set;}

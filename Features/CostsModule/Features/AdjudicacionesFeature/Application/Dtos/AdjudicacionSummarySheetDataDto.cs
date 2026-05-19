@@ -22,7 +22,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string WorkItemDescription { get; set; } = null!;
         public string ContractTypeDescription { get; set; } = null!;
         public int? ContractModalityId { get; set; }
-        public string ContractOriginDescription { get; set; } = null!;
         public int PaymentMethodId { get; set; }
         public string PaymentMethodDescription { get; set; } = null!;
         public string CurrencyCode { get; set; } = null!;

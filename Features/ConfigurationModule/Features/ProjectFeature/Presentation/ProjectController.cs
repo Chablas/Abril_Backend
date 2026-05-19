@@ -49,7 +49,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                // Token interno: NameIdentifier = userId. Token Microsoft (AzureAd): oid como fallback.
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier) ?? User.FindFirst("oid");
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 

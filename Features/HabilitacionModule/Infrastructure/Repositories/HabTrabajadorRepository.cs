@@ -67,8 +67,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Worker = w,
                     PersonFullName = w.Person != null ? w.Person.FullName : null,
                     PersonDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
-                    LatestVinc = ctx.WorkerVinculacion
+                    // Vinculación activa (FechaFin == null) — usada para vista de activos
+                    LatestVincActiva = ctx.WorkerVinculacion
                         .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                        .OrderByDescending(v => v.CreatedAt)
+                        .ThenByDescending(v => v.Id)
+                        .FirstOrDefault(),
+                    // Última vinculación sin importar FechaFin — usada para vista de retirados
+                    LatestVincCualquiera = ctx.WorkerVinculacion
+                        .Where(v => v.WorkerId == w.Id)
                         .OrderByDescending(v => v.CreatedAt)
                         .ThenByDescending(v => v.Id)
                         .FirstOrDefault(),
@@ -99,10 +106,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             if (empresaId.HasValue)
-                baseQuery = baseQuery.Where(x => x.LatestVinc != null && x.LatestVinc.EmpresaId == empresaId.Value);
+            {
+                if (soloRetirados)
+                    baseQuery = baseQuery.Where(x => x.LatestVincCualquiera != null && x.LatestVincCualquiera.EmpresaId == empresaId.Value);
+                else
+                    baseQuery = baseQuery.Where(x => x.LatestVincActiva != null && x.LatestVincActiva.EmpresaId == empresaId.Value);
+            }
 
             if (proyectoId.HasValue)
-                baseQuery = baseQuery.Where(x => x.LatestVinc != null && x.LatestVinc.ProyectoId == proyectoId.Value);
+            {
+                if (soloRetirados)
+                    baseQuery = baseQuery.Where(x => x.LatestVincCualquiera != null && x.LatestVincCualquiera.ProyectoId == proyectoId.Value);
+                else
+                    baseQuery = baseQuery.Where(x => x.LatestVincActiva != null && x.LatestVincActiva.ProyectoId == proyectoId.Value);
+            }
 
             if (!string.IsNullOrWhiteSpace(contratistaCasa))
             {
@@ -122,14 +139,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             var empresaIds = pageRows
-                .Where(r => r.LatestVinc != null && r.LatestVinc.EmpresaId.HasValue)
-                .Select(r => r.LatestVinc!.EmpresaId!.Value)
+                .Select(r => (soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva)?.EmpresaId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
                 .Distinct()
                 .ToList();
 
             var proyectoIds = pageRows
-                .Where(r => r.LatestVinc != null && r.LatestVinc.ProyectoId.HasValue)
-                .Select(r => r.LatestVinc!.ProyectoId!.Value)
+                .Select(r => (soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva)?.ProyectoId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
                 .Distinct()
                 .ToList();
 
@@ -144,21 +163,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var proyectoMap = proyectos.ToDictionary(p => p.ProjectId, p => p.ProjectDescription);
 
-            var items = pageRows.Select(r => new WorkerHabilitacionListDto
+            var items = pageRows.Select(r =>
             {
-                WorkerId = r.Worker.Id,
-                ApellidoNombre = r.PersonFullName ?? string.Empty,
-                Dni = r.PersonDni ?? string.Empty,
-                EmpresaId = r.LatestVinc?.EmpresaId,
-                EmpresaNombre = r.LatestVinc?.EmpresaId is int eid && empresaMap.TryGetValue(eid, out var en) ? en : null,
-                ProyectoActualId = r.LatestVinc?.ProyectoId,
-                ProyectoActual = r.LatestVinc?.ProyectoId is int pid && proyectoMap.TryGetValue(pid, out var pn) ? pn : null,
-                EstadoHabilitacion = r.EstadoCalc,
-                Categoria = r.Worker.Categoria,
-                Ocupacion = r.Worker.Ocupacion,
-                ContrataCasa = r.Worker.ContrataCasa,
-                ObraOficina = r.Worker.ObraOficina,
-                EstadoWorker = r.Worker.Estado ?? "ACTIVO"
+                var vinc = soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva;
+                return new WorkerHabilitacionListDto
+                {
+                    WorkerId = r.Worker.Id,
+                    ApellidoNombre = r.PersonFullName ?? string.Empty,
+                    Dni = r.PersonDni ?? string.Empty,
+                    EmpresaId = vinc?.EmpresaId,
+                    EmpresaNombre = vinc?.EmpresaId is int eid && empresaMap.TryGetValue(eid, out var en) ? en : null,
+                    ProyectoActualId = vinc?.ProyectoId,
+                    ProyectoActual = vinc?.ProyectoId is int pid && proyectoMap.TryGetValue(pid, out var pn) ? pn : null,
+                    EstadoHabilitacion = r.EstadoCalc,
+                    Categoria = r.Worker.Categoria,
+                    Ocupacion = r.Worker.Ocupacion,
+                    ContrataCasa = r.Worker.ContrataCasa,
+                    ObraOficina = r.Worker.ObraOficina,
+                    EstadoWorker = r.Worker.Estado ?? "ACTIVO"
+                };
             }).ToList();
 
             return (items, total);

@@ -4,7 +4,6 @@ namespace Abril_Backend.Infrastructure.Models
     {
         public int CatalogTypeId { get; set; }
         public string CatalogTypeName { get; set; } = string.Empty;
-        public string CatalogTypeCode { get; set; } = string.Empty;
         public bool Active { get; set; }
     }
 }

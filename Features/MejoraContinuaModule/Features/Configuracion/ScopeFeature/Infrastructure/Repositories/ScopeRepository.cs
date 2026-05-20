@@ -70,7 +70,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
                     AreaSubareaId = si.AreaSubareaId,
                     CatalogItemId = si.CatalogItemId,
                     CatalogItemDescription = ci.CatalogItemDescription,
-                    CatalogTypeCode = ct.CatalogTypeCode,
+                    CatalogTypeName = ct.CatalogTypeName,
                     ScopeItemParentId = si.ScopeItemParentId,
                     DisplayOrder = si.DisplayOrder,
                     Active = si.Active
@@ -97,22 +97,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Verificar que el area_subarea existe
             var areaSubareaExists = await ctx.AreaSubarea.AnyAsync(a => a.AreaSubareaId == dto.AreaSubareaId);
             if (!areaSubareaExists)
                 throw new AbrilException("El contexto área/subárea no existe.", 400);
 
-            // Eliminar scope previo
             var existing = await ctx.ScopeItem
                 .Where(s => s.AreaSubareaId == dto.AreaSubareaId)
                 .ToListAsync();
             ctx.ScopeItem.RemoveRange(existing);
 
-            // Reconstruir desde los nodos enviados
-            // Primero insertar los root nodes, luego hijos (necesitamos los ids recién generados)
             var idMap = new Dictionary<int, int>(); // catalogItemId → scopeItemId recién creado
 
-            // Ordenar: primero sin parent, luego con parent
             var ordered = dto.Items
                 .OrderBy(n => n.ParentCatalogItemId.HasValue ? 1 : 0)
                 .ToList();
@@ -133,7 +128,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
                 };
 
                 ctx.ScopeItem.Add(scopeItem);
-                await ctx.SaveChangesAsync(); // para obtener el ScopeItemId generado
+                await ctx.SaveChangesAsync();
 
                 idMap[node.CatalogItemId] = scopeItem.ScopeItemId;
             }
@@ -152,18 +147,35 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
             var templateIds = templates.Select(t => t.ScopeTemplateId).ToList();
 
-            var items = await ctx.ScopeTemplateItem
-                .Where(i => templateIds.Contains(i.ScopeTemplateId) && i.Active)
-                .ToListAsync();
+            var rawItems = await (
+                from sti in ctx.ScopeTemplateItem
+                join ci in ctx.CatalogItem on sti.CatalogItemId equals ci.CatalogItemId
+                where templateIds.Contains(sti.ScopeTemplateId) && sti.Active
+                orderby sti.ScopeTemplateId, sti.DisplayOrder
+                select new
+                {
+                    sti.ScopeTemplateId,
+                    sti.ScopeTemplateItemParentId,
+                    sti.DisplayOrder,
+                    sti.CatalogItemId,
+                    ci.CatalogItemDescription
+                }
+            ).ToListAsync();
 
             return templates.Select(t => new ScopeTemplateDTO
             {
                 ScopeTemplateId = t.ScopeTemplateId,
                 TemplateName = t.TemplateName,
                 Active = t.Active,
-                CatalogItemIds = items
+                Items = rawItems
                     .Where(i => i.ScopeTemplateId == t.ScopeTemplateId)
-                    .Select(i => i.CatalogItemId)
+                    .Select(i => new ScopeTemplateItemNodeDTO
+                    {
+                        CatalogItemId = i.CatalogItemId,
+                        CatalogItemDescription = i.CatalogItemDescription,
+                        ScopeTemplateItemParentId = i.ScopeTemplateItemParentId,
+                        DisplayOrder = i.DisplayOrder
+                    })
                     .ToList()
             }).ToList();
         }
@@ -174,7 +186,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
             var template = new ScopeTemplate
             {
-                AreaSubareaId = null,   // plantilla global
                 TemplateName = dto.TemplateName.Trim(),
                 Active = true,
                 CreatedDateTime = DateTimeOffset.UtcNow
@@ -183,15 +194,20 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
             ctx.ScopeTemplate.Add(template);
             await ctx.SaveChangesAsync();
 
-            var items = dto.CatalogItemIds.Distinct().Select(id => new ScopeTemplateItem
+            if (dto.Items.Count > 0)
             {
-                ScopeTemplateId = template.ScopeTemplateId,
-                CatalogItemId = id,
-                Active = true
-            }).ToList();
+                var items = dto.Items.Select((node, idx) => new ScopeTemplateItem
+                {
+                    ScopeTemplateId = template.ScopeTemplateId,
+                    CatalogItemId = node.CatalogItemId,
+                    ScopeTemplateItemParentId = node.ScopeTemplateItemParentId,
+                    DisplayOrder = node.DisplayOrder > 0 ? node.DisplayOrder : idx + 1,
+                    Active = true
+                }).ToList();
 
-            ctx.ScopeTemplateItem.AddRange(items);
-            await ctx.SaveChangesAsync();
+                ctx.ScopeTemplateItem.AddRange(items);
+                await ctx.SaveChangesAsync();
+            }
         }
 
         public async Task UpdateTemplateAsync(ScopeTemplateUpdateDTO dto)
@@ -210,14 +226,20 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
                 .ToListAsync();
             ctx.ScopeTemplateItem.RemoveRange(existingItems);
 
-            var newItems = dto.CatalogItemIds.Distinct().Select(id => new ScopeTemplateItem
+            if (dto.Items.Count > 0)
             {
-                ScopeTemplateId = dto.ScopeTemplateId,
-                CatalogItemId = id,
-                Active = true
-            }).ToList();
+                var newItems = dto.Items.Select((node, idx) => new ScopeTemplateItem
+                {
+                    ScopeTemplateId = dto.ScopeTemplateId,
+                    CatalogItemId = node.CatalogItemId,
+                    ScopeTemplateItemParentId = node.ScopeTemplateItemParentId,
+                    DisplayOrder = node.DisplayOrder > 0 ? node.DisplayOrder : idx + 1,
+                    Active = true
+                }).ToList();
 
-            ctx.ScopeTemplateItem.AddRange(newItems);
+                ctx.ScopeTemplateItem.AddRange(newItems);
+            }
+
             await ctx.SaveChangesAsync();
         }
 

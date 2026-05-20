@@ -6,7 +6,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
     {
         Task<List<CatalogTypeDTO>> GetAllTypesAsync();
         Task<List<CatalogItemDTO>> GetItemsByTypeAsync(int catalogTypeId);
-        Task<List<CatalogItemDTO>> GetTreeByTypeAsync(int catalogTypeId);
         Task<List<CatalogItemDTO>> GetFullTreeAsync();
         Task CreateTypeAsync(CatalogTypeCreateDTO dto);
         Task UpdateTypeAsync(CatalogTypeEditDTO dto);

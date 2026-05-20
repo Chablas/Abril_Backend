@@ -30,14 +30,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
         }
 
         [Authorize]
-        [HttpGet("tree/{catalogTypeId}")]
-        public async Task<IActionResult> GetTree(int catalogTypeId)
-        {
-            try { return Ok(await _service.GetTreeByTypeAsync(catalogTypeId)); }
-            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
-        }
-
-        [Authorize]
         [HttpGet("full-tree")]
         public async Task<IActionResult> GetFullTree()
         {

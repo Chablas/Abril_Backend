@@ -4623,18 +4623,10 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("active");
 
-                    b.Property<string>("CatalogItemCode")
-                        .HasColumnType("text")
-                        .HasColumnName("catalog_item_code");
-
                     b.Property<string>("CatalogItemDescription")
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("catalog_item_description");
-
-                    b.Property<int?>("CatalogItemParentId")
-                        .HasColumnType("integer")
-                        .HasColumnName("catalog_item_parent_id");
 
                     b.Property<int>("CatalogTypeId")
                         .HasColumnType("integer")
@@ -4642,9 +4634,6 @@ namespace Abril_Backend.Migrations
 
                     b.HasKey("CatalogItemId")
                         .HasName("pk_catalog_item");
-
-                    b.HasIndex("CatalogItemParentId")
-                        .HasDatabaseName("ix_catalog_item_catalog_item_parent_id");
 
                     b.HasIndex("CatalogTypeId")
                         .HasDatabaseName("ix_catalog_item_catalog_type_id");
@@ -4664,11 +4653,6 @@ namespace Abril_Backend.Migrations
                     b.Property<bool>("Active")
                         .HasColumnType("boolean")
                         .HasColumnName("active");
-
-                    b.Property<string>("CatalogTypeCode")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("catalog_type_code");
 
                     b.Property<string>("CatalogTypeName")
                         .IsRequired()
@@ -5928,10 +5912,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("active");
 
-                    b.Property<int>("AreaSubareaId")
-                        .HasColumnType("integer")
-                        .HasColumnName("area_subarea_id");
-
                     b.Property<DateTimeOffset>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
@@ -5956,9 +5936,6 @@ namespace Abril_Backend.Migrations
                     b.HasKey("ScopeTemplateId")
                         .HasName("pk_scope_template");
 
-                    b.HasIndex("AreaSubareaId")
-                        .HasDatabaseName("ix_scope_template_area_subarea_id");
-
                     b.ToTable("scope_template", (string)null);
                 });
 
@@ -5975,9 +5952,17 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("active");
 
-                    b.Property<int>("ScopeItemId")
+                    b.Property<int>("CatalogItemId")
                         .HasColumnType("integer")
-                        .HasColumnName("scope_item_id");
+                        .HasColumnName("catalog_item_id");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<int?>("ScopeTemplateItemParentId")
+                        .HasColumnType("integer")
+                        .HasColumnName("scope_template_item_parent_id");
 
                     b.Property<int>("ScopeTemplateId")
                         .HasColumnType("integer")
@@ -5986,8 +5971,11 @@ namespace Abril_Backend.Migrations
                     b.HasKey("ScopeTemplateItemId")
                         .HasName("pk_scope_template_item");
 
-                    b.HasIndex("ScopeItemId")
-                        .HasDatabaseName("ix_scope_template_item_scope_item_id");
+                    b.HasIndex("CatalogItemId")
+                        .HasDatabaseName("ix_scope_template_item_catalog_item_id");
+
+                    b.HasIndex("ScopeTemplateItemParentId")
+                        .HasDatabaseName("ix_scope_template_item_scope_template_item_parent_id");
 
                     b.HasIndex("ScopeTemplateId")
                         .HasDatabaseName("ix_scope_template_item_scope_template_id");
@@ -8015,12 +8003,6 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.CatalogItem", b =>
                 {
-                    b.HasOne("Abril_Backend.Infrastructure.Models.CatalogItem", "Parent")
-                        .WithMany("Children")
-                        .HasForeignKey("CatalogItemParentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_catalog_item_catalog_item_catalog_item_parent_id");
-
                     b.HasOne("Abril_Backend.Infrastructure.Models.CatalogType", "CatalogType")
                         .WithMany()
                         .HasForeignKey("CatalogTypeId")
@@ -8029,8 +8011,6 @@ namespace Abril_Backend.Migrations
                         .HasConstraintName("fk_catalog_item_catalog_type_catalog_type_id");
 
                     b.Navigation("CatalogType");
-
-                    b.Navigation("Parent");
                 });
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.Person", b =>
@@ -8131,24 +8111,22 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplate", b =>
                 {
-                    b.HasOne("Abril_Backend.Infrastructure.Models.AreaSubarea", "AreaSubarea")
-                        .WithMany()
-                        .HasForeignKey("AreaSubareaId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_scope_template_area_subarea_area_subarea_id");
-
-                    b.Navigation("AreaSubarea");
                 });
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplateItem", b =>
                 {
-                    b.HasOne("Abril_Backend.Infrastructure.Models.ScopeItem", "ScopeItem")
+                    b.HasOne("Abril_Backend.Infrastructure.Models.CatalogItem", "CatalogItem")
                         .WithMany()
-                        .HasForeignKey("ScopeItemId")
+                        .HasForeignKey("CatalogItemId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_scope_template_item_scope_item_scope_item_id");
+                        .HasConstraintName("fk_scope_template_item_catalog_item_catalog_item_id");
+
+                    b.HasOne("Abril_Backend.Infrastructure.Models.ScopeTemplateItem", "Parent")
+                        .WithMany("Children")
+                        .HasForeignKey("ScopeTemplateItemParentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_scope_template_item_scope_template_item_scope_template_item_parent_id");
 
                     b.HasOne("Abril_Backend.Infrastructure.Models.ScopeTemplate", "ScopeTemplate")
                         .WithMany("Items")
@@ -8157,7 +8135,9 @@ namespace Abril_Backend.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_scope_template_item_scope_template_scope_template_id");
 
-                    b.Navigation("ScopeItem");
+                    b.Navigation("CatalogItem");
+
+                    b.Navigation("Parent");
 
                     b.Navigation("ScopeTemplate");
                 });
@@ -8370,10 +8350,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Workers");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.CatalogItem", b =>
-                {
-                    b.Navigation("Children");
-                });
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ResidentReportIncidence", b =>
                 {
@@ -8395,6 +8371,11 @@ namespace Abril_Backend.Migrations
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplate", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplateItem", b =>
+                {
+                    b.Navigation("Children");
                 });
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.State", b =>

@@ -15,7 +15,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
         public int AreaSubareaId { get; set; }
         public int CatalogItemId { get; set; }
         public string CatalogItemDescription { get; set; } = string.Empty;
-        public string CatalogTypeCode { get; set; } = string.Empty;
+        public string CatalogTypeName { get; set; } = string.Empty;
         public int? ScopeItemParentId { get; set; }
         public int DisplayOrder { get; set; }
         public bool Active { get; set; }
@@ -24,9 +24,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
     public class ScopeItemUpsertDTO
     {
-        /// <summary>Id del area_subarea al que pertenece este scope.</summary>
         public int AreaSubareaId { get; set; }
-        /// <summary>Lista completa de scope items que deben quedar (reemplaza lo existente).</summary>
         public List<ScopeItemNodeDTO> Items { get; set; } = new();
     }
 
@@ -38,26 +36,32 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
     }
 
     // ── ScopeTemplate ────────────────────────────────────────────
-    /// <summary>Plantilla global (no está ligada a ningún área/subárea específica).</summary>
+    public class ScopeTemplateItemNodeDTO
+    {
+        public int CatalogItemId { get; set; }
+        public string CatalogItemDescription { get; set; } = string.Empty;
+        public int? ScopeTemplateItemParentId { get; set; }
+        public int DisplayOrder { get; set; }
+    }
+
     public class ScopeTemplateDTO
     {
         public int ScopeTemplateId { get; set; }
         public string TemplateName { get; set; } = string.Empty;
         public bool Active { get; set; }
-        /// <summary>IDs de catalog_item que forman la plantilla.</summary>
-        public List<int> CatalogItemIds { get; set; } = new();
+        public List<ScopeTemplateItemNodeDTO> Items { get; set; } = new();
     }
 
     public class ScopeTemplateCreateDTO
     {
         public string TemplateName { get; set; } = string.Empty;
-        public List<int> CatalogItemIds { get; set; } = new();
+        public List<ScopeTemplateItemNodeDTO> Items { get; set; } = new();
     }
 
     public class ScopeTemplateUpdateDTO
     {
         public int ScopeTemplateId { get; set; }
         public string TemplateName { get; set; } = string.Empty;
-        public List<int> CatalogItemIds { get; set; } = new();
+        public List<ScopeTemplateItemNodeDTO> Items { get; set; } = new();
     }
 }

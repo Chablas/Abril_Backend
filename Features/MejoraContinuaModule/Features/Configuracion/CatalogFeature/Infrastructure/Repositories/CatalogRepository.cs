@@ -26,7 +26,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
                 {
                     CatalogTypeId = t.CatalogTypeId,
                     CatalogTypeName = t.CatalogTypeName,
-                    CatalogTypeCode = t.CatalogTypeCode,
                     Active = t.Active
                 })
                 .ToListAsync();
@@ -35,80 +34,36 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
         public async Task<List<CatalogItemDTO>> GetItemsByTypeAsync(int catalogTypeId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await (
-                from item in ctx.CatalogItem
-                join parent in ctx.CatalogItem
-                    on item.CatalogItemParentId equals parent.CatalogItemId into pj
-                from parent in pj.DefaultIfEmpty()
-                where item.CatalogTypeId == catalogTypeId && item.Active
-                orderby item.CatalogItemDescription
-                select new CatalogItemDTO
-                {
-                    CatalogItemId = item.CatalogItemId,
-                    CatalogTypeId = item.CatalogTypeId,
-                    CatalogItemParentId = item.CatalogItemParentId,
-                    ParentDescription = parent != null ? parent.CatalogItemDescription : null,
-                    CatalogItemDescription = item.CatalogItemDescription,
-                    CatalogItemCode = item.CatalogItemCode,
-                    Active = item.Active
-                }
-            ).ToListAsync();
-        }
-
-        public async Task<List<CatalogItemDTO>> GetTreeByTypeAsync(int catalogTypeId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var allItems = await ctx.CatalogItem
+            return await ctx.CatalogItem
                 .Where(i => i.CatalogTypeId == catalogTypeId && i.Active)
                 .OrderBy(i => i.CatalogItemDescription)
                 .Select(i => new CatalogItemDTO
                 {
                     CatalogItemId = i.CatalogItemId,
                     CatalogTypeId = i.CatalogTypeId,
-                    CatalogItemParentId = i.CatalogItemParentId,
                     CatalogItemDescription = i.CatalogItemDescription,
-                    CatalogItemCode = i.CatalogItemCode,
                     Active = i.Active
                 })
                 .ToListAsync();
-
-            return BuildTree(allItems, null);
-        }
-
-        private static List<CatalogItemDTO> BuildTree(List<CatalogItemDTO> all, int? parentId)
-        {
-            return all
-                .Where(i => i.CatalogItemParentId == parentId)
-                .Select(i =>
-                {
-                    i.Children = BuildTree(all, i.CatalogItemId);
-                    return i;
-                })
-                .ToList();
         }
 
         public async Task<List<CatalogItemDTO>> GetFullTreeAsync()
         {
             using var ctx = _factory.CreateDbContext();
-            var allItems = await (
+            return await (
                 from item in ctx.CatalogItem
                 join type in ctx.CatalogType on item.CatalogTypeId equals type.CatalogTypeId
                 where item.Active
-                orderby item.CatalogItemDescription
+                orderby type.CatalogTypeName, item.CatalogItemDescription
                 select new CatalogItemDTO
                 {
                     CatalogItemId = item.CatalogItemId,
                     CatalogTypeId = item.CatalogTypeId,
                     CatalogTypeName = type.CatalogTypeName,
-                    CatalogTypeCode = type.CatalogTypeCode,
-                    CatalogItemParentId = item.CatalogItemParentId,
                     CatalogItemDescription = item.CatalogItemDescription,
-                    CatalogItemCode = item.CatalogItemCode,
                     Active = item.Active
                 }
             ).ToListAsync();
-            return BuildTree(allItems, null);
         }
 
         public async Task UpdateTypeAsync(CatalogTypeEditDTO dto)
@@ -117,12 +72,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
             var type = await ctx.CatalogType.FirstOrDefaultAsync(t => t.CatalogTypeId == dto.CatalogTypeId);
             if (type == null) throw new AbrilException("El tipo de catálogo no existe.", 404);
 
-            var duplicate = await ctx.CatalogType
-                .AnyAsync(t => t.CatalogTypeCode == dto.CatalogTypeCode.Trim() && t.CatalogTypeId != dto.CatalogTypeId);
-            if (duplicate) throw new AbrilException("Ya existe un tipo de catálogo con ese código.", 400);
-
             type.CatalogTypeName = dto.CatalogTypeName.Trim();
-            type.CatalogTypeCode = dto.CatalogTypeCode.Trim().ToLower();
             type.Active = dto.Active;
             await ctx.SaveChangesAsync();
         }
@@ -143,16 +93,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
         public async Task CreateTypeAsync(CatalogTypeCreateDTO dto)
         {
             using var ctx = _factory.CreateDbContext();
-
-            var duplicate = await ctx.CatalogType
-                .AnyAsync(t => t.CatalogTypeCode == dto.CatalogTypeCode.Trim());
-            if (duplicate)
-                throw new AbrilException("Ya existe un tipo de catálogo con ese código.", 400);
-
             ctx.CatalogType.Add(new CatalogType
             {
                 CatalogTypeName = dto.CatalogTypeName.Trim(),
-                CatalogTypeCode = dto.CatalogTypeCode.Trim().ToLower(),
                 Active = dto.Active
             });
             await ctx.SaveChangesAsync();
@@ -166,19 +109,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
             if (!typeExists)
                 throw new AbrilException("El tipo de catálogo no existe.", 400);
 
-            if (dto.CatalogItemParentId.HasValue)
-            {
-                var parentExists = await ctx.CatalogItem.AnyAsync(i => i.CatalogItemId == dto.CatalogItemParentId.Value && i.Active);
-                if (!parentExists)
-                    throw new AbrilException("El ítem padre no existe.", 400);
-            }
-
             ctx.CatalogItem.Add(new CatalogItem
             {
                 CatalogTypeId = dto.CatalogTypeId,
-                CatalogItemParentId = dto.CatalogItemParentId,
                 CatalogItemDescription = dto.CatalogItemDescription.Trim(),
-                CatalogItemCode = dto.CatalogItemCode?.Trim(),
                 Active = dto.Active
             });
             await ctx.SaveChangesAsync();
@@ -193,9 +127,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
                 throw new AbrilException("El ítem no existe.", 404);
 
             item.CatalogTypeId = dto.CatalogTypeId;
-            item.CatalogItemParentId = dto.CatalogItemParentId;
             item.CatalogItemDescription = dto.CatalogItemDescription.Trim();
-            item.CatalogItemCode = dto.CatalogItemCode?.Trim();
             item.Active = dto.Active;
 
             await ctx.SaveChangesAsync();
@@ -204,10 +136,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
         public async Task DeleteItemAsync(int catalogItemId)
         {
             using var ctx = _factory.CreateDbContext();
-
-            var hasChildren = await ctx.CatalogItem.AnyAsync(i => i.CatalogItemParentId == catalogItemId && i.Active);
-            if (hasChildren)
-                throw new AbrilException("No se puede eliminar un ítem que tiene hijos activos.", 400);
 
             var item = await ctx.CatalogItem.FirstOrDefaultAsync(i => i.CatalogItemId == catalogItemId);
             if (item == null)

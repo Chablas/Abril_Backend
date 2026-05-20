@@ -92,18 +92,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
                 .ToListAsync();
             ctx.ScopeItem.RemoveRange(scopeItems);
 
-            // Eliminar también templates del área
-            var templates = await ctx.ScopeTemplate
-                .Where(t => t.AreaSubareaId == areaSubarea.AreaSubareaId)
-                .ToListAsync();
-            foreach (var template in templates)
-            {
-                var items = await ctx.ScopeTemplateItem
-                    .Where(i => i.ScopeTemplateId == template.ScopeTemplateId)
-                    .ToListAsync();
-                ctx.ScopeTemplateItem.RemoveRange(items);
-            }
-            ctx.ScopeTemplate.RemoveRange(templates);
+            // Templates are now global (no area link); nothing to delete here
         }
 
         public async Task CreateAsync(SubAreaCreateDTO dto, int userId)

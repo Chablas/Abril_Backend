@@ -142,7 +142,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             var tenantId = _configuration["AzureAd:TenantId"];
             var clientId = _configuration["AzureAd:ClientId"];
-            var secret = _configuration["AzureAd:AbrilBackendSecret"];
+            var secret = _configuration["AzureAd:ClientSecret"];
 
             if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(secret))
                 return null;

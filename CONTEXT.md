@@ -1299,3 +1299,88 @@ Después de `SaveChanges`, si el trabajador no tiene ninguna vinculación abiert
 ### Endpoint GET /habilitacion/trabajadores/reparar-vinculaciones
 
 Endpoint de mantenimiento disponible solo para roles aprobadores. Detecta y repara trabajadores con vinculaciones en estado inconsistente (sin ninguna vinculación abierta). Usado para correcciones masivas de datos históricos sin intervención directa en base de datos.
+
+---
+
+## Sesión 2026-05-20 — fixes BandejaRepository y SctrVidaLeyRepository
+
+### BandejaRepository — SelectBase: apellido_nombre → person.full_name
+
+`Features/HabilitacionModule/Infrastructure/Repositories/BandejaRepository.cs`
+
+Segmentos TRABAJADOR e INDUCCION del UNION ALL: `w.apellido_nombre` no existe en la tabla `workers` → causaba 500 en `GET /api/v1/habilitacion/bandeja`.
+
+Fix:
+- `w.apellido_nombre as entidad_nombre` → `COALESCE(per.full_name, '') as entidad_nombre`
+- Añadido `LEFT JOIN person per ON per.person_id = w.person_id` en ambos segmentos (LEFT para no excluir workers sin person_id)
+- Alias `per` usado para no colisionar con `p` (ya usado para `project`)
+
+EMPRESA (`ec.razon_social`) y EQUIPO (`CONCAT(eq.tipo, ...)`) no necesitaban cambio.
+
+> Nota en CONTEXT.md anterior línea 190: "Entidad nombre: `w.apellido_nombre`" → **obsoleto**. Ahora usa `COALESCE(per.full_name, '')` via `LEFT JOIN person per`.
+
+### SctrVidaLeyRepository — fix lookup de item por tipo
+
+`Features/HabilitacionModule/Infrastructure/Repositories/SctrVidaLeyRepository.cs`
+
+**Problema**: `.FirstOrDefaultAsync(i => i.Nombre.Contains(dto.Tipo))` falla cuando `dto.Tipo == "VIDA_LEY"` porque ningún nombre en BD contiene exactamente esa cadena (la BD usa "Vida Ley" o similar).
+
+**Fix aplicado en tres métodos** (`CreateAsync`, `UpdateAsync`, `AprobarAsync`):
+```csharp
+// ANTES:
+var item = await ctx.SsItemTrabajador
+    .Where(i => i.EsSctrVidaley)
+    .FirstOrDefaultAsync(i => i.Nombre.Contains(dto.Tipo));
+
+// DESPUÉS:
+var itemNombreBuscar = dto.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
+var item = await ctx.SsItemTrabajador
+    .Where(i => i.EsSctrVidaley && i.Nombre.Contains(itemNombreBuscar))
+    .FirstOrDefaultAsync();
+```
+`AprobarAsync` usa `entity.Tipo` en vez de `dto.Tipo` (misma lógica).
+
+### SctrVidaLeyRepository — fix lookup itemVidaLey en GetTrabajadoresPorEmpresaAsync
+
+Línea 516 — antes buscaba `"VIDA_LEY"` o `"VIDA LEY"` exactos; ahora:
+```csharp
+var itemVidaLey = sctrItems.FirstOrDefault(i => i.Nombre.ToUpper().Contains("VIDA"));
+```
+Más tolerante a variaciones de nombre en BD.
+
+### SctrVidaLeyRepository — vigenciaHab siempre desde dto en CreateAsync
+
+`CreateAsync`: `vigenciaHab` dejó de depender de `esAbril`:
+```csharp
+// ANTES: solo asignaba vigencia si esAbril=true
+var vigenciaHab = esAbril && dto.Vigencia.HasValue ? ... : null;
+
+// DESPUÉS: siempre toma dto.Vigencia
+var vigenciaHab = dto.Vigencia.HasValue
+    ? DateTime.SpecifyKind(dto.Vigencia.Value, DateTimeKind.Utc)
+    : (DateTime?)null;
+```
+`estadoHab` (Aprobado/Enviado) sigue dependiendo de `esAbril`.
+
+### SctrVidaLeyRepository — Vigencia en SsSctrVidaley al crear
+
+`CreateAsync`: el objeto `SsSctrVidaley` ahora incluye `Vigencia` al construirse:
+```csharp
+Vigencia = dto.Vigencia.HasValue ? DateTime.SpecifyKind(dto.Vigencia.Value, DateTimeKind.Utc) : null,
+```
+Antes la vigencia solo se asignaba en `AprobarAsync`.
+
+### SctrVidaLeyRepository — SctrId filtrado por tipo en GetTrabajadoresPorEmpresaAsync
+
+La subquery que calcula el `SctrId` activo por worker ahora filtra por tipo:
+```csharp
+&& (tipo == null || s.Tipo == tipo)
+```
+Antes devolvía el MAX(id) entre SCTR y VIDA_LEY mezclados, lo que podía retornar el id de la póliza del tipo incorrecto.
+
+### Logs temporales de debug añadidos
+
+- `AprobarAsync`: log al inicio con `polizaId`, `tipo` y `workerIdsAprobados`
+- `GetTrabajadoresPorEmpresaAsync`: log antes de aplicar filtro `estadoVidaLey` con el valor recibido y el `EstadoVidaLey` de cada worker
+
+**Eliminar antes de merge a master.**

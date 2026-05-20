@@ -31,59 +31,67 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
         public async Task<List<ProgramacionListDto>> List(ProgramacionFilterDto filter)
         {
-            using var ctx = _factory.CreateDbContext();
+            try
+            {
+                using var ctx = _factory.CreateDbContext();
 
-            var q =
-                from p in ctx.SsProgramacionEmo
-                join w in ctx.Worker on p.WorkerId equals w.Id
-                join em in ctx.Contributor on p.EmpresaId equals em.ContributorId into ej
-                from em in ej.DefaultIfEmpty()
-                join t in ctx.SsEmoTipo on p.TipoEmoId equals t.Id into tj
-                from t in tj.DefaultIfEmpty()
-                join c in ctx.SsClinica on p.ClinicaId equals c.Id into cj
-                from c in cj.DefaultIfEmpty()
-                join m in ctx.SsMedicoOcupacional on p.MedicoId equals m.Id into mj
-                from m in mj.DefaultIfEmpty()
-                select new { p, w, em, t, c, m };
+                var q =
+                    from p in ctx.SsProgramacionEmo
+                    join w in ctx.Worker on p.WorkerId equals w.Id
+                    join em in ctx.Contributor on p.EmpresaId equals em.ContributorId into ej
+                    from em in ej.DefaultIfEmpty()
+                    join t in ctx.SsEmoTipo on p.TipoEmoId equals t.Id into tj
+                    from t in tj.DefaultIfEmpty()
+                    join c in ctx.SsClinica on p.ClinicaId equals c.Id into cj
+                    from c in cj.DefaultIfEmpty()
+                    join m in ctx.SsMedicoOcupacional on p.MedicoId equals m.Id into mj
+                    from m in mj.DefaultIfEmpty()
+                    select new { p, w, em, t, c, m };
 
-            q = q.Where(x => x.em != null && x.em.EsAbril);
+                q = q.Where(x => x.em != null && x.em.EsAbril);
 
-            if (filter.FechaDesde.HasValue)
-                q = q.Where(x => x.p.FechaProgramada >= filter.FechaDesde.Value);
-            if (filter.FechaHasta.HasValue)
-                q = q.Where(x => x.p.FechaProgramada <= filter.FechaHasta.Value);
-            if (!string.IsNullOrWhiteSpace(filter.Estado))
-                q = q.Where(x => x.p.Estado == filter.Estado);
-            if (filter.WorkerId.HasValue)
-                q = q.Where(x => x.p.WorkerId == filter.WorkerId.Value);
-            if (filter.ClinicaId.HasValue)
-                q = q.Where(x => x.p.ClinicaId == filter.ClinicaId.Value);
+                if (filter.FechaDesde.HasValue)
+                    q = q.Where(x => x.p.FechaProgramada >= filter.FechaDesde.Value);
+                if (filter.FechaHasta.HasValue)
+                    q = q.Where(x => x.p.FechaProgramada <= filter.FechaHasta.Value);
+                if (!string.IsNullOrWhiteSpace(filter.Estado))
+                    q = q.Where(x => x.p.Estado == filter.Estado);
+                if (filter.WorkerId.HasValue)
+                    q = q.Where(x => x.p.WorkerId == filter.WorkerId.Value);
+                if (filter.ClinicaId.HasValue)
+                    q = q.Where(x => x.p.ClinicaId == filter.ClinicaId.Value);
 
-            return await q
-                .OrderBy(x => x.p.FechaProgramada)
-                .ThenBy(x => x.p.HoraProgramada)
-                .Select(x => new ProgramacionListDto
-                {
-                    Id = x.p.Id,
-                    WorkerId = x.p.WorkerId,
-                    WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
-                    WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
-                    Empresa = x.em != null ? x.em.ContributorName : null,
-                    TipoEmoId = x.p.TipoEmoId,
-                    TipoEmo = x.t != null ? x.t.Nombre : null,
-                    FechaProgramada = x.p.FechaProgramada,
-                    HoraProgramada = x.p.HoraProgramada,
-                    Clinica = x.c != null ? x.c.Nombre : null,
-                    Medico = x.m != null ? x.m.ApellidoNombre : null,
-                    Estado = x.p.Estado,
-                    Motivo = x.p.Motivo,
-                    EmoResultadoId = x.p.EmoResultadoId,
-                    Origen = x.p.Origen,
-                    CheckInHora = x.p.CheckInHora,
-                    MotivoRechazo = x.p.MotivoRechazo,
-                    FechaNotificacion = x.p.FechaNotificacion
-                })
-                .ToListAsync();
+                return await q
+                    .OrderBy(x => x.p.FechaProgramada)
+                    .ThenBy(x => x.p.HoraProgramada)
+                    .Select(x => new ProgramacionListDto
+                    {
+                        Id = x.p.Id,
+                        WorkerId = x.p.WorkerId,
+                        WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
+                        WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
+                        Empresa = x.em != null ? x.em.ContributorName : null,
+                        TipoEmoId = x.p.TipoEmoId,
+                        TipoEmo = x.t != null ? x.t.Nombre : null,
+                        FechaProgramada = x.p.FechaProgramada,
+                        HoraProgramada = x.p.HoraProgramada,
+                        Clinica = x.c != null ? x.c.Nombre : null,
+                        Medico = x.m != null ? x.m.ApellidoNombre : null,
+                        Estado = x.p.Estado,
+                        Motivo = x.p.Motivo,
+                        EmoResultadoId = x.p.EmoResultadoId,
+                        Origen = x.p.Origen,
+                        CheckInHora = x.p.CheckInHora,
+                        MotivoRechazo = x.p.MotivoRechazo,
+                        FechaNotificacion = x.p.FechaNotificacion
+                    })
+                    .ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("PROGRAMACION_LIST_ERROR estado={Estado} | {Ex}", filter.Estado, ex.ToString());
+                throw;
+            }
         }
 
         public async Task<int> Create(ProgramacionCreateDto dto, int? userId)
@@ -399,96 +407,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
         }
 
-        private async Task EnviarNotificacionAceptacionAsync(
-            AppDbContext ctx,
-            SsProgramacionEmo prog,
-            Worker worker)
-        {
-            try
-            {
-                var esCasa = string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase);
-                var esOficinaCentral = string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
-                var esStaff = esCasa && string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
-                var esObrero = esCasa && string.Equals(worker.ObraOficina, "Ninguno", StringComparison.OrdinalIgnoreCase);
-
-                if (!esObrero && !esStaff && !esOficinaCentral) return; // Contratista
-
-                var vinculacion = await ctx.WorkerVinculacion.AsNoTracking()
-                    .Where(v => v.WorkerId == worker.Id && v.FechaFin == null)
-                    .OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id)
-                    .FirstOrDefaultAsync();
-
-                Project? proyecto = null;
-                if (vinculacion?.ProyectoId.HasValue == true)
-                    proyecto = await ctx.Project.AsNoTracking()
-                        .FirstOrDefaultAsync(p => p.ProjectId == vinculacion.ProyectoId.Value);
-
-                var tipoEmo = await ctx.SsEmoTipo.AsNoTracking()
-                    .FirstOrDefaultAsync(t => t.Id == prog.TipoEmoId);
-
-                var adminEmail = worker.ContributorId.HasValue
-                    ? await ctx.Contributor.AsNoTracking()
-                        .Where(c => c.ContributorId == worker.ContributorId.Value)
-                        .Select(c => c.EmailAdministrador)
-                        .FirstOrDefaultAsync()
-                    : null;
-
-                var medOcupacional = _configuration["EmailsArea:MedicinaOcupacional"];
-                var gth = _configuration["EmailsArea:GTH"];
-
-                List<string?> toRaw;
-                if (esObrero)
-                    toRaw = new List<string?> { proyecto?.EmailCoordAdmin, proyecto?.EmailResidente, proyecto?.EmailCoordSsoma, medOcupacional, adminEmail };
-                else if (esStaff)
-                    toRaw = new List<string?> { worker.EmailCorporativo, proyecto?.EmailResidente, proyecto?.EmailCoordAdmin, proyecto?.EmailCoordSsoma, adminEmail };
-                else // esOficinaCentral
-                {
-                    var jefaturaEmails = !string.IsNullOrWhiteSpace(worker.Jefatura)
-                        ? await ctx.CatJefatura.AsNoTracking()
-                            .Where(j => j.Nombre == worker.Jefatura && j.Activo)
-                            .Select(j => j.Email)
-                            .ToListAsync()
-                        : new List<string>();
-                    toRaw = new List<string?> { worker.EmailCorporativo, gth, medOcupacional, adminEmail }
-                        .Concat(jefaturaEmails.Cast<string?>()).ToList();
-                }
-
-                var to = toRaw
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(e => e!.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                if (to.Count == 0) return;
-
-                var horaStr = prog.HoraProgramada.HasValue ? prog.HoraProgramada.Value.ToString("HH:mm") : "—";
-                var clinica = prog.ClinicaId.HasValue
-                    ? await ctx.SsClinica.AsNoTracking().FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value)
-                    : null;
-
-                var subject = $"[PRUEBAS - NO RESPONDER] [EMO Confirmado] {worker.Person?.FullName} — {prog.FechaProgramada:dd/MM/yyyy}";
-                var body = $@"
-            <p>Estimados,</p>
-            <p>La clínica ha <strong>confirmado</strong> la siguiente programación de EMO:</p>
-            <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
-                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.FullName}</td></tr>
-                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.DocumentIdentityCode}</td></tr>
-                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Tipo EMO</strong></td><td style='border:1px solid #ddd;padding:8px;'>{tipoEmo?.Nombre ?? "—"}</td></tr>
-                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Fecha</strong></td><td style='border:1px solid #ddd;padding:8px;'>{prog.FechaProgramada:dd/MM/yyyy}</td></tr>
-                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Hora</strong></td><td style='border:1px solid #ddd;padding:8px;'>{horaStr}</td></tr>
-                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Proyecto</strong></td><td style='border:1px solid #ddd;padding:8px;'>{proyecto?.ProjectDescription ?? "—"}</td></tr>
-                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Clínica</strong></td><td style='border:1px solid #ddd;padding:8px;'>{clinica?.Nombre ?? "—"}</td></tr>
-            </table>
-            <p style='margin-top:16px;'>El trabajador debe presentarse en la clínica en la fecha y hora indicadas.</p>
-            <p style='font-size:12px;color:#666;margin-top:24px;'>Esta notificación se generó automáticamente por el sistema Abril.</p>";
-
-                await _emailService.SendAsync(to: to, subject: subject, body: body, isHtml: true);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Programación {Id}: error enviando notificación de aceptación.", prog.Id);
-            }
-        }
     }
 
 }

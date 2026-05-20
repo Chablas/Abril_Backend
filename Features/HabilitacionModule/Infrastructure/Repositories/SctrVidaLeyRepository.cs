@@ -77,6 +77,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 Anio = anio,
                 ArchivoUrl = dto.ArchivoUrl,
                 ArchivoUrl2 = dto.ArchivoUrl2,
+                Vigencia = dto.Vigencia.HasValue ? DateTime.SpecifyKind(dto.Vigencia.Value, DateTimeKind.Utc) : null,
                 Estado = "Enviado",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -106,13 +107,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .FirstOrDefaultAsync();
 
             var estadoHab = esAbril ? "Aprobado" : "Enviado";
-            var vigenciaHab = esAbril && dto.Vigencia.HasValue
+            var vigenciaHab = dto.Vigencia.HasValue
                 ? DateTime.SpecifyKind(dto.Vigencia.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
 
+            var itemNombreBuscar = dto.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
             var item = await ctx.SsItemTrabajador
-                .Where(i => i.EsSctrVidaley)
-                .FirstOrDefaultAsync(i => i.Nombre.Contains(dto.Tipo));
+                .Where(i => i.EsSctrVidaley && i.Nombre.Contains(itemNombreBuscar))
+                .FirstOrDefaultAsync();
 
             if (item is not null)
             {
@@ -220,9 +222,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             await ctx.SaveChangesAsync();
 
+            var itemNombreBuscar = dto.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
             var item = await ctx.SsItemTrabajador
-                .Where(i => i.EsSctrVidaley)
-                .FirstOrDefaultAsync(i => i.Nombre.Contains(dto.Tipo));
+                .Where(i => i.EsSctrVidaley && i.Nombre.Contains(itemNombreBuscar))
+                .FirstOrDefaultAsync();
 
             if (item is not null)
             {
@@ -299,9 +302,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var entity = await ctx.SsSctrVidaley.FirstOrDefaultAsync(s => s.Id == id)
                 ?? throw new AbrilException("SCTR/VidaLey no encontrado.", 404);
 
+            _logger.LogInformation("[DEBUG AprobarAsync] polizaId={Id} tipo='{Tipo}' workerIdsAprobados=[{Workers}]",
+                id, entity.Tipo, string.Join(", ", dto.WorkerIdsAprobados));
+
+            var itemNombreBuscar = entity.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
             var item = await ctx.SsItemTrabajador
-                .Where(i => i.EsSctrVidaley)
-                .FirstOrDefaultAsync(i => i.Nombre.Contains(entity.Tipo));
+                .Where(i => i.EsSctrVidaley && i.Nombre.Contains(itemNombreBuscar))
+                .FirstOrDefaultAsync();
 
             var aprobados = dto.WorkerIdsAprobados.Distinct().ToList();
             var rechazados = dto.WorkerIdsRechazados.Distinct().ToList();
@@ -510,7 +517,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             var itemSctr = sctrItems.FirstOrDefault(i => i.Nombre.Contains("SCTR"));
-            var itemVidaLey = sctrItems.FirstOrDefault(i => i.Nombre.Contains("VIDA_LEY") || i.Nombre.Contains("VIDA LEY"));
+            var itemVidaLey = sctrItems.FirstOrDefault(i => i.Nombre.ToUpper().Contains("VIDA"));
 
             var itemIdsRelevantes = sctrItems.Select(i => i.Id).ToList();
 
@@ -526,6 +533,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 join s in ctx.SsSctrVidaley on svw.SctrVidaLeyId equals s.Id
                 where workerIds.Contains(svw.WorkerId)
                     && (s.Estado == "Enviado" || s.Estado == "Parcial")
+                    && (tipo == null || s.Tipo == tipo)
                 group svw by svw.WorkerId into g
                 select new { WorkerId = g.Key, SctrId = g.Max(x => x.SctrVidaLeyId) }
             ).ToDictionaryAsync(x => x.WorkerId, x => x.SctrId);
@@ -578,6 +586,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(estadoVidaLey))
             {
+                _logger.LogInformation("[DEBUG] estadoVidaLey recibido='{EstadoVidaLey}' | workers EstadoVidaLey: [{Estados}]",
+                    estadoVidaLey, string.Join(", ", result.Select(r => $"w{r.WorkerId}={r.EstadoVidaLey}")));
                 var valoresVidaLey = estadoVidaLey.Replace("%2C", ",").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 _logger.LogInformation("[GetTrabajadoresPorEmpresa] Aplicando filtro estadoVidaLey='{EstadoVidaLey}'", estadoVidaLey);
                 result = result.Where(r => valoresVidaLey.Contains(r.EstadoVidaLey, StringComparer.OrdinalIgnoreCase)).ToList();

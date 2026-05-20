@@ -35,7 +35,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 SELECT
     ht.id, 'TRABAJADOR' as tipo,
     i.nombre as nombre_entregable,
-    w.apellido_nombre as entidad_nombre,
+    COALESCE(per.full_name, '') as entidad_nombre,
     ec.razon_social as empresa_nombre,
     p.project_description as proyecto_nombre,
     p.project_id as proyecto_id,
@@ -48,6 +48,7 @@ SELECT
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
 JOIN workers w ON w.id = ht.worker_id
+LEFT JOIN person per ON per.person_id = w.person_id
 LEFT JOIN LATERAL (
     SELECT empresa_id, proyecto_id
     FROM worker_vinculaciones
@@ -121,7 +122,7 @@ UNION ALL
 SELECT
     i.id, 'INDUCCION' as tipo,
     'Inducción de Obra' as nombre_entregable,
-    w.apellido_nombre as entidad_nombre,
+    COALESCE(per.full_name, '') as entidad_nombre,
     c.contributor_name as empresa_nombre,
     p.project_description as proyecto_nombre,
     p.project_id as proyecto_id,
@@ -133,6 +134,7 @@ SELECT
     i.created_at as fecha_envio
 FROM ss_induccion i
 JOIN workers w ON w.id = i.worker_id
+LEFT JOIN person per ON per.person_id = w.person_id
 JOIN contributor c ON c.contributor_id = i.empresa_id
 JOIN project p ON p.project_id = i.proyecto_id
 WHERE i.estado = 'PROGRAMADA'

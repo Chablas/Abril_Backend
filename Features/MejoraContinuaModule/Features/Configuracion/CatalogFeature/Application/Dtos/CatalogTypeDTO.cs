@@ -14,4 +14,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
         public string CatalogTypeCode { get; set; } = string.Empty;
         public bool Active { get; set; } = true;
     }
+
+    public class CatalogTypeEditDTO
+    {
+        public int CatalogTypeId { get; set; }
+        public string CatalogTypeName { get; set; } = string.Empty;
+        public string CatalogTypeCode { get; set; } = string.Empty;
+        public bool Active { get; set; }
+    }
 }

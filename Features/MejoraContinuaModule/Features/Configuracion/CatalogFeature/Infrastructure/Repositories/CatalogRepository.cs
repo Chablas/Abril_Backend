@@ -111,6 +111,35 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
             return BuildTree(allItems, null);
         }
 
+        public async Task UpdateTypeAsync(CatalogTypeEditDTO dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var type = await ctx.CatalogType.FirstOrDefaultAsync(t => t.CatalogTypeId == dto.CatalogTypeId);
+            if (type == null) throw new AbrilException("El tipo de catálogo no existe.", 404);
+
+            var duplicate = await ctx.CatalogType
+                .AnyAsync(t => t.CatalogTypeCode == dto.CatalogTypeCode.Trim() && t.CatalogTypeId != dto.CatalogTypeId);
+            if (duplicate) throw new AbrilException("Ya existe un tipo de catálogo con ese código.", 400);
+
+            type.CatalogTypeName = dto.CatalogTypeName.Trim();
+            type.CatalogTypeCode = dto.CatalogTypeCode.Trim().ToLower();
+            type.Active = dto.Active;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task DeleteTypeAsync(int catalogTypeId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hasItems = await ctx.CatalogItem.AnyAsync(i => i.CatalogTypeId == catalogTypeId && i.Active);
+            if (hasItems) throw new AbrilException("No se puede eliminar un tipo que tiene ítems activos.", 400);
+
+            var type = await ctx.CatalogType.FirstOrDefaultAsync(t => t.CatalogTypeId == catalogTypeId);
+            if (type == null) throw new AbrilException("El tipo de catálogo no existe.", 404);
+
+            type.Active = false;
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task CreateTypeAsync(CatalogTypeCreateDTO dto)
         {
             using var ctx = _factory.CreateDbContext();

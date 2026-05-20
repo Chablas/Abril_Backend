@@ -14,6 +14,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
         public Task<List<CatalogItemDTO>> GetTreeByTypeAsync(int catalogTypeId) => _repo.GetTreeByTypeAsync(catalogTypeId);
         public Task<List<CatalogItemDTO>> GetFullTreeAsync() => _repo.GetFullTreeAsync();
         public Task CreateTypeAsync(CatalogTypeCreateDTO dto) => _repo.CreateTypeAsync(dto);
+        public Task UpdateTypeAsync(CatalogTypeEditDTO dto) => _repo.UpdateTypeAsync(dto);
+        public Task DeleteTypeAsync(int catalogTypeId) => _repo.DeleteTypeAsync(catalogTypeId);
         public Task CreateItemAsync(CatalogItemCreateDTO dto) => _repo.CreateItemAsync(dto);
         public Task UpdateItemAsync(CatalogItemEditDTO dto) => _repo.UpdateItemAsync(dto);
         public Task DeleteItemAsync(int catalogItemId) => _repo.DeleteItemAsync(catalogItemId);

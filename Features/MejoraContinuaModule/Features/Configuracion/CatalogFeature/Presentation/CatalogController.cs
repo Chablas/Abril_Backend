@@ -59,6 +59,32 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Cat
         }
 
         [Authorize]
+        [HttpPut("types")]
+        public async Task<IActionResult> UpdateType([FromBody] CatalogTypeEditDTO dto)
+        {
+            try
+            {
+                await _service.UpdateTypeAsync(dto);
+                return Ok(new { message = "Tipo de catálogo actualizado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [Authorize]
+        [HttpDelete("types/{catalogTypeId}")]
+        public async Task<IActionResult> DeleteType(int catalogTypeId)
+        {
+            try
+            {
+                await _service.DeleteTypeAsync(catalogTypeId);
+                return Ok(new { message = "Tipo de catálogo eliminado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [Authorize]
         [HttpPost("items")]
         public async Task<IActionResult> CreateItem([FromBody] CatalogItemCreateDTO dto)
         {

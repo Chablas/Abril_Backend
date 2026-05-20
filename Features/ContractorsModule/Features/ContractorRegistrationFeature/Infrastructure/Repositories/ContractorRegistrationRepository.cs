@@ -1,3 +1,4 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Dtos;
@@ -98,6 +99,14 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                 contributor.UpdatedDateTime = DateTimeOffset.UtcNow;
                 await ctx.SaveChangesAsync();
             }
+
+            // Verificar si ya existe una solicitud activa para este contribuyente
+            var existingContractor = await ctx.Contractor
+                .FirstOrDefaultAsync(c => c.ContributorId == contributor.ContributorId && c.State);
+            if (existingContractor != null)
+                throw new AbrilException(
+                    $"La empresa con RUC {dto.ContributorRuc} ya tiene una solicitud de registro en el sistema. " +
+                    "Si crees que esto es un error, por favor contacta a Abril Grupo Inmobiliario.", 400);
 
             var contractor = new Contractor
             {

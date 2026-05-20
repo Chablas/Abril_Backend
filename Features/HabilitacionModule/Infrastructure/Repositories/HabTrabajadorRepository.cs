@@ -350,6 +350,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 entregable.FechaAprobacion = DateTime.UtcNow;
             }
 
+            if (entregable.ItemId == HabItemIds.InduccionObra
+                && string.Equals(dto.Estado, "Falta", StringComparison.OrdinalIgnoreCase))
+            {
+                var wpRows = await ctx.WorkerProyecto
+                    .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
+                    .ToListAsync();
+                foreach (var wp in wpRows)
+                {
+                    wp.InduccionCompletada = false;
+                    wp.FechaInduccion = null;
+                }
+            }
+
             await ctx.SaveChangesAsync();
             return entregable;
         }

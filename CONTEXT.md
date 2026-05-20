@@ -1384,3 +1384,17 @@ Antes devolvía el MAX(id) entre SCTR y VIDA_LEY mezclados, lo que podía retorn
 - `GetTrabajadoresPorEmpresaAsync`: log antes de aplicar filtro `estadoVidaLey` con el valor recibido y el `EstadoVidaLey` de cada worker
 
 **Eliminar antes de merge a master.**
+
+### HabTrabajadorRepository — EstadoCalc incluye "Enviado" como No Autorizado
+
+`Features/HabilitacionModule/Infrastructure/Repositories/HabTrabajadorRepository.cs` línea 84:
+
+```csharp
+// ANTES:
+(h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido")
+
+// DESPUÉS:
+(h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado")
+```
+
+Workers con entregables en estado `"Enviado"` (pendiente de aprobación) ahora se marcan "No Autorizado" en vez de "Habilitado". Commit `53732bb`.

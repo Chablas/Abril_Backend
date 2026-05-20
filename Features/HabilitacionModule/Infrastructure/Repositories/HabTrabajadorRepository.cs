@@ -81,7 +81,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         .FirstOrDefault(),
                     EstadoCalc =
                         (ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
-                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido") &&
+                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado") &&
                              !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))

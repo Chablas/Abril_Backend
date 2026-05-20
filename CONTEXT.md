@@ -1398,3 +1398,26 @@ Antes devolvía el MAX(id) entre SCTR y VIDA_LEY mezclados, lo que podía retorn
 ```
 
 Workers con entregables en estado `"Enviado"` (pendiente de aprobación) ahora se marcan "No Autorizado" en vez de "Habilitado". Commit `53732bb`.
+
+### HabTrabajadorRepository — UpdateEntregableAsync resetea InduccionCompletada al rechazar ítem 12
+
+`Features/HabilitacionModule/Infrastructure/Repositories/HabTrabajadorRepository.cs`
+
+Cuando `ItemId == HabItemIds.InduccionObra (12)` y el nuevo estado es `"Falta"`, resetea en el mismo `SaveChangesAsync` todas las filas activas (`FechaFin IS NULL`) de `WorkerProyecto` del worker:
+
+```csharp
+if (entregable.ItemId == HabItemIds.InduccionObra
+    && string.Equals(dto.Estado, "Falta", StringComparison.OrdinalIgnoreCase))
+{
+    var wpRows = await ctx.WorkerProyecto
+        .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
+        .ToListAsync();
+    foreach (var wp in wpRows)
+    {
+        wp.InduccionCompletada = false;
+        wp.FechaInduccion = null;
+    }
+}
+```
+
+Garantiza que si se rechaza/revierte la inducción, el worker vuelva a la cola de programación de inducciones. Commit `0403639`.

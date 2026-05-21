@@ -6,6 +6,7 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public string? Tipo { get; set; }
         public int? EtapaId { get; set; }
         public int? UserId { get; set; }
+        public int? UserId2 { get; set; }
         public DateOnly? InicioProgramado { get; set; }
         public DateOnly? FinProgramado { get; set; }
         public DateOnly? InicioEfectivo { get; set; }

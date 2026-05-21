@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Exceptions;
@@ -13,10 +14,14 @@ namespace Abril_Backend.Controllers
     public class ArquitecturaComercialController : ControllerBase
     {
         private readonly IArquitecturaComercialService _service;
+        private readonly IConfiguration _configuration;
+        private readonly ILogger<ArquitecturaComercialController> _logger;
 
-        public ArquitecturaComercialController(IArquitecturaComercialService service)
+        public ArquitecturaComercialController(IArquitecturaComercialService service, IConfiguration configuration, ILogger<ArquitecturaComercialController> logger)
         {
             _service = service;
+            _configuration = configuration;
+            _logger = logger;
         }
 
         [HttpGet("dashboard")]
@@ -89,9 +94,22 @@ namespace Abril_Backend.Controllers
             [FromQuery] int pagina = 1,
             [FromQuery] int porPagina = 100)
         {
+            bool esUsuarioAc;
+            var esGestor = User.IsInRole("GESTOR DE ARQUITECTURA COMERCIAL");
+            if (esGestor)
+                esUsuarioAc = false;
+            else if (User.IsInRole("USUARIO DE ARQUITECTURA COMERCIAL"))
+                esUsuarioAc = true;
+            else
+                return Forbid();
+
+            _logger.LogInformation("Roles del usuario: {roles}", string.Join(", ", User.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value)));
+            _logger.LogInformation("esGestor: {esGestor}, esUsuarioAc: {esUsuarioAc}", esGestor, esUsuarioAc);
+
             try
             {
-                var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina);
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina, userId, esUsuarioAc);
                 return Ok(result);
             }
             catch (Exception)
@@ -319,6 +337,24 @@ namespace Abril_Backend.Controllers
             catch (AbrilException ex)
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [AllowAnonymous]
+        [HttpPost("avance-semanal/snapshot")]
+        public async Task<IActionResult> SnapshotAvanceSemanal()
+        {
+            var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+            if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized();
+
+            try
+            {
+                var result = await _service.SnapshotAvanceSemanal();
+                return Ok(result);
             }
             catch (Exception)
             {

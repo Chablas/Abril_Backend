@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-19 — SctrVidaLeyController empresaId JWT para CONTRATISTA; SctrVidaLeyRepository WorkerVinculacion primario + SctrHabId; ArchivoHabilitacionController [AllowAnonymous] en Descargar; ReingresoAsync safety check vinculación; endpoint reparar-vinculaciones
+> Última actualización: 2026-05-21 — AC: UserId2/ResponsableNombre2, control de acceso por rol (GESTOR/USUARIO AC), ILogger en GetActividades
 
 ---
 
@@ -604,6 +604,7 @@ Mitigado: factory null-safe en Program.cs. Solo `/company-lookup/{ruc}` usa Suna
 | 8 | USUARIO DE ARQUITECTURA COMERCIAL |
 | 9 | ADMINISTRADOR SSOMA |
 | 10 | ADMINISTRADOR ADMINISTRACION |
+| — | GESTOR DE ARQUITECTURA COMERCIAL *(pendiente insertar en BD)* |
 
 Roles aprobadores habilitación: `["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP", "ADMINISTRADOR ADMINISTRACION"]`
 
@@ -627,7 +628,7 @@ Tablas compartidas: `project` (= "Proyecto" en AC, PK `project_id`) y `workers` 
 
 ### 9b. AcActividad — campos
 
-`id`, `project_id` (FK→project), `user_id` (FK→workers, nullable), `nombre`, `tipo`, `etapa_id` (FK→ac_etapas, nullable), `categoria_id` (FK→ac_categorias, nullable — creada manualmente en BD), `especialidad_id` (FK→ac_especialidades, nullable — creada manualmente en BD), `prioridad`, `estado`, `activo` (bool), `indice` (int?), `inicio_programado` (DateOnly?), `fin_programado` (DateOnly?), `inicio_efectivo` (DateOnly?), `fin_efectivo` (DateOnly?), `observaciones`.
+`id`, `project_id` (FK→project), `user_id` (FK→workers, nullable), `user_id2` (FK→workers, nullable — responsable 2), `nombre`, `tipo`, `etapa_id` (FK→ac_etapas, nullable), `categoria_id` (FK→ac_categorias, nullable — creada manualmente en BD), `especialidad_id` (FK→ac_especialidades, nullable — creada manualmente en BD), `prioridad`, `estado`, `activo` (bool), `orden` (int?), `spi` (numeric 5,2), `inicio_programado` (DateOnly?), `fin_programado` (DateOnly?), `inicio_efectivo` (DateOnly?), `fin_efectivo` (DateOnly?), `observaciones`.
 
 Estado calculado dinámicamente al devolver el DTO (`ComputeEstado`): `VACIO` → `PENDIENTE` → `EN_PROCESO` → `VENCIDO` → `CULMINADO`. El campo `estado` en BD almacena el estado pero el DTO siempre lo recalcula.
 
@@ -658,9 +659,9 @@ GET    /api/v1/arquitectura-comercial/etapas
 
 | DTO | Uso |
 |-----|-----|
-| `AcActividadCreateDTO` | POST actividades — Nombre, Tipo, ProjectId, EtapaId?, UserId?, CategoriaId?, EspecialidadId?, InicioProgramado?, FinProgramado?, Observaciones? |
-| `AcActividadUpdateDTO` | PUT actividades/{id} — mismo shape sin ProjectId ni Indice, más InicioEfectivo/FinEfectivo, CategoriaId?, EspecialidadId? |
-| `ActividadListItemDTO` | Retorno de GET/POST/PUT — incluye estado calculado, retraso, EtapaNombre, ResponsableNombre, **PartidaDeControl** (=campo `tipo` en BD), CategoriaId, CategoriaNombre, EspecialidadId, EspecialidadNombre |
+| `AcActividadCreateDTO` | POST actividades — Nombre, Tipo, ProjectId, EtapaId?, UserId?, UserId2?, CategoriaId?, EspecialidadId?, InicioProgramado?, FinProgramado?, Observaciones? |
+| `AcActividadUpdateDTO` | PUT actividades/{id} — mismo shape sin ProjectId, más InicioEfectivo/FinEfectivo, UserId2?, CategoriaId?, EspecialidadId? |
+| `ActividadListItemDTO` | Retorno de GET/POST/PUT — incluye estado calculado, retraso, EtapaNombre, ResponsableNombre, ResponsableNombre2, UserId2, **PartidaDeControl** (=campo `tipo` en BD), CategoriaId, CategoriaNombre, EspecialidadId, EspecialidadNombre |
 
 ---
 
@@ -1421,3 +1422,164 @@ if (entregable.ItemId == HabItemIds.InduccionObra
 ```
 
 Garantiza que si se rechaza/revierte la inducción, el worker vuelva a la cola de programación de inducciones. Commit `0403639`.
+
+---
+
+## Sesión 2026-05-20 (segunda parte) — ArquitecturaComercial: SPI y snapshot semanal
+
+### ac_actividades — columna indice renombrada a orden, nueva columna spi
+
+Cambios aplicados directamente en BD (sin migración EF):
+- `indice` renombrada a `orden` (`numeric` → sin cambio de tipo, sigue siendo `int?`)
+- Nueva columna `spi numeric(5,2)` — Schedule Performance Index
+
+### AcActividad — modelo EF actualizado
+
+`Infrastructure/Models/AcActividad.cs`:
+- `[Column("indice")] Indice` → `[Column("orden")] Orden`
+- Nueva propiedad `[Column("spi")] public decimal? Spi { get; set; }`
+
+### ActividadListItemDTO y GanttActividadDTO — Indice → Orden, Spi añadido
+
+- `ActividadListItemDTO`: `Indice` → `Orden`, nueva propiedad `Spi (decimal?)`
+- `GanttActividadDTO`: `Indice` → `Orden`
+
+Todos los mapeos del repositorio actualizados en consecuencia (listado paginado, `CreateActividad`, `UpdateActividad`, `GetActividadItemById`, `GetGantt`, `GenerarActividades`).
+
+### ArquitecturaComercialRepository — CalcularSpi() y CalcularPorcentajeAvance()
+
+Dos nuevos helpers `private static` en `ArquitecturaComercialRepository.cs`:
+
+**`CalcularSpi(AcActividad a)`** — lógica:
+- `InicioProgramado IS NULL` → 0
+- `FinEfectivo IS NOT NULL` → Round(diasPlanificados / diasReales, 2) donde `diasPlanificados = FinProgramado - InicioProgramado` y `diasReales = FinEfectivo - (InicioEfectivo ?? InicioProgramado)`
+- `InicioEfectivo IS NOT NULL` → Round((hoy - InicioEfectivo) / diasPlanificados, 2)
+- Else → 0
+- Denominadores 0 → 0 (guard explícito)
+
+**`CalcularPorcentajeAvance(AcActividad a, DateOnly today)`** — lógica:
+- Sin `InicioProgramado` → 0
+- Con `FinEfectivo` → 100
+- Con `InicioEfectivo` y `FinProgramado` → `Min(99, Max(0, (hoy - InicioEfectivo) / (FinProgramado - InicioEfectivo) * 100))`
+- Else → 0
+
+`CalcularSpi` se llama al final de `UpdateActividad` y `PatchActividad` antes de `SaveChangesAsync` → persiste el SPI calculado en la columna `spi` de `ac_actividades`.
+
+### AcAvanceSemanal — nuevo modelo, DbSet y snapshot semanal
+
+**Tabla existente en BD:** `ac_avance_semanal (id, actividad_id, semana date, porcentaje_avance numeric(5,2), spi numeric(5,2), created_at)`
+
+**Archivos nuevos:**
+- `Infrastructure/Models/AcAvanceSemanal.cs` — modelo mapeado a la tabla
+- `Application/DTOs/ArquitecturaComercial/AvanceSemanalSnapshotResultDTO.cs` — `{ Total, Semana, Message }`
+
+**Cambios en archivos existentes:**
+- `Shared/Data/AppContext.cs` — `DbSet<AcAvanceSemanal>` añadido
+- `Infrastructure/Interfaces/IArquitecturaComercialRepository.cs` — firma `SnapshotAvanceSemanal()`
+- `Application/Interfaces/IArquitecturaComercialService.cs` — idem
+- `Infrastructure/Repositories/ArquitecturaComercialRepository.cs` — método público `SnapshotAvanceSemanal()` + helper `CalcularPorcentajeAvance`
+- `Application/Services/ArquitecturaComercialService.cs` — delegación al repositorio
+- `Controllers/ArquitecturaComercialController.cs` — inyección de `IConfiguration`; endpoint `POST /api/v1/arquitectura-comercial/avance-semanal/snapshot` con guard CronSecret
+
+**Lógica del endpoint snapshot:**
+- Autenticación: `Authorization: Bearer {CronSecret}` (mismo patrón que `/reminder` y `/alertas/*`)
+- Semana = lunes de la semana actual: `today.AddDays(-(int)today.DayOfWeek + 1)`
+- Trae todas las `AcActividad` con `Activo = true`
+- Por cada actividad calcula `Spi` y `PorcentajeAvance`
+- Upsert vía EF: carga filas existentes de la semana en diccionario → actualiza si existe, inserta si no
+- Responde `{ total, semana, message }`
+
+**Endpoint:**
+```
+POST /api/v1/arquitectura-comercial/avance-semanal/snapshot   [AllowAnonymous + CronSecret]
+```
+
+---
+
+## Sesión 2026-05-21 — ArquitecturaComercial: UserId2, control de acceso por rol
+
+### ac_actividades — nueva columna user_id2
+
+Columna añadida directamente en BD (sin migración EF): `user_id2 int` (FK→workers, nullable) — segundo responsable de la actividad.
+
+### AcActividad — modelo EF
+
+`Infrastructure/Models/AcActividad.cs`:
+- Nueva propiedad `[Column("user_id2")] public int? UserId2 { get; set; }`
+
+### DTOs actualizados
+
+- `AcActividadCreateDTO` — nueva propiedad `UserId2?`
+- `AcActividadUpdateDTO` — nueva propiedad `UserId2?`
+- `ActividadListItemDTO` — nuevas propiedades `UserId2?` y `ResponsableNombre2?`
+
+### ArquitecturaComercialRepository — join w2 en todas las queries
+
+Los cuatro métodos que construyen `ActividadListItemDTO` (`GetActividades`, `GetActividadItemById`, `CreateActividad`, `UpdateActividad`) reciben el join:
+```csharp
+from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
+// select:
+ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
+```
+El DTO de respuesta incluye `UserId2 = act.UserId2` y `ResponsableNombre2`.
+
+`PatchActividad` agrega el case `"userid2"` al switch de campos patcheables.
+
+`CreateActividad` y `UpdateActividad` persisten `UserId2 = dto.UserId2`.
+
+### GetActividades — filtro por rol
+
+`GetActividades` recibe dos nuevos parámetros en toda la cadena (interface → service → repository → controller):
+
+| Parámetro | Tipo | Uso |
+|-----------|------|-----|
+| `userId` | `int?` | Id del usuario autenticado (de `ClaimTypes.NameIdentifier`) |
+| `esUsuarioAc` | `bool` | Si `true`, filtra actividades donde `user_id == userId OR user_id2 == userId` |
+
+Filtro en repositorio (se aplica solo cuando `esUsuarioAc && userId > 0`):
+```csharp
+baseQuery = baseQuery.Where(x => x.Actividad.UserId == userId || x.Actividad.UserId2 == userId);
+```
+
+### ArquitecturaComercialController — control de acceso en GetActividades
+
+Guard de rol antes del try, con prioridad GESTOR sobre USUARIO:
+```csharp
+var esGestor = User.IsInRole("GESTOR DE ARQUITECTURA COMERCIAL");
+if (esGestor)
+    esUsuarioAc = false;   // ve todas las actividades
+else if (User.IsInRole("USUARIO DE ARQUITECTURA COMERCIAL"))
+    esUsuarioAc = true;    // ve solo las suyas (user_id o user_id2)
+else
+    return Forbid();       // 403 para cualquier otro rol
+```
+
+`ILogger<ArquitecturaComercialController>` inyectado en constructor. Logs temporales de debug:
+```csharp
+_logger.LogInformation("Roles del usuario: {roles}", ...);
+_logger.LogInformation("esGestor: {esGestor}, esUsuarioAc: {esUsuarioAc}", ...);
+```
+**Eliminar los dos logs antes de merge a master.**
+
+### Nuevo rol pendiente en BD
+
+```sql
+INSERT INTO roles (role_description, active, state)
+VALUES ('GESTOR DE ARQUITECTURA COMERCIAL', true, 'ACTIVO');
+-- Luego asignar a usuarios en user_roles y features en role_feature
+```
+
+### Frontend — nuevo-entregable y nuevo-hito: nombre personalizado
+
+Cambios en dos componentes AC del frontend (`nuevo-entregable.ts/html` y `nuevo-hito.ts/html`):
+
+**TypeScript:**
+- Dos nuevas propiedades: `nombrePersonalizado = false` y `nombreLibre = ''`
+- `ngOnChanges`: las resetea a `false` / `''` al abrir el modal
+- `canSubmit`: si `nombrePersonalizado` ON → solo exige `nombreLibre.trim()` no vacío; si OFF → lógica original
+- `submit()`: nombre = `nombreLibre.trim()` si ON, o `nombreCalculado` si OFF
+
+**HTML:**
+- Campo "Nombre generado" (readonly) se muestra solo con `*ngIf="!nombrePersonalizado"`
+- Input de texto libre aparece con `*ngIf="nombrePersonalizado"`
+- Checkbox `[(ngModel)]="nombrePersonalizado"` con label "Nombre personalizado" debajo de ambos inputs

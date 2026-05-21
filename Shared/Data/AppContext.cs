@@ -86,6 +86,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectLink> ProjectLink { get; set; }
         public DbSet<ProjectLinkType> ProjectLinkType { get; set; }
         public DbSet<AcActividad> AcActividad { get; set; }
+        public DbSet<AcAvanceSemanal> AcAvanceSemanal { get; set; }
         public DbSet<AcEtapa> AcEtapa { get; set; }
         public DbSet<AcActividadPlantilla> AcActividadPlantilla { get; set; }
         public DbSet<AcCategoria> AcCategoria { get; set; }

@@ -335,7 +335,9 @@ namespace Abril_Backend.Infrastructure.Repositories
             string? search,
             bool? soloActivas,
             int pagina,
-            int porPagina)
+            int porPagina,
+            int? userId,
+            bool esUsuarioAc)
         {
             if (pagina < 1) pagina = 1;
             if (porPagina < 1) porPagina = 100;
@@ -348,6 +350,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                             join p in ctx.Project on a.ProjectId equals p.ProjectId
                             from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                             from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                            from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                             from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                             from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                             select new
@@ -357,6 +360,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                 Encargado1 = p.ResponsableArqCom,
                                 EtapaNombre = e != null ? e.Nombre : null,
                                 ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                 CategoriaNombre = c != null ? c.Nombre : null,
                                 EspecialidadNombre = s != null ? s.Nombre : null,
                             };
@@ -380,10 +384,13 @@ namespace Abril_Backend.Infrastructure.Repositories
             if (soloActivas.HasValue && soloActivas.Value)
                 baseQuery = baseQuery.Where(x => x.Actividad.Activo);
 
+            if (esUsuarioAc && userId.HasValue && userId.Value > 0)
+                baseQuery = baseQuery.Where(x => x.Actividad.UserId == userId || x.Actividad.UserId2 == userId);
+
             int total = await baseQuery.CountAsync();
 
             var rows = await baseQuery
-                .OrderBy(x => x.Actividad.Indice)
+                .OrderBy(x => x.Actividad.Orden)
                 .ThenBy(x => x.Actividad.Id)
                 .Skip((pagina - 1) * porPagina)
                 .Take(porPagina)
@@ -404,7 +411,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                     Id = a.Id,
                     ProjectId = a.ProjectId,
                     ProjectNombre = x.ProjectNombre,
-                    Indice = a.Indice,
+                    Orden = a.Orden,
+                    Spi = a.Spi,
                     Nombre = a.Nombre,
                     PartidaDeControl = a.Tipo,
                     EtapaId = a.EtapaId,
@@ -415,6 +423,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                     EspecialidadNombre = x.EspecialidadNombre,
                     UserId = a.UserId,
                     ResponsableNombre = x.ResponsableNombre,
+                    UserId2 = a.UserId2,
+                    ResponsableNombre2 = x.ResponsableNombre2,
                     Encargado1 = x.Encargado1,
                     InicioProgramado = a.InicioProgramado,
                     FinProgramado = a.FinProgramado,
@@ -465,6 +475,9 @@ namespace Abril_Backend.Infrastructure.Repositories
                     case "userid":
                         actividad.UserId = ParseIntOrNull(kvp.Value);
                         break;
+                    case "userid2":
+                        actividad.UserId2 = ParseIntOrNull(kvp.Value);
+                        break;
                     case "observaciones":
                         actividad.Observaciones = ParseStringOrNull(kvp.Value);
                         break;
@@ -479,6 +492,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 else if (!wasNull && isNull) actividad.Activo = false;
             }
 
+            actividad.Spi = CalcularSpi(actividad);
+
             await ctx.SaveChangesAsync();
 
             return await GetActividadItemById(ctx, id);
@@ -492,6 +507,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                              from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                              from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == id
@@ -502,6 +518,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstOrDefaultAsync();
@@ -520,7 +537,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Id = act.Id,
                 ProjectId = act.ProjectId,
                 ProjectNombre = row.ProjectNombre,
-                Indice = act.Indice,
+                Orden = act.Orden,
+                Spi = act.Spi,
                 Nombre = act.Nombre,
                 PartidaDeControl = act.Tipo,
                 EtapaId = act.EtapaId,
@@ -531,6 +549,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
+                UserId2 = act.UserId2,
+                ResponsableNombre2 = row.ResponsableNombre2,
                 Encargado1 = row.Encargado1,
                 InicioProgramado = act.InicioProgramado,
                 FinProgramado = act.FinProgramado,
@@ -674,14 +694,15 @@ namespace Abril_Backend.Infrastructure.Repositories
             if (!proyectoExiste)
                 throw new AbrilException("Proyecto no encontrado.", 404);
 
-            var maxIndice = await ctx.AcActividad
+            var maxOrden = await ctx.AcActividad
                 .Where(a => a.ProjectId == dto.ProjectId)
-                .MaxAsync(a => (int?)a.Indice) ?? 0;
+                .MaxAsync(a => (int?)a.Orden) ?? 0;
 
             var actividad = new AcActividad
             {
                 ProjectId = dto.ProjectId,
                 UserId = dto.UserId,
+                UserId2 = dto.UserId2,
                 Nombre = dto.Nombre,
                 Tipo = dto.Tipo,
                 EtapaId = dto.EtapaId,
@@ -689,7 +710,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadId = dto.EspecialidadId,
                 Estado = EstadoVacio,
                 Activo = true,
-                Indice = maxIndice + 1,
+                Orden = maxOrden + 1,
                 InicioProgramado = dto.InicioProgramado,
                 FinProgramado = dto.FinProgramado,
                 Observaciones = dto.Observaciones,
@@ -703,6 +724,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                              from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                              from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == actividad.Id
@@ -713,6 +735,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
@@ -723,7 +746,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Id = act.Id,
                 ProjectId = act.ProjectId,
                 ProjectNombre = row.ProjectNombre,
-                Indice = act.Indice,
+                Orden = act.Orden,
+                Spi = act.Spi,
                 Nombre = act.Nombre,
                 PartidaDeControl = act.Tipo,
                 EtapaId = act.EtapaId,
@@ -734,6 +758,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
+                UserId2 = act.UserId2,
+                ResponsableNombre2 = row.ResponsableNombre2,
                 Encargado1 = row.Encargado1,
                 InicioProgramado = act.InicioProgramado,
                 FinProgramado = act.FinProgramado,
@@ -759,11 +785,13 @@ namespace Abril_Backend.Infrastructure.Repositories
             actividad.CategoriaId = dto.CategoriaId;
             actividad.EspecialidadId = dto.EspecialidadId;
             actividad.UserId = dto.UserId;
+            actividad.UserId2 = dto.UserId2;
             actividad.InicioProgramado = dto.InicioProgramado;
             actividad.FinProgramado = dto.FinProgramado;
             actividad.InicioEfectivo = dto.InicioEfectivo;
             actividad.FinEfectivo = dto.FinEfectivo;
             actividad.Observaciones = dto.Observaciones;
+            actividad.Spi = CalcularSpi(actividad);
 
             await ctx.SaveChangesAsync();
 
@@ -772,6 +800,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                              from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                              from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == id
@@ -782,6 +811,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
@@ -792,7 +822,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Id = act.Id,
                 ProjectId = act.ProjectId,
                 ProjectNombre = row.ProjectNombre,
-                Indice = act.Indice,
+                Orden = act.Orden,
+                Spi = act.Spi,
                 Nombre = act.Nombre,
                 PartidaDeControl = act.Tipo,
                 EtapaId = act.EtapaId,
@@ -803,6 +834,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
+                UserId2 = act.UserId2,
+                ResponsableNombre2 = row.ResponsableNombre2,
                 Encargado1 = row.Encargado1,
                 InicioProgramado = act.InicioProgramado,
                 FinProgramado = act.FinProgramado,
@@ -824,6 +857,53 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             ctx.AcActividad.Remove(actividad);
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<AvanceSemanalSnapshotResultDTO> SnapshotAvanceSemanal()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var semana = today.AddDays(-(int)today.DayOfWeek + 1);
+
+            var actividades = await ctx.AcActividad
+                .Where(a => a.Activo)
+                .ToListAsync();
+
+            var existentes = await ctx.AcAvanceSemanal
+                .Where(x => x.Semana == semana)
+                .ToDictionaryAsync(x => x.ActividadId);
+
+            foreach (var a in actividades)
+            {
+                var spi = CalcularSpi(a);
+                var porcentaje = CalcularPorcentajeAvance(a, today);
+
+                if (existentes.TryGetValue(a.Id, out var row))
+                {
+                    row.PorcentajeAvance = porcentaje;
+                    row.Spi = spi;
+                }
+                else
+                {
+                    ctx.AcAvanceSemanal.Add(new AcAvanceSemanal
+                    {
+                        ActividadId = a.Id,
+                        Semana = semana,
+                        PorcentajeAvance = porcentaje,
+                        Spi = spi,
+                        CreatedAt = DateTime.UtcNow,
+                    });
+                }
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return new AvanceSemanalSnapshotResultDTO
+            {
+                Total = actividades.Count,
+                Semana = semana,
+                Message = $"Snapshot generado para la semana del {semana:yyyy-MM-dd}.",
+            };
         }
 
         private static async Task<PlantillaActividadDTO?> LoadPlantillaDto(AppDbContext ctx, int id)
@@ -849,6 +929,58 @@ namespace Abril_Backend.Infrastructure.Repositories
                     Activo = p.Activo,
                 }
             ).FirstOrDefaultAsync();
+        }
+
+        private static decimal CalcularSpi(AcActividad a)
+        {
+            if (!a.InicioProgramado.HasValue)
+                return 0m;
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            if (a.FinEfectivo.HasValue)
+            {
+                var diasPlan = (a.FinProgramado!.Value.ToDateTime(TimeOnly.MinValue)
+                              - a.InicioProgramado.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (diasPlan == 0) return 0m;
+                var diasReal = (a.FinEfectivo.Value.ToDateTime(TimeOnly.MinValue)
+                              - (a.InicioEfectivo ?? a.InicioProgramado.Value).ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (diasReal == 0) return 0m;
+                return Math.Round((decimal)(diasPlan / diasReal), 2);
+            }
+
+            if (a.InicioEfectivo.HasValue)
+            {
+                var diasPlan = (a.FinProgramado!.Value.ToDateTime(TimeOnly.MinValue)
+                              - a.InicioProgramado.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (diasPlan == 0) return 0m;
+                var diasTranscurridos = (today.ToDateTime(TimeOnly.MinValue)
+                                       - a.InicioEfectivo.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                return Math.Round((decimal)(diasTranscurridos / diasPlan), 2);
+            }
+
+            return 0m;
+        }
+
+        private static decimal CalcularPorcentajeAvance(AcActividad a, DateOnly today)
+        {
+            if (!a.InicioProgramado.HasValue)
+                return 0m;
+
+            if (a.FinEfectivo.HasValue)
+                return 100m;
+
+            if (a.InicioEfectivo.HasValue && a.FinProgramado.HasValue)
+            {
+                var transcurridos = (today.ToDateTime(TimeOnly.MinValue)
+                                   - a.InicioEfectivo.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                var planificados  = (a.FinProgramado.Value.ToDateTime(TimeOnly.MinValue)
+                                   - a.InicioEfectivo.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (planificados == 0) return 0m;
+                return Math.Min(99m, Math.Max(0m, Math.Round((decimal)(transcurridos / planificados * 100), 2)));
+            }
+
+            return 0m;
         }
 
         private static int? ComputeRetraso(DateOnly? finProgramado, DateOnly? finEfectivo, DateOnly today)
@@ -976,7 +1108,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Nombre = p.Nombre,
                 Tipo = p.Tipo,
                 EtapaId = p.EtapaId,
-                Indice = p.Orden,
+                Orden = p.Orden,
                 Activo = false,
             }).ToList();
 
@@ -1047,7 +1179,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                         select new GanttActividadDTO
                         {
                             Id = a.Id,
-                            Indice = a.Indice,
+                            Orden = a.Orden,
                             Nombre = a.Nombre,
                             Tipo = a.Tipo,
                             EtapaId = a.EtapaId,
@@ -1073,7 +1205,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 query = query.Where(x => x.Activo);
 
             return await query
-                .OrderBy(x => x.Indice)
+                .OrderBy(x => x.Orden)
                 .ThenBy(x => x.Id)
                 .ToListAsync();
         }

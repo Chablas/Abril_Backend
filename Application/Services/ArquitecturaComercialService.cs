@@ -34,9 +34,9 @@ namespace Abril_Backend.Application.Services
             return await _repository.GetSupervisoresAc();
         }
 
-        public async Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina)
+        public async Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina, int? userId, bool esUsuarioAc)
         {
-            return await _repository.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina);
+            return await _repository.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina, userId, esUsuarioAc);
         }
 
         public async Task<ActividadListItemDTO?> PatchActividad(int id, Dictionary<string, JsonElement> body)
@@ -90,5 +90,8 @@ namespace Abril_Backend.Application.Services
 
         public async Task DeleteActividad(int id)
             => await _repository.DeleteActividad(id);
+
+        public async Task<AvanceSemanalSnapshotResultDTO> SnapshotAvanceSemanal()
+            => await _repository.SnapshotAvanceSemanal();
     }
 }

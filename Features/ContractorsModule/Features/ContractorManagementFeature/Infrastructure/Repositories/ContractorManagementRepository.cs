@@ -32,7 +32,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                 join cs in ctx.ContractorState on ct.ContractorStateId equals cs.ContractorStateId
                 join p in ctx.Person on c.LegalRepresentativePersonId equals p.PersonId into personJoin
                 from p in personJoin.DefaultIfEmpty()
-                where ct.Active
+                where ct.Active && ct.State
                 select new { ct, c, cs, p };
 
             if (!string.IsNullOrWhiteSpace(filter.ContributorName))
@@ -189,7 +189,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             var result = await (
                 from ct in ctx.Contractor
                 join c in ctx.Contributor on ct.ContributorId equals c.ContributorId
-                where ct.ContractorId == contractorId && ct.Active
+                where ct.ContractorId == contractorId && ct.Active && ct.State
                 select new ContractorWithEmailsDto
                 {
                     ContractorId = ct.ContractorId,
@@ -221,7 +221,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             using var ctx = _factory.CreateDbContext();
 
             var contractor = await ctx.Contractor
-                .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.Active)
+                .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.Active && c.State)
                 ?? throw new Exception("Contratista no encontrado.");
 
             var contributor = await ctx.Contributor
@@ -333,7 +333,8 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
         public async Task SetActivationToken(int contractorId, string token, DateTime expiry)
         {
             using var ctx = _factory.CreateDbContext();
-            var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId);
+            var contractor = await ctx.Contractor
+                .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.Active && c.State);
             if (contractor is null) return;
             contractor.ActivationToken = token;
             contractor.ActivationTokenExpiry = expiry;

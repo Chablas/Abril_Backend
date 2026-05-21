@@ -100,14 +100,6 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                 await ctx.SaveChangesAsync();
             }
 
-            // Verificar si ya existe una solicitud activa para este contribuyente
-            var existingContractor = await ctx.Contractor
-                .FirstOrDefaultAsync(c => c.ContributorId == contributor.ContributorId && c.State);
-            if (existingContractor != null)
-                throw new AbrilException(
-                    $"La empresa con RUC {dto.ContributorRuc} ya tiene una solicitud de registro en el sistema. " +
-                    "Si crees que esto es un error, por favor contacta a Abril Grupo Inmobiliario.", 400);
-
             var contractor = new Contractor
             {
                 ContributorId         = contributor.ContributorId,
@@ -153,6 +145,46 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                 _logger.LogError(ex, "ERROR REGISTRO CONTRATISTA: {msg}", ex.ToString());
                 throw;
             }
+        }
+
+        public async Task<int> ValidateAndGetAttemptNumberAsync(string ruc)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var contributor = await ctx.Contributor
+                .FirstOrDefaultAsync(c => c.ContributorRuc == ruc && c.State);
+
+            if (contributor == null)
+                return 1; // Primera vez que este RUC se registra
+
+            // Todos los contractor records para este contributor (históricos + activos)
+            var allContractors = await ctx.Contractor
+                .Where(c => c.ContributorId == contributor.ContributorId)
+                .OrderByDescending(c => c.CreatedDateTime)
+                .ToListAsync();
+
+            if (!allContractors.Any())
+                return 1;
+
+            // Revisar el estado del más reciente activo
+            var latestActive = allContractors.FirstOrDefault(c => c.State);
+            if (latestActive != null)
+            {
+                if (latestActive.ContractorStateId == 1)
+                    throw new AbrilException(
+                        "Tu empresa ya tiene una solicitud de registro pendiente de revisión. " +
+                        "Por favor espera a ser contactado por Abril Grupo Inmobiliario.", 400);
+
+                if (latestActive.ContractorStateId == 2)
+                    throw new AbrilException(
+                        "Tu empresa ya se encuentra aprobada como contratista de Abril Grupo Inmobiliario. " +
+                        "Si tienes alguna consulta, por favor contáctanos directamente.", 400);
+
+                // ContractorStateId == 3 (No aprobado) → se permite un nuevo intento
+            }
+
+            // Número de intento = total de registros históricos + 1
+            return allContractors.Count + 1;
         }
     }
 }

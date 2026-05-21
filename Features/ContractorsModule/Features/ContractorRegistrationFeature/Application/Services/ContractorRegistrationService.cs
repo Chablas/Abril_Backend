@@ -61,10 +61,22 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 
             if (dto.LogoFile is not null || dto.BrochureFile is not null || dto.FichaRucFile is not null || dto.ReferencesListFile is not null)
             {
-                var listId     = _configuration["SharePoint:ContractorListId"]
-                                 ?? throw new InvalidOperationException("SharePoint:ContractorListId no está configurado.");
-                var baseFolder = Sanitize($"{dto.ContributorRuc} - {dto.ContributorName}");
-                var folderPath = $"{baseFolder}/Solicitud {attemptNumber}";
+                var listId          = _configuration["SharePoint:ContractorListId"]
+                                      ?? throw new InvalidOperationException("SharePoint:ContractorListId no está configurado.");
+                var desiredFolder   = Sanitize($"{dto.ContributorRuc} - {dto.ContributorName}");
+
+                // Buscar carpeta existente para este RUC (independientemente de si la razón social cambió).
+                // · Si existe y el nombre coincide → se reutiliza tal cual.
+                // · Si existe pero el nombre cambió  → se renombra a la razón social actual.
+                // · Si no existe                    → Graph la crea automáticamente al subir el primer archivo.
+                var existing = await _sharePointService.FindContractorFolderAsync(listId, dto.ContributorRuc);
+                if (existing is not null
+                    && !string.Equals(existing.Value.Name, desiredFolder, StringComparison.OrdinalIgnoreCase))
+                {
+                    await _sharePointService.RenameFolderInLibraryAsync(listId, existing.Value.Id, desiredFolder);
+                }
+
+                var folderPath = $"{desiredFolder}/Solicitud {attemptNumber}";
 
                 if (dto.LogoFile is not null)
                     logoUrl = await UploadFile(listId, folderPath, "logo", dto.LogoFile);

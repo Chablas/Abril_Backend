@@ -366,6 +366,64 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             return items;
         }
 
+        public async Task<(string Id, string Name)?> FindContractorFolderAsync(string libraryName, string ruc)
+        {
+            var token   = await GetAppTokenAsync();
+            var siteId  = await EnsureSiteIdAsync(token);
+            var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            // Obtener todos los elementos raíz de la biblioteca (máx. 500 para no paginar).
+            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root/children" +
+                      "?$select=id,name,folder&$top=500";
+
+            var response = await client.GetAsync(url);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+
+            var prefix = ruc + " - ";
+            foreach (var item in doc.RootElement.GetProperty("value").EnumerateArray())
+            {
+                // Solo carpetas
+                if (!item.TryGetProperty("folder", out _)) continue;
+
+                var name = item.GetProperty("name").GetString() ?? string.Empty;
+                if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var id = item.GetProperty("id").GetString()!;
+                    return (id, name);
+                }
+            }
+
+            return null;
+        }
+
+        public async Task RenameFolderInLibraryAsync(string libraryName, string folderId, string newName)
+        {
+            var token   = await GetAppTokenAsync();
+            var siteId  = await EnsureSiteIdAsync(token);
+            var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var url     = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/items/{folderId}";
+            var payload = JsonSerializer.Serialize(new { name = newName });
+            var content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await client.PatchAsync(url, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"No se pudo renombrar la carpeta en SharePoint [{(int)response.StatusCode}]: {error}");
+            }
+        }
+
         private static string EscapePath(string path)
             => string.Join("/", path.Split('/').Select(Uri.EscapeDataString));
 

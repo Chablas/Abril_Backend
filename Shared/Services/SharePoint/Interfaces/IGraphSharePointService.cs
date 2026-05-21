@@ -70,5 +70,18 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         /// <param name="itemId">ID del item en Graph API (SharepointItemId guardado al subir el archivo).</param>
         /// <returns>Bytes del PDF resultante.</returns>
         Task<byte[]> DownloadAsPdfFromSharePointAsync(string libraryName, string itemId);
+
+        /// <summary>
+        /// Busca en la raíz de la biblioteca la primera carpeta cuyo nombre comience con
+        /// <paramref name="ruc"/> seguido de " - ". Útil para localizar la carpeta de un
+        /// contratista sin importar si la razón social cambió.
+        /// </summary>
+        /// <returns>Tupla (Id, Name) de la carpeta encontrada, o null si no existe.</returns>
+        Task<(string Id, string Name)?> FindContractorFolderAsync(string libraryName, string ruc);
+
+        /// <summary>
+        /// Renombra una carpeta en una biblioteca de SharePoint usando su itemId de Graph.
+        /// </summary>
+        Task RenameFolderInLibraryAsync(string libraryName, string folderId, string newName);
     }
 }

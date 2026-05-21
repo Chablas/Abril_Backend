@@ -1568,3 +1568,18 @@ INSERT INTO roles (role_description, active, state)
 VALUES ('GESTOR DE ARQUITECTURA COMERCIAL', true, 'ACTIVO');
 -- Luego asignar a usuarios en user_roles y features en role_feature
 ```
+
+### Frontend — nuevo-entregable y nuevo-hito: nombre personalizado
+
+Cambios en dos componentes AC del frontend (`nuevo-entregable.ts/html` y `nuevo-hito.ts/html`):
+
+**TypeScript:**
+- Dos nuevas propiedades: `nombrePersonalizado = false` y `nombreLibre = ''`
+- `ngOnChanges`: las resetea a `false` / `''` al abrir el modal
+- `canSubmit`: si `nombrePersonalizado` ON → solo exige `nombreLibre.trim()` no vacío; si OFF → lógica original
+- `submit()`: nombre = `nombreLibre.trim()` si ON, o `nombreCalculado` si OFF
+
+**HTML:**
+- Campo "Nombre generado" (readonly) se muestra solo con `*ngIf="!nombrePersonalizado"`
+- Input de texto libre aparece con `*ngIf="nombrePersonalizado"`
+- Checkbox `[(ngModel)]="nombrePersonalizado"` con label "Nombre personalizado" debajo de ambos inputs

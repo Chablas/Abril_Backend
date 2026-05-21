@@ -94,17 +94,15 @@ namespace Abril_Backend.Controllers
             [FromQuery] int pagina = 1,
             [FromQuery] int porPagina = 100)
         {
+            var rolesUsuario = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+            var esGestor = rolesUsuario.Contains("GESTOR DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase);
             bool esUsuarioAc;
-            var esGestor = User.IsInRole("GESTOR DE ARQUITECTURA COMERCIAL");
             if (esGestor)
                 esUsuarioAc = false;
-            else if (User.IsInRole("USUARIO DE ARQUITECTURA COMERCIAL"))
+            else if (rolesUsuario.Contains("USUARIO DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase))
                 esUsuarioAc = true;
             else
                 return Forbid();
-
-            _logger.LogInformation("Roles del usuario: {roles}", string.Join(", ", User.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value)));
-            _logger.LogInformation("esGestor: {esGestor}, esUsuarioAc: {esUsuarioAc}", esGestor, esUsuarioAc);
 
             try
             {

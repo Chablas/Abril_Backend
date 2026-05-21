@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-21 — AC: UserId2/ResponsableNombre2, control de acceso por rol (GESTOR/USUARIO AC), ILogger en GetActividades
+> Última actualización: 2026-05-21 — AC: UserId2/ResponsableNombre2, control de acceso por rol OrdinalIgnoreCase (GESTOR/USUARIO AC)
 
 ---
 
@@ -1543,23 +1543,20 @@ baseQuery = baseQuery.Where(x => x.Actividad.UserId == userId || x.Actividad.Use
 
 ### ArquitecturaComercialController — control de acceso en GetActividades
 
-Guard de rol antes del try, con prioridad GESTOR sobre USUARIO:
+Guard de rol antes del try, con prioridad GESTOR sobre USUARIO. Usa el mismo patrón `OrdinalIgnoreCase` del resto del proyecto (`SctrVidaLeyController`, `HabTrabajadorController`, etc.):
 ```csharp
-var esGestor = User.IsInRole("GESTOR DE ARQUITECTURA COMERCIAL");
+var rolesUsuario = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+var esGestor = rolesUsuario.Contains("GESTOR DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase);
+bool esUsuarioAc;
 if (esGestor)
     esUsuarioAc = false;   // ve todas las actividades
-else if (User.IsInRole("USUARIO DE ARQUITECTURA COMERCIAL"))
+else if (rolesUsuario.Contains("USUARIO DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase))
     esUsuarioAc = true;    // ve solo las suyas (user_id o user_id2)
 else
     return Forbid();       // 403 para cualquier otro rol
 ```
 
-`ILogger<ArquitecturaComercialController>` inyectado en constructor. Logs temporales de debug:
-```csharp
-_logger.LogInformation("Roles del usuario: {roles}", ...);
-_logger.LogInformation("esGestor: {esGestor}, esUsuarioAc: {esUsuarioAc}", ...);
-```
-**Eliminar los dos logs antes de merge a master.**
+`ILogger<ArquitecturaComercialController>` inyectado en constructor (disponible para logs futuros).
 
 ### Nuevo rol pendiente en BD
 

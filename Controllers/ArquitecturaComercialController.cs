@@ -342,6 +342,54 @@ namespace Abril_Backend.Controllers
             }
         }
 
+        [HttpGet("dashboard-v2")]
+        public async Task<IActionResult> GetDashboardV2([FromQuery] DashboardFiltroDTO filtro)
+        {
+            try
+            {
+                var rolesUsuario = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+                var esGestor = rolesUsuario.Contains("GESTOR DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase);
+                if (!esGestor)
+                {
+                    if (rolesUsuario.Contains("USUARIO DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid))
+                            filtro.UserId = uid;
+                    }
+                    else return Forbid();
+                }
+                var result = await _service.GetDashboardDataFiltrado(filtro);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error dashboard AC v2"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("alertas/{tipoAlerta}")]
+        public async Task<IActionResult> GetActividadesPorAlerta(
+            string tipoAlerta, [FromQuery] DashboardFiltroDTO filtro)
+        {
+            try
+            {
+                var result = await _service.GetActividadesPorAlerta(tipoAlerta, filtro);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error alertas AC"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("alertas/enviar")]
+        public async Task<IActionResult> EnviarAlertas([FromBody] EnviarAlertaRequestDTO request)
+        {
+            try
+            {
+                await _service.EnviarAlertasActividades(request);
+                return Ok(new { message = "Alertas enviadas correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error envío alertas AC"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [AllowAnonymous]
         [HttpPost("avance-semanal/snapshot")]
         public async Task<IActionResult> SnapshotAvanceSemanal()

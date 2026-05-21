@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-21 — AC: UserId2/ResponsableNombre2, control de acceso por rol OrdinalIgnoreCase (GESTOR/USUARIO AC)
+> Última actualización: 2026-05-21 — AC: dashboard-v2, alertas endpoints, email alertas, lógica de estado basada en fechas (FinEfectivo/InicioEfectivo)
 
 ---
 
@@ -1580,3 +1580,59 @@ Cambios en dos componentes AC del frontend (`nuevo-entregable.ts/html` y `nuevo-
 - Campo "Nombre generado" (readonly) se muestra solo con `*ngIf="!nombrePersonalizado"`
 - Input de texto libre aparece con `*ngIf="nombrePersonalizado"`
 - Checkbox `[(ngModel)]="nombrePersonalizado"` con label "Nombre personalizado" debajo de ambos inputs
+
+---
+
+## Sesión 2026-05-21 (segunda parte) — AC: dashboard-v2, alertas y lógica de fechas
+
+### Nuevos DTOs
+
+| Archivo | Contenido |
+|---------|-----------|
+| `Application/DTOs/ArquitecturaComercial/DashboardFiltroDTO.cs` | `CategoriaId?`, `ProyectoId?`, `UserId?`, `Semana?`, `Mes?`, `Anio?` |
+| `Application/DTOs/ArquitecturaComercial/ActividadAlertaDTO.cs` | `Id`, `Nombre`, `Proyecto`, `Responsable1/2`, `EmailResp1/2`, `FechaInicio/Fin`, `Estado`, `Spi`, `Tipo`, `Categoria`, `DiasRestantes` |
+| `Application/DTOs/ArquitecturaComercial/EnviarAlertaRequestDTO.cs` | `List<int> ActividadIds`, `string TipoAlerta` |
+| `Application/DTOs/ArquitecturaComercial/TareasPorArquitectoDTO.cs` | `TareasPorArquitectoDTO`, `AvanceSemanalDTO`, `EficienciaSpiDTO`, `CategoriaItemDTO` |
+
+`ArqComercialDashboardDTO` ampliado: nuevos campos `TareasPorArquitectoDTO[]`, `AvanceSemanalDTO[]`, `EficienciaSpiDTO[]`, `CategoriaItemDTO[]`. `HitoCriticoDTO` ahora incluye `Id`.
+
+### Nuevos endpoints (ArquitecturaComercialController)
+
+```
+GET  /api/v1/arquitectura-comercial/dashboard-v2     [DashboardFiltroDTO desde query]
+     → GESTOR: ve todo; USUARIO AC: UserId se fuerza desde JWT; otro rol: 403
+
+GET  /api/v1/arquitectura-comercial/alertas/{tipoAlerta}   [DashboardFiltroDTO desde query]
+     → tipos: VENCIDA | VENCE_SEMANA | ARRANQUE | HITO_PROXIMO
+     → devuelve List<ActividadAlertaDTO>
+
+POST /api/v1/arquitectura-comercial/alertas/enviar    body: EnviarAlertaRequestDTO
+     → EnviarAlertasActividades: envía email a gestores AC y encargados de las actividades indicadas
+```
+
+### ArquitecturaComercialService — nuevas inyecciones
+
+`IDbContextFactory<AppDbContext>` e `IEmailService` inyectados en constructor.
+
+`EnviarAlertasActividades` consulta emails de gestores vía JOIN manual:
+```csharp
+ctx.User.Join(ctx.UserRole, ...).Join(ctx.Role, ...)
+    .Where(x => x.RoleDescription.ToUpper() == "GESTOR DE ARQUITECTURA COMERCIAL")
+    .Select(x => x.Email)
+```
+
+### Lógica de estado basada en fechas (no en campo `estado`)
+
+Todos los cálculos de KPIs y alertas en `GetDashboardDataFiltrado` y `GetActividadesPorAlerta` usan `FinEfectivo`/`InicioEfectivo`:
+
+| Concepto | Lógica |
+|----------|--------|
+| Culminada | `FinEfectivo != null` |
+| En proceso | `InicioEfectivo != null && FinEfectivo == null` |
+| Vencida | `FinEfectivo == null && FinProgramado < today` |
+| Pendiente | `InicioEfectivo == null && InicioProgramado > today` |
+| Vence esta semana | `FinEfectivo == null && FinProgramado ∈ [semLunes, semDomingo]` |
+| Arranca esta semana | `InicioEfectivo == null && InicioProgramado ∈ [semLunes, semDomingo]` |
+| Hito próximo 14 días | `Tipo=="HITO" && FinEfectivo == null && FinProgramado ∈ [today, today+14]` |
+
+El campo `estado` en BD ya no se usa para calcular KPIs ni alertas.

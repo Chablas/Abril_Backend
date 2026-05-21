@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Exceptions;
@@ -1248,6 +1249,347 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Activas = activas,
                 SinActividades = total == 0,
             };
+        }
+
+        public async Task<ArqComercialDashboardDTO> GetDashboardDataFiltrado(DashboardFiltroDTO filtro)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            var query = ctx.AcActividad.Where(a => a.Activo).AsQueryable();
+
+            if (filtro.CategoriaId.HasValue)
+                query = query.Where(a => a.CategoriaId == filtro.CategoriaId.Value);
+            if (filtro.ProyectoId.HasValue && filtro.ProyectoId.Value > 0)
+                query = query.Where(a => a.ProjectId == filtro.ProyectoId.Value);
+            if (filtro.UserId.HasValue && filtro.UserId.Value > 0)
+                query = query.Where(a => a.UserId == filtro.UserId.Value || a.UserId2 == filtro.UserId.Value);
+            if (filtro.Mes.HasValue)
+                query = query.Where(a =>
+                    (a.InicioProgramado.HasValue && a.InicioProgramado.Value.Month == filtro.Mes.Value) ||
+                    (a.FinProgramado.HasValue    && a.FinProgramado.Value.Month    == filtro.Mes.Value));
+            if (filtro.Semana.HasValue)
+            {
+                var anio  = filtro.Anio ?? today.Year;
+                var jan1  = new DateOnly(anio, 1, 1);
+                var dow   = (int)jan1.DayOfWeek;
+                var offset = dow == 0 ? 6 : dow - 1;
+                var semanaInicio = jan1.AddDays((filtro.Semana.Value - 1) * 7 - offset);
+                var semanaFin    = semanaInicio.AddDays(6);
+                query = query.Where(a =>
+                    (a.InicioProgramado >= semanaInicio && a.InicioProgramado <= semanaFin) ||
+                    (a.FinProgramado    >= semanaInicio && a.FinProgramado    <= semanaFin));
+            }
+
+            var actividades = await query.ToListAsync();
+            var total       = actividades.Count;
+            var culminadas  = actividades.Count(a => a.FinEfectivo != null);
+            var enProceso   = actividades.Count(a => a.InicioEfectivo != null && a.FinEfectivo == null);
+            var vencidas    = actividades.Count(a => a.FinProgramado.HasValue
+                                 && a.FinProgramado.Value < today
+                                 && a.FinEfectivo == null);
+            var pendientes  = actividades.Count(a => a.InicioProgramado.HasValue
+                                 && a.InicioProgramado.Value > today
+                                 && a.InicioEfectivo == null);
+
+            var spiVals = actividades.Where(a => a.Spi.HasValue && a.Spi.Value > 0)
+                .Select(a => (double)a.Spi!.Value).ToList();
+            var eficienciaMedia = spiVals.Count > 0 ? Math.Round(spiVals.Average() * 100, 1) : 0.0;
+            var progresoGlobal  = total > 0 ? Math.Round((double)culminadas / total * 100, 1) : 0.0;
+
+            var semLunes   = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            var semDomingo = semLunes.AddDays(6);
+
+            var alertas = new ArqComercialAlertDTO
+            {
+                VencidasSinCerrar   = vencidas,
+                VencenEstaSemana    = actividades.Count(a =>
+                    a.FinEfectivo == null &&
+                    a.FinProgramado >= semLunes && a.FinProgramado <= semDomingo),
+                ArrancanEstaSemana  = actividades.Count(a =>
+                    a.InicioEfectivo == null &&
+                    a.InicioProgramado >= semLunes && a.InicioProgramado <= semDomingo),
+                HitosProximos14Dias = actividades.Count(a =>
+                    a.Tipo == "HITO" && a.FinEfectivo == null &&
+                    a.FinProgramado >= today && a.FinProgramado <= today.AddDays(14)),
+            };
+
+            var workerIds = actividades
+                .SelectMany(a => new[] { a.UserId, a.UserId2 })
+                .Where(id => id.HasValue).Select(id => id!.Value)
+                .Distinct().ToList();
+
+            var workers = workerIds.Count > 0
+                ? await ctx.Worker.Where(w => workerIds.Contains(w.Id)).Include(w => w.Person).ToListAsync()
+                : [];
+
+            var workerNameMap = workers.ToDictionary(w => w.Id, w => w.Person?.FullName ?? $"Worker {w.Id}");
+
+            var tareasPorArquitectoDetalle = workerIds.Select(uid =>
+            {
+                var tareas      = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
+                var completadas = tareas.Count(a => a.Estado == EstadoCulminado);
+                return new TareasPorArquitectoDTO
+                {
+                    UserId      = uid,
+                    Nombre      = workerNameMap.GetValueOrDefault(uid, $"Worker {uid}"),
+                    Hitos       = tareas.Count(a => a.Tipo == "HITO"),
+                    Entregables = tareas.Count(a => a.Tipo == "ENTREGABLE"),
+                    Consultas   = tareas.Count(a => a.Tipo == "CONSULTA"),
+                    Total       = tareas.Count,
+                    AvancePct   = tareas.Count > 0 ? Math.Round((decimal)completadas / tareas.Count * 100, 1) : 0m,
+                };
+            }).OrderByDescending(t => t.Total).ToList();
+
+            var supervisores = tareasPorArquitectoDetalle.Select(t => new SupervisorProgresoDTO
+            {
+                Nombre      = t.Nombre,
+                Progreso    = (double)t.AvancePct,
+                Completadas = actividades.Count(a =>
+                    (a.UserId == t.UserId || a.UserId2 == t.UserId) && a.Estado == EstadoCulminado),
+                Total       = t.Total,
+            }).ToList();
+
+            var hitosBase = actividades
+                .Where(a => a.Tipo == "HITO" && a.Estado != EstadoCulminado &&
+                       a.FinProgramado.HasValue && a.FinProgramado.Value <= today.AddDays(30))
+                .OrderBy(a => a.FinProgramado).Take(50).ToList();
+
+            var hitosProjectIds = hitosBase.Select(a => a.ProjectId).Distinct().ToList();
+            var hitosProjects   = hitosProjectIds.Count > 0
+                ? await ctx.Project.Where(p => hitosProjectIds.Contains(p.ProjectId))
+                    .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription ?? "")
+                : [];
+
+            var hitosCriticos = hitosBase.Select(a => new HitoCriticoDTO
+            {
+                Id            = a.Id,
+                Nombre        = a.Nombre,
+                Proyecto      = hitosProjects.GetValueOrDefault(a.ProjectId, ""),
+                Estado        = a.Estado ?? "",
+                FechaLimite   = a.FinProgramado?.ToString("dd/MM/yyyy") ?? "",
+                DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
+            }).ToList();
+
+            var hace8Semanas = today.AddDays(-56);
+            var semanaRaw = await ctx.AcAvanceSemanal
+                .Where(s => s.Semana >= hace8Semanas)
+                .GroupBy(s => s.Semana)
+                .Select(g => new { Semana = g.Key, Real = g.Average(x => x.PorcentajeAvance) })
+                .OrderBy(s => s.Semana)
+                .ToListAsync();
+
+            var semanas = semanaRaw.Select(s => new AvanceSemanalDTO
+            {
+                Semana     = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
+                Real       = s.Real,
+                Programado = Math.Round(s.Real * 0.9m, 2),
+            }).ToList();
+
+            var hace3Semanas = today.AddDays(-21);
+            var spiRaw = await ctx.AcAvanceSemanal
+                .Where(s => s.Semana >= hace3Semanas)
+                .GroupBy(s => s.Semana)
+                .Select(g => new { Semana = g.Key, Spi = g.Average(x => x.Spi) })
+                .OrderBy(s => s.Semana)
+                .ToListAsync();
+
+            var eficienciaSpi = spiRaw.Select(s => new EficienciaSpiDTO
+            {
+                Semana = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
+                Spi    = s.Spi,
+            }).ToList();
+
+            var categorias = await ctx.AcCategoria
+                .Select(c => new CategoriaItemDTO { Id = c.Id, Nombre = c.Nombre })
+                .ToListAsync();
+
+            return new ArqComercialDashboardDTO
+            {
+                Kpis = new ArqComercialKpiDTO
+                {
+                    TotalActividades = total,
+                    Culminadas       = culminadas,
+                    EnProceso        = enProceso,
+                    Vencidas         = vencidas,
+                    Pendientes       = pendientes,
+                    EficienciaMedia  = eficienciaMedia,
+                    ProgresoGlobal   = progresoGlobal,
+                },
+                Alertas            = alertas,
+                Supervisores       = supervisores,
+                HitosCriticos      = hitosCriticos,
+                DistribucionEstado = new List<ArqComercialChartItemDTO>
+                {
+                    new() { Label = "Culminadas", Value = culminadas },
+                    new() { Label = "En Proceso", Value = enProceso  },
+                    new() { Label = "Vencidas",   Value = vencidas   },
+                    new() { Label = "Pendientes", Value = pendientes  },
+                },
+                RankingEficiencia  = tareasPorArquitectoDetalle.Select(t => new ArqComercialChartItemDTO
+                {
+                    Label = t.Nombre.Split(' ').FirstOrDefault() ?? t.Nombre,
+                    Value = (double)t.AvancePct,
+                }).ToList(),
+                TendenciaEficiencia = eficienciaSpi.Select(e => new EficienciaSemanalDTO
+                {
+                    Semana = e.Semana,
+                    Valor  = (double)e.Spi,
+                }).ToList(),
+                ProyeccionAvance = new ProyeccionAvanceDTO
+                {
+                    Labels     = semanas.Select(s => s.Semana).ToList(),
+                    Programado = semanas.Select(s => (double)s.Programado).ToList(),
+                    Real       = semanas.Select(s => (double)s.Real).ToList(),
+                },
+                TareasPorArquitectoDetalle = [.. tareasPorArquitectoDetalle],
+                AvanceSemanal              = [.. semanas],
+                EficienciaSpi              = [.. eficienciaSpi],
+                Categorias                 = [.. categorias],
+            };
+        }
+
+        public async Task<List<ActividadAlertaDTO>> GetActividadesPorAlerta(
+            string tipoAlerta, DashboardFiltroDTO filtro)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var today      = DateOnly.FromDateTime(DateTime.UtcNow);
+            var semLunes   = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            var semDomingo = semLunes.AddDays(6);
+
+            var query = ctx.AcActividad.Where(a => a.Activo).AsQueryable();
+
+            if (filtro.CategoriaId.HasValue)
+                query = query.Where(a => a.CategoriaId == filtro.CategoriaId.Value);
+            if (filtro.ProyectoId.HasValue && filtro.ProyectoId.Value > 0)
+                query = query.Where(a => a.ProjectId == filtro.ProyectoId.Value);
+
+            query = tipoAlerta.ToUpperInvariant() switch
+            {
+                "VENCIDA"      => query.Where(a => a.FinEfectivo == null && a.FinProgramado.HasValue && a.FinProgramado.Value < today),
+                "VENCE_SEMANA" => query.Where(a => a.FinEfectivo == null && a.FinProgramado >= semLunes && a.FinProgramado <= semDomingo),
+                "ARRANQUE"     => query.Where(a => a.InicioEfectivo == null && a.InicioProgramado >= semLunes && a.InicioProgramado <= semDomingo),
+                "HITO_PROXIMO" => query.Where(a => a.Tipo == "HITO" && a.FinEfectivo == null && a.FinProgramado >= today && a.FinProgramado <= today.AddDays(14)),
+                _              => query,
+            };
+
+            var list = await query.OrderBy(a => a.FinProgramado).Take(200).ToListAsync();
+            if (list.Count == 0) return [];
+
+            var workerIds = list
+                .SelectMany(a => new[] { a.UserId, a.UserId2 })
+                .Where(id => id.HasValue).Select(id => id!.Value)
+                .Distinct().ToList();
+
+            var workers = workerIds.Count > 0
+                ? await ctx.Worker.Where(w => workerIds.Contains(w.Id)).Include(w => w.Person).ToListAsync()
+                : [];
+
+            var workerNameMap  = workers.ToDictionary(w => w.Id, w => w.Person?.FullName ?? $"Worker {w.Id}");
+            var workerEmailMap = workers.ToDictionary(w => w.Id, w => w.EmailCorporativo ?? "");
+
+            var projectIds = list.Select(a => a.ProjectId).Distinct().ToList();
+            var projects   = await ctx.Project
+                .Where(p => projectIds.Contains(p.ProjectId))
+                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription ?? "");
+
+            var categoriaIds = list.Where(a => a.CategoriaId.HasValue).Select(a => a.CategoriaId!.Value).Distinct().ToList();
+            var categorias   = categoriaIds.Count > 0
+                ? await ctx.AcCategoria.Where(c => categoriaIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Nombre)
+                : [];
+
+            return list.Select(a => new ActividadAlertaDTO
+            {
+                Id            = a.Id,
+                Nombre        = a.Nombre,
+                Proyecto      = projects.GetValueOrDefault(a.ProjectId, ""),
+                Responsable1  = a.UserId.HasValue  ? workerNameMap.GetValueOrDefault(a.UserId.Value)   : null,
+                Responsable2  = a.UserId2.HasValue ? workerNameMap.GetValueOrDefault(a.UserId2.Value)  : null,
+                EmailResp1    = a.UserId.HasValue  ? workerEmailMap.GetValueOrDefault(a.UserId.Value)  : null,
+                EmailResp2    = a.UserId2.HasValue ? workerEmailMap.GetValueOrDefault(a.UserId2.Value) : null,
+                FechaInicio   = a.InicioProgramado?.ToString("dd/MM/yyyy"),
+                FechaFin      = a.FinProgramado?.ToString("dd/MM/yyyy"),
+                Estado        = a.Estado,
+                Spi           = a.Spi,
+                Tipo          = a.Tipo ?? "",
+                Categoria     = a.CategoriaId.HasValue ? categorias.GetValueOrDefault(a.CategoriaId.Value) : null,
+                DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
+            }).ToList();
+        }
+
+        public async Task EnviarAlertasActividades(
+            List<int> actividadIds, string tipoAlerta,
+            List<string> emailsGestores, IEmailService emailService)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var actividades = await ctx.AcActividad
+                .Where(a => actividadIds.Contains(a.Id))
+                .ToListAsync();
+
+            if (actividades.Count == 0) return;
+
+            var workerIds = actividades
+                .SelectMany(a => new[] { a.UserId, a.UserId2 })
+                .Where(id => id.HasValue).Select(id => id!.Value)
+                .Distinct().ToList();
+
+            var emailMap = new Dictionary<int, string>();
+            if (workerIds.Count > 0)
+            {
+                var we = await ctx.Worker
+                    .Where(w => workerIds.Contains(w.Id))
+                    .Select(w => new { w.Id, w.EmailCorporativo })
+                    .ToListAsync();
+                emailMap = we.Where(x => x.EmailCorporativo != null)
+                    .ToDictionary(x => x.Id, x => x.EmailCorporativo!);
+            }
+
+            var projectIds = actividades.Select(a => a.ProjectId).Distinct().ToList();
+            var projects   = await ctx.Project
+                .Where(p => projectIds.Contains(p.ProjectId))
+                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription ?? "");
+
+            var tituloMap = new Dictionary<string, string>
+            {
+                ["VENCIDA"]      = "Actividades Vencidas Sin Cerrar",
+                ["VENCE_SEMANA"] = "Actividades que Vencen Esta Semana",
+                ["ARRANQUE"]     = "Actividades que Arrancan Esta Semana",
+                ["HITO_PROXIMO"] = "Hitos Próximos a Vencer",
+            };
+            var titulo = tituloMap.GetValueOrDefault(tipoAlerta.ToUpperInvariant(), "Alerta de Actividades AC");
+
+            var destinatarios = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var a in actividades)
+            {
+                if (a.UserId.HasValue  && emailMap.TryGetValue(a.UserId.Value,  out var e1)) destinatarios.Add(e1);
+                if (a.UserId2.HasValue && emailMap.TryGetValue(a.UserId2.Value, out var e2)) destinatarios.Add(e2);
+            }
+            foreach (var eg in emailsGestores.Where(e => !string.IsNullOrEmpty(e)))
+                destinatarios.Add(eg);
+
+            if (destinatarios.Count == 0) return;
+
+            var filas = string.Join("", actividades.Select(a =>
+                $"<tr><td>{a.Nombre}</td><td>{projects.GetValueOrDefault(a.ProjectId, "")}</td>" +
+                $"<td>{a.FinProgramado?.ToString("dd/MM/yyyy")}</td>" +
+                $"<td>{a.Estado}</td><td>{a.Spi:F2}</td></tr>"));
+
+            var html = $"""
+                <h2 style="color:#1E3A5F">{titulo}</h2>
+                <p>Se han identificado <b>{actividades.Count}</b> actividades que requieren atención:</p>
+                <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px">
+                  <thead style="background:#1E3A5F;color:#fff">
+                    <tr><th>Actividad</th><th>Proyecto</th><th>Fecha Fin</th><th>Estado</th><th>SPI</th></tr>
+                  </thead>
+                  <tbody>{filas}</tbody>
+                </table>
+                <p style="color:#9CA3AF;font-size:11px;margin-top:16px">
+                  Enviado automáticamente desde Abril AC Dashboard — {DateTime.Now:dd/MM/yyyy HH:mm}
+                </p>
+                """;
+
+            await emailService.SendAsync(destinatarios.ToList(), titulo, html, isHtml: true);
         }
     }
 }

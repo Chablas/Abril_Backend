@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-19 — SctrVidaLeyController empresaId JWT para CONTRATISTA; SctrVidaLeyRepository WorkerVinculacion primario + SctrHabId; ArchivoHabilitacionController [AllowAnonymous] en Descargar; ReingresoAsync safety check vinculación; endpoint reparar-vinculaciones
+> Última actualización: 2026-05-20 — AcActividad: indice→orden, nueva columna spi; CalcularSpi() en UpdateActividad/PatchActividad; AcAvanceSemanal snapshot semanal
 
 ---
 
@@ -1421,3 +1421,74 @@ if (entregable.ItemId == HabItemIds.InduccionObra
 ```
 
 Garantiza que si se rechaza/revierte la inducción, el worker vuelva a la cola de programación de inducciones. Commit `0403639`.
+
+---
+
+## Sesión 2026-05-20 (segunda parte) — ArquitecturaComercial: SPI y snapshot semanal
+
+### ac_actividades — columna indice renombrada a orden, nueva columna spi
+
+Cambios aplicados directamente en BD (sin migración EF):
+- `indice` renombrada a `orden` (`numeric` → sin cambio de tipo, sigue siendo `int?`)
+- Nueva columna `spi numeric(5,2)` — Schedule Performance Index
+
+### AcActividad — modelo EF actualizado
+
+`Infrastructure/Models/AcActividad.cs`:
+- `[Column("indice")] Indice` → `[Column("orden")] Orden`
+- Nueva propiedad `[Column("spi")] public decimal? Spi { get; set; }`
+
+### ActividadListItemDTO y GanttActividadDTO — Indice → Orden, Spi añadido
+
+- `ActividadListItemDTO`: `Indice` → `Orden`, nueva propiedad `Spi (decimal?)`
+- `GanttActividadDTO`: `Indice` → `Orden`
+
+Todos los mapeos del repositorio actualizados en consecuencia (listado paginado, `CreateActividad`, `UpdateActividad`, `GetActividadItemById`, `GetGantt`, `GenerarActividades`).
+
+### ArquitecturaComercialRepository — CalcularSpi() y CalcularPorcentajeAvance()
+
+Dos nuevos helpers `private static` en `ArquitecturaComercialRepository.cs`:
+
+**`CalcularSpi(AcActividad a)`** — lógica:
+- `InicioProgramado IS NULL` → 0
+- `FinEfectivo IS NOT NULL` → Round(diasPlanificados / diasReales, 2) donde `diasPlanificados = FinProgramado - InicioProgramado` y `diasReales = FinEfectivo - (InicioEfectivo ?? InicioProgramado)`
+- `InicioEfectivo IS NOT NULL` → Round((hoy - InicioEfectivo) / diasPlanificados, 2)
+- Else → 0
+- Denominadores 0 → 0 (guard explícito)
+
+**`CalcularPorcentajeAvance(AcActividad a, DateOnly today)`** — lógica:
+- Sin `InicioProgramado` → 0
+- Con `FinEfectivo` → 100
+- Con `InicioEfectivo` y `FinProgramado` → `Min(99, Max(0, (hoy - InicioEfectivo) / (FinProgramado - InicioEfectivo) * 100))`
+- Else → 0
+
+`CalcularSpi` se llama al final de `UpdateActividad` y `PatchActividad` antes de `SaveChangesAsync` → persiste el SPI calculado en la columna `spi` de `ac_actividades`.
+
+### AcAvanceSemanal — nuevo modelo, DbSet y snapshot semanal
+
+**Tabla existente en BD:** `ac_avance_semanal (id, actividad_id, semana date, porcentaje_avance numeric(5,2), spi numeric(5,2), created_at)`
+
+**Archivos nuevos:**
+- `Infrastructure/Models/AcAvanceSemanal.cs` — modelo mapeado a la tabla
+- `Application/DTOs/ArquitecturaComercial/AvanceSemanalSnapshotResultDTO.cs` — `{ Total, Semana, Message }`
+
+**Cambios en archivos existentes:**
+- `Shared/Data/AppContext.cs` — `DbSet<AcAvanceSemanal>` añadido
+- `Infrastructure/Interfaces/IArquitecturaComercialRepository.cs` — firma `SnapshotAvanceSemanal()`
+- `Application/Interfaces/IArquitecturaComercialService.cs` — idem
+- `Infrastructure/Repositories/ArquitecturaComercialRepository.cs` — método público `SnapshotAvanceSemanal()` + helper `CalcularPorcentajeAvance`
+- `Application/Services/ArquitecturaComercialService.cs` — delegación al repositorio
+- `Controllers/ArquitecturaComercialController.cs` — inyección de `IConfiguration`; endpoint `POST /api/v1/arquitectura-comercial/avance-semanal/snapshot` con guard CronSecret
+
+**Lógica del endpoint snapshot:**
+- Autenticación: `Authorization: Bearer {CronSecret}` (mismo patrón que `/reminder` y `/alertas/*`)
+- Semana = lunes de la semana actual: `today.AddDays(-(int)today.DayOfWeek + 1)`
+- Trae todas las `AcActividad` con `Activo = true`
+- Por cada actividad calcula `Spi` y `PorcentajeAvance`
+- Upsert vía EF: carga filas existentes de la semana en diccionario → actualiza si existe, inserta si no
+- Responde `{ total, semana, message }`
+
+**Endpoint:**
+```
+POST /api/v1/arquitectura-comercial/avance-semanal/snapshot   [AllowAnonymous + CronSecret]
+```

@@ -13,10 +13,12 @@ namespace Abril_Backend.Controllers
     public class ArquitecturaComercialController : ControllerBase
     {
         private readonly IArquitecturaComercialService _service;
+        private readonly IConfiguration _configuration;
 
-        public ArquitecturaComercialController(IArquitecturaComercialService service)
+        public ArquitecturaComercialController(IArquitecturaComercialService service, IConfiguration configuration)
         {
             _service = service;
+            _configuration = configuration;
         }
 
         [HttpGet("dashboard")]
@@ -319,6 +321,24 @@ namespace Abril_Backend.Controllers
             catch (AbrilException ex)
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [AllowAnonymous]
+        [HttpPost("avance-semanal/snapshot")]
+        public async Task<IActionResult> SnapshotAvanceSemanal()
+        {
+            var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+            if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized();
+
+            try
+            {
+                var result = await _service.SnapshotAvanceSemanal();
+                return Ok(result);
             }
             catch (Exception)
             {

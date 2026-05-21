@@ -38,8 +38,11 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("activo")]
         public bool Activo { get; set; }
 
-        [Column("indice")]
-        public int? Indice { get; set; }
+        [Column("orden")]
+        public int? Orden { get; set; }
+
+        [Column("spi")]
+        public decimal? Spi { get; set; }
 
         [Column("inicio_programado")]
         public DateOnly? InicioProgramado { get; set; }

@@ -24,5 +24,6 @@ namespace Abril_Backend.Application.Interfaces
         Task<ActividadListItemDTO> CreateActividad(AcActividadCreateDTO dto);
         Task<ActividadListItemDTO> UpdateActividad(int id, AcActividadUpdateDTO dto);
         Task DeleteActividad(int id);
+        Task<AvanceSemanalSnapshotResultDTO> SnapshotAvanceSemanal();
     }
 }

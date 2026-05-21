@@ -14,6 +14,9 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("user_id")]
         public int? UserId { get; set; }
 
+        [Column("user_id2")]
+        public int? UserId2 { get; set; }
+
         [Column("nombre")]
         public string Nombre { get; set; } = string.Empty;
 

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Exceptions;
@@ -14,11 +15,13 @@ namespace Abril_Backend.Controllers
     {
         private readonly IArquitecturaComercialService _service;
         private readonly IConfiguration _configuration;
+        private readonly ILogger<ArquitecturaComercialController> _logger;
 
-        public ArquitecturaComercialController(IArquitecturaComercialService service, IConfiguration configuration)
+        public ArquitecturaComercialController(IArquitecturaComercialService service, IConfiguration configuration, ILogger<ArquitecturaComercialController> logger)
         {
             _service = service;
             _configuration = configuration;
+            _logger = logger;
         }
 
         [HttpGet("dashboard")]
@@ -91,9 +94,22 @@ namespace Abril_Backend.Controllers
             [FromQuery] int pagina = 1,
             [FromQuery] int porPagina = 100)
         {
+            bool esUsuarioAc;
+            var esGestor = User.IsInRole("GESTOR DE ARQUITECTURA COMERCIAL");
+            if (esGestor)
+                esUsuarioAc = false;
+            else if (User.IsInRole("USUARIO DE ARQUITECTURA COMERCIAL"))
+                esUsuarioAc = true;
+            else
+                return Forbid();
+
+            _logger.LogInformation("Roles del usuario: {roles}", string.Join(", ", User.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value)));
+            _logger.LogInformation("esGestor: {esGestor}, esUsuarioAc: {esUsuarioAc}", esGestor, esUsuarioAc);
+
             try
             {
-                var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina);
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina, userId, esUsuarioAc);
                 return Ok(result);
             }
             catch (Exception)

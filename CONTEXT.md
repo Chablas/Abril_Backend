@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-20 — AcActividad: indice→orden, nueva columna spi; CalcularSpi() en UpdateActividad/PatchActividad; AcAvanceSemanal snapshot semanal
+> Última actualización: 2026-05-21 — AC: UserId2/ResponsableNombre2, control de acceso por rol (GESTOR/USUARIO AC), ILogger en GetActividades
 
 ---
 
@@ -604,6 +604,7 @@ Mitigado: factory null-safe en Program.cs. Solo `/company-lookup/{ruc}` usa Suna
 | 8 | USUARIO DE ARQUITECTURA COMERCIAL |
 | 9 | ADMINISTRADOR SSOMA |
 | 10 | ADMINISTRADOR ADMINISTRACION |
+| — | GESTOR DE ARQUITECTURA COMERCIAL *(pendiente insertar en BD)* |
 
 Roles aprobadores habilitación: `["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP", "ADMINISTRADOR ADMINISTRACION"]`
 
@@ -627,7 +628,7 @@ Tablas compartidas: `project` (= "Proyecto" en AC, PK `project_id`) y `workers` 
 
 ### 9b. AcActividad — campos
 
-`id`, `project_id` (FK→project), `user_id` (FK→workers, nullable), `nombre`, `tipo`, `etapa_id` (FK→ac_etapas, nullable), `categoria_id` (FK→ac_categorias, nullable — creada manualmente en BD), `especialidad_id` (FK→ac_especialidades, nullable — creada manualmente en BD), `prioridad`, `estado`, `activo` (bool), `indice` (int?), `inicio_programado` (DateOnly?), `fin_programado` (DateOnly?), `inicio_efectivo` (DateOnly?), `fin_efectivo` (DateOnly?), `observaciones`.
+`id`, `project_id` (FK→project), `user_id` (FK→workers, nullable), `user_id2` (FK→workers, nullable — responsable 2), `nombre`, `tipo`, `etapa_id` (FK→ac_etapas, nullable), `categoria_id` (FK→ac_categorias, nullable — creada manualmente en BD), `especialidad_id` (FK→ac_especialidades, nullable — creada manualmente en BD), `prioridad`, `estado`, `activo` (bool), `orden` (int?), `spi` (numeric 5,2), `inicio_programado` (DateOnly?), `fin_programado` (DateOnly?), `inicio_efectivo` (DateOnly?), `fin_efectivo` (DateOnly?), `observaciones`.
 
 Estado calculado dinámicamente al devolver el DTO (`ComputeEstado`): `VACIO` → `PENDIENTE` → `EN_PROCESO` → `VENCIDO` → `CULMINADO`. El campo `estado` en BD almacena el estado pero el DTO siempre lo recalcula.
 
@@ -658,9 +659,9 @@ GET    /api/v1/arquitectura-comercial/etapas
 
 | DTO | Uso |
 |-----|-----|
-| `AcActividadCreateDTO` | POST actividades — Nombre, Tipo, ProjectId, EtapaId?, UserId?, CategoriaId?, EspecialidadId?, InicioProgramado?, FinProgramado?, Observaciones? |
-| `AcActividadUpdateDTO` | PUT actividades/{id} — mismo shape sin ProjectId ni Indice, más InicioEfectivo/FinEfectivo, CategoriaId?, EspecialidadId? |
-| `ActividadListItemDTO` | Retorno de GET/POST/PUT — incluye estado calculado, retraso, EtapaNombre, ResponsableNombre, **PartidaDeControl** (=campo `tipo` en BD), CategoriaId, CategoriaNombre, EspecialidadId, EspecialidadNombre |
+| `AcActividadCreateDTO` | POST actividades — Nombre, Tipo, ProjectId, EtapaId?, UserId?, UserId2?, CategoriaId?, EspecialidadId?, InicioProgramado?, FinProgramado?, Observaciones? |
+| `AcActividadUpdateDTO` | PUT actividades/{id} — mismo shape sin ProjectId, más InicioEfectivo/FinEfectivo, UserId2?, CategoriaId?, EspecialidadId? |
+| `ActividadListItemDTO` | Retorno de GET/POST/PUT — incluye estado calculado, retraso, EtapaNombre, ResponsableNombre, ResponsableNombre2, UserId2, **PartidaDeControl** (=campo `tipo` en BD), CategoriaId, CategoriaNombre, EspecialidadId, EspecialidadNombre |
 
 ---
 
@@ -1491,4 +1492,79 @@ Dos nuevos helpers `private static` en `ArquitecturaComercialRepository.cs`:
 **Endpoint:**
 ```
 POST /api/v1/arquitectura-comercial/avance-semanal/snapshot   [AllowAnonymous + CronSecret]
+```
+
+---
+
+## Sesión 2026-05-21 — ArquitecturaComercial: UserId2, control de acceso por rol
+
+### ac_actividades — nueva columna user_id2
+
+Columna añadida directamente en BD (sin migración EF): `user_id2 int` (FK→workers, nullable) — segundo responsable de la actividad.
+
+### AcActividad — modelo EF
+
+`Infrastructure/Models/AcActividad.cs`:
+- Nueva propiedad `[Column("user_id2")] public int? UserId2 { get; set; }`
+
+### DTOs actualizados
+
+- `AcActividadCreateDTO` — nueva propiedad `UserId2?`
+- `AcActividadUpdateDTO` — nueva propiedad `UserId2?`
+- `ActividadListItemDTO` — nuevas propiedades `UserId2?` y `ResponsableNombre2?`
+
+### ArquitecturaComercialRepository — join w2 en todas las queries
+
+Los cuatro métodos que construyen `ActividadListItemDTO` (`GetActividades`, `GetActividadItemById`, `CreateActividad`, `UpdateActividad`) reciben el join:
+```csharp
+from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
+// select:
+ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
+```
+El DTO de respuesta incluye `UserId2 = act.UserId2` y `ResponsableNombre2`.
+
+`PatchActividad` agrega el case `"userid2"` al switch de campos patcheables.
+
+`CreateActividad` y `UpdateActividad` persisten `UserId2 = dto.UserId2`.
+
+### GetActividades — filtro por rol
+
+`GetActividades` recibe dos nuevos parámetros en toda la cadena (interface → service → repository → controller):
+
+| Parámetro | Tipo | Uso |
+|-----------|------|-----|
+| `userId` | `int?` | Id del usuario autenticado (de `ClaimTypes.NameIdentifier`) |
+| `esUsuarioAc` | `bool` | Si `true`, filtra actividades donde `user_id == userId OR user_id2 == userId` |
+
+Filtro en repositorio (se aplica solo cuando `esUsuarioAc && userId > 0`):
+```csharp
+baseQuery = baseQuery.Where(x => x.Actividad.UserId == userId || x.Actividad.UserId2 == userId);
+```
+
+### ArquitecturaComercialController — control de acceso en GetActividades
+
+Guard de rol antes del try, con prioridad GESTOR sobre USUARIO:
+```csharp
+var esGestor = User.IsInRole("GESTOR DE ARQUITECTURA COMERCIAL");
+if (esGestor)
+    esUsuarioAc = false;   // ve todas las actividades
+else if (User.IsInRole("USUARIO DE ARQUITECTURA COMERCIAL"))
+    esUsuarioAc = true;    // ve solo las suyas (user_id o user_id2)
+else
+    return Forbid();       // 403 para cualquier otro rol
+```
+
+`ILogger<ArquitecturaComercialController>` inyectado en constructor. Logs temporales de debug:
+```csharp
+_logger.LogInformation("Roles del usuario: {roles}", ...);
+_logger.LogInformation("esGestor: {esGestor}, esUsuarioAc: {esUsuarioAc}", ...);
+```
+**Eliminar los dos logs antes de merge a master.**
+
+### Nuevo rol pendiente en BD
+
+```sql
+INSERT INTO roles (role_description, active, state)
+VALUES ('GESTOR DE ARQUITECTURA COMERCIAL', true, 'ACTIVO');
+-- Luego asignar a usuarios en user_roles y features en role_feature
 ```

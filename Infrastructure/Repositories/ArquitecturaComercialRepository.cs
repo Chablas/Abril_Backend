@@ -335,7 +335,9 @@ namespace Abril_Backend.Infrastructure.Repositories
             string? search,
             bool? soloActivas,
             int pagina,
-            int porPagina)
+            int porPagina,
+            int? userId,
+            bool esUsuarioAc)
         {
             if (pagina < 1) pagina = 1;
             if (porPagina < 1) porPagina = 100;
@@ -348,6 +350,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                             join p in ctx.Project on a.ProjectId equals p.ProjectId
                             from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                             from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                            from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                             from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                             from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                             select new
@@ -357,6 +360,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                 Encargado1 = p.ResponsableArqCom,
                                 EtapaNombre = e != null ? e.Nombre : null,
                                 ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                 CategoriaNombre = c != null ? c.Nombre : null,
                                 EspecialidadNombre = s != null ? s.Nombre : null,
                             };
@@ -379,6 +383,9 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             if (soloActivas.HasValue && soloActivas.Value)
                 baseQuery = baseQuery.Where(x => x.Actividad.Activo);
+
+            if (esUsuarioAc && userId.HasValue && userId.Value > 0)
+                baseQuery = baseQuery.Where(x => x.Actividad.UserId == userId || x.Actividad.UserId2 == userId);
 
             int total = await baseQuery.CountAsync();
 
@@ -416,6 +423,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                     EspecialidadNombre = x.EspecialidadNombre,
                     UserId = a.UserId,
                     ResponsableNombre = x.ResponsableNombre,
+                    UserId2 = a.UserId2,
+                    ResponsableNombre2 = x.ResponsableNombre2,
                     Encargado1 = x.Encargado1,
                     InicioProgramado = a.InicioProgramado,
                     FinProgramado = a.FinProgramado,
@@ -466,6 +475,9 @@ namespace Abril_Backend.Infrastructure.Repositories
                     case "userid":
                         actividad.UserId = ParseIntOrNull(kvp.Value);
                         break;
+                    case "userid2":
+                        actividad.UserId2 = ParseIntOrNull(kvp.Value);
+                        break;
                     case "observaciones":
                         actividad.Observaciones = ParseStringOrNull(kvp.Value);
                         break;
@@ -495,6 +507,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                              from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                              from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == id
@@ -505,6 +518,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstOrDefaultAsync();
@@ -535,6 +549,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
+                UserId2 = act.UserId2,
+                ResponsableNombre2 = row.ResponsableNombre2,
                 Encargado1 = row.Encargado1,
                 InicioProgramado = act.InicioProgramado,
                 FinProgramado = act.FinProgramado,
@@ -686,6 +702,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             {
                 ProjectId = dto.ProjectId,
                 UserId = dto.UserId,
+                UserId2 = dto.UserId2,
                 Nombre = dto.Nombre,
                 Tipo = dto.Tipo,
                 EtapaId = dto.EtapaId,
@@ -707,6 +724,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                              from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                              from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == actividad.Id
@@ -717,6 +735,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
@@ -739,6 +758,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
+                UserId2 = act.UserId2,
+                ResponsableNombre2 = row.ResponsableNombre2,
                 Encargado1 = row.Encargado1,
                 InicioProgramado = act.InicioProgramado,
                 FinProgramado = act.FinProgramado,
@@ -764,6 +785,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             actividad.CategoriaId = dto.CategoriaId;
             actividad.EspecialidadId = dto.EspecialidadId;
             actividad.UserId = dto.UserId;
+            actividad.UserId2 = dto.UserId2;
             actividad.InicioProgramado = dto.InicioProgramado;
             actividad.FinProgramado = dto.FinProgramado;
             actividad.InicioEfectivo = dto.InicioEfectivo;
@@ -778,6 +800,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                              from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                              from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == id
@@ -788,6 +811,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
@@ -810,6 +834,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
+                UserId2 = act.UserId2,
+                ResponsableNombre2 = row.ResponsableNombre2,
                 Encargado1 = row.Encargado1,
                 InicioProgramado = act.InicioProgramado,
                 FinProgramado = act.FinProgramado,

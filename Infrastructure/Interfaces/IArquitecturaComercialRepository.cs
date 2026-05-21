@@ -9,7 +9,7 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<ArqComercialFiltersDTO> GetFilters();
         Task<List<ProyectoConActividadesDTO>> GetProyectosConActividades();
         Task<List<SupervisorAcDTO>> GetSupervisoresAc();
-        Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina);
+        Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina, int? userId, bool esUsuarioAc);
         Task<ActividadListItemDTO?> PatchActividad(int id, Dictionary<string, JsonElement> body);
         Task<ReasignarEncargadoResultDTO?> ReasignarEncargado(int proyectoId);
         Task<GenerarActividadesResultDTO?> GenerarActividades(int proyectoId);

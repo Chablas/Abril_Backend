@@ -1314,8 +1314,21 @@ namespace Abril_Backend.Infrastructure.Repositories
                     a.FinProgramado >= today && a.FinProgramado <= today.AddDays(14)),
             };
 
+            var actProjectIds = actividades.Select(a => a.ProjectId).Distinct().ToList();
+            var proyectos     = await ctx.Project
+                .Where(p => actProjectIds.Contains(p.ProjectId))
+                .ToListAsync();
+            var proyectoResponsableMap = proyectos
+                .Where(p => p.ResponsableArqComId != null)
+                .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
+
             var workerIds = actividades
-                .SelectMany(a => new[] { a.UserId, a.UserId2 })
+                .SelectMany(a =>
+                {
+                    var resp1 = a.UserId ??
+                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                    return new[] { resp1, a.UserId2 };
+                })
                 .Where(id => id.HasValue).Select(id => id!.Value)
                 .Distinct().ToList();
 
@@ -1327,8 +1340,13 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var tareasPorArquitectoDetalle = workerIds.Select(uid =>
             {
-                var tareas      = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
-                var completadas = tareas.Count(a => a.Estado == EstadoCulminado);
+                var tareas = actividades.Where(a =>
+                {
+                    var resp1 = a.UserId ??
+                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                    return resp1 == uid || a.UserId2 == uid;
+                }).ToList();
+                var completadas = tareas.Count(a => a.FinEfectivo != null);
                 return new TareasPorArquitectoDTO
                 {
                     UserId      = uid,
@@ -1346,7 +1364,11 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Nombre      = t.Nombre,
                 Progreso    = (double)t.AvancePct,
                 Completadas = actividades.Count(a =>
-                    (a.UserId == t.UserId || a.UserId2 == t.UserId) && a.Estado == EstadoCulminado),
+                {
+                    var resp1 = a.UserId ??
+                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                    return (resp1 == t.UserId || a.UserId2 == t.UserId) && a.FinEfectivo != null;
+                }),
                 Total       = t.Total,
             }).ToList();
 
@@ -1476,8 +1498,22 @@ namespace Abril_Backend.Infrastructure.Repositories
             var list = await query.OrderBy(a => a.FinProgramado).Take(200).ToListAsync();
             if (list.Count == 0) return [];
 
+            var projectIds   = list.Select(a => a.ProjectId).Distinct().ToList();
+            var proyectoList = await ctx.Project
+                .Where(p => projectIds.Contains(p.ProjectId))
+                .ToListAsync();
+            var projects               = proyectoList.ToDictionary(p => p.ProjectId, p => p.ProjectDescription ?? "");
+            var proyectoResponsableMap = proyectoList
+                .Where(p => p.ResponsableArqComId != null)
+                .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
+
             var workerIds = list
-                .SelectMany(a => new[] { a.UserId, a.UserId2 })
+                .SelectMany(a =>
+                {
+                    var resp1 = a.UserId ??
+                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                    return new[] { resp1, a.UserId2 };
+                })
                 .Where(id => id.HasValue).Select(id => id!.Value)
                 .Distinct().ToList();
 
@@ -1488,32 +1524,32 @@ namespace Abril_Backend.Infrastructure.Repositories
             var workerNameMap  = workers.ToDictionary(w => w.Id, w => w.Person?.FullName ?? $"Worker {w.Id}");
             var workerEmailMap = workers.ToDictionary(w => w.Id, w => w.EmailCorporativo ?? "");
 
-            var projectIds = list.Select(a => a.ProjectId).Distinct().ToList();
-            var projects   = await ctx.Project
-                .Where(p => projectIds.Contains(p.ProjectId))
-                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription ?? "");
-
             var categoriaIds = list.Where(a => a.CategoriaId.HasValue).Select(a => a.CategoriaId!.Value).Distinct().ToList();
             var categorias   = categoriaIds.Count > 0
                 ? await ctx.AcCategoria.Where(c => categoriaIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Nombre)
                 : [];
 
-            return list.Select(a => new ActividadAlertaDTO
+            return list.Select(a =>
             {
-                Id            = a.Id,
-                Nombre        = a.Nombre,
-                Proyecto      = projects.GetValueOrDefault(a.ProjectId, ""),
-                Responsable1  = a.UserId.HasValue  ? workerNameMap.GetValueOrDefault(a.UserId.Value)   : null,
-                Responsable2  = a.UserId2.HasValue ? workerNameMap.GetValueOrDefault(a.UserId2.Value)  : null,
-                EmailResp1    = a.UserId.HasValue  ? workerEmailMap.GetValueOrDefault(a.UserId.Value)  : null,
-                EmailResp2    = a.UserId2.HasValue ? workerEmailMap.GetValueOrDefault(a.UserId2.Value) : null,
-                FechaInicio   = a.InicioProgramado?.ToString("dd/MM/yyyy"),
-                FechaFin      = a.FinProgramado?.ToString("dd/MM/yyyy"),
-                Estado        = a.Estado,
-                Spi           = a.Spi,
-                Tipo          = a.Tipo ?? "",
-                Categoria     = a.CategoriaId.HasValue ? categorias.GetValueOrDefault(a.CategoriaId.Value) : null,
-                DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
+                var resp1Id = a.UserId ??
+                    (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                return new ActividadAlertaDTO
+                {
+                    Id            = a.Id,
+                    Nombre        = a.Nombre,
+                    Proyecto      = projects.GetValueOrDefault(a.ProjectId, ""),
+                    Responsable1  = resp1Id.HasValue   ? workerNameMap.GetValueOrDefault(resp1Id.Value)   : null,
+                    Responsable2  = a.UserId2.HasValue ? workerNameMap.GetValueOrDefault(a.UserId2.Value) : null,
+                    EmailResp1    = resp1Id.HasValue   ? workerEmailMap.GetValueOrDefault(resp1Id.Value)  : null,
+                    EmailResp2    = a.UserId2.HasValue ? workerEmailMap.GetValueOrDefault(a.UserId2.Value) : null,
+                    FechaInicio   = a.InicioProgramado?.ToString("dd/MM/yyyy"),
+                    FechaFin      = a.FinProgramado?.ToString("dd/MM/yyyy"),
+                    Estado        = a.Estado,
+                    Spi           = a.Spi,
+                    Tipo          = a.Tipo ?? "",
+                    Categoria     = a.CategoriaId.HasValue ? categorias.GetValueOrDefault(a.CategoriaId.Value) : null,
+                    DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
+                };
             }).ToList();
         }
 

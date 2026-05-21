@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-21 — AC: dashboard-v2, alertas endpoints, email alertas, lógica de estado basada en fechas (FinEfectivo/InicioEfectivo)
+> Última actualización: 2026-05-21 — AC: dashboard-v2, alertas, email alertas, lógica fechas, fallback ResponsableArqComId
 
 ---
 
@@ -1636,3 +1636,25 @@ Todos los cálculos de KPIs y alertas en `GetDashboardDataFiltrado` y `GetActivi
 | Hito próximo 14 días | `Tipo=="HITO" && FinEfectivo == null && FinProgramado ∈ [today, today+14]` |
 
 El campo `estado` en BD ya no se usa para calcular KPIs ni alertas.
+
+### Fallback ResponsableArqComId en GetDashboardDataFiltrado y GetActividadesPorAlerta
+
+`AcActividad.UserId` es `NULL` en Hitos y Entregables que no tienen responsable directo. El responsable real de esas actividades es `project.responsable_arq_com_id` (FK→workers).
+
+En ambos métodos se carga un mapa de fallback:
+```csharp
+var proyectoResponsableMap = proyectos
+    .Where(p => p.ResponsableArqComId != null)
+    .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
+
+var resp1Id = a.UserId ??
+    (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+```
+
+Este `resp1Id` se usa en lugar de `a.UserId` directo para:
+- Calcular `workerIds` (qué workers cargar)
+- Filtrar tareas por arquitecto en `tareasPorArquitectoDetalle`
+- Contar `Completadas` en `supervisores`
+- Campos `Responsable1` y `EmailResp1` en `ActividadAlertaDTO`
+
+`UserId2` (`ResponsableNombre2`) no tiene fallback — es siempre directo desde `AcActividad.UserId2`.

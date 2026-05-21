@@ -228,9 +228,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             if (data.OfTecnicaEmails.Count > 0)
             {
+                var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
+
                 var body = new StringBuilder();
                 body.AppendLine("<p>Estimado equipo de Oficina Técnica,</p>");
-                body.AppendLine("<p>Se le informa que la siguiente adjudicación ha sido aprobada y avanza a la etapa de envío al Subcontratista. A continuación se detallan los datos:</p>");
+                body.AppendLine("<p>Se le informa que los documentos han sido revisados, aprobados y la adjudicación avanza a la siguiente etapa. A continuación se detallan los datos:</p>");
                 body.AppendLine("<ul>");
                 body.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
                 body.AppendLine($"  <li><strong>Contratista:</strong> {data.ContributorName}</li>");
@@ -242,7 +244,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     to:      data.OfTecnicaEmails,
                     subject: $"Adjudicación aprobada - {data.ProjectDescription} / {data.ContributorName}",
                     body:    body.ToString(),
-                    isHtml:  true);
+                    isHtml:  true,
+                    cc:      costosEmailsCc);
             }
         }
 
@@ -387,11 +390,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (toEmails.Count == 0)
                 throw new AbrilException("No hay correos de Oficina Técnica ni de Staff de Obra configurados para este proyecto.");
 
-            var attachments   = await DownloadAttachmentsAsync(data.ScannedDocs);
-            var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
-            var signature     = BuildEmailSignature(senderProfile);
-            var subject       = $"CONTRATOS FIRMADOS / {data.ProjectDescription}";
-            var body          = BuildStep8EmailBody(data.ContributorName) + signature;
+            var attachments    = await DownloadAttachmentsAsync(data.ScannedDocs);
+            var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
+            var signature      = BuildEmailSignature(senderProfile);
+            var subject        = $"CONTRATOS FIRMADOS / {data.ProjectDescription}";
+            var body           = BuildStep8EmailBody(data.ContributorName) + signature;
+            var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
 
             await _delegatedMailService.SendAsync(
                 graphAccessToken: graphAccessToken,
@@ -399,6 +403,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 subject:          subject,
                 body:             body,
                 isHtml:           true,
+                cc:               costosEmailsCc,
                 attachments:      WithSignatureAttachment(attachments));
 
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 9, userId);

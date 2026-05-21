@@ -1,17 +1,27 @@
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Interfaces;
+using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Infrastructure.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Application.Services
 {
     public class ArquitecturaComercialService : IArquitecturaComercialService
     {
         private readonly IArquitecturaComercialRepository _repository;
+        private readonly IDbContextFactory<AppDbContext>  _factory;
+        private readonly IEmailService                    _emailService;
 
-        public ArquitecturaComercialService(IArquitecturaComercialRepository repository)
+        public ArquitecturaComercialService(
+            IArquitecturaComercialRepository repository,
+            IDbContextFactory<AppDbContext>  factory,
+            IEmailService                    emailService)
         {
-            _repository = repository;
+            _repository   = repository;
+            _factory      = factory;
+            _emailService = emailService;
         }
 
         public async Task<ArqComercialDashboardDTO> GetDashboardData(string? semana, string? mes, int? proyectoId)
@@ -93,5 +103,29 @@ namespace Abril_Backend.Application.Services
 
         public async Task<AvanceSemanalSnapshotResultDTO> SnapshotAvanceSemanal()
             => await _repository.SnapshotAvanceSemanal();
+
+        public async Task<ArqComercialDashboardDTO> GetDashboardDataFiltrado(DashboardFiltroDTO filtro)
+            => await _repository.GetDashboardDataFiltrado(filtro);
+
+        public async Task<List<ActividadAlertaDTO>> GetActividadesPorAlerta(
+            string tipoAlerta, DashboardFiltroDTO filtro)
+            => await _repository.GetActividadesPorAlerta(tipoAlerta, filtro);
+
+        public async Task EnviarAlertasActividades(EnviarAlertaRequestDTO request)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var emailsGestores = await ctx.User
+                .Join(ctx.UserRole, u => u.UserId, ur => ur.UserId, (u, ur) => new { u, ur })
+                .Join(ctx.Role, x => x.ur.RoleId, r => r.RoleId, (x, r) => new { x.u.Email, r.RoleDescription })
+                .Where(x => x.RoleDescription.ToUpper() == "GESTOR DE ARQUITECTURA COMERCIAL")
+                .Select(x => x.Email)
+                .Where(e => e != null)
+                .Distinct()
+                .ToListAsync();
+
+            await _repository.EnviarAlertasActividades(
+                request.ActividadIds, request.TipoAlerta,
+                emailsGestores!, _emailService);
+        }
     }
 }

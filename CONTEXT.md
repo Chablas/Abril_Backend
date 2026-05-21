@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-21 — AC: UserId2/ResponsableNombre2, control de acceso por rol (GESTOR/USUARIO AC), ILogger en GetActividades
+> Última actualización: 2026-05-21 — AC: dashboard-v2, alertas, email alertas, lógica fechas, fallback ResponsableArqComId
 
 ---
 
@@ -1543,23 +1543,20 @@ baseQuery = baseQuery.Where(x => x.Actividad.UserId == userId || x.Actividad.Use
 
 ### ArquitecturaComercialController — control de acceso en GetActividades
 
-Guard de rol antes del try, con prioridad GESTOR sobre USUARIO:
+Guard de rol antes del try, con prioridad GESTOR sobre USUARIO. Usa el mismo patrón `OrdinalIgnoreCase` del resto del proyecto (`SctrVidaLeyController`, `HabTrabajadorController`, etc.):
 ```csharp
-var esGestor = User.IsInRole("GESTOR DE ARQUITECTURA COMERCIAL");
+var rolesUsuario = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+var esGestor = rolesUsuario.Contains("GESTOR DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase);
+bool esUsuarioAc;
 if (esGestor)
     esUsuarioAc = false;   // ve todas las actividades
-else if (User.IsInRole("USUARIO DE ARQUITECTURA COMERCIAL"))
+else if (rolesUsuario.Contains("USUARIO DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase))
     esUsuarioAc = true;    // ve solo las suyas (user_id o user_id2)
 else
     return Forbid();       // 403 para cualquier otro rol
 ```
 
-`ILogger<ArquitecturaComercialController>` inyectado en constructor. Logs temporales de debug:
-```csharp
-_logger.LogInformation("Roles del usuario: {roles}", ...);
-_logger.LogInformation("esGestor: {esGestor}, esUsuarioAc: {esUsuarioAc}", ...);
-```
-**Eliminar los dos logs antes de merge a master.**
+`ILogger<ArquitecturaComercialController>` inyectado en constructor (disponible para logs futuros).
 
 ### Nuevo rol pendiente en BD
 
@@ -1583,3 +1580,81 @@ Cambios en dos componentes AC del frontend (`nuevo-entregable.ts/html` y `nuevo-
 - Campo "Nombre generado" (readonly) se muestra solo con `*ngIf="!nombrePersonalizado"`
 - Input de texto libre aparece con `*ngIf="nombrePersonalizado"`
 - Checkbox `[(ngModel)]="nombrePersonalizado"` con label "Nombre personalizado" debajo de ambos inputs
+
+---
+
+## Sesión 2026-05-21 (segunda parte) — AC: dashboard-v2, alertas y lógica de fechas
+
+### Nuevos DTOs
+
+| Archivo | Contenido |
+|---------|-----------|
+| `Application/DTOs/ArquitecturaComercial/DashboardFiltroDTO.cs` | `CategoriaId?`, `ProyectoId?`, `UserId?`, `Semana?`, `Mes?`, `Anio?` |
+| `Application/DTOs/ArquitecturaComercial/ActividadAlertaDTO.cs` | `Id`, `Nombre`, `Proyecto`, `Responsable1/2`, `EmailResp1/2`, `FechaInicio/Fin`, `Estado`, `Spi`, `Tipo`, `Categoria`, `DiasRestantes` |
+| `Application/DTOs/ArquitecturaComercial/EnviarAlertaRequestDTO.cs` | `List<int> ActividadIds`, `string TipoAlerta` |
+| `Application/DTOs/ArquitecturaComercial/TareasPorArquitectoDTO.cs` | `TareasPorArquitectoDTO`, `AvanceSemanalDTO`, `EficienciaSpiDTO`, `CategoriaItemDTO` |
+
+`ArqComercialDashboardDTO` ampliado: nuevos campos `TareasPorArquitectoDTO[]`, `AvanceSemanalDTO[]`, `EficienciaSpiDTO[]`, `CategoriaItemDTO[]`. `HitoCriticoDTO` ahora incluye `Id`.
+
+### Nuevos endpoints (ArquitecturaComercialController)
+
+```
+GET  /api/v1/arquitectura-comercial/dashboard-v2     [DashboardFiltroDTO desde query]
+     → GESTOR: ve todo; USUARIO AC: UserId se fuerza desde JWT; otro rol: 403
+
+GET  /api/v1/arquitectura-comercial/alertas/{tipoAlerta}   [DashboardFiltroDTO desde query]
+     → tipos: VENCIDA | VENCE_SEMANA | ARRANQUE | HITO_PROXIMO
+     → devuelve List<ActividadAlertaDTO>
+
+POST /api/v1/arquitectura-comercial/alertas/enviar    body: EnviarAlertaRequestDTO
+     → EnviarAlertasActividades: envía email a gestores AC y encargados de las actividades indicadas
+```
+
+### ArquitecturaComercialService — nuevas inyecciones
+
+`IDbContextFactory<AppDbContext>` e `IEmailService` inyectados en constructor.
+
+`EnviarAlertasActividades` consulta emails de gestores vía JOIN manual:
+```csharp
+ctx.User.Join(ctx.UserRole, ...).Join(ctx.Role, ...)
+    .Where(x => x.RoleDescription.ToUpper() == "GESTOR DE ARQUITECTURA COMERCIAL")
+    .Select(x => x.Email)
+```
+
+### Lógica de estado basada en fechas (no en campo `estado`)
+
+Todos los cálculos de KPIs y alertas en `GetDashboardDataFiltrado` y `GetActividadesPorAlerta` usan `FinEfectivo`/`InicioEfectivo`:
+
+| Concepto | Lógica |
+|----------|--------|
+| Culminada | `FinEfectivo != null` |
+| En proceso | `InicioEfectivo != null && FinEfectivo == null` |
+| Vencida | `FinEfectivo == null && FinProgramado < today` |
+| Pendiente | `InicioEfectivo == null && InicioProgramado > today` |
+| Vence esta semana | `FinEfectivo == null && FinProgramado ∈ [semLunes, semDomingo]` |
+| Arranca esta semana | `InicioEfectivo == null && InicioProgramado ∈ [semLunes, semDomingo]` |
+| Hito próximo 14 días | `Tipo=="HITO" && FinEfectivo == null && FinProgramado ∈ [today, today+14]` |
+
+El campo `estado` en BD ya no se usa para calcular KPIs ni alertas.
+
+### Fallback ResponsableArqComId en GetDashboardDataFiltrado y GetActividadesPorAlerta
+
+`AcActividad.UserId` es `NULL` en Hitos y Entregables que no tienen responsable directo. El responsable real de esas actividades es `project.responsable_arq_com_id` (FK→workers).
+
+En ambos métodos se carga un mapa de fallback:
+```csharp
+var proyectoResponsableMap = proyectos
+    .Where(p => p.ResponsableArqComId != null)
+    .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
+
+var resp1Id = a.UserId ??
+    (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+```
+
+Este `resp1Id` se usa en lugar de `a.UserId` directo para:
+- Calcular `workerIds` (qué workers cargar)
+- Filtrar tareas por arquitecto en `tareasPorArquitectoDetalle`
+- Contar `Completadas` en `supervisores`
+- Campos `Responsable1` y `EmailResp1` en `ActividadAlertaDTO`
+
+`UserId2` (`ResponsableNombre2`) no tiene fallback — es siempre directo desde `AcActividad.UserId2`.

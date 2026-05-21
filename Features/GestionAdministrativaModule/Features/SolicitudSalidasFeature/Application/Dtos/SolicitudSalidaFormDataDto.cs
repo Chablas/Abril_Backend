@@ -2,15 +2,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 {
     public class SolicitudSalidaFormDataDto
     {
-        public List<HoraOpcionDto> Horas { get; set; } = new();
         public List<MotivoSalidaDto> Motivos { get; set; } = new();
         public List<LugarSalidaDto> Lugares { get; set; } = new();
-    }
 
-    public class HoraOpcionDto
-    {
-        public int Id { get; set; }
-        public string Etiqueta { get; set; } = string.Empty;
+        /// <summary>Email de la jefatura que recibirá el email de aprobación. Null si no se pudo resolver.</summary>
+        public string? AprobadorEmail { get; set; }
     }
 
     public class MotivoSalidaDto

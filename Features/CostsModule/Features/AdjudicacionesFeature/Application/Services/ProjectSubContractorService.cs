@@ -15,6 +15,7 @@ using Microsoft.Extensions.Options;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Helpers;
+using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Interfaces;
 using ClosedXML.Excel;
 using System.Text;
@@ -35,15 +36,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IGraphSharePointService _sharePointService;
         private readonly OneDriveOptions _oneDriveOptions;
         private readonly IProjectLinkRepository _projectLinkRepository;
-
-        private static readonly List<string> CostosYPresupuestos = new()
-        {
-            //"eaguinaga@abril.pe",
-            //"apimentel@abril.pe",
-            //"bquicana@abril.pe",
-            //"cavila@abril.pe",
-            "alvarezvillegaschristian@gmail.com"
-        };
+        private readonly ICostosPresupuestosEmailService _costosPresupuestosEmailService;
 
         private const string BccEmail = "calvarez@abril.pe";
 
@@ -68,7 +61,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             IGraphUserService graphUserService,
             IGraphSharePointService sharePointService,
             IOptions<OneDriveOptions> oneDriveOptions,
-            IProjectLinkRepository projectLinkRepository)
+            IProjectLinkRepository projectLinkRepository,
+            ICostosPresupuestosEmailService costosPresupuestosEmailService)
         {
             _projectSubContractorRepository = projectSubContractorRepository;
             _fileStorageService = fileStorageService;
@@ -80,6 +74,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _sharePointService = sharePointService;
             _oneDriveOptions = oneDriveOptions.Value;
             _projectLinkRepository = projectLinkRepository;
+            _costosPresupuestosEmailService = costosPresupuestosEmailService;
         }
 
         public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
@@ -178,11 +173,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var subject = $"{data.ProjectDescription} // {data.WorkItemDescription} // {data.ContributorName}";
 
             // CC = staff de obra (expandidos) + oficina central (expandidos) + equipo costos y presupuestos.
+            var costosEmails            = await _costosPresupuestosEmailService.GetActiveEmails();
             var expandedStaff          = staffProfiles.Select(p => p.Mail).Where(m => !string.IsNullOrWhiteSpace(m));
             var expandedOficinaCentral = oficinaCentralProfiles.Select(p => p.Mail).Where(m => !string.IsNullOrWhiteSpace(m));
             var internalRecipients     = expandedStaff
                 .Concat(expandedOficinaCentral)
-                .Concat(CostosYPresupuestos)
+                .Concat(costosEmails)
                 .Distinct()
                 .ToList();
 
@@ -301,8 +297,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 Content     = fileBytes
             };
 
+            var costosEmailsSc = await _costosPresupuestosEmailService.GetActiveEmails();
             var ccEmails = data.StaffObraEmails
-                .Concat(CostosYPresupuestos)
+                .Concat(costosEmailsSc)
                 .Distinct()
                 .ToList();
 
@@ -330,8 +327,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             var data = await _projectSubContractorRepository.GetStep6NotificationDataAsync(projectSubContractorId);
 
+            var costosEmailsStep5 = await _costosPresupuestosEmailService.GetActiveEmails();
             var toEmails = data.StaffObraEmails
-                .Concat(CostosYPresupuestos)
+                .Concat(costosEmailsStep5)
                 .Distinct()
                 .ToList();
 
@@ -432,7 +430,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
 
             // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
-            var toEmails = CostosYPresupuestos
+            var costosEmailsObs = await _costosPresupuestosEmailService.GetActiveEmails();
+            var toEmails = costosEmailsObs
                 .Concat(data.OfTecnicaEmails)
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
@@ -473,7 +472,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     "Marque al menos un documento como 'Con observaciones' antes de enviar el correo.", 400);
 
             // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
-            var toEmails = CostosYPresupuestos
+            var costosEmailsObs = await _costosPresupuestosEmailService.GetActiveEmails();
+            var toEmails = costosEmailsObs
                 .Concat(data.OfTecnicaEmails)
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
@@ -743,9 +743,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var subject       = $"LEVANTAMIENTO DE OBSERVACIÓN / {data.ProjectDescription} / {data.ContributorName}";
             var body          = BuildAllLevantamientoEmailBody(data, levDocs) + signature;
 
+            var costosEmailsLev = await _costosPresupuestosEmailService.GetActiveEmails();
             await _delegatedMailService.SendAsync(
                 graphAccessToken: dto.GraphAccessToken,
-                to:               CostosYPresupuestos,
+                to:               costosEmailsLev,
                 subject:          subject,
                 body:             body,
                 isHtml:           true,

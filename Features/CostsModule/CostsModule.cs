@@ -18,6 +18,10 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeatu
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Application.Services;
+using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Services;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
@@ -54,6 +58,10 @@ namespace Abril_Backend.Features.Costs
             // ProjectLink
             services.AddScoped<IProjectLinkRepository, ProjectLinkRepository>();
             services.AddScoped<IProjectLinkService, ProjectLinkService>();
+
+            // CostosPresupuestosEmail
+            services.AddScoped<ICostosPresupuestosEmailRepository, CostosPresupuestosEmailRepository>();
+            services.AddScoped<ICostosPresupuestosEmailService, CostosPresupuestosEmailService>();
 
             return services;
         }

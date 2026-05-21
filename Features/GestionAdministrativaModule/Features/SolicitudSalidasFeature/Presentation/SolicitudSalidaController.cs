@@ -48,7 +48,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         {
             try
             {
-                return Ok(await _service.GetFormData());
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id)
+                    ? id : (int?)null;
+                return Ok(await _service.GetFormData(userId));
             }
             catch (AbrilException ex)
             {
@@ -80,6 +82,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                 _logger.LogError(ex, "Error en SolicitudSalidaController.Create");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
+        }
+
+        // ── Endpoints públicos invocados desde los links del email ──────────
+
+        [HttpGet("aprobar")]
+        [AllowAnonymous]
+        public async Task<IActionResult> AprobarDesdeEmail([FromQuery] string token)
+        {
+            var html = await _service.ProcessAprobarFromEmail(token);
+            return Content(html, "text/html; charset=utf-8");
+        }
+
+        [HttpGet("rechazar")]
+        [AllowAnonymous]
+        public IActionResult RechazarFormDesdeEmail([FromQuery] string token)
+        {
+            var html = _service.RenderRechazarForm(token);
+            return Content(html, "text/html; charset=utf-8");
+        }
+
+        [HttpPost("rechazar")]
+        [AllowAnonymous]
+        [Consumes("application/x-www-form-urlencoded")]
+        public async Task<IActionResult> RechazarDesdeEmail([FromForm] string token, [FromForm] string? motivoRechazo)
+        {
+            var html = await _service.ProcessRechazarFromEmail(token, motivoRechazo);
+            return Content(html, "text/html; charset=utf-8");
         }
     }
 }

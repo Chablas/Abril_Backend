@@ -23,6 +23,8 @@ namespace Abril_Backend.Features.GestionAdministrativa
         {
             // Solicitud Salidas
             services.AddScoped<ISolicitudSalidaRepository, SolicitudSalidaRepository>();
+            services.AddScoped<IApproverResolver, ApproverResolver>();
+            services.AddScoped<ISolicitudSalidaTokenService, SolicitudSalidaTokenService>();
             services.AddScoped<ISolicitudSalidaService, SolicitudSalidaService>();
 
             // Gestión de Salidas

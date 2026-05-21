@@ -82,6 +82,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorNonConformingOutput> ProjectSubContractorNonConformingOutput { get; set; }
         public DbSet<ProjectSubContractorToleranceChart> ProjectSubContractorToleranceChart { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
+        public DbSet<CostosPresupuestosEmail> CostosPresupuestosEmail { get; set; }
         public DbSet<StaffProjectEmailType> StaffProjectEmailType { get; set; }
         public DbSet<ProjectLink> ProjectLink { get; set; }
         public DbSet<ProjectLinkType> ProjectLinkType { get; set; }

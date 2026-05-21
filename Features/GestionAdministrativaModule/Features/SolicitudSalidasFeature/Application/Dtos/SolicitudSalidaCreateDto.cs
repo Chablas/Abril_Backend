@@ -5,7 +5,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public DateOnly FechaSalida { get; set; }
         public TimeOnly HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
-        public int MotivoId { get; set; }
+
+        /// <summary>Id de ga_motivo_salida. Nulo cuando el usuario elige "Otro motivo".</summary>
+        public int? MotivoId { get; set; }
+        /// <summary>Texto libre cuando MotivoId es nulo.</summary>
+        public string? MotivoLibre { get; set; }
 
         /// <summary>Id de ga_lugar. Nulo cuando el usuario elige "Otro lugar".</summary>
         public int? LugarOrigenId { get; set; }

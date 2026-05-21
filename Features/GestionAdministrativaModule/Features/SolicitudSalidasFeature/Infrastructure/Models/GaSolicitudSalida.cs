@@ -7,13 +7,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public DateOnly FechaSalida { get; set; }
         public TimeOnly HoraSalida { get; set; }
         public TimeOnly? HoraRetorno { get; set; }
-        public int MotivoId { get; set; }
+        public int? MotivoId { get; set; }
+        public string? MotivoLibre { get; set; }
         public int? LugarOrigenId { get; set; }
         public string? LugarOrigenLibre { get; set; }
         public int? LugarDestinoId { get; set; }
         public string? LugarDestinoLibre { get; set; }
         public string Estado { get; set; } = "Pendiente";
         public int? RegistradoPorId { get; set; }
+        public string? AprobadorEmail { get; set; }
+        public DateTimeOffset? FechaDecision { get; set; }
+        public string? MotivoRechazo { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
     }

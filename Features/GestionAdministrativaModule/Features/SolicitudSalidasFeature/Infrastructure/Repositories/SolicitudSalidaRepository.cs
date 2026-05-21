@@ -3,6 +3,7 @@ using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Repositories
@@ -20,12 +21,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         {
             using var ctx = _factory.CreateDbContext();
 
-            var horas = await ctx.GaHoraOpcion
-                .Where(h => h.Activo)
-                .OrderBy(h => h.Hora)
-                .Select(h => new HoraOpcionDto { Id = h.Id, Etiqueta = h.Etiqueta })
-                .ToListAsync();
-
             var motivos = await ctx.GaMotivoSalida
                 .Where(m => m.Activo)
                 .OrderBy(m => m.Descripcion)
@@ -40,17 +35,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 orderby l.Orden
                 select new LugarSalidaDto
                 {
-                    Id           = l.Id,
+                    Id            = l.Id,
                     NombreDisplay = l.Tipo == "proyecto" ? (p != null ? p.ProjectDescription : "[Sin proyecto]")
                                   : l.Tipo == "libre"    ? "Otro lugar"
                                   : l.Nombre ?? string.Empty,
-                    EsLibre      = l.Tipo == "libre"
+                    EsLibre       = l.Tipo == "libre"
                 }
             ).ToListAsync();
 
             return new SolicitudSalidaFormDataDto
             {
-                Horas   = horas,
                 Motivos = motivos,
                 Lugares = lugares
             };
@@ -69,7 +63,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
 
             return await (
                 from s  in ctx.GaSolicitudSalida
-                join m  in ctx.GaMotivoSalida on s.MotivoId          equals m.Id
+                join m  in ctx.GaMotivoSalida on s.MotivoId          equals m.Id into mGroup
+                from m  in mGroup.DefaultIfEmpty()
                 join lo in ctx.GaLugar        on s.LugarOrigenId     equals lo.Id into loGroup
                 from lo in loGroup.DefaultIfEmpty()
                 join po in ctx.Project        on lo.ProjectId        equals (int?)po.ProjectId into poGroup
@@ -86,7 +81,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     FechaSalida  = s.FechaSalida,
                     HoraSalida   = s.HoraSalida,
                     HoraRetorno  = s.HoraRetorno,
-                    Motivo       = m.Descripcion,
+                    Motivo       = m != null ? m.Descripcion : (s.MotivoLibre ?? string.Empty),
                     LugarOrigen  = lo == null ? s.LugarOrigenLibre
                                  : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                  : lo.Nombre,
@@ -99,26 +94,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             ).ToListAsync();
         }
 
-        public async Task<int> Create(SolicitudSalidaCreateDto dto, int? userId)
+        public async Task<(int Id, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var workerId = await ctx.Worker
+            var solicitante = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => (int?)w.Id)
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException("No se encontró un trabajador asociado a su usuario.", 404);
 
-            _ = await ctx.GaMotivoSalida.FirstOrDefaultAsync(m => m.Id == dto.MotivoId)
-                ?? throw new AbrilException("Motivo no encontrado.", 404);
+            if (dto.MotivoId.HasValue)
+            {
+                _ = await ctx.GaMotivoSalida.FirstOrDefaultAsync(m => m.Id == dto.MotivoId.Value)
+                    ?? throw new AbrilException("Motivo no encontrado.", 404);
+            }
 
             var ent = new GaSolicitudSalida
             {
-                WorkerId        = workerId,
+                WorkerId        = solicitante.Id,
                 FechaSalida     = dto.FechaSalida,
                 HoraSalida      = dto.HoraSalida,
                 HoraRetorno     = dto.HoraRetorno,
                 MotivoId        = dto.MotivoId,
+                MotivoLibre     = string.IsNullOrWhiteSpace(dto.MotivoLibre) ? null : dto.MotivoLibre.Trim(),
                 LugarOrigenId   = dto.LugarOrigenId,
                 LugarOrigenLibre = string.IsNullOrWhiteSpace(dto.LugarOrigenLibre) ? null : dto.LugarOrigenLibre.Trim(),
                 LugarDestinoId  = dto.LugarDestinoId,
@@ -130,7 +128,42 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             };
             ctx.GaSolicitudSalida.Add(ent);
             await ctx.SaveChangesAsync();
-            return ent.Id;
+            return (ent.Id, solicitante);
+        }
+
+        public async Task SetAprobadorEmail(int solicitudId, string aprobadorEmail)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId);
+            if (s == null) return;
+            s.AprobadorEmail = aprobadorEmail;
+            s.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<GaSolicitudSalida?> Aprobar(int solicitudId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId);
+            if (s == null || s.Estado != "Pendiente") return null;
+            s.Estado        = "Aprobado";
+            s.FechaDecision = DateTimeOffset.UtcNow;
+            s.UpdatedAt     = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+            return s;
+        }
+
+        public async Task<GaSolicitudSalida?> Rechazar(int solicitudId, string? motivoRechazo)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId);
+            if (s == null || s.Estado != "Pendiente") return null;
+            s.Estado        = "Rechazado";
+            s.MotivoRechazo = string.IsNullOrWhiteSpace(motivoRechazo) ? null : motivoRechazo.Trim();
+            s.FechaDecision = DateTimeOffset.UtcNow;
+            s.UpdatedAt     = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+            return s;
         }
     }
 }

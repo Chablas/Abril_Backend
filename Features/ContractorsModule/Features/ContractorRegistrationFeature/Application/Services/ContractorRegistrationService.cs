@@ -1,6 +1,7 @@
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Interfaces;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.Sunat.Dtos;
@@ -11,33 +12,27 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 {
     public class ContractorRegistrationService : IContractorRegistrationService
     {
-        private static readonly List<string> _costoYPresupuestosEmails = new()
-        {
-            //"eaguinaga@abril.pe",
-            //"apimentel@abril.pe",
-            //"bquicana@abril.pe",
-            //"cavila@abril.pe",
-            "alvarezvillegaschristian@gmail.com",
-        };
-
         private readonly IContractorRegistrationRepository _repository;
         private readonly ISunatService _sunatService;
         private readonly IGraphSharePointService _sharePointService;
         private readonly IConfiguration _configuration;
         private readonly IEmailService _emailService;
+        private readonly ICostosPresupuestosEmailService _costosPresupuestosEmailService;
 
         public ContractorRegistrationService(
             IContractorRegistrationRepository repository,
             ISunatService sunatService,
             IGraphSharePointService sharePointService,
             IConfiguration configuration,
-            IEmailService emailService)
+            IEmailService emailService,
+            ICostosPresupuestosEmailService costosPresupuestosEmailService)
         {
             _repository = repository;
             _sunatService = sunatService;
             _sharePointService = sharePointService;
             _configuration = configuration;
             _emailService = emailService;
+            _costosPresupuestosEmailService = costosPresupuestosEmailService;
         }
 
         public async Task<List<ContractorPersonTypeDto>> GetPersonTypes()
@@ -123,8 +118,9 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             body.AppendLine("</ul>");
             body.AppendLine("<p>Por favor, acceda al sistema para completar la revisión del contratista.</p>");
 
+            var costosEmails = await _costosPresupuestosEmailService.GetActiveEmails();
             await _emailService.SendAsync(
-                to:     _costoYPresupuestosEmails,
+                to:     costosEmails,
                 subject: subject,
                 body:    body.ToString(),
                 isHtml:  true);

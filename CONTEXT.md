@@ -1658,3 +1658,78 @@ Este `resp1Id` se usa en lugar de `a.UserId` directo para:
 - Campos `Responsable1` y `EmailResp1` en `ActividadAlertaDTO`
 
 `UserId2` (`ResponsableNombre2`) no tiene fallback — es siempre directo desde `AcActividad.UserId2`.
+
+---
+
+## §MIGRACIÓN MASIVA 2026-05-22
+
+### Estado (2026-05-22) — EN PROGRESO
+Sesión de limpieza de datos completada. Excels procesados y listos.
+Pendiente: EMOs, Equipos, SCTR → luego scripts SQL → luego flujo activación.
+
+### Mapeo IDProyecto SharePoint → project_id BD (confirmado)
+SP=1→32, SP=2→1, SP=3→3, SP=4→2, SP=22→4, SP=36→41, SP=37→40,
+SP=40→5, SP=42→36, SP=43→7, SP=44→13, SP=46→6, SP=47→11,
+SP=48→8, SP=62→12, SP=64→14, SP=66→10, SP=68→9, SP=76→15,
+SP=78→17, SP=79→16, SP=89→39, SP=90→40, SP=91→41
+
+### Columnas nuevas en contributor (YA EJECUTADO)
+ALTER TABLE contributor ADD COLUMN contributor_nombre_comercial VARCHAR(255), ADD COLUMN sp_password_temp VARCHAR(255);
+
+### Archivos Excel listos ✅
+
+#### 1. Lista_contratistas_limpia.xlsx — 74 empresas → contributor + contractor_email
+- contributor_name←RazonSocial, contributor_nombre_comercial←NombreComercial
+- contributor_ruc←RUC, sp_password_temp←Password, id_sharepoint←IDListaCont
+- 4 emails → contractor_email (Gerente, Administrador, Residente, SSOMA)
+- es_abril=false, active=true siempre
+
+#### 2. entregables_empresa_estandarizados.xlsx — 8,300 filas → ss_hab_empresa
+- Cols: NombreComercial, project_id_BD, item_id, estado, vigencia
+- 352 combinaciones empresa+proyecto × 25 items c/u
+- NombreComercial = llave de cruce con contributor post-import
+
+#### 3. trabajadores_limpios.xlsx — 2,339 trabajadores (914 Casa + 1,425 Contratistas) → workers + worker_vinculaciones + ss_hab_worker_proyecto
+- Cols: id_trabajador, dni, nombre_completo, email_personal, fecha_ingreso,
+  fecha_nacimiento, categoria, ocupacion, area, subarea, obra_oficina,
+  contrata_casa, condicion_medica, notas, puntos_infraccion, celular,
+  sctr, project_id_BD, empresa_nombre, proyectos_habilitado
+- empresa_nombre: Casa→contributor_id BD directo (int) | Contratista→NombreComercial
+- proyectos_habilitado: lista project_id_BD separados por coma → ss_hab_worker_proyecto (AMBOS tipos)
+- 0 DNI duplicados, 0 IDProyecto no mapeado ✅
+
+#### 4. entregables_trabajadores_limpios.xlsx — 26,223 filas → ss_hab_trabajador
+- Cols: id_trabajador, item_id, estado, vigencia
+- id_trabajador = llave de cruce con workers post-import
+- Lógica: ss_item_trabajador.aplica_a + aplica_categoria + aplica_obra_oficina +
+  excluye_obra_oficina + excluye_categoria_contratista
+- NOTA: ss_item_trabajador_regla NO se usa — lógica hardcodeada en ss_item_trabajador
+- Casa: 15-17 items/trab | Contratistas: 8-9 items/trab
+
+### Pendiente procesar
+5. EMOs → worker_emos
+6. Equipos → ss_equipo + ss_hab_equipo
+7. SCTR trabajadores → ss_sctr_vidaley_worker
+
+### Tablas hijas de workers a borrar (orden FK)
+ss_hab_trabajador, worker_vinculaciones, ss_hab_worker_proyecto, ss_induccion,
+worker_emos, ss_programacion_emos, ss_sctr_vidaley_worker, ss_alertas_emo,
+ss_eval_supervisor, ss_hab_bloqueo_log, ss_interconsultas, ss_seguimientos_medicos,
+ss_trabajador_restringido (178 — PRESERVAR), worker_eventos, ga_solicitud_salida
+
+### Tablas hijas de contributor(externos) a borrar
+ss_hab_empresa, ss_empresa_proyecto, ss_equipo, ss_tareo_detalle_contratista,
+ss_sctr_vidaley, worker_emos(empresa_origen), worker_emo_convalidaciones, ss_hab_documento_version
+
+### Tablas NO tocar
+ss_clinica_*, catálogos SSOMA, Phase/Stage/Layer, AcPlantillas, ac_categorias,
+ac_especialidades, ac_etapas, role, feature, role_feature, project, app_user,
+ss_trabajador_restringido (blacklist — PRESERVAR)
+
+### Flujo activación empresa (PENDIENTE IMPLEMENTAR)
+- POST /api/v1/habilitacion/auth/validar-migracion { ruc, spPassword } → valida sp_password_temp
+- POST /api/v1/habilitacion/auth/activar-migracion { ruc, spPassword, email, password } → guarda BCrypt, limpia sp_password_temp
+
+### Multi-usuario por empresa (segunda fase)
+ss_contratista_usuario, ss_contratista_usuario_proyecto, ss_contratista_auditoria
+Roles: OWNER | ADMIN | GESTOR con scope ALL | BY_PROJECT

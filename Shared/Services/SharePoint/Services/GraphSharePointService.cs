@@ -418,6 +418,25 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             }
         }
 
+        public async Task DeleteFromSharePointLibraryAsync(SharePointSiteRef site, string libraryName, string itemId)
+        {
+            var token   = await GetAppTokenAsync();
+            var siteId  = await EnsureSiteIdAsync(token, site);
+            var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/items/{itemId}";
+            var response = await client.DeleteAsync(url);
+            if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"No se pudo eliminar el archivo de SharePoint [{(int)response.StatusCode}]: {error}");
+            }
+        }
+
         private static string EscapePath(string path)
             => string.Join("/", path.Split('/').Select(Uri.EscapeDataString));
 

@@ -74,6 +74,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             }
         }
 
+        [HttpGet("{id:int}/detalle")]
+        public async Task<IActionResult> GetDetalle(int id)
+        {
+            try
+            {
+                var detalle = await _service.GetDetalle(id);
+                if (detalle == null)
+                    return NotFound(new { message = "Solicitud no encontrada." });
+                return Ok(detalle);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionSalidaController.GetDetalle");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet("filter-data")]
         public async Task<IActionResult> GetFilterData()
         {

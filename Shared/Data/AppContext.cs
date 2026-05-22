@@ -5,7 +5,9 @@ using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -145,6 +147,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaLugar> GaLugar { get; set; }
         public DbSet<GaMotivoSalida> GaMotivoSalida { get; set; }
         public DbSet<GaSolicitudSalida> GaSolicitudSalida { get; set; }
+        public DbSet<GaSolicitudTrayecto> GaSolicitudTrayecto { get; set; }
+        public DbSet<GaSolicitudCaptura> GaSolicitudCaptura { get; set; }
+        public DbSet<GaRendicion> GaRendicion { get; set; }
+        public DbSet<GaTrayecto> GaTrayecto { get; set; }
         public DbSet<Partida> Partida => Set<Partida>();
         public DbSet<PsssScope> PsssScope => Set<PsssScope>();
         public DbSet<PsssTemplate> PsssTemplate => Set<PsssTemplate>();

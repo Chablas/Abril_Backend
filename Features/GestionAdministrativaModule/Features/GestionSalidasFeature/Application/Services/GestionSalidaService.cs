@@ -1,20 +1,44 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Options;
 using ClosedXML.Excel;
+using Humanizer;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using System.Globalization;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Services
 {
     public class GestionSalidaService : IGestionSalidaService
     {
         private readonly IGestionSalidaRepository _repo;
+        private readonly IGraphSharePointService _sharePointService;
+        private readonly ISolicitudSalidaService _solicitudSalidaService;
+        private readonly SharePointSiteRef _site;
+        private readonly string _solicitudSalidasLibraryId;
+        private readonly ILogger<GestionSalidaService> _logger;
 
-        public GestionSalidaService(IGestionSalidaRepository repo)
+        private const string CarpetaSolicitudesRendidas = "Solicitudes rendidas";
+
+        public GestionSalidaService(
+            IGestionSalidaRepository repo,
+            IGraphSharePointService sharePointService,
+            ISolicitudSalidaService solicitudSalidaService,
+            IConfiguration configuration,
+            ILogger<GestionSalidaService> logger)
         {
             _repo = repo;
+            _sharePointService = sharePointService;
+            _solicitudSalidaService = solicitudSalidaService;
+            _logger = logger;
+            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
+            _solicitudSalidasLibraryId = configuration["SharePoint:Sites:CostosYPresupuestos:SolicitudSalidasLibraryId"]
+                ?? throw new InvalidOperationException("SharePoint:Sites:CostosYPresupuestos:SolicitudSalidasLibraryId no está configurado.");
         }
 
         public Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters)
@@ -95,19 +119,75 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return stream.ToArray();
         }
 
-        public Task Aprobar(int id, int reviewerUserId)
-            => _repo.Aprobar(id, reviewerUserId);
+        public async Task Aprobar(int id, int reviewerUserId)
+        {
+            await _repo.Aprobar(id, reviewerUserId);
+            // Email de confirmación al solicitante (best-effort, no rompe el flujo si falla)
+            await _solicitudSalidaService.NotifySolicitanteAprobada(id);
+        }
 
         public Task Rechazar(int id, int reviewerUserId)
             => _repo.Rechazar(id, reviewerUserId);
 
         public async Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId)
         {
-            var rendidasIds = await _repo.MarcarRendidasBulk(ids, userId);
-            var datos       = await _repo.GetRendicionData(rendidasIds);
-            var pdf         = GenerarPlanillaPdf(datos);
+            // 1. Pre-flight: ¿cuáles serían marcables? — sin tocar BD.
+            var elegiblesIds = await _repo.GetEligibleIdsForRendicion(ids);
+            if (elegiblesIds.Count == 0)
+                throw new AbrilException("No hay solicitudes elegibles para rendir (deben estar aprobadas y no rendidas).", 400);
+
+            // 1.b. Bloqueo: cada trayecto de cada solicitud debe tener al menos una captura.
+            var sinCapturas = await _repo.GetIdsConTrayectosSinCapturas(elegiblesIds);
+            if (sinCapturas.Count > 0)
+                throw new AbrilException(
+                    $"No se puede rendir: {sinCapturas.Count} solicitud(es) tienen trayectos sin capturas (IDs: {string.Join(", ", sinCapturas)}). " +
+                    "Todos los trayectos de la solicitud deben tener al menos una captura con monto antes de rendirla.",
+                    400);
+
+            // 2. Cargar info y generar PDF en memoria.
+            var datos = await _repo.GetRendicionData(elegiblesIds);
+            var pdf   = GenerarPlanillaPdf(datos);
+
+            // 3. Subir a SharePoint ANTES de marcar como rendidas.
+            //    Si el upload falla, no se modifica nada en BD (estricto).
+            var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmmss}_u{userId}.pdf";
+            string pdfUrl;
+            string? pdfItemId;
+            try
+            {
+                using var pdfStream = new MemoryStream(pdf);
+                var result = await _sharePointService.UploadToSharePointLibraryAsync(
+                    site:        _site,
+                    libraryName: _solicitudSalidasLibraryId,
+                    folderPath:  CarpetaSolicitudesRendidas,
+                    fileName:    filename,
+                    fileStream:  pdfStream,
+                    contentType: "application/pdf");
+
+                if (result?.WebUrl is null)
+                    throw new AbrilException("No se pudo subir la planilla a SharePoint (respuesta vacía).", 502);
+
+                pdfUrl    = result.WebUrl;
+                pdfItemId = result.ItemId;
+            }
+            catch (AbrilException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló upload de planilla a SharePoint (filename={Filename}). Rendición abortada.", filename);
+                throw new AbrilException(
+                    "No se pudo guardar la planilla en SharePoint. La rendición fue cancelada — vuelve a intentarlo.",
+                    502);
+            }
+
+            // 4. Persistir GaRendicion + marcar solicitudes (transacción interna).
+            var rendidasIds = await _repo.CrearRendicionYMarcarBulk(
+                elegiblesIds, userId, pdfUrl, pdfItemId, filename);
+
             return (pdf, rendidasIds.Count);
         }
+
+        public Task<GestionSalidaDetalleDto?> GetDetalle(int id)
+            => _repo.GetDetalle(id);
 
         // ── Generación de la planilla de gasto por movilidad (QuestPDF) ──────
 
@@ -236,11 +316,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 {
                     table.ColumnsDefinition(c =>
                     {
-                        c.ConstantColumn(80);   // FECHA
-                        c.ConstantColumn(250);  // MOTIVO
-                        c.ConstantColumn(130);  // PARTIDA
+                        c.ConstantColumn(70);   // FECHA
+                        c.ConstantColumn(200);  // MOTIVO
+                        c.ConstantColumn(180);  // ORIGEN
                         c.ConstantColumn(200);  // DESTINO
-                        c.ConstantColumn(80);   // IMPORTE S/
+                        c.ConstantColumn(90);   // IMPORTE S/
                     });
 
                     table.Header(h =>
@@ -249,7 +329,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                             .PaddingVertical(6).AlignCenter().AlignMiddle();
                         h.Cell().Element(Th).Text("FECHA").Bold();
                         h.Cell().Element(Th).Text("MOTIVO").Bold();
-                        h.Cell().Element(Th).Text("PARTIDA").Bold();
+                        h.Cell().Element(Th).Text("ORIGEN").Bold();
                         h.Cell().Element(Th).Text("DESTINO").Bold();
                         h.Cell().Element(Th).Text("IMPORTE S/").Bold();
                     });
@@ -260,16 +340,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     {
                         table.Cell().Element(Td).AlignCenter().Text(it.FechaSalida.ToString("dd/MM/yyyy"));
                         table.Cell().Element(Td).Text(it.Motivo ?? "");
-                        table.Cell().Element(Td).Text("");
+                        table.Cell().Element(Td).Text(it.LugarOrigen ?? "");
                         table.Cell().Element(Td).Text(it.LugarDestino ?? "");
-                        table.Cell().Element(Td).AlignRight().Text("");
+                        table.Cell().Element(Td).AlignRight().Text(
+                            it.Importe > 0 ? it.Importe.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE")) : "");
                     }
 
                     if (isLastPage)
                     {
+                        var totalGeneral = trabajadorItems.Sum(i => i.Importe);
+                        var totalEnLetras = MontoEnLetrasSoles(totalGeneral);
                         table.Cell().ColumnSpan(4).Border(1).PaddingVertical(7).PaddingHorizontal(8).AlignMiddle()
-                            .Text("TOTAL EN LETRAS:").Bold();
-                        table.Cell().Border(1);
+                            .Text(text =>
+                            {
+                                text.Span("TOTAL EN LETRAS: ").Bold();
+                                text.Span(totalEnLetras);
+                            });
+                        table.Cell().Border(1).PaddingVertical(7).PaddingHorizontal(4).AlignMiddle().AlignRight()
+                            .Text(totalGeneral.ToString("N2", CultureInfo.GetCultureInfo("es-PE"))).Bold();
                     }
                 });
 
@@ -313,6 +401,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     .PaddingBottom(2).AlignMiddle()
                     .Text(value ?? "").FontSize(10);
             });
+        }
+
+        /// <summary>
+        /// Convierte un monto a su representación en letras estilo peruano
+        /// (ej. 350.50 → "TRESCIENTOS CINCUENTA CON 50/100 SOLES").
+        /// </summary>
+        private static string MontoEnLetrasSoles(decimal monto)
+        {
+            var abs       = Math.Abs(monto);
+            var entero    = (long)Math.Truncate(abs);
+            var centavos  = (int)Math.Round((abs - entero) * 100m);
+            if (centavos == 100) { entero++; centavos = 0; }
+
+            var esCulture = new CultureInfo("es");
+            var palabras  = entero.ToWords(esCulture);
+            var signo     = monto < 0 ? "MENOS " : string.Empty;
+            return $"{signo}{palabras} CON {centavos:D2}/100 SOLES".ToUpperInvariant();
         }
     }
 }

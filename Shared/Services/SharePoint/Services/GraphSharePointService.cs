@@ -1,6 +1,8 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Options;
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
@@ -11,9 +13,9 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
 
-        // Cache: el drive ID de una biblioteca no cambia durante la vida de la app.
-        private static readonly Dictionary<string, string> _driveIdCache = new(StringComparer.OrdinalIgnoreCase);
-        private static string? _cachedSiteId;
+        // Cache por sitio (siteId) y por (siteId|libraryName). Los IDs no cambian en vida de la app.
+        private static readonly ConcurrentDictionary<string, string> _siteIdCache = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, string> _driveIdCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly SemaphoreSlim _lock = new(1, 1);
 
         public GraphSharePointService(IHttpClientFactory httpClientFactory, IConfiguration configuration)
@@ -41,6 +43,7 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
         // ── SharePoint biblioteca compartida (aplicación) ────────────────────
 
         public async Task<SharePointUploadResultDto?> UploadToSharePointLibraryAsync(
+            SharePointSiteRef site,
             string libraryName,
             string folderPath,
             string fileName,
@@ -48,11 +51,10 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             string contentType = "application/octet-stream")
         {
             var token   = await GetAppTokenAsync();
-            var siteId  = await EnsureSiteIdAsync(token);
+            var siteId  = await EnsureSiteIdAsync(token, site);
             var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
 
             var fullPath = $"{folderPath.Trim('/')}/{fileName}";
-            // Graph crea subcarpetas automáticamente al subir con ruta completa
             var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{EscapePath(fullPath)}:/content";
 
             return await UploadStreamAsync(token, url, fileStream, contentType);
@@ -77,7 +79,6 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
 
             if (!response.IsSuccessStatusCode)
             {
-                // Detectar error 423 (Locked) cuando el archivo está abierto en SharePoint
                 if ((int)response.StatusCode == 423)
                 {
                     throw new AbrilException(
@@ -105,32 +106,32 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             return new SharePointUploadResultDto { WebUrl = webUrl, ItemId = itemId };
         }
 
-        private async Task<string> EnsureSiteIdAsync(string token)
+        private async Task<string> EnsureSiteIdAsync(string token, SharePointSiteRef site)
         {
-            if (_cachedSiteId is not null) return _cachedSiteId;
+            if (_siteIdCache.TryGetValue(site.CacheKey, out var cached)) return cached;
 
             await _lock.WaitAsync();
             try
             {
-                if (_cachedSiteId is not null) return _cachedSiteId;
+                if (_siteIdCache.TryGetValue(site.CacheKey, out cached)) return cached;
 
-                var hostname = _configuration["SharePoint:Hostname"] ?? "abrilinmob.sharepoint.com";
-                var sitePath = _configuration["SharePoint:SitePath"] ?? "/sites/CostosyPresupuestos";
+                var sitePath = "/" + site.SitePath.Trim('/');
 
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
                 var response = await client.GetAsync(
-                    $"https://graph.microsoft.com/v1.0/sites/{hostname}:{sitePath}");
+                    $"https://graph.microsoft.com/v1.0/sites/{site.Hostname}:{sitePath}");
                 response.EnsureSuccessStatusCode();
 
                 var json = await response.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
 
-                _cachedSiteId = doc.RootElement.GetProperty("id").GetString()
+                var siteId = doc.RootElement.GetProperty("id").GetString()
                     ?? throw new InvalidOperationException("No se pudo obtener el site ID de SharePoint.");
 
-                return _cachedSiteId;
+                _siteIdCache[site.CacheKey] = siteId;
+                return siteId;
             }
             finally
             {
@@ -140,12 +141,13 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
 
         private async Task<string> EnsureLibraryDriveAsync(string token, string siteId, string libraryName)
         {
-            if (_driveIdCache.TryGetValue(libraryName, out var cached)) return cached;
+            var cacheKey = $"{siteId}|{libraryName}";
+            if (_driveIdCache.TryGetValue(cacheKey, out var cached)) return cached;
 
             await _lock.WaitAsync();
             try
             {
-                if (_driveIdCache.TryGetValue(libraryName, out cached)) return cached;
+                if (_driveIdCache.TryGetValue(cacheKey, out cached)) return cached;
 
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -167,7 +169,6 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                 }
                 else
                 {
-                    // Buscar entre las bibliotecas existentes del sitio por nombre de display
                     var drivesResponse = await client.GetAsync(
                         $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives");
                     drivesResponse.EnsureSuccessStatusCode();
@@ -193,7 +194,7 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                     driveId = found;
                 }
 
-                _driveIdCache[libraryName] = driveId;
+                _driveIdCache[cacheKey] = driveId;
                 return driveId;
             }
             finally
@@ -227,34 +228,30 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                 ?? throw new InvalidOperationException("No se pudo obtener el token de aplicación.");
         }
 
-        public async Task<byte[]> DownloadFromSharePointAsync(string webUrl)
+        public async Task<byte[]> DownloadFromSharePointAsync(SharePointSiteRef site, string webUrl)
         {
             var token  = await GetAppTokenAsync();
-            var siteId = await EnsureSiteIdAsync(token);
+            var siteId = await EnsureSiteIdAsync(token, site);
 
             // La webUrl tiene el formato:
-            // https://{hostname}/sites/{siteName}/{libraryName}/{ruta/al/archivo.pdf}
-            // Extraemos el nombre de la biblioteca y la ruta relativa dentro de ella.
-            var hostname = _configuration["SharePoint:Hostname"] ?? "abrilinmob.sharepoint.com";
-            var sitePath = (_configuration["SharePoint:SitePath"] ?? "/sites/CostosyPresupuestos").Trim('/');
-            var baseUrl  = $"https://{hostname}/{sitePath}/";
+            // https://{hostname}/{sitePath}/{libraryName}/{ruta/al/archivo.pdf}
+            var sitePath = site.SitePath.Trim('/');
+            var baseUrl  = $"https://{site.Hostname}/{sitePath}/";
 
             if (!webUrl.StartsWith(baseUrl, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException(
-                    $"La URL del archivo no pertenece al sitio SharePoint configurado: {webUrl}");
+                    $"La URL del archivo no pertenece al sitio SharePoint indicado ({baseUrl}): {webUrl}");
 
-            // Decodificamos los %XX para trabajar con los nombres reales
             var afterBase       = Uri.UnescapeDataString(webUrl.Substring(baseUrl.Length));
             var firstSlash      = afterBase.IndexOf('/');
             if (firstSlash < 0)
                 throw new InvalidOperationException($"No se pudo extraer la ruta del archivo: {webUrl}");
 
-            var libraryName      = afterBase[..firstSlash];               // ej. "Adjudicaciones"
-            var pathWithinDrive  = afterBase[(firstSlash + 1)..];         // ej. "TORRE ABRIL/.../archivo.pdf"
+            var libraryName      = afterBase[..firstSlash];
+            var pathWithinDrive  = afterBase[(firstSlash + 1)..];
 
             var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
 
-            // Drive API: /sites/{siteId}/drives/{driveId}/root:/{ruta}:/content
             var escapedPath  = EscapePath(pathWithinDrive);
             var downloadUrl  = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{escapedPath}:/content";
 
@@ -273,13 +270,12 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             return await response.Content.ReadAsByteArrayAsync();
         }
 
-        public async Task<byte[]> DownloadAsPdfFromSharePointAsync(string libraryName, string itemId)
+        public async Task<byte[]> DownloadAsPdfFromSharePointAsync(SharePointSiteRef site, string libraryName, string itemId)
         {
             var token   = await GetAppTokenAsync();
-            var siteId  = await EnsureSiteIdAsync(token);
+            var siteId  = await EnsureSiteIdAsync(token, site);
             var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
 
-            // Endpoint basado en itemId: evita el problema de URLs _layouts/15/Doc.aspx
             var downloadUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/items/{itemId}/content?format=pdf";
 
             var client = _httpClientFactory.CreateClient();
@@ -366,16 +362,15 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             return items;
         }
 
-        public async Task<(string Id, string Name)?> FindContractorFolderAsync(string libraryName, string ruc)
+        public async Task<(string Id, string Name)?> FindContractorFolderAsync(SharePointSiteRef site, string libraryName, string ruc)
         {
             var token   = await GetAppTokenAsync();
-            var siteId  = await EnsureSiteIdAsync(token);
+            var siteId  = await EnsureSiteIdAsync(token, site);
             var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
 
             var client = _httpClientFactory.CreateClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            // Obtener todos los elementos raíz de la biblioteca (máx. 500 para no paginar).
             var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root/children" +
                       "?$select=id,name,folder&$top=500";
 
@@ -388,7 +383,6 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             var prefix = ruc + " - ";
             foreach (var item in doc.RootElement.GetProperty("value").EnumerateArray())
             {
-                // Solo carpetas
                 if (!item.TryGetProperty("folder", out _)) continue;
 
                 var name = item.GetProperty("name").GetString() ?? string.Empty;
@@ -402,10 +396,10 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             return null;
         }
 
-        public async Task RenameFolderInLibraryAsync(string libraryName, string folderId, string newName)
+        public async Task RenameFolderInLibraryAsync(SharePointSiteRef site, string libraryName, string folderId, string newName)
         {
             var token   = await GetAppTokenAsync();
-            var siteId  = await EnsureSiteIdAsync(token);
+            var siteId  = await EnsureSiteIdAsync(token, site);
             var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
 
             var client = _httpClientFactory.CreateClient();

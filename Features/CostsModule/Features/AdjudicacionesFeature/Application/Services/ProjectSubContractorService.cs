@@ -37,6 +37,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly OneDriveOptions _oneDriveOptions;
         private readonly IProjectLinkRepository _projectLinkRepository;
         private readonly ICostosPresupuestosEmailService _costosPresupuestosEmailService;
+        private readonly SharePointSiteRef _site;
 
         private const string BccEmail = "calvarez@abril.pe";
 
@@ -62,7 +63,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             IGraphSharePointService sharePointService,
             IOptions<OneDriveOptions> oneDriveOptions,
             IProjectLinkRepository projectLinkRepository,
-            ICostosPresupuestosEmailService costosPresupuestosEmailService)
+            ICostosPresupuestosEmailService costosPresupuestosEmailService,
+            IConfiguration configuration)
         {
             _projectSubContractorRepository = projectSubContractorRepository;
             _fileStorageService = fileStorageService;
@@ -75,6 +77,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _oneDriveOptions = oneDriveOptions.Value;
             _projectLinkRepository = projectLinkRepository;
             _costosPresupuestosEmailService = costosPresupuestosEmailService;
+            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
         }
 
         public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
@@ -131,6 +134,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
                 using var stream = file.OpenReadStream();
                 var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                    site:        _site,
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    file.FileName,
@@ -273,7 +277,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 var pkgInfo = await _projectSubContractorRepository.GetPackageFileInfoAsync(projectSubContractorId)
                     ?? throw new AbrilException("No hay paquete de contrato generado. Por favor genere o seleccione el archivo antes de enviar.", 400);
 
-                fileBytes   = await _sharePointService.DownloadFromSharePointAsync(pkgInfo.FileUrl);
+                fileBytes   = await _sharePointService.DownloadFromSharePointAsync(_site, pkgInfo.FileUrl);
                 fileName    = pkgInfo.OriginalFileName;
                 contentType = "application/pdf";
             }
@@ -281,6 +285,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // Subir a SharePoint
             var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.ScPackage);
             await _sharePointService.UploadToSharePointLibraryAsync(
+                site:        _site,
                 libraryName: "Adjudicaciones",
                 folderPath:  folderPath,
                 fileName:    fileName,
@@ -841,6 +846,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             using (var stream = file.OpenReadStream())
             {
                 var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                    site:        _site,
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    fileName,
@@ -901,7 +907,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (folderInfo.SyncStatus == 2)
             {
                 // Instructivo subido manualmente: FolderId contiene la URL de SharePoint
-                content     = await _sharePointService.DownloadFromSharePointAsync(folderInfo.FolderId);
+                content     = await _sharePointService.DownloadFromSharePointAsync(_site, folderInfo.FolderId);
                 contentType = "application/octet-stream";
                 fileName    = folderInfo.FolderName ?? "instructivo";
             }
@@ -928,6 +934,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             using var stream = new MemoryStream(content);
             var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                site:        _site,
                 libraryName: "Adjudicaciones",
                 folderPath: destFolder,
                 fileName:   fileName,
@@ -983,6 +990,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
             var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                site:        _site,
                 libraryName: "Adjudicaciones",
                 folderPath:  folderPath,
                 fileName:    fileName,
@@ -1179,6 +1187,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             using (var ms = new MemoryStream(docBytes))
             {
                 var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                    site:        _site,
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    fileName,
@@ -1300,6 +1309,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             using (var ms = new MemoryStream(docBytes))
             {
                 var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                    site:        _site,
                     libraryName: "Adjudicaciones",
                     folderPath:  folderPath,
                     fileName:    fileName,
@@ -1342,12 +1352,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             if (!string.IsNullOrEmpty(docs.SummarySheetItemId))
             {
-                var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.SummarySheetItemId);
+                var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.SummarySheetItemId);
                 pdfBytesList.Add(RotatePdfPages(summarySheetPdf));
             }
 
             if (!string.IsNullOrEmpty(docs.ContractItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.ContractItemId));
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.ContractItemId));
 
             if (pdfBytesList.Count == 0 && string.IsNullOrEmpty(docs.NonConformingOutputItemId)
                 && string.IsNullOrEmpty(docs.ToleranceChartItemId) && string.IsNullOrEmpty(docs.InstructivoItemId)
@@ -1355,16 +1365,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
 
             if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.NonConformingOutputItemId));
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.NonConformingOutputItemId));
 
             if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.ToleranceChartItemId));
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.ToleranceChartItemId));
 
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.InstructivoItemId));
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.InstructivoItemId));
 
             if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync("Adjudicaciones", docs.PromissoryNoteItemId));
+                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.PromissoryNoteItemId));
 
             var mergedBytes = MergePdfs(pdfBytesList);
 
@@ -1397,6 +1407,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             using var ms = new MemoryStream(mergedBytes);
             var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
+                site:        _site,
                 libraryName: "Adjudicaciones",
                 folderPath:  folderPath,
                 fileName:    fileName,
@@ -1742,7 +1753,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             {
                 try
                 {
-                    var bytes = await _sharePointService.DownloadFromSharePointAsync(file.FileUrl);
+                    var bytes = await _sharePointService.DownloadFromSharePointAsync(_site, file.FileUrl);
                     var fileName = !string.IsNullOrWhiteSpace(file.OriginalFileName)
                         ? file.OriginalFileName
                         : Path.GetFileName(new Uri(file.FileUrl).LocalPath);

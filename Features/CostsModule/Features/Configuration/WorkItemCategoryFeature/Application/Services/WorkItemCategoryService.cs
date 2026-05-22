@@ -15,17 +15,20 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         private readonly IWorkItemCategoryRepository _repository;
         private readonly IGraphSharePointService _graphSharePoint;
         private readonly OneDriveOptions _oneDriveOptions;
+        private readonly SharePointSiteRef _site;
 
         private static readonly Regex _folderPrefixRegex = new(@"^\d+\.\s*", RegexOptions.Compiled);
 
         public WorkItemCategoryService(
             IWorkItemCategoryRepository repository,
             IGraphSharePointService graphSharePoint,
-            IOptions<OneDriveOptions> oneDriveOptions)
+            IOptions<OneDriveOptions> oneDriveOptions,
+            IConfiguration configuration)
         {
             _repository = repository;
             _graphSharePoint = graphSharePoint;
             _oneDriveOptions = oneDriveOptions.Value;
+            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
         }
 
         public async Task<PagedResult<WorkItemCategoryDto>> GetPaged(WorkItemCategoryFilterDto filter)
@@ -50,6 +53,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
 
             using var stream = file.OpenReadStream();
             var result = await _graphSharePoint.UploadToSharePointLibraryAsync(
+                site:        _site,
                 libraryName: "Adjudicaciones",
                 folderPath:  "INSTRUCTIVOS",
                 fileName:    file.FileName,

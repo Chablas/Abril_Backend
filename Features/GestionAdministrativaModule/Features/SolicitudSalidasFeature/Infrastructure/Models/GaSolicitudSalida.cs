@@ -13,7 +13,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public string? LugarOrigenLibre { get; set; }
         public int? LugarDestinoId { get; set; }
         public string? LugarDestinoLibre { get; set; }
-        public string Estado { get; set; } = "Pendiente";
+        public string EstadoAprobacion { get; set; } = "Pendiente";
+        public string EstadoRendicion { get; set; } = "No rendido";
         public int? RegistradoPorId { get; set; }
         public string? AprobadorEmail { get; set; }
         public DateTimeOffset? FechaDecision { get; set; }

@@ -1,4 +1,5 @@
 using Abril_Backend.Shared.Services.SharePoint.Dtos;
+using Abril_Backend.Shared.Services.SharePoint.Options;
 
 namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
 {
@@ -21,12 +22,6 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         /// <summary>
         /// Sube un archivo al OneDrive personal del usuario autenticado (permiso delegado).
         /// </summary>
-        /// <param name="accessToken">Token de acceso Graph del usuario (delegado).</param>
-        /// <param name="folderPath">Ruta de carpetas relativa a la raíz del drive. Ej: "Contratistas/20123456789"</param>
-        /// <param name="fileName">Nombre del archivo incluyendo extensión.</param>
-        /// <param name="fileStream">Contenido del archivo.</param>
-        /// <param name="contentType">MIME type del archivo.</param>
-        /// <returns>URL web del archivo subido (webUrl), o null si falla.</returns>
         Task<string?> UploadToOneDriveAsync(
             string accessToken,
             string folderPath,
@@ -35,18 +30,11 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
             string contentType = "application/octet-stream");
 
         /// <summary>
-        /// Sube un archivo a una biblioteca de documentos compartida en SharePoint
-        /// usando permisos de aplicación (Sites.ReadWrite.All).
-        /// Crea la biblioteca si no existe.
-        /// Los archivos son accesibles desde el explorador de Windows.
+        /// Sube un archivo a una biblioteca de documentos compartida en el sitio indicado por
+        /// <paramref name="site"/>, usando permisos de aplicación (Sites.ReadWrite.All).
         /// </summary>
-        /// <param name="libraryName">Nombre de la biblioteca de documentos. Ej: "Adjudicaciones"</param>
-        /// <param name="folderPath">Ruta de carpetas dentro de la biblioteca. Ej: "Proyecto X/20123456789 - Empresa/42 - Partida/Contrato"</param>
-        /// <param name="fileName">Nombre del archivo incluyendo extensión.</param>
-        /// <param name="fileStream">Contenido del archivo.</param>
-        /// <param name="contentType">MIME type del archivo.</param>
-        /// <returns>Resultado con WebUrl e ItemId del archivo subido, o null si falla.</returns>
         Task<SharePointUploadResultDto?> UploadToSharePointLibraryAsync(
+            SharePointSiteRef site,
             string libraryName,
             string folderPath,
             string fileName,
@@ -54,34 +42,26 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
             string contentType = "application/octet-stream");
 
         /// <summary>
-        /// Descarga el contenido de un archivo de SharePoint a partir de su webUrl,
-        /// usando permisos de aplicación (Files.Read.All).
+        /// Descarga el contenido de un archivo del sitio indicado por <paramref name="site"/>
+        /// a partir de su webUrl, usando permisos de aplicación (Files.Read.All). La webUrl
+        /// debe pertenecer al sitio o se lanza una excepción.
         /// </summary>
-        /// <param name="webUrl">URL web del archivo tal como fue guardada al subirlo.</param>
-        /// <returns>Bytes del archivo.</returns>
-        Task<byte[]> DownloadFromSharePointAsync(string webUrl);
+        Task<byte[]> DownloadFromSharePointAsync(SharePointSiteRef site, string webUrl);
 
         /// <summary>
-        /// Descarga un archivo de SharePoint convertido a PDF mediante la Graph API (?format=pdf).
-        /// Funciona con Word (.docx) y Excel (.xlsx).
-        /// Usa el endpoint basado en itemId para evitar problemas con URLs del tipo _layouts/15/Doc.aspx.
+        /// Descarga un archivo del sitio indicado convertido a PDF mediante Graph API (?format=pdf).
         /// </summary>
-        /// <param name="libraryName">Nombre de la biblioteca de documentos (ej. "Adjudicaciones").</param>
-        /// <param name="itemId">ID del item en Graph API (SharepointItemId guardado al subir el archivo).</param>
-        /// <returns>Bytes del PDF resultante.</returns>
-        Task<byte[]> DownloadAsPdfFromSharePointAsync(string libraryName, string itemId);
+        Task<byte[]> DownloadAsPdfFromSharePointAsync(SharePointSiteRef site, string libraryName, string itemId);
 
         /// <summary>
-        /// Busca en la raíz de la biblioteca la primera carpeta cuyo nombre comience con
-        /// <paramref name="ruc"/> seguido de " - ". Útil para localizar la carpeta de un
-        /// contratista sin importar si la razón social cambió.
+        /// Busca en la raíz de la biblioteca del sitio indicado la primera carpeta cuyo nombre
+        /// comience con <paramref name="ruc"/> seguido de " - ".
         /// </summary>
-        /// <returns>Tupla (Id, Name) de la carpeta encontrada, o null si no existe.</returns>
-        Task<(string Id, string Name)?> FindContractorFolderAsync(string libraryName, string ruc);
+        Task<(string Id, string Name)?> FindContractorFolderAsync(SharePointSiteRef site, string libraryName, string ruc);
 
         /// <summary>
-        /// Renombra una carpeta en una biblioteca de SharePoint usando su itemId de Graph.
+        /// Renombra una carpeta en una biblioteca del sitio indicado usando su itemId.
         /// </summary>
-        Task RenameFolderInLibraryAsync(string libraryName, string folderId, string newName);
+        Task RenameFolderInLibraryAsync(SharePointSiteRef site, string libraryName, string folderId, string newName);
     }
 }

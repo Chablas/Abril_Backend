@@ -88,8 +88,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     LugarDestino = ld == null ? s.LugarDestinoLibre
                                  : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : "[Sin proyecto]")
                                  : ld.Nombre,
-                    Estado       = s.Estado,
-                    CreatedAt    = s.CreatedAt
+                    EstadoAprobacion = s.EstadoAprobacion,
+                    EstadoRendicion  = s.EstadoRendicion,
+                    CreatedAt        = s.CreatedAt
                 }
             ).ToListAsync();
         }
@@ -121,7 +122,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 LugarOrigenLibre = string.IsNullOrWhiteSpace(dto.LugarOrigenLibre) ? null : dto.LugarOrigenLibre.Trim(),
                 LugarDestinoId  = dto.LugarDestinoId,
                 LugarDestinoLibre = string.IsNullOrWhiteSpace(dto.LugarDestinoLibre) ? null : dto.LugarDestinoLibre.Trim(),
-                Estado          = "Pendiente",
+                EstadoAprobacion = "Pendiente",
+                EstadoRendicion  = "No rendido",
                 RegistradoPorId = userId,
                 CreatedAt       = DateTimeOffset.UtcNow,
                 UpdatedAt       = DateTimeOffset.UtcNow
@@ -145,9 +147,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         {
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId);
-            if (s == null || s.Estado != "Pendiente") return null;
-            s.Estado        = "Aprobado";
-            s.FechaDecision = DateTimeOffset.UtcNow;
+            if (s == null || s.EstadoAprobacion != "Pendiente") return null;
+            s.EstadoAprobacion = "Aprobado";
+            s.FechaDecision    = DateTimeOffset.UtcNow;
             s.UpdatedAt     = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
             return s;
@@ -157,10 +159,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         {
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId);
-            if (s == null || s.Estado != "Pendiente") return null;
-            s.Estado        = "Rechazado";
-            s.MotivoRechazo = string.IsNullOrWhiteSpace(motivoRechazo) ? null : motivoRechazo.Trim();
-            s.FechaDecision = DateTimeOffset.UtcNow;
+            if (s == null || s.EstadoAprobacion != "Pendiente") return null;
+            s.EstadoAprobacion = "Rechazado";
+            s.MotivoRechazo    = string.IsNullOrWhiteSpace(motivoRechazo) ? null : motivoRechazo.Trim();
+            s.FechaDecision    = DateTimeOffset.UtcNow;
             s.UpdatedAt     = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
             return s;

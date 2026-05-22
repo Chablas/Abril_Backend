@@ -9,5 +9,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         Task<byte[]> GetExcel(GestionSalidaFiltersDto filters);
         Task Aprobar(int id, int reviewerUserId);
         Task Rechazar(int id, int reviewerUserId);
+        /// <summary>
+        /// Marca solicitudes elegibles como Rendidas y genera la planilla de gasto por movilidad (PDF).
+        /// Devuelve los bytes del PDF + cuántas se procesaron.
+        /// </summary>
+        Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId);
     }
 }

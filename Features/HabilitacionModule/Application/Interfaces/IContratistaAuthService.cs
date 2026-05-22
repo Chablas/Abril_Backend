@@ -12,5 +12,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Interfaces
         Task SolicitarResetPasswordAsync(SolicitarResetDto dto);
         Task ResetPasswordAsync(ResetPasswordDto dto);
         Task CambiarPasswordAsync(int userId, CambiarPasswordDto dto);
+        Task<ValidarMigracionResultDto> ValidarMigracionAsync(ValidarMigracionDto dto);
+        Task ActivarMigracionAsync(ActivarMigracionDto dto);
     }
 }

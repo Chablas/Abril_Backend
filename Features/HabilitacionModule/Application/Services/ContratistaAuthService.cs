@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Microsoft.AspNetCore.Identity;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Auth;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Empresa;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
@@ -235,6 +236,96 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             user.Password = BCrypt.Net.BCrypt.HashPassword(dto.PasswordNuevo);
             user.UpdatedDateTime = DateTime.UtcNow;
+
+            await ctx.SaveChangesAsync();
+        }
+
+
+        public async Task<ValidarMigracionResultDto> ValidarMigracionAsync(ValidarMigracionDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var contributor = await ctx.Contributor
+                .FirstOrDefaultAsync(c => c.ContributorRuc == dto.Ruc
+                    && c.SpPasswordTemp == dto.SpPassword
+                    && c.Active);
+
+            if (contributor is null)
+                throw new AbrilException("RUC o contraseña temporal incorrectos.", 401);
+
+            return new ValidarMigracionResultDto
+            {
+                NombreComercial = contributor.ContributorNombreComercial ?? contributor.ContributorName,
+                RazonSocial = contributor.ContributorName
+            };
+        }
+
+        public async Task ActivarMigracionAsync(ActivarMigracionDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var contributor = await ctx.Contributor
+                .FirstOrDefaultAsync(c => c.ContributorRuc == dto.Ruc
+                    && c.SpPasswordTemp == dto.SpPassword
+                    && c.Active)
+                ?? throw new AbrilException("RUC o contraseña temporal incorrectos.", 401);
+
+            var contractor = await ctx.Contractor
+                .FirstOrDefaultAsync(c => c.ContributorId == contributor.ContributorId && c.Active)
+                ?? throw new AbrilException("No se encontró empresa contratista para este RUC.", 404);
+
+            var existingUser = await ctx.User.FirstOrDefaultAsync(u => u.Email == dto.Email);
+            User user;
+            var hasher = new PasswordHasher<User>();
+
+            if (existingUser != null)
+            {
+                user = existingUser;
+                user.Password = hasher.HashPassword(user, dto.Password);
+                user.UpdatedDateTime = DateTime.UtcNow;
+            }
+            else
+            {
+                user = new User
+                {
+                    Email = dto.Email,
+                    EmailConfirmed = true,
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = DateTime.UtcNow
+                };
+                user.Password = hasher.HashPassword(user, dto.Password);
+                ctx.User.Add(user);
+            }
+
+            await ctx.SaveChangesAsync();
+
+            var contractorUserExists = await ctx.ContractorUser
+                .AnyAsync(cu => cu.ContractorId == contractor.ContractorId && cu.UserId == user.UserId && cu.Active);
+            if (!contractorUserExists)
+                ctx.ContractorUser.Add(new ContractorUser
+                {
+                    ContractorId = contractor.ContractorId,
+                    UserId = user.UserId,
+                    CreatedDateTime = DateTimeOffset.UtcNow,
+                    Active = true,
+                    State = true
+                });
+
+            var roleExists = await ctx.UserRole
+                .AnyAsync(ur => ur.UserId == user.UserId && ur.RoleId == 11 && ur.Active);
+            if (!roleExists)
+                ctx.UserRole.Add(new UserRole
+                {
+                    UserId = user.UserId,
+                    RoleId = 11,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = user.UserId,
+                    Active = true,
+                    State = true
+                });
+
+            contributor.SpPasswordTemp = null;
 
             await ctx.SaveChangesAsync();
         }

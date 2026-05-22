@@ -38,7 +38,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 return trimmed;
             }
 
-            var siteId = _configuration["SharePoint:SiteId"];
+            var siteId = _configuration["SharePoint:Sites:Habilitacion:SiteId"];
             if (string.IsNullOrWhiteSpace(siteId)) return null;
 
             var token = await GetAccessTokenAsync();
@@ -74,7 +74,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         public async Task<string> SubirArchivoAsync(Stream fileStream, string fileName, string contexto)
         {
-            var siteId = _configuration["SharePoint:SiteId"];
+            var siteId = _configuration["SharePoint:Sites:Habilitacion:SiteId"];
             if (string.IsNullOrWhiteSpace(siteId))
                 throw new AbrilException("SharePoint no está configurado.", 500);
 

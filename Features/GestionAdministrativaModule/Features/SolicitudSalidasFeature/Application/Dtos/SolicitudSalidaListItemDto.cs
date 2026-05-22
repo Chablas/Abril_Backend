@@ -9,7 +9,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public string Motivo { get; set; } = string.Empty;
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
-        public string Estado { get; set; } = string.Empty;
+        public string EstadoAprobacion { get; set; } = string.Empty;
+        public string EstadoRendicion { get; set; } = "No rendido";
         public DateTimeOffset CreatedAt { get; set; }
     }
 }

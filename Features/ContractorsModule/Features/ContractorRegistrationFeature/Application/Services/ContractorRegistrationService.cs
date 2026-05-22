@@ -4,6 +4,7 @@ using Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructure.I
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Options;
 using Abril_Backend.Shared.Services.Sunat.Dtos;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using System.Text;
@@ -18,6 +19,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
         private readonly IConfiguration _configuration;
         private readonly IEmailService _emailService;
         private readonly ICostosPresupuestosEmailService _costosPresupuestosEmailService;
+        private readonly SharePointSiteRef _site;
 
         public ContractorRegistrationService(
             IContractorRegistrationRepository repository,
@@ -33,6 +35,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             _configuration = configuration;
             _emailService = emailService;
             _costosPresupuestosEmailService = costosPresupuestosEmailService;
+            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
         }
 
         public async Task<List<ContractorPersonTypeDto>> GetPersonTypes()
@@ -56,19 +59,19 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 
             if (dto.LogoFile is not null || dto.BrochureFile is not null || dto.FichaRucFile is not null || dto.ReferencesListFile is not null)
             {
-                var listId          = _configuration["SharePoint:ContractorListId"]
-                                      ?? throw new InvalidOperationException("SharePoint:ContractorListId no está configurado.");
+                var listId          = _configuration["SharePoint:Sites:CostosYPresupuestos:ContractorLibraryId"]
+                                      ?? throw new InvalidOperationException("SharePoint:Sites:CostosYPresupuestos:ContractorLibraryId no está configurado.");
                 var desiredFolder   = Sanitize($"{dto.ContributorRuc} - {dto.ContributorName}");
 
                 // Buscar carpeta existente para este RUC (independientemente de si la razón social cambió).
                 // · Si existe y el nombre coincide → se reutiliza tal cual.
                 // · Si existe pero el nombre cambió  → se renombra a la razón social actual.
                 // · Si no existe                    → Graph la crea automáticamente al subir el primer archivo.
-                var existing = await _sharePointService.FindContractorFolderAsync(listId, dto.ContributorRuc);
+                var existing = await _sharePointService.FindContractorFolderAsync(_site, listId, dto.ContributorRuc);
                 if (existing is not null
                     && !string.Equals(existing.Value.Name, desiredFolder, StringComparison.OrdinalIgnoreCase))
                 {
-                    await _sharePointService.RenameFolderInLibraryAsync(listId, existing.Value.Id, desiredFolder);
+                    await _sharePointService.RenameFolderInLibraryAsync(_site, listId, existing.Value.Id, desiredFolder);
                 }
 
                 var folderPath = $"{desiredFolder}/Solicitud {attemptNumber}";
@@ -138,6 +141,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 
             using var stream = file.OpenReadStream();
             var result = await _sharePointService.UploadToSharePointLibraryAsync(
+                site:        _site,
                 libraryName: listId,
                 folderPath:  folderPath,
                 fileName:    fileName,

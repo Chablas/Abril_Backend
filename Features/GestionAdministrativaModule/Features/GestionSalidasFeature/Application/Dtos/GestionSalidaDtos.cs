@@ -11,7 +11,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string Motivo { get; set; } = string.Empty;
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
-        public string Estado { get; set; } = string.Empty;
+        public string EstadoAprobacion { get; set; } = string.Empty;
+        public string EstadoRendicion { get; set; } = "No rendido";
         public DateTimeOffset CreatedAt { get; set; }
     }
 
@@ -19,6 +20,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     {
         public int? WorkerId { get; set; }
         public int? LugarProyectoId { get; set; }
+        /// <summary>"Rendido", "No rendido" o null para todos.</summary>
+        public string? EstadoRendicion { get; set; }
+    }
+
+    public class MarcarRendidasBulkDto
+    {
+        public List<int> Ids { get; set; } = new();
     }
 
     public class GestionSalidaFilterDataDto
@@ -40,4 +48,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     }
 
     public class AprobarRechazarDto { }
+
+    /// <summary>Datos enriquecidos para armar la planilla de rendición.</summary>
+    public class RendicionItemDto
+    {
+        public int Id { get; set; }
+        public int WorkerId { get; set; }
+        public string TrabajadorNombre { get; set; } = string.Empty;
+        public string? TrabajadorDni { get; set; }
+        public string? Area { get; set; }
+        public DateOnly FechaSalida { get; set; }
+        public string Motivo { get; set; } = string.Empty;
+        public string? LugarDestino { get; set; }
+        /// <summary>Razón social de la empresa a la que está afiliado el trabajador (workers → contributor).</summary>
+        public string? RazonSocial { get; set; }
+        public string? Ruc { get; set; }
+    }
 }

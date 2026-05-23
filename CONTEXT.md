@@ -1751,3 +1751,71 @@ contributor (es_abril=false)     ← empresa contratista canónica
 - `BandejaRepository.cs` → SQL raw: `ss_empresa_contratista` → `contributor`, `razon_social` → `contributor_name`
 - `CatalogosRepository.cs` → `TipoActividad = e.ContributorEconomicActivityDescription ?? ""`
 - `AuditoriaInterceptor.cs` → eliminada entrada `"ss_empresa_contratista"` de TablasAuditar
+
+---
+
+## §MIGRACIÓN MASIVA — GUÍA COMPLETA (2026-05-23)
+
+### Orden de borrado (FASE 0)
+
+```sql
+DELETE FROM ss_hab_documento_version;    -- PRIMERA — tiene FK hacia ss_hab_trabajador
+DELETE FROM ss_hab_trabajador;
+DELETE FROM ss_hab_worker_proyecto;
+DELETE FROM worker_vinculaciones;
+DELETE FROM ss_induccion;
+DELETE FROM worker_emos;
+DELETE FROM ss_programacion_emos;
+DELETE FROM ss_sctr_vidaley_worker;
+DELETE FROM ss_alertas_emo;
+DELETE FROM ss_eval_supervisor;
+DELETE FROM ss_hab_bloqueo_log;
+DELETE FROM ss_interconsultas;
+DELETE FROM ss_seguimientos_medicos;
+DELETE FROM worker_eventos;
+DELETE FROM ga_solicitud_salida;
+DELETE FROM workers;                     -- borrar DESPUÉS de todas las hijas
+DELETE FROM ss_hab_empresa;
+DELETE FROM person WHERE user_id IS NULL; -- solo persons sin usuario del sistema
+```
+
+**NUNCA borrar:** `ss_trabajador_restringido` (blacklist 178 registros)
+
+### Orden de inserción
+
+1. `ss_hab_empresa` — `ON CONFLICT (empresa_id, proyecto_id, item_id, mes, anio) DO UPDATE`
+2. `person` — **SIN email** (tabla tiene UNIQUE en email), `ON CONFLICT (document_identity_code) DO NOTHING`
+3. `workers` — incluir `person_id` (FK→person); capturar IDs con `RETURNING id` via `mogrify`
+4. `worker_vinculaciones` — solo si tiene `project_id` Y `fecha_ingreso`
+5. `ss_hab_worker_proyecto` — `ON CONFLICT DO NOTHING`
+6. `ss_hab_trabajador` — `ON CONFLICT (worker_id, item_id) DO UPDATE`
+
+### Lecciones aprendidas
+
+- `person` tiene UNIQUE constraint en **`document_identity_code`** Y en **`email`** → **NUNCA insertar email** al migrar (evita conflictos con cuentas del sistema existentes)
+- `person_id` tiene secuencia **`public.person_person_id_seq`** → **NUNCA asignar manualmente**; dejar que la secuencia lo genere
+- Usar **`mogrify`** de un solo golpe para todos los inserts (no `execute_values` — no retorna IDs correctamente en este entorno)
+- **Recuperar `person_id` por DNI** después del insert: `SELECT person_id FROM person WHERE document_identity_code = %s`
+- `ss_hab_documento_version` tiene FK hacia `ss_hab_trabajador` → debe borrarse **primero** (olvidada en la primera corrida)
+- `contributor_id` para personal Casa: resolver en runtime por RUC contra `contributor WHERE es_abril = true`
+- `IDTrabajador` SP viene como string `"2.010"` (punto = separador de miles) → limpiar con `replace('.', '')` antes de usar como clave
+
+### Conteos de verificación post-migración
+
+```sql
+SELECT COUNT(*) FROM ss_hab_empresa;         -- 8202
+SELECT COUNT(*) FROM workers;                -- 2336
+SELECT COUNT(*) FROM worker_vinculaciones;   -- 2318
+SELECT COUNT(*) FROM ss_hab_worker_proyecto; -- 4273
+SELECT COUNT(*) FROM ss_hab_trabajador;      -- 26216
+SELECT COUNT(*) FROM person WHERE user_id IS NULL; -- ~2336 nuevos
+```
+
+### Para correr el script
+
+```bash
+cd C:\Users\conta\Abril_Backend\Migracionfinal
+python migracion_masiva.py
+```
+
+Dependencias: `python -m pip install psycopg2-binary openpyxl pandas`

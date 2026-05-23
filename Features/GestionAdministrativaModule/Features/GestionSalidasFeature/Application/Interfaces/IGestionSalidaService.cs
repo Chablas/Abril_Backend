@@ -14,5 +14,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// Devuelve los bytes del PDF + cuántas se procesaron.
         /// </summary>
         Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId);
+
+        /// <summary>Detalle de una solicitud para el modal — devuelve null si no existe.</summary>
+        Task<GestionSalidaDetalleDto?> GetDetalle(int id);
     }
 }

@@ -63,5 +63,11 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         /// Renombra una carpeta en una biblioteca del sitio indicado usando su itemId.
         /// </summary>
         Task RenameFolderInLibraryAsync(SharePointSiteRef site, string libraryName, string folderId, string newName);
+
+        /// <summary>
+        /// Elimina un archivo (o carpeta) de una biblioteca del sitio indicado a partir de su itemId.
+        /// Lanza si el item no existe o la operación falla.
+        /// </summary>
+        Task DeleteFromSharePointLibraryAsync(SharePointSiteRef site, string libraryName, string itemId);
     }
 }

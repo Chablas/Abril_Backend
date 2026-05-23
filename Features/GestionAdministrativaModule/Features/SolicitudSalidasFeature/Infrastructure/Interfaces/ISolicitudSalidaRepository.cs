@@ -9,16 +9,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         Task<SolicitudSalidaFormDataDto> GetFormData();
         Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId);
 
-        /// <summary>Crea la solicitud y devuelve el id + el worker del solicitante (para resolver aprobador y notificar).</summary>
-        Task<(int Id, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId);
+        /// <summary>Crea la solicitud + sus trayectos en una transacción. Devuelve la solicitud (con trayectos) y el worker solicitante.</summary>
+        Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId);
 
-        /// <summary>Persiste el email del aprobador asignado a una solicitud.</summary>
         Task SetAprobadorEmail(int solicitudId, string aprobadorEmail);
-
-        /// <summary>Marca una solicitud como aprobada. Devuelve null si ya no estaba pendiente.</summary>
         Task<GaSolicitudSalida?> Aprobar(int solicitudId);
-
-        /// <summary>Marca una solicitud como rechazada con motivo. Devuelve null si ya no estaba pendiente.</summary>
         Task<GaSolicitudSalida?> Rechazar(int solicitudId, string? motivoRechazo);
+
+        /// <summary>Detalle de la solicitud (con trayectos y capturas). Solo retorna si pertenece al usuario.</summary>
+        Task<SolicitudSalidaDetalleDto?> GetDetalleForUser(int solicitudId, int userId);
+
+        /// <summary>Carga un trayecto verificando que pertenezca al user y que la solicitud esté aprobada + no rendida.</summary>
+        Task<GaSolicitudTrayecto?> GetTrayectoForUploadingCapturas(int trayectoId, int userId);
+
+        Task<List<SolicitudSalidaCapturaDto>> InsertCapturas(int trayectoId, IEnumerable<(string Url, string? ItemId, string Filename, decimal Monto)> items, int userId);
     }
 }

@@ -9,10 +9,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         Task Aprobar(int id, int reviewerUserId);
         Task Rechazar(int id, int reviewerUserId);
 
-        /// <summary>Marca como rendidas todas las solicitudes elegibles (Aprobadas + No rendidas). Devuelve los IDs actualizados.</summary>
-        Task<List<int>> MarcarRendidasBulk(IEnumerable<int> ids, int userId);
+        /// <summary>
+        /// Crea un registro <c>GaRendicion</c> con la info del PDF subido y marca como rendidas
+        /// todas las solicitudes elegibles vinculándolas al rendicion. Todo en una transacción.
+        /// </summary>
+        Task<List<int>> CrearRendicionYMarcarBulk(
+            IEnumerable<int> ids,
+            int userId,
+            string pdfUrl,
+            string? pdfItemId,
+            string pdfFilename);
 
-        /// <summary>Carga la info necesaria para armar la planilla de rendición de los ids dados.</summary>
-        Task<List<RendicionItemDto>> GetRendicionData(List<int> ids);
+        /// <summary>IDs elegibles (Aprobadas + No rendidas) sin tocar BD. Pre-flight.</summary>
+        Task<List<int>> GetEligibleIdsForRendicion(IEnumerable<int> ids);
+
+        /// <summary>
+        /// Del set dado, devuelve solicitudes que tienen al menos UN trayecto SIN ninguna captura.
+        /// (Una solicitud sin trayectos también se incluye como incompleta).
+        /// </summary>
+        Task<List<int>> GetIdsConTrayectosSinCapturas(IEnumerable<int> ids);
+
+        /// <summary>Detalle completo (cabecera + trayectos con capturas + rendición si existe).</summary>
+        Task<GestionSalidaDetalleDto?> GetDetalle(int id);
+
+        /// <summary>Datos para armar la planilla — una fila por TRAYECTO de las solicitudes dadas.</summary>
+        Task<List<RendicionItemDto>> GetRendicionData(List<int> solicitudIds);
     }
 }

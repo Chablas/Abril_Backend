@@ -58,44 +58,75 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 .Where(w => w.Person != null && w.Person.UserId == userId)
                 .Select(w => (int?)w.Id)
                 .FirstOrDefaultAsync();
-
             if (workerId == null) return new();
 
-            return await (
-                from s  in ctx.GaSolicitudSalida
-                join m  in ctx.GaMotivoSalida on s.MotivoId          equals m.Id into mGroup
+            var solicitudes = await ctx.GaSolicitudSalida
+                .Where(s => s.WorkerId == workerId.Value)
+                .OrderByDescending(s => s.CreatedAt)
+                .ToListAsync();
+
+            if (solicitudes.Count == 0) return new();
+
+            var ids = solicitudes.Select(s => s.Id).ToList();
+
+            // Cargar todos los trayectos en una query, ordenados.
+            var trayectos = await (
+                from t  in ctx.GaSolicitudTrayecto
+                join m  in ctx.GaMotivoSalida on t.MotivoId equals m.Id into mGroup
                 from m  in mGroup.DefaultIfEmpty()
-                join lo in ctx.GaLugar        on s.LugarOrigenId     equals lo.Id into loGroup
+                join lo in ctx.GaLugar on t.LugarOrigenId equals lo.Id into loGroup
                 from lo in loGroup.DefaultIfEmpty()
-                join po in ctx.Project        on lo.ProjectId        equals (int?)po.ProjectId into poGroup
+                join po in ctx.Project on lo.ProjectId equals (int?)po.ProjectId into poGroup
                 from po in poGroup.DefaultIfEmpty()
-                join ld in ctx.GaLugar        on s.LugarDestinoId    equals ld.Id into ldGroup
+                join ld in ctx.GaLugar on t.LugarDestinoId equals ld.Id into ldGroup
                 from ld in ldGroup.DefaultIfEmpty()
-                join pd in ctx.Project        on ld.ProjectId        equals (int?)pd.ProjectId into pdGroup
+                join pd in ctx.Project on ld.ProjectId equals (int?)pd.ProjectId into pdGroup
                 from pd in pdGroup.DefaultIfEmpty()
-                where s.WorkerId == workerId.Value
-                orderby s.CreatedAt descending
-                select new SolicitudSalidaListItemDto
+                where ids.Contains(t.SolicitudId)
+                orderby t.SolicitudId, t.Orden
+                select new
+                {
+                    t.Id, t.SolicitudId, t.Orden, t.HoraSalida, t.HoraRetorno,
+                    Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                    LugarOrigen  = lo == null ? t.LugarOrigenLibre
+                                 : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
+                                 : lo.Nombre,
+                    LugarDestino = ld == null ? t.LugarDestinoLibre
+                                 : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : "[Sin proyecto]")
+                                 : ld.Nombre,
+                }
+            ).ToListAsync();
+
+            var trayectosBySolicitud = trayectos.GroupBy(t => t.SolicitudId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Orden).ToList());
+
+            var result = new List<SolicitudSalidaListItemDto>(solicitudes.Count);
+            foreach (var s in solicitudes)
+            {
+                trayectosBySolicitud.TryGetValue(s.Id, out var trList);
+                trList ??= new();
+                var first = trList.FirstOrDefault();
+                var last  = trList.LastOrDefault();
+
+                result.Add(new SolicitudSalidaListItemDto
                 {
                     Id           = s.Id,
                     FechaSalida  = s.FechaSalida,
-                    HoraSalida   = s.HoraSalida,
-                    HoraRetorno  = s.HoraRetorno,
-                    Motivo       = m != null ? m.Descripcion : (s.MotivoLibre ?? string.Empty),
-                    LugarOrigen  = lo == null ? s.LugarOrigenLibre
-                                 : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
-                                 : lo.Nombre,
-                    LugarDestino = ld == null ? s.LugarDestinoLibre
-                                 : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : "[Sin proyecto]")
-                                 : ld.Nombre,
+                    HoraSalida   = first?.HoraSalida ?? default,
+                    HoraRetorno  = last?.HoraRetorno,
+                    Motivo       = first?.Motivo ?? string.Empty,
+                    LugarOrigen  = first?.LugarOrigen,
+                    LugarDestino = last?.LugarDestino,
+                    TrayectosCount   = trList.Count,
                     EstadoAprobacion = s.EstadoAprobacion,
                     EstadoRendicion  = s.EstadoRendicion,
-                    CreatedAt        = s.CreatedAt
-                }
-            ).ToListAsync();
+                    CreatedAt        = s.CreatedAt,
+                });
+            }
+            return result;
         }
 
-        public async Task<(int Id, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId)
+        public async Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -104,33 +135,59 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException("No se encontró un trabajador asociado a su usuario.", 404);
 
-            if (dto.MotivoId.HasValue)
+            // Validación BD: motivos referenciados deben existir
+            var motivoIds = dto.Trayectos.Where(t => t.MotivoId.HasValue).Select(t => t.MotivoId!.Value).Distinct().ToList();
+            if (motivoIds.Count > 0)
             {
-                _ = await ctx.GaMotivoSalida.FirstOrDefaultAsync(m => m.Id == dto.MotivoId.Value)
-                    ?? throw new AbrilException("Motivo no encontrado.", 404);
+                var existentes = await ctx.GaMotivoSalida.Where(m => motivoIds.Contains(m.Id)).Select(m => m.Id).ToListAsync();
+                var faltantes = motivoIds.Except(existentes).ToList();
+                if (faltantes.Count > 0)
+                    throw new AbrilException($"Motivo(s) no encontrado(s): {string.Join(", ", faltantes)}.", 404);
             }
 
-            var ent = new GaSolicitudSalida
+            var now = DateTimeOffset.UtcNow;
+            var solicitud = new GaSolicitudSalida
             {
-                WorkerId        = solicitante.Id,
-                FechaSalida     = dto.FechaSalida,
-                HoraSalida      = dto.HoraSalida,
-                HoraRetorno     = dto.HoraRetorno,
-                MotivoId        = dto.MotivoId,
-                MotivoLibre     = string.IsNullOrWhiteSpace(dto.MotivoLibre) ? null : dto.MotivoLibre.Trim(),
-                LugarOrigenId   = dto.LugarOrigenId,
-                LugarOrigenLibre = string.IsNullOrWhiteSpace(dto.LugarOrigenLibre) ? null : dto.LugarOrigenLibre.Trim(),
-                LugarDestinoId  = dto.LugarDestinoId,
-                LugarDestinoLibre = string.IsNullOrWhiteSpace(dto.LugarDestinoLibre) ? null : dto.LugarDestinoLibre.Trim(),
+                WorkerId         = solicitante.Id,
+                FechaSalida      = dto.FechaSalida,
                 EstadoAprobacion = "Pendiente",
                 EstadoRendicion  = "No rendido",
-                RegistradoPorId = userId,
-                CreatedAt       = DateTimeOffset.UtcNow,
-                UpdatedAt       = DateTimeOffset.UtcNow
+                RegistradoPorId  = userId,
+                CreatedAt        = now,
+                UpdatedAt        = now,
             };
-            ctx.GaSolicitudSalida.Add(ent);
-            await ctx.SaveChangesAsync();
-            return (ent.Id, solicitante);
+
+            var trayectosEnts = dto.Trayectos.Select((t, idx) => new GaSolicitudTrayecto
+            {
+                Orden             = idx,
+                HoraSalida        = t.HoraSalida,
+                HoraRetorno       = t.HoraRetorno,
+                MotivoId          = t.MotivoId,
+                MotivoLibre       = string.IsNullOrWhiteSpace(t.MotivoLibre) ? null : t.MotivoLibre.Trim(),
+                LugarOrigenId     = t.LugarOrigenId,
+                LugarOrigenLibre  = string.IsNullOrWhiteSpace(t.LugarOrigenLibre) ? null : t.LugarOrigenLibre.Trim(),
+                LugarDestinoId    = t.LugarDestinoId,
+                LugarDestinoLibre = string.IsNullOrWhiteSpace(t.LugarDestinoLibre) ? null : t.LugarDestinoLibre.Trim(),
+            }).ToList();
+
+            // Transacción explícita (Npgsql retry strategy compatible)
+            var strategy = ctx.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                using var tx = await ctx.Database.BeginTransactionAsync();
+                ctx.GaSolicitudSalida.Add(solicitud);
+                await ctx.SaveChangesAsync();
+
+                foreach (var tr in trayectosEnts)
+                {
+                    tr.SolicitudId = solicitud.Id;
+                }
+                ctx.GaSolicitudTrayecto.AddRange(trayectosEnts);
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+            });
+
+            return (solicitud, trayectosEnts, solicitante);
         }
 
         public async Task SetAprobadorEmail(int solicitudId, string aprobadorEmail)
@@ -150,7 +207,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             if (s == null || s.EstadoAprobacion != "Pendiente") return null;
             s.EstadoAprobacion = "Aprobado";
             s.FechaDecision    = DateTimeOffset.UtcNow;
-            s.UpdatedAt     = DateTimeOffset.UtcNow;
+            s.UpdatedAt        = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
             return s;
         }
@@ -163,9 +220,151 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             s.EstadoAprobacion = "Rechazado";
             s.MotivoRechazo    = string.IsNullOrWhiteSpace(motivoRechazo) ? null : motivoRechazo.Trim();
             s.FechaDecision    = DateTimeOffset.UtcNow;
-            s.UpdatedAt     = DateTimeOffset.UtcNow;
+            s.UpdatedAt        = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
             return s;
+        }
+
+        public async Task<SolicitudSalidaDetalleDto?> GetDetalleForUser(int solicitudId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var workerId = await ctx.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .Select(w => (int?)w.Id)
+                .FirstOrDefaultAsync();
+            if (workerId == null) return null;
+
+            var solicitud = await ctx.GaSolicitudSalida
+                .Where(s => s.Id == solicitudId && s.WorkerId == workerId.Value)
+                .Select(s => new
+                {
+                    s.Id, s.FechaSalida, s.EstadoAprobacion, s.EstadoRendicion,
+                    s.CreatedAt, s.MotivoRechazo
+                })
+                .FirstOrDefaultAsync();
+            if (solicitud == null) return null;
+
+            // Trayectos con su info resuelta
+            var trayectosRaw = await (
+                from t  in ctx.GaSolicitudTrayecto
+                join m  in ctx.GaMotivoSalida on t.MotivoId equals m.Id into mGroup
+                from m  in mGroup.DefaultIfEmpty()
+                join lo in ctx.GaLugar on t.LugarOrigenId equals lo.Id into loGroup
+                from lo in loGroup.DefaultIfEmpty()
+                join po in ctx.Project on lo.ProjectId equals (int?)po.ProjectId into poGroup
+                from po in poGroup.DefaultIfEmpty()
+                join ld in ctx.GaLugar on t.LugarDestinoId equals ld.Id into ldGroup
+                from ld in ldGroup.DefaultIfEmpty()
+                join pd in ctx.Project on ld.ProjectId equals (int?)pd.ProjectId into pdGroup
+                from pd in pdGroup.DefaultIfEmpty()
+                where t.SolicitudId == solicitudId
+                orderby t.Orden
+                select new TrayectoDetalleDto
+                {
+                    Id          = t.Id,
+                    Orden       = t.Orden,
+                    HoraSalida  = t.HoraSalida,
+                    HoraRetorno = t.HoraRetorno,
+                    Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                    LugarOrigen = lo == null ? t.LugarOrigenLibre
+                                : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
+                                : lo.Nombre,
+                    LugarDestino = ld == null ? t.LugarDestinoLibre
+                                : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : "[Sin proyecto]")
+                                : ld.Nombre,
+                }
+            ).ToListAsync();
+
+            // Capturas de los trayectos (una query)
+            var trayectoIds = trayectosRaw.Select(t => t.Id).ToList();
+            var capsByTrayecto = new Dictionary<int, List<SolicitudSalidaCapturaDto>>();
+            if (trayectoIds.Count > 0)
+            {
+                var capsRaw = await ctx.GaSolicitudCaptura
+                    .Where(c => trayectoIds.Contains(c.TrayectoId))
+                    .OrderBy(c => c.UploadedAt)
+                    .Select(c => new
+                    {
+                        c.TrayectoId,
+                        Dto = new SolicitudSalidaCapturaDto
+                        {
+                            Id         = c.Id,
+                            ImageUrl   = c.ImageUrl,
+                            Filename   = c.Filename,
+                            Monto      = c.Monto,
+                            UploadedAt = c.UploadedAt,
+                        }
+                    })
+                    .ToListAsync();
+
+                capsByTrayecto = capsRaw.GroupBy(x => x.TrayectoId)
+                    .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
+            }
+
+            foreach (var tr in trayectosRaw)
+            {
+                if (capsByTrayecto.TryGetValue(tr.Id, out var list))
+                    tr.Capturas = list;
+            }
+
+            return new SolicitudSalidaDetalleDto
+            {
+                Id               = solicitud.Id,
+                FechaSalida      = solicitud.FechaSalida,
+                EstadoAprobacion = solicitud.EstadoAprobacion,
+                EstadoRendicion  = solicitud.EstadoRendicion,
+                CreatedAt        = solicitud.CreatedAt,
+                MotivoRechazo    = solicitud.MotivoRechazo,
+                Trayectos        = trayectosRaw,
+            };
+        }
+
+        public async Task<GaSolicitudTrayecto?> GetTrayectoForUploadingCapturas(int trayectoId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await (
+                from t in ctx.GaSolicitudTrayecto
+                join s in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
+                join w in ctx.Worker            on s.WorkerId    equals w.Id
+                join per in ctx.Person          on w.PersonId    equals (int?)per.PersonId
+                where t.Id == trayectoId
+                   && per.UserId == userId
+                   && s.EstadoAprobacion == "Aprobado"
+                   && s.EstadoRendicion  == "No rendido"
+                select t
+            ).FirstOrDefaultAsync();
+        }
+
+        public async Task<List<SolicitudSalidaCapturaDto>> InsertCapturas(
+            int trayectoId,
+            IEnumerable<(string Url, string? ItemId, string Filename, decimal Monto)> items,
+            int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var now = DateTimeOffset.UtcNow;
+            var entities = items.Select(it => new GaSolicitudCaptura
+            {
+                TrayectoId   = trayectoId,
+                ImageUrl     = it.Url,
+                ImageItemId  = it.ItemId,
+                Filename     = it.Filename,
+                Monto        = it.Monto,
+                UploadedById = userId,
+                UploadedAt   = now,
+            }).ToList();
+
+            ctx.GaSolicitudCaptura.AddRange(entities);
+            await ctx.SaveChangesAsync();
+
+            return entities.Select(c => new SolicitudSalidaCapturaDto
+            {
+                Id         = c.Id,
+                ImageUrl   = c.ImageUrl,
+                Filename   = c.Filename,
+                Monto      = c.Monto,
+                UploadedAt = c.UploadedAt,
+            }).ToList();
         }
     }
 }

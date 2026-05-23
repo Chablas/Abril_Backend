@@ -8,13 +8,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId);
         Task<int> Create(SolicitudSalidaCreateDto dto, int? userId);
 
-        /// <summary>Aprueba una solicitud usando el token firmado del email. Devuelve HTML para mostrar al usuario.</summary>
         Task<string> ProcessAprobarFromEmail(string token);
-
-        /// <summary>Rechaza una solicitud usando el token firmado del email + motivo. Devuelve HTML.</summary>
         Task<string> ProcessRechazarFromEmail(string token, string? motivoRechazo);
-
-        /// <summary>Renderiza el formulario de rechazo (textarea para el motivo).</summary>
         string RenderRechazarForm(string token);
+
+        Task<SolicitudSalidaDetalleDto> GetDetalle(int solicitudId, int userId);
+
+        /// <summary>Sube N (imagen, monto) a SharePoint, asociadas a un trayecto específico de una solicitud aprobada/no rendida del propio usuario.</summary>
+        Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId);
+
+        /// <summary>Envía email de confirmación al solicitante de que su solicitud fue aprobada. Best-effort, no lanza.</summary>
+        Task NotifySolicitanteAprobada(int solicitudId);
     }
 }

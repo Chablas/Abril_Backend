@@ -36,7 +36,7 @@ SELECT
     ht.id, 'TRABAJADOR' as tipo,
     i.nombre as nombre_entregable,
     COALESCE(per.full_name, '') as entidad_nombre,
-    ec.razon_social as empresa_nombre,
+    ec.contributor_name as empresa_nombre,
     p.project_description as proyecto_nombre,
     p.project_id as proyecto_id,
     ht.estado,
@@ -56,7 +56,7 @@ LEFT JOIN LATERAL (
     ORDER BY created_at DESC, id DESC
     LIMIT 1
 ) wv ON TRUE
-LEFT JOIN ss_empresa_contratista ec ON ec.id = wv.empresa_id
+LEFT JOIN contributor ec ON ec.contributor_id = wv.empresa_id
 LEFT JOIN project p ON p.project_id = wv.proyecto_id
 WHERE ht.estado = 'Enviado'
   AND ht.item_id NOT IN (11, 13)
@@ -71,8 +71,8 @@ UNION ALL
 SELECT
     he.id, 'EMPRESA' as tipo,
     i.nombre as nombre_entregable,
-    ec.razon_social as entidad_nombre,
-    ec.razon_social as empresa_nombre,
+    ec.contributor_name as entidad_nombre,
+    ec.contributor_name as empresa_nombre,
     p.project_description as proyecto_nombre,
     he.proyecto_id,
     he.estado,
@@ -83,7 +83,7 @@ SELECT
     he.updated_at as fecha_envio
 FROM ss_hab_empresa he
 JOIN ss_item_empresa i ON i.id = he.item_id
-JOIN ss_empresa_contratista ec ON ec.id = he.empresa_id
+JOIN contributor ec ON ec.contributor_id = he.empresa_id
 JOIN project p ON p.project_id = he.proyecto_id
 WHERE he.estado = 'Enviado'
   AND (@ProyectoId IS NULL OR he.proyecto_id = @ProyectoId)
@@ -97,7 +97,7 @@ SELECT
     heq.id, 'EQUIPO' as tipo,
     i.nombre as nombre_entregable,
     CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) as entidad_nombre,
-    ec.razon_social as empresa_nombre,
+    ec.contributor_name as empresa_nombre,
     p.project_description as proyecto_nombre,
     eq.proyecto_id,
     heq.estado,
@@ -109,7 +109,7 @@ SELECT
 FROM ss_hab_equipo heq
 JOIN ss_item_equipo i ON i.id = heq.item_id
 JOIN ss_equipo eq ON eq.id = heq.equipo_id
-LEFT JOIN ss_empresa_contratista ec ON ec.id = eq.propietario_empresa_id
+LEFT JOIN contributor ec ON ec.contributor_id = eq.propietario_empresa_id
 JOIN project p ON p.project_id = eq.proyecto_id
 WHERE heq.estado = 'Enviado'
   AND (@ProyectoId IS NULL OR eq.proyecto_id = @ProyectoId)

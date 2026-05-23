@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-21 — AC: dashboard-v2, alertas, email alertas, lógica fechas, fallback ResponsableArqComId
+> Última actualización: 2026-05-23 — Eliminación ss_empresa_contratista → contributor; flujo activación empresa migrada; fix BandejaRepository + CatalogosRepository
 
 ---
 
@@ -109,7 +109,7 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | Entidad C# | Tabla PG | PK | Notas |
 |------------|----------|----|-------|
 | `Project` | `project` | `project_id` | Entidad legacy ÚNICA para proyectos. Props: `ProjectId`, `ProjectDescription`. `Shared/Models/Project.cs`. **Siempre `ctx.Project` con `ProjectId`**. |
-| `Contributor` | `contributor` | `contributor_id` | Entidad unificada de empresas. Reemplazó `companies` (eliminada). Incluye `EsAbril` (bool) e `IdSharepoint` (int?, temporal). En `Features/CostsModule/Shared/Models/Contributor.cs`. |
+| `Contributor` | `contributor` | `contributor_id` | Entidad unificada de empresas. Reemplazó `companies` (eliminada) y `ss_empresa_contratista` (eliminada 2026-05-23). Incluye `EsAbril` (bool), `IdSharepoint` (int?, temporal), `ContributorNombreComercial` (varchar 255), `SpPasswordTemp` (varchar 255, usado para migración masiva). En `Features/CostsModule/Shared/Models/Contributor.cs`. |
 | `Worker` | `workers` | `id` | Personal con columnas explícitas `[Column("...")]`. No snake_case automático. Tiene `PersonId int?` (FK→`person`) y `ContributorId int?` (FK→`contributor`) con nav properties `Person?` y `Contributor?` (agregadas 2026-05-11). `EmpresaId` NO existe en el modelo — siempre leer de `WorkerVinculacion`. |
 | `WorkerVinculacion` | `worker_vinculaciones` | `id` | 1 activa por worker (`fecha_fin IS NULL`). Para empresa y proyecto actual del worker. |
 | `WorkerProyecto` | `ss_hab_worker_proyecto` | `id` | Multi-proyecto **solo Casa**. N activos en paralelo. Unique partial index `(worker_id, proyecto_id) WHERE fecha_fin IS NULL`. |
@@ -130,7 +130,7 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `CatOcupacion` | `cat_ocupacion` | `id` | Catálogo de ocupaciones de workers. `Nombre`, `Orden`, `Activo`. DbSet registrado — crear tabla manualmente en BD. |
 | `User` | `app_user` | — | Override en `ConfigurePostgreSQL` (`User` es palabra reservada PG). |
 | `ContractorEmail` | `contractor_email` | `contractor_email_id` | Email por contratista. Tiene `UserId int?` (FK→`app_user`) para vincular con cuenta del sistema. La FK `fk_contractor_email_user_user_id` se agrega con la migración `MigrateResetTokenToUserId`. |
-| `SsResetToken` | `ss_reset_token` | — | Token de reset/activación. `EmpresaId` es nullable. Tiene `UserId int?` (FK→`app_user`) para reset de cuentas de usuario directo. |
+| `SsResetToken` | `ss_reset_token` | — | Token de reset/activación. `UserId int?` (FK→`app_user`). **`EmpresaId` eliminado** (migración `RemoveSsEmpresaContratista`). |
 
 > **⚠️ `projects` (plural) NO EXISTE** — fue eliminada vía migración `SwitchProyectoFkToProjectLegacy`. Todo `proyecto_id` de cualquier tabla apunta a `project.project_id` legacy. Resolver siempre con `ctx.Project.Where(p => p.ProjectId == id)`.
 
@@ -170,26 +170,26 @@ Query Dapper con `NpgsqlConnection` directa. Cuatro segmentos:
 - Excluye `item_id IN (4, 25) AND w.contrata_casa = 'Casa'` — EMO items para Casa
 - `CAST(ht.vigencia AS timestamp)` para columna vigencia
 - Proyecto via `LEFT JOIN LATERAL (worker_vinculaciones ORDER BY created_at DESC, id DESC LIMIT 1)`
-- Empresa via `ss_empresa_contratista`
+- Empresa via `LEFT JOIN contributor ec ON ec.contributor_id = wv.empresa_id`
 - Proyecto nombre/id via `LEFT JOIN project p ON p.project_id = wv.proyecto_id` + `p.project_description`
 
 **EMPRESA** (`ss_hab_empresa WHERE estado='Enviado'`):
 - `CAST(he.vigencia AS timestamp)`
 - `JOIN project p ON p.project_id = he.proyecto_id` + `p.project_description`
-- Empresa via `ss_empresa_contratista`
+- Empresa via `JOIN contributor ec ON ec.contributor_id = he.empresa_id` + `ec.contributor_name`
 
 **EQUIPO** (`ss_hab_equipo WHERE estado='Enviado'`):
 - `CAST(heq.vigencia AS timestamp)`
 - `JOIN project p ON p.project_id = eq.proyecto_id` + `p.project_description`
-- Empresa via `ss_empresa_contratista`
+- Empresa via `LEFT JOIN contributor ec ON ec.contributor_id = eq.propietario_empresa_id` + `ec.contributor_name`
 
 **INDUCCION** (`ss_induccion WHERE estado='PROGRAMADA'`):
 - `vigencia = NULL` (la vigencia real la asigna AprobarInduccionAsync al aprobar)
 - `JOIN contributor c ON c.contributor_id = i.empresa_id` + `c.contributor_name`
 - `JOIN project p ON p.project_id = i.proyecto_id` + `p.project_description`
-- Entidad nombre: `w.apellido_nombre` (Worker no tiene apellido_paterno/materno separados)
+- Entidad nombre: `COALESCE(per.full_name, '')` via `LEFT JOIN person per`
 
-> **⚠️ En todo UNION ALL**: las tres tablas hab usan `ss_empresa_contratista`; solo INDUCCION usa `contributor`. Esta asimetría existe en el SQL de Dapper — `ss_hab_empresa.empresa_id` y `ss_hab_equipo → ss_equipo.propietario_empresa_id` se joinean con `ss_empresa_contratista` en la query cruda. Sin embargo, el **modelo EF** de `SsEquipo.PropietarioEmpresa` fue cambiado a `Contributor` (2026-05-05) — el SQL de bandeja aún usa `ss_empresa_contratista` directamente y funciona porque los IDs son compartidos.
+> **2026-05-23**: Los 4 segmentos del UNION ALL usan `contributor` uniformemente — asimetría eliminada al borrar `ss_empresa_contratista`.
 
 ### 5c. EstadoCalc (badge habilitación worker)
 
@@ -258,6 +258,8 @@ POST   /api/v1/habilitacion/auth/login
 POST   /api/v1/habilitacion/auth/activar|solicitar-reset|reset-password
 PATCH  /api/v1/habilitacion/auth/cambiar-password
 GET    /api/v1/habilitacion/auth/empresas
+POST   /api/v1/habilitacion/auth/validar-migracion   body: { ruc, spPassword } → { nombreComercial, razonSocial }  [AllowAnonymous]
+POST   /api/v1/habilitacion/auth/activar-migracion   body: { ruc, spPassword, email, password } → crea app_user + contractor_user + limpia sp_password_temp  [AllowAnonymous]
 
 # Empresas contratistas
 GET/POST/PUT  /api/v1/habilitacion/empresas
@@ -407,42 +409,41 @@ LEFT JOIN LATERAL (
 ```
 En EF: `.OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id).FirstOrDefault()`.
 
-### 7d. contributor reemplazó companies
+### 7d. contributor reemplazó companies y ss_empresa_contratista
 - `worker_vinculaciones.empresa_id` → `contributor.contributor_id`
-- `ss_hab_empresa.empresa_id` → `contributor.contributor_id` (via `ss_empresa_contratista` para joins en bandeja)
-- `ss_induccion.empresa_id` → `contributor.contributor_id` directamente
+- `ss_hab_empresa.empresa_id` → `contributor.contributor_id`
+- `ss_induccion.empresa_id` → `contributor.contributor_id`
 - `ss_sctr_vidaley.empresa_id` → `contributor.contributor_id`
+- `ss_empresa_proyecto.empresa_id` → `contributor.contributor_id`
+- `ss_hab_bloqueo_log.empresa_solicitante_id / empresa_propietaria_id` → `contributor.contributor_id`
+- `ss_eval_supervisor.empresa_id` → `contributor.contributor_id`
 - **`contributor` PK = `contributor_id`** (no `id`)
-- Tabla `companies` eliminada. No usar ni referenciar.
+- Tablas `companies` y `ss_empresa_contratista` **eliminadas**. No usar ni referenciar.
 
 ### 7e. ss_hab_worker_proyecto — contratistas validados por ss_empresa_proyecto
 
-**IDs en juego (crítico — bug corregido 2026-05-19):**
+**IDs en juego (post-migración 2026-05-23 — todos uniformes):**
 | Tabla | `EmpresaId` FK apunta a |
 |---|---|
-| `worker_vinculaciones` | `contributor.contributor_id` (ContributorId) |
-| `ss_empresa_proyecto` | `ss_empresa_contratista.id` (SsId) |
-| `ss_hab_worker_proyecto` | `contributor.contributor_id` (ContributorId) |
+| `worker_vinculaciones` | `contributor.contributor_id` |
+| `ss_empresa_proyecto` | `contributor.contributor_id` (migrado de ss_empresa_contratista) |
+| `ss_hab_worker_proyecto` | `contributor.contributor_id` |
 
-La traducción se hace vía `SsEmpresaContratista.IdLegacy == ContributorId`.
+No hay traducción vía IdLegacy — la comparación es directa:
 
 ```csharp
-// AgregarProyectoAsync — lógica actual (fix 2026-05-19)
+// AgregarProyectoAsync — lógica actual (post-migración 2026-05-23)
 if (esContratista)
 {
     var empresaId = await ctx.WorkerVinculacion
         .Where(v => v.WorkerId == workerId && v.FechaFin == null)
         .Select(v => v.EmpresaId).FirstOrDefaultAsync();
-    // empresaId = ContributorId; SsEmpresaProyecto.EmpresaId = ss_empresa_contratista.id
-    // → traducir vía navigation property IdLegacy (no comparar directamente)
     var tieneEntregables = empresaId.HasValue &&
         await ctx.SsEmpresaProyecto
-            .AnyAsync(ep => ep.Empresa != null && ep.Empresa.IdLegacy == empresaId.Value
-                         && ep.ProyectoId == dto.ProyectoId);
+            .AnyAsync(ep => ep.EmpresaId == empresaId.Value && ep.ProyectoId == dto.ProyectoId);
     if (!tieneEntregables)
         throw new AbrilException("La empresa no tiene entregables registrados en este proyecto.", 400);
 }
-// CambiarObraAsync / SincronizarWorkerProyectoCambioAsync: solo Casa
 if (!esContratista) await SincronizarWorkerProyectoCambioAsync(...);
 ```
 `Worker` no tiene `EmpresaId` — siempre leer de `WorkerVinculacion` activa.
@@ -534,33 +535,17 @@ La propiedad existía en `FrontendSettings.cs` pero faltaba en los archivos de c
 
 ---
 
-### 7p. IdLegacy — propagación automática al aprobar homologación
+### 7p. ~~IdLegacy~~ — OBSOLETO (2026-05-23)
 
-`ContractorManagementRepository.Approve()` (2026-05-19): al aprobar un contratista, garantiza que `ss_empresa_contratista` tenga el `id_legacy` correcto:
-1. Si no existe fila con el mismo RUC → la crea con `IdLegacy = contributor.ContributorId`, `Activo = false`, `PasswordHash = "PENDIENTE_RESET"`.
-2. Si existe pero `IdLegacy == null` → lo asigna.
+`ss_empresa_contratista` eliminada. No hay IdLegacy. `ContractorManagementRepository.Approve()` ya no crea filas en esa tabla.
 
-Esto evita que el flujo de habilitación falle por ausencia del vínculo IdLegacy cuando el contratista aún no ha completado el registro SSOMA.
+### 7q. EmpresaContratistaRepository.GetProyectosAsync — lookup directo sobre contributor
 
-### 7q. EmpresaContratistaRepository.GetProyectosAsync — doble lookup ContributorId/SsId
+`GetProyectosAsync(empresaId)`: `empresaId` es siempre `contributor.contributor_id`. La consulta es directa sobre `ss_empresa_proyecto.empresa_id` (que ahora también apunta a `contributor_id`). No hay doble lookup ni fallback vía IdLegacy.
 
-`GetProyectosAsync(empresaId)` acepta tanto `ContributorId` (contratistas vía JWT) como `ss_empresa_contratista.id` (admin). Lógica:
-```csharp
-var ssId = await ctx.SsEmpresaContratista
-    .Where(e => e.IdLegacy == empresaId)
-    .Select(e => e.Id)
-    .FirstOrDefaultAsync();
-var idEfectivo = ssId != 0 ? ssId : empresaId;  // ContributorId si no hay match
-```
-Fallback al valor directo si no hay fila con `id_legacy` coincidente (ej. admin pasando `ss_empresa_contratista.id`).
+### 7r. EmpresaContratistaController.Create — validación RUC en contributor
 
-### 7r. EmpresaContratistaController.Create — auto-resolución IdLegacy por RUC
-
-Al crear una empresa contratista, si `dto.IdLegacy` es null, el controller intenta resolverlo:
-```csharp
-var idLegacy = dto.IdLegacy ?? await _repo.GetContributorIdByRucAsync(dto.Ruc);
-```
-`GetContributorIdByRucAsync` busca `contributor WHERE contributor_ruc = ruc → contributor_id`. Devuelve `null` si no existe. Ya no retorna 400 cuando el RUC ya está en `contributor` — ahora vincula automáticamente vía `IdLegacy`.
+Al crear una empresa contratista, el endpoint verifica que el RUC no exista ya en `contributor`. Si existe → 400. La creación genera `Contributor` + `Contractor` (StateId=2 Aprobado) + filas `ContractorEmail`. No hay `IdLegacy` ni referencias a `ss_empresa_contratista`.
 
 ### 7l. Tablas y columnas creadas manualmente (sin migración EF efectiva)
 - `worker_eventos` — `DbSet` con `HasColumnType("jsonb")` para `Datos`
@@ -1079,16 +1064,10 @@ Flujo completo para un contratista:
 
 Bug: `WorkerVinculacion.EmpresaId` almacena `ContributorId`, pero `SsEmpresaProyecto.EmpresaId` almacena `ss_empresa_contratista.id` (SsId). La comparación directa siempre fallaba → `tieneEntregables = false` → excepción 400 siempre para contratistas.
 
-Fix aplicado:
+Post-migración (2026-05-23): `ss_empresa_contratista` eliminada, `ss_empresa_proyecto.empresa_id` apunta directamente a `contributor_id`. La comparación es ahora directa:
 ```csharp
-// Antes (bug):
 .AnyAsync(ep => ep.EmpresaId == empresaId.Value && ep.ProyectoId == dto.ProyectoId)
-
-// Después (fix):
-.AnyAsync(ep => ep.Empresa != null && ep.Empresa.IdLegacy == empresaId.Value
-             && ep.ProyectoId == dto.ProyectoId)
 ```
-`SsEmpresaContratista.IdLegacy` == `ContributorId` — es el puente entre los dos espacios de IDs.
 
 ### HabTrabajadorController.GetWorkers — parámetro soloVerificacion
 
@@ -1098,28 +1077,22 @@ Fix aplicado:
 - Permite al frontend verificar si un DNI ya existe en cualquier empresa antes de registrar un nuevo trabajador
 - El frontend lo llama con `soloVerificacion: true` solo al verificar duplicados en `verificarExistenciaEnBd()`
 
-### SubidoPorEmpresaId — fix ContributorId → SsId en tres repositorios
+### SubidoPorEmpresaId — simplificado post-migración (2026-05-23)
 
-`SsHabDocumentoVersion.SubidoPorEmpresaId` espera `ss_empresa_contratista.id` (SsId), pero el JWT `empresaId` claim es `ContributorId` desde 2026-05-18. Los tres repositorios que crean versiones de documento tenían el mismo bug:
+`SsHabDocumentoVersion.SubidoPorEmpresaId` ahora usa directamente `empresaId` (= `contributor.contributor_id`). El lookup de conversión via `SsEmpresaContratista.IdLegacy` fue eliminado en los tres repositorios:
 
 | Archivo | Método |
 |---|---|
-| `HabTrabajadorRepository.cs` ~línea 290 | `UpdateEntregableAsync` |
-| `HabEmpresaRepository.cs` ~línea 76 | `UpdateEntregableEmpresaAsync` |
-| `EquipoRepository.cs` ~línea 261 | `UpdateEntregableEquipoAsync` |
+| `HabTrabajadorRepository.cs` | `UpdateEntregableAsync` |
+| `HabEmpresaRepository.cs` | `UpdateEntregableEmpresaAsync` |
+| `EquipoRepository.cs` | `UpdateEntregableEquipoAsync` |
 
-Fix aplicado en los tres (mismo patrón):
+Patrón actual:
 ```csharp
-int? ssEmpresaId = null;
-if (empresaId.HasValue)
-    ssEmpresaId = await ctx.SsEmpresaContratista
-        .Where(e => e.IdLegacy == empresaId.Value)
-        .Select(e => (int?)e.Id)
-        .FirstOrDefaultAsync();
-// ... luego:
+int? ssEmpresaId = empresaId;  // ContributorId directo
+// ...
 SubidoPorEmpresaId = ssEmpresaId,
 ```
-Si `IdLegacy` no tiene match → `null` (sin error).
 
 ### SharePointHabService — arquitectura de storage
 
@@ -1663,9 +1636,9 @@ Este `resp1Id` se usa en lugar de `a.UserId` directo para:
 
 ## §MIGRACIÓN MASIVA 2026-05-22
 
-### Estado (2026-05-22) — EN PROGRESO
-Sesión de limpieza de datos completada. Excels procesados y listos.
-Pendiente: EMOs, Equipos, SCTR → luego scripts SQL → luego flujo activación.
+### Estado (2026-05-23) — FASE 1 COMPLETADA
+Datos de 74 empresas + 2,339 trabajadores importados. ss_empresa_contratista eliminada. Backend listo para flujo de activación.
+Pendiente: EMOs, Equipos, SCTR → scripts Python → segunda vuelta migración.
 
 ### Mapeo IDProyecto SharePoint → project_id BD (confirmado)
 SP=1→32, SP=2→1, SP=3→3, SP=4→2, SP=22→4, SP=36→41, SP=37→40,
@@ -1726,10 +1699,55 @@ ss_clinica_*, catálogos SSOMA, Phase/Stage/Layer, AcPlantillas, ac_categorias,
 ac_especialidades, ac_etapas, role, feature, role_feature, project, app_user,
 ss_trabajador_restringido (blacklist — PRESERVAR)
 
-### Flujo activación empresa (PENDIENTE IMPLEMENTAR)
-- POST /api/v1/habilitacion/auth/validar-migracion { ruc, spPassword } → valida sp_password_temp
-- POST /api/v1/habilitacion/auth/activar-migracion { ruc, spPassword, email, password } → guarda BCrypt, limpia sp_password_temp
+### Flujo activación empresa (IMPLEMENTADO 2026-05-23)
+- `POST /api/v1/habilitacion/auth/validar-migracion` `{ ruc, spPassword }` → valida `contributor.sp_password_temp`; retorna `{ nombreComercial, razonSocial }`
+- `POST /api/v1/habilitacion/auth/activar-migracion` `{ ruc, spPassword, email, password }` → crea/reutiliza `app_user`, crea `contractor_user` + `user_role` (roleId=11), limpia `sp_password_temp`; frontend redirige a login normal
 
-### Multi-usuario por empresa (segunda fase)
+### Multi-usuario por empresa (segunda fase — PENDIENTE)
 ss_contratista_usuario, ss_contratista_usuario_proyecto, ss_contratista_auditoria
 Roles: OWNER | ADMIN | GESTOR con scope ALL | BY_PROJECT
+
+---
+
+## §2026-05-23 — Eliminación ss_empresa_contratista
+
+### Resumen
+`ss_empresa_contratista` era una tabla legacy SSOMA que duplicaba datos de `contributor`. Se eliminó en su totalidad. Todas las FKs migradas a `contributor.contributor_id`.
+
+### Migraciones EF aplicadas
+| Migration | Descripción |
+|---|---|
+| `20260522182631_AddContributorMigracionFields` | `sp_password_temp` + `contributor_nombre_comercial` en contributor; tablas `ac_avance_semanal`, `costos_presupuestos_email`; columnas GA + AC |
+| `20260523002524_RemoveSsEmpresaContratista` | Drop `ss_empresa_contratista` (CASCADE); migra empresa_id vía id_legacy; elimina empresa_id de ss_reset_token; agrega FKs a contributor |
+
+Ambas migraciones reescritas como SQL idempotente porque la BD estaba por delante de EF (cambios manuales previos).
+
+### Arquitectura resultante (empresas contratistas)
+```
+contributor (es_abril=false)     ← empresa contratista canónica
+  └── contractor                 ← registro homologación (state_id=2 APROBADO)
+        └── contractor_email     ← emails (sin user_id hasta activación)
+  └── ss_empresa_proyecto        ← proyectos donde opera (empresa_id → contributor_id)
+  └── ss_hab_empresa             ← entregables de habilitación (empresa_id → contributor_id)
+  └── ss_equipo                  ← equipos (propietario_empresa_id → contributor_id)
+  └── ss_induccion               ← inducciones (empresa_id → contributor_id)
+  └── ss_sctr_vidaley            ← SCTR/Vida Ley (empresa_id → contributor_id)
+  └── ss_hab_bloqueo_log         ← bloqueos (empresa_sol/prop_id → contributor_id)
+  └── ss_eval_supervisor         ← evaluaciones supervisor (empresa_id → contributor_id)
+```
+
+### Archivos backend modificados (2026-05-23)
+- `SsEmpresaContratista.cs` → ELIMINADO
+- `AppDbContext.cs` → eliminado DbSet<SsEmpresaContratista>
+- `SsHabEmpresa.cs`, `SsInduccion.cs`, `SsSctrVidaley.cs`, `SsEmpresaProyecto.cs`, `SsHabBloqueoLog.cs`, `SsEvalSupervisor.cs` → nav property `Empresa` → `Contributor`
+- `EmpresaContratistaRepository.cs` → reescrito sobre Contributor + Contractor + ContractorEmail
+- `IEmpresaContratistaRepository.cs` → retorna DTOs directamente (sin SsEmpresaContratista)
+- `HabEmpresaRepository.cs` → eliminado `ResolveSsEmpresaId`, usa `empresaId` directo
+- `HabTrabajadorRepository.cs` → `ssEmpresaId = empresaId` directo; `ep.EmpresaId == empresaId.Value` (sin IdLegacy)
+- `EquipoRepository.cs` → GetPagedAsync usa `Contributor`; UpdateEntregableAsync usa `empresaId` directo
+- `SctrVidaLeyRepository.cs` → eliminado dual-path, `contributorId = empresaId` directo
+- `ContractorManagementRepository.Approve()` → eliminado bloque creación `ss_empresa_contratista`
+- `ContratistaAuthService.cs` → GetEmpresasParaLoginAsync, SolicitarActivacionAsync, ActivarCuentaAsync, ValidarMigracionAsync, ActivarMigracionAsync reescritos sobre Contributor
+- `BandejaRepository.cs` → SQL raw: `ss_empresa_contratista` → `contributor`, `razon_social` → `contributor_name`
+- `CatalogosRepository.cs` → `TipoActividad = e.ContributorEconomicActivityDescription ?? ""`
+- `AuditoriaInterceptor.cs` → eliminada entrada `"ss_empresa_contratista"` de TablasAuditar

@@ -12,89 +12,60 @@ namespace Abril_Backend.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_empresa_proyecto_ss_empresa_contratista_empresa_id",
-                table: "ss_empresa_proyecto");
+            // Idempotent: drop old FKs only if they still exist
+            migrationBuilder.Sql("ALTER TABLE ss_empresa_proyecto DROP CONSTRAINT IF EXISTS fk_ss_empresa_proyecto_ss_empresa_contratista_empresa_id;");
+            migrationBuilder.Sql("ALTER TABLE ss_eval_supervisor DROP CONSTRAINT IF EXISTS fk_ss_eval_supervisor_ss_empresa_contratista_empresa_id;");
+            migrationBuilder.Sql("ALTER TABLE ss_hab_bloqueo_log DROP CONSTRAINT IF EXISTS fk_ss_hab_bloqueo_log_ss_empresa_contratista_empresa_propietar;");
+            migrationBuilder.Sql("ALTER TABLE ss_hab_bloqueo_log DROP CONSTRAINT IF EXISTS fk_ss_hab_bloqueo_log_ss_empresa_contratista_empresa_solicitan;");
+            migrationBuilder.Sql("ALTER TABLE ss_hab_empresa DROP CONSTRAINT IF EXISTS fk_ss_hab_empresa_ss_empresa_contratista_empresa_id;");
+            migrationBuilder.Sql("ALTER TABLE ss_induccion DROP CONSTRAINT IF EXISTS fk_ss_induccion_ss_empresa_contratista_empresa_id;");
+            migrationBuilder.Sql("ALTER TABLE ss_reset_token DROP CONSTRAINT IF EXISTS fk_ss_reset_token_ss_empresa_contratista_empresa_id;");
+            migrationBuilder.Sql("ALTER TABLE ss_sctr_vidaley DROP CONSTRAINT IF EXISTS fk_ss_sctr_vidaley_ss_empresa_contratista_empresa_id;");
 
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_eval_supervisor_ss_empresa_contratista_empresa_id",
-                table: "ss_eval_supervisor");
-
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_hab_bloqueo_log_ss_empresa_contratista_empresa_propietar",
-                table: "ss_hab_bloqueo_log");
-
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_hab_bloqueo_log_ss_empresa_contratista_empresa_solicitan",
-                table: "ss_hab_bloqueo_log");
-
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_hab_empresa_ss_empresa_contratista_empresa_id",
-                table: "ss_hab_empresa");
-
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_induccion_ss_empresa_contratista_empresa_id",
-                table: "ss_induccion");
-
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_reset_token_ss_empresa_contratista_empresa_id",
-                table: "ss_reset_token");
-
-            migrationBuilder.DropForeignKey(
-                name: "fk_ss_sctr_vidaley_ss_empresa_contratista_empresa_id",
-                table: "ss_sctr_vidaley");
-
-            // Migración de datos: actualizar empresa_id via id_legacy antes de eliminar la tabla
+            // Data migration: only runs if ss_empresa_contratista still exists
             migrationBuilder.Sql("""
-                UPDATE ss_hab_empresa t
-                SET empresa_id = sec.id_legacy
-                FROM ss_empresa_contratista sec
-                WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
+                DO $$
+                BEGIN
+                  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'ss_empresa_contratista') THEN
+                    UPDATE ss_hab_empresa t
+                      SET empresa_id = sec.id_legacy
+                      FROM ss_empresa_contratista sec
+                      WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
+
+                    UPDATE ss_induccion t
+                      SET empresa_id = sec.id_legacy
+                      FROM ss_empresa_contratista sec
+                      WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
+
+                    UPDATE ss_sctr_vidaley t
+                      SET empresa_id = sec.id_legacy
+                      FROM ss_empresa_contratista sec
+                      WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
+
+                    UPDATE ss_empresa_proyecto t
+                      SET empresa_id = sec.id_legacy
+                      FROM ss_empresa_contratista sec
+                      WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
+
+                    UPDATE ss_hab_bloqueo_log t
+                      SET empresa_solicitante_id = sec.id_legacy
+                      FROM ss_empresa_contratista sec
+                      WHERE sec.id = t.empresa_solicitante_id AND sec.id_legacy IS NOT NULL;
+
+                    UPDATE ss_hab_bloqueo_log t
+                      SET empresa_propietaria_id = sec.id_legacy
+                      FROM ss_empresa_contratista sec
+                      WHERE sec.id = t.empresa_propietaria_id AND sec.id_legacy IS NOT NULL;
+
+                    UPDATE ss_eval_supervisor t
+                      SET empresa_id = sec.id_legacy
+                      FROM ss_empresa_contratista sec
+                      WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
+                  END IF;
+                END $$;
                 """);
 
-            migrationBuilder.Sql("""
-                UPDATE ss_induccion t
-                SET empresa_id = sec.id_legacy
-                FROM ss_empresa_contratista sec
-                WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
-                """);
-
-            migrationBuilder.Sql("""
-                UPDATE ss_sctr_vidaley t
-                SET empresa_id = sec.id_legacy
-                FROM ss_empresa_contratista sec
-                WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
-                """);
-
-            migrationBuilder.Sql("""
-                UPDATE ss_empresa_proyecto t
-                SET empresa_id = sec.id_legacy
-                FROM ss_empresa_contratista sec
-                WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
-                """);
-
-            migrationBuilder.Sql("""
-                UPDATE ss_hab_bloqueo_log t
-                SET empresa_solicitante_id = sec.id_legacy
-                FROM ss_empresa_contratista sec
-                WHERE sec.id = t.empresa_solicitante_id AND sec.id_legacy IS NOT NULL;
-                """);
-
-            migrationBuilder.Sql("""
-                UPDATE ss_hab_bloqueo_log t
-                SET empresa_propietaria_id = sec.id_legacy
-                FROM ss_empresa_contratista sec
-                WHERE sec.id = t.empresa_propietaria_id AND sec.id_legacy IS NOT NULL;
-                """);
-
-            migrationBuilder.Sql("""
-                UPDATE ss_eval_supervisor t
-                SET empresa_id = sec.id_legacy
-                FROM ss_empresa_contratista sec
-                WHERE sec.id = t.empresa_id AND sec.id_legacy IS NOT NULL;
-                """);
-
-            // Verificación de huérfanos: abortar si quedan registros sin correspondencia
+            // Orphan check
             migrationBuilder.Sql("""
                 DO $$
                 BEGIN
@@ -131,72 +102,45 @@ namespace Abril_Backend.Migrations
                 END $$;
                 """);
 
-            migrationBuilder.DropTable(
-                name: "ss_empresa_contratista");
+            // Idempotent: drop table and related column/index only if they exist
+            migrationBuilder.Sql("DROP TABLE IF EXISTS ss_empresa_contratista CASCADE;");
+            migrationBuilder.Sql("DROP INDEX IF EXISTS ix_ss_reset_token_empresa_id;");
+            migrationBuilder.Sql("ALTER TABLE ss_reset_token DROP COLUMN IF EXISTS empresa_id;");
 
-            migrationBuilder.DropIndex(
-                name: "ix_ss_reset_token_empresa_id",
-                table: "ss_reset_token");
-
-            migrationBuilder.DropColumn(
-                name: "empresa_id",
-                table: "ss_reset_token");
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_ss_empresa_proyecto_contributor_empresa_id",
-                table: "ss_empresa_proyecto",
-                column: "empresa_id",
-                principalTable: "contributor",
-                principalColumn: "contributor_id",
-                onDelete: ReferentialAction.Cascade);
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_ss_eval_supervisor_contributor_empresa_id",
-                table: "ss_eval_supervisor",
-                column: "empresa_id",
-                principalTable: "contributor",
-                principalColumn: "contributor_id",
-                onDelete: ReferentialAction.Cascade);
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_ss_hab_bloqueo_log_contributor_empresa_propietaria_id",
-                table: "ss_hab_bloqueo_log",
-                column: "empresa_propietaria_id",
-                principalTable: "contributor",
-                principalColumn: "contributor_id",
-                onDelete: ReferentialAction.Cascade);
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_ss_hab_bloqueo_log_contributor_empresa_solicitante_id",
-                table: "ss_hab_bloqueo_log",
-                column: "empresa_solicitante_id",
-                principalTable: "contributor",
-                principalColumn: "contributor_id",
-                onDelete: ReferentialAction.Cascade);
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_ss_hab_empresa_contributor_empresa_id",
-                table: "ss_hab_empresa",
-                column: "empresa_id",
-                principalTable: "contributor",
-                principalColumn: "contributor_id",
-                onDelete: ReferentialAction.Cascade);
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_ss_induccion_contributor_empresa_id",
-                table: "ss_induccion",
-                column: "empresa_id",
-                principalTable: "contributor",
-                principalColumn: "contributor_id",
-                onDelete: ReferentialAction.Cascade);
-
-            migrationBuilder.AddForeignKey(
-                name: "fk_ss_sctr_vidaley_contributor_empresa_id",
-                table: "ss_sctr_vidaley",
-                column: "empresa_id",
-                principalTable: "contributor",
-                principalColumn: "contributor_id",
-                onDelete: ReferentialAction.Cascade);
+            // Idempotent: add new FKs only if they don't exist yet
+            migrationBuilder.Sql("""
+                DO $$
+                BEGIN
+                  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ss_empresa_proyecto_contributor_empresa_id') THEN
+                    ALTER TABLE ss_empresa_proyecto ADD CONSTRAINT fk_ss_empresa_proyecto_contributor_empresa_id
+                      FOREIGN KEY (empresa_id) REFERENCES contributor(contributor_id) ON DELETE CASCADE;
+                  END IF;
+                  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ss_eval_supervisor_contributor_empresa_id') THEN
+                    ALTER TABLE ss_eval_supervisor ADD CONSTRAINT fk_ss_eval_supervisor_contributor_empresa_id
+                      FOREIGN KEY (empresa_id) REFERENCES contributor(contributor_id) ON DELETE CASCADE;
+                  END IF;
+                  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ss_hab_bloqueo_log_contributor_empresa_propietaria_id') THEN
+                    ALTER TABLE ss_hab_bloqueo_log ADD CONSTRAINT fk_ss_hab_bloqueo_log_contributor_empresa_propietaria_id
+                      FOREIGN KEY (empresa_propietaria_id) REFERENCES contributor(contributor_id) ON DELETE CASCADE;
+                  END IF;
+                  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ss_hab_bloqueo_log_contributor_empresa_solicitante_id') THEN
+                    ALTER TABLE ss_hab_bloqueo_log ADD CONSTRAINT fk_ss_hab_bloqueo_log_contributor_empresa_solicitante_id
+                      FOREIGN KEY (empresa_solicitante_id) REFERENCES contributor(contributor_id) ON DELETE CASCADE;
+                  END IF;
+                  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ss_hab_empresa_contributor_empresa_id') THEN
+                    ALTER TABLE ss_hab_empresa ADD CONSTRAINT fk_ss_hab_empresa_contributor_empresa_id
+                      FOREIGN KEY (empresa_id) REFERENCES contributor(contributor_id) ON DELETE CASCADE;
+                  END IF;
+                  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ss_induccion_contributor_empresa_id') THEN
+                    ALTER TABLE ss_induccion ADD CONSTRAINT fk_ss_induccion_contributor_empresa_id
+                      FOREIGN KEY (empresa_id) REFERENCES contributor(contributor_id) ON DELETE CASCADE;
+                  END IF;
+                  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ss_sctr_vidaley_contributor_empresa_id') THEN
+                    ALTER TABLE ss_sctr_vidaley ADD CONSTRAINT fk_ss_sctr_vidaley_contributor_empresa_id
+                      FOREIGN KEY (empresa_id) REFERENCES contributor(contributor_id) ON DELETE CASCADE;
+                  END IF;
+                END $$;
+                """);
         }
 
         /// <inheritdoc />

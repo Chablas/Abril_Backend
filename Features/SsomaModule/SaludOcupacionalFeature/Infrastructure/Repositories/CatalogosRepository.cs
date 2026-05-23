@@ -444,7 +444,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Ruc              = e.ContributorRuc,
                     Direccion        = e.ContributorAddress,
                     PartidaRegistral = e.LegalEntityRegistryNumber,
-                    TipoActividad    = e.ContributorEconomicActivityDescription,
+                    TipoActividad    = e.ContributorEconomicActivityDescription ?? "",
                     Activo           = e.Active,
                     EsAbril          = e.EsAbril
                 })

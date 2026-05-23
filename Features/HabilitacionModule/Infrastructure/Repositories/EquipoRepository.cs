@@ -62,9 +62,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToList();
             var proyectoIds = pageRows.Select(r => r.Equipo.ProyectoId).Distinct().ToList();
 
-            var empresaMap = await ctx.SsEmpresaContratista
-                .Where(e => empresaIds.Contains(e.Id))
-                .ToDictionaryAsync(e => e.Id, e => e.RazonSocial);
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
 
             var proyectoMap = await ctx.Project
                 .Where(p => proyectoIds.Contains(p.ProjectId))
@@ -260,12 +260,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
             {
-                int? ssEmpresaId = null;
-                if (empresaId.HasValue)
-                    ssEmpresaId = await ctx.SsEmpresaContratista
-                        .Where(e => e.IdLegacy == empresaId.Value)
-                        .Select(e => (int?)e.Id)
-                        .FirstOrDefaultAsync();
+                int? ssEmpresaId = empresaId;
 
                 var versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v => v.HabEquipoId == id);

@@ -437,33 +437,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
             else
             {
-                // Si empresaId corresponde a una empresa Abril en contributor, se usa directo.
-                // Si no, es un ss_empresa_contratista.id → resolver via id_legacy.
-                var contributor = await ctx.Contributor
-                    .Where(c => c.ContributorId == empresaId.Value)
-                    .Select(c => new { c.ContributorId, c.ContributorName })
-                    .FirstOrDefaultAsync();
-
-                int contributorId;
-                if (contributor != null)
-                {
-                    // empresaId ya es un ContributorId válido (Abril o contratista)
-                    contributorId = empresaId.Value;
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Empresa encontrada en contributor. contributorId={ContributorId} nombre='{Nombre}'",
-                        contributorId, contributor.ContributorName);
-                }
-                else
-                {
-                    // empresaId es un ss_empresa_contratista.id → resolver via id_legacy
-                    var idLegacy = await ctx.SsEmpresaContratista
-                        .Where(e => e.Id == empresaId.Value)
-                        .Select(e => e.IdLegacy)
-                        .FirstOrDefaultAsync();
-
-                    contributorId = idLegacy ?? empresaId.Value;
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] SsId: ss_empresa_contratista.id={EmpresaId} → id_legacy={IdLegacy} → contributorId={ContributorId}",
-                        empresaId.Value, idLegacy, contributorId);
-                }
+                int contributorId = empresaId.Value;
+                _logger.LogInformation("[GetTrabajadoresPorEmpresa] contributorId={ContributorId}", contributorId);
 
                 // WorkerVinculacion como fuente de verdad para empresa/proyecto activo
                 workerIds = await ctx.WorkerVinculacion

@@ -1,6 +1,5 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CostsModule.Shared.Models;
-using Microsoft.AspNetCore.Identity;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Auth;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Empresa;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
@@ -70,29 +69,41 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         {
             using var ctx = _factory.CreateDbContext();
 
-            return await ctx.SsEmpresaContratista
-                .Where(e => e.Activo)
-                .OrderBy(e => e.RazonSocial)
-                .Select(e => new EmpresaSimpleDto
+            return await (
+                from c in ctx.Contributor
+                join ct in ctx.Contractor on c.ContributorId equals ct.ContributorId
+                where !c.EsAbril && c.Active && ct.Active && ct.State
+                orderby c.ContributorName
+                select new EmpresaSimpleDto
                 {
-                    Id = e.Id,
-                    RazonSocial = e.RazonSocial,
-                    NombreComercial = e.NombreComercial,
-                    LogoUrl = e.LogoUrl
-                })
-                .ToListAsync();
+                    Id = c.ContributorId,
+                    RazonSocial = c.ContributorName,
+                    NombreComercial = c.ContributorNombreComercial,
+                    LogoUrl = ct.LogoFileUrl
+                }
+            ).ToListAsync();
         }
 
         public async Task SolicitarActivacionAsync(int empresaId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var empresa = await ctx.SsEmpresaContratista.FirstOrDefaultAsync(e => e.Id == empresaId)
+            var contributor = await ctx.Contributor.FirstOrDefaultAsync(c => c.ContributorId == empresaId)
                 ?? throw new AbrilException("Empresa no encontrada.", 404);
 
-            var destinatario = (empresa.EmailAdmin ?? empresa.EmailSsoma ?? empresa.EmailGerente)?.Trim().ToLower();
+            var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContributorId == empresaId && c.Active)
+                ?? throw new AbrilException("Empresa contratista no encontrada.", 404);
+
+            var destinatario = await ctx.ContractorEmail
+                .Where(ce => ce.ContractorId == contractor.ContractorId && ce.Active && ce.State)
+                .OrderBy(ce => ce.ContractorEmailId)
+                .Select(ce => ce.Email)
+                .FirstOrDefaultAsync();
+
             if (string.IsNullOrWhiteSpace(destinatario))
                 throw new AbrilException("La empresa no tiene email registrado.", 400);
+
+            destinatario = destinatario.Trim().ToLower();
 
             var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == destinatario)
                 ?? throw new AbrilException("No existe un usuario registrado para este email.", 400);
@@ -109,7 +120,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var link = $"{baseUrl}?token={token}&tipo=activacion-contratista";
 
             var html = $@"<h2>Bienvenido a Abril Grupo Inmobiliario</h2>
-<p>Tu empresa <strong>{empresa.RazonSocial}</strong> ha sido registrada.</p>
+<p>Tu empresa <strong>{contributor.ContributorName}</strong> ha sido registrada.</p>
 <p>Haz clic en el siguiente enlace para activar tu cuenta y crear tu contraseña:</p>
 <a href='{link}' style='background:#64bc04;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin:16px 0'>Activar mi cuenta</a>
 <p>Este enlace expira en 48 horas.</p>
@@ -132,22 +143,16 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (string.IsNullOrEmpty(dto.Password) || dto.Password.Length < 6)
                 throw new AbrilException("La contraseña debe tener al menos 6 caracteres.", 400);
 
-            var empresa = await ctx.SsEmpresaContratista.FirstOrDefaultAsync(e => e.Id == token.EmpresaId)
-                ?? throw new AbrilException("Empresa no encontrada.", 404);
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == token.UserId && u.Active && u.State)
+                ?? throw new AbrilException("Usuario no encontrado.", 404);
 
-            empresa.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
-            empresa.Activo = true;
-            empresa.UpdatedAt = DateTime.UtcNow;
-
+            user.Password = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+            user.UpdatedDateTime = DateTime.UtcNow;
             token.Usado = true;
 
             await ctx.SaveChangesAsync();
 
-            var emailBuscar = (empresa.EmailAdmin ?? empresa.EmailSsoma ?? empresa.EmailGerente)!.Trim().ToLower();
-            var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == emailBuscar && u.Active && u.State)
-                ?? throw new AbrilException("Usuario no encontrado en el sistema.", 404);
-
-            // Si el registro se creó antes de que UserId existiera, enlazarlo ahora.
+            var emailBuscar = user.Email!.Trim().ToLower();
             var huerfano = await ctx.ContractorEmail
                 .FirstOrDefaultAsync(ce => ce.Email.ToLower() == emailBuscar && ce.UserId == null && ce.Active && ce.State);
             if (huerfano != null)
@@ -240,7 +245,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             await ctx.SaveChangesAsync();
         }
 
-
         public async Task<ValidarMigracionResultDto> ValidarMigracionAsync(ValidarMigracionDto dto)
         {
             using var ctx = _factory.CreateDbContext();
@@ -276,12 +280,11 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             var existingUser = await ctx.User.FirstOrDefaultAsync(u => u.Email == dto.Email);
             User user;
-            var hasher = new PasswordHasher<User>();
 
             if (existingUser != null)
             {
                 user = existingUser;
-                user.Password = hasher.HashPassword(user, dto.Password);
+                user.Password = BCrypt.Net.BCrypt.HashPassword(dto.Password);
                 user.UpdatedDateTime = DateTime.UtcNow;
             }
             else
@@ -294,7 +297,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                     State = true,
                     CreatedDateTime = DateTime.UtcNow
                 };
-                user.Password = hasher.HashPassword(user, dto.Password);
+                user.Password = BCrypt.Net.BCrypt.HashPassword(dto.Password);
                 ctx.User.Add(user);
             }
 

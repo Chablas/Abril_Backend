@@ -310,12 +310,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .ThenByDescending(v => v.Id)
                     .FirstOrDefaultAsync();
 
-                int? ssEmpresaId = null;
-                if (empresaId.HasValue)
-                    ssEmpresaId = await ctx.SsEmpresaContratista
-                        .Where(e => e.IdLegacy == empresaId.Value)
-                        .Select(e => (int?)e.Id)
-                        .FirstOrDefaultAsync();
+                int? ssEmpresaId = empresaId;
 
                 var versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v => v.HabTrabajadorId == id);
@@ -1443,8 +1438,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .FirstOrDefaultAsync();
 
                 var tieneEntregables = empresaId.HasValue && await ctx.SsEmpresaProyecto
-                    .AnyAsync(ep => ep.Empresa != null && ep.Empresa.IdLegacy == empresaId.Value
-                                 && ep.ProyectoId == dto.ProyectoId);
+                    .AnyAsync(ep => ep.EmpresaId == empresaId.Value && ep.ProyectoId == dto.ProyectoId);
                 if (!tieneEntregables)
                     throw new AbrilException("La empresa no tiene entregables registrados en este proyecto.", 400);
             }

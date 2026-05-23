@@ -1,17 +1,18 @@
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Empresa;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
 {
     public interface IEmpresaContratistaRepository
     {
-        Task<SsEmpresaContratista?> GetByIdAsync(int id);
-        Task<(List<SsEmpresaContratista> Items, int Total)> GetPagedAsync(
-            string? search, string? tipo, bool? activo, int page, int pageSize);
-        Task<bool> ExisteRucEnEmpresaContratistaAsync(string ruc);
-        Task<bool> ExisteRucEnContributorAsync(string ruc);
+        Task<EmpresaContratistaDetalleDto?> GetByIdAsync(int id);
+        Task<(List<EmpresaContratistaListDto> Items, int Total)> GetPagedAsync(
+            string? search, bool? activo, int page, int pageSize);
+        Task<bool> ExisteRucAsync(string ruc);
         Task<int?> GetContributorIdByRucAsync(string ruc);
-        Task<SsEmpresaContratista> CreateAsync(SsEmpresaContratista empresa);
-        Task<SsEmpresaContratista> UpdateAsync(SsEmpresaContratista empresa);
+        Task<EmpresaContratistaListDto> CreateAsync(EmpresaContratistaCreateDto dto);
+        Task UpdateAsync(int id, EmpresaContratistaUpdateDto dto);
+        Task UpdatePasswordAsync(int id, string passwordHash);
         Task<List<SsEmpresaProyecto>> GetProyectosAsync(int empresaId);
         Task AddProyectoAsync(SsEmpresaProyecto ep);
         Task RemoveProyectoAsync(int empresaId, int proyectoId);

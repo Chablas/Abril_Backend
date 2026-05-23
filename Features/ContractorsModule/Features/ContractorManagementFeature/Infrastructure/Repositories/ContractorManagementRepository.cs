@@ -2,7 +2,6 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Features.Contractors.ContractorManagement.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure.Interfaces;
-using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure.Repositories
@@ -135,38 +134,12 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             using var ctx = _factory.CreateDbContext();
 
             var contractor = await ctx.Contractor
-                .Include(c => c.Contributor)
                 .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.ContractorStateId == PendingContractorStateId);
             if (contractor is null) return;
 
             contractor.ContractorStateId = ApprovedContractorStateId;
             contractor.UpdatedDateTime = DateTimeOffset.UtcNow;
             contractor.UpdatedUserId = userId;
-
-            // Garantizar que ss_empresa_contratista existe y tiene id_legacy correcto
-            var contributor = contractor.Contributor;
-            var existente = await ctx.SsEmpresaContratista
-                .FirstOrDefaultAsync(e => e.Ruc == contributor.ContributorRuc);
-
-            if (existente == null)
-            {
-                ctx.SsEmpresaContratista.Add(new SsEmpresaContratista
-                {
-                    RazonSocial  = contributor.ContributorName,
-                    Ruc          = contributor.ContributorRuc,
-                    IdLegacy     = contributor.ContributorId,
-                    Tipo         = "CONTRATISTA",
-                    Activo       = false,
-                    PasswordHash = "PENDIENTE_RESET",
-                    CreatedAt    = DateTime.UtcNow,
-                    UpdatedAt    = DateTime.UtcNow
-                });
-            }
-            else if (existente.IdLegacy == null)
-            {
-                existente.IdLegacy  = contributor.ContributorId;
-                existente.UpdatedAt = DateTime.UtcNow;
-            }
 
             await ctx.SaveChangesAsync();
         }

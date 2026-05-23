@@ -6,7 +6,6 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 {
@@ -23,10 +22,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             int empresaId, int proyectoId, int? mes, int? anio)
         {
             using var ctx = _factory.CreateDbContext();
-            var ssEmpresaId = await ResolveSsEmpresaId(ctx, empresaId);
 
             var query = ctx.SsHabEmpresa
-                .Where(h => h.EmpresaId == ssEmpresaId && h.ProyectoId == proyectoId);
+                .Where(h => h.EmpresaId == empresaId && h.ProyectoId == proyectoId);
 
             if (mes.HasValue) query = query.Where(h => h.Mes == mes.Value);
             if (anio.HasValue) query = query.Where(h => h.Anio == anio.Value);
@@ -74,12 +72,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
             {
-                int? ssEmpresaId = null;
-                if (empresaId.HasValue)
-                    ssEmpresaId = await ctx.SsEmpresaContratista
-                        .Where(e => e.IdLegacy == empresaId.Value)
-                        .Select(e => (int?)e.Id)
-                        .FirstOrDefaultAsync();
+                int? ssEmpresaId = empresaId;
 
                 var versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v => v.HabEmpresaId == id);
@@ -118,10 +111,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoEmpresaAsync(int empresaId, int itemId)
         {
             using var ctx = _factory.CreateDbContext();
-            var ssEmpresaId = await ResolveSsEmpresaId(ctx, empresaId);
 
             var habEmpresaIds = await ctx.SsHabEmpresa
-                .Where(h => h.EmpresaId == ssEmpresaId && h.ItemId == itemId)
+                .Where(h => h.EmpresaId == empresaId && h.ItemId == itemId)
                 .Select(h => h.Id)
                 .ToListAsync();
 
@@ -209,20 +201,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task ActivarProyectoAsync(int empresaId, int proyectoId)
         {
             using var ctx = _factory.CreateDbContext();
-            var ssEmpresaId = await ResolveSsEmpresaId(ctx, empresaId);
 
             var proyectoExiste = await ctx.Project.AnyAsync(p => p.ProjectId == proyectoId);
             if (!proyectoExiste)
                 throw new AbrilException("Proyecto no encontrado.", 404);
 
             var yaActiva = await ctx.SsEmpresaProyecto
-                .AnyAsync(ep => ep.EmpresaId == ssEmpresaId && ep.ProyectoId == proyectoId && ep.Activo);
+                .AnyAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId && ep.Activo);
             if (yaActiva)
                 throw new AbrilException("La empresa ya está activa en este proyecto.", 409);
 
             ctx.SsEmpresaProyecto.Add(new SsEmpresaProyecto
             {
-                EmpresaId = ssEmpresaId,
+                EmpresaId = empresaId,
                 ProyectoId = proyectoId,
                 Activo = true,
                 FechaInicio = DateTime.UtcNow,
@@ -230,13 +221,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             });
             await ctx.SaveChangesAsync();
 
-            await InicializarEntregablesEmpresaAsync(ssEmpresaId, proyectoId);
+            await InicializarEntregablesEmpresaAsync(empresaId, proyectoId);
         }
 
         public async Task<List<ProyectoDisponibleDto>> GetProyectosDisponiblesAsync(int empresaId)
         {
             using var ctx = _factory.CreateDbContext();
-            var ssEmpresaId = await ResolveSsEmpresaId(ctx, empresaId);
 
             var proyectos = await ctx.Project
                 .Where(p => p.State)
@@ -245,7 +235,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToListAsync();
 
             var activas = await ctx.SsEmpresaProyecto
-                .Where(ep => ep.EmpresaId == ssEmpresaId && ep.Activo)
+                .Where(ep => ep.EmpresaId == empresaId && ep.Activo)
                 .Select(ep => new { ep.ProyectoId, ep.FechaInicio })
                 .ToListAsync();
 
@@ -265,10 +255,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task DesactivarProyectoAsync(int empresaId, int proyectoId)
         {
             using var ctx = _factory.CreateDbContext();
-            var ssEmpresaId = await ResolveSsEmpresaId(ctx, empresaId);
 
             var registro = await ctx.SsEmpresaProyecto
-                .FirstOrDefaultAsync(ep => ep.EmpresaId == ssEmpresaId && ep.ProyectoId == proyectoId && ep.Activo)
+                .FirstOrDefaultAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId && ep.Activo)
                 ?? throw new AbrilException("No existe una activación activa para esa empresa y proyecto.", 404);
 
             registro.Activo = false;
@@ -276,31 +265,5 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
         }
 
-        private async Task<int> ResolveSsEmpresaId(AppDbContext ctx, int contributorId)
-        {
-            // Fast path: id_legacy already populated (migrated + manually linked companies)
-            var ssId = await ctx.SsEmpresaContratista
-                .Where(e => e.IdLegacy == contributorId)
-                .Select(e => e.Id)
-                .FirstOrDefaultAsync();
-            if (ssId != 0) return ssId;
-
-            // Fallback: match via RUC for companies where id_legacy is still null
-            var ruc = await ctx.Contributor
-                .Where(c => c.ContributorId == contributorId)
-                .Select(c => c.ContributorRuc)
-                .FirstOrDefaultAsync();
-
-            if (ruc != null)
-            {
-                ssId = await ctx.SsEmpresaContratista
-                    .Where(e => e.Ruc == ruc)
-                    .Select(e => e.Id)
-                    .FirstOrDefaultAsync();
-                if (ssId != 0) return ssId;
-            }
-
-            throw new AbrilException("Empresa no encontrada.", 404);
-        }
     }
 }

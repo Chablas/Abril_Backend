@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Infrastructure.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
@@ -17,9 +18,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public Worker? Worker { get; set; }
 
         [ForeignKey(nameof(EmpresaSolicitanteId))]
-        public SsEmpresaContratista? EmpresaSolicitante { get; set; }
+        public Contributor? EmpresaSolicitante { get; set; }
 
         [ForeignKey(nameof(EmpresaPropietariaId))]
-        public SsEmpresaContratista? EmpresaPropietaria { get; set; }
+        public Contributor? EmpresaPropietaria { get; set; }
     }
 }

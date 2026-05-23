@@ -330,6 +330,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             contributor.SpPasswordTemp = null;
 
+            var contractorEmails = await ctx.ContractorEmail
+                .Where(ce => ce.ContractorId == contractor.ContractorId)
+                .ToListAsync();
+            foreach (var ce in contractorEmails)
+                ce.UserId = user.UserId;
+
             await ctx.SaveChangesAsync();
         }
 

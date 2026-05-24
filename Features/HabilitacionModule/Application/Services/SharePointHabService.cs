@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
@@ -11,7 +12,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         private readonly IConfiguration _configuration;
         private readonly ILogger<SharePointHabService> _logger;
 
-        private string? _cachedDriveId;
+        // keyed by libraryId (o "default" para el drive predeterminado del sitio)
+        private readonly ConcurrentDictionary<string, string> _driveIdCache = new();
         private string? _cachedToken;
         private DateTimeOffset _tokenExpiresAt = DateTimeOffset.MinValue;
 
@@ -44,7 +46,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var token = await GetAccessTokenAsync();
             if (string.IsNullOrWhiteSpace(token)) return null;
 
-            var driveId = await GetDriveIdAsync(siteId, token);
+            var libraryId = ResolverLibraryId(archivoUrl ?? string.Empty);
+            var driveId = await GetDriveIdAsync(siteId, token, libraryId);
             if (string.IsNullOrWhiteSpace(driveId)) return null;
 
             var path = NormalizarPath(archivoUrl!);
@@ -81,7 +84,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var token = await GetAccessTokenAsync()
                 ?? throw new AbrilException("No se pudo obtener token de Microsoft Graph.", 500);
 
-            var driveId = await GetDriveIdAsync(siteId, token)
+            var libraryId = ResolverLibraryId(contexto);
+            var driveId = await GetDriveIdAsync(siteId, token, libraryId)
                 ?? throw new AbrilException("No se pudo resolver el drive de SharePoint.", 500);
 
             var contextoLimpio = (contexto ?? string.Empty).Trim().Trim('/');
@@ -176,33 +180,48 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return token;
         }
 
-        private async Task<string?> GetDriveIdAsync(string siteId, string token)
+        private string? ResolverLibraryId(string contexto)
         {
-            if (!string.IsNullOrEmpty(_cachedDriveId)) return _cachedDriveId;
+            var c = (contexto ?? string.Empty).ToLowerInvariant();
+            if (c.Contains("trabajadores")) return _configuration["SharePoint:Sites:Habilitacion:TrabajadoresLibraryId"];
+            if (c.Contains("empresas"))     return _configuration["SharePoint:Sites:Habilitacion:EmpresaLibraryId"];
+            if (c.Contains("equipos"))      return _configuration["SharePoint:Sites:Habilitacion:EquiposLibraryId"];
+            return null;
+        }
+
+        private async Task<string?> GetDriveIdAsync(string siteId, string token, string? libraryId = null)
+        {
+            var cacheKey = libraryId ?? "default";
+            if (_driveIdCache.TryGetValue(cacheKey, out var cached)) return cached;
 
             var client = _httpClientFactory.CreateClient();
             client.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                new AuthenticationHeaderValue("Bearer", token);
 
-            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drive";
+            var url = string.IsNullOrWhiteSpace(libraryId)
+                ? $"https://graph.microsoft.com/v1.0/sites/{siteId}/drive"
+                : $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{libraryId}/drive";
+
             var response = await client.GetAsync(url);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Drive GET falló ({Status}) para sitio {Site}", response.StatusCode, siteId);
+                _logger.LogWarning("Drive GET falló ({Status}) para sitio {Site} | library {Library}",
+                    response.StatusCode, siteId, libraryId ?? "(default)");
                 return null;
             }
 
             using var stream = await response.Content.ReadAsStreamAsync();
             using var doc = await JsonDocument.ParseAsync(stream);
 
-            _cachedDriveId = doc.RootElement.GetProperty("id").GetString();
-
+            var driveId     = doc.RootElement.GetProperty("id").GetString()!;
             var driveName   = doc.RootElement.TryGetProperty("name",   out var n) ? n.GetString() : "(sin nombre)";
             var driveWebUrl = doc.RootElement.TryGetProperty("webUrl", out var w) ? w.GetString() : "(sin webUrl)";
-            _logger.LogInformation("SharePoint drive resuelto — id: {DriveId} | name: {Name} | webUrl: {WebUrl}",
-                _cachedDriveId, driveName, driveWebUrl);
+            _logger.LogInformation(
+                "SharePoint drive resuelto — id: {DriveId} | name: {Name} | webUrl: {WebUrl} | library: {Library}",
+                driveId, driveName, driveWebUrl, libraryId ?? "(default)");
 
-            return _cachedDriveId;
+            _driveIdCache[cacheKey] = driveId;
+            return driveId;
         }
     }
 }

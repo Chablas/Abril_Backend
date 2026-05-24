@@ -332,8 +332,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 });
             }
 
-            entregable.Estado = dto.Estado;
-            entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+            if (!string.IsNullOrEmpty(dto.Estado))
+            {
+                entregable.Estado = dto.Estado;
+                entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+            }
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;

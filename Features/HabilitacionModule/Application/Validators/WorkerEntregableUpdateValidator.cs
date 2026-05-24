@@ -9,8 +9,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Validators
 
         public WorkerEntregableUpdateValidator()
         {
-            RuleFor(x => x.Estado).NotEmpty()
+            RuleFor(x => x.Estado)
                 .Must(e => EstadosValidos.Contains(e))
+                .When(x => !string.IsNullOrEmpty(x.Estado))
                 .WithMessage("Estado inválido.");
 
             RuleFor(x => x.Vigencia).GreaterThan(DateTime.Today)

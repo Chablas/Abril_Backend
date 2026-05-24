@@ -89,13 +89,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 });
             }
 
-            entregable.Estado = dto.Estado;
-            entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
-            entregable.ArchivoUrl = dto.ArchivoUrl;
-            entregable.ObsAbril = dto.ObsAbril;
-            entregable.ObsContratista = dto.ObsContratista;
-            entregable.Mes = dto.Mes;
-            entregable.Anio = dto.Anio;
+            if (!string.IsNullOrEmpty(dto.Estado))
+            {
+                entregable.Estado = dto.Estado;
+                entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
+            }
+            if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
+            if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
+            if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;
+            if (dto.Mes is not null) entregable.Mes = dto.Mes;
+            if (dto.Anio is not null) entregable.Anio = dto.Anio;
             entregable.UpdatedAt = DateTime.UtcNow;
 
             if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))

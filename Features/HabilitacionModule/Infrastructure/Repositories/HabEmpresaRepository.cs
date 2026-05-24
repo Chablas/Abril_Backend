@@ -90,10 +90,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             if (!string.IsNullOrEmpty(dto.Estado))
-            {
                 entregable.Estado = dto.Estado;
+            if (dto.Vigencia.HasValue)
                 entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
-            }
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;

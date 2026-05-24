@@ -67,7 +67,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var entregable = await ctx.SsHabEmpresa.FirstOrDefaultAsync(h => h.Id == id)
+            var entregable = await ctx.SsHabEmpresa
+                .Include(h => h.Item)
+                .FirstOrDefaultAsync(h => h.Id == id)
                 ?? throw new AbrilException("Entregable no encontrado.", 404);
 
             if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
@@ -91,8 +93,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrEmpty(dto.Estado))
                 entregable.Estado = dto.Estado;
-            if (dto.Vigencia.HasValue)
-                entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
+            if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
+                entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;

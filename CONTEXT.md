@@ -1819,3 +1819,31 @@ python migracion_masiva.py
 ```
 
 Dependencias: `python -m pip install psycopg2-binary openpyxl pandas`
+
+---
+
+## Sesión 2026-05-24 — fixes flujo contratista entregables
+
+### ContratistaAuthService.ActivarMigracionAsync — setear UserId en contractor_email
+
+Al activar cuenta vía `POST /habilitacion/auth/activar-migracion`, ahora se setea `ContractorEmail.UserId = user.UserId` en **todas** las filas de `contractor_email` del mismo `contractor_id`, antes del `SaveChangesAsync` final. Sin esto, `LoginAsync` (que busca `contractor_email WHERE user_id = user.UserId`) no encontraba la empresa y retornaba 403.
+
+### HabTrabajadorController/Repo + HabEmpresaController/Repo — contratista: solo obsContratista y archivo
+
+**Patrón aplicado a ambos endpoints** (`PUT /habilitacion/trabajadores/{id}/entregables/{id}` y `PUT /habilitacion/empresas/{empresaId}/entregables/{id}`):
+
+**Controller:** reemplazado el `return 403` por sobreescritura silenciosa del DTO cuando `tipo == "CONTRATISTA"`:
+```csharp
+if (esContratista)
+{
+    dto.Estado = "Enviado";
+    dto.Vigencia = null;
+}
+```
+El 403 bloqueaba requests legítimos del frontend que enviaban estado incorrecto o vacío.
+
+**Repositorios:** `Estado` y `Vigencia` solo se actualizan si `!string.IsNullOrEmpty(dto.Estado)`. `HabEmpresaRepository` además convertido a patch-style en todos los campos opcionales (`ArchivoUrl`, `ObsAbril`, `ObsContratista`, `Mes`, `Anio`) con null-guard — evita pisar valores existentes si el payload no los envía.
+
+### WorkerEntregableUpdateValidator — Estado opcional
+
+`NotEmpty()` eliminado de la regla `Estado`. La validación de formato solo corre `When(!string.IsNullOrEmpty(x.Estado))`. FluentValidation ya no rechaza con 400 antes de entrar al controller cuando el contratista envía solo `obsContratista`.

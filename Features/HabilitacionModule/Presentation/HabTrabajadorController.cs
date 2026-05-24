@@ -120,8 +120,11 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
                 var esAprobador = User.FindAll(ClaimTypes.Role).Any(c => RolesAprobadores.Contains(c.Value, StringComparer.OrdinalIgnoreCase));
 
-                if (esContratista && !string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase))
-                    return StatusCode(403, new { message = "Los contratistas solo pueden enviar entregables; la aprobación es interna." });
+                if (esContratista)
+                {
+                    dto.Estado = "Enviado";
+                    dto.Vigencia = null;
+                }
 
                 if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase) && !esAprobador)
                     return StatusCode(403, new { message = "Solo ADMINISTRADOR SSOMA o ADMINISTRADOR DE UDP pueden aprobar." });

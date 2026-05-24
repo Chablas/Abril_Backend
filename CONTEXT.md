@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-23 — Eliminación ss_empresa_contratista → contributor; flujo activación empresa migrada; fix BandejaRepository + CatalogosRepository
+> Última actualización: 2026-05-24 — Fixes CONTRATISTA entregables; ResolverVigencia extendida; SharePoint por biblioteca propia
 
 ---
 
@@ -479,8 +479,8 @@ Pisar con null borra el documento ya subido.
 ### 7j. LatestVinc no filtra por fecha_fin
 `GetWorkersHabilitacionAsync` usa `LatestVinc` = última vinculación sin importar si está cerrada. Permite ver empresa/proyecto de workers retirados.
 
-### 7k. SharePointHabService — Singleton
-El token OAuth2 y el `driveId` del sitio se cachean en la instancia. Registrar como `AddSingleton`.
+### 7k. SharePointHabService — Singleton con cache por biblioteca
+El token OAuth2 se cachea en la instancia. El driveId ya no es un string único — es un `ConcurrentDictionary<string, string>` keyed por `libraryId` (o `"default"` para el drive predeterminado). Registrar como `AddSingleton`. La resolución de libraryId usa el contexto/path: "trabajadores" → `TrabajadoresLibraryId`, "empresas" → `EmpresaLibraryId`, "equipos" → `EquiposLibraryId`, cualquier otro → `null` (fallback drive predeterminado).
 
 ---
 
@@ -1847,3 +1847,145 @@ El 403 bloqueaba requests legítimos del frontend que enviaban estado incorrecto
 ### WorkerEntregableUpdateValidator — Estado opcional
 
 `NotEmpty()` eliminado de la regla `Estado`. La validación de formato solo corre `When(!string.IsNullOrEmpty(x.Estado))`. FluentValidation ya no rechaza con 400 antes de entrar al controller cuando el contratista envía solo `obsContratista`.
+
+### EquipoController/Repo — mismo patrón CONTRATISTA que trabajadores y empresas
+
+`PUT /habilitacion/equipos/entregables/{id}`: mismo bloque de sobreescritura DTO para CONTRATISTA. `EquipoRepository.UpdateEntregableAsync`: Estado y Vigencia separados con sus propios guards.
+
+---
+
+## Sesión 2026-05-24 (segunda parte) — Vigencia patch-style y ResolverVigencia extendida
+
+### Vigencia separada del guard de Estado en trabajadores y empresas
+
+**Problema:** `Vigencia` estaba dentro del bloque `if (!string.IsNullOrEmpty(dto.Estado))`. Si un admin enviaba solo `vigencia` sin `estado`, la fecha no se persistía.
+
+**Fix `HabTrabajadorRepository.UpdateEntregableAsync`:**
+```csharp
+if (!string.IsNullOrEmpty(dto.Estado))
+    entregable.Estado = dto.Estado;
+if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
+    entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(
+        entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
+```
+El guard de vigencia ahora dispara cuando **o** cambia el estado **o** viene vigencia explícita. El estado ya actualizado se pasa a `ResolverVigencia` — correcto para "Aprobado + no requiereVigencia → 2040".
+
+**Fix `HabEmpresaRepository.UpdateEntregableEmpresaAsync`:**
+```csharp
+if (!string.IsNullOrEmpty(dto.Estado))
+    entregable.Estado = dto.Estado;
+if (dto.Vigencia.HasValue)
+    entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
+```
+Vigencia se actualiza independientemente del estado (empresa no tiene lógica de sentinel por estado).
+
+### ResolverVigencia extendida a "Enviado" — `HabilitacionDateHelper.cs`
+
+**Antes:** sentinel `2040-12-31 UTC` solo para `estado == "Aprobado"` + `requiereVigencia == false`.
+
+**Ahora:** también para `estado == "Enviado"` + `requiereVigencia == false`:
+```csharp
+var esSintetico = !requiereVigencia
+    && (string.Equals(estado, "Aprobado", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(estado, "Enviado", StringComparison.OrdinalIgnoreCase));
+if (esSintetico)
+    return DateTime.SpecifyKind(new DateOnly(2040, 12, 31).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+return AsUtc(dtoVigencia);
+```
+
+Cuando un CONTRATISTA sube un documento a un ítem que no requiere vigencia (e.g. `ss_item_equipo.requiere_vigencia = false`), el estado se fuerza a `"Enviado"` y la vigencia se asigna automáticamente como `2040-12-31`.
+
+### HabEmpresaRepository y EquipoRepository — .Include(h => h.Item) + ResolverVigencia
+
+Para que ambos repos puedan leer `RequiereVigencia`, se agregó `.Include(h => h.Item)` a la query del entregable en `UpdateEntregableEmpresaAsync` y `UpdateEntregableAsync` (equipo). Ambos ahora usan `ResolverVigencia` en lugar de `AsUtc`:
+
+```csharp
+var entregable = await ctx.SsHabEquipo  // o SsHabEmpresa
+    .Include(h => h.Item)
+    .FirstOrDefaultAsync(h => h.Id == id) ...
+
+if (!string.IsNullOrEmpty(dto.Estado))
+    entregable.Estado = dto.Estado;
+if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
+    entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(
+        entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
+```
+
+`HabTrabajadorRepository` ya tenía `.Include(h => h.Item)` — solo hereda el fix del helper.
+
+---
+
+## Sesión 2026-05-24 (tercera parte) — SharePoint: migración a bibliotecas propias
+
+### Diagnóstico previo
+
+`ISharePointHabService.SubirArchivoAsync` subía todos los archivos (trabajadores, empresa, equipos) al **drive predeterminado** del sitio `Sites:Habilitacion`. No había `LibraryId` explícito — el DriveId se resolvía dinámicamente con `GET /sites/{siteId}/drive`.
+
+Endpoints existentes para CONTRATISTA (inventariado):
+- `GET /trabajadores` — sí filtra por JWT
+- `GET /equipos` — sí filtra por JWT
+- `GET /empresas/{id}/entregables` — sin guard (cualquier contratista puede consultar cualquier empresa)
+- `GET /empresas/{id}/proyectos-disponibles` — sí tiene guard `EmpresaJwtCoinside`
+- No existe dashboard/resumen para contratistas
+
+### appsettings.json — nueva sección SharePoint (commit `5cf6a24`)
+
+```json
+"SharePoint": {
+  "Sites": {
+    "Habilitacion": {
+      "SiteId": "abrilinmob.sharepoint.com,d9e26806-d535-4353-9610-195978e20390,a7b7032f-511e-4b53-8a87-508a190b3c7c",
+      "TrabajadoresLibraryId": "8693cb8a-7d15-4c32-97d3-a0946aba77f5",
+      "EmpresaLibraryId": "d0c56309-2b02-414b-b762-c8475bb09199",
+      "EquiposLibraryId": "d12d18df-e912-474b-8964-7c3c10bea45d"
+    }
+  }
+}
+```
+
+**No commitear** `appsettings.Local.json` ni `appsettings.Production.json` (gitignored).
+
+### SharePointHabService.cs — tres cambios
+
+1. **Cache:** `_cachedDriveId: string?` → `_driveIdCache: ConcurrentDictionary<string, string>` (clave = `libraryId` o `"default"`). Necesario porque ahora hay 3 drives distintos.
+
+2. **`ResolverLibraryId(contexto)`** — nuevo método privado:
+```csharp
+private string? ResolverLibraryId(string contexto)
+{
+    var c = (contexto ?? string.Empty).ToLowerInvariant();
+    if (c.Contains("trabajadores")) return _configuration["SharePoint:Sites:Habilitacion:TrabajadoresLibraryId"];
+    if (c.Contains("empresas"))     return _configuration["SharePoint:Sites:Habilitacion:EmpresaLibraryId"];
+    if (c.Contains("equipos"))      return _configuration["SharePoint:Sites:Habilitacion:EquiposLibraryId"];
+    return null;  // fallback → drive predeterminado
+}
+```
+El mismo método se llama en `SubirArchivoAsync` (con el `contexto` del request) y en `GetDownloadUrlAsync` (con el `archivoUrl`/path almacenado).
+
+3. **`GetDriveIdAsync`** ahora acepta `string? libraryId = null`:
+   - Con libraryId → `GET /v1.0/sites/{siteId}/lists/{libraryId}/drive`
+   - Sin libraryId → `GET /v1.0/sites/{siteId}/drive` (drive predeterminado)
+
+**Ruta resultante de upload por contexto:**
+
+| contexto | LibraryId usado | Biblioteca SharePoint |
+|---|---|---|
+| `"habilitacion/trabajadores/..."` | `TrabajadoresLibraryId` | Biblioteca Trabajadores |
+| `"habilitacion/empresas/..."` | `EmpresaLibraryId` | Biblioteca Empresas |
+| `"habilitacion/equipos/..."` | `EquiposLibraryId` | Biblioteca Equipos |
+| cualquier otro | `null` | Drive predeterminado del sitio |
+
+### Bloque para appsettings.Local.json de Samuel
+
+```json
+"SharePoint": {
+  "Sites": {
+    "Habilitacion": {
+      "SiteId": "abrilinmob.sharepoint.com,d9e26806-d535-4353-9610-195978e20390,a7b7032f-511e-4b53-8a87-508a190b3c7c",
+      "TrabajadoresLibraryId": "8693cb8a-7d15-4c32-97d3-a0946aba77f5",
+      "EmpresaLibraryId": "d0c56309-2b02-414b-b762-c8475bb09199",
+      "EquiposLibraryId": "d12d18df-e912-474b-8964-7c3c10bea45d"
+    }
+  }
+}
+```

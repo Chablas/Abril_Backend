@@ -182,11 +182,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         private string ResolverSiteId(string contexto)
         {
-            var c = (contexto ?? string.Empty).ToLowerInvariant();
-            if (c.Contains("sctr"))
-                return _configuration["SharePoint:Sites:SSOMAApps:SiteId"]
-                    ?? _configuration["SharePoint:Sites:Habilitacion:SiteId"]!;
-            return _configuration["SharePoint:Sites:Habilitacion:SiteId"]!;
+            return _configuration["SharePoint:Sites:SSOMAApps:SiteId"]!;
         }
 
         private string? ResolverLibraryId(string contexto)

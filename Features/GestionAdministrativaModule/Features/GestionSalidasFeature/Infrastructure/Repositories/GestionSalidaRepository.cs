@@ -29,6 +29,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (!string.IsNullOrWhiteSpace(filters.EstadoRendicion))
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoRendicion == filters.EstadoRendicion);
 
+            if (!string.IsNullOrWhiteSpace(filters.EstadoAprobacion))
+                solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacion == filters.EstadoAprobacion);
+
             // Filtro por lugar proyecto: necesita pasar por trayectos
             if (filters.LugarProyectoId.HasValue)
             {
@@ -47,9 +50,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         s.CreatedAt descending
                 select new
                 {
-                    s.Id, s.WorkerId, WorkerInternalId = w.Id,
+                    s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
-                    s.FechaSalida, s.EstadoAprobacion, s.EstadoRendicion, s.CreatedAt
+                    s.FechaSalida, s.EstadoAprobacion, s.EstadoRendicion, s.CreatedAt,
+                    s.HoraSalidaReal
                 }
             ).ToListAsync();
 
@@ -57,7 +61,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
             var solicitudIds = solicitudes.Select(s => s.Id).ToList();
 
-            // 2. Trayectos para info agregada (motivo, origen, destino, horas)
+            // 2. Trayectos para info agregada (motivo, origen, destino, horas).
+            // Conservamos los IDs crudos de origen/destino para el match contra ga_trayecto.
             var trayectos = await (
                 from t  in ctx.GaSolicitudTrayecto
                 join m  in ctx.GaMotivoSalida on t.MotivoId equals m.Id into mGroup
@@ -75,6 +80,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 select new
                 {
                     t.Id, t.SolicitudId, t.Orden, t.HoraSalida, t.HoraRetorno,
+                    t.LugarOrigenId, t.LugarDestinoId,
                     Motivo = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
                     LugarOrigen = lo == null ? t.LugarOrigenLibre
                                 : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
@@ -88,8 +94,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var trayectosBySol = trayectos.GroupBy(t => t.SolicitudId)
                 .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Orden).ToList());
 
-            // 3. Para cada solicitud, determinar PuedeRendirse: todos los trayectos con ≥1 captura
-            // Trayectos con al menos 1 captura
+            // 3. Trayectos con al menos 1 captura
             var trayectoIds = trayectos.Select(t => t.Id).ToList();
             var trayectosConCapturas = trayectoIds.Count == 0
                 ? new HashSet<int>()
@@ -99,7 +104,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     .Distinct()
                     .ToListAsync()).ToHashSet();
 
-            // 4. Armar resultado
+            // 4. Catálogo si hay al menos un trabajador TI sin todas sus capturas — para evaluar la regla relajada.
+            var hayWorkerTI = solicitudes.Any(s => string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase));
+            var catalogoMap = hayWorkerTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
+
+            // 5. Armar resultado
             var result = new List<GestionSalidaListItemDto>(solicitudes.Count);
             foreach (var s in solicitudes)
             {
@@ -108,8 +117,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 var first = trList.FirstOrDefault();
                 var last  = trList.LastOrDefault();
 
-                var puedeRendir = trList.Count > 0
-                                 && trList.All(t => trayectosConCapturas.Contains(t.Id));
+                var esTI = string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
+                bool trayectoCubierto(dynamic t)
+                {
+                    if (trayectosConCapturas.Contains((int)t.Id)) return true;
+                    if (!esTI) return false;
+                    if (t.LugarOrigenId == null || t.LugarDestinoId == null) return false;
+                    return catalogoMap.ContainsKey(((int)t.LugarOrigenId, (int)t.LugarDestinoId));
+                }
+                var puedeRendir = trList.Count > 0 && trList.All(t => trayectoCubierto(t));
 
                 result.Add(new GestionSalidaListItemDto
                 {
@@ -127,6 +143,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     EstadoRendicion  = s.EstadoRendicion,
                     CreatedAt        = s.CreatedAt,
                     PuedeRendirse    = puedeRendir,
+                    HoraSalidaReal   = s.HoraSalidaReal,
                 });
             }
 
@@ -269,20 +286,59 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
             if (idsList.Count == 0) return new();
 
-            // Una solicitud "está incompleta" si tiene AL MENOS UN trayecto sin ninguna captura.
-            // Si la solicitud no tiene trayectos, también está incompleta (no debería pasar, pero defensivo).
-            var solicitudesConTrayectoIncompleto = await (
+            // Cargar info de cada solicitud + subarea del worker
+            var solicitudes = await (
                 from s in ctx.GaSolicitudSalida
+                join w in ctx.Worker on s.WorkerId equals w.Id
                 where idsList.Contains(s.Id)
-                let totalTr = ctx.GaSolicitudTrayecto.Count(t => t.SolicitudId == s.Id)
-                let trCompletos = ctx.GaSolicitudTrayecto.Count(t =>
-                    t.SolicitudId == s.Id &&
-                    ctx.GaSolicitudCaptura.Any(c => c.TrayectoId == t.Id))
-                where totalTr == 0 || trCompletos < totalTr
-                select s.Id
+                select new { s.Id, w.Subarea }
             ).ToListAsync();
 
-            return solicitudesConTrayectoIncompleto;
+            if (solicitudes.Count == 0) return idsList;
+
+            // Trayectos por solicitud (Id + lugares para match con catálogo)
+            var trayectos = await ctx.GaSolicitudTrayecto
+                .Where(t => idsList.Contains(t.SolicitudId))
+                .Select(t => new { t.Id, t.SolicitudId, t.LugarOrigenId, t.LugarDestinoId })
+                .ToListAsync();
+            var trayectosBySol = trayectos.GroupBy(t => t.SolicitudId).ToDictionary(g => g.Key, g => g.ToList());
+
+            // Trayectos con al menos 1 captura
+            var trayectoIds = trayectos.Select(t => t.Id).ToList();
+            var conCapturas = trayectoIds.Count == 0
+                ? new HashSet<int>()
+                : (await ctx.GaSolicitudCaptura
+                    .Where(c => trayectoIds.Contains(c.TrayectoId))
+                    .Select(c => c.TrayectoId)
+                    .Distinct()
+                    .ToListAsync()).ToHashSet();
+
+            // Catálogo (cargado solo si algún worker es TI)
+            var hayTI = solicitudes.Any(s => string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase));
+            var catalogoMap = hayTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
+
+            var incompletas = new List<int>();
+            foreach (var s in solicitudes)
+            {
+                if (!trayectosBySol.TryGetValue(s.Id, out var trList) || trList.Count == 0)
+                {
+                    incompletas.Add(s.Id);
+                    continue;
+                }
+
+                var esTI = string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
+                bool todosCubiertos = trList.All(t =>
+                {
+                    if (conCapturas.Contains(t.Id)) return true;
+                    if (!esTI) return false;
+                    if (!t.LugarOrigenId.HasValue || !t.LugarDestinoId.HasValue) return false;
+                    return catalogoMap.ContainsKey((t.LugarOrigenId.Value, t.LugarDestinoId.Value));
+                });
+
+                if (!todosCubiertos) incompletas.Add(s.Id);
+            }
+
+            return incompletas;
         }
 
         public async Task<GestionSalidaDetalleDto?> GetDetalle(int id)
@@ -299,7 +355,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 where s.Id == id
                 select new
                 {
-                    s.Id, WorkerInternalId = w.Id,
+                    s.Id, WorkerInternalId = w.Id, w.Subarea,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacion, s.EstadoRendicion, s.CreatedAt, s.MotivoRechazo,
                     Rendicion = r == null ? null : new GestionSalidaRendicionDto
@@ -314,7 +370,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
             if (head == null) return null;
 
-            var trayectos = await (
+            var trayectosRaw = await (
                 from t  in ctx.GaSolicitudTrayecto
                 join m  in ctx.GaMotivoSalida on t.MotivoId equals m.Id into mGroup
                 from m  in mGroup.DefaultIfEmpty()
@@ -328,21 +384,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 from pd in pdGroup.DefaultIfEmpty()
                 where t.SolicitudId == id
                 orderby t.Orden
-                select new GestionSalidaTrayectoDto
+                select new
                 {
-                    Id          = t.Id,
-                    Orden       = t.Orden,
-                    HoraSalida  = t.HoraSalida,
-                    HoraRetorno = t.HoraRetorno,
-                    Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
-                    LugarOrigen = lo == null ? t.LugarOrigenLibre
-                                : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
-                                : lo.Nombre,
-                    LugarDestino = ld == null ? t.LugarDestinoLibre
-                                 : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : "[Sin proyecto]")
-                                 : ld.Nombre,
+                    Dto = new GestionSalidaTrayectoDto
+                    {
+                        Id          = t.Id,
+                        Orden       = t.Orden,
+                        HoraSalida  = t.HoraSalida,
+                        HoraRetorno = t.HoraRetorno,
+                        Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                        LugarOrigen = lo == null ? t.LugarOrigenLibre
+                                    : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
+                                    : lo.Nombre,
+                        LugarDestino = ld == null ? t.LugarDestinoLibre
+                                     : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : "[Sin proyecto]")
+                                     : ld.Nombre,
+                    },
+                    t.LugarOrigenId,
+                    t.LugarDestinoId,
                 }
             ).ToListAsync();
+
+            var trayectos = trayectosRaw.Select(x => x.Dto).ToList();
 
             // Capturas por trayecto
             var trayectoIds = trayectos.Select(t => t.Id).ToList();
@@ -375,6 +438,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 }
             }
 
+            // Catálogo (solo si el worker es TI)
+            var esTI = string.Equals(head.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
+            var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
+
+            foreach (var raw in trayectosRaw)
+            {
+                var sumCapturas = raw.Dto.Capturas.Sum(c => c.Monto);
+                if (esTI && raw.LugarOrigenId.HasValue && raw.LugarDestinoId.HasValue &&
+                    catalogoMap.TryGetValue((raw.LugarOrigenId.Value, raw.LugarDestinoId.Value), out var montoCat))
+                {
+                    raw.Dto.MontoCatalogo = montoCat;
+                }
+                raw.Dto.MontoTotal = sumCapturas > 0 ? sumCapturas : (raw.Dto.MontoCatalogo ?? 0m);
+            }
+
             return new GestionSalidaDetalleDto
             {
                 Id               = head.Id,
@@ -395,8 +473,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             using var ctx = _factory.CreateDbContext();
             if (solicitudIds.Count == 0) return new();
 
-            // Una fila = un trayecto. JOIN con solicitud para obtener trabajador/contributor/fecha.
-            var rows = await (
+            // Una fila = un trayecto. Cargamos los IDs crudos de lugares + subarea del worker
+            // para poder hacer match contra ga_trayecto cuando el trabajador es TI.
+            var rowsRaw = await (
                 from t   in ctx.GaSolicitudTrayecto
                 join s   in ctx.GaSolicitudSalida on t.SolicitudId equals s.Id
                 join w   in ctx.Worker on s.WorkerId equals w.Id
@@ -416,39 +495,95 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 from pd  in pdGroup.DefaultIfEmpty()
                 where solicitudIds.Contains(s.Id)
                 orderby w.Id, s.FechaSalida, t.Orden
-                select new RendicionItemDto
+                select new
                 {
-                    Id               = t.Id,
-                    SolicitudId      = s.Id,
-                    WorkerId         = w.Id,
-                    TrabajadorNombre = per != null ? (per.FullName ?? "") : "",
-                    TrabajadorDni    = per != null ? per.DocumentIdentityCode : null,
-                    Area             = w.Area,
-                    FechaSalida      = s.FechaSalida,
-                    Motivo           = m != null ? m.Descripcion : (t.MotivoLibre ?? ""),
-                    LugarOrigen      = lo == null ? t.LugarOrigenLibre
-                                     : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : null)
-                                     : lo.Nombre,
-                    LugarDestino     = ld == null ? t.LugarDestinoLibre
-                                     : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : null)
-                                     : ld.Nombre,
-                    RazonSocial      = cont != null ? cont.ContributorName : null,
-                    Ruc              = cont != null ? cont.ContributorRuc  : null,
+                    Item = new RendicionItemDto
+                    {
+                        Id               = t.Id,
+                        SolicitudId      = s.Id,
+                        WorkerId         = w.Id,
+                        TrabajadorNombre = per != null ? (per.FullName ?? "") : "",
+                        TrabajadorDni    = per != null ? per.DocumentIdentityCode : null,
+                        Area             = w.Area,
+                        FechaSalida      = s.FechaSalida,
+                        Motivo           = m != null ? m.Descripcion : (t.MotivoLibre ?? ""),
+                        LugarOrigen      = lo == null ? t.LugarOrigenLibre
+                                         : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : null)
+                                         : lo.Nombre,
+                        LugarDestino     = ld == null ? t.LugarDestinoLibre
+                                         : ld.Tipo == "proyecto" ? (pd != null ? pd.ProjectDescription : null)
+                                         : ld.Nombre,
+                        RazonSocial      = cont != null ? cont.ContributorName : null,
+                        Ruc              = cont != null ? cont.ContributorRuc  : null,
+                    },
+                    Subarea = w.Subarea,
+                    t.LugarOrigenId,
+                    t.LugarDestinoId,
                 }
             ).ToListAsync();
 
             // Importe por trayecto (suma de capturas)
-            var trayectoIds = rows.Select(r => r.Id).ToList();
-            var importes = await ctx.GaSolicitudCaptura
+            var trayectoIds = rowsRaw.Select(r => r.Item.Id).ToList();
+            var importesCapturas = await ctx.GaSolicitudCaptura
                 .Where(c => trayectoIds.Contains(c.TrayectoId))
                 .GroupBy(c => c.TrayectoId)
                 .Select(g => new { TrayectoId = g.Key, Total = g.Sum(x => x.Monto) })
                 .ToDictionaryAsync(x => x.TrayectoId, x => x.Total);
 
-            foreach (var r in rows)
-                r.Importe = importes.TryGetValue(r.Id, out var t) ? t : 0m;
+            // Catálogo: necesario para los trayectos sin capturas cuyo worker es TI
+            var necesitaCatalogo = rowsRaw.Any(r =>
+                string.Equals(r.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase) &&
+                !importesCapturas.ContainsKey(r.Item.Id));
+            var catalogoMap = necesitaCatalogo ? await CargarCatalogoTrayectosAsync(ctx) : new();
 
-            return rows;
+            foreach (var r in rowsRaw)
+            {
+                if (importesCapturas.TryGetValue(r.Item.Id, out var sumCap) && sumCap > 0m)
+                {
+                    r.Item.Importe    = sumCap;
+                    r.Item.EsCatalogo = false;
+                }
+                else if (string.Equals(r.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase) &&
+                         r.LugarOrigenId.HasValue && r.LugarDestinoId.HasValue &&
+                         catalogoMap.TryGetValue((r.LugarOrigenId.Value, r.LugarDestinoId.Value), out var montoCat))
+                {
+                    r.Item.Importe    = montoCat;
+                    r.Item.EsCatalogo = true;
+                }
+                else
+                {
+                    r.Item.Importe    = 0m;
+                    r.Item.EsCatalogo = false;
+                }
+            }
+
+            return rowsRaw.Select(r => r.Item).ToList();
+        }
+
+        public async Task SetHoraSalidaReal(int solicitudId, TimeOnly? hora, int registradaPorUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId)
+                ?? throw new AbrilException("Solicitud no encontrada.", 404);
+
+            s.HoraSalidaReal                = hora;
+            s.HoraSalidaRealRegistradaPorId = hora.HasValue ? registradaPorUserId : (int?)null;
+            s.HoraSalidaRealRegistradaAt    = hora.HasValue ? DateTimeOffset.UtcNow : (DateTimeOffset?)null;
+            await ctx.SaveChangesAsync();
+        }
+
+        private const string SubareaTi = "Tecnología de la Información";
+
+        /// <summary>
+        /// Carga el catálogo de trayectos activos en memoria. Llave: (lugar_origen_id, lugar_destino_id).
+        /// </summary>
+        private static async Task<Dictionary<(int, int), decimal>> CargarCatalogoTrayectosAsync(AppDbContext ctx)
+        {
+            var rows = await ctx.GaTrayecto
+                .Where(g => g.Activo)
+                .Select(g => new { g.LugarOrigenId, g.LugarDestinoId, g.Monto })
+                .ToListAsync();
+            return rows.ToDictionary(r => (r.LugarOrigenId, r.LugarDestinoId), r => r.Monto);
         }
     }
 }

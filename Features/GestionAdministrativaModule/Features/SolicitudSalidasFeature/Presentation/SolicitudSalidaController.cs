@@ -22,7 +22,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetMySolicitudes()
+        public async Task<IActionResult> GetMySolicitudes(
+            [FromQuery] int? lugarProyectoId,
+            [FromQuery] string? estadoAprobacion,
+            [FromQuery] string? estadoRendicion)
         {
             try
             {
@@ -30,7 +33,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
                     ? id : (int?)null;
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
-                return Ok(await _service.GetByUserId(userId.Value));
+
+                var filters = new SolicitudSalidaFiltersDto
+                {
+                    LugarProyectoId  = lugarProyectoId,
+                    EstadoAprobacion = estadoAprobacion,
+                    EstadoRendicion  = estadoRendicion,
+                };
+                return Ok(await _service.GetByUserId(userId.Value, filters));
             }
             catch (AbrilException ex)
             {
@@ -39,6 +49,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en SolicitudSalidaController.GetMySolicitudes");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("filter-data")]
+        public async Task<IActionResult> GetFilterData()
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id)
+                    ? id : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+                return Ok(await _service.GetFilterData(userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.GetFilterData");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

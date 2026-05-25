@@ -55,7 +55,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         {
             var data = await _repo.GetFormData();
 
-            // Best-effort: resolver el aprobador para que el frontend lo muestre como info
             if (userId.HasValue)
             {
                 try
@@ -65,18 +64,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                         .Where(w => w.Person != null && w.Person.UserId == userId.Value)
                         .FirstOrDefaultAsync();
                     if (solicitante != null)
+                    {
+                        // Aprobador (best-effort)
                         data.AprobadorEmail = await _approverResolver.ResolveApproverEmailAsync(solicitante);
+
+                        // Si el trabajador es TI, exponer el catálogo de trayectos para que el
+                        // frontend muestre el monto automático al seleccionar origen+destino.
+                        if (string.Equals(solicitante.Subarea, "Tecnología de la Información", StringComparison.OrdinalIgnoreCase))
+                        {
+                            data.EsTI = true;
+                            data.TrayectosCatalogo = await ctx.GaTrayecto
+                                .Where(g => g.Activo)
+                                .Select(g => new TrayectoCatalogoOptionDto
+                                {
+                                    LugarOrigenId  = g.LugarOrigenId,
+                                    LugarDestinoId = g.LugarDestinoId,
+                                    Monto          = g.Monto,
+                                })
+                                .ToListAsync();
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "No se pudo resolver el aprobador para userId {UserId}", userId);
+                    _logger.LogWarning(ex, "No se pudo resolver el aprobador/catálogo para userId {UserId}", userId);
                 }
             }
 
             return data;
         }
 
-        public Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId) => _repo.GetByUserId(userId);
+        public Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null) =>
+            _repo.GetByUserId(userId, filters);
+
+        public Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId) => _repo.GetFilterData(userId);
 
         public async Task<int> Create(SolicitudSalidaCreateDto dto, int? userId)
         {
@@ -297,11 +318,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var body    = BuildEmailConfirmacionSolicitante(nombreSolicitante, solicitud.Id, solicitud.FechaSalida, trayectos, aprobadorEmail);
             var subject = $"Tu solicitud de salida #{solicitud.Id} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
 
+            var cc = await GetCcRecepcionAsync(ctx);
+
             await _emailService.SendAsync(
                 to: new List<string> { emailSolicitante },
                 subject: subject,
                 body: body,
-                isHtml: true);
+                isHtml: true,
+                cc: cc);
+        }
+
+        // ── CC recepción ────────────────────────────────────────────────────
+        private const int RoleIdRecepcion = 52;
+        private const string CcRecepcionFijo = "recepcionnm@abril.pe";
+
+        /// <summary>
+        /// Devuelve los correos para CC del flujo de salidas:
+        /// (a) <c>worker.email_personal</c> de todos los users con rol id 52 (USUARIO DE RECEPCIÓN),
+        /// (b) más el correo fijo <c>recepcionnm@abril.pe</c> (siempre).
+        /// </summary>
+        private static async Task<List<string>> GetCcRecepcionAsync(AppDbContext ctx)
+        {
+            var emails = await (
+                from ur in ctx.UserRole
+                where ur.RoleId == RoleIdRecepcion && ur.State
+                join p in ctx.Person  on (int?)ur.UserId  equals p.UserId
+                join w in ctx.Worker  on (int?)p.PersonId equals w.PersonId
+                where w.EmailPersonal != null && w.EmailPersonal != ""
+                select w.EmailPersonal!
+            ).Distinct().ToListAsync();
+
+            if (!emails.Any(e => string.Equals(e, CcRecepcionFijo, StringComparison.OrdinalIgnoreCase)))
+                emails.Add(CcRecepcionFijo);
+
+            return emails;
         }
 
         private static async Task<string> ResolveLugarDisplay(AppDbContext ctx, int? lugarId, string? lugarLibre)
@@ -560,11 +610,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var body    = BuildEmailAprobacionSolicitante(info.Nombre, info.Id, info.FechaSalida, resueltos);
                 var subject = $"Solicitud de salida #{info.Id} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
 
+                var cc = await GetCcRecepcionAsync(ctx);
+
                 await _emailService.SendAsync(
                     to: new List<string> { info.Email },
                     subject: subject,
                     body: body,
-                    isHtml: true);
+                    isHtml: true,
+                    cc: cc);
             }
             catch (Exception ex)
             {

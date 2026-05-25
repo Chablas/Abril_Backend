@@ -22,15 +22,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion)
+        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion)
         {
             try
             {
                 var filters = new GestionSalidaFiltersDto
                 {
-                    WorkerId        = workerId,
-                    LugarProyectoId = lugarProyectoId,
-                    EstadoRendicion = estadoRendicion,
+                    WorkerId         = workerId,
+                    LugarProyectoId  = lugarProyectoId,
+                    EstadoRendicion  = estadoRendicion,
+                    EstadoAprobacion = estadoAprobacion,
                 };
                 return Ok(await _service.GetAll(filters));
             }
@@ -46,15 +47,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet("exportar-excel")]
-        public async Task<IActionResult> ExportarExcel([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion)
+        public async Task<IActionResult> ExportarExcel([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion)
         {
             try
             {
                 var filters = new GestionSalidaFiltersDto
                 {
-                    WorkerId        = workerId,
-                    LugarProyectoId = lugarProyectoId,
-                    EstadoRendicion = estadoRendicion,
+                    WorkerId         = workerId,
+                    LugarProyectoId  = lugarProyectoId,
+                    EstadoRendicion  = estadoRendicion,
+                    EstadoAprobacion = estadoAprobacion,
                 };
                 var bytes = await _service.GetExcel(filters);
                 return File(
@@ -157,6 +159,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en GestionSalidaController.Rechazar");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("{id:int}/hora-salida-real")]
+        public async Task<IActionResult> SetHoraSalidaReal(int id, [FromBody] RegistrarHoraSalidaRealDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                await _service.SetHoraSalidaReal(id, dto.HoraSalidaReal, userId.Value);
+                return Ok(new { message = "Hora real registrada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionSalidaController.SetHoraSalidaReal");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

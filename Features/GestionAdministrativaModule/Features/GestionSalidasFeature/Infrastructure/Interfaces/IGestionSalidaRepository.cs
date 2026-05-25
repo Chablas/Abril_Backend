@@ -34,5 +34,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>Datos para armar la planilla — una fila por TRAYECTO de las solicitudes dadas.</summary>
         Task<List<RendicionItemDto>> GetRendicionData(List<int> solicitudIds);
+
+        /// <summary>Registra (o limpia) la hora real en la que la persona salió. Solo se actualiza el campo extra; no afecta el flujo principal.</summary>
+        Task SetHoraSalidaReal(int solicitudId, TimeOnly? hora, int registradaPorUserId);
     }
 }

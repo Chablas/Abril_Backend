@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-24 — Fixes CONTRATISTA entregables; ResolverVigencia extendida; SharePoint por biblioteca propia
+> Última actualización: 2026-05-25 — Módulo multi-usuario contratista; claim systemRoles; fix inducciones-hoy
 
 ---
 

@@ -186,6 +186,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("trabajadores")) return _configuration["SharePoint:Sites:Habilitacion:TrabajadoresLibraryId"];
             if (c.Contains("empresas"))     return _configuration["SharePoint:Sites:Habilitacion:EmpresaLibraryId"];
             if (c.Contains("equipos"))      return _configuration["SharePoint:Sites:Habilitacion:EquiposLibraryId"];
+            if (c.Contains("sctr"))         return _configuration["SharePoint:Sites:Habilitacion:SctrLibraryId"];
             return null;
         }
 

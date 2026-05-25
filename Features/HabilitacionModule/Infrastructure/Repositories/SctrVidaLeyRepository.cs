@@ -622,6 +622,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 var workersDto = workersDeEste.Select(w =>
                 {
                     var aprobado = false;
+                    var estadoWorker = "Falta";
                     int? sctrHabId = null;
                     if (itemTipo is not null)
                     {
@@ -629,6 +630,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         if (hab is not null)
                         {
                             aprobado = hab.Estado == "Aprobado";
+                            estadoWorker = hab.Estado ?? "Falta";
                             sctrHabId = hab.Id;
                         }
                     }
@@ -638,6 +640,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         ApellidoNombre = w.ApellidoNombre ?? string.Empty,
                         Dni = w.Dni ?? string.Empty,
                         Aprobado = aprobado,
+                        Estado = estadoWorker,
                         SctrHabId = sctrHabId,
                         FechaInicioCobertura = w.FechaInicioCobertura
                     };

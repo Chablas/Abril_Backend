@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-25 — Módulo multi-usuario contratista; claim systemRoles; fix inducciones-hoy
+> Última actualización: 2026-05-25 — Endpoint bulk-aprobar en Bandeja
 
 ---
 
@@ -308,6 +308,9 @@ PATCH  /api/v1/habilitacion/bandeja/trabajador/{id}   body: { estado, obsAbril, 
 PATCH  /api/v1/habilitacion/bandeja/empresa/{id}      body: { estado, obsAbril, vigencia }
 PATCH  /api/v1/habilitacion/bandeja/equipo/{id}       body: { estado, obsAbril, vigencia }
 PATCH  /api/v1/habilitacion/bandeja/induccion/{id}    sin body — llama AprobarAsync
+PATCH  /api/v1/habilitacion/bandeja/bulk-aprobar      body: { ids: int[], tipo: "TRABAJADOR"|"EMPRESA"|"EQUIPO"|"INDUCCION" }
+                                                       respuesta: { procesados: int, noEncontrados: int[] }
+                                                       — itera los unitarios existentes; INDUCCION usa AprobarBatchAsync
 
 # Inducciones
 POST   /api/v1/habilitacion/inducciones               body: InduccionCreateDto { WorkerIds[], ProyectoId, EmpresaId?, FechaProgramada, TrabajoAltura, EquipoElectrico }

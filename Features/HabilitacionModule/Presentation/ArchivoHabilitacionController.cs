@@ -63,16 +63,27 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             {
                 var file = request.File;
                 var contexto = request.Contexto;
+                _logger.LogInformation("Subir: FileName={FileName}, Length={Length}, ContentType={ContentType}, HabTrabajadorId={HabTrabajadorId}",
+                    file?.FileName, file?.Length, file?.ContentType, request.HabTrabajadorId);
 
                 if (file is null || file.Length == 0)
+                {
+                    _logger.LogWarning("Subir 400: archivo nulo o vacío");
                     return BadRequest(new { message = "No se recibió ningún archivo." });
+                }
 
                 if (file.Length > MaxFileSize)
+                {
+                    _logger.LogWarning("Subir 400: tamaño {Length} supera límite", file.Length);
                     return BadRequest(new { message = "El archivo excede el tamaño máximo de 50 MB." });
+                }
 
                 var ext = Path.GetExtension(file.FileName);
                 if (string.IsNullOrEmpty(ext) || !ExtensionesPermitidas.Contains(ext))
+                {
+                    _logger.LogWarning("Subir 400: extensión no permitida '{Ext}'", ext);
                     return BadRequest(new { message = "Tipo de archivo no permitido. Use PDF, imágenes o documentos Office." });
+                }
 
                 using var stream = file.OpenReadStream();
                 var path = await _sharePoint.SubirArchivoAsync(stream, file.FileName, contexto);
@@ -113,8 +124,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
 
                 return Ok(new { path, url = realUrl });
             }
-            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception ex) { _logger.LogError(ex, "Error en ArchivoHabilitacionController.Subir"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+            catch (AbrilException ex) { _logger.LogError(ex, "Error en Subir (AbrilException {StatusCode})", ex.StatusCode); return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en Subir"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpGet("url")]

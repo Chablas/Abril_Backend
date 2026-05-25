@@ -124,6 +124,56 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.AprobarEquipo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPatch("bulk-aprobar")]
+        public async Task<IActionResult> BulkAprobar([FromBody] BandejaBulkAprobarDto dto)
+        {
+            try
+            {
+                if (dto.Ids == null || dto.Ids.Count == 0)
+                    return BadRequest(new { message = "Debe enviar al menos un id." });
+
+                var userId = ParseUserIdOrZero();
+                var noEncontrados = new List<int>();
+                var procesados = 0;
+                var aprobarDto = new BandejaAprobarDto { Estado = "Aprobado" };
+
+                switch (dto.Tipo?.ToUpper())
+                {
+                    case "TRABAJADOR":
+                        foreach (var id in dto.Ids)
+                        {
+                            var r = await _repo.AprobarTrabajadorAsync(id, aprobarDto, userId);
+                            if (r is null) noEncontrados.Add(id); else procesados++;
+                        }
+                        break;
+                    case "EMPRESA":
+                        foreach (var id in dto.Ids)
+                        {
+                            var r = await _repo.AprobarEmpresaAsync(id, aprobarDto, userId);
+                            if (r is null) noEncontrados.Add(id); else procesados++;
+                        }
+                        break;
+                    case "EQUIPO":
+                        foreach (var id in dto.Ids)
+                        {
+                            var r = await _repo.AprobarEquipoAsync(id, aprobarDto, userId);
+                            if (r is null) noEncontrados.Add(id); else procesados++;
+                        }
+                        break;
+                    case "INDUCCION":
+                        await _induccionRepo.AprobarBatchAsync(dto.Ids);
+                        procesados = dto.Ids.Count;
+                        break;
+                    default:
+                        return BadRequest(new { message = "Tipo inválido. Valores permitidos: TRABAJADOR, EMPRESA, EQUIPO, INDUCCION." });
+                }
+
+                return Ok(new BandejaBulkResultDto { Procesados = procesados, NoEncontrados = noEncontrados });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.BulkAprobar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         private int ParseUserIdOrZero()
         {
             var claim = User.FindFirst(ClaimTypes.NameIdentifier);

@@ -27,8 +27,8 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
             _frontendSettings = frontendSettings.Value;
         }
 
-        public Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize) =>
-            _repo.GetPaged(page, pageSize);
+        public Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null) =>
+            _repo.GetPaged(page, pageSize, search);
 
         public async Task Create(UserFeatureCreateDto dto)
         {

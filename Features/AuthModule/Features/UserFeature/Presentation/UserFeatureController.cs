@@ -20,14 +20,17 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Presentation
 
         [Authorize]
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+        public async Task<IActionResult> GetPaged(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10,
+            [FromQuery] string? search = null)
         {
             try
             {
                 if (User.FindFirst(ClaimTypes.NameIdentifier) == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetPaged(page, pageSize);
+                var result = await _service.GetPaged(page, pageSize, search);
                 return Ok(result);
             }
             catch (Exception)

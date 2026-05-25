@@ -6,7 +6,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces
 {
     public interface IUserFeatureRepository
     {
-        Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize);
+        Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null);
         Task<UserModel> Create(UserFeatureCreateDto dto);
         Task Update(int userId, UserFeatureUpdateDto dto, int updatedUserId);
         Task ToggleActive(int userId, int updatedUserId);

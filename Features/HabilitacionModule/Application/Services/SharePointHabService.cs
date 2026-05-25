@@ -40,7 +40,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 return trimmed;
             }
 
-            var siteId = _configuration["SharePoint:Sites:Habilitacion:SiteId"];
+            var siteId = ResolverSiteId(archivoUrl ?? string.Empty);
             if (string.IsNullOrWhiteSpace(siteId)) return null;
 
             var token = await GetAccessTokenAsync();
@@ -77,7 +77,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         public async Task<string> SubirArchivoAsync(Stream fileStream, string fileName, string contexto)
         {
-            var siteId = _configuration["SharePoint:Sites:Habilitacion:SiteId"];
+            var siteId = ResolverSiteId(contexto);
             if (string.IsNullOrWhiteSpace(siteId))
                 throw new AbrilException("SharePoint no está configurado.", 500);
 
@@ -180,12 +180,18 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return token;
         }
 
+        private string ResolverSiteId(string contexto)
+        {
+            return _configuration["SharePoint:Sites:SSOMAApps:SiteId"]!;
+        }
+
         private string? ResolverLibraryId(string contexto)
         {
             var c = (contexto ?? string.Empty).ToLowerInvariant();
             if (c.Contains("trabajadores")) return _configuration["SharePoint:Sites:Habilitacion:TrabajadoresLibraryId"];
             if (c.Contains("empresas"))     return _configuration["SharePoint:Sites:Habilitacion:EmpresaLibraryId"];
             if (c.Contains("equipos"))      return _configuration["SharePoint:Sites:Habilitacion:EquiposLibraryId"];
+            if (c.Contains("sctr"))         return _configuration["SharePoint:Sites:SSOMAApps:SctrLibraryId"];
             return null;
         }
 

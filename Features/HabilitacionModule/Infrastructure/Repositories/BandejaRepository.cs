@@ -59,7 +59,7 @@ LEFT JOIN LATERAL (
 LEFT JOIN contributor ec ON ec.contributor_id = wv.empresa_id
 LEFT JOIN project p ON p.project_id = wv.proyecto_id
 WHERE ht.estado = 'Enviado'
-  AND ht.item_id NOT IN (11, 13)
+  AND ht.item_id NOT IN (11, 12, 13)
   AND NOT (ht.item_id IN (4, 25) AND w.contrata_casa = 'Casa')
   AND (@ProyectoId IS NULL OR wv.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR wv.empresa_id = @EmpresaId)
@@ -86,6 +86,7 @@ JOIN ss_item_empresa i ON i.id = he.item_id
 JOIN contributor ec ON ec.contributor_id = he.empresa_id
 JOIN project p ON p.project_id = he.proyecto_id
 WHERE he.estado = 'Enviado'
+  AND he.item_id NOT IN (15, 16)
   AND (@ProyectoId IS NULL OR he.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR he.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR i.responsable = @Responsable)

@@ -391,6 +391,11 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsClinicaUsuario>().HasKey(x => x.ClinicaUsuarioId);
             modelBuilder.Entity<SsClinicaToken>().HasKey(x => x.TokenId);
             modelBuilder.Entity<SsClinicaAuditoria>().HasKey(x => x.AuditoriaId);
+
+            modelBuilder.Entity<WorkerProyecto>()
+                .HasOne(wp => wp.Worker)
+                .WithMany()
+                .HasForeignKey(wp => wp.WorkerId);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

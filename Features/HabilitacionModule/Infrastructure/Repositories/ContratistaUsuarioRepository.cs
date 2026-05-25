@@ -46,7 +46,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     Id = u.Id,
                     UserId = u.UserId,
-                    NombreCompleto = info?.NombreCompleto,
+                    NombreCompleto = info?.NombreCompleto ?? info?.Email,
                     Email = info?.Email,
                     RolNombre = u.Rol?.Nombre,
                     Scope = u.Scope,

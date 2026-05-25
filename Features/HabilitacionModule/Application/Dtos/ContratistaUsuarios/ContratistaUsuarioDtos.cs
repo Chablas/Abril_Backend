@@ -16,6 +16,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.ContratistaUsuari
     {
         public string Email { get; set; } = string.Empty;
         public string RolNombre { get; set; } = string.Empty;
+        public int SystemRoleId { get; set; }
         public string Scope { get; set; } = "TODOS";
         public List<int>? ProyectoIds { get; set; }
     }

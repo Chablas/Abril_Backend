@@ -2020,3 +2020,96 @@ La tabla `contractor_person_type` clasifica el rol del contacto de una empresa (
 ### ActivarMigracionAsync — un solo app_user para todos los contractor_email
 
 `ActivarMigracionAsync` crea/reutiliza **un único `app_user`** (el del `dto.Email`) y asigna ese `UserId` a **todos** los `contractor_email` del contractor sin filtro `Active`/`State`. El rol `RoleId = 11` (CONTRATISTA) está hardcodeado en el servicio.
+
+---
+
+## Sesión 2026-05-25 — módulo multi-usuario contratista
+
+### Nuevas tablas (creadas manualmente en pgAdmin)
+
+```sql
+CREATE TABLE IF NOT EXISTS ss_contratista_rol (id SERIAL PRIMARY KEY, nombre VARCHAR(50) NOT NULL UNIQUE);
+INSERT INTO ss_contratista_rol (nombre) VALUES ('OWNER'),('ADMIN'),('GESTOR') ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS ss_contratista_usuario (
+  id SERIAL PRIMARY KEY,
+  contractor_id INT NOT NULL REFERENCES contractor(contractor_id),
+  user_id INT NOT NULL REFERENCES app_user(user_id),
+  rol_id INT NOT NULL REFERENCES ss_contratista_rol(id),
+  system_role_id INT REFERENCES role(id),   -- añadido en segunda iteración
+  scope VARCHAR(20) NOT NULL DEFAULT 'TODOS',
+  activo BOOL NOT NULL DEFAULT true,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  creado_por INT REFERENCES app_user(user_id),
+  UNIQUE(contractor_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS ss_contratista_usuario_proyecto (
+  id SERIAL PRIMARY KEY,
+  contratista_usuario_id INT NOT NULL REFERENCES ss_contratista_usuario(id) ON DELETE CASCADE,
+  proyecto_id INT NOT NULL REFERENCES project(project_id),
+  UNIQUE(contratista_usuario_id, proyecto_id)
+);
+
+-- Añadido después:
+ALTER TABLE ss_contratista_usuario ADD COLUMN IF NOT EXISTS system_role_id INT REFERENCES role(id);
+UPDATE ss_contratista_usuario SET system_role_id = 11 WHERE rol_id = 1; -- OWNER → CONTRATISTA
+```
+
+### Archivos nuevos
+
+| Archivo | Descripción |
+|---|---|
+| `Infrastructure/Models/SsContratistaRol.cs` | Entidad `[Table("ss_contratista_rol")]` |
+| `Infrastructure/Models/SsContratistaUsuario.cs` | Entidad con `RolId` (interno) + `SystemRoleId` (FK→role) |
+| `Infrastructure/Models/SsContratistaUsuarioProyecto.cs` | Relación usuario↔proyecto |
+| `Application/Dtos/ContratistaUsuarios/ContratistaUsuarioDtos.cs` | `ContratistaUsuarioListDto`, `CreateDto`, `UpdateDto` |
+| `Infrastructure/Interfaces/IContratistaUsuarioRepository.cs` | Interfaz repositorio |
+| `Application/Interfaces/IContratistaUsuarioService.cs` | Interfaz servicio |
+| `Infrastructure/Repositories/ContratistaUsuarioRepository.cs` | Implementación repositorio |
+| `Application/Services/ContratistaUsuarioService.cs` | Implementación servicio |
+| `Presentation/ContratistaUsuarioController.cs` | Controller `api/v1/contratista-usuarios` |
+
+### Endpoints
+
+```
+GET    /api/v1/contratista-usuarios?contractorId={id}          → lista usuarios de la empresa
+POST   /api/v1/contratista-usuarios?contractorId={id}          → invitar usuario
+PUT    /api/v1/contratista-usuarios/{id}?contractorId={id}     → actualizar rol/scope/proyectos
+DELETE /api/v1/contratista-usuarios/{id}?contractorId={id}     → desactivar (soft delete)
+```
+
+### Lógica de InvitarUsuarioAsync
+
+1. Valida `SystemRoleId ∈ {11, 49}` y `RolNombre ∈ {ADMIN, GESTOR}`
+2. Busca `app_user` por email — si no existe: crea uno nuevo con contraseña temporal aleatoria de 8 chars (BCrypt), `Active=true`, `EmailConfirmed=true`
+3. Inserta `user_role` con `SystemRoleId` si no existe ya
+4. Inserta `contractor_email` si no existe ya (`UserId + ContractorId`)
+5. Crea `ss_contratista_usuario`
+6. Si el `app_user` fue creado nuevo: envía email con asunto "Invitación a plataforma Abril - CASEVIP" con usuario + contraseña temporal
+
+### Reglas de validación
+
+- `RolNombre` válido para invitaciones/updates: solo `ADMIN` o `GESTOR`. El rol `OWNER` no puede asignarse ni desactivarse.
+- `SystemRoleId` válido: `11` (CONTRATISTA) o `49` (SERVICIO DE VIGILANCIA)
+- `scope = "POR_PROYECTO"` requiere `ProyectoIds` no vacío
+- `NombreCompleto` en `GetUsuariosAsync`: `COALESCE(Person.FullName, User.Email)` — fallback al email cuando `Person` es null
+
+### Roles del sistema — tabla completa conocida
+
+| role_id | descripción |
+|---------|-------------|
+| 11 | CONTRATISTA |
+| 49 | SERVICIO DE VIGILANCIA |
+| (ver sección 8 para ids 1–10) | — |
+
+### Contraseña temporal — generador
+
+```csharp
+private static string GenerarPasswordTemporal()
+{
+    const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+    return RandomNumberGenerator.GetString(chars, 8);
+}
+```
+Usa `System.Security.Cryptography.RandomNumberGenerator` — sin `0`, `O`, `I`, `l` para evitar confusión visual.

@@ -28,6 +28,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         [Column("creado_en")]
         public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
 
+        [Column("system_role_id")]
+        public int? SystemRoleId { get; set; }
+
         [Column("creado_por")]
         public int? CreadoPor { get; set; }
 

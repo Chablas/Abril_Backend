@@ -58,11 +58,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
             var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
+            var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
 
             var contractor = contractorEmail.Contractor;
             var contributor = contractor.Contributor;
 
-            return GenerarTokenDto(user, contractor, contributor, allowedFeatures);
+            return GenerarTokenDto(user, contractor, contributor, allowedFeatures, systemRoleIds);
         }
 
         public async Task<List<EmpresaSimpleDto>> GetEmpresasParaLoginAsync()
@@ -168,8 +169,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
             var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
+            var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
 
-            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures);
+            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures, systemRoleIds);
         }
 
         public async Task SolicitarResetPasswordAsync(SolicitarResetDto dto)
@@ -370,7 +372,13 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 """)
                 .ToListAsync();
 
-        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor, List<string> allowedFeatures)
+        private static Task<List<int>> GetSystemRoleIdsAsync(AppDbContext ctx, int userId)
+            => ctx.UserRole
+                .Where(ur => ur.UserId == userId && ur.Active && ur.State)
+                .Select(ur => ur.RoleId)
+                .ToListAsync();
+
+        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor, List<string> allowedFeatures, List<int> systemRoleIds)
         {
             var claims = new List<Claim>
             {
@@ -379,6 +387,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 new Claim(ClaimTypes.Role, "CONTRATISTA"),
                 new Claim("empresaId", contractor.ContributorId.ToString()),
                 new Claim("tipo", "CONTRATISTA"),
+                new Claim("systemRoles", string.Join(",", systemRoleIds)),
             };
 
             var key = new SymmetricSecurityKey(

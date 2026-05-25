@@ -2113,3 +2113,56 @@ private static string GenerarPasswordTemporal()
 }
 ```
 Usa `System.Security.Cryptography.RandomNumberGenerator` — sin `0`, `O`, `I`, `l` para evitar confusión visual.
+
+---
+
+## Sesión 2026-05-25 (continuación) — claim systemRoles + fixes inducciones-hoy
+
+### ContratistaAuthService — claim "systemRoles" en JWT
+
+`GenerarTokenDto` ahora recibe `List<int> systemRoleIds` y agrega:
+```csharp
+new Claim("systemRoles", string.Join(",", systemRoleIds))  // ej. "11,49"
+```
+Nuevo helper privado que carga los role_id del usuario:
+```csharp
+private static Task<List<int>> GetSystemRoleIdsAsync(AppDbContext ctx, int userId)
+    => ctx.UserRole
+        .Where(ur => ur.UserId == userId && ur.Active && ur.State)
+        .Select(ur => ur.RoleId)
+        .ToListAsync();
+```
+Llamado desde `LoginAsync` y `ActivarCuentaAsync` antes de invocar `GenerarTokenDto`.
+
+### InduccionController — SERVICIO DE VIGILANCIA (role 49) ve todas las empresas
+
+Después de forzar `empresaId` desde el JWT para CONTRATISTA, se anula el filtro si el usuario tiene `role_id = 49`:
+```csharp
+var systemRoles = User.FindFirst("systemRoles")?.Value ?? "";
+if (systemRoles.Split(',').Contains("49"))
+    empresaId = null;
+```
+Resultado: un usuario con `role_id = 49` ve inducciones de todas las empresas del proyecto, no solo la suya.
+
+⚠️ **Log temporal activo** en `InduccionController.GetList`:
+```csharp
+_logger.LogInformation("GetInducciones — empresaId={EmpresaId}, systemRoles={SystemRoles}", ...);
+```
+Quitar antes de merge a master.
+
+### ControlAccesoRepository.GetInduccionesHoyAsync — dos fixes
+
+1. **Estado corregido:** `"PROGRAMADA"` → `"Programado"` (valor real en BD).
+2. **Look-ahead eliminado:** la lógica condicional `hora >= 12 ? +2 días : +1 día` fue reemplazada por `fechaLimite = hoyLima.AddDays(1)` siempre. El endpoint muestra únicamente las inducciones de la fecha actual Lima sin anticipar el día siguiente.
+
+```csharp
+// Antes
+var ahoraLima = DateTime.UtcNow.AddHours(-5);
+var hoyLima = ahoraLima.Date;
+var mananaLima = hoyLima.AddDays(1);
+var fechaLimite = ahoraLima.Hour >= 12 ? mananaLima.AddDays(1) : mananaLima;
+
+// Ahora
+var hoyLima = DateTime.UtcNow.AddHours(-5).Date;
+var fechaLimite = hoyLima.AddDays(1);
+```

@@ -128,12 +128,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             // fecha_programada se almacena en hora local Lima (UTC-5)
-            var ahoraLima = DateTime.UtcNow.AddHours(-5);
-            var hoyLima = ahoraLima.Date;
-            var mananaLima = hoyLima.AddDays(1);
-            var fechaLimite = ahoraLima.Hour >= 12 ? mananaLima.AddDays(1) : mananaLima;
+            var hoyLima = DateTime.UtcNow.AddHours(-5).Date;
+            var fechaLimite = hoyLima.AddDays(1);
             var inducciones = await ctx.SsInduccion
-                .Where(i => i.Estado == "PROGRAMADA" &&
+                .Where(i => i.Estado == "Programado" &&
                             i.FechaProgramada >= hoyLima &&
                             i.FechaProgramada < fechaLimite)
                 .ToListAsync();

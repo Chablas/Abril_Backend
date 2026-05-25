@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-25 — Endpoint bulk-aprobar en Bandeja
+> Última actualización: 2026-05-25 — Bandeja bulk-aprobar, exclusiones, SharePoint multi-sitio, fix duplicados workers
 
 ---
 
@@ -2169,3 +2169,55 @@ var fechaLimite = ahoraLima.Hour >= 12 ? mananaLima.AddDays(1) : mananaLima;
 var hoyLima = DateTime.UtcNow.AddHours(-5).Date;
 var fechaLimite = hoyLima.AddDays(1);
 ```
+
+---
+
+## Sesión 2026-05-25 — Bandeja bulk-aprobar, exclusiones, SharePoint multi-sitio, fix duplicados workers
+
+### Bandeja — PATCH /bulk-aprobar
+
+Nuevo endpoint `PATCH /api/v1/habilitacion/bandeja/bulk-aprobar`.
+
+Body: `{ ids: int[], tipo: "TRABAJADOR"|"EMPRESA"|"EQUIPO"|"INDUCCION" }`
+Respuesta: `{ procesados: int, noEncontrados: int[] }`
+
+Implementación: itera los métodos unitarios existentes (`AprobarTrabajadorAsync`, `AprobarEmpresaAsync`, `AprobarEquipoAsync`) sin lógica nueva. Para INDUCCION usa `AprobarBatchAsync` que ya existía en `IInduccionRepository`. Sin cambios en `BandejaRepository` ni interfaces. DTOs: `BandejaBulkAprobarDto`, `BandejaBulkResultDto` en `BandejaAprobarDto.cs`.
+
+### Bandeja — exclusiones de ítems por segmento
+
+- **TRABAJADOR**: `item_id NOT IN (11, 12, 13)` — agrega ítem 12 (Inducción Obra) a la exclusión preexistente de 11 y 13.
+- **EMPRESA**: `AND he.item_id NOT IN (15, 16)` — nuevo filtro; antes no tenía ninguna exclusión.
+
+### SharePointHabService — multi-sitio
+
+Todos los archivos de habilitación (trabajadores, empresas, equipos, sctr) están en el sitio **SSOMAApps**, no en el sitio Habilitacion.
+
+- `ResolverSiteId(contexto)` — nuevo método; retorna siempre `SharePoint:Sites:SSOMAApps:SiteId`.
+- `ResolverLibraryId`: caso `"sctr"` → `SharePoint:Sites:SSOMAApps:SctrLibraryId`.
+- `GetDownloadUrlAsync` y `SubirArchivoAsync` usan `ResolverSiteId` en lugar del siteId hardcodeado.
+
+Config en `appsettings.Local.json` (gitignored):
+```json
+"SSOMAApps": {
+  "SiteId": "abrilinmob.sharepoint.com,d9e26806-...,a7b7032f-...",
+  "SctrLibraryId": "78ae8a4b-4d48-46f8-a3f9-0abf12277198"
+}
+```
+El `SctrLibraryId` fue movido de `Habilitacion` a `SSOMAApps`.
+
+### Fix duplicados en GET /habilitacion/trabajadores
+
+**Causa:** `WorkerProyecto` declara `public Worker? Worker { get; set; }` con `[ForeignKey]`. EF Core infería automáticamente la relación inversa `Worker HasMany WorkerProyecto`, generando un JOIN implícito a `ss_hab_worker_proyecto` en el query de listado — produciendo N filas por worker con N proyectos.
+
+**Fix en `AppDbContext.OnModelCreating`:**
+```csharp
+modelBuilder.Entity<WorkerProyecto>()
+    .HasOne(wp => wp.Worker)
+    .WithMany()
+    .HasForeignKey(wp => wp.WorkerId);
+```
+`WithMany()` sin parámetro suprime la colección inversa, eliminando el JOIN implícito.
+
+### Pendientes de código (debug logs temporales)
+
+- `HabTrabajadorRepository.GetWorkersHabilitacionAsync`: `Console.WriteLine("[DEBUG SQL] " + baseQuery.ToQueryString())` — quitar tras diagnóstico.

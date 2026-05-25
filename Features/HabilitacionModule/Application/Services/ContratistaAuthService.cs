@@ -57,7 +57,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (contractorEmail is null)
                 throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
-            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx);
+            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
 
             var contractor = contractorEmail.Contractor;
             var contributor = contractor.Contributor;
@@ -167,7 +167,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
                 ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
-            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx);
+            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
 
             return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures);
         }
@@ -358,13 +358,15 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             => ctx.SsResetToken.FirstOrDefaultAsync(t =>
                 t.Token == token && !t.Usado && t.ExpiraAt > DateTime.UtcNow);
 
-        private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx)
+        private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx, int userId)
             => ctx.Database.SqlQuery<string>($"""
-                SELECT f.feature_key
+                SELECT DISTINCT f.feature_key
                 FROM feature f
                 JOIN role_feature rf ON rf.feature_id = f.feature_id
-                JOIN role r ON r.role_id = rf.role_id
-                WHERE r.role_description = 'CONTRATISTA'
+                JOIN user_role ur ON ur.role_id = rf.role_id
+                WHERE ur.user_id = {userId}
+                  AND ur.active = true
+                  AND ur.state = true
                 """)
                 .ToListAsync();
 

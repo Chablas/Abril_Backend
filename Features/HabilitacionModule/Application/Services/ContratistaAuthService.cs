@@ -57,12 +57,13 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (contractorEmail is null)
                 throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
-            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx);
+            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
+            var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
 
             var contractor = contractorEmail.Contractor;
             var contributor = contractor.Contributor;
 
-            return GenerarTokenDto(user, contractor, contributor, allowedFeatures);
+            return GenerarTokenDto(user, contractor, contributor, allowedFeatures, systemRoleIds);
         }
 
         public async Task<List<EmpresaSimpleDto>> GetEmpresasParaLoginAsync()
@@ -167,9 +168,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
                 ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
-            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx);
+            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
+            var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
 
-            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures);
+            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures, systemRoleIds);
         }
 
         public async Task SolicitarResetPasswordAsync(SolicitarResetDto dto)
@@ -358,17 +360,25 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             => ctx.SsResetToken.FirstOrDefaultAsync(t =>
                 t.Token == token && !t.Usado && t.ExpiraAt > DateTime.UtcNow);
 
-        private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx)
+        private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx, int userId)
             => ctx.Database.SqlQuery<string>($"""
-                SELECT f.feature_key
+                SELECT DISTINCT f.feature_key
                 FROM feature f
                 JOIN role_feature rf ON rf.feature_id = f.feature_id
-                JOIN role r ON r.role_id = rf.role_id
-                WHERE r.role_description = 'CONTRATISTA'
+                JOIN user_role ur ON ur.role_id = rf.role_id
+                WHERE ur.user_id = {userId}
+                  AND ur.active = true
+                  AND ur.state = true
                 """)
                 .ToListAsync();
 
-        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor, List<string> allowedFeatures)
+        private static Task<List<int>> GetSystemRoleIdsAsync(AppDbContext ctx, int userId)
+            => ctx.UserRole
+                .Where(ur => ur.UserId == userId && ur.Active && ur.State)
+                .Select(ur => ur.RoleId)
+                .ToListAsync();
+
+        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor, List<string> allowedFeatures, List<int> systemRoleIds)
         {
             var claims = new List<Claim>
             {
@@ -377,6 +387,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 new Claim(ClaimTypes.Role, "CONTRATISTA"),
                 new Claim("empresaId", contractor.ContributorId.ToString()),
                 new Claim("tipo", "CONTRATISTA"),
+                new Claim("systemRoles", string.Join(",", systemRoleIds)),
             };
 
             var key = new SymmetricSecurityKey(

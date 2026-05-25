@@ -68,7 +68,14 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))
                         return StatusCode(403, new { message = "Token de contratista inválido." });
                     empresaId = empresaJwt;
+
+                    var systemRoles = User.FindFirst("systemRoles")?.Value ?? "";
+                    if (systemRoles.Split(',').Contains("49"))
+                        empresaId = null;
                 }
+
+                _logger.LogInformation("GetInducciones — empresaId={EmpresaId}, systemRoles={SystemRoles}",
+                    empresaId, User.FindFirst("systemRoles")?.Value);
 
                 var items = await _repo.GetAsync(proyectoId, empresaId, estado, fechaDesde, fechaHasta);
                 return Ok(items);

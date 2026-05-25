@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-24 — Fixes CONTRATISTA entregables; ResolverVigencia extendida; SharePoint por biblioteca propia
+> Última actualización: 2026-05-25 — Módulo multi-usuario contratista; claim systemRoles; fix inducciones-hoy
 
 ---
 
@@ -495,21 +495,23 @@ El token OAuth2 se cachea en la instancia. El driveId ya no es un string único 
 Antes lanzaba `AbrilException("Ya existe un usuario con este correo electrónico.", 400)`.  
 Ahora: si el `app_user` ya existe, reutiliza el usuario y actualiza la contraseña. Si no existe, crea el registro. En ambos casos verifica con `AnyAsync` antes de insertar `ContractorUser` y `UserRole` para evitar duplicados.
 
-### ContratistaAuthService — allowedFeatures desde BD
+### ContratistaAuthService — allowedFeatures desde BD (por roles del usuario)
 
 `GenerarTokenDto` recibe `List<string> allowedFeatures` como parámetro (antes era array hardcodeado).  
-Nuevo helper privado:
+Helper privado — **actualizado 2026-05-24** para cargar features de los roles asignados al usuario concreto en lugar del rol global `CONTRATISTA`:
 ```csharp
-private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx)
+private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx, int userId)
     => ctx.Database.SqlQuery<string>($"""
-        SELECT f.feature_key
+        SELECT DISTINCT f.feature_key
         FROM feature f
         JOIN role_feature rf ON rf.feature_id = f.feature_id
-        JOIN role r ON r.role_id = rf.role_id
-        WHERE r.role_description = 'CONTRATISTA'
+        JOIN user_role ur ON ur.role_id = rf.role_id
+        WHERE ur.user_id = {userId}
+          AND ur.active = true
+          AND ur.state = true
         """).ToListAsync();
 ```
-Llamado desde `LoginAsync` y `ActivarCuentaAsync`. Gestionar features del contratista directamente en `role_feature` BD.
+Llamado desde `LoginAsync` y `ActivarCuentaAsync` pasando `user.UserId`. Los features devueltos van en el **body del response** (`ContratistaTokenDto.AllowedFeatures`), no en el JWT. Para agregar/quitar features a un contratista concreto: modificar sus filas en `user_role` + `role_feature` en BD.
 
 ### ContratistaAuthService — claim empresaId usa ContributorId
 
@@ -1988,4 +1990,179 @@ El mismo método se llama en `SubirArchivoAsync` (con el `contexto` del request)
     }
   }
 }
+```
+
+---
+
+## Sesión 2026-05-24 — fixes auth contratistas + Sunat config
+
+### GetContratistasFeatureKeysAsync — features por usuario (no por rol global)
+
+Ver sección "ContratistaAuthService — allowedFeatures desde BD (por roles del usuario)" en sesión 2026-05-18 segunda parte — ya actualizada inline.
+
+### Sunat — sección de config ausente en appsettings (bug pendiente)
+
+`Program.cs` registra `ISunatService` leyendo `Sunat:BaseUrl` y `Sunat:Token`, pero **ningún appsettings tiene esa sección**. Resultado: `HttpClient.BaseAddress = null` → `GET /api/v1/contractorRegistration/ruc/{ruc}` devuelve 500 silencioso (el `catch` del controller no loguea la excepción).
+
+Fix pendiente — agregar en `appsettings.Production.json` y `appsettings.Local.json`:
+```json
+"Sunat": {
+  "BaseUrl": "https://api.decolecta.com",
+  "Token": "<mismo token que Reniec:Token>"
+}
+```
+El proveedor es el mismo que Reniec (`https://api.decolecta.com`). Confirmar si el token es el mismo.
+
+### contractor_person_type — valores solo en BD
+
+La tabla `contractor_person_type` clasifica el rol del contacto de una empresa (representante legal, técnico, etc.). Se crea en la migración `20260518193906` pero **no tiene seed data en el repo**. Los valores solo existen en la BD de producción. El endpoint `GET /api/v1/contractorRegistration/person-types` los expone.
+
+### ActivarMigracionAsync — un solo app_user para todos los contractor_email
+
+`ActivarMigracionAsync` crea/reutiliza **un único `app_user`** (el del `dto.Email`) y asigna ese `UserId` a **todos** los `contractor_email` del contractor sin filtro `Active`/`State`. El rol `RoleId = 11` (CONTRATISTA) está hardcodeado en el servicio.
+
+---
+
+## Sesión 2026-05-25 — módulo multi-usuario contratista
+
+### Nuevas tablas (creadas manualmente en pgAdmin)
+
+```sql
+CREATE TABLE IF NOT EXISTS ss_contratista_rol (id SERIAL PRIMARY KEY, nombre VARCHAR(50) NOT NULL UNIQUE);
+INSERT INTO ss_contratista_rol (nombre) VALUES ('OWNER'),('ADMIN'),('GESTOR') ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS ss_contratista_usuario (
+  id SERIAL PRIMARY KEY,
+  contractor_id INT NOT NULL REFERENCES contractor(contractor_id),
+  user_id INT NOT NULL REFERENCES app_user(user_id),
+  rol_id INT NOT NULL REFERENCES ss_contratista_rol(id),
+  system_role_id INT REFERENCES role(id),   -- añadido en segunda iteración
+  scope VARCHAR(20) NOT NULL DEFAULT 'TODOS',
+  activo BOOL NOT NULL DEFAULT true,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  creado_por INT REFERENCES app_user(user_id),
+  UNIQUE(contractor_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS ss_contratista_usuario_proyecto (
+  id SERIAL PRIMARY KEY,
+  contratista_usuario_id INT NOT NULL REFERENCES ss_contratista_usuario(id) ON DELETE CASCADE,
+  proyecto_id INT NOT NULL REFERENCES project(project_id),
+  UNIQUE(contratista_usuario_id, proyecto_id)
+);
+
+-- Añadido después:
+ALTER TABLE ss_contratista_usuario ADD COLUMN IF NOT EXISTS system_role_id INT REFERENCES role(id);
+UPDATE ss_contratista_usuario SET system_role_id = 11 WHERE rol_id = 1; -- OWNER → CONTRATISTA
+```
+
+### Archivos nuevos
+
+| Archivo | Descripción |
+|---|---|
+| `Infrastructure/Models/SsContratistaRol.cs` | Entidad `[Table("ss_contratista_rol")]` |
+| `Infrastructure/Models/SsContratistaUsuario.cs` | Entidad con `RolId` (interno) + `SystemRoleId` (FK→role) |
+| `Infrastructure/Models/SsContratistaUsuarioProyecto.cs` | Relación usuario↔proyecto |
+| `Application/Dtos/ContratistaUsuarios/ContratistaUsuarioDtos.cs` | `ContratistaUsuarioListDto`, `CreateDto`, `UpdateDto` |
+| `Infrastructure/Interfaces/IContratistaUsuarioRepository.cs` | Interfaz repositorio |
+| `Application/Interfaces/IContratistaUsuarioService.cs` | Interfaz servicio |
+| `Infrastructure/Repositories/ContratistaUsuarioRepository.cs` | Implementación repositorio |
+| `Application/Services/ContratistaUsuarioService.cs` | Implementación servicio |
+| `Presentation/ContratistaUsuarioController.cs` | Controller `api/v1/contratista-usuarios` |
+
+### Endpoints
+
+```
+GET    /api/v1/contratista-usuarios?contractorId={id}          → lista usuarios de la empresa
+POST   /api/v1/contratista-usuarios?contractorId={id}          → invitar usuario
+PUT    /api/v1/contratista-usuarios/{id}?contractorId={id}     → actualizar rol/scope/proyectos
+DELETE /api/v1/contratista-usuarios/{id}?contractorId={id}     → desactivar (soft delete)
+```
+
+### Lógica de InvitarUsuarioAsync
+
+1. Valida `SystemRoleId ∈ {11, 49}` y `RolNombre ∈ {ADMIN, GESTOR}`
+2. Busca `app_user` por email — si no existe: crea uno nuevo con contraseña temporal aleatoria de 8 chars (BCrypt), `Active=true`, `EmailConfirmed=true`
+3. Inserta `user_role` con `SystemRoleId` si no existe ya
+4. Inserta `contractor_email` si no existe ya (`UserId + ContractorId`)
+5. Crea `ss_contratista_usuario`
+6. Si el `app_user` fue creado nuevo: envía email con asunto "Invitación a plataforma Abril - CASEVIP" con usuario + contraseña temporal
+
+### Reglas de validación
+
+- `RolNombre` válido para invitaciones/updates: solo `ADMIN` o `GESTOR`. El rol `OWNER` no puede asignarse ni desactivarse.
+- `SystemRoleId` válido: `11` (CONTRATISTA) o `49` (SERVICIO DE VIGILANCIA)
+- `scope = "POR_PROYECTO"` requiere `ProyectoIds` no vacío
+- `NombreCompleto` en `GetUsuariosAsync`: `COALESCE(Person.FullName, User.Email)` — fallback al email cuando `Person` es null
+
+### Roles del sistema — tabla completa conocida
+
+| role_id | descripción |
+|---------|-------------|
+| 11 | CONTRATISTA |
+| 49 | SERVICIO DE VIGILANCIA |
+| (ver sección 8 para ids 1–10) | — |
+
+### Contraseña temporal — generador
+
+```csharp
+private static string GenerarPasswordTemporal()
+{
+    const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+    return RandomNumberGenerator.GetString(chars, 8);
+}
+```
+Usa `System.Security.Cryptography.RandomNumberGenerator` — sin `0`, `O`, `I`, `l` para evitar confusión visual.
+
+---
+
+## Sesión 2026-05-25 (continuación) — claim systemRoles + fixes inducciones-hoy
+
+### ContratistaAuthService — claim "systemRoles" en JWT
+
+`GenerarTokenDto` ahora recibe `List<int> systemRoleIds` y agrega:
+```csharp
+new Claim("systemRoles", string.Join(",", systemRoleIds))  // ej. "11,49"
+```
+Nuevo helper privado que carga los role_id del usuario:
+```csharp
+private static Task<List<int>> GetSystemRoleIdsAsync(AppDbContext ctx, int userId)
+    => ctx.UserRole
+        .Where(ur => ur.UserId == userId && ur.Active && ur.State)
+        .Select(ur => ur.RoleId)
+        .ToListAsync();
+```
+Llamado desde `LoginAsync` y `ActivarCuentaAsync` antes de invocar `GenerarTokenDto`.
+
+### InduccionController — SERVICIO DE VIGILANCIA (role 49) ve todas las empresas
+
+Después de forzar `empresaId` desde el JWT para CONTRATISTA, se anula el filtro si el usuario tiene `role_id = 49`:
+```csharp
+var systemRoles = User.FindFirst("systemRoles")?.Value ?? "";
+if (systemRoles.Split(',').Contains("49"))
+    empresaId = null;
+```
+Resultado: un usuario con `role_id = 49` ve inducciones de todas las empresas del proyecto, no solo la suya.
+
+⚠️ **Log temporal activo** en `InduccionController.GetList`:
+```csharp
+_logger.LogInformation("GetInducciones — empresaId={EmpresaId}, systemRoles={SystemRoles}", ...);
+```
+Quitar antes de merge a master.
+
+### ControlAccesoRepository.GetInduccionesHoyAsync — dos fixes
+
+1. **Estado corregido:** `"PROGRAMADA"` → `"Programado"` (valor real en BD).
+2. **Look-ahead eliminado:** la lógica condicional `hora >= 12 ? +2 días : +1 día` fue reemplazada por `fechaLimite = hoyLima.AddDays(1)` siempre. El endpoint muestra únicamente las inducciones de la fecha actual Lima sin anticipar el día siguiente.
+
+```csharp
+// Antes
+var ahoraLima = DateTime.UtcNow.AddHours(-5);
+var hoyLima = ahoraLima.Date;
+var mananaLima = hoyLima.AddDays(1);
+var fechaLimite = ahoraLima.Hour >= 12 ? mananaLima.AddDays(1) : mananaLima;
+
+// Ahora
+var hoyLima = DateTime.UtcNow.AddHours(-5).Date;
+var fechaLimite = hoyLima.AddDays(1);
 ```

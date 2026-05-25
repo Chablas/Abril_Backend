@@ -616,7 +616,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return entities.Select(e =>
             {
                 var workersDeEste = workersData.Where(x => x.SctrVidaLeyId == e.Id).ToList();
-                var itemTipo = sctrItem.FirstOrDefault(i => i.Nombre.Contains(e.Tipo));
+                var itemTipo = sctrItem.FirstOrDefault(i =>
+                    e.Tipo == "VIDA_LEY" ? i.Nombre.Contains("Vida") : i.Nombre.Contains("SCTR"));
 
                 var workersDto = workersDeEste.Select(w =>
                 {

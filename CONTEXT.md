@@ -495,21 +495,23 @@ El token OAuth2 se cachea en la instancia. El driveId ya no es un string único 
 Antes lanzaba `AbrilException("Ya existe un usuario con este correo electrónico.", 400)`.  
 Ahora: si el `app_user` ya existe, reutiliza el usuario y actualiza la contraseña. Si no existe, crea el registro. En ambos casos verifica con `AnyAsync` antes de insertar `ContractorUser` y `UserRole` para evitar duplicados.
 
-### ContratistaAuthService — allowedFeatures desde BD
+### ContratistaAuthService — allowedFeatures desde BD (por roles del usuario)
 
 `GenerarTokenDto` recibe `List<string> allowedFeatures` como parámetro (antes era array hardcodeado).  
-Nuevo helper privado:
+Helper privado — **actualizado 2026-05-24** para cargar features de los roles asignados al usuario concreto en lugar del rol global `CONTRATISTA`:
 ```csharp
-private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx)
+private static Task<List<string>> GetContratistasFeatureKeysAsync(AppDbContext ctx, int userId)
     => ctx.Database.SqlQuery<string>($"""
-        SELECT f.feature_key
+        SELECT DISTINCT f.feature_key
         FROM feature f
         JOIN role_feature rf ON rf.feature_id = f.feature_id
-        JOIN role r ON r.role_id = rf.role_id
-        WHERE r.role_description = 'CONTRATISTA'
+        JOIN user_role ur ON ur.role_id = rf.role_id
+        WHERE ur.user_id = {userId}
+          AND ur.active = true
+          AND ur.state = true
         """).ToListAsync();
 ```
-Llamado desde `LoginAsync` y `ActivarCuentaAsync`. Gestionar features del contratista directamente en `role_feature` BD.
+Llamado desde `LoginAsync` y `ActivarCuentaAsync` pasando `user.UserId`. Los features devueltos van en el **body del response** (`ContratistaTokenDto.AllowedFeatures`), no en el JWT. Para agregar/quitar features a un contratista concreto: modificar sus filas en `user_role` + `role_feature` en BD.
 
 ### ContratistaAuthService — claim empresaId usa ContributorId
 
@@ -1989,3 +1991,32 @@ El mismo método se llama en `SubirArchivoAsync` (con el `contexto` del request)
   }
 }
 ```
+
+---
+
+## Sesión 2026-05-24 — fixes auth contratistas + Sunat config
+
+### GetContratistasFeatureKeysAsync — features por usuario (no por rol global)
+
+Ver sección "ContratistaAuthService — allowedFeatures desde BD (por roles del usuario)" en sesión 2026-05-18 segunda parte — ya actualizada inline.
+
+### Sunat — sección de config ausente en appsettings (bug pendiente)
+
+`Program.cs` registra `ISunatService` leyendo `Sunat:BaseUrl` y `Sunat:Token`, pero **ningún appsettings tiene esa sección**. Resultado: `HttpClient.BaseAddress = null` → `GET /api/v1/contractorRegistration/ruc/{ruc}` devuelve 500 silencioso (el `catch` del controller no loguea la excepción).
+
+Fix pendiente — agregar en `appsettings.Production.json` y `appsettings.Local.json`:
+```json
+"Sunat": {
+  "BaseUrl": "https://api.decolecta.com",
+  "Token": "<mismo token que Reniec:Token>"
+}
+```
+El proveedor es el mismo que Reniec (`https://api.decolecta.com`). Confirmar si el token es el mismo.
+
+### contractor_person_type — valores solo en BD
+
+La tabla `contractor_person_type` clasifica el rol del contacto de una empresa (representante legal, técnico, etc.). Se crea en la migración `20260518193906` pero **no tiene seed data en el repo**. Los valores solo existen en la BD de producción. El endpoint `GET /api/v1/contractorRegistration/person-types` los expone.
+
+### ActivarMigracionAsync — un solo app_user para todos los contractor_email
+
+`ActivarMigracionAsync` crea/reutiliza **un único `app_user`** (el del `dto.Email`) y asigna ese `UserId` a **todos** los `contractor_email` del contractor sin filtro `Active`/`State`. El rol `RoleId = 11` (CONTRATISTA) está hardcodeado en el servicio.

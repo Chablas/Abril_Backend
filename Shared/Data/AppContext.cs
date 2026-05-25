@@ -157,6 +157,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsClinicaUsuario> SsClinicaUsuario => Set<SsClinicaUsuario>();
         public DbSet<SsClinicaToken> SsClinicaToken => Set<SsClinicaToken>();
         public DbSet<SsClinicaAuditoria> SsClinicaAuditoria => Set<SsClinicaAuditoria>();
+        public DbSet<SsContratistaRol> SsContratistaRoles { get; set; }
+        public DbSet<SsContratistaUsuario> SsContratistaUsuarios { get; set; }
+        public DbSet<SsContratistaUsuarioProyecto> SsContratistaUsuarioProyectos { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

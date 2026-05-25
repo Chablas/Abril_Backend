@@ -26,6 +26,8 @@ namespace Abril_Backend.Features.Habilitacion
             services.AddSingleton<ISharePointHabService, SharePointHabService>();
             services.AddScoped<ITrabajadorRestringidoRepository, TrabajadorRestringidoRepository>();
             services.AddScoped<ITrabajadorRestringidoService, TrabajadorRestringidoService>();
+            services.AddScoped<IContratistaUsuarioRepository, ContratistaUsuarioRepository>();
+            services.AddScoped<IContratistaUsuarioService, ContratistaUsuarioService>();
             return services;
         }
     }

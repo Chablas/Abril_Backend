@@ -241,7 +241,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 await _emailService.SendAsync(
                     to: to,
-                    subject: $"[EMO Programado] {workerNombre} — {fechaStr}",
+                    subject: $"[PRUEBAS - NO RESPONDER] [EMO Programado] {workerNombre} — {fechaStr}",
                     body: html,
                     isHtml: true);
 
@@ -373,7 +373,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 await _emailService.SendAsync(
                     to: to,
-                    subject: $"[EMO Confirmado] {workerNombre} — {fechaStr}",
+                    subject: $"[PRUEBAS - NO RESPONDER] [EMO Confirmado] {workerNombre} — {fechaStr}",
                     body: html,
                     isHtml: true);
             }

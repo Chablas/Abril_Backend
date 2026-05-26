@@ -661,13 +661,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (!string.IsNullOrEmpty(e.ArchivoUrl))
                 {
                     try { archivoUrl = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl); }
-                    catch { archivoUrl = null; }
+                    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl); archivoUrl = null; }
                 }
 
                 if (!string.IsNullOrEmpty(e.ArchivoUrl2))
                 {
                     try { archivoUrl2 = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl2); }
-                    catch { archivoUrl2 = null; }
+                    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl2); archivoUrl2 = null; }
                 }
 
                 return new SctrVidaLeyDto

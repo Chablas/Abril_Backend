@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-25 — SCTR BuildDtosAsync: Estado, FechaVencimiento, SharePoint URL resolution, fix itemTipo match
+> Última actualización: 2026-05-25 — SCTR: auto-aprobación Abril, SctrTrabajadorEstadoDto enriquecido, GetTrabajadoresPorEmpresa por vinculación
 
 ---
 
@@ -2292,3 +2292,38 @@ Logs observados al abrir una póliza SCTR:
 **Root cause probable:** los archivos en `SCTRVidaLey2026` no están en el subdirectorio `habilitacion/sctr/` — posiblemente en raíz de la biblioteca o en otra ruta. Verificar en `abrilinmob.sharepoint.com/sites/SSOMA-Powerapps/SCTRVidaLey2026`.
 
 **Pendiente:** confirmar ruta real de archivos SCTR en SharePoint. Si están en raíz, la columna `archivo_url` de `ss_sctr_vidaley` debería guardar solo el nombre de archivo sin prefijo `habilitacion/sctr/`. O bien, agregar lógica de strip/normalización en `NormalizarPath` de `SharePointHabService`.
+
+---
+
+## Sesión 2026-05-25 (continuación 2) — SCTR: auto-aprobación Abril, enriquecimiento GetTrabajadoresPorEmpresa
+
+### SctrVidaLeyRepository.BuildDtosAsync — Include Person + log diagnóstico
+
+- Join de workers usa `ctx.Worker.Include(x => x.Person)` (explícito, aunque EF ya hacía LEFT JOIN por la proyección)
+- `LogWarning` tras cargar `workersData`: emite hasta 3 avisos cuando un worker tiene `ApellidoNombre == null` (diagnóstico de datos huérfanos)
+
+### SctrVidaLeyRepository.CreateAsync — auto-aprobación para empresa Abril
+
+Cuando `esAbril == true && entity.ProyectoId.HasValue`, después del upsert de workers en `ss_hab_trabajador`:
+
+1. **Upsert `ss_hab_empresa`**: item 15 si `Tipo == "SCTR"`, item 16 si `Tipo == "VIDA_LEY"`. Lookup por `(EmpresaId, ProyectoId, ItemId)`. Si no existe: crea con `Mes/Anio` de la póliza. Si existe: actualiza `Estado` y `Vigencia`.
+2. **`entity.Estado = "Aprobado"`** — persiste en el mismo `SaveChangesAsync`.
+
+Los workers ya se aprobaban vía `estadoHab = esAbril ? "Aprobado" : "Enviado"` — el nuevo bloque completa la aprobación a nivel empresa y póliza.
+
+### SctrTrabajadorEstadoDto — tres campos nuevos
+
+`Features/HabilitacionModule/Application/Dtos/SctrVidaley/SctrTrabajadorEstadoDto.cs`:
+- `public string? EmpresaNombre { get; set; }` — nombre del contributor activo del worker
+- `public string? ProyectoNombre { get; set; }` — descripción del proyecto activo del worker
+- `public DateTime? FechaVencimiento { get; set; }` — vigencia de `ss_hab_trabajador` (item SCTR primero, VidaLey como fallback)
+
+### SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync — foreach async por vinculación
+
+El `workers.Select(w => {...}).ToList()` sícrono reemplazado por `foreach` async. Por cada worker:
+1. Query `WorkerVinculacion WHERE worker_id = w.Id AND fecha_fin IS NULL ORDER BY id DESC` → vinculación activa
+2. Si tiene `EmpresaId`: query `Contributor.ContributorName` → `EmpresaNombre`
+3. Si tiene `ProyectoId`: query `Project.ProjectDescription` → `ProyectoNombre`
+4. `FechaVencimiento` desde `habs` en memoria (`??=` — SCTR primero, VidaLey como fallback)
+
+Patrón `foreach` (en lugar de `Select + Task.WhenAll`) porque EF Core no permite queries concurrentes en el mismo `DbContext`. Los 3 queries por worker corren secuencialmente sobre el mismo `ctx`.

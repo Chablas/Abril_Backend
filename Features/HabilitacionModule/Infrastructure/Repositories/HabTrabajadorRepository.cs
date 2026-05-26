@@ -130,8 +130,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (!string.IsNullOrWhiteSpace(estadoHabilitacion))
                 baseQuery = baseQuery.Where(x => x.EstadoCalc == estadoHabilitacion);
 
-            Console.WriteLine("[DEBUG SQL] " + baseQuery.ToQueryString());
-
             var total = await baseQuery.CountAsync();
 
             var pageRows = await baseQuery

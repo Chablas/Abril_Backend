@@ -2327,3 +2327,76 @@ El `workers.Select(w => {...}).ToList()` sícrono reemplazado por `foreach` asyn
 4. `FechaVencimiento` desde `habs` en memoria (`??=` — SCTR primero, VidaLey como fallback)
 
 Patrón `foreach` (en lugar de `Select + Task.WhenAll`) porque EF Core no permite queries concurrentes en el mismo `DbContext`. Los 3 queries por worker corren secuencialmente sobre el mismo `ctx`.
+
+---
+
+## Sesión 2026-05-26 — Fix cruce SCTR/VidaLey + enriquecimiento EMO dashboard
+
+### SctrVidaLeyRepository — fix bug cruce SCTR ↔ Vida Ley
+
+**Root cause:** el lookup de `SsItemTrabajador` usaba `i.Nombre.Contains(itemNombreBuscar)` como filtro EF Core (traducido a `LIKE` case-sensitive en PG) sin filtrar por `Activo`. `GetTrabajadoresPorEmpresaAsync` sí filtraba por `Activo` — divergencia que podía hacer que Create/Update escribiera a un ítem distinto del que leía Get.
+
+**Fixes aplicados en CreateAsync, UpdateAsync, AprobarAsync:**
+```csharp
+// Antes (EF Core, sin Activo, case-sensitive):
+var item = await ctx.SsItemTrabajador
+    .Where(i => i.EsSctrVidaley && i.Nombre.Contains(itemNombreBuscar))
+    .FirstOrDefaultAsync();
+
+// Después (cliente, con Activo, OrdinalIgnoreCase):
+var sctrItems = await ctx.SsItemTrabajador
+    .Where(i => i.EsSctrVidaley && i.Activo)
+    .ToListAsync();
+var item = sctrItems.FirstOrDefault(i =>
+    i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
+```
+
+**Fix en `GetTrabajadoresPorEmpresaAsync`:** `itemSctr` ya usaba `ToListAsync()` con `Activo`, pero `Contains("SCTR")` era case-sensitive. Uniformizado a `OrdinalIgnoreCase` junto con `itemVidaLey`.
+
+**Logs debug eliminados:**
+- `HabTrabajadorRepository`: `Console.WriteLine("[DEBUG SQL] " + baseQuery.ToQueryString())`
+- `SctrVidaLeyRepository.AprobarAsync`: `LogInformation("[DEBUG AprobarAsync] ...")`
+- `SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync`: 10 líneas de `LogInformation("[GetTrabajadoresPorEmpresa]...")` y `LogInformation("[DEBUG] estadoVidaLey...")`
+
+### EmoRepository.ListPorTrabajador — enriquecimiento y filtros
+
+**Filtro EsAbril (empresa de vinculación):**
+```csharp
+q = q.Where(x => x.em != null && x.em.EsAbril);
+```
+`em` proviene del JOIN `Contributor on vv.EmpresaId` (vinculación activa), no de `EmpresaOrigenId`.
+
+**Nuevos JOINs en el query principal:**
+- `join eop in ctx.Contributor on ue.EmpresaOrigenId equals eop.ContributorId` → `EmpresaOrigenNombre` (empresa que emitió el EMO)
+- `join proy in ctx.Project on (vv != null ? vv.ProyectoId : -1) equals proy.ProjectId` → `ProyectoNombre`. Guardado `vv != null ?` para evitar match incorrecto cuando `vv` es null de `DefaultIfEmpty`.
+
+**Nuevos campos en `EmoPorTrabajadorDto`:** `EmpresaOrigenNombre`, `ProyectoNombre`, `ObraOficina` (directo de `x.w.ObraOficina`).
+
+**Búsqueda case-insensitive:** `Contains(term)` → `EF.Functions.ILike(field, $"%{term}%")` para `FullName` y `DocumentIdentityCode`. Funciona nativamente en PG sin `ToUpper`.
+
+### CatalogosRepository.ListEmpresas — filtro EsAbril hardcodeado
+
+Endpoint `GET /ssoma/catalogos/empresas` (dropdown de empresas en vista EMOs):
+```csharp
+// Antes:
+var q = ctx.Contributor.Where(e => e.State).AsQueryable();
+// Después:
+var q = ctx.Contributor.Where(e => e.State && e.EsAbril).AsQueryable();
+```
+
+### DashboardRepository.GetDashboard — workerIdsAbril para todos los conteos
+
+Todos los conteos del dashboard ahora se restringen a workers con vinculación activa a una empresa `EsAbril = true`:
+
+```csharp
+var workerIdsAbril = await ctx.WorkerVinculacion
+    .Where(v => v.FechaFin == null)
+    .Join(ctx.Contributor.Where(c => c.EsAbril),
+          v => v.EmpresaId, c => c.ContributorId, (v, c) => v.WorkerId)
+    .Distinct()
+    .ToListAsync();
+```
+
+Queries filtradas: `totalTrabajadores`, `totalAbril`, `totalContratistas`, `emosActivos` (propaga a `ultimosEmos`, `aptitud`, `emosVencidos`, `vencer`, `proximos`), `interconsultasPendientes` (`i.WorkerId`), `trabajadoresInhabilitados`.
+
+`programacionesSemana` (`SsProgramacionEmo`) no filtrado — es agenda de clínica, sin relación directa a `WorkerId`.

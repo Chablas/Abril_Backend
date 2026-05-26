@@ -7,6 +7,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string Dni { get; set; } = string.Empty;
         public int? EmpresaId { get; set; }
         public string? Empresa { get; set; }
+        public string? EmpresaOrigenNombre { get; set; }
+        public string? ProyectoNombre { get; set; }
+        public string? ObraOficina { get; set; }
         public string? TipoContrata { get; set; }
         public bool TieneEmo { get; set; }
         public int? EmoId { get; set; }

@@ -25,13 +25,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var hoy15 = hoy.AddDays(15);
             var hoy30 = hoy.AddDays(30);
 
-            var totalTrabajadores = await ctx.Worker.CountAsync();
-            var totalAbril = await ctx.Worker
-                .CountAsync(w => w.ContrataCasa != null && AbrilCategorias.Contains(w.ContrataCasa));
-            var totalContratistas = await ctx.Worker
-                .CountAsync(w => w.ContrataCasa == ContratistaCategoria);
+            var workerIdsAbril = await ctx.WorkerVinculacion
+                .Where(v => v.FechaFin == null)
+                .Join(ctx.Contributor.Where(c => c.EsAbril),
+                      v => v.EmpresaId, c => c.ContributorId, (v, c) => v.WorkerId)
+                .Distinct()
+                .ToListAsync();
 
-            var emosActivos = ctx.WorkerEmo.Where(e => e.Activo);
+            var totalTrabajadores = await ctx.Worker
+                .CountAsync(w => workerIdsAbril.Contains(w.Id));
+            var totalAbril = await ctx.Worker
+                .CountAsync(w => workerIdsAbril.Contains(w.Id)
+                              && w.ContrataCasa != null && AbrilCategorias.Contains(w.ContrataCasa));
+            var totalContratistas = await ctx.Worker
+                .CountAsync(w => workerIdsAbril.Contains(w.Id)
+                              && w.ContrataCasa == ContratistaCategoria);
+
+            var emosActivos = ctx.WorkerEmo
+                .Where(e => e.Activo && workerIdsAbril.Contains(e.WorkerId));
 
             var ultimosEmos = await emosActivos
                 .Where(e => !emosActivos.Any(e2 =>
@@ -74,13 +85,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
 
             var interconsultasPendientes = await ctx.SsInterconsulta
-                .CountAsync(i => i.Estado == "Pendiente");
+                .CountAsync(i => i.Estado == "Pendiente" && workerIdsAbril.Contains(i.WorkerId));
 
             var programacionesSemana = await ctx.SsProgramacionEmo
                 .CountAsync(p => p.FechaProgramada >= hoy && p.FechaProgramada <= hoy7
                               && p.Estado != "Cancelado");
 
-            var trabajadoresInhabilitados = await ctx.Worker.CountAsync(w => w.HabilitadoObra == false);
+            var trabajadoresInhabilitados = await ctx.Worker
+                .CountAsync(w => workerIdsAbril.Contains(w.Id) && w.HabilitadoObra == false);
 
             var proximos = await (
                 from e in emosActivos

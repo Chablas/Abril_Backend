@@ -114,14 +114,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from vv in vvJ.DefaultIfEmpty()
                 join em in ctx.Contributor on vv.EmpresaId equals em.ContributorId into emJ
                 from em in emJ.DefaultIfEmpty()
-                select new { w, ue, t, vv, em };
+                join eop in ctx.Contributor on ue.EmpresaOrigenId equals eop.ContributorId into eopJ
+                from eop in eopJ.DefaultIfEmpty()
+                join proy in ctx.Project on (vv != null ? vv.ProyectoId : -1) equals proy.ProjectId into proyJ
+                from proy in proyJ.DefaultIfEmpty()
+                select new { w, ue, t, vv, em, eop, proy };
+
+            q = q.Where(x => x.em != null && x.em.EsAbril);
 
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {
                 var term = filter.Search.Trim();
                 q = q.Where(x =>
-                    (x.w.Person != null && x.w.Person.FullName != null && x.w.Person.FullName.Contains(term))
-                    || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null && x.w.Person.DocumentIdentityCode.Contains(term)));
+                    (x.w.Person != null && x.w.Person.FullName != null &&
+                     EF.Functions.ILike(x.w.Person.FullName, $"%{term}%"))
+                    || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null &&
+                     EF.Functions.ILike(x.w.Person.DocumentIdentityCode, $"%{term}%")));
             }
             if (!string.IsNullOrWhiteSpace(filter.Aptitud))
                 q = q.Where(x => x.ue != null && x.ue.Aptitud == filter.Aptitud);
@@ -151,6 +159,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Dni = (x.w.Person != null ? x.w.Person.DocumentIdentityCode : null) ?? string.Empty,
                     EmpresaId = x.vv != null ? x.vv.EmpresaId : null,
                     Empresa = x.em != null ? x.em.ContributorName : null,
+                    EmpresaOrigenNombre = x.eop != null ? x.eop.ContributorName : null,
+                    ProyectoNombre = x.proy != null ? x.proy.ProjectDescription : null,
+                    ObraOficina = x.w.ObraOficina,
                     TipoContrata = x.w.ContrataCasa,
                     TieneEmo = x.ue != null,
                     EmoId = x.ue != null ? x.ue.Id : (int?)null,

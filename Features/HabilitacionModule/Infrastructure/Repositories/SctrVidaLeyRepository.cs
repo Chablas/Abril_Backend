@@ -118,9 +118,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 : (DateTime?)null;
 
             var itemNombreBuscar = dto.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
-            var item = await ctx.SsItemTrabajador
-                .Where(i => i.EsSctrVidaley && i.Nombre.Contains(itemNombreBuscar))
-                .FirstOrDefaultAsync();
+            var sctrItems = await ctx.SsItemTrabajador
+                .Where(i => i.EsSctrVidaley && i.Activo)
+                .ToListAsync();
+            var item = sctrItems.FirstOrDefault(i =>
+                i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
 
             if (item is not null)
             {
@@ -262,9 +264,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
 
             var itemNombreBuscar = dto.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
-            var item = await ctx.SsItemTrabajador
-                .Where(i => i.EsSctrVidaley && i.Nombre.Contains(itemNombreBuscar))
-                .FirstOrDefaultAsync();
+            var sctrItems = await ctx.SsItemTrabajador
+                .Where(i => i.EsSctrVidaley && i.Activo)
+                .ToListAsync();
+            var item = sctrItems.FirstOrDefault(i =>
+                i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
 
             if (item is not null)
             {
@@ -341,13 +345,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var entity = await ctx.SsSctrVidaley.FirstOrDefaultAsync(s => s.Id == id)
                 ?? throw new AbrilException("SCTR/VidaLey no encontrado.", 404);
 
-            _logger.LogInformation("[DEBUG AprobarAsync] polizaId={Id} tipo='{Tipo}' workerIdsAprobados=[{Workers}]",
-                id, entity.Tipo, string.Join(", ", dto.WorkerIdsAprobados));
-
             var itemNombreBuscar = entity.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
-            var item = await ctx.SsItemTrabajador
-                .Where(i => i.EsSctrVidaley && i.Nombre.Contains(itemNombreBuscar))
-                .FirstOrDefaultAsync();
+            var sctrItems = await ctx.SsItemTrabajador
+                .Where(i => i.EsSctrVidaley && i.Activo)
+                .ToListAsync();
+            var item = sctrItems.FirstOrDefault(i =>
+                i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
 
             var aprobados = dto.WorkerIdsAprobados.Distinct().ToList();
             var rechazados = dto.WorkerIdsRechazados.Distinct().ToList();
@@ -460,9 +463,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            _logger.LogInformation("[GetTrabajadoresPorEmpresa] INPUT empresaId={EmpresaId} proyectoId={ProyectoId} tipo={Tipo} tipoPoliza={TipoPoliza} estadoSctr={EstadoSctr} estadoVidaLey={EstadoVidaLey}",
-                empresaId, proyectoId, tipo, tipoPoliza, estadoSctr, estadoVidaLey);
-
             List<int> workerIds;
 
             if (!empresaId.HasValue)
@@ -471,13 +471,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 workerIds = await ctx.Worker
                     .Select(w => w.Id)
                     .ToListAsync();
-
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Sin empresaId → {Count} workers totales", workerIds.Count);
             }
             else
             {
                 int contributorId = empresaId.Value;
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] contributorId={ContributorId}", contributorId);
 
                 // WorkerVinculacion como fuente de verdad para empresa/proyecto activo
                 workerIds = await ctx.WorkerVinculacion
@@ -487,9 +484,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .Select(v => v.WorkerId)
                     .Distinct()
                     .ToListAsync();
-
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerVinculacion → {Count} workerIds: [{Ids}]",
-                    workerIds.Count, string.Join(",", workerIds));
 
                 // Suplemento: WorkerProyecto (multi-proyecto Casa) solo cuando hay filtro de proyecto
                 if (proyectoId.HasValue)
@@ -503,8 +497,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         .ToListAsync();
 
                     workerIds = workerIds.Union(idsProyecto).ToList();
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Suplemento WorkerProyecto (proyectoId={ProyectoId}) → union total {Count} workerIds",
-                        proyectoId.Value, workerIds.Count);
                 }
 
                 if (workerIds.Count == 0)
@@ -530,8 +522,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(i => i.EsSctrVidaley && i.Activo)
                 .ToListAsync();
 
-            var itemSctr = sctrItems.FirstOrDefault(i => i.Nombre.Contains("SCTR"));
-            var itemVidaLey = sctrItems.FirstOrDefault(i => i.Nombre.ToUpper().Contains("VIDA"));
+            var itemSctr = sctrItems.FirstOrDefault(i => i.Nombre.Contains("SCTR", StringComparison.OrdinalIgnoreCase));
+            var itemVidaLey = sctrItems.FirstOrDefault(i => i.Nombre.Contains("Vida", StringComparison.OrdinalIgnoreCase));
 
             var itemIdsRelevantes = sctrItems.Select(i => i.Id).ToList();
 
@@ -617,27 +609,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 });
             }
 
-            _logger.LogInformation("[GetTrabajadoresPorEmpresa] Antes de filtros de estado: {Total} trabajadores. itemSctr={ItemSctrId} itemVidaLey={ItemVidaLeyId}",
-                result.Count, itemSctr?.Id.ToString() ?? "null", itemVidaLey?.Id.ToString() ?? "null");
-
             // Filtros por estado (acepta múltiples valores separados por coma)
             if (!string.IsNullOrWhiteSpace(estadoSctr))
             {
                 var valoresSctr = estadoSctr.Replace("%2C", ",").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Aplicando filtro estadoSctr='{EstadoSctr}'", estadoSctr);
                 result = result.Where(r => valoresSctr.Contains(r.EstadoSctr, StringComparer.OrdinalIgnoreCase)).ToList();
             }
 
             if (!string.IsNullOrWhiteSpace(estadoVidaLey))
             {
-                _logger.LogInformation("[DEBUG] estadoVidaLey recibido='{EstadoVidaLey}' | workers EstadoVidaLey: [{Estados}]",
-                    estadoVidaLey, string.Join(", ", result.Select(r => $"w{r.WorkerId}={r.EstadoVidaLey}")));
                 var valoresVidaLey = estadoVidaLey.Replace("%2C", ",").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Aplicando filtro estadoVidaLey='{EstadoVidaLey}'", estadoVidaLey);
                 result = result.Where(r => valoresVidaLey.Contains(r.EstadoVidaLey, StringComparer.OrdinalIgnoreCase)).ToList();
             }
-
-            _logger.LogInformation("[GetTrabajadoresPorEmpresa] RESULTADO FINAL: {Count} trabajadores", result.Count);
 
             return result;
         }

@@ -92,6 +92,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == dto.WorkerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
+            if (dto.FechaProgramada == default)
+                throw new AbrilException("La fecha es obligatoria.", 400);
+
             var ent = new SsProgramacionEmo
             {
                 WorkerId = dto.WorkerId,

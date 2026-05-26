@@ -395,6 +395,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 Aptitud = dto.Aptitud,
                 RequiereInterconsulta = dto.RequiereInterconsulta,
                 NumeroInforme = dto.NumeroInforme,
+                FechaLectura = dto.FechaLectura,
                 UrlResultado = dto.UrlResultado,
                 Notas = dto.Notas,
                 Estado = "Vigente",
@@ -431,17 +432,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 });
             }
 
-            if (dto.Aptitud == "Observado" && dto.RequiereInterconsulta)
+            if (dto.InterconsultaInline != null ||
+                (dto.Aptitud == "Observado" && dto.RequiereInterconsulta) ||
+                dto.Aptitud == "No Apto")
             {
+                var ic = dto.InterconsultaInline;
                 ctx.SsInterconsulta.Add(new SsInterconsulta
                 {
                     EmoId = emo.Id,
                     WorkerId = emo.WorkerId,
-                    Especialidad = "Por definir",
-                    MedicoDerivaId = dto.MedicoId,
+                    Especialidad = ic?.Especialidad ?? "Por definir",
+                    MedicoDerivaId = ic?.MedicoDerivaId ?? dto.MedicoId,
                     FechaDerivacion = dto.FechaEmo,
+                    CentroAtencion = ic?.CentroAtencion,
+                    Diagnostico = ic?.Diagnostico,
+                    Cie10 = ic?.Cie10,
                     Estado = "Pendiente",
-                    RequiereSeguimiento = false,
+                    RequiereSeguimiento = ic?.RequiereSeguimiento ?? false,
                     RegistradoPorId = userId,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow

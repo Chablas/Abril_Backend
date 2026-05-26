@@ -2400,3 +2400,73 @@ var workerIdsAbril = await ctx.WorkerVinculacion
 Queries filtradas: `totalTrabajadores`, `totalAbril`, `totalContratistas`, `emosActivos` (propaga a `ultimosEmos`, `aptitud`, `emosVencidos`, `vencer`, `proximos`), `interconsultasPendientes` (`i.WorkerId`), `trabajadoresInhabilitados`.
 
 `programacionesSemana` (`SsProgramacionEmo`) no filtrado — es agenda de clínica, sin relación directa a `WorkerId`.
+
+---
+
+## Sesión 2026-05-26 (continuación) — EMO: InterconsultaInline, FechaLectura, bloque create expandido
+
+### WorkerEmo — nueva propiedad FechaLectura
+
+`Infrastructure/Models/WorkerEmo.cs`:
+```csharp
+[Column("fecha_lectura")]
+public DateOnly? FechaLectura { get; set; }
+```
+Insertada junto a `FechaVencimiento`. **Pendiente migración EF** (`dotnet ef migrations add AddFechaLecturaWorkerEmo`) para crear la columna `fecha_lectura` en BD.
+
+### EmoCreateDto — dos nuevos campos
+
+`Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/Emo/EmoCreateDto.cs`:
+```csharp
+public DateOnly? FechaLectura { get; set; }
+public InterconsultaInlineDto? InterconsultaInline { get; set; }
+```
+
+### EmoInterconsultaInlineDto — archivo nuevo
+
+`Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/Emo/EmoInterconsultaInlineDto.cs`:
+```csharp
+public class InterconsultaInlineDto
+{
+    public string Especialidad { get; set; } = string.Empty;
+    public string? CentroAtencion { get; set; }
+    public string? Diagnostico { get; set; }
+    public string? Cie10 { get; set; }
+    public int? MedicoDerivaId { get; set; }
+    public bool RequiereSeguimiento { get; set; }
+}
+```
+
+### EmoRepository.Create — bloque interconsulta expandido
+
+**Antes:** solo disparaba cuando `Aptitud == "Observado" && RequiereInterconsulta`.
+
+**Ahora:** dispara también cuando `InterconsultaInline != null` o `Aptitud == "No Apto"`. Usa los campos de `InterconsultaInline` con fallback a los valores originales:
+```csharp
+if (dto.InterconsultaInline != null ||
+    (dto.Aptitud == "Observado" && dto.RequiereInterconsulta) ||
+    dto.Aptitud == "No Apto")
+{
+    var ic = dto.InterconsultaInline;
+    ctx.SsInterconsulta.Add(new SsInterconsulta
+    {
+        Especialidad = ic?.Especialidad ?? "Por definir",
+        MedicoDerivaId = ic?.MedicoDerivaId ?? dto.MedicoId,
+        CentroAtencion = ic?.CentroAtencion,
+        Diagnostico = ic?.Diagnostico,
+        Cie10 = ic?.Cie10,
+        RequiereSeguimiento = ic?.RequiereSeguimiento ?? false,
+        // resto igual ...
+    });
+}
+```
+`CentroAtencion`, `Diagnostico`, `Cie10` ya existen en `SsInterconsulta` — no requieren migración.
+
+### EmoRepository.Create — FechaLectura en object initializer
+
+```csharp
+NumeroInforme = dto.NumeroInforme,
+FechaLectura = dto.FechaLectura,   // ← nuevo
+UrlResultado = dto.UrlResultado,
+```
+Depende de que se ejecute la migración de `WorkerEmo.FechaLectura` antes de correr en producción.

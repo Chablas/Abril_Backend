@@ -22,6 +22,9 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("fecha_vencimiento")]
         public DateOnly? FechaVencimiento { get; set; }
 
+        [Column("fecha_lectura")]
+        public DateOnly? FechaLectura { get; set; }
+
         [Column("resultado")]
         public string? Resultado { get; set; }
 

@@ -210,19 +210,33 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (!proyectoExiste)
                 throw new AbrilException("Proyecto no encontrado.", 404);
 
-            var yaActiva = await ctx.SsEmpresaProyecto
-                .AnyAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId && ep.Activo);
-            if (yaActiva)
-                throw new AbrilException("La empresa ya está activa en este proyecto.", 409);
+            // Si ya existe una fila para (empresa, proyecto) — reactivar en lugar de insertar
+            // para evitar violación de UNIQUE constraint (empresa_id, proyecto_id) cuando se
+            // re-activa un proyecto previamente desactivado.
+            var existente = await ctx.SsEmpresaProyecto
+                .FirstOrDefaultAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId);
 
-            ctx.SsEmpresaProyecto.Add(new SsEmpresaProyecto
+            if (existente != null)
             {
-                EmpresaId = empresaId,
-                ProyectoId = proyectoId,
-                Activo = true,
-                FechaInicio = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow
-            });
+                if (existente.Activo)
+                    throw new AbrilException("La empresa ya está activa en este proyecto.", 409);
+
+                existente.Activo      = true;
+                existente.FechaInicio = DateTime.UtcNow;
+                existente.FechaFin    = null;
+            }
+            else
+            {
+                ctx.SsEmpresaProyecto.Add(new SsEmpresaProyecto
+                {
+                    EmpresaId   = empresaId,
+                    ProyectoId  = proyectoId,
+                    Activo      = true,
+                    FechaInicio = DateTime.UtcNow,
+                    CreatedAt   = DateTime.UtcNow
+                });
+            }
+
             await ctx.SaveChangesAsync();
 
             await InicializarEntregablesEmpresaAsync(empresaId, proyectoId);

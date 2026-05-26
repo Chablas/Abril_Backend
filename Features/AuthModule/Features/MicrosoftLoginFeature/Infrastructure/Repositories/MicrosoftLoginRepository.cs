@@ -188,6 +188,37 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
             };
         }
 
+        public async Task<RoleSimpleDTO?> AssignRoleAsync(int userId, int roleId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var role = await ctx.Role.FirstOrDefaultAsync(r => r.RoleId == roleId);
+            if (role is null) return null;
+
+            var yaExiste = await ctx.UserRole
+                .AnyAsync(ur => ur.UserId == userId && ur.RoleId == roleId);
+
+            if (!yaExiste)
+            {
+                ctx.UserRole.Add(new UserRole
+                {
+                    UserId = userId,
+                    RoleId = roleId,
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = userId
+                });
+                await ctx.SaveChangesAsync();
+            }
+
+            return new RoleSimpleDTO
+            {
+                RoleId = role.RoleId,
+                RoleDescription = role.RoleDescription
+            };
+        }
+
         public async Task<UserDTO> CreateUserFromGraphAsync(MicrosoftProfileDto profile)
         {
             using var ctx = _factory.CreateDbContext();

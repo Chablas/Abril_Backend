@@ -5,7 +5,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     public interface ISolicitudSalidaService
     {
         Task<SolicitudSalidaFormDataDto> GetFormData(int? userId);
-        Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId);
+        Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
+        Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId);
         Task<int> Create(SolicitudSalidaCreateDto dto, int? userId);
 
         Task<string> ProcessAprobarFromEmail(string token);

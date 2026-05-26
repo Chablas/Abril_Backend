@@ -22,6 +22,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public DateTimeOffset CreatedAt { get; set; }
         /// <summary>True si todos los trayectos tienen al menos una captura — habilita la rendición.</summary>
         public bool PuedeRendirse { get; set; }
+        /// <summary>Hora real registrada por recepción. Dato extra, opcional.</summary>
+        public TimeOnly? HoraSalidaReal { get; set; }
+    }
+
+    public class RegistrarHoraSalidaRealDto
+    {
+        /// <summary>"HH:mm" o null para limpiar.</summary>
+        public TimeOnly? HoraSalidaReal { get; set; }
     }
 
     public class GestionSalidaFiltersDto
@@ -29,6 +37,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public int? WorkerId { get; set; }
         public int? LugarProyectoId { get; set; }
         public string? EstadoRendicion { get; set; }
+        /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | null para todos.</summary>
+        public string? EstadoAprobacion { get; set; }
     }
 
     public class MarcarRendidasBulkDto
@@ -75,6 +85,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
         public List<GestionSalidaCapturaDto> Capturas { get; set; } = new();
+        /// <summary>Monto del catálogo ga_trayecto si aplica (worker TI + match origen/destino).</summary>
+        public decimal? MontoCatalogo { get; set; }
+        /// <summary>Monto efectivo: sum(capturas) si hay; sino MontoCatalogo si aplica; sino 0.</summary>
+        public decimal MontoTotal { get; set; }
     }
 
     public class GestionSalidaDetalleDto
@@ -119,5 +133,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string? Ruc { get; set; }
         /// <summary>Suma de los montos de las capturas de este trayecto (columna IMPORTE).</summary>
         public decimal Importe { get; set; }
+        /// <summary>True si el importe proviene del catálogo ga_trayecto (incluso si vale 0).</summary>
+        public bool EsCatalogo { get; set; }
     }
 }

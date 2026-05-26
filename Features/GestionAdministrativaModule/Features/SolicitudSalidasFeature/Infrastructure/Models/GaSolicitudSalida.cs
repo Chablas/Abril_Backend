@@ -15,6 +15,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public DateTimeOffset? FechaDecision { get; set; }
         public string? MotivoRechazo { get; set; }
         public int? RendicionId { get; set; }
+        /// <summary>Hora real en la que la persona salió, registrada por recepción. Dato extra — no bloquea ningún flujo.</summary>
+        public TimeOnly? HoraSalidaReal { get; set; }
+        public int? HoraSalidaRealRegistradaPorId { get; set; }
+        public DateTimeOffset? HoraSalidaRealRegistradaAt { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
     }

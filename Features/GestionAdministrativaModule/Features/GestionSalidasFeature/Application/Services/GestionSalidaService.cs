@@ -129,6 +129,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public Task Rechazar(int id, int reviewerUserId)
             => _repo.Rechazar(id, reviewerUserId);
 
+        public Task SetHoraSalidaReal(int id, TimeOnly? hora, int registradaPorUserId)
+            => _repo.SetHoraSalidaReal(id, hora, registradaPorUserId);
+
         public async Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId)
         {
             // 1. Pre-flight: ¿cuáles serían marcables? — sin tocar BD.
@@ -136,12 +139,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             if (elegiblesIds.Count == 0)
                 throw new AbrilException("No hay solicitudes elegibles para rendir (deben estar aprobadas y no rendidas).", 400);
 
-            // 1.b. Bloqueo: cada trayecto de cada solicitud debe tener al menos una captura.
+            // 1.b. Bloqueo: cada trayecto de cada solicitud debe estar cubierto.
+            //       Regla normal: trayecto con al menos 1 captura.
+            //       Regla TI (Tecnología de la Información): captura O match contra ga_trayecto.
             var sinCapturas = await _repo.GetIdsConTrayectosSinCapturas(elegiblesIds);
             if (sinCapturas.Count > 0)
                 throw new AbrilException(
-                    $"No se puede rendir: {sinCapturas.Count} solicitud(es) tienen trayectos sin capturas (IDs: {string.Join(", ", sinCapturas)}). " +
-                    "Todos los trayectos de la solicitud deben tener al menos una captura con monto antes de rendirla.",
+                    $"No se puede rendir: {sinCapturas.Count} solicitud(es) tienen trayectos sin cubrir (IDs: {string.Join(", ", sinCapturas)}). " +
+                    "Cada trayecto debe tener al menos una captura con monto, o (para trabajadores de Tecnología de la Información) un trayecto registrado en el catálogo.",
                     400);
 
             // 2. Cargar info y generar PDF en memoria.
@@ -342,8 +347,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         table.Cell().Element(Td).Text(it.Motivo ?? "");
                         table.Cell().Element(Td).Text(it.LugarOrigen ?? "");
                         table.Cell().Element(Td).Text(it.LugarDestino ?? "");
+                        // Importe: mostrar siempre que venga del catálogo (incluso si es 0.00)
+                        // o cuando la suma de capturas sea > 0. Si el trayecto no tiene
+                        // ninguna fuente, dejar la celda vacía.
                         table.Cell().Element(Td).AlignRight().Text(
-                            it.Importe > 0 ? it.Importe.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE")) : "");
+                            (it.EsCatalogo || it.Importe > 0)
+                                ? it.Importe.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))
+                                : "");
                     }
 
                     if (isLastPage)

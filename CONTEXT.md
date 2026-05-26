@@ -2520,3 +2520,28 @@ case "Aceptar":
     await EnviarNotificacionAceptacionAsync(ctx, ent, worker);
     break;
 ```
+
+### Fix: campos incorrectos en EnviarNotificacionAceptacionAsync
+
+`p.EmailAdministrador` y `p.EmailSsoma` no existen en `Shared/Models/Project.cs`. Corregidos:
+- `p.EmailAdministrador` → `p.EmailCoordAdmin`
+- `p.EmailSsoma` → `p.EmailCoordSsoma`
+
+Campos correctos de `Project.cs`: `EmailResidente` (31), `EmailResponsable` (32), `EmailRrhh` (33), `EmailCoordSsoma` (34), `EmailCoordAdmin` (35).
+
+### Contributor.EmailAdministrador — nueva propiedad
+
+`Features/CostsModule/Shared/Models/Contributor.cs`:
+```csharp
+[Column("email_administrador")]
+public string? EmailAdministrador { get; set; }
+```
+
+### Migraciones aplicadas — 2026-05-26
+
+| Migration | Descripción | Aplicada |
+|---|---|---|
+| `20260526162047_AddEmailAdministradorContributor` | SQL idempotente: ADD COLUMN email_administrador en contributor + fecha_lectura en worker_emos + tablas ga_* + ss_contratista_* (IF NOT EXISTS) | ✅ |
+| `20260526162657_SyncSnapshot` | Migración vacía — sincroniza snapshot EF sin cambios en BD | ✅ |
+
+Ambas aplicadas con `dotnet ef database update --project Abril-Backend.csproj`.

@@ -289,11 +289,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     {
                         var projectEmails = await ctx.Project.AsNoTracking()
                             .Where(p => p.ProjectId == proyecto.ProjectId)
-                            .Select(p => new { p.EmailAdministrador, p.EmailResidente, p.EmailSsoma })
+                            .Select(p => new { p.EmailCoordAdmin, p.EmailResidente, p.EmailCoordSsoma })
                             .FirstOrDefaultAsync();
-                        toRaw.Add(projectEmails?.EmailAdministrador);
+                        toRaw.Add(projectEmails?.EmailCoordAdmin);
                         toRaw.Add(projectEmails?.EmailResidente);
-                        toRaw.Add(projectEmails?.EmailSsoma);
+                        toRaw.Add(projectEmails?.EmailCoordSsoma);
                     }
                     toRaw.Add(medOcupacional);
                 }
@@ -305,11 +305,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     {
                         var projectEmails = await ctx.Project.AsNoTracking()
                             .Where(p => p.ProjectId == proyecto.ProjectId)
-                            .Select(p => new { p.EmailAdministrador, p.EmailResidente, p.EmailSsoma })
+                            .Select(p => new { p.EmailCoordAdmin, p.EmailResidente, p.EmailCoordSsoma })
                             .FirstOrDefaultAsync();
                         toRaw.Add(projectEmails?.EmailResidente);
-                        toRaw.Add(projectEmails?.EmailAdministrador);
-                        toRaw.Add(projectEmails?.EmailSsoma);
+                        toRaw.Add(projectEmails?.EmailCoordAdmin);
+                        toRaw.Add(projectEmails?.EmailCoordSsoma);
                     }
                 }
                 else if (esOficinaCentral)

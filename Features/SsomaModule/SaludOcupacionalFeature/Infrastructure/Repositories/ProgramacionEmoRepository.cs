@@ -282,9 +282,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     proyecto = await ctx.Project.AsNoTracking()
                         .FirstOrDefaultAsync(p => p.ProjectId == vinculacion.ProyectoId.Value);
 
+                var adminEmail = worker.ContributorId.HasValue
+                    ? await ctx.Contributor.AsNoTracking()
+                        .Where(c => c.ContributorId == worker.ContributorId.Value)
+                        .Select(c => c.EmailAdministrador)
+                        .FirstOrDefaultAsync()
+                    : null;
+
                 if (esObrero)
                 {
-                    // Obrero: administrador del proyecto + SSOMA + residente + médico ocupacional
+                    // Obrero: administrador del proyecto + SSOMA + residente + médico ocupacional + admin empresa
                     if (proyecto != null)
                     {
                         var projectEmails = await ctx.Project.AsNoTracking()
@@ -296,10 +303,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         toRaw.Add(projectEmails?.EmailCoordSsoma);
                     }
                     toRaw.Add(medOcupacional);
+                    toRaw.Add(adminEmail);
                 }
                 else if (esStaff)
                 {
-                    // Staff: correo corporativo + residente + administrador + SSOMA
+                    // Staff: correo corporativo + residente + administrador + SSOMA + admin empresa
                     toRaw.Add(worker.EmailCorporativo);
                     if (proyecto != null)
                     {
@@ -311,13 +319,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         toRaw.Add(projectEmails?.EmailCoordAdmin);
                         toRaw.Add(projectEmails?.EmailCoordSsoma);
                     }
+                    toRaw.Add(adminEmail);
                 }
                 else if (esOficinaCentral)
                 {
-                    // Oficina Central: correo corporativo + jefatura + GTH + médico ocupacional
+                    // Oficina Central: correo corporativo + jefatura + GTH + médico ocupacional + admin empresa
                     toRaw.Add(worker.EmailCorporativo);
                     toRaw.Add(gth);
                     toRaw.Add(medOcupacional);
+                    toRaw.Add(adminEmail);
                     if (!string.IsNullOrWhiteSpace(worker.Jefatura))
                     {
                         var jefaturaEmails = await ctx.CatJefatura.AsNoTracking()

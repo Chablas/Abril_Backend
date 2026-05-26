@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-25 — Bandeja bulk-aprobar, exclusiones, SharePoint multi-sitio, fix duplicados workers
+> Última actualización: 2026-05-25 — SCTR BuildDtosAsync: Estado, FechaVencimiento, SharePoint URL resolution, fix itemTipo match
 
 ---
 
@@ -2221,3 +2221,74 @@ modelBuilder.Entity<WorkerProyecto>()
 ### Pendientes de código (debug logs temporales)
 
 - `HabTrabajadorRepository.GetWorkersHabilitacionAsync`: `Console.WriteLine("[DEBUG SQL] " + baseQuery.ToQueryString())` — quitar tras diagnóstico.
+- `SctrVidaLeyRepository.AprobarAsync`: log `[DEBUG AprobarAsync]` al inicio — quitar antes de merge.
+- `SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync`: varios `LogInformation("[GetTrabajadoresPorEmpresa]...")` y `LogInformation("[DEBUG] estadoVidaLey...")` — quitar antes de merge.
+
+---
+
+## Sesión 2026-05-25 — SctrVidaLeyRepository BuildDtosAsync y diagnóstico SharePoint SCTR
+
+### SctrWorkerDto — nuevos campos
+
+`Features/HabilitacionModule/Application/Dtos/SctrVidaley/SctrWorkerDto.cs`:
+- `public string Estado { get; set; } = "Falta"` — estado textual del entregable SCTR/VidaLey del worker
+- `public DateTime? FechaVencimiento { get; set; }` — vigencia desde `ss_hab_trabajador.vigencia`
+
+### SctrVidaLeyRepository.BuildDtosAsync — refactor completo
+
+**Problema 1 — itemTipo match:** `e.Tipo == "VIDA_LEY"` nunca matcheaba con el nombre BD "Vida Ley". Fix:
+```csharp
+var itemTipo = sctrItem.FirstOrDefault(i =>
+    e.Tipo == "VIDA_LEY" ? i.Nombre.Contains("Vida") : i.Nombre.Contains("SCTR"));
+```
+Mismo patrón ya aplicado en `CreateAsync`, `UpdateAsync`, `AprobarAsync`.
+
+**Problema 2 — hab fuera de scope:** `hab` estaba declarado dentro del `if (itemTipo is not null)` pero sus campos se usaban en el return fuera. Fix: elevar `estadoWorker` y `fechaVencimiento` antes del bloque:
+```csharp
+var aprobado = false;
+var estadoWorker = "Falta";
+int? sctrHabId = null;
+DateTime? fechaVencimiento = null;
+if (itemTipo is not null)
+{
+    var hab = habs.FirstOrDefault(h => h.WorkerId == w.WorkerId && h.ItemId == itemTipo.Id);
+    if (hab is not null)
+    {
+        aprobado = hab.Estado == "Aprobado";
+        estadoWorker = hab.Estado ?? "Falta";
+        sctrHabId = hab.Id;
+        fechaVencimiento = hab.Vigencia;
+    }
+}
+return new SctrWorkerDto { ..., Estado = estadoWorker, FechaVencimiento = fechaVencimiento };
+```
+
+**Problema 3 — `static` impide acceder a `_sharePoint`:** `BuildDtosAsync` era `private static`. Removido `static`.
+
+**Problema 4 — `Select` síncrono con `await` dentro:** Cambiado a `Select(async e => {...})` + `Task.WhenAll`:
+```csharp
+var tasks = entities.Select(async e => { ... });
+return (await Task.WhenAll(tasks)).ToList();
+```
+
+**Resolución URLs:** `_sharePoint.GetDownloadUrlAsync` inyectado en el método; `ISharePointHabService` añadido al constructor. Por cada póliza, antes del return:
+```csharp
+if (!string.IsNullOrEmpty(e.ArchivoUrl))
+{
+    try { archivoUrl = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl); }
+    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl); archivoUrl = null; }
+}
+```
+Idem para `ArchivoUrl2`.
+
+### Diagnóstico SharePoint SCTR — 404 en /content
+
+Logs observados al abrir una póliza SCTR:
+- OAuth2 token: 200 ✅
+- Drive `SCTRVidaLey2026` resuelto (200): `b!Bmji2TXVU0OWEBlZeOIDkC8Dt6ceUVNLiodQihkLPHxLiq54SE34RqP5Cr8SJ3GY` ✅
+- `/drives/{driveId}/root:/habilitacion/sctr/20260525_VIDA_LEY_...pdf:/content` → **NotFound (404)** ⚠️
+- No se lanza excepción — `GetDownloadUrlAsync` retorna `null` internamente al recibir 404
+
+**Root cause probable:** los archivos en `SCTRVidaLey2026` no están en el subdirectorio `habilitacion/sctr/` — posiblemente en raíz de la biblioteca o en otra ruta. Verificar en `abrilinmob.sharepoint.com/sites/SSOMA-Powerapps/SCTRVidaLey2026`.
+
+**Pendiente:** confirmar ruta real de archivos SCTR en SharePoint. Si están en raíz, la columna `archivo_url` de `ss_sctr_vidaley` debería guardar solo el nombre de archivo sin prefijo `habilitacion/sctr/`. O bien, agregar lógica de strip/normalización en `NormalizarPath` de `SharePointHabService`.

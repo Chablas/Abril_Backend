@@ -17,19 +17,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     {
         private readonly IEmoService _service;
         private readonly ILogger<EmoController> _logger;
-        private readonly ISharePointHabService _sharePoint;
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ISharePointHabService _sharePoint;
 
         public EmoController(
             IEmoService service,
             ILogger<EmoController> logger,
-            ISharePointHabService sharePoint,
-            IDbContextFactory<AppDbContext> factory)
+            IDbContextFactory<AppDbContext> factory,
+            ISharePointHabService sharePoint)
         {
             _service = service;
             _logger = logger;
-            _sharePoint = sharePoint;
             _factory = factory;
+            _sharePoint = sharePoint;
         }
 
         private int? CurrentUserId()

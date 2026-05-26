@@ -2598,6 +2598,40 @@ DiasRestantesEmo = emoVenc.HasValue ? (int?)(emoVenc.Value.DayNumber - today.Day
 ```
 `FechaVencimiento` en `WorkerEmo` es `DateOnly?` — días calculados con `DayNumber` (sin conversión de zona horaria).
 
+---
+
+## Sesión 2026-05-26 (continuación 3) — EMO: EsAbril, TipoEmoId nullable, upload documentos, notificaciones
+
+### EmoCreateDto.TipoEmoId → int?
+
+`Features/SsomaModule/.../Application/Dtos/Emo/EmoCreateDto.cs`: `int TipoEmoId` → `int? TipoEmoId`. Evita que el frontend envíe `0` cuando no hay tipo seleccionado (antes deserializaba como 0 y rompía silenciosamente).
+
+`EmoService.ValidarComun`: firma actualizada a `int? tipoEmoId`, validación cambiada a `!tipoEmoId.HasValue || tipoEmoId.Value <= 0`.
+
+### EmoAutoProgramacionService — filtro EsAbril + usar IProgramacionEmoRepository
+
+**Filtro EsAbril** en query de candidatos — nuevo join y condición:
+```csharp
+join contrib in ctx.Contributor on v.EmpresaId equals contrib.ContributorId
+where ... && contrib.EsAbril
+```
+
+**Refactor bloque inserción** — reemplaza inserción directa `ctx.SsProgramacionEmo.Add` + `SaveChangesAsync` por:
+```csharp
+await _progRepo.Create(new ProgramacionCreateDto
+{
+    WorkerId        = c.Emo.WorkerId,
+    EmpresaId       = c.Vinculacion.EmpresaId,
+    TipoEmoId       = tipoEmoId,
+    FechaProgramada = fechaProg,
+    Origen          = "Automatico",
+    Motivo          = "Programación automática por vencimiento de EMO",
+}, userId: null);
+```
+Así el cron reutiliza el mismo flujo que una programación manual, incluyendo el envío de correo a la clínica.
+
+Constructor actualizado — `IProgramacionEmoRepository progRepo` inyectado. `IProgramacionEmoRepository` ya estaba registrado en `SsomaModule.cs`.
+
 ### ProgramacionEmoRepository.Create — validación FechaProgramada
 
 ```csharp
@@ -2613,3 +2647,14 @@ En `case "Aceptar"`: si la clínica envía `CheckInHora`, se actualiza `HoraProg
 if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
 ```
 `horaStr` en ambos métodos de notificación ya usaba `prog.HoraProgramada` — sin cambio adicional.
+
+### Upload documentos EMO a SharePoint
+
+`POST api/v1/ssoma/salud-ocupacional/emos/{emoId}/documentos` — `[FromForm] IFormFile file, [FromForm] string tipo` (`Aptitud` | `EMO`).
+- `EmoController` inyecta `ISharePointHabService` + `IDbContextFactory<AppDbContext>`
+- Construye `{DNI}_{tipo}_{yyyyMMdd}.pdf`, contexto `emo-aptitud` o `emo-completo`
+- Guarda path en `WorkerEmo.UrlAptitud` o `WorkerEmo.UrlEmoCompleto`
+
+`SharePointHabService.ResolverLibraryId`: nuevos casos `emo-aptitud` → `AptitudesLibraryId`, `emo-completo` → `EMOSLibraryId` (ambos bajo `SharePoint:Sites:SSOMAApps`).
+
+`WorkerEmo`: `UrlAptitud` y `UrlEmoCompleto` (text, nullable). Migración `AddUrlDocumentosWorkerEmo` aplicada.

@@ -3,7 +3,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
     public class EmoCreateDto
     {
         public int WorkerId { get; set; }
-        public int TipoEmoId { get; set; }
+        public int? TipoEmoId { get; set; }
         public int? EmpresaOrigenId { get; set; }
         public DateOnly FechaEmo { get; set; }
         public int? ClinicaId { get; set; }

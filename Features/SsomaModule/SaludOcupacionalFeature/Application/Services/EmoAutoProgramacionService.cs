@@ -1,5 +1,7 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
@@ -10,13 +12,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     public class EmoAutoProgramacionService : IEmoAutoProgramacionService
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IProgramacionEmoRepository _progRepo;
         private readonly ILogger<EmoAutoProgramacionService> _logger;
 
         public EmoAutoProgramacionService(
             IDbContextFactory<AppDbContext> factory,
+            IProgramacionEmoRepository progRepo,
             ILogger<EmoAutoProgramacionService> logger)
         {
             _factory = factory;
+            _progRepo = progRepo;
             _logger = logger;
         }
 
@@ -35,10 +40,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 join w in ctx.Worker on e.WorkerId equals w.Id
                 join t in ctx.SsEmoTipo on e.TipoEmoId equals t.Id
                 join v in ctx.WorkerVinculacion on w.Id equals v.WorkerId
+                join contrib in ctx.Contributor on v.EmpresaId equals contrib.ContributorId
                 where e.Activo
                     && t.RequiereNuevo
                     && t.VigenciaMeses != null
                     && v.FechaFin == null
+                    && contrib.EsAbril
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) >= hoy.AddDays(1)
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) <= ventanaFin
@@ -102,23 +109,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     var fechaMinima = SiguienteDiaHabil(SiguienteDiaHabil(hoy, esOficina), esOficina);
                     var fechaProg = fechaDesdeVencimiento > fechaMinima ? fechaDesdeVencimiento : fechaMinima;
 
-                    var nueva = new SsProgramacionEmo
+                    await _progRepo.Create(new ProgramacionCreateDto
                     {
-                        WorkerId = c.Emo.WorkerId,
-                        EmpresaId = c.Vinculacion.EmpresaId,
-                        TipoEmoId = tipoEmoId,
+                        WorkerId        = c.Emo.WorkerId,
+                        EmpresaId       = c.Vinculacion.EmpresaId,
+                        TipoEmoId       = tipoEmoId,
                         FechaProgramada = fechaProg,
-                        Estado = "Programado",
-                        Origen = "Automatico",
-                        Motivo = "Programación automática por vencimiento de EMO",
-                        RegistradoPorId = null,
-                        ClinicaId = null,
-                        CreatedAt = DateTimeOffset.UtcNow,
-                        UpdatedAt = DateTimeOffset.UtcNow
-                    };
-
-                    ctx.SsProgramacionEmo.Add(nueva);
-                    await ctx.SaveChangesAsync();
+                        Origen          = "Automatico",
+                        Motivo          = "Programación automática por vencimiento de EMO",
+                    }, userId: null);
 
                     result.Procesados++;
                     result.Detalle.Add(

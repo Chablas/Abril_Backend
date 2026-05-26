@@ -163,9 +163,27 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var proyectoMap = proyectos.ToDictionary(p => p.ProjectId, p => p.ProjectDescription);
 
+            var workerIds = pageRows.Select(r => r.Worker.Id).ToList();
+
+            var emoMap = await ctx.WorkerEmo
+                .Where(e => workerIds.Contains(e.WorkerId) && e.Activo
+                         && (e.Estado == "Vigente" || e.Estado == "Convalidado"))
+                .GroupBy(e => e.WorkerId)
+                .Select(g => new
+                {
+                    WorkerId = g.Key,
+                    FechaVencimiento = g.OrderByDescending(e => e.FechaVencimiento)
+                                        .Select(e => e.FechaVencimiento)
+                                        .FirstOrDefault()
+                })
+                .ToDictionaryAsync(x => x.WorkerId, x => x.FechaVencimiento);
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
             var items = pageRows.Select(r =>
             {
                 var vinc = soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva;
+                emoMap.TryGetValue(r.Worker.Id, out var emoVenc);
                 return new WorkerHabilitacionListDto
                 {
                     WorkerId = r.Worker.Id,
@@ -180,7 +198,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Ocupacion = r.Worker.Ocupacion,
                     ContrataCasa = r.Worker.ContrataCasa,
                     ObraOficina = r.Worker.ObraOficina,
-                    EstadoWorker = r.Worker.Estado ?? "ACTIVO"
+                    EstadoWorker = r.Worker.Estado ?? "ACTIVO",
+                    TieneEmo = emoMap.ContainsKey(r.Worker.Id),
+                    DiasRestantesEmo = emoVenc.HasValue
+                        ? (int?)(emoVenc.Value.DayNumber - today.DayNumber)
+                        : null
                 };
             }).ToList();
 

@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-25 — SCTR: auto-aprobación Abril, SctrTrabajadorEstadoDto enriquecido, GetTrabajadoresPorEmpresa por vinculación
+> Última actualización: 2026-05-26 — EMO: InterconsultaInline, FechaLectura, fix cruce SCTR/VidaLey, EsAbril en dashboard y catálogos
 
 ---
 

@@ -1,9 +1,12 @@
 using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
@@ -14,11 +17,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     {
         private readonly IEmoService _service;
         private readonly ILogger<EmoController> _logger;
+        private readonly ISharePointHabService _sharePoint;
+        private readonly IDbContextFactory<AppDbContext> _factory;
 
-        public EmoController(IEmoService service, ILogger<EmoController> logger)
+        public EmoController(
+            IEmoService service,
+            ILogger<EmoController> logger,
+            ISharePointHabService sharePoint,
+            IDbContextFactory<AppDbContext> factory)
         {
             _service = service;
             _logger = logger;
+            _sharePoint = sharePoint;
+            _factory = factory;
         }
 
         private int? CurrentUserId()
@@ -93,6 +104,47 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("emos/{emoId:int}/documentos")]
+        public async Task<IActionResult> SubirDocumento(int emoId, [FromForm] IFormFile file, [FromForm] string tipo)
+        {
+            try
+            {
+                if (file == null || file.Length == 0)
+                    throw new AbrilException("El archivo es obligatorio.", 400);
+
+                var tipoNorm = tipo?.Trim() ?? string.Empty;
+                if (tipoNorm != "Aptitud" && tipoNorm != "EMO")
+                    throw new AbrilException("El tipo debe ser 'Aptitud' o 'EMO'.", 400);
+
+                using var ctx = _factory.CreateDbContext();
+
+                var emo = await ctx.WorkerEmo
+                    .Include(e => e.Worker).ThenInclude(w => w!.Person)
+                    .FirstOrDefaultAsync(e => e.Id == emoId)
+                    ?? throw new AbrilException("EMO no encontrado.", 404);
+
+                var dni = emo.Worker?.Person?.DocumentIdentityCode ?? emo.WorkerId.ToString();
+                var fecha = DateTime.UtcNow.ToString("yyyyMMdd");
+                var contexto = tipoNorm == "Aptitud" ? "emo-aptitud" : "emo-completo";
+                var fileName = $"{dni}_{tipoNorm}_{fecha}.pdf";
+
+                string path;
+                using (var stream = file.OpenReadStream())
+                    path = await _sharePoint.SubirArchivoAsync(stream, fileName, contexto);
+
+                if (tipoNorm == "Aptitud")
+                    emo.UrlAptitud = path;
+                else
+                    emo.UrlEmoCompleto = path;
+
+                await ctx.SaveChangesAsync();
+
+                return Ok(new { url = path });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EmoController.SubirDocumento"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
     }
 }

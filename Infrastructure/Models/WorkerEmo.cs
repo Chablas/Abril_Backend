@@ -55,6 +55,12 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("url_resultado")]
         public string? UrlResultado { get; set; }
 
+        [Column("url_aptitud")]
+        public string? UrlAptitud { get; set; }
+
+        [Column("url_emo_completo")]
+        public string? UrlEmoCompleto { get; set; }
+
         [Column("numero_informe")]
         public string? NumeroInforme { get; set; }
 

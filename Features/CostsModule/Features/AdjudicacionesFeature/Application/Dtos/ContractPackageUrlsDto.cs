@@ -6,6 +6,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? SummarySheetItemId  { get; init; }
         public string? ContractUrl         { get; init; }
         public string? ContractItemId      { get; init; }
+        /// <summary>Cotización adjunta del paso 3 (PDF). Se inserta dentro del contrato, después del marcador.</summary>
+        public string? AttachedQuotationUrl    { get; init; }
+        public string? AttachedQuotationItemId { get; init; }
         public string? NonConformingOutputUrl    { get; init; }
         public string? NonConformingOutputItemId { get; init; }
         public string? ToleranceChartUrl         { get; init; }

@@ -39,6 +39,14 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
 
             var email = profile.Mail ?? profile.UserPrincipalName;
 
+            // El acceso vía Microsoft SSO está restringido al tenant @abril.pe.
+            if (string.IsNullOrWhiteSpace(email)
+                || !email.Trim().EndsWith("@abril.pe", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new AbrilException(
+                    "Solo se permite el acceso con cuentas corporativas @abril.pe.", 403);
+            }
+
             var user = await _repository.GetUserByEmailAsync(email);
 
             if (user is null)

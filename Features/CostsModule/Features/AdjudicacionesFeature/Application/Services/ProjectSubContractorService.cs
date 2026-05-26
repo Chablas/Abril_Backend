@@ -837,6 +837,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (file is null || file.Length == 0)
                 throw new AbrilException("El archivo no puede estar vacío.");
 
+            // La cotización adjunta debe ser PDF — se inserta dentro del contrato (paso 4)
+            // y para eso se mergea a nivel PDF.
+            if (documentType == AdjudicacionDocumentType.AttachedQuotation)
+            {
+                var ext = Path.GetExtension(file.FileName)?.ToLowerInvariant();
+                if (ext != ".pdf")
+                    throw new AbrilException("La cotización adjunta solo acepta archivos PDF (.pdf).", 400);
+            }
+
             var pathData   = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
             var folderPath = BuildSharePointPath(pathData, documentType);
             var fileName   = file.FileName;
@@ -1346,35 +1355,49 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
                 throw new AbrilException("El pagaré debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
 
-            // Orden: 1-Resumen, 2-Contrato, 3-Salidas no conforme, 4-Cuadro de tolerancias, 5-Instructivo, 6-Pagaré
-            // Los documentos sin archivo (No aplica) simplemente no se incluyen.
+            // Orden: 1-Resumen, 2-Contrato (con cotización embutida), 3-Salidas no conforme,
+            // 4-Cuadro de tolerancias, 5-Instructivo, 6-Pagaré. Los docs sin archivo (No aplica) se omiten.
+            //
+            // Todas las descargas se hacen en UNA sola llamada a Graph mediante $batch, en lugar
+            // de N requests secuenciales. AlreadyPdf=true se usa para la cotización (PDF nativo);
+            // los demás (xlsx/docx) van con ?format=pdf para que Graph haga la conversión.
+            var downloads = new List<(string ItemId, bool AlreadyPdf)>();
+            if (!string.IsNullOrEmpty(docs.SummarySheetItemId))         downloads.Add((docs.SummarySheetItemId,         AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.ContractItemId))             downloads.Add((docs.ContractItemId,             AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.AttachedQuotationItemId))    downloads.Add((docs.AttachedQuotationItemId,    AlreadyPdf: true));
+            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))  downloads.Add((docs.NonConformingOutputItemId,  AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))       downloads.Add((docs.ToleranceChartItemId,       AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.InstructivoItemId))          downloads.Add((docs.InstructivoItemId,          AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))       downloads.Add((docs.PromissoryNoteItemId,       AlreadyPdf: false));
+
+            if (downloads.Count == 0)
+                throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
+
+            var downloaded = await _sharePointService.DownloadMultipleAsPdfFromSharePointAsync(_site, "Adjudicaciones", downloads);
+
             var pdfBytesList = new List<byte[]>();
 
             if (!string.IsNullOrEmpty(docs.SummarySheetItemId))
-            {
-                var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.SummarySheetItemId);
-                pdfBytesList.Add(RotatePdfPages(summarySheetPdf));
-            }
+                pdfBytesList.Add(RotatePdfPages(downloaded[docs.SummarySheetItemId]));
 
             if (!string.IsNullOrEmpty(docs.ContractItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.ContractItemId));
+            {
+                var contractPdf = downloaded[docs.ContractItemId];
 
-            if (pdfBytesList.Count == 0 && string.IsNullOrEmpty(docs.NonConformingOutputItemId)
-                && string.IsNullOrEmpty(docs.ToleranceChartItemId) && string.IsNullOrEmpty(docs.InstructivoItemId)
-                && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
-                throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
+                // Cotización adjunta → se incrusta dentro del contrato (después de <<INSERTAR_COTIZACION_AQUI>>)
+                if (!string.IsNullOrEmpty(docs.AttachedQuotationItemId))
+                {
+                    var quotationPdf = downloaded[docs.AttachedQuotationItemId];
+                    contractPdf = InsertPdfAfterMarker(contractPdf, quotationPdf, ContractQuotationMarker);
+                }
 
-            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.NonConformingOutputItemId));
+                pdfBytesList.Add(contractPdf);
+            }
 
-            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.ToleranceChartItemId));
-
-            if (!string.IsNullOrEmpty(docs.InstructivoItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.InstructivoItemId));
-
-            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.PromissoryNoteItemId));
+            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId)) pdfBytesList.Add(downloaded[docs.NonConformingOutputItemId]);
+            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))      pdfBytesList.Add(downloaded[docs.ToleranceChartItemId]);
+            if (!string.IsNullOrEmpty(docs.InstructivoItemId))         pdfBytesList.Add(downloaded[docs.InstructivoItemId]);
+            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))      pdfBytesList.Add(downloaded[docs.PromissoryNoteItemId]);
 
             var mergedBytes = MergePdfs(pdfBytesList);
 
@@ -1433,6 +1456,75 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 foreach (var page in inputDoc.Pages)
                     outputDoc.AddPage(page);
             }
+            using var resultStream = new MemoryStream();
+            outputDoc.Save(resultStream, false);
+            return resultStream.ToArray();
+        }
+
+        /// <summary>
+        /// Texto marcador que debe estar presente en la plantilla del contrato (.docx) — en color
+        /// blanco o tamaño 1pt para que no se vea — justo después del título "ANEXO 1".
+        /// El paquete final inserta la cotización adjunta inmediatamente después de la página
+        /// que contenga este texto.
+        /// </summary>
+        private const string ContractQuotationMarker = "<<INSERTAR_COTIZACION_AQUI>>";
+
+        /// <summary>
+        /// Construye un PDF nuevo que es <paramref name="basePdf"/> con <paramref name="insertPdf"/>
+        /// embutido justo después de la primera página de <paramref name="basePdf"/> que contenga
+        /// <paramref name="markerText"/>. La página del marcador se conserva (sigue conteniendo
+        /// el título del ANEXO 1). Si el marcador no aparece, se hace fallback concatenando
+        /// <paramref name="insertPdf"/> al final.
+        /// </summary>
+        private static byte[] InsertPdfAfterMarker(byte[] basePdf, byte[] insertPdf, string markerText)
+        {
+            int? markerPageIndex = null;
+
+            // PdfPig sirve solo para leer texto; no toca la estructura del PDF.
+            using (var pigDoc = UglyToad.PdfPig.PdfDocument.Open(basePdf))
+            {
+                int idx = 0;
+                foreach (var page in pigDoc.GetPages())
+                {
+                    if (page.Text.Contains(markerText, StringComparison.OrdinalIgnoreCase))
+                    {
+                        markerPageIndex = idx;
+                        break;
+                    }
+                    idx++;
+                }
+            }
+
+            var outputDoc = new PdfDocument();
+
+            using var baseStream   = new MemoryStream(basePdf);
+            using var insertStream = new MemoryStream(insertPdf);
+            var baseDoc   = PdfReader.Open(baseStream,   PdfDocumentOpenMode.Import);
+            var insertDoc = PdfReader.Open(insertStream, PdfDocumentOpenMode.Import);
+
+            if (markerPageIndex.HasValue)
+            {
+                // 1) Páginas del contrato hasta la del marcador (incluida)
+                for (int i = 0; i <= markerPageIndex.Value && i < baseDoc.PageCount; i++)
+                    outputDoc.AddPage(baseDoc.Pages[i]);
+
+                // 2) Páginas de la cotización
+                foreach (var page in insertDoc.Pages)
+                    outputDoc.AddPage(page);
+
+                // 3) Páginas restantes del contrato
+                for (int i = markerPageIndex.Value + 1; i < baseDoc.PageCount; i++)
+                    outputDoc.AddPage(baseDoc.Pages[i]);
+            }
+            else
+            {
+                // Fallback: marcador ausente → contrato + cotización al final
+                foreach (var page in baseDoc.Pages)
+                    outputDoc.AddPage(page);
+                foreach (var page in insertDoc.Pages)
+                    outputDoc.AddPage(page);
+            }
+
             using var resultStream = new MemoryStream();
             outputDoc.Save(resultStream, false);
             return resultStream.ToArray();

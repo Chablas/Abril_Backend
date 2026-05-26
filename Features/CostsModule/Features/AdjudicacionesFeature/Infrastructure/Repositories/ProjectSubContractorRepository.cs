@@ -1835,15 +1835,20 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 .Select(p => p.ProjectDescription)
                 .FirstOrDefaultAsync() ?? string.Empty;
 
-            var workItem = await _context.WorkItem
-                .FirstOrDefaultAsync(w => w.WorkItemId == psc.WorkItemId);
+            var workItemDescription = await _context.WorkItem
+                .Where(w => w.WorkItemId == psc.WorkItemId)
+                .Select(w => w.WorkItemDescription)
+                .FirstOrDefaultAsync() ?? string.Empty;
 
-            var contributor = await (
+            // Proyectamos solo el nombre del contributor (evita SELECT de columnas opcionales
+            // como sp_password_temp, es_abril, contributor_nombre_comercial que pueden no existir
+            // en todos los entornos).
+            var contributorName = await (
                 from ct in _context.Contractor
                 join contrib in _context.Contributor on ct.ContributorId equals contrib.ContributorId
                 where ct.ContractorId == psc.ContractorId
-                select contrib
-            ).FirstOrDefaultAsync();
+                select contrib.ContributorName
+            ).FirstOrDefaultAsync() ?? string.Empty;
 
             var ofTecnicaEmails = await _context.StaffProjectEmail
                 .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 3 && s.State && s.Active)
@@ -1853,8 +1858,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             return new Step3ApprovalDataDto
             {
                 ProjectDescription  = projectDescription,
-                ContributorName     = contributor?.ContributorName ?? string.Empty,
-                WorkItemDescription = workItem?.WorkItemDescription ?? string.Empty,
+                ContributorName     = contributorName,
+                WorkItemDescription = workItemDescription,
                 OfTecnicaEmails     = ofTecnicaEmails,
             };
         }
@@ -2049,6 +2054,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 {
                     x.ProjectSubContractorSummarySheetId,
                     x.ProjectSubContractorContractId,
+                    x.ProjectSubContractorAttachedQuotationId,
                     x.ProjectSubContractorNonConformingOutputId,
                     x.ProjectSubContractorToleranceChartId,
                     x.ProjectSubContractorInstructivoId,
@@ -2068,6 +2074,14 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             var contract = ids.ProjectSubContractorContractId.HasValue
                 ? await ctx.ProjectSubContractorContract
                     .Where(x => x.ProjectSubContractorContractId == ids.ProjectSubContractorContractId.Value)
+                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .FirstOrDefaultAsync()
+                : null;
+
+            // Cotización adjunta del paso 3 (se inserta dentro del contrato durante el armado del paquete)
+            var attachedQuotation = ids.ProjectSubContractorAttachedQuotationId.HasValue
+                ? await ctx.ProjectSubContractorAttachedQuotation
+                    .Where(x => x.ProjectSubContractorAttachedQuotationId == ids.ProjectSubContractorAttachedQuotationId.Value)
                     .Select(x => new { x.FileUrl, x.SharepointItemId })
                     .FirstOrDefaultAsync()
                 : null;
@@ -2115,6 +2129,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 SummarySheetItemId          = summarySheet?.SharepointItemId,
                 ContractUrl                 = contract?.FileUrl,
                 ContractItemId              = contract?.SharepointItemId,
+                AttachedQuotationUrl        = attachedQuotation?.FileUrl,
+                AttachedQuotationItemId     = attachedQuotation?.SharepointItemId,
                 NonConformingOutputUrl      = nonConformingOutput?.FileUrl,
                 NonConformingOutputItemId   = nonConformingOutput?.SharepointItemId,
                 ToleranceChartUrl           = toleranceChart?.FileUrl,

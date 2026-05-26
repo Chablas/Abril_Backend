@@ -4,6 +4,7 @@ using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Options;
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 
 namespace Abril_Backend.Shared.Services.SharePoint.Services
@@ -276,10 +277,35 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             var siteId  = await EnsureSiteIdAsync(token, site);
             var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
 
-            var downloadUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/items/{itemId}/content?format=pdf";
-
             var client = _httpClientFactory.CreateClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            // Graph devuelve 406 ("InputFormatNotSupported") si se pide ?format=pdf sobre un PDF.
+            // Primero inspeccionamos el item: si ya es PDF se descarga tal cual; si no, se solicita
+            // la conversión a PDF.
+            var metaUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/items/{itemId}?$select=name,file";
+            var metaResp = await client.GetAsync(metaUrl);
+            if (!metaResp.IsSuccessStatusCode)
+            {
+                var metaErr = await metaResp.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"No se pudo leer metadatos del archivo en SharePoint [{(int)metaResp.StatusCode}]: {metaErr}");
+            }
+
+            using var metaJson = JsonDocument.Parse(await metaResp.Content.ReadAsStringAsync());
+            var fileName = metaJson.RootElement.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
+            var mimeType = metaJson.RootElement.TryGetProperty("file", out var fileEl)
+                           && fileEl.TryGetProperty("mimeType", out var mimeEl)
+                ? mimeEl.GetString()
+                : null;
+
+            var alreadyPdf =
+                (fileName?.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ?? false) ||
+                string.Equals(mimeType, "application/pdf", StringComparison.OrdinalIgnoreCase);
+
+            var downloadUrl = alreadyPdf
+                ? $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/items/{itemId}/content"
+                : $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/items/{itemId}/content?format=pdf";
 
             var response = await client.GetAsync(downloadUrl);
 
@@ -291,6 +317,104 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             }
 
             return await response.Content.ReadAsByteArrayAsync();
+        }
+
+        public async Task<Dictionary<string, byte[]>> DownloadMultipleAsPdfFromSharePointAsync(
+            SharePointSiteRef site,
+            string libraryName,
+            IReadOnlyList<(string ItemId, bool AlreadyPdf)> items)
+        {
+            var result = new Dictionary<string, byte[]>();
+            if (items.Count == 0) return result;
+
+            var token   = await GetAppTokenAsync();
+            var siteId  = await EnsureSiteIdAsync(token, site);
+            var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            // Graph $batch acepta hasta 20 sub-requests por llamada. Para >20 archivos se trocea.
+            const int BatchSize = 20;
+            for (int offset = 0; offset < items.Count; offset += BatchSize)
+            {
+                var slice = items.Skip(offset).Take(BatchSize).ToList();
+
+                // Construir el cuerpo del batch. El "id" de cada sub-request es el itemId mismo
+                // para luego correlacionar fácilmente la respuesta.
+                var requests = slice.Select(it => new
+                {
+                    id     = it.ItemId,
+                    method = "GET",
+                    url    = it.AlreadyPdf
+                        ? $"/sites/{siteId}/drives/{driveId}/items/{it.ItemId}/content"
+                        : $"/sites/{siteId}/drives/{driveId}/items/{it.ItemId}/content?format=pdf",
+                }).ToArray();
+
+                var batchBody = JsonSerializer.Serialize(new { requests });
+                using var content = new StringContent(batchBody, Encoding.UTF8, "application/json");
+
+                var batchResp = await client.PostAsync("https://graph.microsoft.com/v1.0/$batch", content);
+                if (!batchResp.IsSuccessStatusCode)
+                {
+                    var err = await batchResp.Content.ReadAsStringAsync();
+                    throw new InvalidOperationException(
+                        $"Falló la descarga en batch desde SharePoint [{(int)batchResp.StatusCode}]: {err}");
+                }
+
+                using var doc = JsonDocument.Parse(await batchResp.Content.ReadAsStringAsync());
+
+                // Para sub-responses que son 302 (Graph redirige a una URL pre-firmada del CDN)
+                // hacemos los GETs en paralelo para no perder tiempo.
+                var redirectFetches = new List<Task>();
+
+                foreach (var sub in doc.RootElement.GetProperty("responses").EnumerateArray())
+                {
+                    var id     = sub.GetProperty("id").GetString()!;
+                    var status = sub.GetProperty("status").GetInt32();
+
+                    if (status >= 200 && status < 300)
+                    {
+                        // Cuerpo binario viene base64 dentro del campo "body"
+                        if (sub.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.String)
+                        {
+                            result[id] = Convert.FromBase64String(body.GetString()!);
+                        }
+                        else
+                        {
+                            throw new InvalidOperationException(
+                                $"Respuesta de batch para item {id} no contiene cuerpo binario.");
+                        }
+                    }
+                    else if (status == 301 || status == 302)
+                    {
+                        // Seguir el redirect a la URL pre-firmada
+                        var location = sub.GetProperty("headers").GetProperty("Location").GetString()!;
+                        var capturedId = id;
+                        redirectFetches.Add(Task.Run(async () =>
+                        {
+                            using var redirectClient = _httpClientFactory.CreateClient();
+                            var redirectResp = await redirectClient.GetAsync(location);
+                            redirectResp.EnsureSuccessStatusCode();
+                            var bytes = await redirectResp.Content.ReadAsByteArrayAsync();
+                            lock (result) { result[capturedId] = bytes; }
+                        }));
+                    }
+                    else
+                    {
+                        var errPayload = sub.TryGetProperty("body", out var errBody)
+                            ? errBody.ToString()
+                            : "(sin cuerpo)";
+                        throw new InvalidOperationException(
+                            $"Sub-request {id} falló con status {status}: {errPayload}");
+                    }
+                }
+
+                if (redirectFetches.Count > 0)
+                    await Task.WhenAll(redirectFetches);
+            }
+
+            return result;
         }
 
         public async Task<(byte[] Content, string? ContentType)> DownloadFromOneDriveByItemIdAsync(string driveId, string itemId)

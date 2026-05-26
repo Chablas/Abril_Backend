@@ -74,10 +74,12 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
         {
             using var ctx = _factory.CreateDbContext();
 
+            var emailLower = email.ToLower();
+
             return await ctx.Worker
-                .Where(w => w.EmailCorporativo != null
-                         && w.EmailCorporativo.ToLower() == email.ToLower()
-                         && w.Person != null)
+                .Where(w => w.Person != null
+                         && ((w.EmailCorporativo != null && w.EmailCorporativo.ToLower() == emailLower)
+                          || (w.EmailPersonal    != null && w.EmailPersonal.ToLower()    == emailLower)))
                 .Select(w => new PersonDTO
                 {
                     PersonId             = w.Person!.PersonId,

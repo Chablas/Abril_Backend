@@ -20,5 +20,6 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models {
         public bool EsAbril { get; set; }
         public string? ContributorNombreComercial { get; set; }
         public string? SpPasswordTemp { get; set; }
+        public string? EmailAdministrador { get; set; }
     }
 }

@@ -2548,3 +2548,84 @@ Carga batch post-query de `WorkerEmo` (Vigente/Convalidado). `DiasRestantesEmo` 
 ### Contributor.EmailAdministrador
 
 `Features/CostsModule/Shared/Models/Contributor.cs`: `[Column("email_administrador")] public string? EmailAdministrador { get; set; }`. Migración `AddEmailAdministradorContributor` aplicada.
+
+---
+
+## Sesión 2026-05-26 (continuación 4) — ProgramacionEmo: correo resumen, notificación aceptación, validaciones
+
+### EmoAutoProgramacionService — correo resumen en lugar de por-worker
+
+Reemplaza inserción vía `_progRepo.Create` (que enviaba un correo por cada programación) por inserción directa `ctx.SsProgramacionEmo.Add` + `SaveChangesAsync`. Al final del loop llama a `EnviarResumenClinicaAsync` — un único correo HTML a `ClinicaId=1` con tabla de todos los trabajadores programados.
+
+`IProgramacionEmoRepository` eliminado del constructor; en su lugar `IEmailService` inyectado. `ClinicaId = 1` hardcoded en la entidad.
+
+### ProgramacionEmoRepository — EnviarNotificacionCreacionAsync: CC eliminado
+
+Eliminados `medOcupacional`, `gth`, `emoResumenRaw`, `ccSiempre`, `ccRaw`, y el bloque `var cc`. El método ahora solo envía a `to` (clínica), sin CC. Catch mejorado a `LogError` con `Provider`, `To`, y `Error`.
+
+`var toRaw` movido fuera del `try` para accesibilidad en el `catch`.
+
+### ProgramacionEmoRepository — ClinicaAccion case "Aceptar"
+
+`case "Aceptar"` hace su propio `SaveChangesAsync` + `return` antes de llegar al `SaveChangesAsync` compartido del final. Flujo:
+
+```csharp
+case "Aceptar":
+    ent.Estado = "Aceptado por Clínica";
+    ent.MotivoRechazo = null;
+    if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
+    ent.UpdatedAt = DateTimeOffset.UtcNow;
+    await ctx.SaveChangesAsync();
+    var workerAceptar = await ctx.Worker.Include(w => w.Person)...
+    await EnviarNotificacionAceptacionAsync(ctx, ent, workerAceptar);
+    return;
+```
+
+### ProgramacionEmoRepository — EnviarNotificacionAceptacionAsync (nuevo método)
+
+Notifica equipo interno cuando la clínica acepta. Misma lógica de routing por tipo de worker:
+
+| Tipo | To |
+|---|---|
+| Obrero | EmailCoordAdmin + EmailResidente + EmailCoordSsoma del proyecto + MedicinaOcupacional + adminEmail |
+| Staff | EmailCorporativo + EmailResidente + EmailCoordAdmin + EmailCoordSsoma + adminEmail |
+| OficinaCentral | EmailCorporativo + GTH + MedicinaOcupacional + adminEmail + CatJefatura emails |
+| Contratista | return inmediato |
+
+`adminEmail` cargado desde `contributor.email_administrador` vía `worker.ContributorId`.
+
+Subject: `"[PRUEBAS - NO RESPONDER] [EMO Confirmado] {nombre} — {fecha}"`.
+
+### ProgramacionListDto — TipoEmoId agregado
+
+`ProgramacionListDto.cs`: nueva propiedad `public int? TipoEmoId { get; set; }`.
+`ProgramacionEmoRepository.List` Select: `TipoEmoId = x.p.TipoEmoId` agregado.
+
+### EmoController — endpoint SubirDocumento
+
+`POST api/v1/ssoma/salud-ocupacional/emos/{emoId}/documentos` — ya documentado en continuación 3. Confirmado que `ISharePointHabService` y `IDbContextFactory` están inyectados en el constructor.
+
+`WorkerEmo.UrlAptitud` y `UrlEmoCompleto` agregados en `Infrastructure/Models/WorkerEmo.cs` (no estaban en el modelo, solo en migraciones previas que no se aplicaron en esta rama).
+
+### SharePointHabService.ResolverLibraryId — casos EMO
+
+```csharp
+if (c.Contains("emo-aptitud"))  return _configuration["SharePoint:Sites:SSOMAApps:AptitudesLibraryId"];
+if (c.Contains("emo-completo")) return _configuration["SharePoint:Sites:SSOMAApps:EMOSLibraryId"];
+```
+
+Ambos usan `ResolverSiteId` → `SSOMAApps:SiteId` (siempre).
+
+### Vinculación Habilitación ↔ WorkerEmo
+
+| Tipo worker | ItemId | Mecanismo |
+|---|---|---|
+| Contratista | `CertAptitud = 4` | Automático: `EmoRepository.SincronizarEntregableEmoAsync` escribe en `ss_hab_trabajador` al crear EMO |
+| Casa | `LecturaEmo = 25` | En tiempo real: no hay fila en `ss_hab_trabajador`, estado calculado desde `WorkerEmo` activo |
+
+Casa: `EstadoCalc = "No Autorizado"` si no hay `WorkerEmo` con `Activo && (Estado == "Vigente" || "Convalidado")`.
+`SincronizarEntregableEmoAsync` solo se llama en `EmoRepository.Create`, **no en Update** — si se cambia aptitud en un EMO existente de contratista, hay que invocarla manualmente.
+
+### Migración pendiente
+
+`WorkerEmo.UrlAptitud` + `UrlEmoCompleto` → migración `AddUrlDocumentosWorkerEmo` pendiente de crear y aplicar (columnas no existen aún en BD).

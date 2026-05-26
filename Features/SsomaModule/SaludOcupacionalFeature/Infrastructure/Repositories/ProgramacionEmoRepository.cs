@@ -67,6 +67,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
                     WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
                     Empresa = x.em != null ? x.em.ContributorName : null,
+                    TipoEmoId = x.p.TipoEmoId,
                     TipoEmo = x.t != null ? x.t.Nombre : null,
                     FechaProgramada = x.p.FechaProgramada,
                     HoraProgramada = x.p.HoraProgramada,
@@ -156,7 +157,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 case "Aceptar":
                     ent.Estado = "Aceptado por Clínica";
                     ent.MotivoRechazo = null;
-                    break;
+                    if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
+                    ent.UpdatedAt = DateTimeOffset.UtcNow;
+                    await ctx.SaveChangesAsync();
+                    var workerAceptar = await ctx.Worker.Include(w => w.Person)
+                        .FirstOrDefaultAsync(w => w.Id == ent.WorkerId)
+                        ?? throw new AbrilException("Trabajador no encontrado.", 404);
+                    await EnviarNotificacionAceptacionAsync(ctx, ent, workerAceptar);
+                    return;
                 case "Rechazar":
                     ent.Estado = "Rechazado por Clínica";
                     ent.MotivoRechazo = dto.MotivoRechazo;
@@ -180,6 +188,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             SsProgramacionEmo prog,
             Worker worker)
         {
+            var toRaw = new List<string>();
             try
             {
                 var esCasa = string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase);
@@ -191,7 +200,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     return; // Contratista — sin notificación
 
                 // Emails de la clínica desde ss_clinica_emails; fallback a ss_clinicas.email
-                var toRaw = new List<string>();
                 SsClinica? clinica = null;
                 if (prog.ClinicaId.HasValue)
                 {
@@ -224,44 +232,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     proyecto = await ctx.Project.AsNoTracking()
                         .FirstOrDefaultAsync(p => p.ProjectId == vinculacion.ProyectoId.Value);
 
-                var medOcupacional = _configuration["EmailsArea:MedicinaOcupacional"];
-                var gth = _configuration["EmailsArea:GTH"];
-                var emoResumenRaw = _configuration["EmoResumen:Destinatarios"];
-                var ccSiempre = string.IsNullOrWhiteSpace(emoResumenRaw)
-                    ? Enumerable.Empty<string>()
-                    : emoResumenRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).AsEnumerable();
-
-                IEnumerable<string?> ccRaw;
-                if (esObrero)
-                {
-                    ccRaw = new[] { proyecto?.EmailResidente, proyecto?.EmailResponsable, medOcupacional };
-                }
-                else if (esStaff)
-                {
-                    ccRaw = new[] { worker.EmailCorporativo, proyecto?.EmailResidente, proyecto?.EmailResponsable, medOcupacional };
-                }
-                else // esOficinaCentral
-                {
-                    var jefaturaEmails = !string.IsNullOrWhiteSpace(worker.Jefatura)
-                        ? await ctx.CatJefatura.AsNoTracking()
-                            .Where(j => j.Nombre == worker.Jefatura && j.Activo)
-                            .Select(j => j.Email)
-                            .ToListAsync()
-                        : new List<string>();
-                    ccRaw = new string?[] { worker.EmailCorporativo, gth, medOcupacional }
-                        .Concat(jefaturaEmails);
-                }
-
                 var to = toRaw
                     .Where(e => !string.IsNullOrWhiteSpace(e))
                     .Select(e => e.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                var cc = ccRaw
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(e => e!.Trim())
-                    .Concat(ccSiempre)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
@@ -278,8 +251,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     to: to,
                     subject: subject,
                     body: body,
-                    isHtml: true,
-                    cc: cc.Count > 0 ? cc : null);
+                    isHtml: true);
 
                 prog.FechaNotificacion = DateTimeOffset.UtcNow;
                 prog.UpdatedAt = DateTimeOffset.UtcNow;
@@ -287,7 +259,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Programación {Id}: error enviando notificación de creación. La programación ya fue guardada.", prog.Id);
+                _logger.LogError(ex, "Programación {Id}: error enviando notificación de creación. Provider={Provider} To={To} Error={Error}",
+                    prog.Id,
+                    _configuration["Email:EmailProvider"],
+                    string.Join(",", toRaw),
+                    ex.Message);
             }
         }
 
@@ -357,6 +333,97 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             <p style='font-size:12px;color:#666;margin-top:24px;'>
                 Esta notificación se generó automáticamente al registrar la programación en el sistema Abril.
             </p>";
+        }
+
+        private async Task EnviarNotificacionAceptacionAsync(
+            AppDbContext ctx,
+            SsProgramacionEmo prog,
+            Worker worker)
+        {
+            try
+            {
+                var esCasa = string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase);
+                var esOficinaCentral = string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
+                var esStaff = esCasa && string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
+                var esObrero = esCasa && string.Equals(worker.ObraOficina, "Ninguno", StringComparison.OrdinalIgnoreCase);
+
+                if (!esObrero && !esStaff && !esOficinaCentral) return; // Contratista
+
+                var vinculacion = await ctx.WorkerVinculacion.AsNoTracking()
+                    .Where(v => v.WorkerId == worker.Id && v.FechaFin == null)
+                    .OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id)
+                    .FirstOrDefaultAsync();
+
+                Project? proyecto = null;
+                if (vinculacion?.ProyectoId.HasValue == true)
+                    proyecto = await ctx.Project.AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.ProjectId == vinculacion.ProyectoId.Value);
+
+                var tipoEmo = await ctx.SsEmoTipo.AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.Id == prog.TipoEmoId);
+
+                var adminEmail = worker.ContributorId.HasValue
+                    ? await ctx.Contributor.AsNoTracking()
+                        .Where(c => c.ContributorId == worker.ContributorId.Value)
+                        .Select(c => c.EmailAdministrador)
+                        .FirstOrDefaultAsync()
+                    : null;
+
+                var medOcupacional = _configuration["EmailsArea:MedicinaOcupacional"];
+                var gth = _configuration["EmailsArea:GTH"];
+
+                List<string?> toRaw;
+                if (esObrero)
+                    toRaw = new List<string?> { proyecto?.EmailCoordAdmin, proyecto?.EmailResidente, proyecto?.EmailCoordSsoma, medOcupacional, adminEmail };
+                else if (esStaff)
+                    toRaw = new List<string?> { worker.EmailCorporativo, proyecto?.EmailResidente, proyecto?.EmailCoordAdmin, proyecto?.EmailCoordSsoma, adminEmail };
+                else // esOficinaCentral
+                {
+                    var jefaturaEmails = !string.IsNullOrWhiteSpace(worker.Jefatura)
+                        ? await ctx.CatJefatura.AsNoTracking()
+                            .Where(j => j.Nombre == worker.Jefatura && j.Activo)
+                            .Select(j => j.Email)
+                            .ToListAsync()
+                        : new List<string>();
+                    toRaw = new List<string?> { worker.EmailCorporativo, gth, medOcupacional, adminEmail }
+                        .Concat(jefaturaEmails.Cast<string?>()).ToList();
+                }
+
+                var to = toRaw
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Select(e => e!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (to.Count == 0) return;
+
+                var horaStr = prog.HoraProgramada.HasValue ? prog.HoraProgramada.Value.ToString("HH:mm") : "—";
+                var clinica = prog.ClinicaId.HasValue
+                    ? await ctx.SsClinica.AsNoTracking().FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value)
+                    : null;
+
+                var subject = $"[PRUEBAS - NO RESPONDER] [EMO Confirmado] {worker.Person?.FullName} — {prog.FechaProgramada:dd/MM/yyyy}";
+                var body = $@"
+            <p>Estimados,</p>
+            <p>La clínica ha <strong>confirmado</strong> la siguiente programación de EMO:</p>
+            <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
+                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Trabajador</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.FullName}</td></tr>
+                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>DNI</strong></td><td style='border:1px solid #ddd;padding:8px;'>{worker.Person?.DocumentIdentityCode}</td></tr>
+                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Tipo EMO</strong></td><td style='border:1px solid #ddd;padding:8px;'>{tipoEmo?.Nombre ?? "—"}</td></tr>
+                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Fecha</strong></td><td style='border:1px solid #ddd;padding:8px;'>{prog.FechaProgramada:dd/MM/yyyy}</td></tr>
+                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Hora</strong></td><td style='border:1px solid #ddd;padding:8px;'>{horaStr}</td></tr>
+                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Proyecto</strong></td><td style='border:1px solid #ddd;padding:8px;'>{proyecto?.ProjectDescription ?? "—"}</td></tr>
+                <tr><td style='border:1px solid #ddd;padding:8px;'><strong>Clínica</strong></td><td style='border:1px solid #ddd;padding:8px;'>{clinica?.Nombre ?? "—"}</td></tr>
+            </table>
+            <p style='margin-top:16px;'>El trabajador debe presentarse en la clínica en la fecha y hora indicadas.</p>
+            <p style='font-size:12px;color:#666;margin-top:24px;'>Esta notificación se generó automáticamente por el sistema Abril.</p>";
+
+                await _emailService.SendAsync(to: to, subject: subject, body: body, isHtml: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Programación {Id}: error enviando notificación de aceptación.", prog.Id);
+            }
         }
     }
 }

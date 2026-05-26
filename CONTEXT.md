@@ -2739,4 +2739,38 @@ Casa: `EstadoCalc = "No Autorizado"` si no hay `WorkerEmo` con `Activo && (Estad
 
 ### Migración pendiente
 
-`WorkerEmo.UrlAptitud` + `UrlEmoCompleto` → migración `AddUrlDocumentosWorkerEmo` pendiente de crear y aplicar.
+`WorkerEmo.UrlAptitud` + `UrlEmoCompleto` → migración `AddUrlDocumentosWorkerEmo` pendiente de crear y aplicar (columnas no existen aún en BD).
+
+`Contributor.EmailAdministrador` → migración `AddEmailAdministradorContributor` pendiente de crear y aplicar (columna `email_administrador` no existe aún en BD).
+
+---
+
+## Sesión 2026-05-26 (continuación 5) — ClinicaAuth: investigación flujo activación, App:FrontendUrl
+
+### ClinicaAuthController — flujo completo
+
+**Ruta base:** `api/v1/ssoma/salud-ocupacional/auth` — `[AllowAnonymous]` a nivel de clase.
+
+| Endpoint | Body | Comportamiento |
+|---|---|---|
+| `POST /auth/login` | `{ email, password }` | BCrypt.Verify contra `ss_clinica_usuarios.password_hash`; emite JWT con claims `clinicaUsuarioId`, `clinicaId`, role `"CLINICA"`, expiry 8h |
+| `POST /auth/solicitar-activacion` | `{ email }` | **Email debe existir ya** en `ss_clinica_usuarios` (busca el usuario activo); genera token de activación en `ss_clinica_tokens`; envía email con link `{App:FrontendUrl}/clinica/activar?token=...` |
+| `POST /auth/activar` | `{ token, password }` | Valida token en `ss_clinica_tokens`; hace hash de la nueva contraseña; activa el usuario |
+
+`solicitar-activacion` no crea usuarios nuevos — requiere que el admin Abril haya creado el usuario previamente vía `ClinicaUsuariosController`.
+
+### ClinicaUsuariosController — POST responde 409 en email duplicado
+
+`POST /catalogos/clinicas/{clinicaId}/usuarios` — `ClinicaUsuarioService.CreateUsuarioAsync` lanza `AbrilException("Ya existe un usuario con ese correo.", 409)` si el email ya existe en `ss_clinica_usuarios`. El controller captura la excepción y retorna `StatusCode(409, { message })`.
+
+### App:FrontendUrl — añadido a appsettings.Local.json
+
+`ClinicaAuthController.SolicitarActivacion` lee `_configuration["App:FrontendUrl"]` para construir el link de activación. Faltaba en `appsettings.Local.json`; añadido:
+
+```json
+"App": {
+  "FrontendUrl": "https://abril-frontend.onrender.com"
+}
+```
+
+(gitignored — no commitear)

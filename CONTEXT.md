@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-25 — Bandeja bulk-aprobar, exclusiones, SharePoint multi-sitio, fix duplicados workers
+> Última actualización: 2026-05-25 — SCTR: auto-aprobación Abril, SctrTrabajadorEstadoDto enriquecido, GetTrabajadoresPorEmpresa por vinculación
 
 ---
 
@@ -2221,3 +2221,252 @@ modelBuilder.Entity<WorkerProyecto>()
 ### Pendientes de código (debug logs temporales)
 
 - `HabTrabajadorRepository.GetWorkersHabilitacionAsync`: `Console.WriteLine("[DEBUG SQL] " + baseQuery.ToQueryString())` — quitar tras diagnóstico.
+- `SctrVidaLeyRepository.AprobarAsync`: log `[DEBUG AprobarAsync]` al inicio — quitar antes de merge.
+- `SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync`: varios `LogInformation("[GetTrabajadoresPorEmpresa]...")` y `LogInformation("[DEBUG] estadoVidaLey...")` — quitar antes de merge.
+
+---
+
+## Sesión 2026-05-25 — SctrVidaLeyRepository BuildDtosAsync y diagnóstico SharePoint SCTR
+
+### SctrWorkerDto — nuevos campos
+
+`Features/HabilitacionModule/Application/Dtos/SctrVidaley/SctrWorkerDto.cs`:
+- `public string Estado { get; set; } = "Falta"` — estado textual del entregable SCTR/VidaLey del worker
+- `public DateTime? FechaVencimiento { get; set; }` — vigencia desde `ss_hab_trabajador.vigencia`
+
+### SctrVidaLeyRepository.BuildDtosAsync — refactor completo
+
+**Problema 1 — itemTipo match:** `e.Tipo == "VIDA_LEY"` nunca matcheaba con el nombre BD "Vida Ley". Fix:
+```csharp
+var itemTipo = sctrItem.FirstOrDefault(i =>
+    e.Tipo == "VIDA_LEY" ? i.Nombre.Contains("Vida") : i.Nombre.Contains("SCTR"));
+```
+Mismo patrón ya aplicado en `CreateAsync`, `UpdateAsync`, `AprobarAsync`.
+
+**Problema 2 — hab fuera de scope:** `hab` estaba declarado dentro del `if (itemTipo is not null)` pero sus campos se usaban en el return fuera. Fix: elevar `estadoWorker` y `fechaVencimiento` antes del bloque:
+```csharp
+var aprobado = false;
+var estadoWorker = "Falta";
+int? sctrHabId = null;
+DateTime? fechaVencimiento = null;
+if (itemTipo is not null)
+{
+    var hab = habs.FirstOrDefault(h => h.WorkerId == w.WorkerId && h.ItemId == itemTipo.Id);
+    if (hab is not null)
+    {
+        aprobado = hab.Estado == "Aprobado";
+        estadoWorker = hab.Estado ?? "Falta";
+        sctrHabId = hab.Id;
+        fechaVencimiento = hab.Vigencia;
+    }
+}
+return new SctrWorkerDto { ..., Estado = estadoWorker, FechaVencimiento = fechaVencimiento };
+```
+
+**Problema 3 — `static` impide acceder a `_sharePoint`:** `BuildDtosAsync` era `private static`. Removido `static`.
+
+**Problema 4 — `Select` síncrono con `await` dentro:** Cambiado a `Select(async e => {...})` + `Task.WhenAll`:
+```csharp
+var tasks = entities.Select(async e => { ... });
+return (await Task.WhenAll(tasks)).ToList();
+```
+
+**Resolución URLs:** `_sharePoint.GetDownloadUrlAsync` inyectado en el método; `ISharePointHabService` añadido al constructor. Por cada póliza, antes del return:
+```csharp
+if (!string.IsNullOrEmpty(e.ArchivoUrl))
+{
+    try { archivoUrl = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl); }
+    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl); archivoUrl = null; }
+}
+```
+Idem para `ArchivoUrl2`.
+
+### Diagnóstico SharePoint SCTR — 404 en /content
+
+Logs observados al abrir una póliza SCTR:
+- OAuth2 token: 200 ✅
+- Drive `SCTRVidaLey2026` resuelto (200): `b!Bmji2TXVU0OWEBlZeOIDkC8Dt6ceUVNLiodQihkLPHxLiq54SE34RqP5Cr8SJ3GY` ✅
+- `/drives/{driveId}/root:/habilitacion/sctr/20260525_VIDA_LEY_...pdf:/content` → **NotFound (404)** ⚠️
+- No se lanza excepción — `GetDownloadUrlAsync` retorna `null` internamente al recibir 404
+
+**Root cause probable:** los archivos en `SCTRVidaLey2026` no están en el subdirectorio `habilitacion/sctr/` — posiblemente en raíz de la biblioteca o en otra ruta. Verificar en `abrilinmob.sharepoint.com/sites/SSOMA-Powerapps/SCTRVidaLey2026`.
+
+**Pendiente:** confirmar ruta real de archivos SCTR en SharePoint. Si están en raíz, la columna `archivo_url` de `ss_sctr_vidaley` debería guardar solo el nombre de archivo sin prefijo `habilitacion/sctr/`. O bien, agregar lógica de strip/normalización en `NormalizarPath` de `SharePointHabService`.
+
+---
+
+## Sesión 2026-05-25 (continuación 2) — SCTR: auto-aprobación Abril, enriquecimiento GetTrabajadoresPorEmpresa
+
+### SctrVidaLeyRepository.BuildDtosAsync — Include Person + log diagnóstico
+
+- Join de workers usa `ctx.Worker.Include(x => x.Person)` (explícito, aunque EF ya hacía LEFT JOIN por la proyección)
+- `LogWarning` tras cargar `workersData`: emite hasta 3 avisos cuando un worker tiene `ApellidoNombre == null` (diagnóstico de datos huérfanos)
+
+### SctrVidaLeyRepository.CreateAsync — auto-aprobación para empresa Abril
+
+Cuando `esAbril == true && entity.ProyectoId.HasValue`, después del upsert de workers en `ss_hab_trabajador`:
+
+1. **Upsert `ss_hab_empresa`**: item 15 si `Tipo == "SCTR"`, item 16 si `Tipo == "VIDA_LEY"`. Lookup por `(EmpresaId, ProyectoId, ItemId)`. Si no existe: crea con `Mes/Anio` de la póliza. Si existe: actualiza `Estado` y `Vigencia`.
+2. **`entity.Estado = "Aprobado"`** — persiste en el mismo `SaveChangesAsync`.
+
+Los workers ya se aprobaban vía `estadoHab = esAbril ? "Aprobado" : "Enviado"` — el nuevo bloque completa la aprobación a nivel empresa y póliza.
+
+### SctrTrabajadorEstadoDto — tres campos nuevos
+
+`Features/HabilitacionModule/Application/Dtos/SctrVidaley/SctrTrabajadorEstadoDto.cs`:
+- `public string? EmpresaNombre { get; set; }` — nombre del contributor activo del worker
+- `public string? ProyectoNombre { get; set; }` — descripción del proyecto activo del worker
+- `public DateTime? FechaVencimiento { get; set; }` — vigencia de `ss_hab_trabajador` (item SCTR primero, VidaLey como fallback)
+
+### SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync — foreach async por vinculación
+
+El `workers.Select(w => {...}).ToList()` sícrono reemplazado por `foreach` async. Por cada worker:
+1. Query `WorkerVinculacion WHERE worker_id = w.Id AND fecha_fin IS NULL ORDER BY id DESC` → vinculación activa
+2. Si tiene `EmpresaId`: query `Contributor.ContributorName` → `EmpresaNombre`
+3. Si tiene `ProyectoId`: query `Project.ProjectDescription` → `ProyectoNombre`
+4. `FechaVencimiento` desde `habs` en memoria (`??=` — SCTR primero, VidaLey como fallback)
+
+Patrón `foreach` (en lugar de `Select + Task.WhenAll`) porque EF Core no permite queries concurrentes en el mismo `DbContext`. Los 3 queries por worker corren secuencialmente sobre el mismo `ctx`.
+
+---
+
+## Sesión 2026-05-26 — Fix cruce SCTR/VidaLey + enriquecimiento EMO dashboard
+
+### SctrVidaLeyRepository — fix bug cruce SCTR ↔ Vida Ley
+
+**Root cause:** el lookup de `SsItemTrabajador` usaba `i.Nombre.Contains(itemNombreBuscar)` como filtro EF Core (traducido a `LIKE` case-sensitive en PG) sin filtrar por `Activo`. `GetTrabajadoresPorEmpresaAsync` sí filtraba por `Activo` — divergencia que podía hacer que Create/Update escribiera a un ítem distinto del que leía Get.
+
+**Fixes aplicados en CreateAsync, UpdateAsync, AprobarAsync:**
+```csharp
+// Antes (EF Core, sin Activo, case-sensitive):
+var item = await ctx.SsItemTrabajador
+    .Where(i => i.EsSctrVidaley && i.Nombre.Contains(itemNombreBuscar))
+    .FirstOrDefaultAsync();
+
+// Después (cliente, con Activo, OrdinalIgnoreCase):
+var sctrItems = await ctx.SsItemTrabajador
+    .Where(i => i.EsSctrVidaley && i.Activo)
+    .ToListAsync();
+var item = sctrItems.FirstOrDefault(i =>
+    i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
+```
+
+**Fix en `GetTrabajadoresPorEmpresaAsync`:** `itemSctr` ya usaba `ToListAsync()` con `Activo`, pero `Contains("SCTR")` era case-sensitive. Uniformizado a `OrdinalIgnoreCase` junto con `itemVidaLey`.
+
+**Logs debug eliminados:**
+- `HabTrabajadorRepository`: `Console.WriteLine("[DEBUG SQL] " + baseQuery.ToQueryString())`
+- `SctrVidaLeyRepository.AprobarAsync`: `LogInformation("[DEBUG AprobarAsync] ...")`
+- `SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync`: 10 líneas de `LogInformation("[GetTrabajadoresPorEmpresa]...")` y `LogInformation("[DEBUG] estadoVidaLey...")`
+
+### EmoRepository.ListPorTrabajador — enriquecimiento y filtros
+
+**Filtro EsAbril (empresa de vinculación):**
+```csharp
+q = q.Where(x => x.em != null && x.em.EsAbril);
+```
+`em` proviene del JOIN `Contributor on vv.EmpresaId` (vinculación activa), no de `EmpresaOrigenId`.
+
+**Nuevos JOINs en el query principal:**
+- `join eop in ctx.Contributor on ue.EmpresaOrigenId equals eop.ContributorId` → `EmpresaOrigenNombre` (empresa que emitió el EMO)
+- `join proy in ctx.Project on (vv != null ? vv.ProyectoId : -1) equals proy.ProjectId` → `ProyectoNombre`. Guardado `vv != null ?` para evitar match incorrecto cuando `vv` es null de `DefaultIfEmpty`.
+
+**Nuevos campos en `EmoPorTrabajadorDto`:** `EmpresaOrigenNombre`, `ProyectoNombre`, `ObraOficina` (directo de `x.w.ObraOficina`).
+
+**Búsqueda case-insensitive:** `Contains(term)` → `EF.Functions.ILike(field, $"%{term}%")` para `FullName` y `DocumentIdentityCode`. Funciona nativamente en PG sin `ToUpper`.
+
+### CatalogosRepository.ListEmpresas — filtro EsAbril hardcodeado
+
+Endpoint `GET /ssoma/catalogos/empresas` (dropdown de empresas en vista EMOs):
+```csharp
+// Antes:
+var q = ctx.Contributor.Where(e => e.State).AsQueryable();
+// Después:
+var q = ctx.Contributor.Where(e => e.State && e.EsAbril).AsQueryable();
+```
+
+### DashboardRepository.GetDashboard — workerIdsAbril para todos los conteos
+
+Todos los conteos del dashboard ahora se restringen a workers con vinculación activa a una empresa `EsAbril = true`:
+
+```csharp
+var workerIdsAbril = await ctx.WorkerVinculacion
+    .Where(v => v.FechaFin == null)
+    .Join(ctx.Contributor.Where(c => c.EsAbril),
+          v => v.EmpresaId, c => c.ContributorId, (v, c) => v.WorkerId)
+    .Distinct()
+    .ToListAsync();
+```
+
+Queries filtradas: `totalTrabajadores`, `totalAbril`, `totalContratistas`, `emosActivos` (propaga a `ultimosEmos`, `aptitud`, `emosVencidos`, `vencer`, `proximos`), `interconsultasPendientes` (`i.WorkerId`), `trabajadoresInhabilitados`.
+
+`programacionesSemana` (`SsProgramacionEmo`) no filtrado — es agenda de clínica, sin relación directa a `WorkerId`.
+
+---
+
+## Sesión 2026-05-26 (continuación) — EMO: InterconsultaInline, FechaLectura, bloque create expandido
+
+### WorkerEmo — nueva propiedad FechaLectura
+
+`Infrastructure/Models/WorkerEmo.cs`:
+```csharp
+[Column("fecha_lectura")]
+public DateOnly? FechaLectura { get; set; }
+```
+Insertada junto a `FechaVencimiento`. **Pendiente migración EF** (`dotnet ef migrations add AddFechaLecturaWorkerEmo`) para crear la columna `fecha_lectura` en BD.
+
+### EmoCreateDto — dos nuevos campos
+
+`Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/Emo/EmoCreateDto.cs`:
+```csharp
+public DateOnly? FechaLectura { get; set; }
+public InterconsultaInlineDto? InterconsultaInline { get; set; }
+```
+
+### EmoInterconsultaInlineDto — archivo nuevo
+
+`Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/Emo/EmoInterconsultaInlineDto.cs`:
+```csharp
+public class InterconsultaInlineDto
+{
+    public string Especialidad { get; set; } = string.Empty;
+    public string? CentroAtencion { get; set; }
+    public string? Diagnostico { get; set; }
+    public string? Cie10 { get; set; }
+    public int? MedicoDerivaId { get; set; }
+    public bool RequiereSeguimiento { get; set; }
+}
+```
+
+### EmoRepository.Create — bloque interconsulta expandido
+
+**Antes:** solo disparaba cuando `Aptitud == "Observado" && RequiereInterconsulta`.
+
+**Ahora:** dispara también cuando `InterconsultaInline != null` o `Aptitud == "No Apto"`. Usa los campos de `InterconsultaInline` con fallback a los valores originales:
+```csharp
+if (dto.InterconsultaInline != null ||
+    (dto.Aptitud == "Observado" && dto.RequiereInterconsulta) ||
+    dto.Aptitud == "No Apto")
+{
+    var ic = dto.InterconsultaInline;
+    ctx.SsInterconsulta.Add(new SsInterconsulta
+    {
+        Especialidad = ic?.Especialidad ?? "Por definir",
+        MedicoDerivaId = ic?.MedicoDerivaId ?? dto.MedicoId,
+        CentroAtencion = ic?.CentroAtencion,
+        Diagnostico = ic?.Diagnostico,
+        Cie10 = ic?.Cie10,
+        RequiereSeguimiento = ic?.RequiereSeguimiento ?? false,
+        // resto igual ...
+    });
+}
+```
+`CentroAtencion`, `Diagnostico`, `Cie10` ya existen en `SsInterconsulta` — no requieren migración.
+
+### EmoRepository.Create — FechaLectura en object initializer
+
+```csharp
+NumeroInforme = dto.NumeroInforme,
+FechaLectura = dto.FechaLectura,   // ← nuevo
+UrlResultado = dto.UrlResultado,
+```
+Depende de que se ejecute la migración de `WorkerEmo.FechaLectura` antes de correr en producción.

@@ -22,8 +22,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
+                if (User.FindFirst(ClaimTypes.NameIdentifier) == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var result = await _service.GetFilters();
@@ -40,15 +39,34 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
         public async Task<IActionResult> GetDashboard(
             [FromQuery] int? proyectoId,
             [FromQuery] string? estado,
-            [FromQuery] int? responsableArqComId)
+            [FromQuery] int? responsableArqComId,
+            [FromQuery] DateOnly? fechaDesde,
+            [FromQuery] DateOnly? fechaHasta)
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
+                if (User.FindFirst(ClaimTypes.NameIdentifier) == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetDashboard(proyectoId, estado, responsableArqComId);
+                var result = await _service.GetDashboard(proyectoId, estado, responsableArqComId, fechaDesde, fechaHasta);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("{proyectoId:int}")]
+        public async Task<IActionResult> GetProyectoDetail(int proyectoId)
+        {
+            try
+            {
+                if (User.FindFirst(ClaimTypes.NameIdentifier) == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var result = await _service.GetProyectoDetail(proyectoId);
                 return Ok(result);
             }
             catch (Exception)

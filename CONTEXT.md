@@ -69,7 +69,7 @@ Features/<Modulo>Module/
 | `ConfigurationModule` | `AddConfigurationModule` | ProjectFeature (CRUD proyectos AC) |
 | `GestionAdministrativaModule` | `AddGestionAdministrativaModule` | SolicitudSalidas, GestionSalidas, Lugares, MotivosSalida |
 | `MejoraContinuaModule` | `AddMejoraContinuaModule` | LessonsLearned, AreasYSubareas, PsssTemplate, Relations |
-| `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | LessonsLearnedDashboard |
+| `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | LessonsLearnedDashboard, ProjectsDashboard |
 
 **ArquitecturaComercial** vive en capa tradicional, no en Features.
 
@@ -781,6 +781,43 @@ Modelos compartidos: `Partida`, `PsssScope`, `PsssTemplate`, `PsssTemplateDetail
 ### 11e. UnidadDeProyectosModule (`Features/UnidadDeProyectosModule/`)
 
 `LessonsLearnedDashboard` — dashboard consolidado de lecciones entre proyectos.
+
+`ProjectsDashboard` — dashboard ejecutivo de proyectos ArquitecturaComercial.
+
+#### ProjectsDashboard — endpoints
+
+```
+GET  /api/v1/projects-dashboard/filters
+     → ProjectsDashboardFiltersResponseDto { Projects, Estados, ResponsablesArqCom }
+
+GET  /api/v1/projects-dashboard?proyectoId=&estado=&responsableArqComId=&fechaDesde=&fechaHasta=
+     → ProjectsDashboardResponseDto:
+       - KPIs: TotalProyectos, AlDia, ConRetraso, SinActividades, PorcentajeAvancePromedio
+       - Proyectos[]: ProjectId, ProjectDescription, Estado, ResponsableArqCom,
+                      TotalActividades, Culminadas, EnProceso, Vencidas, PorcentajeAvance,
+                      EstaConRetraso, DiasRetraso, Semaforo, EtapaNombre
+       - DistribucionPorEstado[]: { Estado, CantidadProyectos }
+       - RankingResponsables[]: { ResponsableId, ResponsableNombre, TotalProyectos,
+                                  ActividadesCompletadas, ActividadesVencidas,
+                                  TotalActividades, Score }  — ordenado Score DESC
+       - HeatmapCarga[]: { ResponsableId, ResponsableNombre, Semana ("yyyy-Www"),
+                           CantidadActividades }
+
+GET  /api/v1/projects-dashboard/{proyectoId}
+     → ProyectoDetailDashboardDto:
+       - Kpis: TotalActividades, Culminadas, EnProceso, Vencidas, AvancePct, DiasRetraso, Semaforo
+       - ActividadesVencidas[]: { Id, Nombre, Tipo, ResponsableNombre, FinProgramado, DiasRetraso }
+       - Gantt[]: { Id, Nombre, InicioProgramado, FinProgramado, FinEfectivo, Estado, ResponsableNombre }
+```
+
+#### ProjectsDashboard — reglas de negocio
+
+- **Semáforo**: calculado como `MAX(hoy - FinProgramado)` sobre actividades donde `FinProgramado < hoy AND FinEfectivo == null`. Verde = 0 días, Amarillo = 1-7 días, Rojo = > 7 días.
+- **EtapaNombre**: etapa de la actividad activa con mayor `Id` que tenga `EtapaId` (más recientemente creada con etapa asignada).
+- **Score ranking**: `MAX(0, completadas/total*100 - vencidas*5)`. Basado en `AcActividad.UserId` (responsable por actividad). `TotalProyectos` = proyectos distintos donde tiene actividades.
+- **Heatmap**: agrupa por `AcActividad.UserId` y semana ISO de `FinProgramado`. Si no se pasa `fechaDesde/fechaHasta`, usa próximas 12 semanas desde hoy.
+- **Filtro de proyectos**: `project.state = true` (sin filtro por `tiene_arquitectura_comercial` — flag no activo en BD al 2026-05-25).
+- **Ranking y heatmap aplican los mismos filtros** que el dashboard principal (proyectoId, estado, responsableArqComId) ejecutando queries paralelas con `IDbContextFactory`.
 
 ---
 

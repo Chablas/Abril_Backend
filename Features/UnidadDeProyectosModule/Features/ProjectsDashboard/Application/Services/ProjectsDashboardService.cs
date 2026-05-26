@@ -34,15 +34,33 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
             };
         }
 
-        public async Task<ProjectsDashboardResponseDto> GetDashboard(int? proyectoId, string? estado, int? responsableArqComId)
+        public async Task<ProjectsDashboardResponseDto> GetDashboard(int? proyectoId, string? estado, int? responsableArqComId, DateOnly? fechaDesde, DateOnly? fechaHasta)
         {
-            var proyectos = await _dashboardRepository.GetDashboardDataFactory(proyectoId, estado, responsableArqComId);
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var heatDesde = fechaDesde ?? today;
+            var heatHasta = fechaHasta ?? today.AddDays(12 * 7);
+
+            var proyectosTask = _dashboardRepository.GetDashboardDataAsync(proyectoId, estado, responsableArqComId, today);
+            var rankingTask = _dashboardRepository.GetRankingResponsablesAsync(proyectoId, estado, responsableArqComId, today);
+            var heatmapTask = _dashboardRepository.GetHeatmapCargaAsync(proyectoId, estado, responsableArqComId, heatDesde, heatHasta);
+
+            await Task.WhenAll(proyectosTask, rankingTask, heatmapTask);
+
+            var proyectos = proyectosTask.Result;
+            var ranking = rankingTask.Result;
+            var heatmap = heatmapTask.Result;
 
             var total = proyectos.Count;
             var sinActividades = proyectos.Count(p => p.TotalActividades == 0);
             var conRetraso = proyectos.Count(p => p.EstaConRetraso);
             var alDia = proyectos.Count(p => p.TotalActividades > 0 && !p.EstaConRetraso);
             var avancePromedio = total > 0 ? Math.Round(proyectos.Average(p => p.PorcentajeAvance), 1) : 0d;
+
+            var distribucion = proyectos
+                .GroupBy(p => p.Estado ?? "(Sin estado)")
+                .Select(g => new EstadoDistribucionDto { Estado = g.Key, CantidadProyectos = g.Count() })
+                .OrderBy(d => d.Estado)
+                .ToList();
 
             return new ProjectsDashboardResponseDto
             {
@@ -51,8 +69,17 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
                 ConRetraso = conRetraso,
                 SinActividades = sinActividades,
                 PorcentajeAvancePromedio = avancePromedio,
-                Proyectos = proyectos
+                Proyectos = proyectos,
+                DistribucionPorEstado = distribucion,
+                RankingResponsables = ranking,
+                HeatmapCarga = heatmap
             };
+        }
+
+        public async Task<ProyectoDetailDashboardDto> GetProyectoDetail(int proyectoId)
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            return await _dashboardRepository.GetProyectoDetailAsync(proyectoId, today);
         }
     }
 }

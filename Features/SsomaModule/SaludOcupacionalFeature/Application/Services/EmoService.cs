@@ -52,11 +52,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             return _repo.UpdateEstado(id, estado, userId);
         }
 
-        private static void ValidarComun(int? workerId, int tipoEmoId, string? aptitud, bool requiereInterconsulta)
+        private static void ValidarComun(int? workerId, int? tipoEmoId, string? aptitud, bool requiereInterconsulta)
         {
             if (workerId.HasValue && workerId.Value <= 0)
                 throw new AbrilException("El trabajador es obligatorio.", 400);
-            if (tipoEmoId <= 0)
+            if (!tipoEmoId.HasValue || tipoEmoId.Value <= 0)
                 throw new AbrilException("El tipo de EMO es obligatorio.", 400);
             if (!string.IsNullOrWhiteSpace(aptitud) && !AptitudesValidas.Contains(aptitud))
                 throw new AbrilException("La aptitud indicada no es válida.", 400);

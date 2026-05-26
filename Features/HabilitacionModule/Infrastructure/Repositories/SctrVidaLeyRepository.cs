@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.SctrVidaley;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -13,11 +14,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly ILogger<SctrVidaLeyRepository> _logger;
+        private readonly ISharePointHabService _sharePoint;
 
-        public SctrVidaLeyRepository(IDbContextFactory<AppDbContext> factory, ILogger<SctrVidaLeyRepository> logger)
+        public SctrVidaLeyRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ILogger<SctrVidaLeyRepository> logger,
+            ISharePointHabService sharePoint)
         {
             _factory = factory;
             _logger = logger;
+            _sharePoint = sharePoint;
         }
 
         public async Task<(List<SctrVidaLeyDto> Items, int Total)> GetPagedAsync(
@@ -573,7 +579,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return result;
         }
 
-        private static async Task<List<SctrVidaLeyDto>> BuildDtosAsync(
+        private async Task<List<SctrVidaLeyDto>> BuildDtosAsync(
             AppDbContext ctx, List<SsSctrVidaley> entities)
         {
             if (entities.Count == 0) return new List<SctrVidaLeyDto>();
@@ -613,7 +619,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(h => workerIds.Contains(h.WorkerId) && sctrItemIds.Contains(h.ItemId))
                 .ToListAsync();
 
-            return entities.Select(e =>
+            var tasks = entities.Select(async e =>
             {
                 var workersDeEste = workersData.Where(x => x.SctrVidaLeyId == e.Id).ToList();
                 var itemTipo = sctrItem.FirstOrDefault(i =>
@@ -624,6 +630,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     var aprobado = false;
                     var estadoWorker = "Falta";
                     int? sctrHabId = null;
+                    DateTime? fechaVencimiento = null;
                     if (itemTipo is not null)
                     {
                         var hab = habs.FirstOrDefault(h => h.WorkerId == w.WorkerId && h.ItemId == itemTipo.Id);
@@ -632,6 +639,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             aprobado = hab.Estado == "Aprobado";
                             estadoWorker = hab.Estado ?? "Falta";
                             sctrHabId = hab.Id;
+                            fechaVencimiento = hab.Vigencia;
                         }
                     }
                     return new SctrWorkerDto
@@ -642,9 +650,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         Aprobado = aprobado,
                         Estado = estadoWorker,
                         SctrHabId = sctrHabId,
-                        FechaInicioCobertura = w.FechaInicioCobertura
+                        FechaInicioCobertura = w.FechaInicioCobertura,
+                        FechaVencimiento = fechaVencimiento
                     };
                 }).ToList();
+
+                string? archivoUrl = null;
+                string? archivoUrl2 = null;
+
+                if (!string.IsNullOrEmpty(e.ArchivoUrl))
+                {
+                    try { archivoUrl = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl); }
+                    catch { archivoUrl = null; }
+                }
+
+                if (!string.IsNullOrEmpty(e.ArchivoUrl2))
+                {
+                    try { archivoUrl2 = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl2); }
+                    catch { archivoUrl2 = null; }
+                }
 
                 return new SctrVidaLeyDto
                 {
@@ -658,14 +682,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     FechaInicio = e.FechaInicio,
                     Mes = e.Mes,
                     Anio = e.Anio,
-                    ArchivoUrl = e.ArchivoUrl,
-                    ArchivoUrl2 = e.ArchivoUrl2,
+                    ArchivoUrl = archivoUrl,
+                    ArchivoUrl2 = archivoUrl2,
                     Estado = e.Estado,
                     Vigencia = e.Vigencia,
                     ObsAbril = e.ObsAbril,
                     Workers = workersDto
                 };
-            }).ToList();
+            });
+
+            return (await Task.WhenAll(tasks)).ToList();
         }
     }
 }

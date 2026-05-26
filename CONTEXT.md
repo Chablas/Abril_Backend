@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-26 — EMO: InterconsultaInline, FechaLectura, fix cruce SCTR/VidaLey, EsAbril en dashboard y catálogos
+> Última actualización: 2026-05-26 — ProgramacionEmo: filtro EsAbril en List, notificación creación simplificada, nuevo EnviarNotificacionAceptacionAsync
 
 ---
 
@@ -2470,3 +2470,53 @@ FechaLectura = dto.FechaLectura,   // ← nuevo
 UrlResultado = dto.UrlResultado,
 ```
 Depende de que se ejecute la migración de `WorkerEmo.FechaLectura` antes de correr en producción.
+
+---
+
+## Sesión 2026-05-26 (tarde) — ProgramacionEmoRepository: filtro EsAbril y refactor notificaciones
+
+### ProgramacionEmoRepository.List — filtro EsAbril
+
+`Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/ProgramacionEmoRepository.cs`
+
+El query ya tenía JOIN con `Contributor` (`em`). Se agrega filtro fijo antes de los filtros opcionales:
+```csharp
+q = q.Where(x => x.em != null && x.em.EsAbril);
+```
+Mismo patrón que `EmoRepository.ListPorTrabajador`, `DashboardRepository` y `CatalogosRepository`.
+
+### EnviarNotificacionCreacionAsync — simplificado (solo clínica)
+
+Reemplazado por versión reducida:
+- Guarda si no hay `ClinicaId`. No distingue tipo de worker.
+- `To` = `ss_clinica_emails` (fallback `ss_clinicas.email`). Sin CC.
+- Subject: `[EMO Programado] {nombre} — {fecha}`.
+- Body: tabla HTML compacta con trabajador, tipo, fecha, hora, proyecto, clínica.
+- `BuildBodyCreacion` (método estático) eliminado — quedó huérfano.
+
+### EnviarNotificacionAceptacionAsync — nuevo método
+
+Se dispara cuando la clínica acepta (`Accion == "Aceptar"`). Notifica al equipo interno según tipo de worker:
+
+| Tipo | To |
+|------|-----|
+| Obrero (Casa, ObraOficina=Ninguno) | EmailAdministrador + EmailResidente + EmailSsoma del proyecto + MedicinaOcupacional |
+| Staff (Casa, ObraOficina=Staff) | EmailCorporativo + EmailResidente + EmailAdministrador + EmailSsoma del proyecto |
+| Oficina Central | EmailCorporativo + GTH + MedicinaOcupacional + cat_jefatura emails del `worker.Jefatura` |
+| Contratista (!esCasa) | sin notificación — return inmediato |
+
+Subject: `[EMO Confirmado] {nombre} — {fecha}`.
+
+### ClinicaAccion — carga worker + llama EnviarNotificacionAceptacionAsync
+
+```csharp
+var worker = await ctx.Worker.Include(w => w.Person)
+    .FirstOrDefaultAsync(w => w.Id == ent.WorkerId)
+    ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+case "Aceptar":
+    ent.Estado = "Aceptado por Clínica";
+    ent.MotivoRechazo = null;
+    await EnviarNotificacionAceptacionAsync(ctx, ent, worker);
+    break;
+```

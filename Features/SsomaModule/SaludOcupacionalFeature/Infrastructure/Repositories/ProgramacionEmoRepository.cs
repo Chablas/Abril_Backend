@@ -165,6 +165,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 case "Aceptar":
                     ent.Estado = "Aceptado por Clínica";
                     ent.MotivoRechazo = null;
+                    if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
                     await EnviarNotificacionAceptacionAsync(ctx, ent, worker);
                     break;
                 case "Rechazar":

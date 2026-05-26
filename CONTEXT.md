@@ -2545,3 +2545,71 @@ public string? EmailAdministrador { get; set; }
 | `20260526162657_SyncSnapshot` | Migración vacía — sincroniza snapshot EF sin cambios en BD | ✅ |
 
 Ambas aplicadas con `dotnet ef database update --project Abril-Backend.csproj`.
+
+---
+
+## Sesión 2026-05-26 (continuación 2) — Notificaciones EMO, WorkerHabilitacionListDto, validaciones
+
+### EnviarNotificacionAceptacionAsync — adminEmail desde contributor del worker
+
+Carga `contributor.email_administrador` por `worker.ContributorId` y lo agrega a `toRaw` en los tres bloques (esObrero, esStaff, esOficinaCentral):
+
+```csharp
+var adminEmail = worker.ContributorId.HasValue
+    ? await ctx.Contributor.AsNoTracking()
+        .Where(c => c.ContributorId == worker.ContributorId.Value)
+        .Select(c => c.EmailAdministrador)
+        .FirstOrDefaultAsync()
+    : null;
+// ...
+toRaw.Add(adminEmail); // en cada bloque
+```
+
+### Prefijo [PRUEBAS - NO RESPONDER] en subjects EMO
+
+Ambos métodos de notificación actualizados:
+- `EnviarNotificacionCreacionAsync`: `"[PRUEBAS - NO RESPONDER] [EMO Programado] {nombre} — {fecha}"`
+- `EnviarNotificacionAceptacionAsync`: `"[PRUEBAS - NO RESPONDER] [EMO Confirmado] {nombre} — {fecha}"`
+
+**Quitar antes de producción.**
+
+### WorkerHabilitacionListDto — TieneEmo y DiasRestantesEmo
+
+`Features/HabilitacionModule/Application/Dtos/Trabajadores/WorkerHabilitacionListDto.cs`:
+```csharp
+public bool TieneEmo { get; set; }
+public int? DiasRestantesEmo { get; set; }
+```
+
+`HabTrabajadorRepository.GetWorkersHabilitacionAsync` — batch post-query (mismo patrón que `empresaMap`/`proyectoMap`):
+```csharp
+var emoMap = await ctx.WorkerEmo
+    .Where(e => workerIds.Contains(e.WorkerId) && e.Activo
+             && (e.Estado == "Vigente" || e.Estado == "Convalidado"))
+    .GroupBy(e => e.WorkerId)
+    .Select(g => new { WorkerId = g.Key,
+        FechaVencimiento = g.OrderByDescending(e => e.FechaVencimiento)
+                            .Select(e => e.FechaVencimiento).FirstOrDefault() })
+    .ToDictionaryAsync(x => x.WorkerId, x => x.FechaVencimiento);
+
+// En el mapper:
+TieneEmo = emoMap.ContainsKey(r.Worker.Id),
+DiasRestantesEmo = emoVenc.HasValue ? (int?)(emoVenc.Value.DayNumber - today.DayNumber) : null
+```
+`FechaVencimiento` en `WorkerEmo` es `DateOnly?` — días calculados con `DayNumber` (sin conversión de zona horaria).
+
+### ProgramacionEmoRepository.Create — validación FechaProgramada
+
+```csharp
+if (dto.FechaProgramada == default)
+    throw new AbrilException("La fecha es obligatoria.", 400);
+```
+Insertado después de cargar el worker. Evita guardar `0001-01-01` cuando el cliente omite el campo.
+
+### ClinicaAccion — actualizar HoraProgramada al aceptar
+
+En `case "Aceptar"`: si la clínica envía `CheckInHora`, se actualiza `HoraProgramada` antes de llamar a `EnviarNotificacionAceptacionAsync` (así el email refleja la hora real):
+```csharp
+if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
+```
+`horaStr` en ambos métodos de notificación ya usaba `prog.HoraProgramada` — sin cambio adicional.

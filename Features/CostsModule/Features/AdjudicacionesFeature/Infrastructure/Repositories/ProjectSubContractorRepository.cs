@@ -411,6 +411,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
                 join ct in ctx.ContractType on psc.ContractTypeId equals ct.ContractTypeId
                 join pm in ctx.PaymentMethod on psc.PaymentMethodId equals pm.PaymentMethodId
+                join pfJoin in ctx.PaymentForm on psc.PaymentFormId equals pfJoin.PaymentFormId into pfGroup
+                from pf in pfGroup.DefaultIfEmpty()
                 join cur in ctx.Currency on psc.CurrencyId equals cur.CurrencyId
                 join wi in ctx.WorkItem on psc.WorkItemId equals wi.WorkItemId
                 join pscs in ctx.ProjectSubContractorStatus on psc.ProjectSubContractorStatusId equals pscs.ProjectSubContractorStatusId
@@ -446,7 +448,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 join personCreatorJoin in ctx.Person on psc.CreatedUserId equals personCreatorJoin.UserId into personCreatorGroup
                 from personCreator in personCreatorGroup.DefaultIfEmpty()
                 where psc.State
-                select new { psc, p, contractor, c, ct, cm, pm, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc, fichaTecnicaDoc, anexoDoc, personCreator };
+                select new { psc, p, contractor, c, ct, cm, pm, pf, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc, fichaTecnicaDoc, anexoDoc, personCreator };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -490,6 +492,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     ContractModalityDescription = x.cm != null ? x.cm.ContractModalityDescription : null,
                     PaymentMethodId = x.psc.PaymentMethodId,
                     PaymentMethodDescription = x.pm.PaymentMethodDescription,
+                    PaymentFormId = x.psc.PaymentFormId,
+                    PaymentFormDescription = x.pf != null ? x.pf.PaymentFormDescription : null,
                     AdvancePercentage = x.psc.AdvancePercentage,
                     AdvanceAmount = x.psc.AdvanceAmount,
                     Amount = x.psc.Amount,
@@ -702,6 +706,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPaymentMethodDesc = ctx.Col<PaymentMethod>(nameof(PaymentMethod.PaymentMethodDescription));
             string cPaymentMethodActive = ctx.Col<PaymentMethod>(nameof(PaymentMethod.Active));
 
+            string tPaymentForm = ctx.Table<PaymentForm>();
+            string cPaymentFormId = ctx.Col<PaymentForm>(nameof(PaymentForm.PaymentFormId));
+            string cPaymentFormDesc = ctx.Col<PaymentForm>(nameof(PaymentForm.PaymentFormDescription));
+            string cPscPaymentFormId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.PaymentFormId));
+
             string tCurrency = ctx.Table<Currency>();
             string cCurrencyId = ctx.Col<Currency>(nameof(Currency.CurrencyId));
             string cCurrencyCode = ctx.Col<Currency>(nameof(Currency.CurrencyCode));
@@ -905,6 +914,8 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        cm.{cContractModalityDescDapper} AS ""ContractModalityDescription"",
        psc.{cPscPaymentMethodId} AS ""PaymentMethodId"",
        pm.{cPaymentMethodDesc} AS ""PaymentMethodDescription"",
+       psc.{cPscPaymentFormId} AS ""PaymentFormId"",
+       pf.{cPaymentFormDesc} AS ""PaymentFormDescription"",
        psc.{cPscAdvancePercentage} AS ""AdvancePercentage"",
        psc.{cPscAdvanceAmount} AS ""AdvanceAmount"",
        psc.{cPscAmount} AS ""Amount"",
@@ -997,6 +1008,7 @@ JOIN {tContributor} c ON contractor.{cContractorContribId} = c.{cContributorId}
 JOIN {tContractType} ct ON psc.{cPscContractTypeId} = ct.{cContractTypeId}
 LEFT JOIN {tContractModalityDapper} cm ON psc.{cPscContractModalityId} = cm.{cContractModalityIdDapper}
 JOIN {tPaymentMethod} pm ON psc.{cPscPaymentMethodId} = pm.{cPaymentMethodId}
+LEFT JOIN {tPaymentForm} pf ON psc.{cPscPaymentFormId} = pf.{cPaymentFormId}
 JOIN {tCurrency} cur ON psc.{cPscCurrencyId} = cur.{cCurrencyId}
 JOIN {tWorkItem} wi ON psc.{cPscWorkItemId} = wi.{cWorkItemId}
 JOIN {tStatus} pscs ON psc.{cPscStatusId} = pscs.{cStatusId}
@@ -1106,6 +1118,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     ContractModalityDescription = (string?)raw.ContractModalityDescription,
                     PaymentMethodId = (int)raw.PaymentMethodId,
                     PaymentMethodDescription = raw.PaymentMethodDescription ?? "",
+                    PaymentFormId = (int?)raw.PaymentFormId,
+                    PaymentFormDescription = (string?)raw.PaymentFormDescription,
                     AdvancePercentage = (decimal?)raw.AdvancePercentage,
                     AdvanceAmount = (decimal?)raw.AdvanceAmount,
                     Amount = (decimal?)raw.Amount ?? 0m,
@@ -1214,7 +1228,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 .ToListAsync();
 
             // Tipo 1 = Staff de obra → matriz + CC | Tipo 2 = Oficina central → solo CC
-            // Tipo 3 = Oficina Técnica → no se incluye en la notificación del paso 1
             var staffEmails          = allEmails.Where(e => e.StaffProjectEmailTypeId == 1).Select(e => e.Email).ToList();
             var oficinaCentralEmails = allEmails.Where(e => e.StaffProjectEmailTypeId == 2).Select(e => e.Email).ToList();
 
@@ -1470,11 +1483,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 select contrib.ContributorName
             ).FirstOrDefaultAsync();
 
-            var ofTecnicaEmails = await _context.StaffProjectEmail
-                .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 3 && s.State && s.Active)
-                .Select(s => s.Email)
-                .ToListAsync();
-
+            // Staff de Obra absorbe el rol que tenía Oficina Técnica (tipo 3 eliminado del catálogo).
             var staffObraEmails = await _context.StaffProjectEmail
                 .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 1 && s.State && s.Active)
                 .Select(s => s.Email)
@@ -1490,7 +1499,6 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             {
                 ProjectDescription  = projectDescription,
                 ContributorName     = contributorName ?? string.Empty,
-                OfTecnicaEmails     = ofTecnicaEmails,
                 StaffObraEmails     = staffObraEmails,
                 ScannedDocs         = scannedDocs
             };
@@ -1945,8 +1953,10 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 select contrib.ContributorName
             ).FirstOrDefaultAsync() ?? string.Empty;
 
-            var ofTecnicaEmails = await _context.StaffProjectEmail
-                .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 3 && s.State && s.Active)
+            // Staff de Obra ahora cumple el rol que antes tenía Oficina Técnica.
+            // El tipo 3 (Oficina Técnica) fue eliminado del catálogo; se consolida en el tipo 1.
+            var staffObraEmails = await _context.StaffProjectEmail
+                .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 1 && s.State && s.Active)
                 .Select(s => s.Email)
                 .ToListAsync();
 
@@ -1955,7 +1965,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ProjectDescription  = projectDescription,
                 ContributorName     = contributorName,
                 WorkItemDescription = workItemDescription,
-                OfTecnicaEmails     = ofTecnicaEmails,
+                StaffObraEmails     = staffObraEmails,
             };
         }
 
@@ -2150,6 +2160,9 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     x.ProjectSubContractorSummarySheetId,
                     x.ProjectSubContractorContractId,
                     x.ProjectSubContractorAttachedQuotationId,
+                    x.ProjectSubContractorFichaTecnicaId,
+                    x.ProjectSubContractorServiceOrderId,
+                    x.ProjectSubContractorScheduleId,
                     x.ProjectSubContractorNonConformingOutputId,
                     x.ProjectSubContractorToleranceChartId,
                     x.ProjectSubContractorInstructivoId,
@@ -2173,11 +2186,37 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     .FirstOrDefaultAsync()
                 : null;
 
-            // Cotización adjunta del paso 3 (se inserta dentro del contrato durante el armado del paquete)
+            // Documentos del paso 3 que se incrustan DENTRO del contrato (no van como archivos sueltos):
+            //   - Cotización adjunta → marcador <<INSERTAR_COTIZACION_AQUI>>
+            //   - Ficha técnica      → marcador <<INSERTAR_FICHA_TÉCNICA_AQUI>>
+            //   - Orden de servicio  → marcador <<INSERTAR_ORDEN_DE_SERVICIO_AQUI>>
+            //   - Cronograma         → marcador <<INSERTAR_CRONOGRAMA_AQUI>>
+            // Cada uno trae OriginalFileName para que el service decida si descarga directo (PDF) o vía ?format=pdf.
             var attachedQuotation = ids.ProjectSubContractorAttachedQuotationId.HasValue
                 ? await ctx.ProjectSubContractorAttachedQuotation
                     .Where(x => x.ProjectSubContractorAttachedQuotationId == ids.ProjectSubContractorAttachedQuotationId.Value)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
+                    .FirstOrDefaultAsync()
+                : null;
+
+            var fichaTecnica = ids.ProjectSubContractorFichaTecnicaId.HasValue
+                ? await ctx.ProjectSubContractorFichaTecnica
+                    .Where(x => x.ProjectSubContractorFichaTecnicaId == ids.ProjectSubContractorFichaTecnicaId.Value)
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
+                    .FirstOrDefaultAsync()
+                : null;
+
+            var serviceOrder = ids.ProjectSubContractorServiceOrderId.HasValue
+                ? await ctx.ProjectSubContractorServiceOrder
+                    .Where(x => x.ProjectSubContractorServiceOrderId == ids.ProjectSubContractorServiceOrderId.Value)
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
+                    .FirstOrDefaultAsync()
+                : null;
+
+            var schedule = ids.ProjectSubContractorScheduleId.HasValue
+                ? await ctx.ProjectSubContractorSchedule
+                    .Where(x => x.ProjectSubContractorScheduleId == ids.ProjectSubContractorScheduleId.Value)
+                    .Select(x => new { x.FileUrl, x.SharepointItemId, x.OriginalFileName })
                     .FirstOrDefaultAsync()
                 : null;
 
@@ -2226,6 +2265,16 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ContractItemId              = contract?.SharepointItemId,
                 AttachedQuotationUrl        = attachedQuotation?.FileUrl,
                 AttachedQuotationItemId     = attachedQuotation?.SharepointItemId,
+                AttachedQuotationFileName   = attachedQuotation?.OriginalFileName,
+                FichaTecnicaUrl             = fichaTecnica?.FileUrl,
+                FichaTecnicaItemId          = fichaTecnica?.SharepointItemId,
+                FichaTecnicaFileName        = fichaTecnica?.OriginalFileName,
+                ServiceOrderUrl             = serviceOrder?.FileUrl,
+                ServiceOrderItemId          = serviceOrder?.SharepointItemId,
+                ServiceOrderFileName        = serviceOrder?.OriginalFileName,
+                ScheduleUrl                 = schedule?.FileUrl,
+                ScheduleItemId              = schedule?.SharepointItemId,
+                ScheduleFileName            = schedule?.OriginalFileName,
                 NonConformingOutputUrl      = nonConformingOutput?.FileUrl,
                 NonConformingOutputItemId   = nonConformingOutput?.SharepointItemId,
                 ToleranceChartUrl           = toleranceChart?.FileUrl,

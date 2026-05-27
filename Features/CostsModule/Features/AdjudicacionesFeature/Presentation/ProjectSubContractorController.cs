@@ -472,7 +472,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
                 var userId = int.Parse(userIdClaim.Value);
                 await _projectSubContractorService.SendStep8NotificationAsync(id, dto.GraphAccessToken, userId);
-                return Ok(new { message = "Correo enviado a Oficina Técnica exitosamente." });
+                return Ok(new { message = "Correo enviado a Staff de Obra exitosamente." });
             }
             catch (AbrilException ex)
             {
@@ -486,7 +486,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
         [Authorize]
         [HttpPost("{id}/advance-to-step4")]
-        public async Task<IActionResult> AdvanceToStep4(int id)
+        public async Task<IActionResult> AdvanceToStep4(int id, [FromBody] AdvanceToStep4Dto dto)
         {
             try
             {
@@ -494,9 +494,12 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
+                if (string.IsNullOrWhiteSpace(dto?.GraphAccessToken))
+                    return BadRequest(new { message = "Falta el token de Microsoft Graph del usuario autenticado." });
+
                 var userId = int.Parse(userIdClaim.Value);
-                await _projectSubContractorService.AdvanceToStep4Async(id, userId);
-                return Ok(new { message = "Adjudicación aprobada y Oficina Técnica notificada." });
+                await _projectSubContractorService.AdvanceToStep4Async(id, dto.GraphAccessToken, userId);
+                return Ok(new { message = "Adjudicación aprobada y Staff de Obra notificado." });
             }
             catch (AbrilException ex)
             {

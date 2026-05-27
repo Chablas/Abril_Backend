@@ -39,7 +39,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
         public async Task<IActionResult> GetDashboard(
             [FromQuery] int? proyectoId,
             [FromQuery] string? estado,
-            [FromQuery] int? responsableArqComId,
+            [FromQuery] int? responsableId,
             [FromQuery] DateOnly? fechaDesde,
             [FromQuery] DateOnly? fechaHasta)
         {
@@ -48,7 +48,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
                 if (User.FindFirst(ClaimTypes.NameIdentifier) == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetDashboard(proyectoId, estado, responsableArqComId, fechaDesde, fechaHasta);
+                var result = await _service.GetDashboard(proyectoId, estado, responsableId, fechaDesde, fechaHasta);
                 return Ok(result);
             }
             catch (Exception)

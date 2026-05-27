@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
     public interface IProjectsDashboardService
     {
         Task<ProjectsDashboardFiltersResponseDto> GetFilters();
-        Task<ProjectsDashboardResponseDto> GetDashboard(int? proyectoId, string? estado, int? responsableArqComId, DateOnly? fechaDesde, DateOnly? fechaHasta);
+        Task<ProjectsDashboardResponseDto> GetDashboard(int? proyectoId, string? estado, int? responsableId, DateOnly? fechaDesde, DateOnly? fechaHasta);
         Task<ProyectoDetailDashboardDto> GetProyectoDetail(int proyectoId);
     }
 }

@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-26 — ProgramacionEmo: filtro EsAbril en List, notificación creación simplificada, nuevo EnviarNotificacionAceptacionAsync
+> Última actualización: 2026-05-26 — ProjectActivity model, CronogramaActividades rewrite, ProjectsDashboard migrado a project_activity, DTOs reestructurados
 
 ---
 
@@ -2811,3 +2811,239 @@ Casa: `EstadoCalc = "No Autorizado"` si no hay `WorkerEmo` con `Activo && (Estad
 ```
 
 (gitignored — no commitear)
+
+---
+
+## Sesión 2026-05-26 — ProjectsDashboard: migración BD, feature en BD, renombrado ArqCom
+
+### 1. Migración `AddFechaRealFinToMilestoneSchedule`
+
+La entidad `MilestoneSchedule` (`Infrastructure/Models/MilestoneSchedule.cs`) ya tenía la propiedad `DateOnly? FechaRealFin` pero el snapshot EF no la conocía (no existía migración). La columna sí existía en Aiven (creada manualmente en sesión anterior).
+
+Pasos ejecutados:
+1. `dotnet ef migrations add AddFechaRealFinToMilestoneSchedule` — generó migración con `AddColumn<DateOnly>`.
+2. Primer `dotnet ef database update` falló con `42701: ya existe la columna «fecha_real_fin»`.
+3. El `Up()` fue reemplazado con `migrationBuilder.Sql("ALTER TABLE milestone_schedule ADD COLUMN IF NOT EXISTS fecha_real_fin date;")` para hacerlo idempotente.
+4. Segundo `dotnet ef database update` → `Done.` — migración registrada en `__EFMigrationsHistory`.
+
+Archivo: `Migrations/20260526130525_AddFechaRealFinToMilestoneSchedule.cs`
+
+> **Patrón a seguir:** cuando la BD está por delante de EF (columna ya aplicada manualmente), modificar el `Up()` generado para usar SQL idempotente (`IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`, etc.) antes de aplicar.
+
+---
+
+### 2. ProjectsDashboard migrado a `milestone_schedule`
+
+El dashboard ejecutivo de proyectos (`Features/UnidadDeProyectosModule/Features/ProjectsDashboard/`) usa `milestone_schedule` como fuente de actividades en lugar de `AcActividad`. Este cambio venía del commit `e658b5e` de la sesión anterior.
+
+**Fuente de datos:**
+- `MilestoneSchedule` (tabla `milestone_schedule`) — actividades del cronograma de proyecto.
+- `MilestoneScheduleHistory` — historial de cronogramas; se toma el de mayor `MilestoneScheduleHistoryId` activo por proyecto.
+- `FechaRealFin` (DateOnly?) — fecha real de término; `null` = no culminada. Usada para calcular completadas, vencidas, semáforo y Gantt.
+
+**Campos calculados en runtime (no almacenados):**
+- `Semaforo`: MAX(hoy - PlannedEndDate) sobre actividades vencidas. Verde=0d, Amarillo=1-7d, Rojo=>7d.
+- `Estado` por actividad: `CULMINADO` (FechaRealFin != null) → `VENCIDO` (PlannedEndDate < hoy) → `EN_PROCESO` (PlannedStartDate <= hoy) → `PENDIENTE`.
+- `Score` ranking: `MAX(0, completadas/total*100 - vencidas*5)`.
+
+---
+
+### 3. Feature `projects.projects-dashboard` registrada en BD
+
+Ejecutado directamente contra Aiven (PostgreSQL):
+
+```sql
+-- Tabla real: "feature" (singular), columna "feature_key"
+INSERT INTO feature (feature_key, module_id)
+VALUES ('projects.projects-dashboard', 6)       -- módulo "Proyectos"
+ON CONFLICT DO NOTHING;
+-- → feature_id = 93
+
+-- Asignada al rol USUARIO DE UDP (role_id = 3)
+INSERT INTO role_feature (role_id, feature_id)
+SELECT 3, feature_id FROM feature
+WHERE feature_key = 'projects.projects-dashboard'
+ON CONFLICT DO NOTHING;
+```
+
+Estado de tablas BD relevantes (confirmado en sesión):
+- `module` (singular) — PK `module_id`, nombre en `module_name`. 11 módulos.
+- `feature` (singular) — PK `feature_id`, clave en `feature_key`. 61 features al inicio + 1 nueva = 62.
+- `role` (singular) — PK `role_id`, nombre en `role_description`.
+- `role_feature` — PK compuesta `(role_id, feature_id)`.
+
+---
+
+### 4. Renombrado referencias "ArqCom" → nombres neutros (7 archivos)
+
+Todas las referencias a `ArqCom` en la capa pública (DTOs, interfaces, servicios, controller) fueron renombradas para desacoplar el dashboard de proyectos del dominio de Arquitectura Comercial.
+
+| Cambio | Antes | Después |
+|--------|-------|---------|
+| Clase DTO | `ResponsableArqComSimpleDto` | `ResponsableSimpleDto` |
+| Propiedad respuesta filtros | `ResponsablesArqCom` | `Responsables` |
+| Propiedad respuesta proyectos | `ResponsableArqCom` | `ResponsableNombre` |
+| Query param HTTP | `?responsableArqComId=` | `?responsableId=` |
+| Parámetro de métodos (4 interfaces, 2 servicios, 1 repo) | `responsableArqComId` | `responsableId` |
+| Clase privada `ProjectFlat` (repo interno) | `ResponsableArqCom` / `ResponsableArqComId` | `ResponsableNombre` / `ResponsableId` |
+
+**Archivos modificados:**
+1. `Application/Dtos/ProjectsDashboardFiltersResponseDto.cs`
+2. `Application/Dtos/ProjectsDashboardResponseDto.cs`
+3. `Infrastructure/Interfaces/IProjectsDashboardRepository.cs`
+4. `Application/Interfaces/IProjectsDashboardService.cs`
+5. `Application/Services/ProjectsDashboardService.cs`
+6. `Presentation/ProjectsDashboardController.cs`
+7. `Infrastructure/Repositories/ProjectsDashboardRepository.cs`
+
+> **Nota:** Las propiedades de la entidad `Project` (`Project.ResponsableArqComId`, `Project.ResponsableArqCom`) **no fueron renombradas** — son columnas en BD. El renombrado aplica solo a la capa de presentación y a la clase privada `ProjectFlat` del repositorio.
+
+---
+
+### 5. Endpoints ProjectsDashboard — estado actual
+
+```
+GET  /api/v1/projects-dashboard/filters
+     → ProjectsDashboardFiltersResponseDto
+       { Projects[], Estados[], Responsables[] }
+          Responsables[]: { WorkerId, FullName }
+
+GET  /api/v1/projects-dashboard
+     ?proyectoId=&estado=&responsableId=&fechaDesde=&fechaHasta=
+     → ProjectsDashboardResponseDto
+       { TotalProyectos, AlDia, ConRetraso, SinActividades, PorcentajeAvancePromedio,
+         Proyectos[]: { ProjectId, ProjectDescription, Estado, ResponsableNombre,
+                        TotalActividades, Culminadas, EnProceso, Vencidas,
+                        PorcentajeAvance, EstaConRetraso, DiasRetraso, Semaforo, EtapaNombre },
+         DistribucionPorEstado[]: { Estado, CantidadProyectos },
+         RankingResponsables[]: { ResponsableId, ResponsableNombre, TotalProyectos,
+                                  ActividadesCompletadas, ActividadesVencidas,
+                                  TotalActividades, Score },
+         HeatmapCarga[]: { ResponsableId, ResponsableNombre, Semana, CantidadActividades } }
+
+GET  /api/v1/projects-dashboard/{proyectoId}
+     → ProyectoDetailDashboardDto
+       { Kpis: { TotalActividades, Culminadas, EnProceso, Vencidas, AvancePct,
+                 DiasRetraso, Semaforo },
+         ActividadesVencidas[]: { Id, Nombre, Tipo, ResponsableNombre,
+                                  FinProgramado, DiasRetraso },
+         Gantt[]: { Id, Nombre, InicioProgramado, FinProgramado, FinEfectivo,
+                    Estado, ResponsableNombre } }
+```
+
+Feature key en BD: `projects.projects-dashboard` (feature_id=93). Asignada a rol USUARIO DE UDP (role_id=3).
+
+---
+
+### 6. Pendientes frontend tras sesión
+
+- Actualizar query param de `?responsableArqComId=` a `?responsableId=` en todas las llamadas al dashboard.
+- Actualizar lectura de campo JSON `responsablesArqCom` → `responsables` en la respuesta de `/filters`.
+- Actualizar lectura de campo JSON `responsableArqCom` → `responsableNombre` en la lista de proyectos.
+
+### 7. Herramienta instalada
+
+`dotnet-ef` v10.0.8 instalada como herramienta global (`dotnet tool install --global dotnet-ef`). Necesaria para `dotnet ef migrations *` y `dotnet ef database update`.
+
+---
+
+## Sesión 2026-05-26 (parte 2)
+
+### 1. Modelo ProjectActivity (nueva tabla)
+
+`Shared/Models/ProjectActivity.cs` — entidad nueva, completamente independiente de `milestone_schedule`.
+`Shared/Data/AppContext.cs` — `DbSet<ProjectActivity> ProjectActivity` agregado. Override en `ConfigurePostgreSQL`:
+- Tabla: `project_activity`
+- `Order` → columna `project_activity_order` (evitar palabra reservada PostgreSQL)
+- `ActivityDescription` IsRequired MaxLength(500), `ProgressPercentage` DefaultValue(0)
+
+### 2. Campos agregados a Project
+
+`Shared/Models/Project.cs`:
+```
+public bool TieneUnidadDeProyectos { get; set; }
+public string? ResponsableUdp { get; set; }
+public int? ResponsableUdpId { get; set; }
+```
+
+### 3. Migraciones aplicadas a Aiven
+
+Patrón: `dotnet ef database update` siempre apunta a la BD local de Development. Para aplicar en Aiven hay que leer la cadena de `appsettings.Production.json` y ejecutar el SQL directamente con psql.
+
+- `20260526203642_AddFechaRealFinAndTieneUnidadDeProyectos`: agrega `tiene_unidad_de_proyectos boolean NOT NULL DEFAULT false` a `project` y `fecha_real_fin date` nullable a `milestone_schedule`.
+- `20260526215118_AddResponsableUdpToProject`: agrega `responsable_udp text` y `responsable_udp_id integer` nullable a `project`.
+- `20260526223020_AddProjectActivityTable`: crea tabla `project_activity` con columna `project_activity_order` en lugar de `order`.
+
+### 4. Proyectos UDP marcados en Aiven
+
+13 proyectos con `tiene_unidad_de_proyectos = true` (project_ids: 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 39). Responsables UDP asignados en `responsable_udp` / `responsable_udp_id` directamente en la tabla `project`.
+
+### 5. Feature CronogramaActividades — reescritura completa
+
+Reemplazó completamente el feature anterior (basado en `milestone_schedule` + `milestone_schedule_history`).
+Ahora usa `project_activity` exclusivamente.
+
+**Endpoints** (`api/v1/cronograma-actividades`):
+- `GET /proyectos` — proyectos con `tiene_unidad_de_proyectos=true && state=true`
+- `GET /{proyectoId}/actividades` — actividades activas del proyecto, orden por `Order`
+- `POST /{proyectoId}/actividades` — crea actividad; Order = MAX(order)+1
+- `PUT /actividades/{actividadId}` — edita actividad
+- `PUT /actividades/{actividadId}/culminar` — toggle `ActualEndDate` (null↔hoy)
+- `DELETE /actividades/{actividadId}` — soft-delete (`State=false, Active=false`)
+
+**DTOs**: `ProyectoSimpleCronogramaDto`, `ActividadDto`, `CrearActividadRequest`, `EditarActividadRequest`, `CulminarActividadDto`.
+
+### 6. Feature ProjectsDashboard — migración a project_activity
+
+Repositorio reescrito para usar `ctx.ProjectActivity` en lugar de `milestone_schedule`. Todos los métodos filtran `p.TieneUnidadDeProyectos && p.State`.
+
+**Cambios en KPIs**:
+- `AvanceReal` = promedio de `ProgressPercentage` de actividades activas del proyecto
+- `AvanceProgramado` = promedio de porcentaje de tiempo transcurrido por actividad (clamped 0–100)
+- `Culminadas` = actividades con `ActualEndDate != null`
+- `Vencidas` = `PlannedEndDate < today && ActualEndDate == null`
+- `EstaConRetraso` = tiene vencidas O (AvanceReal < AvanceProgramado − 10)
+
+**Responsables**: se leen de `ResponsableUdp`/`ResponsableUdpId` directo en `project` (sin JOIN a `worker`/`person`).
+
+### 7. DTOs renombrados/reestructurados en ProjectsDashboard
+
+| Antes | Después |
+|---|---|
+| `PorcentajeAvancePromedio` | `AvancePromedio` |
+| `ProjectId` en ProyectoDetalleDto | `ProyectoId` |
+| `PorcentajeAvance` | `AvanceProgramado` + `AvanceReal` |
+| `ResponsableNombre`, `TotalProyectos`, etc. en ranking | `Nombre`, `Proyectos`, `Completadas`, `Vencidas`, `Score` |
+| `HeatmapCargaItemDto` (plana) | `HeatmapResponsableDto { Responsable, Semanas[] }` anidada |
+| `ProyectoDetailKpisDto` | campos aplanados en `ProyectoDetailDashboardDto` |
+| `ActividadVencidaDto` | `ActividadCriticaDto` |
+| `ActividadGanttDto` | `GanttTareaDto` con `[JsonPropertyName]` para dhtmlx-gantt |
+
+`ProyectoSimpleDto` y `ResponsableSimpleDto` son ahora locales al feature (no importan de `Application.DTOs`).
+
+**GET /api/v1/projects-dashboard** — nueva forma del response:
+```
+{ TotalProyectos, AlDia, ConRetraso, SinActividades, AvancePromedio,
+  Proyectos[]: { ProyectoId, ProjectDescription, Estado, ResponsableNombre,
+                 TotalActividades, Culminadas, EnProceso, Vencidas,
+                 AvanceProgramado, AvanceReal, EstaConRetraso, DiasRetraso, Semaforo, EtapaNombre },
+  DistribucionPorEstado[]: { Estado, CantidadProyectos },
+  RankingResponsables[]: { ResponsableId, Nombre, Proyectos, Completadas, Vencidas, Score },
+  HeatmapCarga[]: { Responsable, Semanas[]: { Semana, Cantidad } } }
+```
+
+**GET /api/v1/projects-dashboard/{proyectoId}** — nueva forma:
+```
+{ ProyectoId, ProyectoNombre, Estado, AvanceProgramado, AvanceReal, DiasRetraso, Semaforo,
+  ActividadesVencidas[]: { Id, Nombre, ResponsableNombre, FinProgramado, DiasRetraso },
+  ActividadesCriticas[]: { Id, Nombre, ResponsableNombre, FinProgramado, DiasRetraso },
+  Gantt: { Tasks[]: { id, text, start_date, duration, progress }, Links[] } }
+```
+
+`GanttTareaDto.StartDate` formateado como `"dd-MM-yyyy 00:00"` para dhtmlx-gantt. `Duration = Math.Max(1, end-start)`.
+
+### 8. Pendientes frontend tras esta sesión
+
+- Actualizar lectura de `responsablesArqCom` → `responsables` (ya corregido en sesión anterior, verificar).
+- Adaptar componentes de Ranking y Heatmap a la nueva estructura de DTOs.
+- `ProyectoDetalleDto.ProjectId` → `ProyectoId` (renombrado).

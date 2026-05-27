@@ -1,3 +1,7 @@
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Application.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Application.Services;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Repositories;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedDashboard.Application.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedDashboard.Application.Services;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedDashboard.Infrastructure.Interfaces;
@@ -20,6 +24,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule
             // ProjectsDashboard
             services.AddScoped<IProjectsDashboardRepository, ProjectsDashboardRepository>();
             services.AddScoped<IProjectsDashboardService, ProjectsDashboardService>();
+
+            // CronogramaActividades
+            services.AddScoped<ICronogramaActividadesRepository, CronogramaActividadesRepository>();
+            services.AddScoped<ICronogramaActividadesService, CronogramaActividadesService>();
 
             return services;
         }

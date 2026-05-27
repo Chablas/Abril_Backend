@@ -26,6 +26,8 @@ namespace Abril_Backend.Shared.Models {
         // Responsables
         public string? ResponsableArqCom {get; set;}
         public int? ResponsableArqComId {get; set;}
+        public string? ResponsableUdp {get; set;}
+        public int? ResponsableUdpId {get; set;}
 
         // Emails del proyecto
         public string? EmailResidente {get; set;}
@@ -57,6 +59,7 @@ namespace Abril_Backend.Shared.Models {
 
         // Flags
         public bool TieneArquitecturaComercial {get; set;}
+        public bool TieneUnidadDeProyectos {get; set;}
 
         // Auditoría
         public DateTime CreatedDateTime {get; set;}

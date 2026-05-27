@@ -1522,7 +1522,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 : [];
 
             var workerNameMap  = workers.ToDictionary(w => w.Id, w => w.Person?.FullName ?? $"Worker {w.Id}");
-            var workerEmailMap = workers.ToDictionary(w => w.Id, w => w.EmailCorporativo ?? "");
+            var workerEmailMap = workers.ToDictionary(w => w.Id, w => w.EmailPersonal ?? "");
 
             var categoriaIds = list.Where(a => a.CategoriaId.HasValue).Select(a => a.CategoriaId!.Value).Distinct().ToList();
             var categorias   = categoriaIds.Count > 0
@@ -1575,10 +1575,10 @@ namespace Abril_Backend.Infrastructure.Repositories
             {
                 var we = await ctx.Worker
                     .Where(w => workerIds.Contains(w.Id))
-                    .Select(w => new { w.Id, w.EmailCorporativo })
+                    .Select(w => new { w.Id, w.EmailPersonal })
                     .ToListAsync();
-                emailMap = we.Where(x => x.EmailCorporativo != null)
-                    .ToDictionary(x => x.Id, x => x.EmailCorporativo!);
+                emailMap = we.Where(x => x.EmailPersonal != null)
+                    .ToDictionary(x => x.Id, x => x.EmailPersonal!);
             }
 
             var projectIds = actividades.Select(a => a.ProjectId).Distinct().ToList();

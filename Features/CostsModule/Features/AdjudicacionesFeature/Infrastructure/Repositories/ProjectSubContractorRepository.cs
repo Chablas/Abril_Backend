@@ -32,6 +32,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 ContractTypeId = dto.ContractTypeId,
                 ContractModalityId = dto.ContractModalityId,
                 PaymentMethodId = dto.PaymentMethodId,
+                PaymentFormId = dto.PaymentFormId,
                 AdvancePercentage = dto.AdvancePercentage,
                 AdvanceAmount = dto.AdvanceAmount,
                 Amount = dto.Amount,
@@ -247,6 +248,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPaymentMethodDesc   = ctx.Col<PaymentMethod>(nameof(PaymentMethod.PaymentMethodDescription));
             string cPaymentMethodActive = ctx.Col<PaymentMethod>(nameof(PaymentMethod.Active));
 
+            // PaymentForm
+            string tPaymentForm      = ctx.Table<PaymentForm>();
+            string cPaymentFormId    = ctx.Col<PaymentForm>(nameof(PaymentForm.PaymentFormId));
+            string cPaymentFormDesc  = ctx.Col<PaymentForm>(nameof(PaymentForm.PaymentFormDescription));
+            string cPaymentFormState = ctx.Col<PaymentForm>(nameof(PaymentForm.State));
+
             // Currency
             string tCurrency        = ctx.Table<Currency>();
             string cCurrencyId      = ctx.Col<Currency>(nameof(Currency.CurrencyId));
@@ -312,6 +319,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cPaymentMethodActive} = TRUE
                  ORDER BY {cPaymentMethodDesc};
 
+                SELECT {cPaymentFormId}, {cPaymentFormDesc}
+                  FROM {tPaymentForm}
+                 WHERE {cPaymentFormState} = TRUE
+                 ORDER BY {cPaymentFormId};
+
                 SELECT {cCurrencyId}, {cCurrencyDesc}, {cCurrencyCode}, {cCurrencySymbol}
                   FROM {tCurrency}
                  WHERE {cCurrencyActive} = TRUE
@@ -356,6 +368,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var contractTypes      = (await multi.ReadAsync<ContractTypeSimpleDTO>()).ToList();
             var contractModalities = (await multi.ReadAsync<ContractModalitySimpleDTO>()).ToList();
             var paymentMethods     = (await multi.ReadAsync<PaymentMethodSimpleDTO>()).ToList();
+            var paymentForms       = (await multi.ReadAsync<PaymentFormSimpleDTO>()).ToList();
             var currencies         = (await multi.ReadAsync<CurrencySimpleDTO>()).ToList();
             var workItems          = (await multi.ReadAsync<WorkItemSimpleDTO>()).ToList();
             var workItemCategories = (await multi.ReadAsync<WorkItemCategorySimpleDTO>()).ToList();
@@ -377,6 +390,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 ContractTypes      = contractTypes,
                 ContractModalities = contractModalities,
                 PaymentMethods     = paymentMethods,
+                PaymentForms       = paymentForms,
                 Currencies         = currencies,
                 WorkItems          = workItems,
                 WorkItemCategories = workItemCategories,
@@ -425,10 +439,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 from nonConformingDoc in nonConformingDocGroup.DefaultIfEmpty()
                 join toleranceChartDocJoin in ctx.ProjectSubContractorToleranceChart on psc.ProjectSubContractorToleranceChartId equals toleranceChartDocJoin.ProjectSubContractorToleranceChartId into toleranceChartDocGroup
                 from toleranceChartDoc in toleranceChartDocGroup.DefaultIfEmpty()
+                join fichaTecnicaDocJoin in ctx.ProjectSubContractorFichaTecnica on psc.ProjectSubContractorFichaTecnicaId equals fichaTecnicaDocJoin.ProjectSubContractorFichaTecnicaId into fichaTecnicaDocGroup
+                from fichaTecnicaDoc in fichaTecnicaDocGroup.DefaultIfEmpty()
+                join anexoDocJoin in ctx.ProjectSubContractorAnexo on psc.ProjectSubContractorAnexoId equals anexoDocJoin.ProjectSubContractorAnexoId into anexoDocGroup
+                from anexoDoc in anexoDocGroup.DefaultIfEmpty()
                 join personCreatorJoin in ctx.Person on psc.CreatedUserId equals personCreatorJoin.UserId into personCreatorGroup
                 from personCreator in personCreatorGroup.DefaultIfEmpty()
                 where psc.State
-                select new { psc, p, contractor, c, ct, cm, pm, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc, personCreator };
+                select new { psc, p, contractor, c, ct, cm, pm, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc, fichaTecnicaDoc, anexoDoc, personCreator };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
@@ -506,6 +524,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     Instructivo       = x.instructivoDoc == null       ? null : new ProjectSubContractorFileDto { FileUrl = x.instructivoDoc.FileUrl!,       OriginalFileName = x.instructivoDoc.OriginalFileName,       StatusId = x.instructivoDoc.ProjectSubContractorFileStatusId,       StatusDescription = x.instructivoDoc.FileStatus == null       ? null : x.instructivoDoc.FileStatus.ProjectSubContractorFileStatusDescription,       Observation = x.instructivoDoc.Observation },
                     NonConformingOutput = x.nonConformingDoc == null   ? null : new ProjectSubContractorFileDto { FileUrl = x.nonConformingDoc.FileUrl!,     OriginalFileName = x.nonConformingDoc.OriginalFileName,     StatusId = x.nonConformingDoc.ProjectSubContractorFileStatusId,     StatusDescription = x.nonConformingDoc.FileStatus == null     ? null : x.nonConformingDoc.FileStatus.ProjectSubContractorFileStatusDescription,     Observation = x.nonConformingDoc.Observation },
                     ToleranceChart    = x.toleranceChartDoc == null    ? null : new ProjectSubContractorFileDto { FileUrl = x.toleranceChartDoc.FileUrl!,    OriginalFileName = x.toleranceChartDoc.OriginalFileName,    StatusId = x.toleranceChartDoc.ProjectSubContractorFileStatusId,    StatusDescription = x.toleranceChartDoc.FileStatus == null    ? null : x.toleranceChartDoc.FileStatus.ProjectSubContractorFileStatusDescription,    Observation = x.toleranceChartDoc.Observation },
+                    FichaTecnica      = x.fichaTecnicaDoc == null      ? null : new ProjectSubContractorFileDto { FileUrl = x.fichaTecnicaDoc.FileUrl!,      OriginalFileName = x.fichaTecnicaDoc.OriginalFileName,      StatusId = x.fichaTecnicaDoc.ProjectSubContractorFileStatusId,      StatusDescription = x.fichaTecnicaDoc.FileStatus == null      ? null : x.fichaTecnicaDoc.FileStatus.ProjectSubContractorFileStatusDescription,      Observation = x.fichaTecnicaDoc.Observation },
+                    Anexo             = x.anexoDoc == null             ? null : new ProjectSubContractorFileDto { FileUrl = x.anexoDoc.FileUrl!,             OriginalFileName = x.anexoDoc.OriginalFileName,             StatusId = x.anexoDoc.ProjectSubContractorFileStatusId,             StatusDescription = x.anexoDoc.FileStatus == null             ? null : x.anexoDoc.FileStatus.ProjectSubContractorFileStatusDescription,             Observation = x.anexoDoc.Observation },
                 })
                 .ToListAsync();
 
@@ -642,6 +662,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscInstructivoDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorInstructivoId));
             string cPscNonConformingOutputDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorNonConformingOutputId));
             string cPscToleranceChartDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorToleranceChartId));
+            string cPscFichaTecnicaDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorFichaTecnicaId));
+            string cPscAnexoDocId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ProjectSubContractorAnexoId));
             string cPscCreatedUserId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.CreatedUserId));
 
             string tPersonCreator = ctx.Table<Person>();
@@ -776,6 +798,20 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cToleranceChartDocFileName = ctx.Col<ProjectSubContractorToleranceChart>(nameof(ProjectSubContractorToleranceChart.OriginalFileName));
             string cToleranceChartDocStatusId = ctx.Col<ProjectSubContractorToleranceChart>(nameof(ProjectSubContractorToleranceChart.ProjectSubContractorFileStatusId));
             string cToleranceChartDocObs = ctx.Col<ProjectSubContractorToleranceChart>(nameof(ProjectSubContractorToleranceChart.Observation));
+
+            string tFichaTecnicaDoc = ctx.Table<ProjectSubContractorFichaTecnica>();
+            string cFichaTecnicaDocId = ctx.Col<ProjectSubContractorFichaTecnica>(nameof(ProjectSubContractorFichaTecnica.ProjectSubContractorFichaTecnicaId));
+            string cFichaTecnicaDocFileUrl = ctx.Col<ProjectSubContractorFichaTecnica>(nameof(ProjectSubContractorFichaTecnica.FileUrl));
+            string cFichaTecnicaDocFileName = ctx.Col<ProjectSubContractorFichaTecnica>(nameof(ProjectSubContractorFichaTecnica.OriginalFileName));
+            string cFichaTecnicaDocStatusId = ctx.Col<ProjectSubContractorFichaTecnica>(nameof(ProjectSubContractorFichaTecnica.ProjectSubContractorFileStatusId));
+            string cFichaTecnicaDocObs = ctx.Col<ProjectSubContractorFichaTecnica>(nameof(ProjectSubContractorFichaTecnica.Observation));
+
+            string tAnexoDoc = ctx.Table<ProjectSubContractorAnexo>();
+            string cAnexoDocId = ctx.Col<ProjectSubContractorAnexo>(nameof(ProjectSubContractorAnexo.ProjectSubContractorAnexoId));
+            string cAnexoDocFileUrl = ctx.Col<ProjectSubContractorAnexo>(nameof(ProjectSubContractorAnexo.FileUrl));
+            string cAnexoDocFileName = ctx.Col<ProjectSubContractorAnexo>(nameof(ProjectSubContractorAnexo.OriginalFileName));
+            string cAnexoDocStatusId = ctx.Col<ProjectSubContractorAnexo>(nameof(ProjectSubContractorAnexo.ProjectSubContractorFileStatusId));
+            string cAnexoDocObs = ctx.Col<ProjectSubContractorAnexo>(nameof(ProjectSubContractorAnexo.Observation));
 
             string tFileStatus = ctx.Table<ProjectSubContractorFileStatus>();
             string cFileStatusId = ctx.Col<ProjectSubContractorFileStatus>(nameof(ProjectSubContractorFileStatus.ProjectSubContractorFileStatusId));
@@ -943,7 +979,17 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        toleranceChartDoc.{cToleranceChartDocFileName} AS tolerance_chart_file_name,
        toleranceChartDoc.{cToleranceChartDocStatusId} AS tolerance_chart_status_id,
        fs_tolerance_chart.{cFileStatusDesc} AS tolerance_chart_status_desc,
-       toleranceChartDoc.{cToleranceChartDocObs} AS tolerance_chart_observation
+       toleranceChartDoc.{cToleranceChartDocObs} AS tolerance_chart_observation,
+       fichaTecnicaDoc.{cFichaTecnicaDocFileUrl} AS ficha_tecnica_file_url,
+       fichaTecnicaDoc.{cFichaTecnicaDocFileName} AS ficha_tecnica_file_name,
+       fichaTecnicaDoc.{cFichaTecnicaDocStatusId} AS ficha_tecnica_status_id,
+       fs_ficha_tecnica.{cFileStatusDesc} AS ficha_tecnica_status_desc,
+       fichaTecnicaDoc.{cFichaTecnicaDocObs} AS ficha_tecnica_observation,
+       anexoDoc.{cAnexoDocFileUrl} AS anexo_file_url,
+       anexoDoc.{cAnexoDocFileName} AS anexo_file_name,
+       anexoDoc.{cAnexoDocStatusId} AS anexo_status_id,
+       fs_anexo.{cFileStatusDesc} AS anexo_status_desc,
+       anexoDoc.{cAnexoDocObs} AS anexo_observation
 FROM {tPsc} psc
 JOIN {tProject} p ON psc.{cPscProjectId} = p.{cProjectId}
 JOIN {tContractor} contractor ON psc.{cPscContractorId} = contractor.{cContractorId}
@@ -976,6 +1022,10 @@ LEFT JOIN {tNonConformingDoc} nonConformingDoc ON psc.{cPscNonConformingOutputDo
 LEFT JOIN {tFileStatus} fs_non_conforming ON nonConformingDoc.{cNonConformingDocStatusId} = fs_non_conforming.{cFileStatusId}
 LEFT JOIN {tToleranceChartDoc} toleranceChartDoc ON psc.{cPscToleranceChartDocId} = toleranceChartDoc.{cToleranceChartDocId}
 LEFT JOIN {tFileStatus} fs_tolerance_chart ON toleranceChartDoc.{cToleranceChartDocStatusId} = fs_tolerance_chart.{cFileStatusId}
+LEFT JOIN {tFichaTecnicaDoc} fichaTecnicaDoc ON psc.{cPscFichaTecnicaDocId} = fichaTecnicaDoc.{cFichaTecnicaDocId}
+LEFT JOIN {tFileStatus} fs_ficha_tecnica ON fichaTecnicaDoc.{cFichaTecnicaDocStatusId} = fs_ficha_tecnica.{cFileStatusId}
+LEFT JOIN {tAnexoDoc} anexoDoc ON psc.{cPscAnexoDocId} = anexoDoc.{cAnexoDocId}
+LEFT JOIN {tFileStatus} fs_anexo ON anexoDoc.{cAnexoDocStatusId} = fs_anexo.{cFileStatusId}
 LEFT JOIN {tPersonCreator} creator_p ON creator_p.{cPersonCreatorUserId} = psc.{cPscCreatedUserId}
 WHERE {whereClause}
 ORDER BY psc.{cPscId} DESC
@@ -1090,6 +1140,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     Instructivo = raw.instructivo_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.instructivo_file_url, OriginalFileName = raw.instructivo_file_name, StatusId = (int?)raw.instructivo_status_id, StatusDescription = raw.instructivo_status_desc, Observation = raw.instructivo_observation } : null,
                     NonConformingOutput = raw.non_conforming_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.non_conforming_file_url, OriginalFileName = raw.non_conforming_file_name, StatusId = (int?)raw.non_conforming_status_id, StatusDescription = raw.non_conforming_status_desc, Observation = raw.non_conforming_observation } : null,
                     ToleranceChart = raw.tolerance_chart_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.tolerance_chart_file_url, OriginalFileName = raw.tolerance_chart_file_name, StatusId = (int?)raw.tolerance_chart_status_id, StatusDescription = raw.tolerance_chart_status_desc, Observation = raw.tolerance_chart_observation } : null,
+                    FichaTecnica = raw.ficha_tecnica_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.ficha_tecnica_file_url, OriginalFileName = raw.ficha_tecnica_file_name, StatusId = (int?)raw.ficha_tecnica_status_id, StatusDescription = raw.ficha_tecnica_status_desc, Observation = raw.ficha_tecnica_observation } : null,
+                    Anexo = raw.anexo_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.anexo_file_url, OriginalFileName = raw.anexo_file_name, StatusId = (int?)raw.anexo_status_id, StatusDescription = raw.anexo_status_desc, Observation = raw.anexo_observation } : null,
                 });
             }
 
@@ -1146,11 +1198,14 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             var workItem = await _context.WorkItem
                 .FirstOrDefaultAsync(w => w.WorkItemId == psc.WorkItemId);
 
-            var contributor = await (
+            // Proyección solo del nombre — evita SELECT de columnas opcionales del Contributor
+            // (sp_password_temp, es_abril, contributor_nombre_comercial) que pueden no existir
+            // en todos los entornos.
+            var contributorName = await (
                 from ct in _context.Contractor
                 join contrib in _context.Contributor on ct.ContributorId equals contrib.ContributorId
                 where ct.ContractorId == psc.ContractorId
-                select contrib
+                select contrib.ContributorName
             ).FirstOrDefaultAsync();
 
             var allEmails = await _context.StaffProjectEmail
@@ -1175,7 +1230,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ProjectSubContractorStatusId = psc.ProjectSubContractorStatusId,
                 ProjectDescription           = projectDescription,
                 WorkItemDescription          = workItem?.WorkItemDescription ?? string.Empty,
-                ContributorName              = contributor?.ContributorName ?? string.Empty,
+                ContributorName              = contributorName ?? string.Empty,
                 ContractorEmails             = contractorEmails,
                 StaffEmails                  = staffEmails,
                 OficinaCentralEmails         = oficinaCentralEmails,
@@ -1363,11 +1418,14 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 .Select(p => p.ProjectDescription)
                 .FirstOrDefaultAsync() ?? string.Empty;
 
-            var contributor = await (
+            // Proyección solo del nombre — evita SELECT de columnas opcionales del Contributor
+            // (sp_password_temp, es_abril, contributor_nombre_comercial) que pueden no existir
+            // en todos los entornos.
+            var contributorName = await (
                 from ct in _context.Contractor
                 join contrib in _context.Contributor on ct.ContributorId equals contrib.ContributorId
                 where ct.ContractorId == psc.ContractorId
-                select contrib
+                select contrib.ContributorName
             ).FirstOrDefaultAsync();
 
             var workItem = await _context.WorkItem
@@ -1381,7 +1439,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             return new Step6NotificationDataDto
             {
                 ProjectDescription  = projectDescription,
-                ContributorName     = contributor?.ContributorName   ?? string.Empty,
+                ContributorName     = contributorName ?? string.Empty,
                 WorkItemDescription = workItem?.WorkItemDescription  ?? string.Empty,
                 ContractNumber      = psc.ContractNumber,
                 StaffObraEmails     = staffObraEmails
@@ -1402,11 +1460,14 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 .Select(p => p.ProjectDescription)
                 .FirstOrDefaultAsync() ?? string.Empty;
 
-            var contributor = await (
+            // Proyección solo del nombre — evita SELECT de columnas opcionales del Contributor
+            // (sp_password_temp, es_abril, contributor_nombre_comercial) que pueden no existir
+            // en todos los entornos.
+            var contributorName = await (
                 from ct in _context.Contractor
                 join contrib in _context.Contributor on ct.ContributorId equals contrib.ContributorId
                 where ct.ContractorId == psc.ContractorId
-                select contrib
+                select contrib.ContributorName
             ).FirstOrDefaultAsync();
 
             var ofTecnicaEmails = await _context.StaffProjectEmail
@@ -1428,7 +1489,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             return new Step8NotificationDataDto
             {
                 ProjectDescription  = projectDescription,
-                ContributorName     = contributor?.ContributorName  ?? string.Empty,
+                ContributorName     = contributorName ?? string.Empty,
                 OfTecnicaEmails     = ofTecnicaEmails,
                 StaffObraEmails     = staffObraEmails,
                 ScannedDocs         = scannedDocs
@@ -1609,6 +1670,24 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                         e => e.ProjectSubContractorToleranceChartId);
                     break;
 
+                case AdjudicacionDocumentType.FichaTecnica:
+                    psc.ProjectSubContractorFichaTecnicaId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorFichaTecnica,
+                        psc.ProjectSubContractorFichaTecnicaId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorFichaTecnica { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorFichaTecnicaId);
+                    break;
+
+                case AdjudicacionDocumentType.Anexo:
+                    psc.ProjectSubContractorAnexoId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorAnexo,
+                        psc.ProjectSubContractorAnexoId,
+                        e => { e.FileUrl = fileUrl; e.OriginalFileName = originalFileName; e.SharepointItemId = sharepointItemId; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorAnexo { FileUrl = fileUrl, OriginalFileName = originalFileName, SharepointItemId = sharepointItemId, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorAnexoId);
+                    break;
+
                 case AdjudicacionDocumentType.ScannedDoc1:
                 case AdjudicacionDocumentType.ScannedDoc2:
                 case AdjudicacionDocumentType.ScannedDoc3:
@@ -1669,6 +1748,9 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 // modalidad de contrato (opcional)
                 join cmJoin   in ctx.ContractModality on psc.ContractModalityId equals cmJoin.ContractModalityId into cmGroup
                 from cm in cmGroup.DefaultIfEmpty()
+                // forma de pago (opcional)
+                join pfJoin   in ctx.PaymentForm on psc.PaymentFormId equals pfJoin.PaymentFormId into pfGroup
+                from pf in pfGroup.DefaultIfEmpty()
                 // representante legal del contratista (opcional)
                 join personJoin in ctx.Person on contrib.LegalRepresentativePersonId equals personJoin.PersonId into personGroup
                 from legalRep in personGroup.DefaultIfEmpty()
@@ -1700,6 +1782,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     ContractModalityId        = psc.ContractModalityId,
                     PaymentMethodId           = psc.PaymentMethodId,
                     PaymentMethodDescription  = pm.PaymentMethodDescription,
+                    PaymentFormDescription    = pf != null ? pf.PaymentFormDescription : null,
                     CurrencyCode              = cur.CurrencyCode,
                     Amount                    = psc.Amount,
                     HasIgv                    = psc.HasIgv,
@@ -1810,6 +1893,18 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     if (!psc.ProjectSubContractorToleranceChartId.HasValue) throw new AbrilException("No existe un registro de Cuadro de Tolerancias para actualizar.");
                     var toleranceChart = await _context.ProjectSubContractorToleranceChart.FindAsync(psc.ProjectSubContractorToleranceChartId.Value) ?? throw new AbrilException("Documento no encontrado.");
                     toleranceChart.ProjectSubContractorFileStatusId = statusId; toleranceChart.Observation = observation; toleranceChart.UpdatedDatetime = now; toleranceChart.UpdatedUserId = userId;
+                    break;
+
+                case AdjudicacionDocumentType.FichaTecnica:
+                    if (!psc.ProjectSubContractorFichaTecnicaId.HasValue) throw new AbrilException("No existe un registro de Ficha Técnica para actualizar.");
+                    var fichaTecnica = await _context.ProjectSubContractorFichaTecnica.FindAsync(psc.ProjectSubContractorFichaTecnicaId.Value) ?? throw new AbrilException("Documento no encontrado.");
+                    fichaTecnica.ProjectSubContractorFileStatusId = statusId; fichaTecnica.Observation = observation; fichaTecnica.UpdatedDatetime = now; fichaTecnica.UpdatedUserId = userId;
+                    break;
+
+                case AdjudicacionDocumentType.Anexo:
+                    if (!psc.ProjectSubContractorAnexoId.HasValue) throw new AbrilException("No existe un registro de Anexos para actualizar.");
+                    var anexo = await _context.ProjectSubContractorAnexo.FindAsync(psc.ProjectSubContractorAnexoId.Value) ?? throw new AbrilException("Documento no encontrado.");
+                    anexo.ProjectSubContractorFileStatusId = statusId; anexo.Observation = observation; anexo.UpdatedDatetime = now; anexo.UpdatedUserId = userId;
                     break;
 
                 default:

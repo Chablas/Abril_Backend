@@ -220,7 +220,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             if (string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(worker.ContrataCasa, "Staff", StringComparison.OrdinalIgnoreCase))
             {
-                raw.Add(worker.EmailCorporativo);
+                raw.Add(worker.EmailPersonal);
             }
 
             if (proyecto != null)

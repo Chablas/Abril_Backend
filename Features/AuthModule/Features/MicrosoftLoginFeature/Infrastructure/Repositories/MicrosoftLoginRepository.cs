@@ -78,8 +78,8 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
 
             return await ctx.Worker
                 .Where(w => w.Person != null
-                         && ((w.EmailCorporativo != null && w.EmailCorporativo.ToLower() == emailLower)
-                          || (w.EmailPersonal    != null && w.EmailPersonal.ToLower()    == emailLower)))
+                         && w.EmailPersonal != null
+                         && w.EmailPersonal.ToLower() == emailLower)
                 .Select(w => new PersonDTO
                 {
                     PersonId             = w.Person!.PersonId,

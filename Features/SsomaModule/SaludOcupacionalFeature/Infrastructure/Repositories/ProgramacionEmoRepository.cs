@@ -238,7 +238,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
                 else if (esStaff)
                 {
-                    ccRaw = new[] { worker.EmailCorporativo, proyecto?.EmailResidente, proyecto?.EmailResponsable, medOcupacional };
+                    ccRaw = new[] { worker.EmailPersonal, proyecto?.EmailResidente, proyecto?.EmailResponsable, medOcupacional };
                 }
                 else // esOficinaCentral
                 {
@@ -248,7 +248,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                             .Select(j => j.Email)
                             .ToListAsync()
                         : new List<string>();
-                    ccRaw = new string?[] { worker.EmailCorporativo, gth, medOcupacional }
+                    ccRaw = new string?[] { worker.EmailPersonal, gth, medOcupacional }
                         .Concat(jefaturaEmails);
                 }
 

@@ -67,5 +67,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         // Salidas no conforme y cuadro de tolerancias (paso 3 — solo subida)
         public ProjectSubContractorFileDto? NonConformingOutput { get; set; }
         public ProjectSubContractorFileDto? ToleranceChart { get; set; }
+        // Ficha técnica y anexos (paso 3 — solo subida)
+        public ProjectSubContractorFileDto? FichaTecnica { get; set; }
+        public ProjectSubContractorFileDto? Anexo { get; set; }
     }
 }

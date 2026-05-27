@@ -24,6 +24,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public int? ContractModalityId { get; set; }
         public int PaymentMethodId { get; set; }
         public string PaymentMethodDescription { get; set; } = null!;
+        public string? PaymentFormDescription { get; set; }
         public string CurrencyCode { get; set; } = null!;
         public decimal Amount { get; set; }
         public bool HasIgv { get; set; }

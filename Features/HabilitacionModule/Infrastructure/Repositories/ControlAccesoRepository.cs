@@ -131,7 +131,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var hoyLima = DateTime.UtcNow.AddHours(-5).Date;
             var fechaLimite = hoyLima.AddDays(1);
             var inducciones = await ctx.SsInduccion
-                .Where(i => i.Estado == "Programado" &&
+                .Where(i => i.Estado == "PROGRAMADA" &&
                             i.FechaProgramada >= hoyLima &&
                             i.FechaProgramada < fechaLimite)
                 .ToListAsync();

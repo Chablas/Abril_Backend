@@ -3056,3 +3056,45 @@ Repositorio reescrito para usar `ctx.ProjectActivity` en lugar de `milestone_sch
 - Actualizar lectura de `responsablesArqCom` → `responsables` (ya corregido en sesión anterior, verificar).
 - Adaptar componentes de Ranking y Heatmap a la nueva estructura de DTOs.
 - `ProyectoDetalleDto.ProjectId` → `ProyectoId` (renombrado).
+
+---
+
+## Sesión 2026-05-27 — Fixes HabilitacionModule y ClinicaAuth
+
+### 1. Fix: filtro Estado en GetInduccionesHoyAsync
+
+`Features/HabilitacionModule/Infrastructure/Repositories/ControlAccesoRepository.cs`
+
+El método `GetInduccionesHoyAsync` filtraba `Estado == "Programado"` (capitalización mixta), pero `InduccionRepository.CreateAsync` guarda `Estado = "PROGRAMADA"` (mayúsculas). El filtro nunca matcheaba registros recién creados.
+
+Corregido a `Estado == "PROGRAMADA"` para consistencia con el valor que escribe el Create.
+
+### 2. Fix: token Base64 con espacios en activación de cuenta clínica
+
+`Features/SsomaModule/SaludOcupacionalFeature/Presentation/ClinicaAuthController.cs` — método `Activar`
+
+El token de activación se genera con `RandomNumberGenerator.GetBytes(32)` codificado en Base64. Los caracteres `+` del Base64 llegan como espacios cuando el frontend no hace `decodeURIComponent` antes de enviar el token al POST.
+
+Agregado antes del `FirstOrDefaultAsync`:
+```csharp
+dto.Token = dto.Token?.Replace(" ", "+");
+```
+
+También se agregaron logs de diagnóstico temporales (`Console.WriteLine`) — **pendiente remover** cuando se confirme el fix en producción.
+
+### 3. Comportamiento documentado: EmoController — sin control de rol
+
+`Features/SsomaModule/SaludOcupacionalFeature/Presentation/EmoController.cs`
+
+Ningún endpoint del módulo EMO tiene `[Authorize(Roles = "...")]` ni comprueba el claim `tipo` (CLINICA / CONTRATISTA / admin). Cualquier JWT válido puede crear, editar o cambiar estado de cualquier EMO.
+
+### 4. Comportamiento documentado: SctrVidaLeyController — auto-aprobación para empresa Abril
+
+En `SctrVidaLeyRepository.CreateAsync`, si la empresa es Abril (`Contributor.EsAbril == true`):
+- `SsHabTrabajador.Estado` se setea a `"Aprobado"` (en lugar de `"Enviado"`).
+- Se hace upsert en `SsHabEmpresa` con `ItemId` hardcodeado: 15 = SCTR, 16 = VIDA_LEY, `Estado = "Aprobado"`.
+- La propia póliza (`SsSctrVidaley.Estado`) se eleva a `"Aprobado"`.
+
+### 5. Comportamiento documentado: ListPorTrabajador filtra solo empresas Abril
+
+`EmoRepository.ListPorTrabajador` aplica filtro `em.EsAbril == true` sobre la vinculación vigente del worker. Trabajadores vinculados solo a empresas contratistas **no aparecen** en este endpoint.

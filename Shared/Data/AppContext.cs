@@ -6,6 +6,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
+using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -150,6 +151,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ScopeItem> ScopeItem => Set<ScopeItem>();
         public DbSet<ScopeTemplate> ScopeTemplate => Set<ScopeTemplate>();
         public DbSet<ScopeTemplateItem> ScopeTemplateItem => Set<ScopeTemplateItem>();
+        public DbSet<AreaType> AreaType => Set<AreaType>();
+        public DbSet<AreaItem> AreaItem => Set<AreaItem>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -395,6 +398,19 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(s => s.Parent)
                 .WithMany(s => s.Children)
                 .HasForeignKey(s => s.ScopeItemParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // AreaItem: self-referential parent + FK a AreaType
+            modelBuilder.Entity<AreaItem>()
+                .HasOne(a => a.Parent)
+                .WithMany()
+                .HasForeignKey(a => a.AreaItemParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AreaItem>()
+                .HasOne(a => a.AreaType)
+                .WithMany()
+                .HasForeignKey(a => a.AreaTypeId)
                 .OnDelete(DeleteBehavior.Restrict);
         }
 

@@ -7,6 +7,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -46,24 +47,13 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (user is null || string.IsNullOrEmpty(user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 
-            if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.Password))
+            if (!VerificarPassword(user, dto.Password, user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
-
-            var contractorEmail = await ctx.ContractorEmail
-                .Include(ce => ce.Contractor)
-                    .ThenInclude(c => c.Contributor)
-                .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State);
-
-            if (contractorEmail is null)
-                throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
             var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
             var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
 
-            var contractor = contractorEmail.Contractor;
-            var contributor = contractor.Contributor;
-
-            return GenerarTokenDto(user, contractor, contributor, allowedFeatures, systemRoleIds);
+            return GenerarTokenDto(user, null, null, allowedFeatures, systemRoleIds);
         }
 
         public async Task<List<EmpresaSimpleDto>> GetEmpresasParaLoginAsync()
@@ -238,7 +228,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == userId)
                 ?? throw new AbrilException("Usuario no encontrado.", 404);
 
-            if (!BCrypt.Net.BCrypt.Verify(dto.PasswordActual, user.Password))
+            if (string.IsNullOrEmpty(user.Password) || !VerificarPassword(user, dto.PasswordActual, user.Password))
                 throw new AbrilException("Contraseña actual incorrecta.", 400);
 
             user.Password = BCrypt.Net.BCrypt.HashPassword(dto.PasswordNuevo);
@@ -341,6 +331,47 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             await ctx.SaveChangesAsync();
         }
 
+        /// <summary>
+        /// Verifica la contraseña soportando hashes BCrypt ($2a$/$2b$/$2y$) y
+        /// ASP.NET Identity (PBKDF2). Si un esquema falla, intenta con el otro,
+        /// para convivir con contraseñas almacenadas en ambos formatos.
+        /// </summary>
+        private bool VerificarPassword(User user, string plainPassword, string storedHash)
+        {
+            if (string.IsNullOrEmpty(storedHash) || string.IsNullOrEmpty(plainPassword))
+                return false;
+
+            // 1) BCrypt: sus hashes empiezan con $2a$, $2b$ o $2y$.
+            if (storedHash.StartsWith("$2"))
+            {
+                try
+                {
+                    if (BCrypt.Net.BCrypt.Verify(plainPassword, storedHash))
+                        return true;
+                }
+                catch (BCrypt.Net.SaltParseException)
+                {
+                    _logger.LogWarning("Hash BCrypt inválido para el usuario {UserId}.", user.UserId);
+                }
+            }
+
+            // 2) Fallback a ASP.NET Identity (PBKDF2).
+            try
+            {
+                var hasher = new PasswordHasher<User>();
+                var resultado = hasher.VerifyHashedPassword(user, storedHash, plainPassword);
+                if (resultado != PasswordVerificationResult.Failed)
+                    return true;
+            }
+            catch (FormatException)
+            {
+                // El hash no tiene formato Identity tampoco.
+                _logger.LogWarning("Hash de password no reconocido para el usuario {UserId}.", user.UserId);
+            }
+
+            return false;
+        }
+
         private static async Task<string> CrearTokenAsync(AppDbContext ctx, int userId, TimeSpan duracion)
         {
             var raw = Guid.NewGuid().ToString("N");
@@ -378,14 +409,14 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 .Select(ur => ur.RoleId)
                 .ToListAsync();
 
-        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor, List<string> allowedFeatures, List<int> systemRoleIds)
+        private ContratistaTokenDto GenerarTokenDto(User user, Contractor? contractor, Contributor? contributor, List<string> allowedFeatures, List<int> systemRoleIds)
         {
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
-                new Claim(ClaimTypes.Name, contributor.ContributorName),
+                new Claim(ClaimTypes.Name, contributor?.ContributorName ?? user.Email ?? string.Empty),
                 new Claim(ClaimTypes.Role, "CONTRATISTA"),
-                new Claim("empresaId", contractor.ContributorId.ToString()),
+                new Claim("empresaId", contractor?.ContributorId.ToString() ?? string.Empty),
                 new Claim("tipo", "CONTRATISTA"),
                 new Claim("systemRoles", string.Join(",", systemRoleIds)),
             };
@@ -404,8 +435,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return new ContratistaTokenDto
             {
                 Token = new JwtSecurityTokenHandler().WriteToken(token),
-                EmpresaId = contractor.ContributorId,
-                RazonSocial = contributor.ContributorName,
+                EmpresaId = contractor?.ContributorId ?? 0,
+                RazonSocial = contributor?.ContributorName ?? user.Email ?? string.Empty,
                 Tipo = "CONTRATISTA",
                 AllowedFeatures = allowedFeatures
             };

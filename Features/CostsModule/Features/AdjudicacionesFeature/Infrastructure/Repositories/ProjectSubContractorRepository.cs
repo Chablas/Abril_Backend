@@ -1773,6 +1773,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     ProjectDescription        = p.ProjectDescription,
                     Abbreviation              = p.Abbreviation,
                     ProjectDistrict           = p.ProjectDistrict,
+                    ProjectLocation           = p.ProjectLocation,
                     ProjectRazonSocial                  = projContrib != null ? projContrib.ContributorName : null,
                     ProjectContributorRuc               = projContrib != null ? projContrib.ContributorRuc : null,
                     ProjectLegalEntityRegistryNumber    = projContrib != null ? projContrib.LegalEntityRegistryNumber : null,

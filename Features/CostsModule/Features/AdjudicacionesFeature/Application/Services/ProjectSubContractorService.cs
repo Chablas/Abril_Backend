@@ -1253,6 +1253,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PROYECTO_RAZON_SOCIAL}}",         data.ProjectRazonSocial ?? "" },
                 { "{{PROYECTO_RUC}}",                  data.ProjectContributorRuc ?? "" },
                 { "{{PROYECTO_DISTRITO}}",             data.ProjectDistrict ?? "" },
+                { "{{PROYECTO_UBICACION_OBRA}}",       data.ProjectLocation ?? "" },
                 { "{{PROYECTO_PARTIDA_REGISTRAL}}",    data.ProjectLegalEntityRegistryNumber ?? "" },
                 // Contrato
                 { "{{FORMA_DE_PAGO}}",                 data.PaymentMethodDescription },
@@ -1263,6 +1264,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{MONEDA}}",                        monedaMayuscula },
                 { "{{FECHA_INICIO}}",                  data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
                 { "{{FECHA_FIN}}",                     data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
+                // Fecha de firma del contrato formateada como "10 de julio del 2025" (es-PE; "del" en lugar de "de").
+                { "{{FECHA_FIRMA_DEL_CONTRATO}}",
+                    data.SigningDate.HasValue
+                        ? data.SigningDate.Value
+                              .ToDateTime(TimeOnly.MinValue)
+                              .ToString("d 'de' MMMM 'del' yyyy", esCulture)
+                        : "" },
                 { "{{PLAZO_NUM}}",                     plazo.ToString() },
                 { "{{PLAZO_EN_PALABRAS}}",             plazoPalabras },
                 { "{{ADVANCE_PERCENTAGE}}",            data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
@@ -1309,6 +1317,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             replacements["{{LINK1}}"] = linkEspecialidades!.LinkUrl;
             replacements["{{LINK2}}"] = linkDetalles!.LinkUrl;
 
+            // Cláusula del Anexo 3 (Pagaré) — solo aplica cuando hay adelanto (PaymentMethodId == 2).
+            // Se pasa como multi-párrafo: si la lista está vacía, el helper elimina el párrafo entero
+            // (incluido el bullet "•") para que no quede una viñeta huérfana en el documento.
+            var clausulaAnexo3Pagare = data.PaymentMethodId == 2
+                ? new List<string> { $"• {advancePercentageStr} de adelanto del monto total con la firma de este contra letra de garantía y pagaré." }
+                : new List<string>();
+
             byte[] docBytes;
             using (var templateStream = File.OpenRead(templatePath))
                 docBytes = WordTemplateHelper.FillTemplate(
@@ -1317,7 +1332,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     multiParagraphReplacements: new Dictionary<string, List<string>>
                     {
                         { "{{CLÁUSULAS}}", clauseParagraphs },
-                        { "{{CLÁUSULAS_ADELANTO}}", clausulasAdelanto }
+                        { "{{CLÁUSULAS_ADELANTO}}", clausulasAdelanto },
+                        { "{{CLÁUSULA_ANEXO_3_PAGARÉ}}", clausulaAnexo3Pagare }
                     });
 
             var pathData = new AdjudicacionPathDataDto

@@ -2663,3 +2663,11 @@ Casa: `EstadoCalc = "No Autorizado"` si no hay `WorkerEmo` con `Activo && (Estad
 ```
 
 (gitignored — no commitear)
+
+### WorkerSearchRepository — campos de Person en Create y Update
+
+**Create** (línea ~114): solo asigna `FullName = dto.ApellidoNombre`. `FirstNames` y `FirstLastName` quedan `null` en BD.
+
+**Update** (línea ~180): igual — solo actualiza `person.FullName = dto.ApellidoNombre`. `FirstNames` y `FirstLastName` nunca se tocan.
+
+`full_name` se asigna directo desde `dto.ApellidoNombre` sin concatenar `first_names + first_last_name`.

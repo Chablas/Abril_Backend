@@ -3098,3 +3098,47 @@ En `SctrVidaLeyRepository.CreateAsync`, si la empresa es Abril (`Contributor.EsA
 ### 5. Comportamiento documentado: ListPorTrabajador filtra solo empresas Abril
 
 `EmoRepository.ListPorTrabajador` aplica filtro `em.EsAbril == true` sobre la vinculación vigente del worker. Trabajadores vinculados solo a empresas contratistas **no aparecen** en este endpoint.
+
+---
+
+## Sesión 2026-05-27 (parte 2) — Auth contratista y clínica
+
+### 1. SystemRoleId 14 permitido en InvitarUsuarioAsync
+
+`Features/HabilitacionModule/Application/Services/ContratistaUsuarioService.cs`
+
+La validación de `SystemRoleId` en `InvitarUsuarioAsync` aceptaba solo `11` (CONTRATISTA) y `49` (SERVICIO DE VIGILANCIA). Se amplió para aceptar también `14`. La inserción en `user_role` ya usaba `dto.SystemRoleId` directamente, por lo que no requirió cambios adicionales.
+
+Valores válidos actuales: `11`, `14`, `49`.
+
+### 2. Logs de diagnóstico temporales en ActivarCuentaAsync
+
+`Features/HabilitacionModule/Application/Services/ContratistaAuthService.cs`
+
+Se agregaron `Console.WriteLine` de diagnóstico en `ActivarCuentaAsync` para trazar en qué paso falla la activación de cuenta contratista. **Pendiente remover** cuando se confirme el fix en producción.
+
+Pasos trazados:
+- `[ACTIVAR] Paso 1` — búsqueda de token en `ss_reset_token`
+- `[ACTIVAR] Paso 2` — validación de longitud de password
+- `[ACTIVAR] Paso 3` — búsqueda de `User` por `token.UserId`
+- `[ACTIVAR] Paso 4` — búsqueda de `ContractorEmail` y generación de JWT
+- `[ACTIVAR ERROR]` + `[ACTIVAR STACK]` — en catch global (relanza sin modificar comportamiento)
+
+### 3. Arquitectura auth contratista — resumen
+
+- Usuarios contratistas son filas en la tabla global `user` (email + BCrypt password).
+- Vínculo empresa↔usuario: `contractor_email` (fuente de verdad para login) + `ss_contratista_usuario` (rol interno).
+- Token de activación/reset: `ss_reset_token` — GUID 32 hex chars, TTL 48h activación / 2h reset.
+- JWT contratista claims: `NameIdentifier=userId`, `Role=CONTRATISTA`, `empresaId=contributorId`, `tipo=CONTRATISTA`, `systemRoles=ids_separados_por_coma`.
+- `AllowedFeatures` va en el body de la respuesta (no en el JWT): query SQL `feature → role_feature → user_role` por `userId`.
+- Roles internos (`ss_contratista_rol`): solo `ADMIN` y `GESTOR` — no existe `OWNER` en ningún endpoint.
+- Config key del link de activación: `FrontendSettings:SetPasswordUrl` (distinto de `App:FrontendUrl` que usa clínica).
+
+### 4. Arquitectura auth clínica — resumen
+
+- Usuarios clínica son filas en `ss_clinica_usuarios` (independiente de `user`).
+- Token de activación: `ss_clinica_tokens` — Base64 32 bytes, TTL 48h, tipo `"ACTIVACION"`.
+- Fix activo: `dto.Token?.Replace(" ", "+")` antes del lookup (Base64 `+` llega como espacio).
+- JWT clínica claims: `NameIdentifier=clinicaUsuarioId`, `Role=CLINICA`, `clinicaId`, `clinicaUsuarioId`, `email`, `tipo=CLINICA`. Expira en 8h.
+- Config key del link: `App:FrontendUrl` + `/clinica/activar?token=...`.
+- Control de acceso: `ClinicaClaimsHelper.ValidarAcceso` compara `clinicaId` del JWT con el de la ruta. `EmoController` no tiene ningún guard por tipo — cualquier JWT válido puede crear/editar EMOs.

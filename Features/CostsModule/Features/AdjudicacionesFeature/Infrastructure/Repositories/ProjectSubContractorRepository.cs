@@ -514,6 +514,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     PromissoryNoteNumber     = x.psc.PromissoryNoteNumber,
                     GuaranteeFundPercentage  = x.psc.GuaranteeFundPercentage,
                     GuaranteeFundDays        = x.psc.GuaranteeFundDays,
+                    GuaranteeValidityDays    = x.psc.GuaranteeValidityDays,
                     ArrivedWithObservations  = x.psc.ArrivedWithObservations,
                     CreatedDateTime          = x.psc.CreatedDateTime,
                     CreatedUserFullName      = x.personCreator != null ? x.personCreator.FullName : null,
@@ -651,6 +652,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscPromissoryNoteNumber = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.PromissoryNoteNumber));
             string cPscGuaranteeFundPercentage = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeFundPercentage));
             string cPscGuaranteeFundDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeFundDays));
+            string cPscGuaranteeValidityDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeValidityDays));
             string cPscArrivedWithObservations = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivedWithObservations));
             string cPscCreatedDateTime = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.CreatedDateTime));
             string cPscAdvancePercentage = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.AdvancePercentage));
@@ -936,6 +938,7 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscPromissoryNoteNumber} AS ""PromissoryNoteNumber"",
        psc.{cPscGuaranteeFundPercentage} AS ""GuaranteeFundPercentage"",
        psc.{cPscGuaranteeFundDays} AS ""GuaranteeFundDays"",
+       psc.{cPscGuaranteeValidityDays} AS ""GuaranteeValidityDays"",
        psc.{cPscArrivedWithObservations} AS ""ArrivedWithObservations"",
        psc.{cPscCreatedDateTime} AS ""CreatedDateTime"",
        creator_p.{cPersonCreatorFullName} AS ""CreatedUserFullName"",
@@ -1140,6 +1143,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     PromissoryNoteNumber = (int?)raw.PromissoryNoteNumber,
                     GuaranteeFundPercentage = (int?)raw.GuaranteeFundPercentage,
                     GuaranteeFundDays = (int?)raw.GuaranteeFundDays,
+                    GuaranteeValidityDays = (int?)raw.GuaranteeValidityDays,
                     ArrivedWithObservations = (bool?)raw.ArrivedWithObservations,
                     CreatedDateTime = new DateTimeOffset((DateTime)raw.CreatedDateTime, TimeSpan.Zero),
                     CreatedUserFullName = (string?)raw.CreatedUserFullName,
@@ -1525,6 +1529,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             psc.PromissoryNoteNumber    = dto.PromissoryNoteNumber;
             psc.GuaranteeFundPercentage = dto.GuaranteeFundPercentage;
             psc.GuaranteeFundDays       = dto.GuaranteeFundDays;
+            psc.GuaranteeValidityDays   = dto.GuaranteeValidityDays;
             psc.TermDays = (dto.StartDate != default && dto.EndDate != default)
                 ? (int)(dto.EndDate.ToDateTime(TimeOnly.MinValue) - dto.StartDate.ToDateTime(TimeOnly.MinValue)).TotalDays
                 : null;
@@ -1805,6 +1810,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     PromissoryNoteNumber      = psc.PromissoryNoteNumber,
                     GuaranteeFundPercentage   = psc.GuaranteeFundPercentage,
                     GuaranteeFundDays         = psc.GuaranteeFundDays,
+                    GuaranteeValidityDays     = psc.GuaranteeValidityDays,
                 }
             ).FirstOrDefaultAsync();
 

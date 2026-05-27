@@ -163,6 +163,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsContratistaRol> SsContratistaRoles { get; set; }
         public DbSet<SsContratistaUsuario> SsContratistaUsuarios { get; set; }
         public DbSet<SsContratistaUsuarioProyecto> SsContratistaUsuarioProyectos { get; set; }
+        public DbSet<ProjectActivity> ProjectActivity { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -461,6 +462,13 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
             modelBuilder.Entity<SsClinicaAuditoria>().Property(e => e.DetalleAdicional).HasColumnType("jsonb");
+            modelBuilder.Entity<ProjectActivity>(entity =>
+            {
+                entity.ToTable("project_activity");
+                entity.Property(e => e.Order).HasColumnName("project_activity_order");
+                entity.Property(e => e.ActivityDescription).IsRequired().HasMaxLength(500);
+                entity.Property(e => e.ProgressPercentage).HasDefaultValue(0);
+            });
         }
     }
 }

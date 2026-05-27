@@ -7,6 +7,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }
         public string? Empresa { get; set; }
+        public int? TipoEmoId { get; set; }
         public string? TipoEmo { get; set; }
         public DateOnly FechaProgramada { get; set; }
         public TimeOnly? HoraProgramada { get; set; }

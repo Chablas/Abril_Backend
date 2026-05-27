@@ -192,6 +192,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("empresas"))     return _configuration["SharePoint:Sites:Habilitacion:EmpresaLibraryId"];
             if (c.Contains("equipos"))      return _configuration["SharePoint:Sites:Habilitacion:EquiposLibraryId"];
             if (c.Contains("sctr"))         return _configuration["SharePoint:Sites:SSOMAApps:SctrLibraryId"];
+            if (c.Contains("emo-aptitud"))  return _configuration["SharePoint:Sites:SSOMAApps:AptitudesLibraryId"];
+            if (c.Contains("emo-completo")) return _configuration["SharePoint:Sites:SSOMAApps:EMOSLibraryId"];
             return null;
         }
 

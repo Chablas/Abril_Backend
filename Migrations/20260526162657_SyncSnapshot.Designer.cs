@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260526162657_SyncSnapshot")]
+    partial class SyncSnapshot
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -5554,10 +5557,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("created_user_id");
 
-                    b.Property<DateOnly?>("FechaRealFin")
-                        .HasColumnType("date")
-                        .HasColumnName("fecha_real_fin");
-
                     b.Property<int>("MilestoneId")
                         .HasColumnType("integer")
                         .HasColumnName("milestone_id");
@@ -6917,14 +6916,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.Property<string>("UrlAptitud")
-                        .HasColumnType("text")
-                        .HasColumnName("url_aptitud");
-
-                    b.Property<string>("UrlEmoCompleto")
-                        .HasColumnType("text")
-                        .HasColumnName("url_emo_completo");
-
                     b.Property<string>("UrlResultado")
                         .HasColumnType("text")
                         .HasColumnName("url_resultado");
@@ -7354,14 +7345,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("responsable_arq_com_id");
 
-                    b.Property<string>("ResponsableUdp")
-                        .HasColumnType("text")
-                        .HasColumnName("responsable_udp");
-
-                    b.Property<int?>("ResponsableUdpId")
-                        .HasColumnType("integer")
-                        .HasColumnName("responsable_udp_id");
-
                     b.Property<bool>("State")
                         .HasColumnType("boolean")
                         .HasColumnName("state");
@@ -7373,10 +7356,6 @@ namespace Abril_Backend.Migrations
                     b.Property<bool>("TieneArquitecturaComercial")
                         .HasColumnType("boolean")
                         .HasColumnName("tiene_arquitectura_comercial");
-
-                    b.Property<bool>("TieneUnidadDeProyectos")
-                        .HasColumnType("boolean")
-                        .HasColumnName("tiene_unidad_de_proyectos");
 
                     b.Property<DateTime?>("UpdatedDateTime")
                         .HasColumnType("timestamp with time zone")
@@ -7393,77 +7372,6 @@ namespace Abril_Backend.Migrations
                         .HasDatabaseName("ix_project_contributor_id");
 
                     b.ToTable("project", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Shared.Models.ProjectActivity", b =>
-                {
-                    b.Property<int>("ProjectActivityId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("project_activity_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProjectActivityId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<string>("ActivityDescription")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("activity_description");
-
-                    b.Property<DateOnly?>("ActualEndDate")
-                        .HasColumnType("date")
-                        .HasColumnName("actual_end_date");
-
-                    b.Property<DateTime>("CreatedDateTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_date_time");
-
-                    b.Property<int>("CreatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("created_user_id");
-
-                    b.Property<int>("Order")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_activity_order");
-
-                    b.Property<DateOnly?>("PlannedEndDate")
-                        .HasColumnType("date")
-                        .HasColumnName("planned_end_date");
-
-                    b.Property<DateOnly?>("PlannedStartDate")
-                        .HasColumnType("date")
-                        .HasColumnName("planned_start_date");
-
-                    b.Property<int>("ProgressPercentage")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("progress_percentage");
-
-                    b.Property<int>("ProjectId")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_id");
-
-                    b.Property<bool>("State")
-                        .HasColumnType("boolean")
-                        .HasColumnName("state");
-
-                    b.Property<DateTime?>("UpdatedDateTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_date_time");
-
-                    b.Property<int?>("UpdatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("updated_user_id");
-
-                    b.HasKey("ProjectActivityId")
-                        .HasName("pk_project_activity");
-
-                    b.ToTable("project_activity", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractor", b =>

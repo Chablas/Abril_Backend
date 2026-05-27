@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-25 — SCTR: auto-aprobación Abril, SctrTrabajadorEstadoDto enriquecido, GetTrabajadoresPorEmpresa por vinculación
+> Última actualización: 2026-05-26 — ProjectActivity model, CronogramaActividades rewrite, ProjectsDashboard migrado a project_activity, DTOs reestructurados
 
 ---
 
@@ -69,7 +69,7 @@ Features/<Modulo>Module/
 | `ConfigurationModule` | `AddConfigurationModule` | ProjectFeature (CRUD proyectos AC) |
 | `GestionAdministrativaModule` | `AddGestionAdministrativaModule` | SolicitudSalidas, GestionSalidas, Lugares, MotivosSalida |
 | `MejoraContinuaModule` | `AddMejoraContinuaModule` | LessonsLearned, AreasYSubareas, PsssTemplate, Relations |
-| `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | LessonsLearnedDashboard |
+| `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | LessonsLearnedDashboard, ProjectsDashboard |
 
 **ArquitecturaComercial** vive en capa tradicional, no en Features.
 
@@ -781,6 +781,43 @@ Modelos compartidos: `Partida`, `PsssScope`, `PsssTemplate`, `PsssTemplateDetail
 ### 11e. UnidadDeProyectosModule (`Features/UnidadDeProyectosModule/`)
 
 `LessonsLearnedDashboard` — dashboard consolidado de lecciones entre proyectos.
+
+`ProjectsDashboard` — dashboard ejecutivo de proyectos ArquitecturaComercial.
+
+#### ProjectsDashboard — endpoints
+
+```
+GET  /api/v1/projects-dashboard/filters
+     → ProjectsDashboardFiltersResponseDto { Projects, Estados, ResponsablesArqCom }
+
+GET  /api/v1/projects-dashboard?proyectoId=&estado=&responsableArqComId=&fechaDesde=&fechaHasta=
+     → ProjectsDashboardResponseDto:
+       - KPIs: TotalProyectos, AlDia, ConRetraso, SinActividades, PorcentajeAvancePromedio
+       - Proyectos[]: ProjectId, ProjectDescription, Estado, ResponsableArqCom,
+                      TotalActividades, Culminadas, EnProceso, Vencidas, PorcentajeAvance,
+                      EstaConRetraso, DiasRetraso, Semaforo, EtapaNombre
+       - DistribucionPorEstado[]: { Estado, CantidadProyectos }
+       - RankingResponsables[]: { ResponsableId, ResponsableNombre, TotalProyectos,
+                                  ActividadesCompletadas, ActividadesVencidas,
+                                  TotalActividades, Score }  — ordenado Score DESC
+       - HeatmapCarga[]: { ResponsableId, ResponsableNombre, Semana ("yyyy-Www"),
+                           CantidadActividades }
+
+GET  /api/v1/projects-dashboard/{proyectoId}
+     → ProyectoDetailDashboardDto:
+       - Kpis: TotalActividades, Culminadas, EnProceso, Vencidas, AvancePct, DiasRetraso, Semaforo
+       - ActividadesVencidas[]: { Id, Nombre, Tipo, ResponsableNombre, FinProgramado, DiasRetraso }
+       - Gantt[]: { Id, Nombre, InicioProgramado, FinProgramado, FinEfectivo, Estado, ResponsableNombre }
+```
+
+#### ProjectsDashboard — reglas de negocio
+
+- **Semáforo**: calculado como `MAX(hoy - FinProgramado)` sobre actividades donde `FinProgramado < hoy AND FinEfectivo == null`. Verde = 0 días, Amarillo = 1-7 días, Rojo = > 7 días.
+- **EtapaNombre**: etapa de la actividad activa con mayor `Id` que tenga `EtapaId` (más recientemente creada con etapa asignada).
+- **Score ranking**: `MAX(0, completadas/total*100 - vencidas*5)`. Basado en `AcActividad.UserId` (responsable por actividad). `TotalProyectos` = proyectos distintos donde tiene actividades.
+- **Heatmap**: agrupa por `AcActividad.UserId` y semana ISO de `FinProgramado`. Si no se pasa `fechaDesde/fechaHasta`, usa próximas 12 semanas desde hoy.
+- **Filtro de proyectos**: `project.state = true` (sin filtro por `tiene_arquitectura_comercial` — flag no activo en BD al 2026-05-25).
+- **Ranking y heatmap aplican los mismos filtros** que el dashboard principal (proyectoId, estado, responsableArqComId) ejecutando queries paralelas con `IDbContextFactory`.
 
 ---
 
@@ -2470,3 +2507,543 @@ FechaLectura = dto.FechaLectura,   // ← nuevo
 UrlResultado = dto.UrlResultado,
 ```
 Depende de que se ejecute la migración de `WorkerEmo.FechaLectura` antes de correr en producción.
+
+---
+
+## Sesión 2026-05-26 (tarde) — ProgramacionEmoRepository: filtro EsAbril y refactor notificaciones
+
+### ProgramacionEmoRepository.List — filtro EsAbril
+
+`Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/ProgramacionEmoRepository.cs`
+
+El query ya tenía JOIN con `Contributor` (`em`). Se agrega filtro fijo antes de los filtros opcionales:
+```csharp
+q = q.Where(x => x.em != null && x.em.EsAbril);
+```
+Mismo patrón que `EmoRepository.ListPorTrabajador`, `DashboardRepository` y `CatalogosRepository`.
+
+### EnviarNotificacionCreacionAsync — simplificado (solo clínica)
+
+Reemplazado por versión reducida:
+- Guarda si no hay `ClinicaId`. No distingue tipo de worker.
+- `To` = `ss_clinica_emails` (fallback `ss_clinicas.email`). Sin CC.
+- Subject: `[EMO Programado] {nombre} — {fecha}`.
+- Body: tabla HTML compacta con trabajador, tipo, fecha, hora, proyecto, clínica.
+- `BuildBodyCreacion` (método estático) eliminado — quedó huérfano.
+
+### EnviarNotificacionAceptacionAsync — nuevo método
+
+Se dispara cuando la clínica acepta (`Accion == "Aceptar"`). Notifica al equipo interno según tipo de worker:
+
+| Tipo | To |
+|------|-----|
+| Obrero (Casa, ObraOficina=Ninguno) | EmailAdministrador + EmailResidente + EmailSsoma del proyecto + MedicinaOcupacional |
+| Staff (Casa, ObraOficina=Staff) | EmailCorporativo + EmailResidente + EmailAdministrador + EmailSsoma del proyecto |
+| Oficina Central | EmailCorporativo + GTH + MedicinaOcupacional + cat_jefatura emails del `worker.Jefatura` |
+| Contratista (!esCasa) | sin notificación — return inmediato |
+
+Subject: `[EMO Confirmado] {nombre} — {fecha}`.
+
+### ClinicaAccion — carga worker + llama EnviarNotificacionAceptacionAsync
+
+```csharp
+var worker = await ctx.Worker.Include(w => w.Person)
+    .FirstOrDefaultAsync(w => w.Id == ent.WorkerId)
+    ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+case "Aceptar":
+    ent.Estado = "Aceptado por Clínica";
+    ent.MotivoRechazo = null;
+    await EnviarNotificacionAceptacionAsync(ctx, ent, worker);
+    break;
+```
+
+### Fix: campos incorrectos en EnviarNotificacionAceptacionAsync
+
+`p.EmailAdministrador` y `p.EmailSsoma` no existen en `Shared/Models/Project.cs`. Corregidos:
+- `p.EmailAdministrador` → `p.EmailCoordAdmin`
+- `p.EmailSsoma` → `p.EmailCoordSsoma`
+
+Campos correctos de `Project.cs`: `EmailResidente` (31), `EmailResponsable` (32), `EmailRrhh` (33), `EmailCoordSsoma` (34), `EmailCoordAdmin` (35).
+
+### Contributor.EmailAdministrador — nueva propiedad
+
+`Features/CostsModule/Shared/Models/Contributor.cs`:
+```csharp
+[Column("email_administrador")]
+public string? EmailAdministrador { get; set; }
+```
+
+### Migraciones aplicadas — 2026-05-26
+
+| Migration | Descripción | Aplicada |
+|---|---|---|
+| `20260526162047_AddEmailAdministradorContributor` | SQL idempotente: ADD COLUMN email_administrador en contributor + fecha_lectura en worker_emos + tablas ga_* + ss_contratista_* (IF NOT EXISTS) | ✅ |
+| `20260526162657_SyncSnapshot` | Migración vacía — sincroniza snapshot EF sin cambios en BD | ✅ |
+
+Ambas aplicadas con `dotnet ef database update --project Abril-Backend.csproj`.
+
+---
+
+## Sesión 2026-05-26 (continuación 2) — Notificaciones EMO, WorkerHabilitacionListDto, validaciones
+
+### EnviarNotificacionAceptacionAsync — adminEmail desde contributor del worker
+
+Carga `contributor.email_administrador` por `worker.ContributorId` y lo agrega a `toRaw` en los tres bloques (esObrero, esStaff, esOficinaCentral):
+
+```csharp
+var adminEmail = worker.ContributorId.HasValue
+    ? await ctx.Contributor.AsNoTracking()
+        .Where(c => c.ContributorId == worker.ContributorId.Value)
+        .Select(c => c.EmailAdministrador)
+        .FirstOrDefaultAsync()
+    : null;
+// ...
+toRaw.Add(adminEmail); // en cada bloque
+```
+
+### Prefijo [PRUEBAS - NO RESPONDER] en subjects EMO
+
+Ambos métodos de notificación actualizados:
+- `EnviarNotificacionCreacionAsync`: `"[PRUEBAS - NO RESPONDER] [EMO Programado] {nombre} — {fecha}"`
+- `EnviarNotificacionAceptacionAsync`: `"[PRUEBAS - NO RESPONDER] [EMO Confirmado] {nombre} — {fecha}"`
+
+**Quitar antes de producción.**
+
+### WorkerHabilitacionListDto — TieneEmo y DiasRestantesEmo
+
+`Features/HabilitacionModule/Application/Dtos/Trabajadores/WorkerHabilitacionListDto.cs`:
+```csharp
+public bool TieneEmo { get; set; }
+public int? DiasRestantesEmo { get; set; }
+```
+
+`HabTrabajadorRepository.GetWorkersHabilitacionAsync` — batch post-query (mismo patrón que `empresaMap`/`proyectoMap`):
+```csharp
+var emoMap = await ctx.WorkerEmo
+    .Where(e => workerIds.Contains(e.WorkerId) && e.Activo
+             && (e.Estado == "Vigente" || e.Estado == "Convalidado"))
+    .GroupBy(e => e.WorkerId)
+    .Select(g => new { WorkerId = g.Key,
+        FechaVencimiento = g.OrderByDescending(e => e.FechaVencimiento)
+                            .Select(e => e.FechaVencimiento).FirstOrDefault() })
+    .ToDictionaryAsync(x => x.WorkerId, x => x.FechaVencimiento);
+
+// En el mapper:
+TieneEmo = emoMap.ContainsKey(r.Worker.Id),
+DiasRestantesEmo = emoVenc.HasValue ? (int?)(emoVenc.Value.DayNumber - today.DayNumber) : null
+```
+`FechaVencimiento` en `WorkerEmo` es `DateOnly?` — días calculados con `DayNumber` (sin conversión de zona horaria).
+
+---
+
+## Sesión 2026-05-26 (continuación 3) — EMO: EsAbril, TipoEmoId nullable, upload documentos, notificaciones
+
+### EmoCreateDto.TipoEmoId → int?
+
+`Features/SsomaModule/.../Application/Dtos/Emo/EmoCreateDto.cs`: `int TipoEmoId` → `int? TipoEmoId`. Evita que el frontend envíe `0` cuando no hay tipo seleccionado (antes deserializaba como 0 y rompía silenciosamente).
+
+`EmoService.ValidarComun`: firma actualizada a `int? tipoEmoId`, validación cambiada a `!tipoEmoId.HasValue || tipoEmoId.Value <= 0`.
+
+### EmoAutoProgramacionService — filtro EsAbril + usar IProgramacionEmoRepository
+
+**Filtro EsAbril** en query de candidatos — nuevo join y condición:
+```csharp
+join contrib in ctx.Contributor on v.EmpresaId equals contrib.ContributorId
+where ... && contrib.EsAbril
+```
+
+**Refactor bloque inserción** — reemplaza inserción directa `ctx.SsProgramacionEmo.Add` + `SaveChangesAsync` por:
+```csharp
+await _progRepo.Create(new ProgramacionCreateDto
+{
+    WorkerId        = c.Emo.WorkerId,
+    EmpresaId       = c.Vinculacion.EmpresaId,
+    TipoEmoId       = tipoEmoId,
+    FechaProgramada = fechaProg,
+    Origen          = "Automatico",
+    Motivo          = "Programación automática por vencimiento de EMO",
+}, userId: null);
+```
+Así el cron reutiliza el mismo flujo que una programación manual, incluyendo el envío de correo a la clínica.
+
+Constructor actualizado — `IProgramacionEmoRepository progRepo` inyectado. `IProgramacionEmoRepository` ya estaba registrado en `SsomaModule.cs`.
+
+### ProgramacionEmoRepository.Create — validación FechaProgramada
+
+```csharp
+if (dto.FechaProgramada == default)
+    throw new AbrilException("La fecha es obligatoria.", 400);
+```
+Insertado después de cargar el worker. Evita guardar `0001-01-01` cuando el cliente omite el campo.
+
+### ClinicaAccion — actualizar HoraProgramada al aceptar
+
+En `case "Aceptar"`: si la clínica envía `CheckInHora`, se actualiza `HoraProgramada` antes de llamar a `EnviarNotificacionAceptacionAsync` (así el email refleja la hora real):
+```csharp
+if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
+```
+`horaStr` en ambos métodos de notificación ya usaba `prog.HoraProgramada` — sin cambio adicional.
+
+### Upload documentos EMO a SharePoint
+
+`POST api/v1/ssoma/salud-ocupacional/emos/{emoId}/documentos` — `[FromForm] IFormFile file, [FromForm] string tipo` (`Aptitud` | `EMO`).
+- `EmoController` inyecta `ISharePointHabService` + `IDbContextFactory<AppDbContext>`
+- Construye `{DNI}_{tipo}_{yyyyMMdd}.pdf`, contexto `emo-aptitud` o `emo-completo`
+- Guarda path en `WorkerEmo.UrlAptitud` o `WorkerEmo.UrlEmoCompleto`
+
+`SharePointHabService.ResolverLibraryId`: nuevos casos `emo-aptitud` → `AptitudesLibraryId`, `emo-completo` → `EMOSLibraryId` (ambos bajo `SharePoint:Sites:SSOMAApps`).
+
+`WorkerEmo`: `UrlAptitud` y `UrlEmoCompleto` (text, nullable). Migración `AddUrlDocumentosWorkerEmo` aplicada.
+
+### Contributor.EmailAdministrador
+
+`Features/CostsModule/Shared/Models/Contributor.cs`: `[Column("email_administrador")] public string? EmailAdministrador { get; set; }`. Migración `AddEmailAdministradorContributor` aplicada.
+
+---
+
+## Sesión 2026-05-26 (continuación 4) — ProgramacionEmo: correo resumen, notificación aceptación, validaciones
+
+### EmoAutoProgramacionService — correo resumen en lugar de por-worker
+
+Reemplaza inserción vía `_progRepo.Create` (que enviaba un correo por cada programación) por inserción directa `ctx.SsProgramacionEmo.Add` + `SaveChangesAsync`. Al final del loop llama a `EnviarResumenClinicaAsync` — un único correo HTML a `ClinicaId=1` con tabla de todos los trabajadores programados.
+
+`IProgramacionEmoRepository` eliminado del constructor; en su lugar `IEmailService` inyectado. `ClinicaId = 1` hardcoded en la entidad.
+
+### ProgramacionEmoRepository — EnviarNotificacionCreacionAsync: CC eliminado
+
+Eliminados `medOcupacional`, `gth`, `emoResumenRaw`, `ccSiempre`, `ccRaw`, y el bloque `var cc`. El método ahora solo envía a `to` (clínica), sin CC. Catch mejorado a `LogError` con `Provider`, `To`, y `Error`.
+
+`var toRaw` movido fuera del `try` para accesibilidad en el `catch`.
+
+### ProgramacionEmoRepository — ClinicaAccion case "Aceptar"
+
+`case "Aceptar"` hace su propio `SaveChangesAsync` + `return` antes de llegar al `SaveChangesAsync` compartido del final. Flujo:
+
+```csharp
+case "Aceptar":
+    ent.Estado = "Aceptado por Clínica";
+    ent.MotivoRechazo = null;
+    if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
+    ent.UpdatedAt = DateTimeOffset.UtcNow;
+    await ctx.SaveChangesAsync();
+    await EnviarNotificacionAceptacionAsync(ctx, ent, worker);
+    return;
+```
+
+### ProgramacionEmoRepository — EnviarNotificacionAceptacionAsync (nuevo método)
+
+Notifica equipo interno cuando la clínica acepta. Routing por tipo de worker:
+
+| Tipo | To |
+|---|---|
+| Obrero | EmailCoordAdmin + EmailResidente + EmailCoordSsoma del proyecto + MedicinaOcupacional + adminEmail |
+| Staff | EmailCorporativo + EmailResidente + EmailCoordAdmin + EmailCoordSsoma + adminEmail |
+| OficinaCentral | EmailCorporativo + GTH + MedicinaOcupacional + adminEmail + CatJefatura emails |
+| Contratista | return inmediato |
+
+`adminEmail` cargado desde `contributor.email_administrador` vía `worker.ContributorId`.
+
+Subject: `"[PRUEBAS - NO RESPONDER] [EMO Confirmado] {nombre} — {fecha}"`.
+
+### ProgramacionListDto — TipoEmoId agregado
+
+`ProgramacionListDto.cs`: nueva propiedad `public int? TipoEmoId { get; set; }`.
+`ProgramacionEmoRepository.List` Select: `TipoEmoId = x.p.TipoEmoId` agregado.
+
+### EmoController — endpoint SubirDocumento
+
+`POST api/v1/ssoma/salud-ocupacional/emos/{emoId}/documentos` — ya documentado en continuación 3. `ISharePointHabService` y `IDbContextFactory` inyectados en el constructor.
+
+`WorkerEmo.UrlAptitud` y `UrlEmoCompleto` agregados en `Infrastructure/Models/WorkerEmo.cs`.
+
+### SharePointHabService.ResolverLibraryId — casos EMO
+
+```csharp
+if (c.Contains("emo-aptitud"))  return _configuration["SharePoint:Sites:SSOMAApps:AptitudesLibraryId"];
+if (c.Contains("emo-completo")) return _configuration["SharePoint:Sites:SSOMAApps:EMOSLibraryId"];
+```
+
+### Vinculación Habilitación ↔ WorkerEmo
+
+| Tipo worker | ItemId | Mecanismo |
+|---|---|---|
+| Contratista | `CertAptitud = 4` | Automático: `EmoRepository.SincronizarEntregableEmoAsync` escribe en `ss_hab_trabajador` al crear EMO |
+| Casa | `LecturaEmo = 25` | En tiempo real: no hay fila en `ss_hab_trabajador`, estado calculado desde `WorkerEmo` activo |
+
+Casa: `EstadoCalc = "No Autorizado"` si no hay `WorkerEmo` con `Activo && (Estado == "Vigente" || "Convalidado")`.
+`SincronizarEntregableEmoAsync` solo se llama en `EmoRepository.Create`, **no en Update**.
+
+### Migración pendiente
+
+`WorkerEmo.UrlAptitud` + `UrlEmoCompleto` → migración `AddUrlDocumentosWorkerEmo` pendiente de crear y aplicar (columnas no existen aún en BD).
+
+`Contributor.EmailAdministrador` → migración `AddEmailAdministradorContributor` pendiente de crear y aplicar (columna `email_administrador` no existe aún en BD).
+
+---
+
+## Sesión 2026-05-26 (continuación 5) — ClinicaAuth: investigación flujo activación, App:FrontendUrl
+
+### ClinicaAuthController — flujo completo
+
+**Ruta base:** `api/v1/ssoma/salud-ocupacional/auth` — `[AllowAnonymous]` a nivel de clase.
+
+| Endpoint | Body | Comportamiento |
+|---|---|---|
+| `POST /auth/login` | `{ email, password }` | BCrypt.Verify contra `ss_clinica_usuarios.password_hash`; emite JWT con claims `clinicaUsuarioId`, `clinicaId`, role `"CLINICA"`, expiry 8h |
+| `POST /auth/solicitar-activacion` | `{ email }` | **Email debe existir ya** en `ss_clinica_usuarios` (busca el usuario activo); genera token de activación en `ss_clinica_tokens`; envía email con link `{App:FrontendUrl}/clinica/activar?token=...` |
+| `POST /auth/activar` | `{ token, password }` | Valida token en `ss_clinica_tokens`; hace hash de la nueva contraseña; activa el usuario |
+
+`solicitar-activacion` no crea usuarios nuevos — requiere que el admin Abril haya creado el usuario previamente vía `ClinicaUsuariosController`.
+
+### ClinicaUsuariosController — POST responde 409 en email duplicado
+
+`POST /catalogos/clinicas/{clinicaId}/usuarios` — `ClinicaUsuarioService.CreateUsuarioAsync` lanza `AbrilException("Ya existe un usuario con ese correo.", 409)` si el email ya existe en `ss_clinica_usuarios`. El controller captura la excepción y retorna `StatusCode(409, { message })`.
+
+### App:FrontendUrl — añadido a appsettings.Local.json
+
+`ClinicaAuthController.SolicitarActivacion` lee `_configuration["App:FrontendUrl"]` para construir el link de activación. Faltaba en `appsettings.Local.json`; añadido:
+
+```json
+"App": {
+  "FrontendUrl": "https://abril-frontend.onrender.com"
+}
+```
+
+(gitignored — no commitear)
+
+---
+
+## Sesión 2026-05-26 — ProjectsDashboard: migración BD, feature en BD, renombrado ArqCom
+
+### 1. Migración `AddFechaRealFinToMilestoneSchedule`
+
+La entidad `MilestoneSchedule` (`Infrastructure/Models/MilestoneSchedule.cs`) ya tenía la propiedad `DateOnly? FechaRealFin` pero el snapshot EF no la conocía (no existía migración). La columna sí existía en Aiven (creada manualmente en sesión anterior).
+
+Pasos ejecutados:
+1. `dotnet ef migrations add AddFechaRealFinToMilestoneSchedule` — generó migración con `AddColumn<DateOnly>`.
+2. Primer `dotnet ef database update` falló con `42701: ya existe la columna «fecha_real_fin»`.
+3. El `Up()` fue reemplazado con `migrationBuilder.Sql("ALTER TABLE milestone_schedule ADD COLUMN IF NOT EXISTS fecha_real_fin date;")` para hacerlo idempotente.
+4. Segundo `dotnet ef database update` → `Done.` — migración registrada en `__EFMigrationsHistory`.
+
+Archivo: `Migrations/20260526130525_AddFechaRealFinToMilestoneSchedule.cs`
+
+> **Patrón a seguir:** cuando la BD está por delante de EF (columna ya aplicada manualmente), modificar el `Up()` generado para usar SQL idempotente (`IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`, etc.) antes de aplicar.
+
+---
+
+### 2. ProjectsDashboard migrado a `milestone_schedule`
+
+El dashboard ejecutivo de proyectos (`Features/UnidadDeProyectosModule/Features/ProjectsDashboard/`) usa `milestone_schedule` como fuente de actividades en lugar de `AcActividad`. Este cambio venía del commit `e658b5e` de la sesión anterior.
+
+**Fuente de datos:**
+- `MilestoneSchedule` (tabla `milestone_schedule`) — actividades del cronograma de proyecto.
+- `MilestoneScheduleHistory` — historial de cronogramas; se toma el de mayor `MilestoneScheduleHistoryId` activo por proyecto.
+- `FechaRealFin` (DateOnly?) — fecha real de término; `null` = no culminada. Usada para calcular completadas, vencidas, semáforo y Gantt.
+
+**Campos calculados en runtime (no almacenados):**
+- `Semaforo`: MAX(hoy - PlannedEndDate) sobre actividades vencidas. Verde=0d, Amarillo=1-7d, Rojo=>7d.
+- `Estado` por actividad: `CULMINADO` (FechaRealFin != null) → `VENCIDO` (PlannedEndDate < hoy) → `EN_PROCESO` (PlannedStartDate <= hoy) → `PENDIENTE`.
+- `Score` ranking: `MAX(0, completadas/total*100 - vencidas*5)`.
+
+---
+
+### 3. Feature `projects.projects-dashboard` registrada en BD
+
+Ejecutado directamente contra Aiven (PostgreSQL):
+
+```sql
+-- Tabla real: "feature" (singular), columna "feature_key"
+INSERT INTO feature (feature_key, module_id)
+VALUES ('projects.projects-dashboard', 6)       -- módulo "Proyectos"
+ON CONFLICT DO NOTHING;
+-- → feature_id = 93
+
+-- Asignada al rol USUARIO DE UDP (role_id = 3)
+INSERT INTO role_feature (role_id, feature_id)
+SELECT 3, feature_id FROM feature
+WHERE feature_key = 'projects.projects-dashboard'
+ON CONFLICT DO NOTHING;
+```
+
+Estado de tablas BD relevantes (confirmado en sesión):
+- `module` (singular) — PK `module_id`, nombre en `module_name`. 11 módulos.
+- `feature` (singular) — PK `feature_id`, clave en `feature_key`. 61 features al inicio + 1 nueva = 62.
+- `role` (singular) — PK `role_id`, nombre en `role_description`.
+- `role_feature` — PK compuesta `(role_id, feature_id)`.
+
+---
+
+### 4. Renombrado referencias "ArqCom" → nombres neutros (7 archivos)
+
+Todas las referencias a `ArqCom` en la capa pública (DTOs, interfaces, servicios, controller) fueron renombradas para desacoplar el dashboard de proyectos del dominio de Arquitectura Comercial.
+
+| Cambio | Antes | Después |
+|--------|-------|---------|
+| Clase DTO | `ResponsableArqComSimpleDto` | `ResponsableSimpleDto` |
+| Propiedad respuesta filtros | `ResponsablesArqCom` | `Responsables` |
+| Propiedad respuesta proyectos | `ResponsableArqCom` | `ResponsableNombre` |
+| Query param HTTP | `?responsableArqComId=` | `?responsableId=` |
+| Parámetro de métodos (4 interfaces, 2 servicios, 1 repo) | `responsableArqComId` | `responsableId` |
+| Clase privada `ProjectFlat` (repo interno) | `ResponsableArqCom` / `ResponsableArqComId` | `ResponsableNombre` / `ResponsableId` |
+
+**Archivos modificados:**
+1. `Application/Dtos/ProjectsDashboardFiltersResponseDto.cs`
+2. `Application/Dtos/ProjectsDashboardResponseDto.cs`
+3. `Infrastructure/Interfaces/IProjectsDashboardRepository.cs`
+4. `Application/Interfaces/IProjectsDashboardService.cs`
+5. `Application/Services/ProjectsDashboardService.cs`
+6. `Presentation/ProjectsDashboardController.cs`
+7. `Infrastructure/Repositories/ProjectsDashboardRepository.cs`
+
+> **Nota:** Las propiedades de la entidad `Project` (`Project.ResponsableArqComId`, `Project.ResponsableArqCom`) **no fueron renombradas** — son columnas en BD. El renombrado aplica solo a la capa de presentación y a la clase privada `ProjectFlat` del repositorio.
+
+---
+
+### 5. Endpoints ProjectsDashboard — estado actual
+
+```
+GET  /api/v1/projects-dashboard/filters
+     → ProjectsDashboardFiltersResponseDto
+       { Projects[], Estados[], Responsables[] }
+          Responsables[]: { WorkerId, FullName }
+
+GET  /api/v1/projects-dashboard
+     ?proyectoId=&estado=&responsableId=&fechaDesde=&fechaHasta=
+     → ProjectsDashboardResponseDto
+       { TotalProyectos, AlDia, ConRetraso, SinActividades, PorcentajeAvancePromedio,
+         Proyectos[]: { ProjectId, ProjectDescription, Estado, ResponsableNombre,
+                        TotalActividades, Culminadas, EnProceso, Vencidas,
+                        PorcentajeAvance, EstaConRetraso, DiasRetraso, Semaforo, EtapaNombre },
+         DistribucionPorEstado[]: { Estado, CantidadProyectos },
+         RankingResponsables[]: { ResponsableId, ResponsableNombre, TotalProyectos,
+                                  ActividadesCompletadas, ActividadesVencidas,
+                                  TotalActividades, Score },
+         HeatmapCarga[]: { ResponsableId, ResponsableNombre, Semana, CantidadActividades } }
+
+GET  /api/v1/projects-dashboard/{proyectoId}
+     → ProyectoDetailDashboardDto
+       { Kpis: { TotalActividades, Culminadas, EnProceso, Vencidas, AvancePct,
+                 DiasRetraso, Semaforo },
+         ActividadesVencidas[]: { Id, Nombre, Tipo, ResponsableNombre,
+                                  FinProgramado, DiasRetraso },
+         Gantt[]: { Id, Nombre, InicioProgramado, FinProgramado, FinEfectivo,
+                    Estado, ResponsableNombre } }
+```
+
+Feature key en BD: `projects.projects-dashboard` (feature_id=93). Asignada a rol USUARIO DE UDP (role_id=3).
+
+---
+
+### 6. Pendientes frontend tras sesión
+
+- Actualizar query param de `?responsableArqComId=` a `?responsableId=` en todas las llamadas al dashboard.
+- Actualizar lectura de campo JSON `responsablesArqCom` → `responsables` en la respuesta de `/filters`.
+- Actualizar lectura de campo JSON `responsableArqCom` → `responsableNombre` en la lista de proyectos.
+
+### 7. Herramienta instalada
+
+`dotnet-ef` v10.0.8 instalada como herramienta global (`dotnet tool install --global dotnet-ef`). Necesaria para `dotnet ef migrations *` y `dotnet ef database update`.
+
+---
+
+## Sesión 2026-05-26 (parte 2)
+
+### 1. Modelo ProjectActivity (nueva tabla)
+
+`Shared/Models/ProjectActivity.cs` — entidad nueva, completamente independiente de `milestone_schedule`.
+`Shared/Data/AppContext.cs` — `DbSet<ProjectActivity> ProjectActivity` agregado. Override en `ConfigurePostgreSQL`:
+- Tabla: `project_activity`
+- `Order` → columna `project_activity_order` (evitar palabra reservada PostgreSQL)
+- `ActivityDescription` IsRequired MaxLength(500), `ProgressPercentage` DefaultValue(0)
+
+### 2. Campos agregados a Project
+
+`Shared/Models/Project.cs`:
+```
+public bool TieneUnidadDeProyectos { get; set; }
+public string? ResponsableUdp { get; set; }
+public int? ResponsableUdpId { get; set; }
+```
+
+### 3. Migraciones aplicadas a Aiven
+
+Patrón: `dotnet ef database update` siempre apunta a la BD local de Development. Para aplicar en Aiven hay que leer la cadena de `appsettings.Production.json` y ejecutar el SQL directamente con psql.
+
+- `20260526203642_AddFechaRealFinAndTieneUnidadDeProyectos`: agrega `tiene_unidad_de_proyectos boolean NOT NULL DEFAULT false` a `project` y `fecha_real_fin date` nullable a `milestone_schedule`.
+- `20260526215118_AddResponsableUdpToProject`: agrega `responsable_udp text` y `responsable_udp_id integer` nullable a `project`.
+- `20260526223020_AddProjectActivityTable`: crea tabla `project_activity` con columna `project_activity_order` en lugar de `order`.
+
+### 4. Proyectos UDP marcados en Aiven
+
+13 proyectos con `tiene_unidad_de_proyectos = true` (project_ids: 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 39). Responsables UDP asignados en `responsable_udp` / `responsable_udp_id` directamente en la tabla `project`.
+
+### 5. Feature CronogramaActividades — reescritura completa
+
+Reemplazó completamente el feature anterior (basado en `milestone_schedule` + `milestone_schedule_history`).
+Ahora usa `project_activity` exclusivamente.
+
+**Endpoints** (`api/v1/cronograma-actividades`):
+- `GET /proyectos` — proyectos con `tiene_unidad_de_proyectos=true && state=true`
+- `GET /{proyectoId}/actividades` — actividades activas del proyecto, orden por `Order`
+- `POST /{proyectoId}/actividades` — crea actividad; Order = MAX(order)+1
+- `PUT /actividades/{actividadId}` — edita actividad
+- `PUT /actividades/{actividadId}/culminar` — toggle `ActualEndDate` (null↔hoy)
+- `DELETE /actividades/{actividadId}` — soft-delete (`State=false, Active=false`)
+
+**DTOs**: `ProyectoSimpleCronogramaDto`, `ActividadDto`, `CrearActividadRequest`, `EditarActividadRequest`, `CulminarActividadDto`.
+
+### 6. Feature ProjectsDashboard — migración a project_activity
+
+Repositorio reescrito para usar `ctx.ProjectActivity` en lugar de `milestone_schedule`. Todos los métodos filtran `p.TieneUnidadDeProyectos && p.State`.
+
+**Cambios en KPIs**:
+- `AvanceReal` = promedio de `ProgressPercentage` de actividades activas del proyecto
+- `AvanceProgramado` = promedio de porcentaje de tiempo transcurrido por actividad (clamped 0–100)
+- `Culminadas` = actividades con `ActualEndDate != null`
+- `Vencidas` = `PlannedEndDate < today && ActualEndDate == null`
+- `EstaConRetraso` = tiene vencidas O (AvanceReal < AvanceProgramado − 10)
+
+**Responsables**: se leen de `ResponsableUdp`/`ResponsableUdpId` directo en `project` (sin JOIN a `worker`/`person`).
+
+### 7. DTOs renombrados/reestructurados en ProjectsDashboard
+
+| Antes | Después |
+|---|---|
+| `PorcentajeAvancePromedio` | `AvancePromedio` |
+| `ProjectId` en ProyectoDetalleDto | `ProyectoId` |
+| `PorcentajeAvance` | `AvanceProgramado` + `AvanceReal` |
+| `ResponsableNombre`, `TotalProyectos`, etc. en ranking | `Nombre`, `Proyectos`, `Completadas`, `Vencidas`, `Score` |
+| `HeatmapCargaItemDto` (plana) | `HeatmapResponsableDto { Responsable, Semanas[] }` anidada |
+| `ProyectoDetailKpisDto` | campos aplanados en `ProyectoDetailDashboardDto` |
+| `ActividadVencidaDto` | `ActividadCriticaDto` |
+| `ActividadGanttDto` | `GanttTareaDto` con `[JsonPropertyName]` para dhtmlx-gantt |
+
+`ProyectoSimpleDto` y `ResponsableSimpleDto` son ahora locales al feature (no importan de `Application.DTOs`).
+
+**GET /api/v1/projects-dashboard** — nueva forma del response:
+```
+{ TotalProyectos, AlDia, ConRetraso, SinActividades, AvancePromedio,
+  Proyectos[]: { ProyectoId, ProjectDescription, Estado, ResponsableNombre,
+                 TotalActividades, Culminadas, EnProceso, Vencidas,
+                 AvanceProgramado, AvanceReal, EstaConRetraso, DiasRetraso, Semaforo, EtapaNombre },
+  DistribucionPorEstado[]: { Estado, CantidadProyectos },
+  RankingResponsables[]: { ResponsableId, Nombre, Proyectos, Completadas, Vencidas, Score },
+  HeatmapCarga[]: { Responsable, Semanas[]: { Semana, Cantidad } } }
+```
+
+**GET /api/v1/projects-dashboard/{proyectoId}** — nueva forma:
+```
+{ ProyectoId, ProyectoNombre, Estado, AvanceProgramado, AvanceReal, DiasRetraso, Semaforo,
+  ActividadesVencidas[]: { Id, Nombre, ResponsableNombre, FinProgramado, DiasRetraso },
+  ActividadesCriticas[]: { Id, Nombre, ResponsableNombre, FinProgramado, DiasRetraso },
+  Gantt: { Tasks[]: { id, text, start_date, duration, progress }, Links[] } }
+```
+
+`GanttTareaDto.StartDate` formateado como `"dd-MM-yyyy 00:00"` para dhtmlx-gantt. `Duration = Math.Max(1, end-start)`.
+
+### 8. Pendientes frontend tras esta sesión
+
+- Actualizar lectura de `responsablesArqCom` → `responsables` (ya corregido en sesión anterior, verificar).
+- Adaptar componentes de Ranking y Heatmap a la nueva estructura de DTOs.
+- `ProyectoDetalleDto.ProjectId` → `ProyectoId` (renombrado).

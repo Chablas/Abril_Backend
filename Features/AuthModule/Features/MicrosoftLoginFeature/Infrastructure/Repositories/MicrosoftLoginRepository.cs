@@ -74,10 +74,12 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
         {
             using var ctx = _factory.CreateDbContext();
 
+            var emailLower = email.ToLower();
+
             return await ctx.Worker
-                .Where(w => w.EmailCorporativo != null
-                         && w.EmailCorporativo.ToLower() == email.ToLower()
-                         && w.Person != null)
+                .Where(w => w.Person != null
+                         && w.EmailPersonal != null
+                         && w.EmailPersonal.ToLower() == emailLower)
                 .Select(w => new PersonDTO
                 {
                     PersonId             = w.Person!.PersonId,
@@ -185,6 +187,37 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
                 DocumentIdentityCode = null,
                 FullName             = person.FullName,
                 Email                = profile.Mail ?? profile.UserPrincipalName ?? string.Empty
+            };
+        }
+
+        public async Task<RoleSimpleDTO?> AssignRoleAsync(int userId, int roleId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var role = await ctx.Role.FirstOrDefaultAsync(r => r.RoleId == roleId);
+            if (role is null) return null;
+
+            var yaExiste = await ctx.UserRole
+                .AnyAsync(ur => ur.UserId == userId && ur.RoleId == roleId);
+
+            if (!yaExiste)
+            {
+                ctx.UserRole.Add(new UserRole
+                {
+                    UserId = userId,
+                    RoleId = roleId,
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = userId
+                });
+                await ctx.SaveChangesAsync();
+            }
+
+            return new RoleSimpleDTO
+            {
+                RoleId = role.RoleId,
+                RoleDescription = role.RoleDescription
             };
         }
 

@@ -18,11 +18,27 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             _context = context;
         }
 
-        public async Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize)
+        public async Task<PagedResult<ProjectDto>> GetPaged(
+            int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null)
         {
-            var query = _context.Project
-                .Where(p => p.State)
-                .OrderByDescending(p => p.ProjectId);
+            var query = _context.Project.Where(p => p.State);
+
+            if (!string.IsNullOrWhiteSpace(ruc))
+                query = query.Where(p => p.Contributor != null && p.Contributor.ContributorRuc.Contains(ruc));
+
+            if (!string.IsNullOrWhiteSpace(razonSocial))
+            {
+                var razonSocialLower = razonSocial.ToLower();
+                query = query.Where(p => p.Contributor != null && p.Contributor.ContributorName.ToLower().Contains(razonSocialLower));
+            }
+
+            if (!string.IsNullOrWhiteSpace(projectDescription))
+            {
+                var projectDescriptionLower = projectDescription.ToLower();
+                query = query.Where(p => p.ProjectDescription.ToLower().Contains(projectDescriptionLower));
+            }
+
+            query = query.OrderByDescending(p => p.ProjectId);
 
             var totalRecords = await query.CountAsync();
 

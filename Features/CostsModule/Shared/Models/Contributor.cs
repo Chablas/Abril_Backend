@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Abril_Backend.Features.CostsModule.Shared.Models {
     public class Contributor
     {
@@ -20,6 +22,7 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models {
         public bool EsAbril { get; set; }
         public string? ContributorNombreComercial { get; set; }
         public string? SpPasswordTemp { get; set; }
+        [Column("email_administrador")]
         public string? EmailAdministrador { get; set; }
     }
 }

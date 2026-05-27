@@ -9,6 +9,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int ContractTypeId {get; set;}
         public int? ContractModalityId { get; set; }
         public int PaymentMethodId {get; set;}
+        public int? PaymentFormId { get; set; }
         public decimal AdvancePercentage {get;set;}
         public decimal? AdvanceAmount {get; set;}
         public decimal Amount {get; set;}
@@ -48,6 +49,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? ProjectSubContractorInstructivoId { get; set; }
         public int? ProjectSubContractorNonConformingOutputId { get; set; }
         public int? ProjectSubContractorToleranceChartId { get; set; }
+        public int? ProjectSubContractorFichaTecnicaId { get; set; }
+        public int? ProjectSubContractorAnexoId { get; set; }
 
         public DateTimeOffset CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
@@ -68,6 +71,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public ProjectSubContractorInstructivo? Instructivo { get; set; }
         public ProjectSubContractorNonConformingOutput? NonConformingOutput { get; set; }
         public ProjectSubContractorToleranceChart? ToleranceChart { get; set; }
+        public ProjectSubContractorFichaTecnica? FichaTecnica { get; set; }
+        public ProjectSubContractorAnexo? Anexo { get; set; }
         public List<ProjectSubContractorQuotationFile> QuotationFiles { get; set; } = new();
         public List<ProjectSubContractorComparativeFile> ComparativeFiles { get; set; } = new();
     }

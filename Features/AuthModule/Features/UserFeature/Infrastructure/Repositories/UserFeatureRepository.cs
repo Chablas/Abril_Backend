@@ -18,15 +18,66 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
             _factory = factory;
         }
 
-        public async Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize)
+        public async Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null)
         {
             page = page < 1 ? 1 : page;
             using var ctx = _factory.CreateDbContext();
 
-            var totalRecords = await ctx.User.CountAsync(u => u.State);
+            var hasSearch = !string.IsNullOrWhiteSpace(search);
+            var likePattern = hasSearch ? $"%{search!.Trim().ToLower()}%" : null;
 
-            var baseRows = await ctx.Database
-                .SqlQuery<UserBaseRow>($"""
+            int totalRecords;
+            List<UserBaseRow> baseRows;
+
+            if (hasSearch)
+            {
+                var counts = await ctx.Database
+                    .SqlQuery<int>($"""
+                        SELECT COUNT(DISTINCT u.user_id)::int AS "Value"
+                        FROM app_user u
+                        LEFT JOIN person p ON p.user_id = u.user_id AND p.state = true
+                        WHERE u.state = true
+                          AND (
+                            LOWER(COALESCE(p.full_name, '')) LIKE {likePattern}
+                            OR LOWER(COALESCE(p.document_identity_code, '')) LIKE {likePattern}
+                            OR LOWER(u.email) LIKE {likePattern}
+                          )
+                        """)
+                    .ToListAsync();
+                totalRecords = counts.FirstOrDefault();
+
+                baseRows = await ctx.Database.SqlQuery<UserBaseRow>($"""
+                    SELECT DISTINCT ON (u.user_id)
+                        u.user_id,
+                        u.email,
+                        u.active,
+                        CASE WHEN cu.contractor_user_id IS NOT NULL THEN 'CONTRATISTA'
+                             WHEN p.person_id IS NOT NULL THEN 'PERSONA'
+                             ELSE 'COLABORADOR' END AS user_type,
+                        p.full_name AS display_name,
+                        p.document_identity_code,
+                        p.first_names,
+                        p.first_last_name,
+                        p.second_last_name,
+                        p.phone_number
+                    FROM app_user u
+                    LEFT JOIN person p ON p.user_id = u.user_id AND p.state = true
+                    LEFT JOIN contractor_user cu ON cu.user_id = u.user_id AND cu.state = true
+                    WHERE u.state = true
+                      AND (
+                        LOWER(COALESCE(p.full_name, '')) LIKE {likePattern}
+                        OR LOWER(COALESCE(p.document_identity_code, '')) LIKE {likePattern}
+                        OR LOWER(u.email) LIKE {likePattern}
+                      )
+                    ORDER BY u.user_id DESC
+                    LIMIT {pageSize} OFFSET {(page - 1) * pageSize}
+                    """).ToListAsync();
+            }
+            else
+            {
+                totalRecords = await ctx.User.CountAsync(u => u.State);
+
+                baseRows = await ctx.Database.SqlQuery<UserBaseRow>($"""
                     SELECT DISTINCT ON (u.user_id)
                         u.user_id,
                         u.email,
@@ -46,8 +97,8 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     WHERE u.state = true
                     ORDER BY u.user_id DESC
                     LIMIT {pageSize} OFFSET {(page - 1) * pageSize}
-                    """)
-                .ToListAsync();
+                    """).ToListAsync();
+            }
 
             var userIds = baseRows.Select(r => r.UserId).ToList();
 

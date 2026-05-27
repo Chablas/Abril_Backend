@@ -56,6 +56,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ContractModality> ContractModality { get; set; }
         public DbSet<ContractOrigin> ContractOrigin { get; set; }
         public DbSet<PaymentMethod> PaymentMethod { get; set; }
+        public DbSet<PaymentForm> PaymentForm { get; set; }
         public DbSet<Contributor> Contributor { get; set; }
         public DbSet<Contractor> Contractor { get; set; }
         public DbSet<ContractorEmail> ContractorEmail { get; set; }
@@ -83,6 +84,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorInstructivo> ProjectSubContractorInstructivo { get; set; }
         public DbSet<ProjectSubContractorNonConformingOutput> ProjectSubContractorNonConformingOutput { get; set; }
         public DbSet<ProjectSubContractorToleranceChart> ProjectSubContractorToleranceChart { get; set; }
+        public DbSet<ProjectSubContractorFichaTecnica> ProjectSubContractorFichaTecnica { get; set; }
+        public DbSet<ProjectSubContractorAnexo> ProjectSubContractorAnexo { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
         public DbSet<CostosPresupuestosEmail> CostosPresupuestosEmail { get; set; }
         public DbSet<StaffProjectEmailType> StaffProjectEmailType { get; set; }
@@ -160,6 +163,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsContratistaRol> SsContratistaRoles { get; set; }
         public DbSet<SsContratistaUsuario> SsContratistaUsuarios { get; set; }
         public DbSet<SsContratistaUsuarioProyecto> SsContratistaUsuarioProyectos { get; set; }
+        public DbSet<ProjectActivity> ProjectActivity { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -370,6 +374,18 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(s => s.ProjectSubContractorToleranceChartId)
                 .IsRequired(false);
 
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.FichaTecnica)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorFichaTecnicaId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Anexo)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorAnexoId)
+                .IsRequired(false);
+
             modelBuilder.Entity<ProjectSubContractorNonConformingOutput>()
                 .HasOne(e => e.FileStatus)
                 .WithMany()
@@ -377,6 +393,18 @@ namespace Abril_Backend.Infrastructure.Data
                 .IsRequired(false);
 
             modelBuilder.Entity<ProjectSubContractorToleranceChart>()
+                .HasOne(e => e.FileStatus)
+                .WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractorFichaTecnica>()
+                .HasOne(e => e.FileStatus)
+                .WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractorAnexo>()
                 .HasOne(e => e.FileStatus)
                 .WithMany()
                 .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
@@ -434,6 +462,13 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
             modelBuilder.Entity<SsClinicaAuditoria>().Property(e => e.DetalleAdicional).HasColumnType("jsonb");
+            modelBuilder.Entity<ProjectActivity>(entity =>
+            {
+                entity.ToTable("project_activity");
+                entity.Property(e => e.Order).HasColumnName("project_activity_order");
+                entity.Property(e => e.ActivityDescription).IsRequired().HasMaxLength(500);
+                entity.Property(e => e.ProgressPercentage).HasDefaultValue(0);
+            });
         }
     }
 }

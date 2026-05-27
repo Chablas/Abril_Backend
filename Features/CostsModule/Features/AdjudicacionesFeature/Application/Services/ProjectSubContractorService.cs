@@ -825,6 +825,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.Instructivo        => "Instructivo",
             AdjudicacionDocumentType.NonConformingOutput => "Causales de Conformidad",
             AdjudicacionDocumentType.ToleranceChart     => "Cuadro de Tolerancias",
+            AdjudicacionDocumentType.FichaTecnica       => "Ficha Técnica",
+            AdjudicacionDocumentType.Anexo              => "Anexos",
             _                                           => documentType.ToString(),
         };
 
@@ -836,6 +838,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             if (file is null || file.Length == 0)
                 throw new AbrilException("El archivo no puede estar vacío.");
+
+            // La cotización adjunta debe ser PDF — se inserta dentro del contrato (paso 4)
+            // y para eso se mergea a nivel PDF.
+            if (documentType == AdjudicacionDocumentType.AttachedQuotation)
+            {
+                var ext = Path.GetExtension(file.FileName)?.ToLowerInvariant();
+                if (ext != ".pdf")
+                    throw new AbrilException("La cotización adjunta solo acepta archivos PDF (.pdf).", 400);
+            }
 
             var pathData   = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
             var folderPath = BuildSharePointPath(pathData, documentType);
@@ -887,6 +898,77 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 _ => throw new AbrilException(
                     $"La generación del documento '{documentType}' aún no está implementada.")
             };
+        }
+
+        /// <summary>
+        /// Valida que estén presentes todos los datos que la plantilla del documento necesita.
+        /// Si falta alguno, lanza <see cref="AbrilException"/> con la lista de campos pendientes
+        /// para evitar generar archivos con campos en blanco.
+        /// </summary>
+        private static void ValidateGenerationData(
+            AdjudicacionSummarySheetDataDto data, AdjudicacionDocumentType documentType)
+        {
+            var missing = new List<string>();
+
+            void ReqText(string? value, string label)
+            {
+                if (string.IsNullOrWhiteSpace(value)) missing.Add(label);
+            }
+
+            switch (documentType)
+            {
+                case AdjudicacionDocumentType.Contract:
+                    ReqText(data.ContributorName,                  "Razón social del contratista");
+                    ReqText(data.ContributorRuc,                   "RUC del contratista");
+                    ReqText(data.ContributorAddress,               "Dirección del contratista");
+                    ReqText(data.ContributorDistrict,              "Distrito del contratista");
+                    ReqText(data.ContributorProvince,              "Provincia del contratista");
+                    ReqText(data.ContributorDepartment,            "Departamento del contratista");
+                    ReqText(data.LegalRepresentativeFullName,      "Representante legal del contratista");
+                    ReqText(data.LegalRepresentativeDni,           "DNI del representante legal del contratista");
+                    ReqText(data.LegalEntityRegistryNumber,        "Partida registral del contratista");
+                    ReqText(data.ProjectRazonSocial,               "Razón social del proyecto");
+                    ReqText(data.ProjectContributorRuc,            "RUC del proyecto");
+                    ReqText(data.ProjectDistrict,                  "Distrito del proyecto");
+                    ReqText(data.ProjectLegalEntityRegistryNumber, "Partida registral del proyecto");
+                    if (!data.StartDate.HasValue)      missing.Add("Fecha de inicio del contrato");
+                    if (!data.EndDate.HasValue)        missing.Add("Fecha de fin del contrato");
+                    if (!data.ContractNumber.HasValue) missing.Add("Número de contrato");
+                    break;
+
+                case AdjudicacionDocumentType.PromissoryNote:
+                    ReqText(data.ContributorName,             "Razón social del contratista");
+                    ReqText(data.ContributorRuc,              "RUC del contratista");
+                    ReqText(data.ContributorAddress,          "Dirección del contratista");
+                    ReqText(data.ContributorDistrict,         "Distrito del contratista");
+                    ReqText(data.ContributorProvince,         "Provincia del contratista");
+                    ReqText(data.ContributorDepartment,       "Departamento del contratista");
+                    ReqText(data.LegalRepresentativeFullName, "Representante legal del contratista");
+                    ReqText(data.ProjectRazonSocial,          "Razón social del proyecto");
+                    ReqText(data.ProjectContributorRuc,       "RUC del proyecto");
+                    ReqText(data.ProjectDistrict,             "Distrito del proyecto");
+                    if (!data.EndDate.HasValue)              missing.Add("Fecha de fin del contrato");
+                    if (!data.ContractNumber.HasValue)       missing.Add("Número de contrato");
+                    if (!data.PromissoryNoteNumber.HasValue) missing.Add("Número de pagaré");
+                    if (!data.AdvancePercentage.HasValue && !data.AdvanceAmount.HasValue)
+                        missing.Add("Adelanto");
+                    break;
+
+                case AdjudicacionDocumentType.SummarySheet:
+                    if (!data.ContractNumber.HasValue)          missing.Add("Número de contrato");
+                    if (!data.SigningDate.HasValue)             missing.Add("Fecha de firma");
+                    if (!data.StartDate.HasValue)               missing.Add("Fecha de inicio del contrato");
+                    if (!data.EndDate.HasValue)                 missing.Add("Fecha de fin del contrato");
+                    if (!data.GuaranteeFundPercentage.HasValue) missing.Add("% de fondo de garantía");
+                    if (!data.GuaranteeFundDays.HasValue)       missing.Add("Días de fondo de garantía");
+                    break;
+            }
+
+            if (missing.Count > 0)
+                throw new AbrilException(
+                    "No se puede generar el documento. Complete primero los siguientes datos: " +
+                    $"{string.Join(", ", missing)}.",
+                    400);
         }
 
         private async Task<DocumentUploadResponseDto> GenerateInstructivoAsync(
@@ -961,6 +1043,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             int projectSubContractorId, int userId)
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
+            ValidateGenerationData(data, AdjudicacionDocumentType.SummarySheet);
 
             var abreviaturaProyecto = !string.IsNullOrWhiteSpace(data.Abbreviation)
                 ? data.Abbreviation
@@ -1010,6 +1093,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             int projectSubContractorId, int userId)
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
+            ValidateGenerationData(data, AdjudicacionDocumentType.Contract);
 
             var templateFileName = data.ContractModalityId switch
             {
@@ -1083,11 +1167,66 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var fondoMeses = (int)Math.Round(fondoDias / 30.0);
             var fondoPorcPalabras  = ((long)fondoPorc).ToWords(esCulture);
             var fondoMesesPalabras = ((long)fondoMeses).ToWords(esCulture);
+            // Si el plazo es menor a un año, mostrar el plazo en días en lugar de "0 año".
+            // 1 año → singular; 2 o más → "años".
+            var fondoAniosTexto = fondoAnios >= 1
+                ? $"{fondoAnios} {(fondoAnios >= 2 ? "años" : "año")}"
+                : $"{fondoDias} días";
 
             // Plazo en palabras
             var plazoPalabras = plazo > 0 ? ((long)plazo).ToWords(esCulture) : "";
             if (!string.IsNullOrEmpty(plazoPalabras))
                 plazoPalabras = char.ToUpper(plazoPalabras[0]) + plazoPalabras[1..];
+
+            // Tipo de documento de garantía: con adelanto (PaymentMethodId == 2) incluye el pagaré
+            // con sus placeholders ya resueltos; en cualquier otra forma de pago, solo la letra.
+            var numPagareStr = data.PromissoryNoteNumber.HasValue
+                ? data.PromissoryNoteNumber.Value.ToString("D3")
+                : "";
+            var tipoDocumentoGarantia = data.PaymentMethodId == 2
+                ? $"PAGARÉ N°{numPagareStr}{abreviaturaProyecto}-{DateTime.UtcNow.Year} Y LETRA DE GARANTÍA"
+                : "LETRA DE GARANTÍA";
+
+            // Cláusulas del numeral 5.1.x según la forma de pago (PaymentMethodId).
+            // Los valores se insertan ya resueltos y la negrita inline se marca con **…**.
+            // El párrafo {{CLÁUSULAS_ADELANTO}} se sustituye por estas cláusulas (auto-numeradas por Word).
+            var advancePercentageStr = data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "";
+            var advanceAmountStr     = $"{currencySymbol} {advanceAmount:N2}";
+
+            // Frecuencia de valorización tomada de la "Forma de Pago" (Semanal / Quincenal).
+            // Por defecto "semanales" si no se registró.
+            var frecuenciaValorizacion =
+                (data.PaymentFormDescription ?? "").Trim().Equals("Quincenal", StringComparison.OrdinalIgnoreCase)
+                    ? "quincenales"
+                    : "semanales";
+
+            List<string> clausulasAdelanto;
+            if (data.PaymentMethodId == 2)
+            {
+                // Contrato con adelanto → 5.1.1 (adelanto) y 5.1.2 (saldo)
+                clausulasAdelanto = new List<string>
+                {
+                    $"Un adelanto **equivalente al {advancePercentageStr} del monto contractual**, que se otorgará en el mes de julio, " +
+                    $"es decir la suma de **{advanceAmountStr} ({advanceAmountEnPalabras})** incluido el I.G.V. previa entrega de un pagaré " +
+                    "irrevocable incondicionada por el mismo importe; la misma que deberá encontrarse vigente por todo el plazo de ejecución de la Obra. " +
+                    "**EL CONTRATANTE** entregará a **EL CONTRATISTA** el presente adelanto dentro de los 7 días hábiles de presentada la factura por este concepto, " +
+                    "siempre que la referida factura sea emitida de acuerdo con las normas tributarias.",
+
+                    $"El **saldo** equivalente a la suma de **{diferenciaFormato} ({diferenciaEnPalabras})** será cancelado mediante valorizaciones semanales, " +
+                    "pagaderas a los 7 días hábiles siguientes de recepcionada la factura y/o valorización correspondiente, debidamente emitida, " +
+                    "con la respectiva retención del fondo de garantía. Las valorizaciones se determinan a partir del inicio de los trabajos de obra."
+                };
+            }
+            else
+            {
+                // Sin adelanto (u otra forma de pago) → única cláusula 5.1.1 de pago por valorizaciones
+                clausulasAdelanto = new List<string>
+                {
+                    $"Pago mediante valorizaciones {frecuenciaValorizacion}, pagaderas a los 7 días hábiles siguientes de recepcionada la factura " +
+                    "y/o valorización correspondiente, debidamente emitida, con la respectiva retención del fondo de garantía. " +
+                    "Las valorizaciones se determinan a partir del inicio de los trabajos en obra."
+                };
+            }
 
             var replacements = new Dictionary<string, string>
             {
@@ -1111,6 +1250,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 // Contrato
                 { "{{FORMA_DE_PAGO}}",                 data.PaymentMethodDescription },
                 { "{{MONTO}}",                         $"{currencySymbol} {data.Amount:N2}" },
+                { "{{MONTO_CON_IGV}}",                 $"{currencySymbol} {data.Amount:N2} {(data.HasIgv ? "incluido IGV" : "sin IGV")}" },
                 { "{{MONTO_EN_PALABRAS}}",             montoEnPalabras },
                 { "{{MONEDA}}",                        monedaMayuscula },
                 { "{{FECHA_INICIO}}",                  data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
@@ -1126,18 +1266,20 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{FONDO_GARANTÍA_PORCENTAJE}}",     $"{fondoPorc}%" },
                 { "{{FONDO_GARANTÍA_EN_PALABRAS}}",    $"{fondoPorcPalabras} por ciento" },
                 { "{{FONDO_GARANTÍA_PLAZO_EN_DÍAS}}",  $"{fondoDias} días" },
-                { "{{FONDO_GARANTÍA_PLAZO_EN_AÑOS}}",  $"{fondoAnios} año" },
+                { "{{FONDO_GARANTÍA_PLAZO_EN_AÑOS}}",  fondoAniosTexto },
                 { "{{FONDO_GARANTÍA_PLAZO_NUM_PALABRA}}", $"{fondoMeses} ({fondoMesesPalabras})" },
                 { "{{TIPO_CONTRATO}}",                 data.ContractTypeDescription },
                 { "{{PARTIDA}}",                       data.WorkItemDescription },
                 { "{{AÑO_ACTUAL}}",                    DateTime.UtcNow.Year.ToString() },
                 { "{{NUM_CONTRATO}}",                  data.ContractNumber.HasValue ? data.ContractNumber.Value.ToString("D3") : "" },
                 { "{{NUM_PAGARE}}",                    data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },
+                { "{{TIPO_DOCUMENTO_GARANTÍA}}",       tipoDocumentoGarantia },
             };
 
-            // Las cláusulas se insertan como texto puro: el auto-numerado de Word
-            // (configurado en la plantilla, continuando desde 9.34) genera el número
-            // y el tabulador de posición automáticamente.
+            // Las cláusulas se insertan como texto puro: el auto-numerado de Word genera el número
+            // y el tabulador de posición automáticamente. El nivel/posición depende ÚNICAMENTE del
+            // párrafo {{CLÁUSULAS}} en cada plantilla (p. ej. sección 9 en instalación/contrato,
+            // sección 7 en suministro); el código clona ese formato sin asumir una posición fija.
             var clauseParagraphs = data.SpecialClauses.ToList();
 
             // Links de planos del proyecto (Planos de especialidades = type 1, Planos de detalles = type 2)
@@ -1166,7 +1308,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     replacements,
                     multiParagraphReplacements: new Dictionary<string, List<string>>
                     {
-                        { "{{CLÁUSULAS}}", clauseParagraphs }
+                        { "{{CLÁUSULAS}}", clauseParagraphs },
+                        { "{{CLÁUSULAS_ADELANTO}}", clausulasAdelanto }
                     });
 
             var pathData = new AdjudicacionPathDataDto
@@ -1209,6 +1352,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             int projectSubContractorId, int userId)
         {
             var data = await _projectSubContractorRepository.GetSummarySheetDataAsync(projectSubContractorId);
+            ValidateGenerationData(data, AdjudicacionDocumentType.PromissoryNote);
 
             var templatePath = Path.Combine(
                 AppContext.BaseDirectory,
@@ -1346,35 +1490,49 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
                 throw new AbrilException("El pagaré debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
 
-            // Orden: 1-Resumen, 2-Contrato, 3-Salidas no conforme, 4-Cuadro de tolerancias, 5-Instructivo, 6-Pagaré
-            // Los documentos sin archivo (No aplica) simplemente no se incluyen.
+            // Orden: 1-Resumen, 2-Contrato (con cotización embutida), 3-Salidas no conforme,
+            // 4-Cuadro de tolerancias, 5-Instructivo, 6-Pagaré. Los docs sin archivo (No aplica) se omiten.
+            //
+            // Todas las descargas se hacen en UNA sola llamada a Graph mediante $batch, en lugar
+            // de N requests secuenciales. AlreadyPdf=true se usa para la cotización (PDF nativo);
+            // los demás (xlsx/docx) van con ?format=pdf para que Graph haga la conversión.
+            var downloads = new List<(string ItemId, bool AlreadyPdf)>();
+            if (!string.IsNullOrEmpty(docs.SummarySheetItemId))         downloads.Add((docs.SummarySheetItemId,         AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.ContractItemId))             downloads.Add((docs.ContractItemId,             AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.AttachedQuotationItemId))    downloads.Add((docs.AttachedQuotationItemId,    AlreadyPdf: true));
+            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))  downloads.Add((docs.NonConformingOutputItemId,  AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))       downloads.Add((docs.ToleranceChartItemId,       AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.InstructivoItemId))          downloads.Add((docs.InstructivoItemId,          AlreadyPdf: false));
+            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))       downloads.Add((docs.PromissoryNoteItemId,       AlreadyPdf: false));
+
+            if (downloads.Count == 0)
+                throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
+
+            var downloaded = await _sharePointService.DownloadMultipleAsPdfFromSharePointAsync(_site, "Adjudicaciones", downloads);
+
             var pdfBytesList = new List<byte[]>();
 
             if (!string.IsNullOrEmpty(docs.SummarySheetItemId))
-            {
-                var summarySheetPdf = await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.SummarySheetItemId);
-                pdfBytesList.Add(RotatePdfPages(summarySheetPdf));
-            }
+                pdfBytesList.Add(RotatePdfPages(downloaded[docs.SummarySheetItemId]));
 
             if (!string.IsNullOrEmpty(docs.ContractItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.ContractItemId));
+            {
+                var contractPdf = downloaded[docs.ContractItemId];
 
-            if (pdfBytesList.Count == 0 && string.IsNullOrEmpty(docs.NonConformingOutputItemId)
-                && string.IsNullOrEmpty(docs.ToleranceChartItemId) && string.IsNullOrEmpty(docs.InstructivoItemId)
-                && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
-                throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
+                // Cotización adjunta → se incrusta dentro del contrato (después de <<INSERTAR_COTIZACION_AQUI>>)
+                if (!string.IsNullOrEmpty(docs.AttachedQuotationItemId))
+                {
+                    var quotationPdf = downloaded[docs.AttachedQuotationItemId];
+                    contractPdf = InsertPdfAfterMarker(contractPdf, quotationPdf, ContractQuotationMarker);
+                }
 
-            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.NonConformingOutputItemId));
+                pdfBytesList.Add(contractPdf);
+            }
 
-            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.ToleranceChartItemId));
-
-            if (!string.IsNullOrEmpty(docs.InstructivoItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.InstructivoItemId));
-
-            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))
-                pdfBytesList.Add(await _sharePointService.DownloadAsPdfFromSharePointAsync(_site, "Adjudicaciones", docs.PromissoryNoteItemId));
+            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId)) pdfBytesList.Add(downloaded[docs.NonConformingOutputItemId]);
+            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))      pdfBytesList.Add(downloaded[docs.ToleranceChartItemId]);
+            if (!string.IsNullOrEmpty(docs.InstructivoItemId))         pdfBytesList.Add(downloaded[docs.InstructivoItemId]);
+            if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))      pdfBytesList.Add(downloaded[docs.PromissoryNoteItemId]);
 
             var mergedBytes = MergePdfs(pdfBytesList);
 
@@ -1433,6 +1591,75 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 foreach (var page in inputDoc.Pages)
                     outputDoc.AddPage(page);
             }
+            using var resultStream = new MemoryStream();
+            outputDoc.Save(resultStream, false);
+            return resultStream.ToArray();
+        }
+
+        /// <summary>
+        /// Texto marcador que debe estar presente en la plantilla del contrato (.docx) — en color
+        /// blanco o tamaño 1pt para que no se vea — justo después del título "ANEXO 1".
+        /// El paquete final inserta la cotización adjunta inmediatamente después de la página
+        /// que contenga este texto.
+        /// </summary>
+        private const string ContractQuotationMarker = "<<INSERTAR_COTIZACION_AQUI>>";
+
+        /// <summary>
+        /// Construye un PDF nuevo que es <paramref name="basePdf"/> con <paramref name="insertPdf"/>
+        /// embutido justo después de la primera página de <paramref name="basePdf"/> que contenga
+        /// <paramref name="markerText"/>. La página del marcador se conserva (sigue conteniendo
+        /// el título del ANEXO 1). Si el marcador no aparece, se hace fallback concatenando
+        /// <paramref name="insertPdf"/> al final.
+        /// </summary>
+        private static byte[] InsertPdfAfterMarker(byte[] basePdf, byte[] insertPdf, string markerText)
+        {
+            int? markerPageIndex = null;
+
+            // PdfPig sirve solo para leer texto; no toca la estructura del PDF.
+            using (var pigDoc = UglyToad.PdfPig.PdfDocument.Open(basePdf))
+            {
+                int idx = 0;
+                foreach (var page in pigDoc.GetPages())
+                {
+                    if (page.Text.Contains(markerText, StringComparison.OrdinalIgnoreCase))
+                    {
+                        markerPageIndex = idx;
+                        break;
+                    }
+                    idx++;
+                }
+            }
+
+            var outputDoc = new PdfDocument();
+
+            using var baseStream   = new MemoryStream(basePdf);
+            using var insertStream = new MemoryStream(insertPdf);
+            var baseDoc   = PdfReader.Open(baseStream,   PdfDocumentOpenMode.Import);
+            var insertDoc = PdfReader.Open(insertStream, PdfDocumentOpenMode.Import);
+
+            if (markerPageIndex.HasValue)
+            {
+                // 1) Páginas del contrato hasta la del marcador (incluida)
+                for (int i = 0; i <= markerPageIndex.Value && i < baseDoc.PageCount; i++)
+                    outputDoc.AddPage(baseDoc.Pages[i]);
+
+                // 2) Páginas de la cotización
+                foreach (var page in insertDoc.Pages)
+                    outputDoc.AddPage(page);
+
+                // 3) Páginas restantes del contrato
+                for (int i = markerPageIndex.Value + 1; i < baseDoc.PageCount; i++)
+                    outputDoc.AddPage(baseDoc.Pages[i]);
+            }
+            else
+            {
+                // Fallback: marcador ausente → contrato + cotización al final
+                foreach (var page in baseDoc.Pages)
+                    outputDoc.AddPage(page);
+                foreach (var page in insertDoc.Pages)
+                    outputDoc.AddPage(page);
+            }
+
             using var resultStream = new MemoryStream();
             outputDoc.Save(resultStream, false);
             return resultStream.ToArray();
@@ -1679,15 +1906,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("M15").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // ── Rows 17–18: Pie de garantías ──────────────────────────────────
+            // Valores registrados en el paso 2 (con fallback a los anteriores por defecto)
+            var fondoPorc = data.GuaranteeFundPercentage ?? 5;
+            var fondoDias = data.GuaranteeFundDays ?? 360;
+
             ws.Cell("B17").Value = "% DE RETENCIÓN FONDO DE GARANTIA:";
             ws.Cell("B17").Style.Font.Bold = true;
-            ws.Cell("D17").Value = "5%";
+            ws.Cell("D17").Value = $"{fondoPorc}%";
 
             ws.Cell("B18").Value = "DEVOLUCIÓN DE FONDO DE GARANTÍA";
             ws.Cell("B18").Style.Font.Bold = true;
             ws.Range("D18:M18").Merge();
             ws.Cell("D18").Value =
-                "360 días después de entregada la obra con acta Recepción Definitiva suscrita por el contratante y el cliente";
+                $"{fondoDias} días después de entregada la obra con acta Recepción Definitiva suscrita por el contratante y el cliente";
             ws.Range("D18:M18").Style.Alignment.WrapText = true;
 
             // ── Borde exterior general ─────────────────────────────────────────
@@ -1732,6 +1963,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.Instructivo           => "Instructivos",
             AdjudicacionDocumentType.NonConformingOutput   => "Salidas No Conforme",
             AdjudicacionDocumentType.ToleranceChart        => "Cuadro de Tolerancias",
+            AdjudicacionDocumentType.FichaTecnica          => "Ficha Tecnica",
+            AdjudicacionDocumentType.Anexo                 => "Anexos",
             _ => throw new ArgumentOutOfRangeException(nameof(documentType))
         };
 

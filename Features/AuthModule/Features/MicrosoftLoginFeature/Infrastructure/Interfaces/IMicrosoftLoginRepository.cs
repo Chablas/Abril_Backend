@@ -11,5 +11,6 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Interf
         Task<UserDTO> CreateUserAndLinkPersonAsync(MicrosoftProfileDto profile, int personId);
         Task<PersonDTO> CreatePersonForUserAsync(int userId, MicrosoftProfileDto profile);
         Task<PersonDTO> LinkPersonToUserAsync(int userId, int personId, string email);
+        Task<RoleSimpleDTO?> AssignRoleAsync(int userId, int roleId);
     }
 }

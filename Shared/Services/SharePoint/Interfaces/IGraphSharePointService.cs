@@ -54,6 +54,17 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         Task<byte[]> DownloadAsPdfFromSharePointAsync(SharePointSiteRef site, string libraryName, string itemId);
 
         /// <summary>
+        /// Descarga varios archivos en paralelo usando el endpoint /$batch de Microsoft Graph.
+        /// Cada entrada indica si el archivo ya es PDF (se descarga tal cual) o si debe convertirse (?format=pdf).
+        /// Devuelve un diccionario itemId → bytes del PDF.
+        /// Si un sub-request falla, se lanza InvalidOperationException con el detalle del error.
+        /// </summary>
+        Task<Dictionary<string, byte[]>> DownloadMultipleAsPdfFromSharePointAsync(
+            SharePointSiteRef site,
+            string libraryName,
+            IReadOnlyList<(string ItemId, bool AlreadyPdf)> items);
+
+        /// <summary>
         /// Busca en la raíz de la biblioteca del sitio indicado la primera carpeta cuyo nombre
         /// comience con <paramref name="ruc"/> seguido de " - ".
         /// </summary>

@@ -7,7 +7,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
     public interface ISolicitudSalidaRepository
     {
         Task<SolicitudSalidaFormDataDto> GetFormData();
-        Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId);
+        Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
+        Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId);
 
         /// <summary>Crea la solicitud + sus trayectos en una transacción. Devuelve la solicitud (con trayectos) y el worker solicitante.</summary>
         Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId);

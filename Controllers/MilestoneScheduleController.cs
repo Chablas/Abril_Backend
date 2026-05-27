@@ -97,6 +97,34 @@ namespace Abril_Backend.Controllers
 
             return Ok(result);
         }
+        [Authorize]
+        [HttpPatch("{milestoneScheduleId:int}/culminar")]
+        public async Task<IActionResult> Culminar(int milestoneScheduleId, [FromBody] MilestoneScheduleCulminarRequest request)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _repository.CulminarAsync(milestoneScheduleId, request.FechaRealFin, userId);
+
+                var message = request.FechaRealFin.HasValue
+                    ? "Hito marcado como culminado."
+                    : "Hito desmarcado como culminado.";
+                return Ok(new { message });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /*
         [Authorize]
         [HttpPost]

@@ -150,6 +150,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     p.ProjectId,
                     p.ProjectDescription,
                     p.LevelDescription,
+                    p.FotoUrl,
                     p.CreatedDateTime,
                     p.CreatedUserId,
                     p.UpdatedDateTime,
@@ -177,6 +178,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 ProjectId          = p.ProjectId,
                 ProjectDescription = p.ProjectDescription,
                 LevelDescription   = p.LevelDescription,
+                FotoUrl            = p.FotoUrl,
                 ResidentFullNames  = residentsByProject.GetValueOrDefault(p.ProjectId, new()),
                 CreatedDateTime    = p.CreatedDateTime,
                 CreatedUserId      = p.CreatedUserId,
@@ -193,6 +195,17 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 TotalPages   = (int)Math.Ceiling(totalRecords / (double)pageSize),
                 Data         = data
             };
+        }
+
+        public async Task UpdateFotoUrlAsync(int projectId, string? fotoUrl)
+        {
+            var project = await _context.Project
+                .FirstOrDefaultAsync(p => p.ProjectId == projectId && p.State);
+            if (project == null)
+                throw new AbrilException("Proyecto no encontrado.", 404);
+            project.FotoUrl = fotoUrl;
+            project.UpdatedDateTime = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
         }
 
         public async Task<string> GetProjectNameByProjectId(int projectId)

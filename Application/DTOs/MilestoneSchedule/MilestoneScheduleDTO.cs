@@ -7,6 +7,7 @@ namespace Abril_Backend.Application.DTOs {
         public int Order {get;set;}
         public DateOnly? PlannedStartDate {get; set;}
         public DateOnly? PlannedEndDate {get; set;}
+        public DateOnly? FechaRealFin {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

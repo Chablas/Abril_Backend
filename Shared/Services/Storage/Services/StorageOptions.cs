@@ -15,6 +15,7 @@ namespace Abril_Backend.Infrastructure.Services
         public string ConstructionSiteLogbookContainer { get; set; }
         public string ResidentReportIncidence { get; set; }
         public string ProjectSubContractor { get; set; }
+        public string ProjectFotosContainer { get; set; } = "project-fotos";
     }
 
     public class LocalStorageOptions
@@ -24,5 +25,6 @@ namespace Abril_Backend.Infrastructure.Services
         public string ConstructionSiteLogbookContainer { get; set; }
         public string ResidentReportIncidence { get; set; }
         public string ProjectSubContractor { get; set; }
+        public string ProjectFotosContainer { get; set; } = "project-fotos";
     }
 }

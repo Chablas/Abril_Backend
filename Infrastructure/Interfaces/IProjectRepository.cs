@@ -10,5 +10,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<PagedResult<ProjectDTO>> GetPaged(int page, bool? activo = null);
         Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page);
         Task<string> GetProjectNameByProjectId(int projectId);
+        Task UpdateFotoUrlAsync(int projectId, string? fotoUrl);
     }
 }

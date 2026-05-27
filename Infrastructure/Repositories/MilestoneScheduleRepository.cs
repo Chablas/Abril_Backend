@@ -77,6 +77,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                                 Order = ms.Order,
                                 PlannedStartDate = ms.PlannedStartDate,
                                 PlannedEndDate = ms.PlannedEndDate,
+                                FechaRealFin = ms.FechaRealFin,
                                 CreatedDateTime = ms.CreatedDateTime,
                                 CreatedUserId = ms.CreatedUserId,
                                 UpdatedDateTime = ms.UpdatedDateTime,
@@ -86,6 +87,22 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             return await registros.ToListAsync();
         }
+        public async Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ms = await ctx.MilestoneSchedule
+                .FirstOrDefaultAsync(x => x.MilestoneScheduleId == milestoneScheduleId && x.State);
+            if (ms == null)
+                throw new AbrilException("Hito no encontrado.", 404);
+
+            ms.FechaRealFin = fechaRealFin;
+            ms.UpdatedDateTime = DateTime.UtcNow;
+            ms.UpdatedUserId = userId;
+
+            await ctx.SaveChangesAsync();
+        }
+
         /*
         public async Task<MilestoneSchedule> Create(MilestoneScheduleCreateDTO dto, int userId)
         {

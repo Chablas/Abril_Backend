@@ -61,6 +61,9 @@ namespace Abril_Backend.Shared.Models {
         public bool TieneArquitecturaComercial {get; set;}
         public bool TieneUnidadDeProyectos {get; set;}
 
+        // Foto
+        public string? FotoUrl {get; set;}
+
         // Auditoría
         public DateTime CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}

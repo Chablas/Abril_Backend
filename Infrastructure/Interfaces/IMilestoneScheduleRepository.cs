@@ -7,5 +7,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
     {
         Task<List<MilestoneScheduleDTO>> GetAllByMilestoneScheduleHistoryIdFactory(int milestoneScheduleHistoryId);
         Task<List<ScheduleChangeInfoDTO>> GetSchedulesWithChangesThisMonthAsync();
+        Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId);
     }
 }

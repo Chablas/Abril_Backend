@@ -18,7 +18,7 @@ namespace Abril_Backend.Infrastructure.Services
         {
             var container = _serviceClient.GetBlobContainerClient(containerName);
 
-            await container.CreateIfNotExistsAsync();
+            await container.CreateIfNotExistsAsync(PublicAccessType.Blob);
 
             var tasks = files.Select(file =>
             {

@@ -820,6 +820,31 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Formatea el periodo de validez de garantía (en días) a texto legible:
+        ///  · 0 o null            → "0 días"
+        ///  · ≤ 364               → "{n} días" (ej. 364 → "364 días")
+        ///  · múltiplo de 365     → "1 año" / "2 años" …
+        ///  · resto               → "1 año 5 días" (años + días restantes)
+        /// Maneja singular/plural ("1 día" / "1 año").
+        /// </summary>
+        private static string FormatGuaranteeValidity(int? days)
+        {
+            var d = days ?? 0;
+            if (d <= 0) return "0 días";
+
+            int years   = d / 365;
+            int remDays = d % 365;
+
+            if (years == 0)
+                return $"{remDays} {(remDays == 1 ? "día" : "días")}";
+
+            var yearPart = $"{years} {(years == 1 ? "año" : "años")}";
+            if (remDays == 0) return yearPart;
+
+            return $"{yearPart} {remDays} {(remDays == 1 ? "día" : "días")}";
+        }
+
         private static string GetDocumentLabel(AdjudicacionDocumentType documentType) => documentType switch
         {
             AdjudicacionDocumentType.Contract           => "Contrato",
@@ -1250,9 +1275,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 // Proyecto
                 { "{{PROYECTO_NOMBRE}}",               data.ProjectDescription },
                 { "{{PROYECTO_ABREVIATURA}}",          abreviaturaProyecto },
-                { "{{PROYECTO_RAZON_SOCIAL}}",         data.ProjectRazonSocial ?? "" },
+                { "{{PROYECTO_RAZON_SOCIAL}}",         (data.ProjectRazonSocial ?? "").ToUpper() },
                 { "{{PROYECTO_RUC}}",                  data.ProjectContributorRuc ?? "" },
                 { "{{PROYECTO_DISTRITO}}",             data.ProjectDistrict ?? "" },
+                { "{{PROYECTO_UBICACION_OBRA}}",       data.ProjectLocation ?? "" },
                 { "{{PROYECTO_PARTIDA_REGISTRAL}}",    data.ProjectLegalEntityRegistryNumber ?? "" },
                 // Contrato
                 { "{{FORMA_DE_PAGO}}",                 data.PaymentMethodDescription },
@@ -1263,6 +1289,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{MONEDA}}",                        monedaMayuscula },
                 { "{{FECHA_INICIO}}",                  data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
                 { "{{FECHA_FIN}}",                     data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
+                // Fecha de firma del contrato formateada como "10 de julio del 2025" (es-PE; "del" en lugar de "de").
+                { "{{FECHA_FIRMA_DEL_CONTRATO}}",
+                    data.SigningDate.HasValue
+                        ? data.SigningDate.Value
+                              .ToDateTime(TimeOnly.MinValue)
+                              .ToString("d 'de' MMMM 'del' yyyy", esCulture)
+                        : "" },
                 { "{{PLAZO_NUM}}",                     plazo.ToString() },
                 { "{{PLAZO_EN_PALABRAS}}",             plazoPalabras },
                 { "{{ADVANCE_PERCENTAGE}}",            data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
@@ -1271,6 +1304,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{ADVANCE_AMOUNT_EN_PALABRAS}}",    advanceAmountEnPalabras },
                 { "{{DIFERENCIA_MONTO}}",              diferenciaFormato },
                 { "{{DIFERENCIA_MONTO_EN_PALABRAS}}", diferenciaEnPalabras },
+                { "{{PERIODO_VALIDEZ_GARANTIA}}",      FormatGuaranteeValidity(data.GuaranteeValidityDays) },
                 { "{{FONDO_GARANTÍA_PORCENTAJE}}",     $"{fondoPorc}%" },
                 { "{{FONDO_GARANTÍA_EN_PALABRAS}}",    $"{fondoPorcPalabras} por ciento" },
                 { "{{FONDO_GARANTÍA_PLAZO_EN_DÍAS}}",  $"{fondoDias} días" },
@@ -1309,6 +1343,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             replacements["{{LINK1}}"] = linkEspecialidades!.LinkUrl;
             replacements["{{LINK2}}"] = linkDetalles!.LinkUrl;
 
+            // Cláusula del Anexo 3 (Pagaré) — solo aplica cuando hay adelanto (PaymentMethodId == 2).
+            // Se pasa como multi-párrafo: si la lista está vacía, el helper elimina el párrafo entero
+            // (incluido el bullet "•") para que no quede una viñeta huérfana en el documento.
+            var clausulaAnexo3Pagare = data.PaymentMethodId == 2
+                ? new List<string> { $"• {advancePercentageStr} de adelanto del monto total con la firma de este contra letra de garantía y pagaré." }
+                : new List<string>();
+
             byte[] docBytes;
             using (var templateStream = File.OpenRead(templatePath))
                 docBytes = WordTemplateHelper.FillTemplate(
@@ -1317,7 +1358,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     multiParagraphReplacements: new Dictionary<string, List<string>>
                     {
                         { "{{CLÁUSULAS}}", clauseParagraphs },
-                        { "{{CLÁUSULAS_ADELANTO}}", clausulasAdelanto }
+                        { "{{CLÁUSULAS_ADELANTO}}", clausulasAdelanto },
+                        { "{{CLÁUSULA_ANEXO_3_PAGARÉ}}", clausulaAnexo3Pagare }
                     });
 
             var pathData = new AdjudicacionPathDataDto
@@ -1417,7 +1459,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var replacements = new Dictionary<string, string>
             {
                 { "{{PROYECTO_ABREVIATURA}}",             abreviaturaProyecto },
-                { "{{PROYECTO_RAZON_SOCIAL}}",            data.ProjectRazonSocial ?? "" },
+                { "{{PROYECTO_RAZON_SOCIAL}}",            (data.ProjectRazonSocial ?? "").ToUpper() },
                 { "{{PROYECTO_RUC}}",                     data.ProjectContributorRuc ?? "" },
                 { "{{PROYECTO_NOMBRE}}",                  data.ProjectDescription },
                 { "{{PROYECTO_DISTRITO}}",                data.ProjectDistrict ?? "" },

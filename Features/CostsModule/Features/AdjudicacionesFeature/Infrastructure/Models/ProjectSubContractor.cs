@@ -33,6 +33,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         // Fondo de garantía (paso 2)
         public int? GuaranteeFundPercentage { get; set; }
         public int? GuaranteeFundDays { get; set; }
+        // Periodo de validez de garantía en días (paso 2)
+        public int? GuaranteeValidityDays { get; set; }
 
         // Llegada a Of. Central (paso 5)
         public bool? ArrivedWithObservations { get; set; }

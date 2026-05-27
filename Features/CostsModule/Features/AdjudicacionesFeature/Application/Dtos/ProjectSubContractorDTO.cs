@@ -45,6 +45,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int?   PromissoryNoteNumber      { get; set; }
         public int?   GuaranteeFundPercentage   { get; set; }
         public int?   GuaranteeFundDays         { get; set; }
+        public int?   GuaranteeValidityDays     { get; set; }
         public bool?  ArrivedWithObservations   { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public string? CreatedUserFullName { get; set; }

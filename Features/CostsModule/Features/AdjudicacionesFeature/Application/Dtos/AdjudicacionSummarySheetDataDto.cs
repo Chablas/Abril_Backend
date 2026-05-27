@@ -18,6 +18,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? ProjectRazonSocial { get; set; }
         public string? ProjectContributorRuc { get; set; }
         public string? ProjectDistrict { get; set; }
+        public string? ProjectLocation { get; set; }
         public string? ProjectLegalEntityRegistryNumber { get; set; }
         public string WorkItemDescription { get; set; } = null!;
         public string ContractTypeDescription { get; set; } = null!;
@@ -38,6 +39,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public int? PromissoryNoteNumber { get; set; }
         public int? GuaranteeFundPercentage { get; set; }
         public int? GuaranteeFundDays { get; set; }
+        public int? GuaranteeValidityDays { get; set; }
 
         /// <summary>Cláusulas especiales de la partida de control, ordenadas por SortOrder.</summary>
         public List<string> SpecialClauses { get; set; } = [];

@@ -2812,6 +2812,14 @@ Casa: `EstadoCalc = "No Autorizado"` si no hay `WorkerEmo` con `Activo && (Estad
 
 (gitignored — no commitear)
 
+### WorkerSearchRepository — campos de Person en Create y Update
+
+**Create** (línea ~114): solo asigna `FullName = dto.ApellidoNombre`. `FirstNames` y `FirstLastName` quedan `null` en BD.
+
+**Update** (línea ~180): igual — solo actualiza `person.FullName = dto.ApellidoNombre`. `FirstNames` y `FirstLastName` nunca se tocan.
+
+`full_name` se asigna directo desde `dto.ApellidoNombre` sin concatenar `first_names + first_last_name`.
+
 ---
 
 ## Sesión 2026-05-26 — ProjectsDashboard: migración BD, feature en BD, renombrado ArqCom
@@ -2948,6 +2956,7 @@ Feature key en BD: `projects.projects-dashboard` (feature_id=93). Asignada a rol
 ---
 
 ## Sesión 2026-05-26 (parte 2)
+
 
 ### 1. Modelo ProjectActivity (nueva tabla)
 

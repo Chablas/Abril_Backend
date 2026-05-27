@@ -224,18 +224,21 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, statusId, userId);
         }
 
-        public async Task AdvanceToStep4Async(int projectSubContractorId, int userId)
+        public async Task AdvanceToStep4Async(int projectSubContractorId, string graphAccessToken, int userId)
         {
             var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
 
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 4, userId);
 
-            if (data.OfTecnicaEmails.Count > 0)
+            if (data.StaffObraEmails.Count > 0)
             {
                 var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
+                var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
+                var signature      = BuildEmailSignature(senderProfile);
 
                 var body = new StringBuilder();
-                body.AppendLine("<p>Estimado equipo de Oficina Técnica,</p>");
+                body.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+                body.AppendLine("<p>Estimado equipo de Staff de Obra,</p>");
                 body.AppendLine("<p>Se le informa que los documentos han sido revisados, aprobados y la adjudicación avanza a la siguiente etapa. A continuación se detallan los datos:</p>");
                 body.AppendLine("<ul>");
                 body.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
@@ -243,13 +246,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 body.AppendLine($"  <li><strong>Partida:</strong> {data.WorkItemDescription}</li>");
                 body.AppendLine("</ul>");
                 body.AppendLine("<p>Por favor, acceda al sistema para revisar el detalle de la adjudicación.</p>");
+                body.AppendLine("</div>");
 
-                await _emailService.SendAsync(
-                    to:      data.OfTecnicaEmails,
-                    subject: $"Adjudicación aprobada - {data.ProjectDescription} / {data.ContributorName}",
-                    body:    body.ToString(),
-                    isHtml:  true,
-                    cc:      costosEmailsCc);
+                // Se envía vía Graph como el usuario autenticado (emisor = usuario actual),
+                // no a través de un proveedor externo.
+                await _delegatedMailService.SendAsync(
+                    graphAccessToken: graphAccessToken,
+                    to:               data.StaffObraEmails,
+                    subject:          $"Adjudicación aprobada - {data.ProjectDescription} / {data.ContributorName}",
+                    body:             body.ToString() + signature,
+                    isHtml:           true,
+                    cc:               costosEmailsCc,
+                    attachments:      WithSignatureAttachment());
             }
         }
 
@@ -386,14 +394,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (data.ScannedDocs.Count == 0)
                 throw new AbrilException("No hay documentos escaneados adjuntos para enviar.");
 
-            var toEmails = data.OfTecnicaEmails
-                .Concat(data.StaffObraEmails)
+            var toEmails = data.StaffObraEmails
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .ToList();
 
             if (toEmails.Count == 0)
-                throw new AbrilException("No hay correos de Oficina Técnica ni de Staff de Obra configurados para este proyecto.");
+                throw new AbrilException("No hay correos de Staff de Obra configurados para este proyecto.");
 
             var attachments    = await DownloadAttachmentsAsync(data.ScannedDocs);
             var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
@@ -428,7 +435,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         }
 
         // ─────────────────────────────────────────────────────────────────────────
-        // Paso 3 — Correo de observaciones a Costos y Oficina Técnica
+        // Paso 3 — Correo de observaciones a Costos y Staff de Obra
         // ─────────────────────────────────────────────────────────────────────────
 
         public async Task SendObservationEmailAsync(
@@ -439,10 +446,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
 
-            // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
+            // Destinatarios: Costos y Presupuestos + Staff de Obra del proyecto
             var costosEmailsObs = await _costosPresupuestosEmailService.GetActiveEmails();
             var toEmails = costosEmailsObs
-                .Concat(data.OfTecnicaEmails)
+                .Concat(data.StaffObraEmails)
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .ToList();
@@ -450,7 +457,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (toEmails.Count == 0)
                 throw new AbrilException(
                     "No hay destinatarios configurados para enviar el correo. " +
-                    "Verifique que existan correos de Oficina Técnica registrados para este proyecto.", 400);
+                    "Verifique que existan correos de Staff de Obra registrados para este proyecto.", 400);
 
             var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
             var signature     = BuildEmailSignature(senderProfile);
@@ -481,10 +488,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     "No hay documentos con observaciones registradas en este momento. " +
                     "Marque al menos un documento como 'Con observaciones' antes de enviar el correo.", 400);
 
-            // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
+            // Destinatarios: Costos y Presupuestos + Staff de Obra del proyecto
             var costosEmailsObs = await _costosPresupuestosEmailService.GetActiveEmails();
             var toEmails = costosEmailsObs
-                .Concat(data.OfTecnicaEmails)
+                .Concat(data.StaffObraEmails)
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .ToList();
@@ -492,7 +499,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (toEmails.Count == 0)
                 throw new AbrilException(
                     "No hay destinatarios configurados para enviar el correo. " +
-                    "Verifique que existan correos de Oficina Técnica registrados para este proyecto.", 400);
+                    "Verifique que existan correos de Staff de Obra registrados para este proyecto.", 400);
 
             var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
             var signature     = BuildEmailSignature(senderProfile);
@@ -770,7 +777,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             sb.AppendLine("<p>Estimados,</p>");
             sb.AppendLine(
                 $"<p>Se comunica que el documento <strong>{documentLabel}</strong> de la siguiente " +
-                "adjudicación ha sido subsanado por Oficina Técnica:</p>");
+                "adjudicación ha sido subsanado por Staff de Obra:</p>");
             sb.AppendLine("<table style=\"border-collapse:collapse; font-size:13px; margin-bottom:16px;\">");
             sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Proyecto</td>"
                         + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
@@ -794,7 +801,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
             sb.AppendLine("<p>Estimados,</p>");
             sb.AppendLine(
-                "<p>Se comunica que Oficina Técnica ha levantado la observación de los siguientes documentos:</p>");
+                "<p>Se comunica que Staff de Obra ha levantado la observación de los siguientes documentos:</p>");
             sb.AppendLine("<table style=\"border-collapse:collapse; font-size:13px; margin-bottom:16px;\">");
             sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Proyecto</td>"
                         + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
@@ -1249,6 +1256,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PROYECTO_PARTIDA_REGISTRAL}}",    data.ProjectLegalEntityRegistryNumber ?? "" },
                 // Contrato
                 { "{{FORMA_DE_PAGO}}",                 data.PaymentMethodDescription },
+                { "{{FORMA_DE_VALORIZACIÓN}}",         data.PaymentFormDescription ?? "" },
                 { "{{MONTO}}",                         $"{currencySymbol} {data.Amount:N2}" },
                 { "{{MONTO_CON_IGV}}",                 $"{currencySymbol} {data.Amount:N2} {(data.HasIgv ? "incluido IGV" : "sin IGV")}" },
                 { "{{MONTO_EN_PALABRAS}}",             montoEnPalabras },
@@ -1490,16 +1498,23 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
                 throw new AbrilException("El pagaré debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
 
-            // Orden: 1-Resumen, 2-Contrato (con cotización embutida), 3-Salidas no conforme,
-            // 4-Cuadro de tolerancias, 5-Instructivo, 6-Pagaré. Los docs sin archivo (No aplica) se omiten.
+            // Orden: 1-Resumen, 2-Contrato (con cotización/ficha técnica/orden de servicio/cronograma
+            // embebidos en sus respectivos marcadores), 3-Salidas no conforme, 4-Cuadro de tolerancias,
+            // 5-Instructivo, 6-Pagaré. Los docs sin archivo (No aplica) se omiten.
             //
-            // Todas las descargas se hacen en UNA sola llamada a Graph mediante $batch, en lugar
-            // de N requests secuenciales. AlreadyPdf=true se usa para la cotización (PDF nativo);
-            // los demás (xlsx/docx) van con ?format=pdf para que Graph haga la conversión.
+            // Todas las descargas se hacen en UNA sola llamada a Graph mediante $batch, en lugar de
+            // N requests secuenciales. Para cada archivo se decide si ya es PDF (descarga directa)
+            // o necesita conversión (?format=pdf) según la extensión de su OriginalFileName.
+            static bool IsPdf(string? fileName) =>
+                (fileName ?? "").EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+
             var downloads = new List<(string ItemId, bool AlreadyPdf)>();
             if (!string.IsNullOrEmpty(docs.SummarySheetItemId))         downloads.Add((docs.SummarySheetItemId,         AlreadyPdf: false));
             if (!string.IsNullOrEmpty(docs.ContractItemId))             downloads.Add((docs.ContractItemId,             AlreadyPdf: false));
-            if (!string.IsNullOrEmpty(docs.AttachedQuotationItemId))    downloads.Add((docs.AttachedQuotationItemId,    AlreadyPdf: true));
+            if (!string.IsNullOrEmpty(docs.AttachedQuotationItemId))    downloads.Add((docs.AttachedQuotationItemId,    AlreadyPdf: IsPdf(docs.AttachedQuotationFileName)));
+            if (!string.IsNullOrEmpty(docs.FichaTecnicaItemId))         downloads.Add((docs.FichaTecnicaItemId,         AlreadyPdf: IsPdf(docs.FichaTecnicaFileName)));
+            if (!string.IsNullOrEmpty(docs.ServiceOrderItemId))         downloads.Add((docs.ServiceOrderItemId,         AlreadyPdf: IsPdf(docs.ServiceOrderFileName)));
+            if (!string.IsNullOrEmpty(docs.ScheduleItemId))             downloads.Add((docs.ScheduleItemId,             AlreadyPdf: IsPdf(docs.ScheduleFileName)));
             if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))  downloads.Add((docs.NonConformingOutputItemId,  AlreadyPdf: false));
             if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))       downloads.Add((docs.ToleranceChartItemId,       AlreadyPdf: false));
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))          downloads.Add((docs.InstructivoItemId,          AlreadyPdf: false));
@@ -1519,11 +1534,20 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             {
                 var contractPdf = downloaded[docs.ContractItemId];
 
-                // Cotización adjunta → se incrusta dentro del contrato (después de <<INSERTAR_COTIZACION_AQUI>>)
-                if (!string.IsNullOrEmpty(docs.AttachedQuotationItemId))
+                // Inserciones DENTRO del contrato — cada una se aplica si el archivo correspondiente existe.
+                // Si el marcador no aparece en el contrato, InsertPdfAfterMarker hace fallback al final.
+                var inserts = new (string ItemId, string Marker)[]
                 {
-                    var quotationPdf = downloaded[docs.AttachedQuotationItemId];
-                    contractPdf = InsertPdfAfterMarker(contractPdf, quotationPdf, ContractQuotationMarker);
+                    (docs.AttachedQuotationItemId ?? "", ContractQuotationMarker),
+                    (docs.FichaTecnicaItemId      ?? "", ContractFichaTecnicaMarker),
+                    (docs.ServiceOrderItemId      ?? "", ContractServiceOrderMarker),
+                    (docs.ScheduleItemId          ?? "", ContractScheduleMarker),
+                };
+
+                foreach (var (itemId, marker) in inserts)
+                {
+                    if (string.IsNullOrEmpty(itemId)) continue;
+                    contractPdf = InsertPdfAfterMarker(contractPdf, downloaded[itemId], marker);
                 }
 
                 pdfBytesList.Add(contractPdf);
@@ -1597,12 +1621,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         }
 
         /// <summary>
-        /// Texto marcador que debe estar presente en la plantilla del contrato (.docx) — en color
-        /// blanco o tamaño 1pt para que no se vea — justo después del título "ANEXO 1".
-        /// El paquete final inserta la cotización adjunta inmediatamente después de la página
-        /// que contenga este texto.
+        /// Marcadores que deben estar presentes en la plantilla del contrato (.docx) — en color
+        /// blanco o tamaño 1pt para que no se vean — para indicar el punto de inserción de cada
+        /// documento adjunto del paso 3 dentro del PDF final del contrato.
         /// </summary>
-        private const string ContractQuotationMarker = "<<INSERTAR_COTIZACION_AQUI>>";
+        private const string ContractQuotationMarker    = "<<INSERTAR_COTIZACION_AQUI>>";
+        private const string ContractFichaTecnicaMarker = "<<INSERTAR_FICHA_TÉCNICA_AQUI>>";
+        private const string ContractServiceOrderMarker = "<<INSERTAR_ORDEN_DE_SERVICIO_AQUI>>";
+        private const string ContractScheduleMarker     = "<<INSERTAR_CRONOGRAMA_AQUI>>";
 
         /// <summary>
         /// Construye un PDF nuevo que es <paramref name="basePdf"/> con <paramref name="insertPdf"/>

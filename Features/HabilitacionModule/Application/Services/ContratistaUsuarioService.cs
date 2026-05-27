@@ -33,8 +33,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         public async Task InvitarUsuarioAsync(int contractorId, ContratistaUsuarioCreateDto dto, int creadoPor)
         {
-            if (dto.SystemRoleId != 11 && dto.SystemRoleId != 49)
-                throw new AbrilException("SystemRoleId inválido. Los valores aceptados son 11 (CONTRATISTA) o 49 (SERVICIO DE VIGILANCIA).", 400);
+            if (dto.SystemRoleId != 11 && dto.SystemRoleId != 49 && dto.SystemRoleId != 14)
+                throw new AbrilException("SystemRoleId inválido. Los valores aceptados son 11 (CONTRATISTA), 14 o 49 (SERVICIO DE VIGILANCIA).", 400);
 
             var rolNombre = dto.RolNombre.Trim().ToUpper();
             if (rolNombre != "ADMIN" && rolNombre != "GESTOR")

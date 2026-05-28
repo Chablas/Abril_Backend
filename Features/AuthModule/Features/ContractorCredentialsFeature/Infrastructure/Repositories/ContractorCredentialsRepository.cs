@@ -4,7 +4,6 @@ using Abril_Backend.Features.AuthModule.ContractorCredentials.Application.Dtos;
 using Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure.Repositories
@@ -55,8 +54,7 @@ namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure
             if (existingUser != null)
             {
                 user = existingUser;
-                var hasher = new PasswordHasher<User>();
-                user.Password = hasher.HashPassword(user, password);
+                user.Password = BCrypt.Net.BCrypt.HashPassword(password);
                 user.UpdatedDateTime = DateTime.UtcNow;
             }
             else
@@ -69,8 +67,7 @@ namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure
                     State = true,
                     CreatedDateTime = DateTime.UtcNow
                 };
-                var hasher = new PasswordHasher<User>();
-                user.Password = hasher.HashPassword(user, password);
+                user.Password = BCrypt.Net.BCrypt.HashPassword(password);
                 ctx.User.Add(user);
             }
 
@@ -87,6 +84,35 @@ namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure
                     Active = true,
                     State = true
                 });
+
+            // Vincular el user_id al contractor_email. El correo de login (user.Email)
+            // puede coincidir con un contractor_email ya registrado o ser uno nuevo:
+            //  - Si coincide  -> se asigna el user_id a esa fila existente.
+            //  - Si es nuevo  -> se crea una fila nueva en contractor_email para ese contratista.
+            var emailNormalizado = email.Trim().ToLower();
+            var contractorEmail = await ctx.ContractorEmail
+                .FirstOrDefaultAsync(ce => ce.ContractorId == contractorId
+                                        && ce.Email.ToLower() == emailNormalizado
+                                        && ce.Active);
+            if (contractorEmail != null)
+            {
+                contractorEmail.UserId = user.UserId;
+                contractorEmail.UpdatedDateTime = DateTimeOffset.UtcNow;
+                contractorEmail.UpdatedUserId = user.UserId;
+            }
+            else
+            {
+                ctx.ContractorEmail.Add(new ContractorEmail
+                {
+                    ContractorId = contractorId,
+                    Email = email.Trim(),
+                    UserId = user.UserId,
+                    CreatedDateTime = DateTimeOffset.UtcNow,
+                    CreatedUserId = user.UserId,
+                    Active = true,
+                    State = true
+                });
+            }
 
             var roleExists = await ctx.UserRole
                 .AnyAsync(ur => ur.UserId == user.UserId && ur.RoleId == 11 && ur.Active);

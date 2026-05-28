@@ -1,5 +1,6 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
@@ -15,10 +16,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
     {
         private const int PageSize = 10;
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ISharePointHabService _sharePoint;
+        private readonly ILogger<EmoRepository> _logger;
 
-        public EmoRepository(IDbContextFactory<AppDbContext> factory)
+        public EmoRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ISharePointHabService sharePoint,
+            ILogger<EmoRepository> logger)
         {
             _factory = factory;
+            _sharePoint = sharePoint;
+            _logger = logger;
         }
 
         public async Task<PagedResult<EmoListItemDto>> ListPaged(EmoFilterDto filter)
@@ -369,7 +377,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
         }
 
-        public async Task<int> Create(EmoCreateDto dto, int? userId)
+        public async Task<EmoCreateResultDto> Create(EmoCreateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -405,7 +413,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             ctx.WorkerEmo.Add(emo);
-            await ctx.SaveChangesAsync();
+            await ctx.SaveChangesAsync();  // necesario para generar emo.Id antes de usarlo
+
+            // Vincular interconsulta pendiente (sin EmoId) al nuevo EMO
+            var interconsultaPendiente = await ctx.SsInterconsulta
+                .Where(i => i.WorkerId == dto.WorkerId
+                         && i.EmoId == null
+                         && i.Estado == "Pendiente")
+                .OrderByDescending(i => i.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (interconsultaPendiente != null)
+            {
+                interconsultaPendiente.EmoId = emo.Id;
+                interconsultaPendiente.UpdatedAt = DateTimeOffset.UtcNow;
+
+                if (dto.DocumentoInterconsulta != null && dto.DocumentoInterconsulta.Length > 0)
+                {
+                    try
+                    {
+                        using var stream = dto.DocumentoInterconsulta.OpenReadStream();
+                        interconsultaPendiente.UrlInforme = await _sharePoint.SubirArchivoAsync(
+                            stream, dto.DocumentoInterconsulta.FileName, "interconsulta");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Error subiendo documento de interconsulta para worker {WorkerId}", dto.WorkerId);
+                    }
+                }
+            }
 
             foreach (var ex in dto.Examenes)
             {
@@ -479,7 +516,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             await SincronizarEntregableEmoAsync(ctx, emo, worker);
 
             await ctx.SaveChangesAsync();
-            return emo.Id;
+            return new EmoCreateResultDto
+            {
+                EmoId = emo.Id,
+                InterconsultaId = interconsultaPendiente?.Id
+            };
         }
 
         public async Task Update(int id, EmoUpdateDto dto, int? userId)

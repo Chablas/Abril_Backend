@@ -17,19 +17,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     {
         private readonly IInterconsultaService _service;
         private readonly ILogger<InterconsultaController> _logger;
-        private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly ISharePointHabService _sharePoint;
+        private readonly IDbContextFactory<AppDbContext> _factory;
 
         public InterconsultaController(
             IInterconsultaService service,
             ILogger<InterconsultaController> logger,
-            IDbContextFactory<AppDbContext> factory,
-            ISharePointHabService sharePoint)
+            ISharePointHabService sharePoint,
+            IDbContextFactory<AppDbContext> factory)
         {
             _service = service;
             _logger = logger;
-            _factory = factory;
             _sharePoint = sharePoint;
+            _factory = factory;
         }
 
         private int? CurrentUserId()
@@ -47,15 +47,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] InterconsultaCreateDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> Create(
+            [FromForm] InterconsultaCreateDto dto,
+            [FromForm] IFormFile? documento)
         {
             try
             {
+                if (documento != null && documento.Length > 0)
+                {
+                    using var stream = documento.OpenReadStream();
+                    dto.UrlInforme = await _sharePoint.SubirArchivoAsync(
+                        stream, documento.FileName, "interconsulta");
+                }
                 var id = await _service.Create(dto, CurrentUserId());
                 return Ok(new { id, message = "Interconsulta registrada exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception ex) { _logger.LogError(ex, "Error en InterconsultaController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error al crear interconsulta"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpPut("{id:int}")]
@@ -70,31 +79,30 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en InterconsultaController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        [HttpPost("{id:int}/documentos")]
+        [HttpPost("{id}/documentos")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> SubirDocumento(int id, [FromForm] IFormFile file)
         {
             try
             {
                 if (file == null || file.Length == 0)
-                    throw new AbrilException("El archivo es obligatorio.", 400);
+                    return BadRequest(new { message = "Archivo requerido." });
 
                 using var ctx = _factory.CreateDbContext();
-                var interconsulta = await ctx.SsInterconsulta.FirstOrDefaultAsync(i => i.Id == id)
-                    ?? throw new AbrilException("Interconsulta no encontrada.", 404);
+                var interconsulta = await ctx.SsInterconsulta.FindAsync(id);
+                if (interconsulta == null)
+                    return NotFound(new { message = "Interconsulta no encontrada." });
 
-                string url;
-                using (var stream = file.OpenReadStream())
-                    url = await _sharePoint.SubirArchivoAsync(stream, file.FileName, "interconsulta");
-
-                interconsulta.UrlInforme = url;
+                using var stream = file.OpenReadStream();
+                var path = await _sharePoint.SubirArchivoAsync(stream, file.FileName, "interconsulta");
+                interconsulta.UrlInforme = path;
                 interconsulta.UpdatedAt = DateTimeOffset.UtcNow;
                 await ctx.SaveChangesAsync();
 
-                return Ok(new { url });
+                return Ok(new { url = path });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception ex) { _logger.LogError(ex, "Error en InterconsultaController.SubirDocumento"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error subiendo documento interconsulta {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpPatch("{id:int}/resultado")]

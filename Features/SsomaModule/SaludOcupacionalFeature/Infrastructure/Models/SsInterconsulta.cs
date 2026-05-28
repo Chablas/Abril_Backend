@@ -10,7 +10,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         public int Id { get; set; }
 
         [Column("emo_id")]
-        public int EmoId { get; set; }
+        public int? EmoId { get; set; }
 
         [Column("worker_id")]
         public int WorkerId { get; set; }

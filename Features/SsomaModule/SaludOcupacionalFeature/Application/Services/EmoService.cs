@@ -33,7 +33,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<WorkerEmoHistorialDto> GetHistorialByWorker(int workerId) => _repo.GetHistorialByWorker(workerId);
 
-        public Task<int> Create(EmoCreateDto dto, int? userId)
+        public Task<EmoCreateResultDto> Create(EmoCreateDto dto, int? userId)
         {
             ValidarComun(dto.WorkerId, dto.TipoEmoId, dto.Aptitud, dto.RequiereInterconsulta);
             return _repo.Create(dto, userId);

@@ -71,12 +71,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPost("emos")]
-        public async Task<IActionResult> Create([FromBody] EmoCreateDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> Create(
+            [FromForm] EmoCreateDto dto,
+            [FromForm] IFormFile? documentoInterconsulta)
         {
             try
             {
-                var id = await _service.Create(dto, CurrentUserId());
-                return Ok(new { id, message = "EMO registrado exitosamente." });
+                dto.DocumentoInterconsulta = documentoInterconsulta;
+                var result = await _service.Create(dto, CurrentUserId());
+                return Ok(new { id = result.EmoId, interconsultaId = result.InterconsultaId, message = "EMO registrado exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

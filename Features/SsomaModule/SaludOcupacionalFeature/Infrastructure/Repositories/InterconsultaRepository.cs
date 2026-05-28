@@ -59,8 +59,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task<int> Create(InterconsultaCreateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var emo = await ctx.WorkerEmo.FirstOrDefaultAsync(e => e.Id == dto.EmoId)
-                ?? throw new AbrilException("EMO no encontrado.", 404);
+            if (dto.EmoId.HasValue)
+                _ = await ctx.WorkerEmo.FirstOrDefaultAsync(e => e.Id == dto.EmoId.Value)
+                    ?? throw new AbrilException("EMO no encontrado.", 404);
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == dto.WorkerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
@@ -73,6 +74,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 FechaDerivacion = dto.FechaDerivacion,
                 CentroAtencion = dto.CentroAtencion,
                 RequiereSeguimiento = dto.RequiereSeguimiento,
+                UrlInforme = dto.UrlInforme,
                 Estado = "Pendiente",
                 RegistradoPorId = userId,
                 CreatedAt = DateTimeOffset.UtcNow,

@@ -3,7 +3,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interco
     public class InterconsultaListDto
     {
         public int Id { get; set; }
-        public int EmoId { get; set; }
+        public int? EmoId { get; set; }
         public int WorkerId { get; set; }
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }

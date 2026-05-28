@@ -86,7 +86,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
                         ? "No Autorizado"
-                        : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id && h.Estado == "En Plazo" &&
+                        : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id && h.Estado == "En plazo" &&
                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
                         ? "Autorizado Temporalmente"
                         : "Habilitado"

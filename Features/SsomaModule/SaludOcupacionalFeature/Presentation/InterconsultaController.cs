@@ -47,19 +47,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPost]
-        [Consumes("multipart/form-data")]
-        public async Task<IActionResult> Create(
-            [FromForm] InterconsultaCreateDto dto,
-            [FromForm] IFormFile? documento)
+        public async Task<IActionResult> Create([FromBody] InterconsultaCreateDto dto)
         {
             try
             {
-                if (documento != null && documento.Length > 0)
-                {
-                    using var stream = documento.OpenReadStream();
-                    dto.UrlInforme = await _sharePoint.SubirArchivoAsync(
-                        stream, documento.FileName, "interconsulta");
-                }
                 var id = await _service.Create(dto, CurrentUserId());
                 return Ok(new { id, message = "Interconsulta registrada exitosamente." });
             }

@@ -184,7 +184,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         {
             var c = (contexto ?? string.Empty).ToLowerInvariant();
             if (c.Contains("interconsulta") || c.Contains("lectura-emo"))
-                return _configuration["SharePoint:Sites:SSOMAOcupacional:SiteId"]!;
+                return _configuration["SharePoint:Sites:SSOMAApps:SiteId"]!;
             return _configuration["SharePoint:Sites:SSOMAApps:SiteId"]!;
         }
 
@@ -197,8 +197,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("sctr"))          return _configuration["SharePoint:Sites:SSOMAApps:SctrLibraryId"];
             if (c.Contains("emo-aptitud"))   return _configuration["SharePoint:Sites:SSOMAApps:AptitudesLibraryId"];
             if (c.Contains("emo-completo"))  return _configuration["SharePoint:Sites:SSOMAApps:EMOSLibraryId"];
-            if (c.Contains("interconsulta")) return _configuration["SharePoint:Sites:SSOMAOcupacional:EmoInterconsultasLibraryId"];
-            if (c.Contains("lectura-emo"))   return _configuration["SharePoint:Sites:SSOMAOcupacional:LecturaEmosLibraryId"];
+            if (c.Contains("interconsulta")) return _configuration["SharePoint:Sites:SSOMAApps:EmoInterconsultasLibraryId"];
+            if (c.Contains("lectura-emo"))   return _configuration["SharePoint:Sites:SSOMAApps:LecturaEmosLibraryId"];
             return null;
         }
 

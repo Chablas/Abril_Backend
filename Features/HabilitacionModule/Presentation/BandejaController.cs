@@ -30,12 +30,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] int? proyectoId,
             [FromQuery] int? empresaId,
             [FromQuery] string? responsable,
+            [FromQuery] string? search,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
             try
             {
-                var (items, total) = await _repo.GetPendientesAsync(tipo, proyectoId, empresaId, responsable, page, pageSize);
+                var (items, total) = await _repo.GetPendientesAsync(tipo, proyectoId, empresaId, responsable, search, page, pageSize);
 
                 var result = new PagedResult<BandejaItemDto>
                 {
@@ -52,18 +53,27 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetPendientes"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("empresas")]
+        public async Task<IActionResult> GetEmpresasUnicas()
+        {
+            try { return Ok(await _repo.GetEmpresasUnicasAsync()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetEmpresasUnicas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("cursor")]
         public async Task<IActionResult> GetPendientesCursor(
             [FromQuery] string? tipo,
             [FromQuery] int? proyectoId,
             [FromQuery] int? empresaId,
             [FromQuery] string? responsable,
+            [FromQuery] string? search,
             [FromQuery] string? cursor,
             [FromQuery] int pageSize = 20)
         {
             try
             {
-                var result = await _repo.GetPendientesCursorAsync(tipo, proyectoId, empresaId, responsable, cursor, pageSize);
+                var result = await _repo.GetPendientesCursorAsync(tipo, proyectoId, empresaId, responsable, search, cursor, pageSize);
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

@@ -22,5 +22,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
 
         [System.Text.Json.Serialization.JsonIgnore]
         public IFormFile? DocumentoInterconsulta { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public IFormFile? ArchivoLectura { get; set; }
     }
 }

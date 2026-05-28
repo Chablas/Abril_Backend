@@ -20,7 +20,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         {
             using var ctx = _factory.CreateDbContext();
             return await ctx.Project
-                .Where(p => p.State && p.TieneUnidadDeProyectos)
+                .Where(p => p.State && p.TieneUnidadDeProyectos &&
+                            ctx.ProjectActivity.Any(a => a.ProjectId == p.ProjectId && a.State && a.Active))
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProyectoSimpleCronogramaDto
                 {
@@ -131,9 +132,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             if (activity == null)
                 throw new AbrilException("Actividad no encontrada.", 404);
 
-            activity.ActualEndDate = activity.ActualEndDate.HasValue
-                ? null
-                : DateOnly.FromDateTime(DateTime.UtcNow);
+            if (activity.ActualEndDate.HasValue)
+            {
+                activity.ActualEndDate = null;
+                activity.ProgressPercentage = 0;
+            }
+            else
+            {
+                activity.ActualEndDate = DateOnly.FromDateTime(DateTime.UtcNow);
+                activity.ProgressPercentage = 100;
+            }
             activity.UpdatedDateTime = DateTime.UtcNow;
             activity.UpdatedUserId = userId;
 
@@ -142,7 +150,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             return new CulminarActividadDto
             {
                 ProjectActivityId = activity.ProjectActivityId,
-                ActualEndDate = activity.ActualEndDate
+                ActualEndDate = activity.ActualEndDate,
+                ProgressPercentage = activity.ProgressPercentage
             };
         }
 

@@ -5868,9 +5868,9 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("active");
 
-                    b.Property<int>("AreaSubareaId")
+                    b.Property<int>("LessonAreaId")
                         .HasColumnType("integer")
-                        .HasColumnName("area_subarea_id");
+                        .HasColumnName("lesson_area_id");
 
                     b.Property<int>("CatalogItemId")
                         .HasColumnType("integer")
@@ -5887,8 +5887,8 @@ namespace Abril_Backend.Migrations
                     b.HasKey("ScopeItemId")
                         .HasName("pk_scope_item");
 
-                    b.HasIndex("AreaSubareaId")
-                        .HasDatabaseName("ix_scope_item_area_subarea_id");
+                    b.HasIndex("LessonAreaId")
+                        .HasDatabaseName("ix_scope_item_lesson_area_id");
 
                     b.HasIndex("CatalogItemId")
                         .HasDatabaseName("ix_scope_item_catalog_item_id");
@@ -8082,12 +8082,12 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeItem", b =>
                 {
-                    b.HasOne("Abril_Backend.Infrastructure.Models.AreaSubarea", "AreaSubarea")
+                    b.HasOne("Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea", "LessonArea")
                         .WithMany()
-                        .HasForeignKey("AreaSubareaId")
+                        .HasForeignKey("LessonAreaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_scope_item_area_subarea_area_subarea_id");
+                        .HasConstraintName("fk_scope_item_lesson_area_lesson_area_id");
 
                     b.HasOne("Abril_Backend.Infrastructure.Models.CatalogItem", "CatalogItem")
                         .WithMany()
@@ -8102,7 +8102,7 @@ namespace Abril_Backend.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_scope_item_scope_item_scope_item_parent_id");
 
-                    b.Navigation("AreaSubarea");
+                    b.Navigation("LessonArea");
 
                     b.Navigation("CatalogItem");
 

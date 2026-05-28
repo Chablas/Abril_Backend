@@ -73,26 +73,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
 
         public async Task<bool> AreaHasScopeAsync(int areaId)
         {
-            using var ctx = _factory.CreateDbContext();
-            var areaSubarea = await ctx.AreaSubarea
-                .FirstOrDefaultAsync(a => a.AreaId == areaId && a.SubAreaId == null);
-            if (areaSubarea == null) return false;
-            return await ctx.ScopeItem
-                .AnyAsync(s => s.AreaSubareaId == areaSubarea.AreaSubareaId && s.Active);
+            // Modelo legacy: el scope ahora vive en scope_item.area_item_id (apunta a area_item),
+            // y este Area legacy ya no se mapea directo. Devolvemos false para no bloquear deletes.
+            await Task.CompletedTask;
+            return false;
         }
 
         private async Task DeleteAreaScopeAsync(int areaId, AppDbContext ctx)
         {
-            var areaSubarea = await ctx.AreaSubarea
-                .FirstOrDefaultAsync(a => a.AreaId == areaId && a.SubAreaId == null);
-            if (areaSubarea == null) return;
-
-            var scopeItems = await ctx.ScopeItem
-                .Where(s => s.AreaSubareaId == areaSubarea.AreaSubareaId)
-                .ToListAsync();
-            ctx.ScopeItem.RemoveRange(scopeItems);
-
-            // Templates are now global (no area link); nothing to delete here
+            // Modelo legacy: el scope ya no se asocia a las tablas Area/SubArea/AreaSubarea.
+            // Nada que borrar aquí.
+            await Task.CompletedTask;
         }
 
         public async Task CreateAsync(SubAreaCreateDTO dto, int userId)

@@ -153,6 +153,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ScopeTemplateItem> ScopeTemplateItem => Set<ScopeTemplateItem>();
         public DbSet<AreaType> AreaType => Set<AreaType>();
         public DbSet<AreaItem> AreaItem => Set<AreaItem>();
+        public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea> LessonArea => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -393,6 +394,13 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(s => s.ScopeItemParentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // ScopeTemplateItem: self-referential parent/children
+            modelBuilder.Entity<ScopeTemplateItem>()
+                .HasOne(s => s.Parent)
+                .WithMany(s => s.Children)
+                .HasForeignKey(s => s.ScopeTemplateItemParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // AreaItem: self-referential parent + FK a AreaType
             modelBuilder.Entity<AreaItem>()
                 .HasOne(a => a.Parent)
@@ -447,6 +455,11 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<ScopeItem>()
                 .Property(s => s.ScopeItemParentId)
                 .HasColumnName("scope_item_parent_id");
+
+            // ScopeTemplateItem: evitar ambigüedad en FK self-referential con snake_case
+            modelBuilder.Entity<ScopeTemplateItem>()
+                .Property(s => s.ScopeTemplateItemParentId)
+                .HasColumnName("scope_template_item_parent_id");
         }
     }
 }

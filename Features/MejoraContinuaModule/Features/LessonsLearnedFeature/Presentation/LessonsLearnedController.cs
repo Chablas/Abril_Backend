@@ -131,7 +131,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
         [Authorize]
         [HttpGet("filters/create")]
-        public async Task<IActionResult> GetFiltersCreate([FromQuery] int areaId, [FromQuery] int? subAreaId)
+        public async Task<IActionResult> GetFiltersCreate([FromQuery] int lessonAreaId)
         {
             try
             {
@@ -139,10 +139,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                if (areaId <= 0)
+                if (lessonAreaId <= 0)
                     return BadRequest(new { message = "Debe seleccionar un área" });
 
-                var tree = await _scopeService.GetScopeForLessonAsync(areaId, subAreaId);
+                var tree = await _scopeService.GetScopeForLessonAsync(lessonAreaId);
 
                 if (tree == null || !tree.Any())
                     return NoContent();

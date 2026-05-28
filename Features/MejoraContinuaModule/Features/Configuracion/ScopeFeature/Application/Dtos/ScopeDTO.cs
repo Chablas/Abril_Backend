@@ -1,18 +1,10 @@
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Application.Dtos
 {
-    // ── AreaSubarea ─────────────────────────────────────────────
-    public class AreaSubareaDTO
-    {
-        public int AreaSubareaId { get; set; }
-        public int AreaId { get; set; }
-        public int? SubAreaId { get; set; }
-    }
-
     // ── ScopeItem ────────────────────────────────────────────────
     public class ScopeItemDTO
     {
         public int ScopeItemId { get; set; }
-        public int AreaSubareaId { get; set; }
+        public int LessonAreaId { get; set; }
         public int CatalogItemId { get; set; }
         public string CatalogItemDescription { get; set; } = string.Empty;
         public string CatalogTypeName { get; set; } = string.Empty;
@@ -24,7 +16,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
     public class ScopeItemUpsertDTO
     {
-        public int AreaSubareaId { get; set; }
+        public int LessonAreaId { get; set; }
         public List<ScopeItemNodeDTO> Items { get; set; } = new();
     }
 
@@ -40,7 +32,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
     {
         public int CatalogItemId { get; set; }
         public string CatalogItemDescription { get; set; } = string.Empty;
-        public int? ScopeTemplateItemParentId { get; set; }
+        public int? ParentCatalogItemId { get; set; }
         public int DisplayOrder { get; set; }
     }
 

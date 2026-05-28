@@ -16,58 +16,32 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
             _factory = factory;
         }
 
-        // ── AreaSubarea ──────────────────────────────────────────────────────────
-
-        public async Task<AreaSubareaDTO> GetOrCreateAreaSubareaAsync(int areaId, int? subAreaId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var existing = await ctx.AreaSubarea
-                .FirstOrDefaultAsync(a => a.AreaId == areaId && a.SubAreaId == subAreaId);
-
-            if (existing != null)
-                return new AreaSubareaDTO { AreaSubareaId = existing.AreaSubareaId, AreaId = existing.AreaId, SubAreaId = existing.SubAreaId };
-
-            var entry = new AreaSubarea { AreaId = areaId, SubAreaId = subAreaId };
-            ctx.AreaSubarea.Add(entry);
-            await ctx.SaveChangesAsync();
-
-            return new AreaSubareaDTO { AreaSubareaId = entry.AreaSubareaId, AreaId = entry.AreaId, SubAreaId = entry.SubAreaId };
-        }
-
         // ── ScopeItem ────────────────────────────────────────────────────────────
 
-        public async Task<List<ScopeItemDTO>> GetScopeTreeAsync(int areaSubareaId)
+        public async Task<List<ScopeItemDTO>> GetScopeTreeAsync(int lessonAreaId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await BuildScopeTreeAsync(ctx, areaSubareaId);
+            return await BuildScopeTreeAsync(ctx, lessonAreaId);
         }
 
-        public async Task<List<ScopeItemDTO>> GetScopeForLessonAsync(int areaId, int? subAreaId)
+        public async Task<List<ScopeItemDTO>> GetScopeForLessonAsync(int lessonAreaId)
         {
             using var ctx = _factory.CreateDbContext();
-
-            var areaSubarea = await ctx.AreaSubarea
-                .FirstOrDefaultAsync(a => a.AreaId == areaId && a.SubAreaId == subAreaId);
-
-            if (areaSubarea == null)
-                return new List<ScopeItemDTO>();
-
-            return await BuildScopeTreeAsync(ctx, areaSubarea.AreaSubareaId);
+            return await BuildScopeTreeAsync(ctx, lessonAreaId);
         }
 
-        private static async Task<List<ScopeItemDTO>> BuildScopeTreeAsync(AppDbContext ctx, int areaSubareaId)
+        private static async Task<List<ScopeItemDTO>> BuildScopeTreeAsync(AppDbContext ctx, int lessonAreaId)
         {
             var flatItems = await (
                 from si in ctx.ScopeItem
                 join ci in ctx.CatalogItem on si.CatalogItemId equals ci.CatalogItemId
                 join ct in ctx.CatalogType on ci.CatalogTypeId equals ct.CatalogTypeId
-                where si.AreaSubareaId == areaSubareaId && si.Active
+                where si.LessonAreaId == lessonAreaId && si.Active
                 orderby si.DisplayOrder
                 select new ScopeItemDTO
                 {
                     ScopeItemId = si.ScopeItemId,
-                    AreaSubareaId = si.AreaSubareaId,
+                    LessonAreaId = si.LessonAreaId,
                     CatalogItemId = si.CatalogItemId,
                     CatalogItemDescription = ci.CatalogItemDescription,
                     CatalogTypeName = ct.CatalogTypeName,
@@ -97,40 +71,56 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
         {
             using var ctx = _factory.CreateDbContext();
 
-            var areaSubareaExists = await ctx.AreaSubarea.AnyAsync(a => a.AreaSubareaId == dto.AreaSubareaId);
-            if (!areaSubareaExists)
-                throw new AbrilException("El contexto área/subárea no existe.", 400);
+            var lessonAreaExists = await ctx.LessonArea.AnyAsync(la => la.LessonAreaId == dto.LessonAreaId);
+            if (!lessonAreaExists)
+                throw new AbrilException("El área no está habilitada para Lecciones Aprendidas.", 400);
 
-            var existing = await ctx.ScopeItem
-                .Where(s => s.AreaSubareaId == dto.AreaSubareaId)
-                .ToListAsync();
-            ctx.ScopeItem.RemoveRange(existing);
+            // Romper FK self-referential antes de borrar, luego eliminar todo
+            await ctx.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE scope_item SET scope_item_parent_id = NULL WHERE lesson_area_id = {dto.LessonAreaId}"
+            );
+            await ctx.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM scope_item WHERE lesson_area_id = {dto.LessonAreaId}"
+            );
 
-            var idMap = new Dictionary<int, int>(); // catalogItemId → scopeItemId recién creado
+            if (dto.Items.Count == 0) return;
 
-            var ordered = dto.Items
-                .OrderBy(n => n.ParentCatalogItemId.HasValue ? 1 : 0)
-                .ToList();
+            // catalog_item_id → scope_item_id recién creado
+            var inserted = new Dictionary<int, int>();
+            var pending = dto.Items.ToList();
+            int safety = pending.Count + 5;
 
-            foreach (var node in ordered)
+            while (pending.Count > 0 && safety-- > 0)
             {
-                int? parentScopeItemId = null;
-                if (node.ParentCatalogItemId.HasValue && idMap.TryGetValue(node.ParentCatalogItemId.Value, out var parentId))
-                    parentScopeItemId = parentId;
+                var ready = pending
+                    .Where(n => !n.ParentCatalogItemId.HasValue
+                                || inserted.ContainsKey(n.ParentCatalogItemId.Value))
+                    .OrderBy(n => n.DisplayOrder)
+                    .ToList();
 
-                var scopeItem = new ScopeItem
+                if (ready.Count == 0) break; // huérfanos o ciclo
+
+                foreach (var node in ready)
                 {
-                    AreaSubareaId = dto.AreaSubareaId,
-                    CatalogItemId = node.CatalogItemId,
-                    ScopeItemParentId = parentScopeItemId,
-                    DisplayOrder = node.DisplayOrder,
-                    Active = true
-                };
+                    int? parentScopeItemId = node.ParentCatalogItemId.HasValue
+                        ? inserted[node.ParentCatalogItemId.Value]
+                        : (int?)null;
 
-                ctx.ScopeItem.Add(scopeItem);
-                await ctx.SaveChangesAsync();
+                    var scopeItem = new ScopeItem
+                    {
+                        LessonAreaId = dto.LessonAreaId,
+                        CatalogItemId = node.CatalogItemId,
+                        ScopeItemParentId = parentScopeItemId,
+                        DisplayOrder = node.DisplayOrder,
+                        Active = true
+                    };
 
-                idMap[node.CatalogItemId] = scopeItem.ScopeItemId;
+                    ctx.ScopeItem.Add(scopeItem);
+                    await ctx.SaveChangesAsync();
+                    inserted[node.CatalogItemId] = scopeItem.ScopeItemId;
+                }
+
+                pending = pending.Except(ready).ToList();
             }
         }
 
@@ -150,12 +140,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
             var rawItems = await (
                 from sti in ctx.ScopeTemplateItem
                 join ci in ctx.CatalogItem on sti.CatalogItemId equals ci.CatalogItemId
+                join pStiJ in ctx.ScopeTemplateItem on sti.ScopeTemplateItemParentId equals pStiJ.ScopeTemplateItemId into pGrp
+                from pSti in pGrp.DefaultIfEmpty()
                 where templateIds.Contains(sti.ScopeTemplateId) && sti.Active
                 orderby sti.ScopeTemplateId, sti.DisplayOrder
                 select new
                 {
                     sti.ScopeTemplateId,
-                    sti.ScopeTemplateItemParentId,
+                    ParentCatalogItemId = (int?)(pSti != null ? (int?)pSti.CatalogItemId : null),
                     sti.DisplayOrder,
                     sti.CatalogItemId,
                     ci.CatalogItemDescription
@@ -173,7 +165,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
                     {
                         CatalogItemId = i.CatalogItemId,
                         CatalogItemDescription = i.CatalogItemDescription,
-                        ScopeTemplateItemParentId = i.ScopeTemplateItemParentId,
+                        ParentCatalogItemId = i.ParentCatalogItemId,
                         DisplayOrder = i.DisplayOrder
                     })
                     .ToList()
@@ -195,19 +187,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
             await ctx.SaveChangesAsync();
 
             if (dto.Items.Count > 0)
-            {
-                var items = dto.Items.Select((node, idx) => new ScopeTemplateItem
-                {
-                    ScopeTemplateId = template.ScopeTemplateId,
-                    CatalogItemId = node.CatalogItemId,
-                    ScopeTemplateItemParentId = node.ScopeTemplateItemParentId,
-                    DisplayOrder = node.DisplayOrder > 0 ? node.DisplayOrder : idx + 1,
-                    Active = true
-                }).ToList();
-
-                ctx.ScopeTemplateItem.AddRange(items);
-                await ctx.SaveChangesAsync();
-            }
+                await InsertTemplateItemsAsync(ctx, template.ScopeTemplateId, dto.Items);
         }
 
         public async Task UpdateTemplateAsync(ScopeTemplateUpdateDTO dto)
@@ -220,27 +200,60 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
             template.TemplateName = dto.TemplateName.Trim();
             template.UpdatedDateTime = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
 
-            var existingItems = await ctx.ScopeTemplateItem
-                .Where(i => i.ScopeTemplateId == dto.ScopeTemplateId)
-                .ToListAsync();
-            ctx.ScopeTemplateItem.RemoveRange(existingItems);
+            await ctx.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE scope_template_item SET scope_template_item_parent_id = NULL WHERE scope_template_id = {dto.ScopeTemplateId}"
+            );
+            await ctx.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM scope_template_item WHERE scope_template_id = {dto.ScopeTemplateId}"
+            );
 
             if (dto.Items.Count > 0)
+                await InsertTemplateItemsAsync(ctx, dto.ScopeTemplateId, dto.Items);
+        }
+
+        private static async Task InsertTemplateItemsAsync(
+            AppDbContext ctx,
+            int scopeTemplateId,
+            List<ScopeTemplateItemNodeDTO> nodes)
+        {
+            var inserted = new Dictionary<int, int>();
+            var pending = nodes.ToList();
+            int safety = pending.Count + 5;
+
+            while (pending.Count > 0 && safety-- > 0)
             {
-                var newItems = dto.Items.Select((node, idx) => new ScopeTemplateItem
+                var ready = pending
+                    .Where(n => !n.ParentCatalogItemId.HasValue
+                                || inserted.ContainsKey(n.ParentCatalogItemId.Value))
+                    .OrderBy(n => n.DisplayOrder)
+                    .ToList();
+
+                if (ready.Count == 0) break;
+
+                foreach (var node in ready)
                 {
-                    ScopeTemplateId = dto.ScopeTemplateId,
-                    CatalogItemId = node.CatalogItemId,
-                    ScopeTemplateItemParentId = node.ScopeTemplateItemParentId,
-                    DisplayOrder = node.DisplayOrder > 0 ? node.DisplayOrder : idx + 1,
-                    Active = true
-                }).ToList();
+                    int? parentStiId = node.ParentCatalogItemId.HasValue
+                        ? inserted[node.ParentCatalogItemId.Value]
+                        : (int?)null;
 
-                ctx.ScopeTemplateItem.AddRange(newItems);
+                    var entity = new ScopeTemplateItem
+                    {
+                        ScopeTemplateId = scopeTemplateId,
+                        CatalogItemId = node.CatalogItemId,
+                        ScopeTemplateItemParentId = parentStiId,
+                        DisplayOrder = node.DisplayOrder,
+                        Active = true
+                    };
+
+                    ctx.ScopeTemplateItem.Add(entity);
+                    await ctx.SaveChangesAsync();
+                    inserted[node.CatalogItemId] = entity.ScopeTemplateItemId;
+                }
+
+                pending = pending.Except(ready).ToList();
             }
-
-            await ctx.SaveChangesAsync();
         }
 
         public async Task DeleteTemplateAsync(int scopeTemplateId)

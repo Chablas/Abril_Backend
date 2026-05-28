@@ -13,24 +13,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
         private readonly IScopeService _service;
         public ScopeController(IScopeService service) => _service = service;
 
-        // ── AreaSubarea ──────────────────────────────────────────────────────────
-
-        [Authorize]
-        [HttpGet("area-subarea")]
-        public async Task<IActionResult> GetOrCreateAreaSubarea([FromQuery] int areaId, [FromQuery] int? subAreaId)
-        {
-            try { return Ok(await _service.GetOrCreateAreaSubareaAsync(areaId, subAreaId)); }
-            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
-        }
-
         // ── ScopeItem ────────────────────────────────────────────────────────────
 
         [Authorize]
-        [HttpGet("tree/{areaSubareaId}")]
-        public async Task<IActionResult> GetTree(int areaSubareaId)
+        [HttpGet("tree/{lessonAreaId}")]
+        public async Task<IActionResult> GetTree(int lessonAreaId)
         {
-            try { return Ok(await _service.GetScopeTreeAsync(areaSubareaId)); }
+            try { return Ok(await _service.GetScopeTreeAsync(lessonAreaId)); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 

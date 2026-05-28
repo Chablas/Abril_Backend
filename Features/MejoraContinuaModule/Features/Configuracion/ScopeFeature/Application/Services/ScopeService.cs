@@ -9,13 +9,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
         private readonly IScopeRepository _repo;
         public ScopeService(IScopeRepository repo) => _repo = repo;
 
-        public Task<AreaSubareaDTO> GetOrCreateAreaSubareaAsync(int areaId, int? subAreaId) => _repo.GetOrCreateAreaSubareaAsync(areaId, subAreaId);
-        public Task<List<ScopeItemDTO>> GetScopeTreeAsync(int areaSubareaId) => _repo.GetScopeTreeAsync(areaSubareaId);
+        public Task<List<ScopeItemDTO>> GetScopeTreeAsync(int lessonAreaId) => _repo.GetScopeTreeAsync(lessonAreaId);
         public Task UpsertScopeAsync(ScopeItemUpsertDTO dto) => _repo.UpsertScopeAsync(dto);
         public Task<List<ScopeTemplateDTO>> GetTemplatesAsync() => _repo.GetTemplatesAsync();
         public Task CreateTemplateAsync(ScopeTemplateCreateDTO dto) => _repo.CreateTemplateAsync(dto);
         public Task UpdateTemplateAsync(ScopeTemplateUpdateDTO dto) => _repo.UpdateTemplateAsync(dto);
         public Task DeleteTemplateAsync(int scopeTemplateId) => _repo.DeleteTemplateAsync(scopeTemplateId);
-        public Task<List<ScopeItemDTO>> GetScopeForLessonAsync(int areaId, int? subAreaId) => _repo.GetScopeForLessonAsync(areaId, subAreaId);
+        public Task<List<ScopeItemDTO>> GetScopeForLessonAsync(int lessonAreaId) => _repo.GetScopeForLessonAsync(lessonAreaId);
     }
 }

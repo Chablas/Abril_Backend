@@ -3578,11 +3578,13 @@ if (prog != null)
 InterconsultaCreateDto — ProgramacionId, Diagnostico, Cie10 agregados; EmoId nullable
 SsInterconsulta modelo — ProgramacionId, EmoId nullable
 InterconsultaRepository.Create — FechaDerivacion automática, EmoId = null, Estado = "Pendiente"
-InterconsultaController.Create — [FromBody] sin upload
+InterconsultaController.Create — [FromForm] multipart, sube documento opcional vía SharePoint
 InterconsultaController.SubirDocumento — POST /{id}/documentos restaurado con [FromForm]
-EmoRepository.Create — vincula interconsulta pendiente + sube documento + asigna EmoId
+EmoRepository.Create — vincula interconsulta pendiente + sube documento + asigna EmoId; retorna EmoCreateResultDto
 EmoCreateDto — DocumentoInterconsulta: IFormFile? con [JsonIgnore]
-EmoController.Create — recibe documentoInterconsulta como [FromForm]
+EmoCreateResultDto — DTO nuevo: EmoId + InterconsultaId?
+IEmoRepository.Create, IEmoService.Create, EmoService.Create — retornan EmoCreateResultDto (antes int)
+EmoController.Create — respuesta incluye { id, interconsultaId, message }
 BD — emo_id nullable, programacion_id agregado en ss_interconsultas
 
 Frontend:
@@ -3592,23 +3594,13 @@ InterconsultaClinicaService — createInterconsulta() con FormData
 agenda.ts — confirmarInterconsulta() usa el nuevo servicio
 
 ❌ Pendiente
-Backend:
+Migración BD:
 
-Confirmar que dotnet build pasa limpio (se colgó antes de reportar)
+ALTER TABLE ss_interconsultas ALTER COLUMN emo_id DROP NOT NULL  (ya está en el modelo, falta aplicar en BD)
 
 Frontend:
 
 completar-emo.ts — agregar documentoInterconsulta: File | null = null y handler onDocumentoInterconsulta()
-completar-emo.html — agregar input file dentro de \*ngIf="requiereInterconsulta"
-EmoService.createEmo() — verificar que pasa documentoInterconsulta al backend (actualmente los documentos van en requests separados fire-and-forget)
-Después de POST /emos exitoso, llamar POST /interconsultas/{id}/documentos con el archivo — necesita que el backend retorne el interconsultaId vinculado en la respuesta del EMO, o que el frontend consulte la interconsulta activa del worker para obtener el id
-
-Punto crítico pendiente de diseño:
-
-El frontend necesita saber el id de la interconsulta vinculada para llamar POST /interconsultas/{id}/documentos
-Opciones:
-
-Opción A — EmoRepository.Create retorna el interconsultaId en la respuesta del POST /emos
-Opción B — Frontend llama GET /interconsultas?workerId=X&estado=Pendiente para obtener el id
-
-Recomendación: Opción A — modificar EmoCreateResponseDto para incluir interconsultaId?: int
+completar-emo.html — agregar input file dentro de *ngIf="requiereInterconsulta"
+EmoService.createEmo() — pasar documentoInterconsulta como campo FormData
+Después de POST /emos exitoso, si response.interconsultaId != null → llamar POST /interconsultas/{id}/documentos con el archivo

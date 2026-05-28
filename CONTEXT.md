@@ -3142,3 +3142,62 @@ Pasos trazados:
 - JWT clínica claims: `NameIdentifier=clinicaUsuarioId`, `Role=CLINICA`, `clinicaId`, `clinicaUsuarioId`, `email`, `tipo=CLINICA`. Expira en 8h.
 - Config key del link: `App:FrontendUrl` + `/clinica/activar?token=...`.
 - Control de acceso: `ClinicaClaimsHelper.ValidarAcceso` compara `clinicaId` del JWT con el de la ruta. `EmoController` no tiene ningún guard por tipo — cualquier JWT válido puede crear/editar EMOs.
+
+---
+
+## Sesión 2026-05-28 — CronogramaActividades fixes + GET /project/paged-with-residents
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Fix: GET /cronograma-actividades/proyectos filtra por actividades existentes
+
+`Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs`
+
+`GetProyectosAsync` devolvía todos los proyectos con `TieneUnidadDeProyectos=true`. Corregido para devolver solo los que tienen al menos una fila activa en `project_activity`:
+
+```csharp
+.Where(p => p.State && p.TieneUnidadDeProyectos &&
+            ctx.ProjectActivity.Any(a => a.ProjectId == p.ProjectId && a.State && a.Active))
+```
+
+### 2. Fix: PATCH /cronograma-actividades/actividades/{id}/culminar setea progressPercentage
+
+`CronogramaActividadesRepository.CulminarActividadAsync` solo toggleaba `ActualEndDate`. Corregido:
+- Al culminar: `ActualEndDate = hoy`, `ProgressPercentage = 100`
+- Al revertir: `ActualEndDate = null`, `ProgressPercentage = 0`
+
+`CulminarActividadDto` ampliado con campo `ProgressPercentage` para que el frontend actualice el estado sin re-fetch.
+
+### 3. Endpoint debug temporal GET /cronograma-actividades/debug-proyectos
+
+Agregado para diagnosticar qué proyectos existen en `project` con sus flags (`project_id`, `project_description`, `tiene_unidad_de_proyectos`, `state`). **Pendiente eliminar** tras confirmar proyectos UDP en producción.
+
+### 4. Fix: GET /project/paged-with-residents devuelve todos los proyectos UDP
+
+`Infrastructure/Repositories/ProjectRepository.cs` — `GetPagedWithResidents`
+
+Tenía `ProjectResident.Any(...)` en el `Where`, que excluía proyectos sin residente asignado (solo salían 7 de 13). Corregido a `Active && State && TieneUnidadDeProyectos`. Proyectos sin residente retornan `residentFullNames: []`.
+
+### 5. Feat: parámetro search en GET /project/paged-with-residents
+
+Agregado `[FromQuery] string? search` que filtra por `project_description` (case-insensitive, `Contains`) antes de la paginación. El `TotalRecords` del response refleja el conteo filtrado.
+
+```
+GET /api/v1/project/paged-with-residents?page=1&search=kauri
+```
+
+### 6. Feat: pageSize dinámico en GET /project/paged-with-residents
+
+`const int pageSize = 10` estaba hardcodeado en el repository ignorando lo que mandaba el frontend. Reemplazado por parámetro `[FromQuery] int pageSize = 10` que recorre toda la cadena controller → service → repository.
+
+```
+GET /api/v1/project/paged-with-residents?page=1&pageSize=12&search=kauri
+```
+
+### 7. Firma actual del endpoint
+
+```
+GET /api/v1/project/paged-with-residents?page={int=1}&pageSize={int=10}&search={string?}
+```
+
+Archivos modificados: `ProjectController.cs`, `IProjectService.cs`, `ProjectService.cs`, `IProjectRepository.cs`, `ProjectRepository.cs`.

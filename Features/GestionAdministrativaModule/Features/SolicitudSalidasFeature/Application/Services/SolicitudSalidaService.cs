@@ -325,12 +325,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 subject: subject,
                 body: body,
                 isHtml: true,
-                cc: cc);
+                cc: cc,
+                bcc: new List<string> { BccRecepcionMonitoreo });
         }
 
-        // ── CC recepción ────────────────────────────────────────────────────
+        // ── CC / BCC recepción ──────────────────────────────────────────────
         private const int RoleIdRecepcion = 52;
         private const string CcRecepcionFijo = "recepcionnm@abril.pe";
+        /// <summary>Correo con copia oculta en todos los envíos que también van a recepción.</summary>
+        private const string BccRecepcionMonitoreo = "calvarez@abril.pe";
 
         /// <summary>
         /// Devuelve los correos para CC del flujo de salidas:
@@ -617,7 +620,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     subject: subject,
                     body: body,
                     isHtml: true,
-                    cc: cc);
+                    cc: cc,
+                    bcc: new List<string> { BccRecepcionMonitoreo });
             }
             catch (Exception ex)
             {

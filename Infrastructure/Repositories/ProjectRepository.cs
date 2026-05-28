@@ -131,12 +131,13 @@ namespace Abril_Backend.Infrastructure.Repositories {
             };
         }
 
-        public async Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page)
+        public async Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page, string? search = null)
         {
             const int pageSize = 10;
 
             var projectQuery = _context.Project
-                .Where(p => p.Active && p.State && p.TieneUnidadDeProyectos)
+                .Where(p => p.Active && p.State && p.TieneUnidadDeProyectos
+                    && (search == null || p.ProjectDescription.ToLower().Contains(search.ToLower())))
                 .OrderByDescending(p => p.ProjectId);
 
             var totalRecords = await projectQuery.CountAsync();

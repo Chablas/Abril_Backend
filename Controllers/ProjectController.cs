@@ -47,19 +47,14 @@ namespace Abril_Backend.Controllers
 
         [Authorize]
         [HttpGet("paged-with-residents")]
-        public async Task<IActionResult> GetPagedWithResidents([FromQuery] int page = 1)
+        public async Task<IActionResult> GetPagedWithResidents([FromQuery] int page = 1, [FromQuery] string? search = null)
         {
             try
             {
-                // var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                //
-                // if (userIdClaim == null)
-                //     return Unauthorized(new { message = "Inicie sesión" });
-
                 if (page < 1)
                     page = 1;
 
-                var result = await _projectService.GetPagedWithResidents(page);
+                var result = await _projectService.GetPagedWithResidents(page, search);
                 return Ok(result);
             }
             catch (Exception)

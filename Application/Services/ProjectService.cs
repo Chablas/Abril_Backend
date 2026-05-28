@@ -32,9 +32,9 @@ namespace Abril_Backend.Application.Services
             var registros = await _repository.GetWithResidentByUserId(userId);
             return registros;
         }*/
-        public async Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page, string? search = null)
+        public async Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page, int pageSize = 10, string? search = null)
         {
-            return await _repository.GetPagedWithResidents(page, search);
+            return await _repository.GetPagedWithResidents(page, pageSize, search);
         }
 
         public async Task<PagedResult<ProjectDTO>> GetPaged(int page, bool? activo = null)

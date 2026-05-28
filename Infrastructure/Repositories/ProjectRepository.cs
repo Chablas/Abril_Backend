@@ -131,9 +131,8 @@ namespace Abril_Backend.Infrastructure.Repositories {
             };
         }
 
-        public async Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page, string? search = null)
+        public async Task<PagedResult<ProjectDTO>> GetPagedWithResidents(int page, int pageSize = 10, string? search = null)
         {
-            const int pageSize = 10;
 
             var projectQuery = _context.Project
                 .Where(p => p.Active && p.State && p.TieneUnidadDeProyectos

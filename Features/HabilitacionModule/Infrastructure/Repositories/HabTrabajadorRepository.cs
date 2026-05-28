@@ -132,7 +132,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (soloSinEmo)
                 baseQuery = baseQuery.Where(x =>
-                    !ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo));
+                    x.Worker.FechaRetiro == null
+                    && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
+                                                   && v.FechaFin == null
+                                                   && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
+                    && !ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo));
 
             if (soloEmoVencido)
             {

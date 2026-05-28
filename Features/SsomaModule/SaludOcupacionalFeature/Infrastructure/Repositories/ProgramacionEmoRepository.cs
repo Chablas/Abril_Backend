@@ -50,6 +50,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 q = q.Where(x => x.em != null && x.em.EsAbril);
 
+                q = q.Where(x => !ctx.SsInterconsulta
+                    .Any(i => i.WorkerId == x.p.WorkerId && i.Estado == "Pendiente"));
+
                 if (filter.FechaDesde.HasValue)
                     q = q.Where(x => x.p.FechaProgramada >= filter.FechaDesde.Value);
                 if (filter.FechaHasta.HasValue)
@@ -97,6 +100,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                                      && e.Activo)
                             .OrderByDescending(e => e.FechaVencimiento)
                             .Select(e => (DateOnly?)e.FechaVencimiento)
+                            .FirstOrDefault(),
+                        InterconsultaEstado = ctx.SsInterconsulta
+                            .Where(i => i.WorkerId == x.p.WorkerId)
+                            .OrderByDescending(i => i.FechaDerivacion)
+                            .Select(i => (string?)i.Estado)
                             .FirstOrDefault()
                     })
                     .ToListAsync();

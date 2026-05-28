@@ -513,6 +513,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
             }
 
+            _logger.LogInformation("ArchivoLectura: {val}", dto.ArchivoLectura == null ? "NULL" : dto.ArchivoLectura.FileName);
+            if (dto.ArchivoLectura != null && dto.ArchivoLectura.Length > 0)
+            {
+                try
+                {
+                    using var stream = dto.ArchivoLectura.OpenReadStream();
+                    emo.UrlResultado = await _sharePoint.SubirArchivoAsync(
+                        stream, dto.ArchivoLectura.FileName, "lectura-emo");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Error subiendo archivo de lectura EMO para worker {WorkerId}", dto.WorkerId);
+                }
+            }
+
             await SincronizarEntregableEmoAsync(ctx, emo, worker);
 
             await ctx.SaveChangesAsync();
@@ -626,13 +642,29 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     hab.Estado = "Rechazado";
                     break;
                 case "Observado":
-                    hab.Estado = "En Plazo";
+                    hab.Estado = "En plazo";
                     break;
                 default:
                     return;
             }
 
             hab.UpdatedAt = DateTime.UtcNow;
+
+            if (emo.UrlResultado != null &&
+                (emo.Aptitud == "Apto" || emo.Aptitud == "Apto con Restricciones"))
+            {
+                var habLectura = await ctx.SsHabTrabajador
+                    .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.LecturaEmo);
+                if (habLectura != null)
+                {
+                    habLectura.Estado = "Aprobado";
+                    habLectura.Vigencia = emo.FechaVencimiento.HasValue
+                        ? emo.FechaVencimiento.Value.ToDateTime(TimeOnly.MinValue)
+                        : null;
+                    habLectura.ArchivoUrl = emo.UrlResultado;
+                    habLectura.UpdatedAt = DateTime.UtcNow;
+                }
+            }
         }
     }
 }

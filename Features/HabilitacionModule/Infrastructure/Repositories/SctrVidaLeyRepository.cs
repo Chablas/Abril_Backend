@@ -128,6 +128,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             {
                 foreach (var workerInput in workersDistinct)
                 {
+                    if (!esAbril && dto.TipoPoliza == "Renovacion")
+                    {
+                        var habVigente = await ctx.SsHabTrabajador
+                            .FirstOrDefaultAsync(h => h.WorkerId == workerInput.WorkerId
+                                                   && h.ItemId == item.Id
+                                                   && h.Estado == "Aprobado"
+                                                   && h.Vigencia >= DateTime.Today);
+                        if (habVigente != null)
+                        {
+                            habVigente.ArchivoUrl = dto.ArchivoUrl;
+                            habVigente.UpdatedAt = DateTime.UtcNow;
+                            continue;
+                        }
+                    }
+
                     var hab = await ctx.SsHabTrabajador
                         .FirstOrDefaultAsync(h => h.WorkerId == workerInput.WorkerId && h.ItemId == item.Id);
 

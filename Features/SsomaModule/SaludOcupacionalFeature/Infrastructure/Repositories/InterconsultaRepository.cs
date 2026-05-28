@@ -134,8 +134,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     .FirstOrDefaultAsync(h => h.WorkerId == ent.WorkerId && h.ItemId == 25);
                 if (lecturaEmo != null)
                 {
-                    lecturaEmo.Estado = "Aprobado";
-                    lecturaEmo.ObsAbril = $"Interconsulta levantada — {dto.FechaAtencion}";
+                    lecturaEmo.Estado = "En revision";
+                    lecturaEmo.ObsAbril = $"Interconsulta levantada — pendiente EMO — {dto.FechaAtencion}";
                     lecturaEmo.UpdatedAt = DateTime.UtcNow;
                 }
 

@@ -8,12 +8,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
     {
         Task<(List<BandejaItemDto> Items, int Total)> GetPendientesAsync(
             string? tipo, int? proyectoId, int? empresaId,
-            string? responsable, int page, int pageSize);
+            string? responsable, string? search, int page, int pageSize);
 
         Task<CursorPagedResult<BandejaItemDto>> GetPendientesCursorAsync(
             string? tipo, int? proyectoId, int? empresaId,
-            string? responsable, string? cursor, int pageSize);
+            string? responsable, string? search, string? cursor, int pageSize);
 
+        Task<List<string>> GetEmpresasUnicasAsync();
         Task<SsHabTrabajador?> AprobarTrabajadorAsync(int id, BandejaAprobarDto dto, int userId);
         Task<SsHabEmpresa?> AprobarEmpresaAsync(int id, BandejaAprobarDto dto, int userId);
         Task<SsHabEquipo?> AprobarEquipoAsync(int id, BandejaAprobarDto dto, int userId);

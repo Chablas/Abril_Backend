@@ -24,5 +24,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public DateOnly? FechaVencimientoEmo { get; set; }
         public string? Categoria { get; set; }
         public string? TipoTrabajador { get; set; }
+        public string? InterconsultaEstado { get; set; }
     }
 }

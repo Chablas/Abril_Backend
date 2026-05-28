@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Validators
 {
     public class WorkerEntregableUpdateValidator : AbstractValidator<WorkerEntregableUpdateDto>
     {
-        private static readonly string[] EstadosValidos = { "Falta", "Enviado", "Aprobado", "Rechazado", "No Aplica", "En Plazo", "Vencido" };
+        private static readonly string[] EstadosValidos = { "Falta", "Enviado", "Aprobado", "Rechazado", "No Aplica", "En plazo", "Vencido" };
 
         public WorkerEntregableUpdateValidator()
         {

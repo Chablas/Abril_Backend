@@ -65,6 +65,7 @@ WHERE ht.estado = 'Enviado'
   AND (@EmpresaId IS NULL OR wv.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'TRABAJADOR')
+  AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
 
 UNION ALL
 
@@ -91,6 +92,7 @@ WHERE he.estado = 'Enviado'
   AND (@EmpresaId IS NULL OR he.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'EMPRESA')
+  AND (@Search IS NULL OR ec.contributor_name ILIKE '%' || @Search || '%')
 
 UNION ALL
 
@@ -117,6 +119,7 @@ WHERE heq.estado = 'Enviado'
   AND (@EmpresaId IS NULL OR eq.propietario_empresa_id = @EmpresaId)
   AND (@Tipo IS NULL OR @Tipo = 'EQUIPO')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
+  AND (@Search IS NULL OR CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) ILIKE '%' || @Search || '%')
 
 UNION ALL
 
@@ -143,11 +146,12 @@ WHERE i.estado = 'PROGRAMADA'
   AND (@EmpresaId IS NULL OR i.empresa_id = @EmpresaId)
   AND (@Tipo IS NULL OR @Tipo = 'INDUCCION')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
+  AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
 ";
 
         public async Task<(List<BandejaItemDto> Items, int Total)> GetPendientesAsync(
             string? tipo, int? proyectoId, int? empresaId,
-            string? responsable, int page, int pageSize)
+            string? responsable, string? search, int page, int pageSize)
         {
             var parametros = new
             {
@@ -155,6 +159,7 @@ WHERE i.estado = 'PROGRAMADA'
                 ProyectoId = proyectoId,
                 EmpresaId = empresaId,
                 Responsable = responsable,
+                Search = search,
                 PageSize = pageSize,
                 Offset = (page - 1) * pageSize
             };
@@ -174,7 +179,7 @@ LIMIT @PageSize OFFSET @Offset";
 
         public async Task<CursorPagedResult<BandejaItemDto>> GetPendientesCursorAsync(
             string? tipo, int? proyectoId, int? empresaId,
-            string? responsable, string? cursor, int pageSize)
+            string? responsable, string? search, string? cursor, int pageSize)
         {
             DateTime? cursorFecha = null;
             int? cursorId = null;
@@ -201,6 +206,7 @@ LIMIT @PageSize OFFSET @Offset";
                 ProyectoId = proyectoId,
                 EmpresaId = empresaId,
                 Responsable = responsable,
+                Search = search,
                 CursorFecha = cursorFecha,
                 CursorId = cursorId,
                 PageSize = pageSize + 1
@@ -222,7 +228,8 @@ LIMIT @PageSize";
                 Tipo = tipo,
                 ProyectoId = proyectoId,
                 EmpresaId = empresaId,
-                Responsable = responsable
+                Responsable = responsable,
+                Search = search
             });
 
             var hasMore = rows.Count > pageSize;
@@ -244,6 +251,20 @@ LIMIT @PageSize";
                 NextCursor = nextCursor,
                 HasMore = hasMore
             };
+        }
+
+        public async Task<List<string>> GetEmpresasUnicasAsync()
+        {
+            const string sql = @"
+SELECT DISTINCT ec.contributor_name
+FROM ss_hab_empresa he
+JOIN contributor ec ON ec.contributor_id = he.empresa_id
+WHERE he.estado = 'Enviado'
+ORDER BY ec.contributor_name";
+
+            using var conn = CreateConnection();
+            var result = await conn.QueryAsync<string>(sql);
+            return result.ToList();
         }
 
         public async Task<SsHabTrabajador?> AprobarTrabajadorAsync(int id, BandejaAprobarDto dto, int userId)

@@ -16,11 +16,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         public async Task<VigenciaRevisionResultDto> RevisarVigencias()
         {
             using var ctx = _factory.CreateDbContext();
-            var hoy = DateTime.Today;
-            var estados = new[] { "Aprobado", "En plazo" };
+            var hoy = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Utc);
 
             var trabajadores = await ctx.SsHabTrabajador
-                .Where(h => estados.Contains(h.Estado) && h.Vigencia < hoy)
+                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo") && h.Vigencia < hoy)
                 .ToListAsync();
 
             foreach (var h in trabajadores)
@@ -30,7 +29,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             }
 
             var empresas = await ctx.SsHabEmpresa
-                .Where(h => estados.Contains(h.Estado) && h.Vigencia < hoy)
+                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo") && h.Vigencia < hoy)
                 .ToListAsync();
 
             foreach (var h in empresas)
@@ -40,7 +39,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             }
 
             var equipos = await ctx.SsHabEquipo
-                .Where(h => estados.Contains(h.Estado) && h.Vigencia < hoy)
+                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo") && h.Vigencia < hoy)
                 .ToListAsync();
 
             foreach (var h in equipos)

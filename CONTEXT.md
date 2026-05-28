@@ -567,7 +567,7 @@ Inyectado `ILogger<ContratistaAuthService>`. Log temporal en `LoginAsync` tras B
 Añadida en `appsettings.Production.json` y `appsettings.Local.json`:
 
 ```json
-"ContractorCredentialsUrl": "https://abril-frontend.onrender.com/auth/contractor-credentials"
+"ContractorCredentialsUrl": "https://abril-frontend-m21l.onrender.com/auth/contractor-credentials"
 ```
 
 `appsettings.Local.json` tiene temporalmente `http://localhost:4200/auth/contractor-credentials` — **revertir antes de merge a master**.  
@@ -3006,7 +3006,7 @@ Casa: `EstadoCalc = "No Autorizado"` si no hay `WorkerEmo` con `Activo && (Estad
 
 ```json
 "App": {
-  "FrontendUrl": "https://abril-frontend.onrender.com"
+  "FrontendUrl": "https://abril-frontend-m21l.onrender.com"
 }
 ```
 

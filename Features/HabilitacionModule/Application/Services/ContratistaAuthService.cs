@@ -136,55 +136,42 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         public async Task<ContratistaTokenDto> ActivarCuentaAsync(ActivarCuentaDto dto)
         {
-            try
+            using var ctx = _factory.CreateDbContext();
+
+            var token = await BuscarTokenVigenteAsync(ctx, dto.Token)
+                ?? throw new AbrilException("Enlace inválido o expirado.", 400);
+
+            if (string.IsNullOrEmpty(dto.Password) || dto.Password.Length < 6)
+                throw new AbrilException("La contraseña debe tener al menos 6 caracteres.", 400);
+
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == token.UserId && u.Active && u.State)
+                ?? throw new AbrilException("Usuario no encontrado.", 404);
+
+            user.Password = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+            user.UpdatedDateTime = DateTime.UtcNow;
+            token.Usado = true;
+
+            await ctx.SaveChangesAsync();
+
+            var emailBuscar = user.Email!.Trim().ToLower();
+            var huerfano = await ctx.ContractorEmail
+                .FirstOrDefaultAsync(ce => ce.Email.ToLower() == emailBuscar && ce.UserId == null && ce.Active && ce.State);
+            if (huerfano != null)
             {
-                using var ctx = _factory.CreateDbContext();
-
-                Console.WriteLine("[ACTIVAR] Paso 1 - buscando token");
-                var token = await BuscarTokenVigenteAsync(ctx, dto.Token)
-                    ?? throw new AbrilException("Enlace inválido o expirado.", 400);
-
-                Console.WriteLine("[ACTIVAR] Paso 2 - validando password");
-                if (string.IsNullOrEmpty(dto.Password) || dto.Password.Length < 6)
-                    throw new AbrilException("La contraseña debe tener al menos 6 caracteres.", 400);
-
-                Console.WriteLine("[ACTIVAR] Paso 3 - buscando user");
-                var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == token.UserId && u.Active && u.State)
-                    ?? throw new AbrilException("Usuario no encontrado.", 404);
-
-                user.Password = BCrypt.Net.BCrypt.HashPassword(dto.Password);
-                user.UpdatedDateTime = DateTime.UtcNow;
-                token.Usado = true;
-
+                huerfano.UserId = user.UserId;
                 await ctx.SaveChangesAsync();
-
-                var emailBuscar = user.Email!.Trim().ToLower();
-                var huerfano = await ctx.ContractorEmail
-                    .FirstOrDefaultAsync(ce => ce.Email.ToLower() == emailBuscar && ce.UserId == null && ce.Active && ce.State);
-                if (huerfano != null)
-                {
-                    huerfano.UserId = user.UserId;
-                    await ctx.SaveChangesAsync();
-                }
-
-                Console.WriteLine("[ACTIVAR] Paso 4 - generando token");
-                var contractorEmail = await ctx.ContractorEmail
-                    .Include(ce => ce.Contractor)
-                        .ThenInclude(c => c.Contributor)
-                    .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
-                    ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
-
-                var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
-                var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
-
-                return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures, systemRoleIds);
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ACTIVAR ERROR] {ex.GetType().Name}: {ex.Message}");
-                Console.WriteLine($"[ACTIVAR STACK] {ex.StackTrace}");
-                throw;
-            }
+
+            var contractorEmail = await ctx.ContractorEmail
+                .Include(ce => ce.Contractor)
+                    .ThenInclude(c => c.Contributor)
+                .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
+                ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
+
+            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
+            var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
+
+            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures, systemRoleIds);
         }
 
         public async Task SolicitarResetPasswordAsync(SolicitarResetDto dto)

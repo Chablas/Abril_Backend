@@ -83,7 +83,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         Origen = x.p.Origen,
                         CheckInHora = x.p.CheckInHora,
                         MotivoRechazo = x.p.MotivoRechazo,
-                        FechaNotificacion = x.p.FechaNotificacion
+                        FechaNotificacion = x.p.FechaNotificacion,
+                        Ocupacion = x.w.Ocupacion
                     })
                     .ToListAsync();
             }
@@ -175,6 +176,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ent.Estado = "Aceptado por Clínica";
                     ent.MotivoRechazo = null;
                     if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
+                    if (dto.NuevaFecha.HasValue) ent.FechaProgramada = dto.NuevaFecha.Value;
                     ent.UpdatedAt = DateTimeOffset.UtcNow;
                     await ctx.SaveChangesAsync();
                     await EnviarNotificacionAceptacionAsync(ctx, ent, worker);

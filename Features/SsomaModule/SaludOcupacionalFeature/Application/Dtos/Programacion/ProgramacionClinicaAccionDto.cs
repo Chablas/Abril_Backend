@@ -7,5 +7,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public string? MotivoRechazo { get; set; }
         public TimeOnly? CheckInHora { get; set; }
         public int? EmoResultadoId { get; set; }
+        public DateOnly? NuevaFecha { get; set; }
     }
 }

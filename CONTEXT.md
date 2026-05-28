@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-26 — ProjectActivity model, CronogramaActividades rewrite, ProjectsDashboard migrado a project_activity, DTOs reestructurados
+> Última actualización: 2026-05-27 — Ocupacion en ProgramacionListDto, NuevaFecha en ClinicaAccion, logs diagnóstico removidos
 
 ---
 
@@ -3080,7 +3080,7 @@ Agregado antes del `FirstOrDefaultAsync`:
 dto.Token = dto.Token?.Replace(" ", "+");
 ```
 
-También se agregaron logs de diagnóstico temporales (`Console.WriteLine`) — **pendiente remover** cuando se confirme el fix en producción.
+Los logs de diagnóstico temporales (`Console.WriteLine`) fueron removidos en sesión 2026-05-27 parte 3.
 
 ### 3. Comportamiento documentado: EmoController — sin control de rol
 
@@ -3111,18 +3111,11 @@ La validación de `SystemRoleId` en `InvitarUsuarioAsync` aceptaba solo `11` (CO
 
 Valores válidos actuales: `11`, `14`, `49`.
 
-### 2. Logs de diagnóstico temporales en ActivarCuentaAsync
+### 2. Logs de diagnóstico temporales en ActivarCuentaAsync — REMOVIDOS (2026-05-27 parte 3)
 
 `Features/HabilitacionModule/Application/Services/ContratistaAuthService.cs`
 
-Se agregaron `Console.WriteLine` de diagnóstico en `ActivarCuentaAsync` para trazar en qué paso falla la activación de cuenta contratista. **Pendiente remover** cuando se confirme el fix en producción.
-
-Pasos trazados:
-- `[ACTIVAR] Paso 1` — búsqueda de token en `ss_reset_token`
-- `[ACTIVAR] Paso 2` — validación de longitud de password
-- `[ACTIVAR] Paso 3` — búsqueda de `User` por `token.UserId`
-- `[ACTIVAR] Paso 4` — búsqueda de `ContractorEmail` y generación de JWT
-- `[ACTIVAR ERROR]` + `[ACTIVAR STACK]` — en catch global (relanza sin modificar comportamiento)
+Se habían agregado `Console.WriteLine` de diagnóstico (`[ACTIVAR] Paso 1..4`, `[ACTIVAR ERROR]`, `[ACTIVAR STACK]`) con un `try/catch` envolvente. Todo fue removido. El método `ActivarCuentaAsync` ahora no tiene ese try/catch wrapper — la lógica original quedó intacta sin indentación extra.
 
 ### 3. Arquitectura auth contratista — resumen
 
@@ -3142,3 +3135,45 @@ Pasos trazados:
 - JWT clínica claims: `NameIdentifier=clinicaUsuarioId`, `Role=CLINICA`, `clinicaId`, `clinicaUsuarioId`, `email`, `tipo=CLINICA`. Expira en 8h.
 - Config key del link: `App:FrontendUrl` + `/clinica/activar?token=...`.
 - Control de acceso: `ClinicaClaimsHelper.ValidarAcceso` compara `clinicaId` del JWT con el de la ruta. `EmoController` no tiene ningún guard por tipo — cualquier JWT válido puede crear/editar EMOs.
+
+---
+
+## Sesión 2026-05-27 (parte 3) — ProgramacionEmo: Ocupacion, NuevaFecha en ClinicaAccion, limpieza de logs
+
+### 1. ProgramacionListDto — campo Ocupacion agregado
+
+`Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/Programacion/ProgramacionListDto.cs`:
+```csharp
+public string? Ocupacion { get; set; }
+```
+
+`Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/ProgramacionEmoRepository.cs` — método `List`, SELECT:
+```csharp
+Ocupacion = x.w.Ocupacion
+```
+Fuente: `Worker.Ocupacion` (columna `ocupacion`). No requiere migración — columna ya existe en BD.
+
+### 2. ProgramacionClinicaAccionDto — campo NuevaFecha para Aceptar
+
+`Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/Programacion/ProgramacionClinicaAccionDto.cs`:
+```csharp
+public DateOnly? NuevaFecha { get; set; }
+```
+
+`ProgramacionEmoRepository.ClinicaAccion`, case `"Aceptar"` — línea agregada:
+```csharp
+if (dto.NuevaFecha.HasValue) ent.FechaProgramada = dto.NuevaFecha.Value;
+```
+Si el frontend no envía `NuevaFecha` (null), el comportamiento es idéntico al anterior. Las otras acciones (Rechazar, CheckIn, Completar) no fueron tocadas.
+
+### 3. Logs de diagnóstico removidos
+
+**`ClinicaAuthController.Activar`** (`ClinicaAuthController.cs`):
+- Removidas 2 líneas `Console.WriteLine` con `[DEBUG ACTIVAR]`.
+- Conservada la línea `dto.Token?.Replace(" ", "+")` (es lógica de negocio, no diagnóstico).
+
+**`ContratistaAuthService.ActivarCuentaAsync`** (`ContratistaAuthService.cs`):
+- Removidas 4 líneas `Console.WriteLine` con `[ACTIVAR] Paso N`.
+- Removidas 2 líneas `Console.WriteLine` con `[ACTIVAR ERROR]` y `[ACTIVAR STACK]`.
+- Removido el `try/catch` envolvente que solo existía para capturarlos.
+- La lógica interna quedó inalterada.

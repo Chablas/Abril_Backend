@@ -7,7 +7,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
     {
         Task<EmpresaContratistaDetalleDto?> GetByIdAsync(int id);
         Task<(List<EmpresaContratistaListDto> Items, int Total)> GetPagedAsync(
-            string? search, bool? activo, int page, int pageSize);
+            string? search, bool? activo, bool? soloContratistas, int page, int pageSize);
         Task<bool> ExisteRucAsync(string ruc);
         Task<int?> GetContributorIdByRucAsync(string ruc);
         Task<EmpresaContratistaListDto> CreateAsync(EmpresaContratistaCreateDto dto);

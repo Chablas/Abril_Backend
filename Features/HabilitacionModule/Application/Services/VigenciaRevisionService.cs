@@ -1,5 +1,6 @@
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Habilitacion.Application.Services
@@ -48,13 +49,25 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 h.UpdatedAt = DateTime.UtcNow;
             }
 
+            var hoyDate = DateOnly.FromDateTime(DateTime.Today);
+            var emos = await ctx.WorkerEmo
+                .Where(e => e.Activo && e.Estado == "Vigente" && e.FechaVencimiento < hoyDate)
+                .ToListAsync();
+
+            foreach (var e in emos)
+            {
+                e.Estado = "Vencido";
+                e.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
             await ctx.SaveChangesAsync();
 
             return new VigenciaRevisionResultDto
             {
                 Trabajadores = trabajadores.Count,
                 Empresas = empresas.Count,
-                Equipos = equipos.Count
+                Equipos = equipos.Count,
+                Emos = emos.Count
             };
         }
     }

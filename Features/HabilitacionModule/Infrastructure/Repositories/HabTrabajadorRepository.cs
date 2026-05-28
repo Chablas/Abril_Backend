@@ -52,7 +52,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<(List<WorkerHabilitacionListDto> Items, int Total)> GetWorkersHabilitacionAsync(
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
-            int page, int pageSize, bool soloRetirados = false)
+            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -129,6 +129,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(estadoHabilitacion))
                 baseQuery = baseQuery.Where(x => x.EstadoCalc == estadoHabilitacion);
+
+            if (soloSinEmo)
+                baseQuery = baseQuery.Where(x =>
+                    !ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo));
+
+            if (soloEmoVencido)
+            {
+                var hoy = DateOnly.FromDateTime(DateTime.Today);
+                baseQuery = baseQuery.Where(x =>
+                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id
+                                       && e.Activo
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoy));
+            }
 
             var total = await baseQuery.CountAsync();
 

@@ -10,5 +10,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Interfaces
         public int Trabajadores { get; set; }
         public int Empresas { get; set; }
         public int Equipos { get; set; }
+        public int Emos { get; set; }
     }
 }

@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
@@ -22,20 +23,22 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("revisar-vigencias")]
+        [AllowAnonymous]
         public async Task<IActionResult> RevisarVigencias()
         {
             try
             {
-                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                /*var authHeader = Request.Headers["Authorization"].FirstOrDefault();
                 if (authHeader != $"Bearer {_configuration["CronSecret"]}")
-                    return Unauthorized();
+                    return Unauthorized();*/
 
                 var result = await _vigenciaService.RevisarVigencias();
                 return Ok(new
                 {
                     trabajadores = result.Trabajadores,
                     empresas = result.Empresas,
-                    equipos = result.Equipos
+                    equipos = result.Equipos,
+                    emos = result.Emos
                 });
             }
             catch (Exception ex)

@@ -126,6 +126,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (item is not null)
             {
+                var hoyUtc = DateTime.UtcNow.Date;
                 foreach (var workerInput in workersDistinct)
                 {
                     if (!esAbril && dto.TipoPoliza == "Renovacion")
@@ -134,7 +135,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             .FirstOrDefaultAsync(h => h.WorkerId == workerInput.WorkerId
                                                    && h.ItemId == item.Id
                                                    && h.Estado == "Aprobado"
-                                                   && h.Vigencia >= DateTime.Today);
+                                                   && h.Vigencia >= hoyUtc);
                         if (habVigente != null)
                         {
                             habVigente.ArchivoUrl = dto.ArchivoUrl;

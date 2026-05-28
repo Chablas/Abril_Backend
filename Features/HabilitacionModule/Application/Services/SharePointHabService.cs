@@ -182,18 +182,23 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         private string ResolverSiteId(string contexto)
         {
+            var c = (contexto ?? string.Empty).ToLowerInvariant();
+            if (c.Contains("interconsulta") || c.Contains("lectura-emo"))
+                return _configuration["SharePoint:Sites:SSOMAOcupacional:SiteId"]!;
             return _configuration["SharePoint:Sites:SSOMAApps:SiteId"]!;
         }
 
         private string? ResolverLibraryId(string contexto)
         {
             var c = (contexto ?? string.Empty).ToLowerInvariant();
-            if (c.Contains("trabajadores")) return _configuration["SharePoint:Sites:Habilitacion:TrabajadoresLibraryId"];
-            if (c.Contains("empresas"))     return _configuration["SharePoint:Sites:Habilitacion:EmpresaLibraryId"];
-            if (c.Contains("equipos"))      return _configuration["SharePoint:Sites:Habilitacion:EquiposLibraryId"];
-            if (c.Contains("sctr"))         return _configuration["SharePoint:Sites:SSOMAApps:SctrLibraryId"];
-            if (c.Contains("emo-aptitud"))  return _configuration["SharePoint:Sites:SSOMAApps:AptitudesLibraryId"];
-            if (c.Contains("emo-completo")) return _configuration["SharePoint:Sites:SSOMAApps:EMOSLibraryId"];
+            if (c.Contains("trabajadores"))  return _configuration["SharePoint:Sites:Habilitacion:TrabajadoresLibraryId"];
+            if (c.Contains("empresas"))      return _configuration["SharePoint:Sites:Habilitacion:EmpresaLibraryId"];
+            if (c.Contains("equipos"))       return _configuration["SharePoint:Sites:Habilitacion:EquiposLibraryId"];
+            if (c.Contains("sctr"))          return _configuration["SharePoint:Sites:SSOMAApps:SctrLibraryId"];
+            if (c.Contains("emo-aptitud"))   return _configuration["SharePoint:Sites:SSOMAApps:AptitudesLibraryId"];
+            if (c.Contains("emo-completo"))  return _configuration["SharePoint:Sites:SSOMAApps:EMOSLibraryId"];
+            if (c.Contains("interconsulta")) return _configuration["SharePoint:Sites:SSOMAOcupacional:EmoInterconsultasLibraryId"];
+            if (c.Contains("lectura-emo"))   return _configuration["SharePoint:Sites:SSOMAOcupacional:LecturaEmosLibraryId"];
             return null;
         }
 

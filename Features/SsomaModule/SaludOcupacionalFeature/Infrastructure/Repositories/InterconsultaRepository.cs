@@ -1,4 +1,5 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interconsulta;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
@@ -78,6 +79,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             ctx.SsInterconsulta.Add(ent);
+
+            var lecturaEmo = await ctx.SsHabTrabajador
+                .FirstOrDefaultAsync(h => h.WorkerId == dto.WorkerId && h.ItemId == 25);
+            if (lecturaEmo != null)
+            {
+                lecturaEmo.Estado = "En revision";
+                lecturaEmo.ObsAbril = $"Interconsulta pendiente — {dto.Especialidad}";
+                lecturaEmo.UpdatedAt = DateTime.UtcNow;
+            }
+
             await ctx.SaveChangesAsync();
             return ent.Id;
         }
@@ -114,6 +125,32 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.UrlInforme != null) ent.UrlInforme = dto.UrlInforme;
             if (dto.RequiereSeguimiento.HasValue) ent.RequiereSeguimiento = dto.RequiereSeguimiento.Value;
             ent.UpdatedAt = DateTimeOffset.UtcNow;
+
+            if (dto.Estado == "Completado")
+            {
+                var lecturaEmo = await ctx.SsHabTrabajador
+                    .FirstOrDefaultAsync(h => h.WorkerId == ent.WorkerId && h.ItemId == 25);
+                if (lecturaEmo != null)
+                {
+                    lecturaEmo.Estado = "Aprobado";
+                    lecturaEmo.ObsAbril = $"Interconsulta levantada — {dto.FechaAtencion}";
+                    lecturaEmo.UpdatedAt = DateTime.UtcNow;
+                }
+
+                var prog = await ctx.SsProgramacionEmo
+                    .Where(p => p.WorkerId == ent.WorkerId
+                             && p.Estado != "Completado"
+                             && p.Estado != "Cancelado"
+                             && p.Estado != "Rechazado por Clínica")
+                    .OrderByDescending(p => p.FechaProgramada)
+                    .FirstOrDefaultAsync();
+                if (prog != null)
+                {
+                    prog.Estado = "En Atención";
+                    prog.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+            }
+
             await ctx.SaveChangesAsync();
         }
     }

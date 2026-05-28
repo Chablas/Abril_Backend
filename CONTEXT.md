@@ -3177,3 +3177,162 @@ Si el frontend no envía `NuevaFecha` (null), el comportamiento es idéntico al 
 - Removidas 2 líneas `Console.WriteLine` con `[ACTIVAR ERROR]` y `[ACTIVAR STACK]`.
 - Removido el `try/catch` envolvente que solo existía para capturarlos.
 - La lógica interna quedó inalterada.
+
+---
+
+## Sesión 2026-05-28 — ProgramacionEmo: FechaVencimientoEmo, Categoria, TipoTrabajador; notificación rechazo; SharePoint SSOMAOcupacional; Interconsulta documentos + SsHabTrabajador
+
+### 1. ProgramacionListDto — tres nuevos campos
+
+`Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/Programacion/ProgramacionListDto.cs`:
+```csharp
+public string? Ocupacion { get; set; }          // ya existía
+public DateOnly? FechaVencimientoEmo { get; set; }
+public string? Categoria { get; set; }
+public string? TipoTrabajador { get; set; }
+```
+
+### 2. ProgramacionEmoRepository.List — subquery correlacionada para FechaVencimientoEmo
+
+El LEFT JOIN directo a `WorkerEmo` fue reemplazado por una subquery correlacionada en el SELECT para evitar duplicación de filas cuando un worker tiene múltiples EMOs activos con el mismo `TipoEmoId`.
+
+JOIN eliminado del query principal (`from e in ctx.WorkerEmo...`). Tipo anónimo ahora es `{ p, w, em, t, c, m }` (sin `e`).
+
+Campos agregados al SELECT:
+```csharp
+Ocupacion = x.w.Ocupacion,
+Categoria = x.w.Categoria,
+TipoTrabajador = x.w.ContrataCasa == "Casa" && x.w.ObraOficina == "Oficina Central"
+    ? "Oficina Central"
+    : x.w.ContrataCasa == "Casa" && x.w.ObraOficina == "Staff"
+        ? "Staff Obra"
+        : "Obrero",
+FechaVencimientoEmo = ctx.WorkerEmo
+    .Where(e => e.WorkerId == x.p.WorkerId
+             && e.TipoEmoId == x.p.TipoEmoId
+             && e.Activo)
+    .OrderByDescending(e => e.FechaVencimiento)
+    .Select(e => (DateOnly?)e.FechaVencimiento)
+    .FirstOrDefault()
+```
+
+`Categoria` y `TipoTrabajador` provienen directamente de `Worker`. `TipoTrabajador` se deriva de `ContrataCasa + ObraOficina` (no es columna directa).
+
+### 3. EmoAutoProgramacionService — ventana reducida a 6 días
+
+`Features/SsomaModule/SaludOcupacionalFeature/Application/Services/EmoAutoProgramacionService.cs`:
+```csharp
+var ventanaFin = hoy.AddDays(6);  // antes: AddDays(30)
+```
+El cron de auto-programación ahora solo captura workers cuyo EMO vence en los próximos 6 días (no 30).
+
+### 4. ProgramacionEmoRepository — notificación de rechazo
+
+**Case "Rechazar"** en `ClinicaAccion` extendido:
+```csharp
+case "Rechazar":
+    ent.Estado = "Rechazado por Clínica";
+    ent.MotivoRechazo = dto.MotivoRechazo;
+    ent.UpdatedAt = DateTimeOffset.UtcNow;
+    await ctx.SaveChangesAsync();
+    await EnviarNotificacionRechazoAsync(ctx, ent, worker, dto.MotivoRechazo);
+    return;
+```
+Antes solo asignaba los campos y hacía `break` — el `SaveChangesAsync` compartido del final no llegaba a ejecutarse.
+
+**Nuevo método `EnviarNotificacionRechazoAsync`** — mirrors `EnviarNotificacionAceptacionAsync`:
+- Mismo routing por tipo worker (Obrero / Staff / OficinaCentral / Contratista → return inmediato)
+- Subject: `"[PRUEBAS - NO RESPONDER] [EMO Rechazado] {nombre} — {fecha}"`
+- Body HTML igual al de aceptación pero con fila extra en rojo: `"Motivo de rechazo: {motivo}"`
+
+### 5. SharePointHabService — sitio SSOMAOcupacional
+
+`Features/HabilitacionModule/Application/Services/SharePointHabService.cs`:
+
+**`ResolverSiteId`** — nueva condición:
+```csharp
+if (c.Contains("interconsulta") || c.Contains("lectura-emo"))
+    return _configuration["SharePoint:Sites:SSOMAOcupacional:SiteId"]!;
+return _configuration["SharePoint:Sites:SSOMAApps:SiteId"]!;
+```
+
+**`ResolverLibraryId`** — dos nuevas entradas al final:
+```csharp
+if (c.Contains("interconsulta")) return _configuration["SharePoint:Sites:SSOMAOcupacional:EmoInterconsultasLibraryId"];
+if (c.Contains("lectura-emo"))   return _configuration["SharePoint:Sites:SSOMAOcupacional:LecturaEmosLibraryId"];
+```
+
+**`appsettings.json`** — nueva sección añadida bajo `SharePoint:Sites`:
+```json
+"SSOMAOcupacional": {
+  "SiteId": "",
+  "EmoInterconsultasLibraryId": "",
+  "LecturaEmosLibraryId": ""
+}
+```
+Valores reales van en `appsettings.Local.json` (gitignored).
+
+### 6. InterconsultaController — endpoint SubirDocumento
+
+`Features/SsomaModule/SaludOcupacionalFeature/Presentation/InterconsultaController.cs`:
+
+Inyecciones añadidas: `IDbContextFactory<AppDbContext> _factory`, `ISharePointHabService _sharePoint`.
+
+Nuevo endpoint:
+```
+POST /api/v1/ssoma/salud-ocupacional/interconsultas/{id}/documentos
+[Consumes("multipart/form-data")]  [FromForm] IFormFile file
+```
+- Valida que `file` no sea nulo ni vacío (400)
+- Busca `SsInterconsulta` por id (404 si no existe)
+- Sube a SharePoint con contexto `"interconsulta"` → biblioteca `EmoInterconsultasLibraryId`
+- Guarda el path retornado en `interconsulta.UrlInforme`
+- Retorna `{ url }`
+
+### 7. InterconsultaRepository.Create — actualiza SsHabTrabajador item 25
+
+Tras `ctx.SsInterconsulta.Add(ent)` y antes de `SaveChangesAsync`, actualiza el ítem "Lectura de EMO":
+```csharp
+var lecturaEmo = await ctx.SsHabTrabajador
+    .FirstOrDefaultAsync(h => h.WorkerId == dto.WorkerId && h.ItemId == 25);
+if (lecturaEmo != null)
+{
+    lecturaEmo.Estado = "En revision";
+    lecturaEmo.ObsAbril = $"Interconsulta pendiente — {dto.Especialidad}";
+    lecturaEmo.UpdatedAt = DateTime.UtcNow;  // DateTime?, no DateTimeOffset
+}
+```
+
+### 8. InterconsultaRepository.UpdateResultado — efectos colaterales al Completar
+
+Cuando `dto.Estado == "Completado"`, antes del `SaveChangesAsync` final:
+
+1. Actualiza `SsHabTrabajador` item 25 a `"Aprobado"`:
+```csharp
+lecturaEmo.Estado = "Aprobado";
+lecturaEmo.ObsAbril = $"Interconsulta levantada — {dto.FechaAtencion}";
+lecturaEmo.UpdatedAt = DateTime.UtcNow;
+```
+
+2. Busca la programación EMO activa más reciente del worker y la pone `"En Atención"`:
+```csharp
+var prog = await ctx.SsProgramacionEmo
+    .Where(p => p.WorkerId == ent.WorkerId
+             && p.Estado != "Completado"
+             && p.Estado != "Cancelado"
+             && p.Estado != "Rechazado por Clínica")
+    .OrderByDescending(p => p.FechaProgramada)
+    .FirstOrDefaultAsync();
+if (prog != null)
+{
+    prog.Estado = "En Atención";
+    prog.UpdatedAt = DateTimeOffset.UtcNow;
+}
+```
+`SsProgramacionEmo` no tiene `EmoId` (solo `EmoResultadoId`, FK post-completado) — el vínculo se hace por `WorkerId`.
+
+### Notas técnicas
+
+- `SsHabTrabajador.UpdatedAt` es `DateTime?` → usar `DateTime.UtcNow` (no `DateTimeOffset.UtcNow`)
+- `SsProgramacionEmo.UpdatedAt` es `DateTimeOffset?` → usar `DateTimeOffset.UtcNow`
+- `ctx.SsHabTrabajador` usa `=> Set<SsHabTrabajador>()` (expression, no `DbSet` propiedad estándar) — sigue siendo accesible igual

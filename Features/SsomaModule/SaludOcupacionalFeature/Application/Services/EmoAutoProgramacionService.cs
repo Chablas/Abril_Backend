@@ -30,7 +30,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             using var ctx = _factory.CreateDbContext();
 
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5).Date);
-            var ventanaFin = hoy.AddDays(30);
+            var ventanaFin = hoy.AddDays(6);
 
             var candidatosRaw = await (
                 from e in ctx.WorkerEmo

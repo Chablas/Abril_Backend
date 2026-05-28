@@ -42,4 +42,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public DateOnly? ActualEndDate { get; set; }
         public int ProgressPercentage { get; set; }
     }
+
+    public class DebugProyectoDto
+    {
+        public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = string.Empty;
+        public bool TieneUnidadDeProyectos { get; set; }
+        public bool State { get; set; }
+    }
 }

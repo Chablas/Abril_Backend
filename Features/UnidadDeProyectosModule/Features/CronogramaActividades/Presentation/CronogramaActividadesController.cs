@@ -87,6 +87,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // GET /api/v1/cronograma-actividades/debug-proyectos  — TEMPORAL, quitar tras diagnóstico
+        [HttpGet("debug-proyectos")]
+        public async Task<IActionResult> DebugProyectos()
+        {
+            try
+            {
+                var result = await _service.GetDebugProyectosAsync();
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // DELETE /api/v1/cronograma-actividades/actividades/{projectActivityId}
         [HttpDelete("actividades/{projectActivityId:int}")]
         public async Task<IActionResult> EliminarActividad(int projectActivityId)

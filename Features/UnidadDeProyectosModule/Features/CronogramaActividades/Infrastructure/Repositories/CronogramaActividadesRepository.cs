@@ -155,6 +155,21 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             };
         }
 
+        public async Task<List<DebugProyectoDto>> GetDebugProyectosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Project
+                .OrderBy(p => p.ProjectId)
+                .Select(p => new DebugProyectoDto
+                {
+                    ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    TieneUnidadDeProyectos = p.TieneUnidadDeProyectos,
+                    State = p.State
+                })
+                .ToListAsync();
+        }
+
         public async Task EliminarActividadAsync(int projectActivityId, int userId)
         {
             using var ctx = _factory.CreateDbContext();

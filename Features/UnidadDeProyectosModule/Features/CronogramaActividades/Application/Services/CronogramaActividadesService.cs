@@ -30,5 +30,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         public Task EliminarActividadAsync(int projectActivityId, int userId)
             => _repository.EliminarActividadAsync(projectActivityId, userId);
+
+        public Task<List<DebugProyectoDto>> GetDebugProyectosAsync()
+            => _repository.GetDebugProyectosAsync();
     }
 }

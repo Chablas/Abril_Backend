@@ -136,7 +136,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             const int pageSize = 10;
 
             var projectQuery = _context.Project
-                .Where(p => p.Active && p.State)
+                .Where(p => p.Active && p.State && p.TieneUnidadDeProyectos)
                 .OrderByDescending(p => p.ProjectId);
 
             var totalRecords = await projectQuery.CountAsync();

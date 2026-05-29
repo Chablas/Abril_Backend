@@ -161,7 +161,6 @@ namespace Abril_Backend.Infrastructure.Data
         // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();
-        public DbSet<AreaSubarea> AreaSubarea => Set<AreaSubarea>();
         public DbSet<ScopeItem> ScopeItem => Set<ScopeItem>();
         public DbSet<ScopeTemplate> ScopeTemplate => Set<ScopeTemplate>();
         public DbSet<ScopeTemplateItem> ScopeTemplateItem => Set<ScopeTemplateItem>();
@@ -431,11 +430,6 @@ namespace Abril_Backend.Infrastructure.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────
-            // AreaSubarea: unique (area_id, sub_area_id)
-            modelBuilder.Entity<AreaSubarea>()
-                .HasIndex(a => new { a.AreaId, a.SubAreaId })
-                .IsUnique();
-
             // ScopeItem: self-referential parent/children
             modelBuilder.Entity<ScopeItem>()
                 .HasOne(s => s.Parent)

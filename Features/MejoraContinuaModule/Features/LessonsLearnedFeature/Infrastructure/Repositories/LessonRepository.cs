@@ -159,6 +159,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     AreaId = x.lesson.AreaId,
                     AreaDescription = x.area != null ? x.area.AreaDescription : null,
 
+                    LessonAreaId = x.lesson.LessonAreaId,
+                    CatalogItemId = x.lesson.CatalogItemId,
+
                     PhaseStageSubStageSubSpecialtyId = x.lesson.PhaseStageSubStageSubSpecialtyId,
 
                     PhaseId = x.psss != null ? (int?)x.psss.PhaseId : null,
@@ -216,6 +219,23 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             {
                 if (imagesByLesson.TryGetValue(lesson.LessonId, out var imgs))
                     lesson.Images = imgs;
+            }
+
+            // Enriquecer área + clasificación desde el nuevo modelo (lesson_area + scope_item)
+            var enrichments = await LessonEnrichmentHelper.ComputeAsync(
+                ctx,
+                registros.Select(r => (r.LessonId, r.LessonAreaId, r.CatalogItemId)).ToList()
+            );
+            foreach (var lesson in registros)
+            {
+                if (!enrichments.TryGetValue(lesson.LessonId, out var e)) continue;
+                if (e.AreaDescription != null)         lesson.AreaDescription = e.AreaDescription;
+                if (e.PhaseDescription != null)        lesson.PhaseDescription = e.PhaseDescription;
+                if (e.StageDescription != null)        lesson.StageDescription = e.StageDescription;
+                if (e.LayerDescription != null)        lesson.LayerDescription = e.LayerDescription;
+                if (e.SubStageDescription != null)     lesson.SubStageDescription = e.SubStageDescription;
+                if (e.SubSpecialtyDescription != null) lesson.SubSpecialtyDescription = e.SubSpecialtyDescription;
+                if (e.PartidaDescription != null)      lesson.PartidaDescription = e.PartidaDescription;
             }
 
             return new PagedResult<LessonListDTO>

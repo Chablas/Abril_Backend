@@ -55,7 +55,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule
             services.AddScoped<ICatalogRepository, CatalogRepository>();
             services.AddScoped<ICatalogService, CatalogService>();
 
-            // Scope (AreaSubarea + ScopeItem + ScopeTemplate)
+            // Scope (ScopeItem + ScopeTemplate)
             services.AddScoped<IScopeRepository, ScopeRepository>();
             services.AddScoped<IScopeService, ScopeService>();
 

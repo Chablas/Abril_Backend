@@ -81,7 +81,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
 
         private async Task DeleteAreaScopeAsync(int areaId, AppDbContext ctx)
         {
-            // Modelo legacy: el scope ya no se asocia a las tablas Area/SubArea/AreaSubarea.
+            // Modelo legacy: el scope ya no se asocia a las tablas Area/SubArea.
             // Nada que borrar aquí.
             await Task.CompletedTask;
         }

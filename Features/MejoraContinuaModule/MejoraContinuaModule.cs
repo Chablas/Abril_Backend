@@ -22,6 +22,10 @@ using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFe
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Application.Services;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.MejoraContinuaModule
 {
@@ -58,6 +62,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule
             // Scope (ScopeItem + ScopeTemplate)
             services.AddScoped<IScopeRepository, ScopeRepository>();
             services.AddScoped<IScopeService, ScopeService>();
+
+            // LessonReminders (asignación usuario-proyecto para recordatorios mensuales)
+            services.AddScoped<ILessonReminderRepository, LessonReminderRepository>();
+            services.AddScoped<ILessonReminderService, LessonReminderService>();
 
             return services;
         }

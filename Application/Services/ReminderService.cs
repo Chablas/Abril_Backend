@@ -2,6 +2,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
 using System.Globalization;
 
 namespace Abril_Backend.Application.Services
@@ -12,6 +13,7 @@ namespace Abril_Backend.Application.Services
         private readonly IMilestoneScheduleRepository _milestoneScheduleRepository;
         private readonly IEmailService _emailService;
         private readonly IMilestoneScheduleHistoryRepository _milestoneScheduleHistoryRepository;
+        private readonly ILessonReminderRepository _lessonReminderRepository;
         private readonly List<string> _systemAdminsEmails = new List<string>
         {
             "alvarezvillegaschristian@outlook.com",
@@ -42,13 +44,15 @@ namespace Abril_Backend.Application.Services
             IUserProjectRepository userProjectRepository,
             IEmailService emailService,
             IMilestoneScheduleRepository milestoneScheduleRepository,
-            IMilestoneScheduleHistoryRepository milestoneScheduleHistoryRepository
+            IMilestoneScheduleHistoryRepository milestoneScheduleHistoryRepository,
+            ILessonReminderRepository lessonReminderRepository
         )
         {
             _userProjectRepository = userProjectRepository;
             _emailService = emailService;
             _milestoneScheduleRepository = milestoneScheduleRepository;
             _milestoneScheduleHistoryRepository = milestoneScheduleHistoryRepository;
+            _lessonReminderRepository = lessonReminderRepository;
         }
         public async Task<bool> ExecuteReminders()
         {
@@ -130,6 +134,14 @@ namespace Abril_Backend.Application.Services
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
             //var periodLabel = "Enero 2026";
             var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+
+            // Staff emails activos por proyecto (project_staff_reminder.active=true).
+            // Se notifica al grupo de staff de cada proyecto con usuarios pendientes.
+            var activeStaffEmails = await _lessonReminderRepository.GetActiveStaffEmailsAsync();
+            var staffByProjectId = activeStaffEmails
+                .GroupBy(s => s.ProjectId)
+                .ToDictionary(g => g.Key, g => g.First().StaffEmail);
+
             foreach (var item in pendingUserProjects)
             {
                 Console.WriteLine(item.Email);
@@ -168,11 +180,24 @@ namespace Abril_Backend.Application.Services
                 <p>Gracias por tu compromiso con la mejora continua.</p>
                 ";
 
+                // Recipientes: el usuario + staff_email activo de los proyectos donde tiene pendientes
+                var to = new List<string> { item.Email };
+                var staffCcSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in item.Projects)
+                {
+                    if (staffByProjectId.TryGetValue(p.ProjectId, out var staff)
+                        && !string.IsNullOrWhiteSpace(staff))
+                    {
+                        staffCcSet.Add(staff);
+                    }
+                }
+
                 await _emailService.SendAsync(
-                    to: new List<string> { item.Email },
+                    to: to,
                     subject: "🔔 Abril App Recordatorio: envío mensual de lecciones aprendidas pendiente",
                     body: body,
                     isHtml: true,
+                    cc: staffCcSet.Count > 0 ? staffCcSet.ToList() : null,
                     bcc: new List<string> {"calvarez@abril.pe"}
                 );
             }

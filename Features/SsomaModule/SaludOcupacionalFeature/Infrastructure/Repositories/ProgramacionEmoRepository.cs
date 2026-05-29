@@ -202,7 +202,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 case "Aceptar":
                     ent.Estado = "Aceptado por Clínica";
                     ent.MotivoRechazo = null;
-                    if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
+                    if (dto.HoraNueva.HasValue) ent.HoraProgramada = dto.HoraNueva.Value;
+                    else if (dto.CheckInHora.HasValue) ent.HoraProgramada = dto.CheckInHora.Value;
                     if (dto.NuevaFecha.HasValue) ent.FechaProgramada = dto.NuevaFecha.Value;
                     ent.UpdatedAt = DateTimeOffset.UtcNow;
                     await ctx.SaveChangesAsync();
@@ -308,7 +309,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 await _emailService.SendAsync(
                     to: to,
-                    subject: $"[PRUEBAS - NO RESPONDER] [EMO Programado] {workerNombre} — {fechaStr}",
+                    subject: $"[EMO Programado] {workerNombre} — {fechaStr}",
                     body: html,
                     isHtml: true);
 
@@ -444,7 +445,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 await _emailService.SendAsync(
                     to: to,
-                    subject: $"[PRUEBAS - NO RESPONDER] [EMO Confirmado] {workerNombre} — {fechaStr}",
+                    subject: $"[EMO Confirmado] {workerNombre} — {fechaStr}",
                     body: html,
                     isHtml: true);
             }
@@ -574,7 +575,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 await _emailService.SendAsync(
                     to: to,
-                    subject: $"[PRUEBAS - NO RESPONDER] [EMO Rechazado] {workerNombre} — {fechaStr}",
+                    subject: $"[EMO Rechazado] {workerNombre} — {fechaStr}",
                     body: html,
                     isHtml: true);
             }

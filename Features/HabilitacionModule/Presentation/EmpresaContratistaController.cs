@@ -37,12 +37,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         public async Task<IActionResult> GetPaged(
             [FromQuery] string? search,
             [FromQuery] bool? activo,
+            [FromQuery] bool? soloContratistas,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
             try
             {
-                var (items, total) = await _repo.GetPagedAsync(search, activo, page, pageSize);
+                var (items, total) = await _repo.GetPagedAsync(search, activo, soloContratistas, page, pageSize);
 
                 return Ok(new PagedResult<EmpresaContratistaListDto>
                 {

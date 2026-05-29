@@ -18,6 +18,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         ContractPackage,
         Instructivo,
         NonConformingOutput,
-        ToleranceChart
+        ToleranceChart,
+        FichaTecnica,
+        Anexo
     }
 }

@@ -84,7 +84,7 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                 {
                     throw new AbrilException(
                         "No se puede guardar el archivo porque ya existe un archivo con el mismo nombre que está abierto o en uso. " +
-                        "Por favor, cierre la pestaña o descarga del archivo en uso e intente de nuevo.",
+                        "Por favor, cierre la pestaña o cancele la descarga del archivo en uso e intente de nuevo.",
                         StatusCodes.Status409Conflict);
                 }
 

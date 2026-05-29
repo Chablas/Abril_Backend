@@ -1,4 +1,5 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interconsulta;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
@@ -58,8 +59,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task<int> Create(InterconsultaCreateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var emo = await ctx.WorkerEmo.FirstOrDefaultAsync(e => e.Id == dto.EmoId)
-                ?? throw new AbrilException("EMO no encontrado.", 404);
+            if (dto.EmoId.HasValue)
+                _ = await ctx.WorkerEmo.FirstOrDefaultAsync(e => e.Id == dto.EmoId.Value)
+                    ?? throw new AbrilException("EMO no encontrado.", 404);
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == dto.WorkerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
@@ -72,12 +74,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 FechaDerivacion = dto.FechaDerivacion,
                 CentroAtencion = dto.CentroAtencion,
                 RequiereSeguimiento = dto.RequiereSeguimiento,
+                UrlInforme = dto.UrlInforme,
                 Estado = "Pendiente",
                 RegistradoPorId = userId,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             ctx.SsInterconsulta.Add(ent);
+
+            var lecturaEmo = await ctx.SsHabTrabajador
+                .FirstOrDefaultAsync(h => h.WorkerId == dto.WorkerId && h.ItemId == 25);
+            if (lecturaEmo != null)
+            {
+                lecturaEmo.Estado = "En revision";
+                lecturaEmo.ObsAbril = $"Interconsulta pendiente — {dto.Especialidad}";
+                lecturaEmo.UpdatedAt = DateTime.UtcNow;
+            }
+
             await ctx.SaveChangesAsync();
             return ent.Id;
         }
@@ -114,6 +127,32 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.UrlInforme != null) ent.UrlInforme = dto.UrlInforme;
             if (dto.RequiereSeguimiento.HasValue) ent.RequiereSeguimiento = dto.RequiereSeguimiento.Value;
             ent.UpdatedAt = DateTimeOffset.UtcNow;
+
+            if (dto.Estado == "Completado")
+            {
+                var lecturaEmo = await ctx.SsHabTrabajador
+                    .FirstOrDefaultAsync(h => h.WorkerId == ent.WorkerId && h.ItemId == 25);
+                if (lecturaEmo != null)
+                {
+                    lecturaEmo.Estado = "En revision";
+                    lecturaEmo.ObsAbril = $"Interconsulta levantada — pendiente EMO — {dto.FechaAtencion}";
+                    lecturaEmo.UpdatedAt = DateTime.UtcNow;
+                }
+
+                var prog = await ctx.SsProgramacionEmo
+                    .Where(p => p.WorkerId == ent.WorkerId
+                             && p.Estado != "Completado"
+                             && p.Estado != "Cancelado"
+                             && p.Estado != "Rechazado por Clínica")
+                    .OrderByDescending(p => p.FechaProgramada)
+                    .FirstOrDefaultAsync();
+                if (prog != null)
+                {
+                    prog.Estado = "En Atención";
+                    prog.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+            }
+
             await ctx.SaveChangesAsync();
         }
     }

@@ -244,7 +244,33 @@ public static class WordTemplateHelper
         var stripped = StripBold(rPr);
         if (string.IsNullOrEmpty(stripped))
             return "<w:rPr><w:b/><w:bCs/></w:rPr>";
-        return stripped.Replace("</w:rPr>", "<w:b/><w:bCs/></w:rPr>");
+
+        // El esquema OOXML (CT_RPr) exige un orden específico de los hijos de <w:rPr>:
+        // <w:b/> debe ir DESPUÉS de <w:rStyle>/<w:rFonts> pero ANTES de <w:sz>, <w:color>, etc.
+        // Insertarlo al final (antes de </w:rPr>) produce XML fuera de orden que Word Online
+        // ignora, perdiéndose la negrita. Por eso lo insertamos en la posición correcta.
+        int insertAt = -1;
+        var mFonts = Regex.Match(stripped, @"<w:rFonts\b[^>]*>");
+        if (mFonts.Success)
+        {
+            insertAt = mFonts.Index + mFonts.Length;
+        }
+        else
+        {
+            var mStyle = Regex.Match(stripped, @"<w:rStyle\b[^>]*>");
+            if (mStyle.Success)
+                insertAt = mStyle.Index + mStyle.Length;
+            else
+            {
+                var mOpen = Regex.Match(stripped, @"<w:rPr\b[^>]*>");
+                if (mOpen.Success)
+                    insertAt = mOpen.Index + mOpen.Length;
+            }
+        }
+
+        return insertAt >= 0
+            ? stripped.Insert(insertAt, "<w:b/><w:bCs/>")
+            : stripped.Replace("</w:rPr>", "<w:b/><w:bCs/></w:rPr>"); // fallback defensivo
     }
 
     // ─────────────────────────────────────────────────────────────────────────

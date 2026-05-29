@@ -9,5 +9,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task Update(int id, ProgramacionUpdateDto dto, int? userId);
         Task UpdateEstado(int id, string estado, int? emoResultadoId, int? userId);
         Task ClinicaAccion(int id, ProgramacionClinicaAccionDto dto, int? userId);
+        Task<List<ProgramacionHabilitacionDto>> GetHabilitacionAsync(ProgramacionHabilitacionFiltrosDto filtros);
+        Task PatchNotificadoAsync(int id, bool notificado);
+        Task UndoCheckInAsync(int id);
     }
 }

@@ -22,6 +22,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public string? ContractModalityDescription { get; set; }
         public int PaymentMethodId { get; set; }
         public string PaymentMethodDescription { get; set; }
+        public int? PaymentFormId { get; set; }
+        public string? PaymentFormDescription { get; set; }
         public decimal? AdvancePercentage {get;set;}
         public decimal? AdvanceAmount {get;set;}
         public decimal Amount { get; set; }
@@ -43,6 +45,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int?   PromissoryNoteNumber      { get; set; }
         public int?   GuaranteeFundPercentage   { get; set; }
         public int?   GuaranteeFundDays         { get; set; }
+        public int?   GuaranteeValidityDays     { get; set; }
         public bool?  ArrivedWithObservations   { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public string? CreatedUserFullName { get; set; }
@@ -67,5 +70,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         // Salidas no conforme y cuadro de tolerancias (paso 3 — solo subida)
         public ProjectSubContractorFileDto? NonConformingOutput { get; set; }
         public ProjectSubContractorFileDto? ToleranceChart { get; set; }
+        // Ficha técnica y anexos (paso 3 — solo subida)
+        public ProjectSubContractorFileDto? FichaTecnica { get; set; }
+        public ProjectSubContractorFileDto? Anexo { get; set; }
     }
 }

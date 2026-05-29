@@ -64,6 +64,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("updated_at")]
         public DateTimeOffset? UpdatedAt { get; set; }
 
+        [Column("notificado")]
+        public bool Notificado { get; set; }
+
         [ForeignKey(nameof(WorkerId))]
         public Worker? Worker { get; set; }
 

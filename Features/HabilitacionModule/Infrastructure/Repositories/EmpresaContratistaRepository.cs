@@ -43,12 +43,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         }
 
         public async Task<(List<EmpresaContratistaListDto> Items, int Total)> GetPagedAsync(
-            string? search, bool? activo, int page, int pageSize)
+            string? search, bool? activo, bool? soloContratistas, int page, int pageSize)
         {
             using var ctx = _factory.CreateDbContext();
 
+            var filtrarContratistas = soloContratistas ?? true;
             var query = ctx.Contributor
-                .Where(c => !c.EsAbril)
+                .Where(c => !filtrarContratistas || !c.EsAbril)
                 .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(search))

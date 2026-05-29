@@ -153,6 +153,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             {
                 using var ctx = _factory.CreateDbContext();
 
+                dto.Token = dto.Token?.Replace(" ", "+");
                 var tokenReg = await ctx.SsClinicaToken
                     .FirstOrDefaultAsync(t => t.Token == dto.Token && t.Tipo == "ACTIVACION" && t.UsadoEn == null && t.Expiracion > DateTime.UtcNow);
 

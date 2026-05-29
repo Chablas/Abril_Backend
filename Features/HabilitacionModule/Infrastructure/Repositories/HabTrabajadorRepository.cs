@@ -52,7 +52,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<(List<WorkerHabilitacionListDto> Items, int Total)> GetWorkersHabilitacionAsync(
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
-            int page, int pageSize, bool soloRetirados = false)
+            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -86,7 +86,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
                         ? "No Autorizado"
-                        : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id && h.Estado == "En Plazo" &&
+                        : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id && h.Estado == "En plazo" &&
                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
                         ? "Autorizado Temporalmente"
                         : "Habilitado"
@@ -129,6 +129,24 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(estadoHabilitacion))
                 baseQuery = baseQuery.Where(x => x.EstadoCalc == estadoHabilitacion);
+
+            if (soloSinEmo)
+                baseQuery = baseQuery.Where(x =>
+                    x.Worker.FechaRetiro == null
+                    && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
+                                                   && v.FechaFin == null
+                                                   && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
+                    && !ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo));
+
+            if (soloEmoVencido)
+            {
+                var hoy = DateOnly.FromDateTime(DateTime.Today);
+                baseQuery = baseQuery.Where(x =>
+                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id
+                                       && e.Activo
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoy));
+            }
 
             var total = await baseQuery.CountAsync();
 
@@ -1078,8 +1096,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (dto.ApellidoNombre is not null && w.Person is not null) w.Person.FullName = dto.ApellidoNombre;
             if (dto.Celular is not null && w.Person is not null) w.Person.PhoneNumber = int.TryParse(dto.Celular, out var ph) ? ph : (int?)null;
-            if (dto.EmailPersonal is not null) w.EmailPersonal = dto.EmailPersonal;
-            if (dto.EmailCorporativo is not null) w.EmailCorporativo = dto.EmailCorporativo;
+            if (dto.EmailPersonal is not null)    w.EmailPersonal = dto.EmailPersonal;
+            else if (dto.EmailCorporativo is not null) w.EmailPersonal = dto.EmailCorporativo;
             if (dto.FechaNacimiento.HasValue) w.FechaNacimiento = dto.FechaNacimiento;
             if (dto.FechaIngreso.HasValue) w.FechaIngreso = dto.FechaIngreso;
             if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
@@ -1214,7 +1232,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Ruc = w.Contributor?.ContributorRuc,
             Celular = w.Person?.PhoneNumber?.ToString(),
             EmailPersonal = w.EmailPersonal,
-            EmailCorporativo = w.EmailCorporativo,
+            EmailCorporativo = null,  // columna en BD ya no se usa; mantener el campo en DTO por compat. de API.
             FechaNacimiento = w.FechaNacimiento,
             FechaIngreso = w.FechaIngreso,
             FechaRetiro = w.FechaRetiro,

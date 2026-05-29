@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
 {
     public class EmoCreateDto
@@ -17,5 +19,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public InterconsultaInlineDto? InterconsultaInline { get; set; }
         public List<EmoExamenDto> Examenes { get; set; } = new();
         public List<EmoRestriccionDto> Restricciones { get; set; } = new();
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public IFormFile? DocumentoInterconsulta { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public IFormFile? ArchivoLectura { get; set; }
     }
 }

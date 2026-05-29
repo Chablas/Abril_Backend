@@ -62,12 +62,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return Pick(gerenteResto);
         }
 
-        /// <summary>Email personal primero, corporativo como fallback.</summary>
+        /// <summary>Devuelve el email del trabajador, o null si no tiene.</summary>
         private static string? Pick(Worker? w)
         {
             if (w == null) return null;
-            if (!string.IsNullOrWhiteSpace(w.EmailPersonal))    return w.EmailPersonal.Trim();
-            if (!string.IsNullOrWhiteSpace(w.EmailCorporativo)) return w.EmailCorporativo.Trim();
+            if (!string.IsNullOrWhiteSpace(w.EmailPersonal)) return w.EmailPersonal.Trim();
             return null;
         }
     }

@@ -24,8 +24,9 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("email_personal")]
         public string? EmailPersonal { get; set; }
 
-        [Column("email_corporativo")]
-        public string? EmailCorporativo { get; set; }
+        // Nota: la columna email_corporativo existe en BD pero está siempre en NULL.
+        // El email corporativo @abril.pe se guarda en email_personal.
+        // Si en el futuro se quiere reactivar, restaurar la propiedad EmailCorporativo aquí.
 
         [Column("fecha_nacimiento")]
         public DateOnly? FechaNacimiento { get; set; }

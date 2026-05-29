@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-05-29 — Habilitacion endpoint en ProgramacionEmo, Notificado en SsProgramacionEmo, ApproverResolver en ProgramacionEmoRepository, filtro Completado en auto-programación
+> Última actualización: 2026-05-29 — SctrVidaLeyRepository optimizado (LEFT JOIN habs + bulk vinculaciones), AprobarAsync fuerza Aprobado si sin pendientes, CatalogosRepository ListEmpresas sin filtro EsAbril
 
 ---
 
@@ -586,6 +586,19 @@ La propiedad existía en `FrontendSettings.cs` pero faltaba en los archivos de c
 ### 7r. EmpresaContratistaController.Create — validación RUC en contributor
 
 Al crear una empresa contratista, el endpoint verifica que el RUC no exista ya en `contributor`. Si existe → 400. La creación genera `Contributor` + `Contractor` (StateId=2 Aprobado) + filas `ContractorEmail`. No hay `IdLegacy` ni referencias a `ss_empresa_contratista`.
+
+### 7v. SctrVidaLeyRepository — optimizaciones (2026-05-29)
+
+`GetTrabajadoresPorEmpresaAsync`:
+- Filtros `estadoSctr`/`estadoVidaLey` movidos a BD mediante LEFT JOIN EF (`GroupJoin + DefaultIfEmpty`) con COALESCE equivalente (`habX != null ? habX.Estado : "Falta"`). Ya no se filtran en memoria.
+- N+1 de vinculación/empresa/proyecto eliminado: una sola query bulk por cada entidad, resueltas con diccionarios en memoria.
+- `empresaId == null` omite el filtro de empresa (devuelve todos los workers vinculados activos); el filtro de estado reduce el resultado.
+
+`AprobarAsync`: tras calcular `nuevoEstado`, si no quedan workers con `Estado == "Enviado"` en la póliza, se fuerza `nuevoEstado = "Aprobado"` (evita dejar la póliza en "Parcial" cuando todos ya fueron procesados).
+
+### 7w. CatalogosRepository — ListEmpresas sin filtro EsAbril (2026-05-29)
+
+`ListEmpresas` en SsomaModule ahora filtra solo por `e.State` (eliminado `&& e.EsAbril`). Devuelve tanto empresas Abril como contratistas.
 
 ### 7s. SsProgramacionEmo — campo Notificado (2026-05-29)
 

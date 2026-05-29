@@ -74,6 +74,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
                         WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
                         Empresa = x.em != null ? x.em.ContributorName : null,
+                        Proyecto = (from v in ctx.WorkerVinculacion
+                                    join pr in ctx.Project on v.ProyectoId equals (int?)pr.ProjectId
+                                    where v.WorkerId == x.p.WorkerId && v.FechaFin == null
+                                    orderby v.CreatedAt descending
+                                    select (string?)pr.ProjectDescription)
+                                   .FirstOrDefault(),
                         TipoEmoId = x.p.TipoEmoId,
                         TipoEmo = x.t != null ? x.t.Nombre : null,
                         FechaProgramada = x.p.FechaProgramada,
@@ -613,7 +619,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var vinMap = vinculaciones
                 .GroupBy(v => v.WorkerId)
-                .ToDictionary(g => g.Key, g => g.First());
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(v => v.CreatedAt).First());
 
             var result = list
                 .Where(p => !f.ProyectoId.HasValue || (vinMap.TryGetValue(p.WorkerId, out var vCheck) && vCheck.ProyectoId == f.ProyectoId.Value))
@@ -636,6 +642,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     };
                 })
                 .ToList();
+
+            if (result.Count > 0)
+                _logger.LogInformation("[GetHabilitacion] primer item — Id={Id} Trabajador={Trabajador} RazonSocial={RazonSocial} Proyecto={Proyecto}",
+                    result[0].Id, result[0].Trabajador, result[0].RazonSocial, result[0].Proyecto);
 
             return result;
         }

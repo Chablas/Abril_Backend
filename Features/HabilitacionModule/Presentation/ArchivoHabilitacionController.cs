@@ -49,10 +49,10 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
 
         private static readonly HashSet<string> ExtensionesPermitidas = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".pdf", ".jpg", ".jpeg", ".png", ".docx", ".xlsx"
+            ".pdf", ".jpg", ".jpeg", ".png", ".docx", ".xlsx", ".zip"
         };
 
-        private const long MaxFileSize = 50_000_000;
+        private const long MaxFileSize = 3_000_000_000;
 
         [HttpPost("subir")]
         [RequestSizeLimit(MaxFileSize)]

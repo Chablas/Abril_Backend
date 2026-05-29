@@ -10,10 +10,22 @@ using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTem
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Application.Services;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Infrastructure.Repositories;
-using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Application.Interfaces;
-using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Application.Services;
-using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Infrastructure.Interfaces;
-using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.RelationsFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.CatalogFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.CatalogFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.CatalogFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.CatalogFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.MejoraContinuaModule
 {
@@ -39,9 +51,21 @@ namespace Abril_Backend.Features.MejoraContinuaModule
             services.AddScoped<IPsssTemplateRepository, PsssTemplateRepository>();
             services.AddScoped<IPsssTemplateService, PsssTemplateService>();
 
-            // Relations
-            services.AddScoped<IRelationsRepository, RelationsRepository>();
-            services.AddScoped<IRelationsService, RelationsService>();
+            // LessonAreas (filtro de areas habilitadas para Lecciones Aprendidas)
+            services.AddScoped<ILessonAreaRepository, LessonAreaRepository>();
+            services.AddScoped<ILessonAreaService, LessonAreaService>();
+
+            // Catalog
+            services.AddScoped<ICatalogRepository, CatalogRepository>();
+            services.AddScoped<ICatalogService, CatalogService>();
+
+            // Scope (ScopeItem + ScopeTemplate)
+            services.AddScoped<IScopeRepository, ScopeRepository>();
+            services.AddScoped<IScopeService, ScopeService>();
+
+            // LessonReminders (asignación usuario-proyecto para recordatorios mensuales)
+            services.AddScoped<ILessonReminderRepository, LessonReminderRepository>();
+            services.AddScoped<ILessonReminderService, LessonReminderService>();
 
             return services;
         }

@@ -10,5 +10,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
         Task CreateAsync(SubAreaCreateDTO dto, int userId);
         Task UpdateAsync(SubAreaEditDTO dto, int userId);
         Task<bool> DeleteSoftAsync(int subAreaId, int userId);
+        Task<bool> AreaHasScopeAsync(int areaId);
     }
 }

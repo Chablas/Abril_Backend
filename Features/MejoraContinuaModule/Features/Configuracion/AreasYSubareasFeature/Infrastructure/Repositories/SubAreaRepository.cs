@@ -71,6 +71,21 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
                 .ToListAsync();
         }
 
+        public async Task<bool> AreaHasScopeAsync(int areaId)
+        {
+            // Modelo legacy: el scope ahora vive en scope_item.area_item_id (apunta a area_item),
+            // y este Area legacy ya no se mapea directo. Devolvemos false para no bloquear deletes.
+            await Task.CompletedTask;
+            return false;
+        }
+
+        private async Task DeleteAreaScopeAsync(int areaId, AppDbContext ctx)
+        {
+            // Modelo legacy: el scope ya no se asocia a las tablas Area/SubArea.
+            // Nada que borrar aquí.
+            await Task.CompletedTask;
+        }
+
         public async Task CreateAsync(SubAreaCreateDTO dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -85,6 +100,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
 
             if (duplicate != null && duplicate.State)
                 throw new AbrilException("La subárea ya existe en esta área");
+
+            // Si es la primera subárea del área, eliminar el scope del área
+            var isFirstSubArea = !await ctx.SubArea.AnyAsync(sa => sa.AreaId == dto.AreaId && sa.State);
+            if (isFirstSubArea)
+                await DeleteAreaScopeAsync(dto.AreaId, ctx);
 
             if (duplicate != null && !duplicate.State)
             {

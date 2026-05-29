@@ -35,6 +35,7 @@ namespace Abril_Backend.Shared.Models {
         public string? EmailRrhh {get; set;}
         public string? EmailCoordSsoma {get; set;}
         public string? EmailCoordAdmin {get; set;}
+        public string? StaffEmail {get; set;}
 
         // Fechas del proyecto
         public DateOnly? FechaInicio {get; set;}

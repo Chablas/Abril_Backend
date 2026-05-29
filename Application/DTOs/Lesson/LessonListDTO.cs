@@ -12,9 +12,9 @@ namespace Abril_Backend.Application.DTOs {
         public int? ProjectId {get; set;}
         public string? ProjectDescription  {get; set;}
         public int AreaId {get; set;}
-        public string AreaDescription {get; set;}
-        public int? SubAreaId {get; set;}
-        public string? SubAreaDescription {get; set;}
+        public string? AreaDescription {get; set;}
+        public int? LessonAreaId {get; set;}
+        public int? CatalogItemId {get; set;}
         public int? PhaseStageSubStageSubSpecialtyId {get; set;}
         public int? PhaseId {get;set;}
         public string? PhaseDescription {get;set;}

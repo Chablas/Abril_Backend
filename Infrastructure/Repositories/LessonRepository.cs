@@ -3,6 +3,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Application.DTOs;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Helpers;
 
 namespace Abril_Backend.Infrastructure.Repositories
 {
@@ -97,7 +98,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 from project in pj.DefaultIfEmpty()
 
                 join area in _context.Area
-                    on lesson.AreaId equals area.AreaId
+                    on lesson.AreaId equals area.AreaId into aj
+                from area in aj.DefaultIfEmpty()
 
                 join psss in _context.PhaseStageSubStageSubSpecialty
                     on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId into pssj
@@ -154,7 +156,10 @@ namespace Abril_Backend.Infrastructure.Repositories
                     ProjectDescription = project != null ? project.ProjectDescription : null,
 
                     AreaId = lesson.AreaId,
-                    AreaDescription = area.AreaDescription,
+                    AreaDescription = area != null ? area.AreaDescription : null,
+
+                    LessonAreaId = lesson.LessonAreaId,
+                    CatalogItemId = lesson.CatalogItemId,
 
                     PhaseStageSubStageSubSpecialtyId = lesson.PhaseStageSubStageSubSpecialtyId,
 
@@ -206,6 +211,23 @@ namespace Abril_Backend.Infrastructure.Repositories
                     ImageTypeDescription = imagetype.ImageTypeDescription
                 }
             ).ToListAsync();
+
+            // 🔹 Enriquecer con área (lesson_area → area_scope → area_item) y
+            //    clasificación (scope_item walk-up por catalog_type) del nuevo modelo.
+            var enrichments = await LessonEnrichmentHelper.ComputeAsync(
+                _context,
+                new[] { (registro.LessonId, registro.LessonAreaId, registro.CatalogItemId) }
+            );
+            if (enrichments.TryGetValue(registro.LessonId, out var e))
+            {
+                if (e.AreaDescription != null)         registro.AreaDescription = e.AreaDescription;
+                if (e.PhaseDescription != null)        registro.PhaseDescription = e.PhaseDescription;
+                if (e.StageDescription != null)        registro.StageDescription = e.StageDescription;
+                if (e.LayerDescription != null)        registro.LayerDescription = e.LayerDescription;
+                if (e.SubStageDescription != null)     registro.SubStageDescription = e.SubStageDescription;
+                if (e.SubSpecialtyDescription != null) registro.SubSpecialtyDescription = e.SubSpecialtyDescription;
+                if (e.PartidaDescription != null)      registro.PartidaDescription = e.PartidaDescription;
+            }
 
             return registro;
         }

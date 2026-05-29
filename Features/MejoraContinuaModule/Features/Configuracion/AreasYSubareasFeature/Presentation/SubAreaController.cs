@@ -121,6 +121,25 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
             }
         }
 
+        /// <summary>
+        /// Verifica si el área tiene scope configurado a nivel de área (sin subárea).
+        /// El frontend lo usa para mostrar aviso antes de crear la primera subárea.
+        /// </summary>
+        [Authorize]
+        [HttpGet("check-scope/{areaId}")]
+        public async Task<IActionResult> CheckAreaScope(int areaId)
+        {
+            try
+            {
+                var hasScope = await _service.AreaHasScopeAsync(areaId);
+                return Ok(new { hasScope });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [Authorize]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)

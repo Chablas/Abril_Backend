@@ -14,8 +14,13 @@ namespace Abril_Backend.Application.DTOs
         [MaxLength(2000, ErrorMessage = "La descripción del impacto no puede exceder 2000 caracteres.")]
         public string ImpactDescription { get; set; }
         public int ProjectId { get; set; }
+        // Legacy: areaId queda opcional (las lecciones nuevas usan LessonAreaId).
         public int AreaId { get; set; }
-        public int? SubAreaId { get; set; }
+        /// <summary>Rama seleccionada (lesson_area) — reemplaza al area legacy.</summary>
+        public int? LessonAreaId { get; set; }
+        /// <summary>Nodo hoja seleccionado del árbol de scope (reemplaza PhaseId/StageId/etc).</summary>
+        public int? CatalogItemId { get; set; }
+        // Campos legacy — se mantienen para lecciones antiguas creadas antes de la migración
         public int PhaseId { get; set; }
         public int? StageId { get; set; }
         public int? LayerId { get; set; }

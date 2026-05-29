@@ -9,6 +9,7 @@ using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
+using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -157,6 +158,19 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<PsssScope> PsssScope => Set<PsssScope>();
         public DbSet<PsssTemplate> PsssTemplate => Set<PsssTemplate>();
         public DbSet<PsssTemplateDetail> PsssTemplateDetail => Set<PsssTemplateDetail>();
+        // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
+        public DbSet<CatalogType> CatalogType => Set<CatalogType>();
+        public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();
+        public DbSet<ScopeItem> ScopeItem => Set<ScopeItem>();
+        public DbSet<ScopeTemplate> ScopeTemplate => Set<ScopeTemplate>();
+        public DbSet<ScopeTemplateItem> ScopeTemplateItem => Set<ScopeTemplateItem>();
+        public DbSet<AreaType> AreaType => Set<AreaType>();
+        public DbSet<AreaItem> AreaItem => Set<AreaItem>();
+        public DbSet<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope> AreaScope => Set<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>();
+        public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea> LessonArea => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea>();
+        public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder> ProjectStaffReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder>();
+
+        // ── master ─────────────────────────────────────────────────────────────
         public DbSet<SsClinicaUsuario> SsClinicaUsuario => Set<SsClinicaUsuario>();
         public DbSet<SsClinicaToken> SsClinicaToken => Set<SsClinicaToken>();
         public DbSet<SsClinicaAuditoria> SsClinicaAuditoria => Set<SsClinicaAuditoria>();
@@ -416,6 +430,42 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(s => s.StaffProjectEmailTypeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────
+            // ScopeItem: self-referential parent/children
+            modelBuilder.Entity<ScopeItem>()
+                .HasOne(s => s.Parent)
+                .WithMany(s => s.Children)
+                .HasForeignKey(s => s.ScopeItemParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ScopeTemplateItem: self-referential parent/children
+            modelBuilder.Entity<ScopeTemplateItem>()
+                .HasOne(s => s.Parent)
+                .WithMany(s => s.Children)
+                .HasForeignKey(s => s.ScopeTemplateItemParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // AreaItem: FK a AreaType (sin jerarquía — eso vive en AreaScope)
+            modelBuilder.Entity<AreaItem>()
+                .HasOne(a => a.AreaType)
+                .WithMany()
+                .HasForeignKey(a => a.AreaTypeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // AreaScope: árbol con FK a AreaItem + self-referential parent
+            modelBuilder.Entity<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>()
+                .HasOne(s => s.AreaItem)
+                .WithMany()
+                .HasForeignKey(s => s.AreaItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>()
+                .HasOne(s => s.Parent)
+                .WithMany()
+                .HasForeignKey(s => s.AreaScopeParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ── master ─────────────────────────────────────────────────────
             modelBuilder.Entity<SsClinicaUsuario>().HasKey(x => x.ClinicaUsuarioId);
             modelBuilder.Entity<SsClinicaToken>().HasKey(x => x.TokenId);
             modelBuilder.Entity<SsClinicaAuditoria>().HasKey(x => x.AuditoriaId);
@@ -461,6 +511,19 @@ namespace Abril_Backend.Infrastructure.Data
             });
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
+
+            // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────
+            // ScopeItem: evitar ambigüedad en FK self-referential con snake_case
+            modelBuilder.Entity<ScopeItem>()
+                .Property(s => s.ScopeItemParentId)
+                .HasColumnName("scope_item_parent_id");
+
+            // ScopeTemplateItem: evitar ambigüedad en FK self-referential con snake_case
+            modelBuilder.Entity<ScopeTemplateItem>()
+                .Property(s => s.ScopeTemplateItemParentId)
+                .HasColumnName("scope_template_item_parent_id");
+
+            // ── master ─────────────────────────────────────────────────────
             modelBuilder.Entity<SsClinicaAuditoria>().Property(e => e.DetalleAdicional).HasColumnType("jsonb");
             modelBuilder.Entity<ProjectActivity>(entity =>
             {

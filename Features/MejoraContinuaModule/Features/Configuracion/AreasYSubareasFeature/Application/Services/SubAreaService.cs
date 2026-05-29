@@ -19,5 +19,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Are
         public Task CreateAsync(SubAreaCreateDTO dto, int userId) => _repository.CreateAsync(dto, userId);
         public Task UpdateAsync(SubAreaEditDTO dto, int userId) => _repository.UpdateAsync(dto, userId);
         public Task<bool> DeleteSoftAsync(int subAreaId, int userId) => _repository.DeleteSoftAsync(subAreaId, userId);
+        public Task<bool> AreaHasScopeAsync(int areaId) => _repository.AreaHasScopeAsync(areaId);
     }
 }

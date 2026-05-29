@@ -38,6 +38,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 join t in ctx.SsEmoTipo on e.TipoEmoId equals t.Id
                 join v in ctx.WorkerVinculacion on w.Id equals v.WorkerId
                 join contrib in ctx.Contributor on v.EmpresaId equals contrib.ContributorId
+                join proj in ctx.Project on v.ProyectoId equals (int?)proj.ProjectId into projg
+                from proyecto in projg.DefaultIfEmpty()
                 where e.Activo
                     && t.RequiereNuevo
                     && t.VigenciaMeses != null
@@ -52,7 +54,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     Worker = w,
                     TipoEmo = t,
                     Vinculacion = v,
-                    WorkerNombre = w.Person != null ? w.Person.FullName : null
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    ContribNombre = contrib.ContributorName,
+                    TipoEmoNombre = t.Nombre,
+                    ProyectoNombre = proyecto != null ? proyecto.ProjectDescription : null
                 }
             ).AsNoTracking().ToListAsync();
 
@@ -79,7 +84,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             var existentesSet = new HashSet<(int, int)>(
                 programacionesExistentes.Select(p => (p.WorkerId, p.TipoEmoId)));
 
-            var programados = new List<(string Nombre, DateOnly Fecha)>();
+            var programados = new List<(string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)>();
 
             foreach (var c in candidatos)
             {
@@ -120,7 +125,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     ctx.SsProgramacionEmo.Add(nueva);
                     await ctx.SaveChangesAsync();
 
-                    programados.Add((c.WorkerNombre ?? $"Worker {c.Worker.Id}", fechaProg));
+                    programados.Add((
+                        c.WorkerNombre ?? $"Worker {c.Worker.Id}",
+                        c.ContribNombre,
+                        c.ProyectoNombre,
+                        c.TipoEmoNombre,
+                        fechaProg));
 
                     result.Procesados++;
                     result.Detalle.Add($"Worker {c.Worker.Id} ({c.WorkerNombre}) / TipoEMO {tipoEmoId} — programado para {fechaProg:yyyy-MM-dd}.");
@@ -141,7 +151,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         private async Task EnviarResumenClinicaAsync(
             AppDbContext ctx,
-            List<(string Nombre, DateOnly Fecha)> programados)
+            List<(string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)> programados)
         {
             try
             {
@@ -168,9 +178,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                 var filas = string.Join("", programados
                     .OrderBy(p => p.Fecha)
+                    .ThenBy(p => p.RazonSocial)
+                    .ThenBy(p => p.Nombre)
                     .Select(p => $@"
                 <tr>
                     <td style='border:1px solid #ddd;padding:8px;'>{p.Nombre}</td>
+                    <td style='border:1px solid #ddd;padding:8px;'>{p.RazonSocial}</td>
+                    <td style='border:1px solid #ddd;padding:8px;'>{p.Proyecto ?? "—"}</td>
+                    <td style='border:1px solid #ddd;padding:8px;'>{p.TipoEmo}</td>
                     <td style='border:1px solid #ddd;padding:8px;text-align:center;'>{p.Fecha:dd/MM/yyyy}</td>
                 </tr>"));
 
@@ -181,6 +196,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 <thead>
                     <tr>
                         <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Trabajador</th>
+                        <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Empresa</th>
+                        <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Proyecto</th>
+                        <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Tipo EMO</th>
                         <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Fecha programada</th>
                     </tr>
                 </thead>
@@ -191,7 +209,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 Esta notificación se generó automáticamente por el sistema Abril.
             </p>";
 
-                var subject = $"[PRUEBAS - NO RESPONDER] [EMO Programados] {programados.Count} trabajadores — {DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5)):dd/MM/yyyy}";
+                var subject = $"[EMO Programados] {programados.Count} trabajadores — {DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5)):dd/MM/yyyy}";
 
                 await _emailService.SendAsync(
                     to: to,

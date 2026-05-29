@@ -223,6 +223,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             await ctx.SaveChangesAsync();
         }
 
+        public async Task UndoCheckInAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id)
+                ?? throw new AbrilException("Programación no encontrada.", 404);
+
+            if (ent.Estado != "En Atención")
+                throw new AbrilException("Solo se puede deshacer el ingreso cuando el estado es 'En Atención'.", 409);
+
+            ent.Estado     = "Aceptado por Clínica";
+            ent.CheckInHora = null;
+            ent.UpdatedAt  = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
         private async Task EnviarNotificacionCreacionAsync(
             AppDbContext ctx,
             SsProgramacionEmo prog,

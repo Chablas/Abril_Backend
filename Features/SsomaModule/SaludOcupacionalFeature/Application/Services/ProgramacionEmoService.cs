@@ -62,5 +62,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task PatchNotificadoAsync(int id, bool notificado)
             => _repo.PatchNotificadoAsync(id, notificado);
+
+        public Task UndoCheckInAsync(int id)
+            => _repo.UndoCheckInAsync(id);
     }
 }

@@ -172,36 +172,40 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await ctx.SaveChangesAsync();
             }
 
-            if (esAbril && entity.ProyectoId.HasValue)
+            if (esAbril)
             {
-                var itemEmpresaId = dto.Tipo == "VIDA_LEY" ? 16 : 15;
-                var habEmpresa = await ctx.SsHabEmpresa
-                    .FirstOrDefaultAsync(h => h.EmpresaId == entity.EmpresaId
-                                           && h.ProyectoId == entity.ProyectoId.Value
-                                           && h.ItemId == itemEmpresaId);
-                if (habEmpresa is null)
+                entity.Estado = "Aprobado";
+
+                if (entity.ProyectoId.HasValue)
                 {
-                    ctx.SsHabEmpresa.Add(new SsHabEmpresa
+                    var itemEmpresaId = dto.Tipo == "VIDA_LEY" ? 16 : 15;
+                    var habEmpresa = await ctx.SsHabEmpresa
+                        .FirstOrDefaultAsync(h => h.EmpresaId == entity.EmpresaId
+                                               && h.ProyectoId == entity.ProyectoId.Value
+                                               && h.ItemId == itemEmpresaId);
+                    if (habEmpresa is null)
                     {
-                        EmpresaId = entity.EmpresaId,
-                        ProyectoId = entity.ProyectoId.Value,
-                        ItemId = itemEmpresaId,
-                        Mes = entity.Mes,
-                        Anio = entity.Anio,
-                        Estado = "Aprobado",
-                        Vigencia = vigenciaHab,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
-                    });
-                }
-                else
-                {
-                    habEmpresa.Estado = "Aprobado";
-                    habEmpresa.Vigencia = vigenciaHab;
-                    habEmpresa.UpdatedAt = DateTime.UtcNow;
+                        ctx.SsHabEmpresa.Add(new SsHabEmpresa
+                        {
+                            EmpresaId = entity.EmpresaId,
+                            ProyectoId = entity.ProyectoId.Value,
+                            ItemId = itemEmpresaId,
+                            Mes = entity.Mes,
+                            Anio = entity.Anio,
+                            Estado = "Aprobado",
+                            Vigencia = vigenciaHab,
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                    }
+                    else
+                    {
+                        habEmpresa.Estado = "Aprobado";
+                        habEmpresa.Vigencia = vigenciaHab;
+                        habEmpresa.UpdatedAt = DateTime.UtcNow;
+                    }
                 }
 
-                entity.Estado = "Aprobado";
                 await ctx.SaveChangesAsync();
             }
 
@@ -219,6 +223,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (entity.EmpresaId != empresaId)
                 throw new AbrilException("No tiene permiso para editar esta póliza.", 403);
 
+            var esAbril = await ctx.Contributor
+                .Where(c => c.ContributorId == empresaId)
+                .Select(c => c.EsAbril)
+                .FirstOrDefaultAsync();
+
             var archivoReemplazado = !string.IsNullOrWhiteSpace(dto.ArchivoUrl)
                 && dto.ArchivoUrl != entity.ArchivoUrl;
 
@@ -233,7 +242,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             entity.ArchivoUrl2 = dto.ArchivoUrl2;
             entity.UpdatedAt = DateTime.UtcNow;
 
-            if (archivoReemplazado && entity.Estado == "Aprobado")
+            if (archivoReemplazado && entity.Estado == "Aprobado" && !esAbril)
                 entity.Estado = "Enviado";
 
             // Workers: calcular delta
@@ -294,13 +303,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     var hab = await ctx.SsHabTrabajador
                         .FirstOrDefaultAsync(h => h.WorkerId == workerInput.WorkerId && h.ItemId == item.Id);
 
+                    var estadoNuevoWorker = esAbril ? "Aprobado" : "Enviado";
                     if (hab is null)
                     {
                         ctx.SsHabTrabajador.Add(new SsHabTrabajador
                         {
                             WorkerId = workerInput.WorkerId,
                             ItemId = item.Id,
-                            Estado = "Enviado",
+                            Estado = estadoNuevoWorker,
                             ArchivoUrl = dto.ArchivoUrl,
                             CreatedAt = DateTime.UtcNow,
                             UpdatedAt = DateTime.UtcNow
@@ -308,7 +318,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     }
                     else
                     {
-                        hab.Estado = "Enviado";
+                        hab.Estado = estadoNuevoWorker;
                         hab.ArchivoUrl = dto.ArchivoUrl;
                         hab.UpdatedAt = DateTime.UtcNow;
                     }
@@ -330,7 +340,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 }
 
                 // Si se reemplazó archivo y la póliza volvió a Enviado, actualizar estado en ss_hab_trabajador
-                if (archivoReemplazado)
+                if (archivoReemplazado && !esAbril)
                 {
                     var habsExistentes = await ctx.SsHabTrabajador
                         .Where(h => h.ItemId == item.Id && workerIdsNuevos.Contains(h.WorkerId))
@@ -344,6 +354,46 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             hab.ArchivoUrl = dto.ArchivoUrl;
                             hab.UpdatedAt = DateTime.UtcNow;
                         }
+                    }
+                }
+
+                await ctx.SaveChangesAsync();
+            }
+
+            if (esAbril)
+            {
+                entity.Estado = "Aprobado";
+
+                if (entity.ProyectoId.HasValue)
+                {
+                    var vigenciaHab = dto.Vigencia.HasValue
+                        ? DateTime.SpecifyKind(dto.Vigencia.Value, DateTimeKind.Utc)
+                        : (DateTime?)null;
+                    var itemEmpresaId = dto.Tipo == "VIDA_LEY" ? 16 : 15;
+                    var habEmpresa = await ctx.SsHabEmpresa
+                        .FirstOrDefaultAsync(h => h.EmpresaId == entity.EmpresaId
+                                               && h.ProyectoId == entity.ProyectoId.Value
+                                               && h.ItemId == itemEmpresaId);
+                    if (habEmpresa is null)
+                    {
+                        ctx.SsHabEmpresa.Add(new SsHabEmpresa
+                        {
+                            EmpresaId = entity.EmpresaId,
+                            ProyectoId = entity.ProyectoId.Value,
+                            ItemId = itemEmpresaId,
+                            Mes = entity.Mes,
+                            Anio = entity.Anio,
+                            Estado = "Aprobado",
+                            Vigencia = vigenciaHab,
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                    }
+                    else
+                    {
+                        habEmpresa.Estado = "Aprobado";
+                        habEmpresa.Vigencia = vigenciaHab;
+                        habEmpresa.UpdatedAt = DateTime.UtcNow;
                     }
                 }
 

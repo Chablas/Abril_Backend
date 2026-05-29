@@ -117,5 +117,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error PatchNotificado"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        [HttpPatch("{id:int}/deshacer-checkin")]
+        public async Task<IActionResult> DeshacerCheckIn(int id)
+        {
+            try
+            {
+                await _service.UndoCheckInAsync(id);
+                return Ok(new { message = "Ingreso deshecho. Estado revertido a 'Aceptado por Clínica'." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController.DeshacerCheckIn"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

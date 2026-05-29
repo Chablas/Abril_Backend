@@ -85,7 +85,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
             if (dto.Items.Count == 0) return;
 
-            // catalog_item_id → scope_item_id recién creado
+            // nodeId (del cliente: real o temporal negativo) → scope_item_id recién creado
             var inserted = new Dictionary<int, int>();
             var pending = dto.Items.ToList();
             int safety = pending.Count + 5;
@@ -93,8 +93,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
             while (pending.Count > 0 && safety-- > 0)
             {
                 var ready = pending
-                    .Where(n => !n.ParentCatalogItemId.HasValue
-                                || inserted.ContainsKey(n.ParentCatalogItemId.Value))
+                    .Where(n => !n.ParentNodeId.HasValue
+                                || inserted.ContainsKey(n.ParentNodeId.Value))
                     .OrderBy(n => n.DisplayOrder)
                     .ToList();
 
@@ -102,8 +102,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
                 foreach (var node in ready)
                 {
-                    int? parentScopeItemId = node.ParentCatalogItemId.HasValue
-                        ? inserted[node.ParentCatalogItemId.Value]
+                    int? parentScopeItemId = node.ParentNodeId.HasValue
+                        ? inserted[node.ParentNodeId.Value]
                         : (int?)null;
 
                     var scopeItem = new ScopeItem
@@ -117,7 +117,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
                     ctx.ScopeItem.Add(scopeItem);
                     await ctx.SaveChangesAsync();
-                    inserted[node.CatalogItemId] = scopeItem.ScopeItemId;
+                    inserted[node.NodeId] = scopeItem.ScopeItemId;
                 }
 
                 pending = pending.Except(ready).ToList();

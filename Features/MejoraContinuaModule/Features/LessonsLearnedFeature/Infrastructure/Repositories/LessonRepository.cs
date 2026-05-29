@@ -1,5 +1,6 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Helpers;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -69,10 +70,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 join project in ctx.Project on lesson.ProjectId equals project.ProjectId into pj
                 from project in pj.DefaultIfEmpty()
 
-                join area in ctx.Area on lesson.AreaId equals area.AreaId
-
-                join subAreaEntity in ctx.SubArea on lesson.SubAreaId equals subAreaEntity.SubAreaId into sab
-                from subAreaEntity in sab.DefaultIfEmpty()
+                join area in ctx.Area on lesson.AreaId equals area.AreaId into aj
+                from area in aj.DefaultIfEmpty()
 
                 join psss in ctx.PhaseStageSubStageSubSpecialty
                     on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId into ps
@@ -112,7 +111,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     lesson,
                     project,
                     area,
-                    subAreaEntity,
                     psss,
                     phase,
                     stage,
@@ -159,10 +157,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     ProjectDescription = x.project != null ? x.project.ProjectDescription : null,
 
                     AreaId = x.lesson.AreaId,
-                    AreaDescription = x.area.AreaDescription,
-
-                    SubAreaId = x.lesson.SubAreaId,
-                    SubAreaDescription = x.subAreaEntity != null ? x.subAreaEntity.SubAreaDescription : null,
+                    AreaDescription = x.area != null ? x.area.AreaDescription : null,
 
                     PhaseStageSubStageSubSpecialtyId = x.lesson.PhaseStageSubStageSubSpecialtyId,
 
@@ -255,7 +250,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             string cLessonImpactDesc = ctx.Col<Lesson>(nameof(Lesson.ImpactDescription));
             string cLessonProjectId = ctx.Col<Lesson>(nameof(Lesson.ProjectId));
             string cLessonAreaId = ctx.Col<Lesson>(nameof(Lesson.AreaId));
-            string cLessonSubAreaId = ctx.Col<Lesson>(nameof(Lesson.SubAreaId));
+            string cLessonLessonAreaId = ctx.Col<Lesson>(nameof(Lesson.LessonAreaId));
+            string cLessonCatalogItemId = ctx.Col<Lesson>(nameof(Lesson.CatalogItemId));
             string cLessonPsssId = ctx.Col<Lesson>(nameof(Lesson.PhaseStageSubStageSubSpecialtyId));
             string cLessonStateId = ctx.Col<Lesson>(nameof(Lesson.StateId));
             string cLessonCreatedDateTime = ctx.Col<Lesson>(nameof(Lesson.CreatedDateTime));
@@ -306,10 +302,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             string tSubStage = ctx.Table<SubStage>();
             string cSubStageId = ctx.Col<SubStage>(nameof(SubStage.SubStageId));
             string cSubStageDesc = ctx.Col<SubStage>(nameof(SubStage.SubStageDescription));
-
-            string tSubAreaDapper = ctx.Table<SubArea>();
-            string cSaId = ctx.Col<SubArea>(nameof(SubArea.SubAreaId));
-            string cSaDesc = ctx.Col<SubArea>(nameof(SubArea.SubAreaDescription));
 
             string tSubSpec = ctx.Table<SubSpecialty>();
             string cSubSpecId = ctx.Col<SubSpecialty>(nameof(SubSpecialty.SubSpecialtyId));
@@ -410,8 +402,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             string baseFromJoins = $@"
 FROM {tLesson} l
 LEFT JOIN {tProject} p ON p.{cProjectId} = l.{cLessonProjectId}
-JOIN {tArea} a ON a.{cAreaId} = l.{cLessonAreaId}
-LEFT JOIN {tSubAreaDapper} sa2 ON sa2.{cSaId} = l.{cLessonSubAreaId}
+LEFT JOIN {tArea} a ON a.{cAreaId} = l.{cLessonAreaId}
 LEFT JOIN {tPsss} psss ON psss.{cPsssId} = l.{cLessonPsssId}
 LEFT JOIN {tPhase} ph ON ph.{cPhaseId} = psss.{cPsssPhaseId}
 LEFT JOIN {tStage} st ON st.{cStageId} = psss.{cPsssStageId}
@@ -440,8 +431,8 @@ SELECT l.{cLessonId} AS ""LessonId"",
        p.{cProjectDesc} AS ""ProjectDescription"",
        l.{cLessonAreaId} AS ""AreaId"",
        a.{cAreaDesc} AS ""AreaDescription"",
-       l.{cLessonSubAreaId} AS ""SubAreaId"",
-       sa2.{cSaDesc} AS ""SubAreaDescription"",
+       l.{cLessonLessonAreaId} AS ""LessonAreaId"",
+       l.{cLessonCatalogItemId} AS ""CatalogItemId"",
        l.{cLessonPsssId} AS ""PhaseStageSubStageSubSpecialtyId"",
        psss.{cPsssPhaseId} AS ""PhaseId"",
        ph.{cPhaseDesc} AS ""PhaseDescription"",
@@ -553,6 +544,25 @@ ORDER BY pe.{cPersonFullName};
                     : new List<LessonImageDTO>();
             }
 
+            // Enriquecer con área (lesson_area → area_scope → area_item) y
+            // clasificación (scope_item walk-up por catalog_type) del nuevo modelo.
+            // Sobrescribe los campos legacy (AreaDescription, PhaseDescription, etc.).
+            var enrichments = await LessonEnrichmentHelper.ComputeAsync(
+                ctx,
+                lessons.Select(l => (l.LessonId, l.LessonAreaId, l.CatalogItemId)).ToList()
+            );
+            foreach (var lesson in lessons)
+            {
+                if (!enrichments.TryGetValue(lesson.LessonId, out var e)) continue;
+                if (e.AreaDescription != null)         lesson.AreaDescription = e.AreaDescription;
+                if (e.PhaseDescription != null)        lesson.PhaseDescription = e.PhaseDescription;
+                if (e.StageDescription != null)        lesson.StageDescription = e.StageDescription;
+                if (e.LayerDescription != null)        lesson.LayerDescription = e.LayerDescription;
+                if (e.SubStageDescription != null)     lesson.SubStageDescription = e.SubStageDescription;
+                if (e.SubSpecialtyDescription != null) lesson.SubSpecialtyDescription = e.SubSpecialtyDescription;
+                if (e.PartidaDescription != null)      lesson.PartidaDescription = e.PartidaDescription;
+            }
+
             int totalPages = pageSize == 0 ? 0 : (totalRecords + pageSize - 1) / pageSize;
 
             return new LessonsPagedWithFiltersDTO
@@ -640,9 +650,9 @@ ORDER BY pe.{cPersonFullName};
                 ImpactDescription = dto.ImpactDescription,
                 ProjectId = dto.ProjectId,
                 AreaId = dto.AreaId,
-                SubAreaId = dto.SubAreaId,
                 PhaseStageSubStageSubSpecialtyId = psssId,
                 CatalogItemId = catalogItemId,
+                LessonAreaId = dto.LessonAreaId,
                 StateId = 2,
                 CreatedDateTime = now,
                 CreatedUserId = userId,

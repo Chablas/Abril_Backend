@@ -19,7 +19,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
 
         public async Task<PagedResult<AreaTypeDto>> GetPaged(int page, int pageSize)
         {
-            var query = _context.AreaType.OrderBy(t => t.AreaTypeName);
+            var query = _context.AreaType.Where(t => t.State).OrderBy(t => t.AreaTypeName);
             var totalRecords = await query.CountAsync();
 
             var data = await query
@@ -46,7 +46,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
         public async Task<List<AreaTypeSimpleDto>> GetSimple()
         {
             return await _context.AreaType
-                .Where(t => t.Active)
+                .Where(t => t.State && t.Active)
                 .OrderBy(t => t.AreaTypeName)
                 .Select(t => new AreaTypeSimpleDto
                 {
@@ -63,21 +63,22 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                 throw new AbrilException("La descripción es obligatoria.");
 
             var duplicate = await _context.AreaType
-                .FirstOrDefaultAsync(t => t.AreaTypeName.ToLower() == name.ToLower());
-            if (duplicate != null)
+                .AnyAsync(t => t.State && t.AreaTypeName.ToLower() == name.ToLower());
+            if (duplicate)
                 throw new AbrilException("Ya existe un tipo de área con esa descripción.");
 
             _context.AreaType.Add(new AreaType
             {
                 AreaTypeName = name,
-                Active = dto.Active
+                Active = dto.Active,
+                State = true
             });
             await _context.SaveChangesAsync();
         }
 
         public async Task Update(AreaTypeEditDto dto)
         {
-            var entity = await _context.AreaType.FirstOrDefaultAsync(t => t.AreaTypeId == dto.AreaTypeId);
+            var entity = await _context.AreaType.FirstOrDefaultAsync(t => t.State && t.AreaTypeId == dto.AreaTypeId);
             if (entity == null)
                 throw new AbrilException("El tipo de área no existe.");
 
@@ -86,8 +87,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                 throw new AbrilException("La descripción es obligatoria.");
 
             var duplicate = await _context.AreaType
-                .FirstOrDefaultAsync(t => t.AreaTypeName.ToLower() == name.ToLower() && t.AreaTypeId != dto.AreaTypeId);
-            if (duplicate != null)
+                .AnyAsync(t => t.State &&
+                               t.AreaTypeName.ToLower() == name.ToLower() &&
+                               t.AreaTypeId != dto.AreaTypeId);
+            if (duplicate)
                 throw new AbrilException("Ya existe otro tipo de área con esa descripción.");
 
             entity.AreaTypeName = name;
@@ -95,16 +98,17 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
             await _context.SaveChangesAsync();
         }
 
+        /// <summary>Soft delete: marca state = false (el registro se mantiene en BD para auditoría).</summary>
         public async Task<bool> DeleteSoftAsync(int areaTypeId)
         {
-            var entity = await _context.AreaType.FirstOrDefaultAsync(t => t.AreaTypeId == areaTypeId);
+            var entity = await _context.AreaType.FirstOrDefaultAsync(t => t.State && t.AreaTypeId == areaTypeId);
             if (entity == null) return false;
 
-            var inUse = await _context.AreaItem.AnyAsync(i => i.AreaTypeId == areaTypeId && i.Active);
+            var inUse = await _context.AreaItem.AnyAsync(i => i.State && i.AreaTypeId == areaTypeId);
             if (inUse)
-                throw new AbrilException("No se puede eliminar: existen áreas activas que usan este tipo.");
+                throw new AbrilException("No se puede eliminar: existen áreas que usan este tipo.");
 
-            entity.Active = false;
+            entity.State = false;
             await _context.SaveChangesAsync();
             return true;
         }

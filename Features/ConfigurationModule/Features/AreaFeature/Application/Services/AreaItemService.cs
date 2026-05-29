@@ -18,7 +18,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Applic
         }
 
         public Task<List<AreaItemSimpleDto>> GetSimple(int? areaTypeId) => _repository.GetSimple(areaTypeId);
-        public Task<List<AreaItemTreeDto>> GetTree(int? areaTypeId) => _repository.GetTree(areaTypeId);
         public Task Create(AreaItemCreateDto dto) => _repository.Create(dto);
         public Task Update(AreaItemEditDto dto) => _repository.Update(dto);
         public Task<bool> DeleteSoftAsync(int areaItemId) => _repository.DeleteSoftAsync(areaItemId);

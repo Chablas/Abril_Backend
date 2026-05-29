@@ -10,9 +10,10 @@ namespace Abril_Backend.Infrastructure.Models {
         public string? ImpactDescription {get; set;}
         public int? ProjectId {get; set;}
         public int AreaId {get; set;}
-        public int? SubAreaId {get; set;}
         public int? PhaseStageSubStageSubSpecialtyId {get; set;}
         public int? CatalogItemId {get; set;}
+        /// <summary>Rama seleccionada en lecciones (modelo nuevo). Nullable para no romper lecciones viejas.</summary>
+        public int? LessonAreaId {get; set;}
         public int StateId {get; set;}
         public DateTimeOffset CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}

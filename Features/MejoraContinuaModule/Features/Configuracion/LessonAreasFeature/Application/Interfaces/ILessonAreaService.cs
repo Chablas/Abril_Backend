@@ -5,6 +5,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
     public interface ILessonAreaService
     {
         Task<List<LessonAreaConfigItemDTO>> GetAllAsync();
-        Task<ToggleLessonAreaResultDTO> ToggleAsync(int areaItemId);
+        Task<List<LessonAreaConfigItemDTO>> GetAllWithScopeAsync();
+        Task<ToggleLessonAreaResultDTO> ToggleAsync(int areaScopeId);
     }
 }

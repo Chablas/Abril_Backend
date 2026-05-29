@@ -22,6 +22,8 @@ namespace Abril_Backend.Features.ConfigurationModule
             services.AddScoped<IAreaTypeService, AreaTypeService>();
             services.AddScoped<IAreaItemRepository, AreaItemRepository>();
             services.AddScoped<IAreaItemService, AreaItemService>();
+            services.AddScoped<IAreaScopeRepository, AreaScopeRepository>();
+            services.AddScoped<IAreaScopeService, AreaScopeService>();
 
             return services;
         }

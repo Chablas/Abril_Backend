@@ -153,6 +153,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ScopeTemplateItem> ScopeTemplateItem => Set<ScopeTemplateItem>();
         public DbSet<AreaType> AreaType => Set<AreaType>();
         public DbSet<AreaItem> AreaItem => Set<AreaItem>();
+        public DbSet<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope> AreaScope => Set<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea> LessonArea => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -401,17 +402,24 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(s => s.ScopeTemplateItemParentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // AreaItem: self-referential parent + FK a AreaType
-            modelBuilder.Entity<AreaItem>()
-                .HasOne(a => a.Parent)
-                .WithMany()
-                .HasForeignKey(a => a.AreaItemParentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
+            // AreaItem: FK a AreaType (sin jerarquía — eso vive en AreaScope)
             modelBuilder.Entity<AreaItem>()
                 .HasOne(a => a.AreaType)
                 .WithMany()
                 .HasForeignKey(a => a.AreaTypeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // AreaScope: árbol con FK a AreaItem + self-referential parent
+            modelBuilder.Entity<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>()
+                .HasOne(s => s.AreaItem)
+                .WithMany()
+                .HasForeignKey(s => s.AreaItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>()
+                .HasOne(s => s.Parent)
+                .WithMany()
+                .HasForeignKey(s => s.AreaScopeParentId)
                 .OnDelete(DeleteBehavior.Restrict);
         }
 

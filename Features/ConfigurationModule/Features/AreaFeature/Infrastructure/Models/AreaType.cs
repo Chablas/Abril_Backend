@@ -13,5 +13,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
 
         [Column("active")]
         public bool Active { get; set; }
+
+        /// <summary>Soft-delete flag. false = registro eliminado (se mantiene para auditoría).</summary>
+        [Column("state")]
+        public bool State { get; set; } = true;
     }
 }

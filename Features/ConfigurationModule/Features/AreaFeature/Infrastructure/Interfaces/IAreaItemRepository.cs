@@ -7,7 +7,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
     {
         Task<PagedResult<AreaItemDto>> GetPaged(AreaItemFilterDto filter);
         Task<List<AreaItemSimpleDto>> GetSimple(int? areaTypeId);
-        Task<List<AreaItemTreeDto>> GetTree(int? areaTypeId);
         Task Create(AreaItemCreateDto dto);
         Task Update(AreaItemEditDto dto);
         Task<bool> DeleteSoftAsync(int areaItemId);

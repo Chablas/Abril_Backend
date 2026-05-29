@@ -19,7 +19,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Presen
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10,
             [FromQuery] int? areaTypeId = null,
-            [FromQuery] int? areaItemParentId = null,
             [FromQuery] bool? active = null,
             [FromQuery] string? search = null)
         {
@@ -30,7 +29,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Presen
                     Page = page,
                     PageSize = pageSize,
                     AreaTypeId = areaTypeId,
-                    AreaItemParentId = areaItemParentId,
                     Active = active,
                     Search = search
                 });
@@ -48,20 +46,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Presen
             try
             {
                 var result = await _service.GetSimple(areaTypeId);
-                return Ok(result);
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [HttpGet("tree")]
-        public async Task<IActionResult> GetTree([FromQuery] int? areaTypeId = null)
-        {
-            try
-            {
-                var result = await _service.GetTree(areaTypeId);
                 return Ok(result);
             }
             catch (Exception)

@@ -22,15 +22,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
             var query =
                 from i in _context.AreaItem
                 join t in _context.AreaType on i.AreaTypeId equals t.AreaTypeId
-                join parent in _context.AreaItem on i.AreaItemParentId equals parent.AreaItemId into pj
-                from parent in pj.DefaultIfEmpty()
-                select new { i, t, parent };
+                where i.State && t.State
+                select new { i, t };
 
             if (filter.AreaTypeId.HasValue)
                 query = query.Where(x => x.i.AreaTypeId == filter.AreaTypeId.Value);
-
-            if (filter.AreaItemParentId.HasValue)
-                query = query.Where(x => x.i.AreaItemParentId == filter.AreaItemParentId.Value);
 
             if (filter.Active.HasValue)
                 query = query.Where(x => x.i.Active == filter.Active.Value);
@@ -54,8 +50,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                     AreaItemName = x.i.AreaItemName,
                     AreaTypeId = x.i.AreaTypeId,
                     AreaTypeName = x.t.AreaTypeName,
-                    AreaItemParentId = x.i.AreaItemParentId,
-                    AreaItemParentName = x.parent != null ? x.parent.AreaItemName : null,
                     Active = x.i.Active,
                 })
                 .ToListAsync();
@@ -72,7 +66,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
 
         public async Task<List<AreaItemSimpleDto>> GetSimple(int? areaTypeId)
         {
-            var query = _context.AreaItem.Where(i => i.Active);
+            var query = _context.AreaItem.Where(i => i.State && i.Active);
             if (areaTypeId.HasValue)
                 query = query.Where(i => i.AreaTypeId == areaTypeId.Value);
 
@@ -83,156 +77,76 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                     AreaItemId = i.AreaItemId,
                     AreaItemName = i.AreaItemName,
                     AreaTypeId = i.AreaTypeId,
-                    AreaItemParentId = i.AreaItemParentId,
                 })
                 .ToListAsync();
-        }
-
-        public async Task<List<AreaItemTreeDto>> GetTree(int? areaTypeId)
-        {
-            var query =
-                from i in _context.AreaItem
-                join t in _context.AreaType on i.AreaTypeId equals t.AreaTypeId
-                where i.Active
-                select new { i, t };
-
-            if (areaTypeId.HasValue)
-                query = query.Where(x => x.i.AreaTypeId == areaTypeId.Value);
-
-            var flat = await query
-                .OrderBy(x => x.i.AreaItemName)
-                .Select(x => new AreaItemTreeDto
-                {
-                    AreaItemId = x.i.AreaItemId,
-                    AreaItemName = x.i.AreaItemName,
-                    AreaTypeId = x.i.AreaTypeId,
-                    AreaTypeName = x.t.AreaTypeName,
-                    AreaItemParentId = x.i.AreaItemParentId,
-                    Active = x.i.Active,
-                })
-                .ToListAsync();
-
-            var map = flat.ToDictionary(x => x.AreaItemId);
-            var roots = new List<AreaItemTreeDto>();
-            foreach (var node in flat)
-            {
-                if (node.AreaItemParentId.HasValue && map.TryGetValue(node.AreaItemParentId.Value, out var parent))
-                    parent.Children.Add(node);
-                else
-                    roots.Add(node);
-            }
-            return roots;
         }
 
         public async Task Create(AreaItemCreateDto dto)
         {
             var name = dto.AreaItemName.Trim();
             if (string.IsNullOrWhiteSpace(name))
-                throw new AbrilException("La descripción es obligatoria.");
+                throw new AbrilException("El nombre es obligatorio.");
 
-            var typeExists = await _context.AreaType.AnyAsync(t => t.AreaTypeId == dto.AreaTypeId);
+            var typeExists = await _context.AreaType.AnyAsync(t => t.State && t.AreaTypeId == dto.AreaTypeId);
             if (!typeExists)
                 throw new AbrilException("El tipo de área no existe.");
 
-            if (dto.AreaItemParentId.HasValue)
-            {
-                var parentExists = await _context.AreaItem.AnyAsync(p => p.AreaItemId == dto.AreaItemParentId.Value);
-                if (!parentExists)
-                    throw new AbrilException("El área padre no existe.");
-            }
-
-            var duplicate = await _context.AreaItem.FirstOrDefaultAsync(i =>
-                i.AreaItemName.ToLower() == name.ToLower() &&
-                i.AreaTypeId == dto.AreaTypeId &&
-                i.AreaItemParentId == dto.AreaItemParentId);
-            if (duplicate != null)
-                throw new AbrilException("Ya existe un área con esa descripción en el mismo nivel.");
+            // Duplicados solo cuentan entre registros vivos (state = true)
+            var duplicate = await _context.AreaItem.AnyAsync(i =>
+                i.State && i.AreaItemName.ToLower() == name.ToLower());
+            if (duplicate)
+                throw new AbrilException("Ya existe un área con ese nombre.");
 
             _context.AreaItem.Add(new AreaItem
             {
                 AreaItemName = name,
                 AreaTypeId = dto.AreaTypeId,
-                AreaItemParentId = dto.AreaItemParentId,
-                Active = dto.Active
+                Active = dto.Active,
+                State = true
             });
             await _context.SaveChangesAsync();
         }
 
         public async Task Update(AreaItemEditDto dto)
         {
-            var entity = await _context.AreaItem.FirstOrDefaultAsync(i => i.AreaItemId == dto.AreaItemId);
+            var entity = await _context.AreaItem.FirstOrDefaultAsync(i => i.State && i.AreaItemId == dto.AreaItemId);
             if (entity == null)
                 throw new AbrilException("El área no existe.");
 
             var name = dto.AreaItemName.Trim();
             if (string.IsNullOrWhiteSpace(name))
-                throw new AbrilException("La descripción es obligatoria.");
+                throw new AbrilException("El nombre es obligatorio.");
 
-            if (dto.AreaItemParentId.HasValue && dto.AreaItemParentId.Value == dto.AreaItemId)
-                throw new AbrilException("El área no puede ser su propio padre.");
-
-            // Evitar ciclo: el nuevo padre no puede ser descendiente del nodo actual
-            if (dto.AreaItemParentId.HasValue)
-            {
-                var descendantIds = await GetDescendantIdsAsync(dto.AreaItemId);
-                if (descendantIds.Contains(dto.AreaItemParentId.Value))
-                    throw new AbrilException("El área padre seleccionada genera un ciclo.");
-            }
-
-            var typeExists = await _context.AreaType.AnyAsync(t => t.AreaTypeId == dto.AreaTypeId);
+            var typeExists = await _context.AreaType.AnyAsync(t => t.State && t.AreaTypeId == dto.AreaTypeId);
             if (!typeExists)
                 throw new AbrilException("El tipo de área no existe.");
 
-            var duplicate = await _context.AreaItem.FirstOrDefaultAsync(i =>
+            var duplicate = await _context.AreaItem.AnyAsync(i =>
+                i.State &&
                 i.AreaItemName.ToLower() == name.ToLower() &&
-                i.AreaTypeId == dto.AreaTypeId &&
-                i.AreaItemParentId == dto.AreaItemParentId &&
                 i.AreaItemId != dto.AreaItemId);
-            if (duplicate != null)
-                throw new AbrilException("Ya existe otra área con esa descripción en el mismo nivel.");
+            if (duplicate)
+                throw new AbrilException("Ya existe otra área con ese nombre.");
 
             entity.AreaItemName = name;
             entity.AreaTypeId = dto.AreaTypeId;
-            entity.AreaItemParentId = dto.AreaItemParentId;
             entity.Active = dto.Active;
             await _context.SaveChangesAsync();
         }
 
+        /// <summary>Soft delete: marca state = false (el registro se mantiene en BD para auditoría).</summary>
         public async Task<bool> DeleteSoftAsync(int areaItemId)
         {
-            var entity = await _context.AreaItem.FirstOrDefaultAsync(i => i.AreaItemId == areaItemId);
+            var entity = await _context.AreaItem.FirstOrDefaultAsync(i => i.State && i.AreaItemId == areaItemId);
             if (entity == null) return false;
 
-            var hasActiveChildren = await _context.AreaItem.AnyAsync(c => c.AreaItemParentId == areaItemId && c.Active);
-            if (hasActiveChildren)
-                throw new AbrilException("No se puede eliminar: existen subáreas activas.");
+            var inUseInScope = await _context.AreaScope.AnyAsync(s => s.State && s.AreaItemId == areaItemId);
+            if (inUseInScope)
+                throw new AbrilException("No se puede eliminar: el área está siendo usada en el árbol de áreas.");
 
-            entity.Active = false;
+            entity.State = false;
             await _context.SaveChangesAsync();
             return true;
-        }
-
-        private async Task<HashSet<int>> GetDescendantIdsAsync(int areaItemId)
-        {
-            var all = await _context.AreaItem
-                .Select(i => new { i.AreaItemId, i.AreaItemParentId })
-                .ToListAsync();
-
-            var children = all.GroupBy(x => x.AreaItemParentId ?? 0)
-                              .ToDictionary(g => g.Key, g => g.Select(c => c.AreaItemId).ToList());
-
-            var result = new HashSet<int>();
-            var stack = new Stack<int>();
-            stack.Push(areaItemId);
-
-            while (stack.Count > 0)
-            {
-                var current = stack.Pop();
-                if (!children.TryGetValue(current, out var kids)) continue;
-                foreach (var k in kids)
-                    if (result.Add(k)) stack.Push(k);
-            }
-            return result;
         }
     }
 }

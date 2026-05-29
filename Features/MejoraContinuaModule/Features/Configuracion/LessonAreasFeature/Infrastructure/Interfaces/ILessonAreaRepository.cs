@@ -5,6 +5,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
     public interface ILessonAreaRepository
     {
         Task<List<LessonAreaConfigItemDTO>> GetAllAsync();
-        Task<ToggleLessonAreaResultDTO> ToggleAsync(int areaItemId);
+        /// <summary>Devuelve solo lesson_areas activos que tengan al menos un scope_item configurado.</summary>
+        Task<List<LessonAreaConfigItemDTO>> GetAllWithScopeAsync();
+        Task<ToggleLessonAreaResultDTO> ToggleAsync(int areaScopeId);
     }
 }

@@ -10,6 +10,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public LessonAreaService(ILessonAreaRepository repo) => _repo = repo;
 
         public Task<List<LessonAreaConfigItemDTO>> GetAllAsync() => _repo.GetAllAsync();
-        public Task<ToggleLessonAreaResultDTO> ToggleAsync(int areaItemId) => _repo.ToggleAsync(areaItemId);
+        public Task<List<LessonAreaConfigItemDTO>> GetAllWithScopeAsync() => _repo.GetAllWithScopeAsync();
+        public Task<ToggleLessonAreaResultDTO> ToggleAsync(int areaScopeId) => _repo.ToggleAsync(areaScopeId);
     }
 }

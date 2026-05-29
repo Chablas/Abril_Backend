@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-05-27 — Ocupacion en ProgramacionListDto, NuevaFecha en ClinicaAccion, logs diagnóstico removidos
+> Última actualización: 2026-05-29 — Habilitacion endpoint en ProgramacionEmo, Notificado en SsProgramacionEmo, ApproverResolver en ProgramacionEmoRepository, filtro Completado en auto-programación
 
 ---
 
@@ -587,6 +587,18 @@ La propiedad existía en `FrontendSettings.cs` pero faltaba en los archivos de c
 
 Al crear una empresa contratista, el endpoint verifica que el RUC no exista ya en `contributor`. Si existe → 400. La creación genera `Contributor` + `Contractor` (StateId=2 Aprobado) + filas `ContractorEmail`. No hay `IdLegacy` ni referencias a `ss_empresa_contratista`.
 
+### 7s. SsProgramacionEmo — campo Notificado (2026-05-29)
+
+Propiedad `Notificado bool` agregada al modelo con `[Column("notificado")]`. **Pendiente migración EF** (`dotnet ef migrations add AddNotificadoProgramacionEmo`) para crear la columna en BD.
+
+### 7t. ProgramacionEmoRepository — ApproverResolver inyectado (2026-05-29)
+
+`IApproverResolver` inyectado en el constructor. En `EnviarNotificacionAceptacionAsync`, el bloque Oficina Central ya no consulta `CatJefatura` por string match — usa `_approverResolver.ResolveApproverEmailAsync(worker)` que sigue la cascada `Jefe → Sub Gerente → Gerente` por `Area`/`Subarea`/`Categoria` en `workers`.
+
+### 7u. EmoAutoProgramacionService — excluye Completado (2026-05-29)
+
+`programacionesExistentes` ahora filtra `p.Estado != "Completado"` además de `!= "Cancelado"` y `!= "Rechazado por Clínica"`. Antes, un worker con EMO completado quedaba bloqueado de recibir nueva programación automática.
+
 ### 7l. Tablas y columnas creadas manualmente (sin migración EF efectiva)
 
 - `worker_eventos` — `DbSet` con `HasColumnType("jsonb")` para `Datos`
@@ -1072,6 +1084,8 @@ Configurar el cron externo (Azure Logic App / GitHub Actions / EasyCron) para ll
 ### Endpoints nuevos bajo /api/v1/ssoma/salud-ocupacional/:
 
 - PATCH /programaciones/{id}/clinica-accion
+- GET  /programaciones/habilitacion?estado=&proyectoId=&fecha=&soloNoNotificados=  ← nuevo 2026-05-29
+- PATCH /programaciones/{id}/notificado  body: { notificado: bool }  ← nuevo 2026-05-29
 - GET /alertas/auto-programar (CronSecret)
 - GET /alertas/resumen-diario (CronSecret)
 - POST /auth/login

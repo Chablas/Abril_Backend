@@ -563,6 +563,78 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
         }
 
+        public async Task<List<ProgramacionHabilitacionDto>> GetHabilitacionAsync(ProgramacionHabilitacionFiltrosDto f)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var estados = new[] { "Programado", "Aceptado por Clínica", "En Atención", "Aceptado" };
+
+            var q = ctx.SsProgramacionEmo
+                .Where(p => estados.Contains(p.Estado))
+                .Include(p => p.Worker)
+                    .ThenInclude(w => w!.Person)
+                .AsQueryable();
+
+            if (!string.IsNullOrEmpty(f.Estado))
+                q = q.Where(p => p.Estado == f.Estado);
+
+            if (!string.IsNullOrEmpty(f.Fecha))
+                q = q.Where(p => p.FechaProgramada.ToString() == f.Fecha);
+
+            if (f.SoloNoNotificados == true)
+                q = q.Where(p => !p.Notificado);
+
+            var list = await q
+                .OrderBy(p => p.FechaProgramada)
+                .ThenBy(p => p.HoraProgramada)
+                .ToListAsync();
+
+            var workerIds = list.Select(p => p.WorkerId).Distinct().ToList();
+
+            var vinculaciones = await ctx.WorkerVinculacion
+                .Where(v => workerIds.Contains(v.WorkerId) && v.FechaFin == null)
+                .Include(v => v.Empresa)
+                .Include(v => v.Proyecto)
+                .ToListAsync();
+
+            var vinMap = vinculaciones
+                .GroupBy(v => v.WorkerId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var result = list
+                .Where(p => !f.ProyectoId.HasValue || (vinMap.TryGetValue(p.WorkerId, out var vCheck) && vCheck.ProyectoId == f.ProyectoId.Value))
+                .Select(p =>
+                {
+                    vinMap.TryGetValue(p.WorkerId, out var vin);
+                    var person = p.Worker?.Person;
+
+                    return new ProgramacionHabilitacionDto
+                    {
+                        Id            = p.Id,
+                        Trabajador    = person?.FullName ?? "",
+                        Dni           = person?.DocumentIdentityCode ?? "",
+                        Proyecto      = vin?.Proyecto?.ProjectDescription ?? "",
+                        RazonSocial   = vin?.Empresa?.ContributorName ?? "",
+                        Estado        = p.Estado,
+                        FechaProgramada = p.FechaProgramada.ToString("yyyy-MM-dd"),
+                        Hora          = p.HoraProgramada?.ToString(@"hh\:mm"),
+                        Notificado    = p.Notificado,
+                    };
+                })
+                .ToList();
+
+            return result;
+        }
+
+        public async Task PatchNotificadoAsync(int id, bool notificado)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var prog = await ctx.SsProgramacionEmo.FindAsync(id)
+                ?? throw new AbrilException("Programación no encontrada.", 404);
+            prog.Notificado = notificado;
+            prog.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
     }
 
 }

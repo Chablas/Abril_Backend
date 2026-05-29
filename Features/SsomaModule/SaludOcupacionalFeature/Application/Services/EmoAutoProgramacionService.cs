@@ -70,6 +70,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Where(p =>
                     workerIds.Contains(p.WorkerId)
                     && p.FechaProgramada >= hoy
+                    && p.Estado != "Completado"
                     && p.Estado != "Cancelado"
                     && p.Estado != "Rechazado por Clínica")
                 .Select(p => new { p.WorkerId, p.TipoEmoId })

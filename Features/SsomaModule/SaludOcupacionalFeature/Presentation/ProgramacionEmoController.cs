@@ -82,5 +82,40 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        [HttpGet("habilitacion")]
+        public async Task<IActionResult> GetHabilitacion(
+            [FromQuery] string? estado,
+            [FromQuery] int? proyectoId,
+            [FromQuery] string? fecha,
+            [FromQuery] bool? soloNoNotificados)
+        {
+            try
+            {
+                var filtros = new ProgramacionHabilitacionFiltrosDto
+                {
+                    Estado             = estado,
+                    ProyectoId         = proyectoId,
+                    Fecha              = fecha,
+                    SoloNoNotificados  = soloNoNotificados,
+                };
+                var result = await _service.GetHabilitacionAsync(filtros);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error GetHabilitacion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPatch("{id:int}/notificado")]
+        public async Task<IActionResult> PatchNotificado(int id, [FromBody] PatchNotificadoDto dto)
+        {
+            try
+            {
+                await _service.PatchNotificadoAsync(id, dto.Notificado);
+                return NoContent();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error PatchNotificado"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

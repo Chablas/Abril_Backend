@@ -257,6 +257,7 @@ builder.Services.AddSwaggerGen(c =>
     {
         { new OpenApiSecuritySchemeReference("Bearer"), new List<string>() }
     });
+    c.MapType<IFormFile>(() => new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" });
 });
 builder.Services.AddAuthentication("Bearer")
     .AddJwtBearer("Bearer", options => {

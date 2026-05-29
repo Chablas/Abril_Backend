@@ -468,6 +468,11 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.Order).HasColumnName("project_activity_order");
                 entity.Property(e => e.ActivityDescription).IsRequired().HasMaxLength(500);
                 entity.Property(e => e.ProgressPercentage).HasDefaultValue(0);
+                entity.HasOne<ProjectActivity>()
+                    .WithMany()
+                    .HasForeignKey(e => e.ParentId)
+                    .IsRequired(false)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
         }
     }

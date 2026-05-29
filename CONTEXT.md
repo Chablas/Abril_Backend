@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-05-29 — SctrVidaLeyRepository optimizado + CronogramaActividades fixes + diagnóstico 400 POST /milestoneScheduleHistory
+> Última actualización: 2026-05-29 — MPXJ.Net importar-mpp + ProjectActivity jerarquía padre/hijo + CronogramaActividades fixes
 
 ---
 
@@ -3726,3 +3726,75 @@ Sin modificar código — diagnóstico de lectura.
 | 122 | `ForceSave=true` pero hay cambios | `"Para guardar sin cambios la última versión subida debe ser igual a la que se está editando actualmente."` |
 
 **Diagnóstico:** el 400 más frecuente en primer envío es `PlannedStartDate` nulo o con formato incorrecto. Si el cronograma ya existe sin cambios, cae en las líneas 80/108.
+
+---
+
+## Sesión 2026-05-29 — CronogramaActividades: importar MPP + jerarquía padre/hijo
+
+Rama: `feature/cronograma-actividades`
+
+### 1. MPXJ.Net instalado
+
+`dotnet add package MPXJ.Net` → versión **16.2.0**. Usa IKVM para compilar Java → .NET en build time (primera compilación lenta, luego cacheada). El namespace correcto es **`MPXJ.Net`** (no `net.sf.mpxj`). API completamente .NET: propiedades PascalCase, fechas como `DateTime?`, sin tipos Java en surface.
+
+Nota de Docker: requiere `libfontconfig` (`RUN apt-get update && apt-get install -y libfontconfig`).
+
+### 2. ProjectActivity — nuevas columnas
+
+Entidad `Shared/Models/ProjectActivity.cs`:
+- `ParentId` (int?) — FK self-referencing a la misma tabla, nullable
+- `HierarchyLevel` (int) — nivel de jerarquía (0 = raíz); mapeado a `hierarchy_level`
+
+Configuración en `AppDbContext.ConfigurePostgreSQL`:
+```csharp
+entity.HasOne<ProjectActivity>()
+    .WithMany()
+    .HasForeignKey(e => e.ParentId)
+    .IsRequired(false)
+    .OnDelete(DeleteBehavior.SetNull);
+```
+
+### 3. Migración EF
+
+`Migrations/20260529194643_AddProjectActivityHierarchy.cs` — agrega `hierarchy_level` (int NOT NULL DEFAULT 0), `parent_id` (int nullable), FK `fk_project_activity_project_activity_parent_id` (ON DELETE SET NULL), índice `ix_project_activity_parent_id`.
+
+**Aplicación en Aiven:** SQL idempotente vía `psql.exe` (nunca `dotnet ef database update` en prod):
+
+```sql
+ALTER TABLE project_activity ADD COLUMN IF NOT EXISTS hierarchy_level integer NOT NULL DEFAULT 0;
+ALTER TABLE project_activity ADD COLUMN IF NOT EXISTS parent_id integer;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_project_activity_project_activity_parent_id') THEN
+        ALTER TABLE project_activity ADD CONSTRAINT fk_project_activity_project_activity_parent_id
+            FOREIGN KEY (parent_id) REFERENCES project_activity(project_activity_id) ON DELETE SET NULL;
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS ix_project_activity_parent_id ON project_activity(parent_id);
+```
+
+### 4. Endpoint POST /api/v1/cronograma-actividades/{proyectoId}/importar-mpp
+
+**Controlador:** `CronogramaActividadesController` — `[RequestSizeLimit(52_428_800)]` (50 MB), parámetro `IFormFile archivo`.
+
+**Lógica en `CronogramaActividadesRepository.ImportarMppAsync`:**
+
+1. Guarda el IFormFile en temp path (`Path.GetTempPath()`), siempre limpiado en `finally`.
+2. Lee con `new Mpxj.UniversalProjectReader().Read(tempPath)` → `ProjectFile`.
+3. Calcula `offsetDias` = `proyecto.FechaInicio.DayNumber - mppStartDate.DayNumber` (si ambas están presentes). Aplica el offset a cada fecha de tarea.
+4. Elimina **físicamente** (RemoveRange) todas las actividades existentes del proyecto antes de insertar.
+5. Itera `projectFile.Tasks` en orden; salta tareas con `Null == true` o nombre vacío.
+6. Resuelve `ParentId` en BD usando un diccionario `uniqueId (MPP) → ProjectActivityId (BD)` actualizado tras cada `SaveChangesAsync`.
+7. Inserta una actividad por vez (para poder capturar el ID generado y resolver hijos).
+8. Retorna `ImportarMppResultDto { ActividadesImportadas, ActividadesEliminadas }`.
+
+**Alias namespace:** `using Mpxj = MPXJ.Net;` evita colisión de `MPXJ.Net.Task` con `System.Threading.Tasks.Task`.
+
+### 5. Fixes en endpoints existentes
+
+**`GetProyectosAsync`** — eliminado filtro `ctx.ProjectActivity.Any(...)` que excluía proyectos sin actividades. Ahora devuelve todos los proyectos con `State && TieneUnidadDeProyectos`, sin importar si tienen actividades cargadas.
+
+**`GetActividadesAsync`** — `ActividadDto` y su mapeo LINQ ampliados con `HierarchyLevel` y `ParentId`.
+
+### 6. Debugging temporal
+
+`ImportarMpp` en el controlador tiene `Console.WriteLine($"[ImportarMpp ERROR] {ex}")` en el catch genérico para visibilidad de errores en consola. Quitar antes de merge a master.

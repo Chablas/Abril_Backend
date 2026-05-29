@@ -112,5 +112,23 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        // POST /api/v1/cronograma-actividades/{proyectoId}/importar-mpp
+        [HttpPost("{proyectoId:int}/importar-mpp")]
+        [RequestSizeLimit(52_428_800)] // 50 MB
+        public async Task<IActionResult> ImportarMpp(int proyectoId, IFormFile archivo)
+        {
+            try
+            {
+                var result = await _service.ImportarMppAsync(proyectoId, archivo, GetUserId());
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ImportarMpp ERROR] {ex}");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

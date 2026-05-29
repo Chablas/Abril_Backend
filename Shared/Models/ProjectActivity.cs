@@ -10,6 +10,8 @@ namespace Abril_Backend.Shared.Models
         public DateOnly? ActualEndDate { get; set; }
         public int ProgressPercentage { get; set; }
         public int Order { get; set; }
+        public int? ParentId { get; set; }
+        public int HierarchyLevel { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

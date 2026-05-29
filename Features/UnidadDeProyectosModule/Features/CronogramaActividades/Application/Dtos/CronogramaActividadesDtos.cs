@@ -17,6 +17,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public DateOnly? ActualEndDate { get; set; }
         public int ProgressPercentage { get; set; }
         public int Order { get; set; }
+        public int HierarchyLevel { get; set; }
+        public int? ParentId { get; set; }
     }
 
     public class CrearActividadRequest
@@ -49,5 +51,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public string ProjectDescription { get; set; } = string.Empty;
         public bool TieneUnidadDeProyectos { get; set; }
         public bool State { get; set; }
+    }
+
+    public class ImportarMppResultDto
+    {
+        public int ActividadesImportadas { get; set; }
+        public int ActividadesEliminadas { get; set; }
     }
 }

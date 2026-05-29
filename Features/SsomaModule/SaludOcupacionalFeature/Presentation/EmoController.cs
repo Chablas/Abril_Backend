@@ -72,15 +72,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 
         [HttpPost("emos")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> Create(
-            [FromForm] EmoCreateDto dto,
-            [FromForm] IFormFile? documentoInterconsulta,
-            [FromForm] IFormFile? archivoLectura)
+        public async Task<IActionResult> Create([FromForm] EmoCreateDto dto)
         {
             try
             {
-                dto.DocumentoInterconsulta = documentoInterconsulta;
-                dto.ArchivoLectura = archivoLectura;
                 var result = await _service.Create(dto, CurrentUserId());
                 return Ok(new { id = result.EmoId, interconsultaId = result.InterconsultaId, message = "EMO registrado exitosamente." });
             }

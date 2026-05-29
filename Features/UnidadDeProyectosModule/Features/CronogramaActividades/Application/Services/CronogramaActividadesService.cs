@@ -1,6 +1,7 @@
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Application.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Interfaces;
+using Microsoft.AspNetCore.Http;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Application.Services
 {
@@ -33,5 +34,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         public Task<List<DebugProyectoDto>> GetDebugProyectosAsync()
             => _repository.GetDebugProyectosAsync();
+
+        public Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId)
+            => _repository.ImportarMppAsync(proyectoId, archivo, userId);
     }
 }

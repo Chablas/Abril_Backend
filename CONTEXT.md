@@ -1,5 +1,5 @@
 # CONTEXT.md — Abril Backend
-> Última actualización: 2026-05-26 — ProjectActivity model, CronogramaActividades rewrite, ProjectsDashboard migrado a project_activity, DTOs reestructurados
+> Última actualización: 2026-05-29 — Diagnóstico 400 en POST /milestoneScheduleHistory (PlannedStartDate non-nullable + AbrilException igualdad)
 
 ---
 
@@ -3201,3 +3201,39 @@ GET /api/v1/project/paged-with-residents?page={int=1}&pageSize={int=10}&search={
 ```
 
 Archivos modificados: `ProjectController.cs`, `IProjectService.cs`, `ProjectService.cs`, `IProjectRepository.cs`, `ProjectRepository.cs`.
+
+---
+
+## Sesión 2026-05-29 — Diagnóstico POST /milestoneScheduleHistory 400
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Investigación de causas de 400 Bad Request en POST /api/v1/milestoneScheduleHistory
+
+Sin modificar código — diagnóstico de lectura.
+
+**Archivos revisados:**
+- `Controllers/MilestoneScheduleHistoryController.cs`
+- `Application/DTOs/MilestoneScheduleHistory/MilestoneScheduleHistoryCreateDTO.cs`
+- `Application/DTOs/MilestoneSchedule/MilestoneScheduleCreateDTO.cs`
+- `Infrastructure/Repositories/MilestoneScheduleHistoryRepository.cs`
+
+**DTOs sin validación explícita:**
+
+`MilestoneScheduleHistoryCreateDTO`: `ProjectId`, `List<MilestoneScheduleCreateDTO> MilestoneSchedules`, `bool ForceSave` — ningún `[Required]`.
+
+`MilestoneScheduleCreateDTO`: `MilestoneId`, `Order`, `DateOnly PlannedStartDate` (non-nullable), `DateOnly? PlannedEndDate` — ningún `[Required]`.
+
+**Causa 1 — model binding automático de ASP.NET Core:**
+
+`PlannedStartDate` es `DateOnly` (no-nullable). Si el payload envía `null` o lo omite, el framework rechaza con 400 antes de ejecutar el action. Requiere formato `"YYYY-MM-DD"` en JSON.
+
+**Causa 2 — `AbrilException` desde el repository (llega al controller → `return BadRequest`):**
+
+| Línea | Condición | Mensaje |
+|-------|-----------|---------|
+| 80 | Mismo count, todos los campos iguales, `ForceSave=false` | `"El cronograma es igual a la última versión subida."` |
+| 108 | `DetectChanges` no detecta cambios, `ForceSave=false` | `"El cronograma es igual a la última versión subida."` |
+| 122 | `ForceSave=true` pero hay cambios | `"Para guardar sin cambios la última versión subida debe ser igual a la que se está editando actualmente."` |
+
+**Diagnóstico:** el 400 más frecuente en primer envío es `PlannedStartDate` nulo o con formato incorrecto. Si el cronograma ya existe sin cambios, cae en las líneas 80/108.

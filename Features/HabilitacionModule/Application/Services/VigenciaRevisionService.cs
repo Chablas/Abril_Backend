@@ -20,7 +20,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var hoy = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Utc);
 
             var trabajadores = await ctx.SsHabTrabajador
-                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo") && h.Vigencia < hoy)
+                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo" || h.Estado == "En revision") && h.Vigencia < hoy)
                 .ToListAsync();
 
             foreach (var h in trabajadores)

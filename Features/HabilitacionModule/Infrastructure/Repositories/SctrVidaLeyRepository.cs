@@ -138,6 +138,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                                    && h.Vigencia >= hoyUtc);
                         if (habVigente != null)
                         {
+                            habVigente.Estado = "En revision";
                             habVigente.ArchivoUrl = dto.ArchivoUrl;
                             habVigente.UpdatedAt = DateTime.UtcNow;
                             continue;

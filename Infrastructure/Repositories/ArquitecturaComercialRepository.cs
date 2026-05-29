@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Exceptions;
@@ -335,7 +336,9 @@ namespace Abril_Backend.Infrastructure.Repositories
             string? search,
             bool? soloActivas,
             int pagina,
-            int porPagina)
+            int porPagina,
+            int? userId,
+            bool esUsuarioAc)
         {
             if (pagina < 1) pagina = 1;
             if (porPagina < 1) porPagina = 100;
@@ -348,6 +351,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                             join p in ctx.Project on a.ProjectId equals p.ProjectId
                             from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                             from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                            from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                             from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                             from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                             select new
@@ -357,6 +361,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                 Encargado1 = p.ResponsableArqCom,
                                 EtapaNombre = e != null ? e.Nombre : null,
                                 ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                 CategoriaNombre = c != null ? c.Nombre : null,
                                 EspecialidadNombre = s != null ? s.Nombre : null,
                             };
@@ -380,10 +385,13 @@ namespace Abril_Backend.Infrastructure.Repositories
             if (soloActivas.HasValue && soloActivas.Value)
                 baseQuery = baseQuery.Where(x => x.Actividad.Activo);
 
+            if (esUsuarioAc && userId.HasValue && userId.Value > 0)
+                baseQuery = baseQuery.Where(x => x.Actividad.UserId == userId || x.Actividad.UserId2 == userId);
+
             int total = await baseQuery.CountAsync();
 
             var rows = await baseQuery
-                .OrderBy(x => x.Actividad.Indice)
+                .OrderBy(x => x.Actividad.Orden)
                 .ThenBy(x => x.Actividad.Id)
                 .Skip((pagina - 1) * porPagina)
                 .Take(porPagina)
@@ -404,7 +412,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                     Id = a.Id,
                     ProjectId = a.ProjectId,
                     ProjectNombre = x.ProjectNombre,
-                    Indice = a.Indice,
+                    Orden = a.Orden,
+                    Spi = a.Spi,
                     Nombre = a.Nombre,
                     PartidaDeControl = a.Tipo,
                     EtapaId = a.EtapaId,
@@ -415,6 +424,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                     EspecialidadNombre = x.EspecialidadNombre,
                     UserId = a.UserId,
                     ResponsableNombre = x.ResponsableNombre,
+                    UserId2 = a.UserId2,
+                    ResponsableNombre2 = x.ResponsableNombre2,
                     Encargado1 = x.Encargado1,
                     InicioProgramado = a.InicioProgramado,
                     FinProgramado = a.FinProgramado,
@@ -465,6 +476,9 @@ namespace Abril_Backend.Infrastructure.Repositories
                     case "userid":
                         actividad.UserId = ParseIntOrNull(kvp.Value);
                         break;
+                    case "userid2":
+                        actividad.UserId2 = ParseIntOrNull(kvp.Value);
+                        break;
                     case "observaciones":
                         actividad.Observaciones = ParseStringOrNull(kvp.Value);
                         break;
@@ -479,6 +493,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 else if (!wasNull && isNull) actividad.Activo = false;
             }
 
+            actividad.Spi = CalcularSpi(actividad);
+
             await ctx.SaveChangesAsync();
 
             return await GetActividadItemById(ctx, id);
@@ -492,6 +508,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                              from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                              from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == id
@@ -502,6 +519,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstOrDefaultAsync();
@@ -520,7 +538,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Id = act.Id,
                 ProjectId = act.ProjectId,
                 ProjectNombre = row.ProjectNombre,
-                Indice = act.Indice,
+                Orden = act.Orden,
+                Spi = act.Spi,
                 Nombre = act.Nombre,
                 PartidaDeControl = act.Tipo,
                 EtapaId = act.EtapaId,
@@ -531,6 +550,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
+                UserId2 = act.UserId2,
+                ResponsableNombre2 = row.ResponsableNombre2,
                 Encargado1 = row.Encargado1,
                 InicioProgramado = act.InicioProgramado,
                 FinProgramado = act.FinProgramado,
@@ -674,14 +695,15 @@ namespace Abril_Backend.Infrastructure.Repositories
             if (!proyectoExiste)
                 throw new AbrilException("Proyecto no encontrado.", 404);
 
-            var maxIndice = await ctx.AcActividad
+            var maxOrden = await ctx.AcActividad
                 .Where(a => a.ProjectId == dto.ProjectId)
-                .MaxAsync(a => (int?)a.Indice) ?? 0;
+                .MaxAsync(a => (int?)a.Orden) ?? 0;
 
             var actividad = new AcActividad
             {
                 ProjectId = dto.ProjectId,
                 UserId = dto.UserId,
+                UserId2 = dto.UserId2,
                 Nombre = dto.Nombre,
                 Tipo = dto.Tipo,
                 EtapaId = dto.EtapaId,
@@ -689,7 +711,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadId = dto.EspecialidadId,
                 Estado = EstadoVacio,
                 Activo = true,
-                Indice = maxIndice + 1,
+                Orden = maxOrden + 1,
                 InicioProgramado = dto.InicioProgramado,
                 FinProgramado = dto.FinProgramado,
                 Observaciones = dto.Observaciones,
@@ -703,6 +725,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                              from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                              from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == actividad.Id
@@ -713,6 +736,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
@@ -723,7 +747,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Id = act.Id,
                 ProjectId = act.ProjectId,
                 ProjectNombre = row.ProjectNombre,
-                Indice = act.Indice,
+                Orden = act.Orden,
+                Spi = act.Spi,
                 Nombre = act.Nombre,
                 PartidaDeControl = act.Tipo,
                 EtapaId = act.EtapaId,
@@ -734,6 +759,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
+                UserId2 = act.UserId2,
+                ResponsableNombre2 = row.ResponsableNombre2,
                 Encargado1 = row.Encargado1,
                 InicioProgramado = act.InicioProgramado,
                 FinProgramado = act.FinProgramado,
@@ -759,11 +786,13 @@ namespace Abril_Backend.Infrastructure.Repositories
             actividad.CategoriaId = dto.CategoriaId;
             actividad.EspecialidadId = dto.EspecialidadId;
             actividad.UserId = dto.UserId;
+            actividad.UserId2 = dto.UserId2;
             actividad.InicioProgramado = dto.InicioProgramado;
             actividad.FinProgramado = dto.FinProgramado;
             actividad.InicioEfectivo = dto.InicioEfectivo;
             actividad.FinEfectivo = dto.FinEfectivo;
             actividad.Observaciones = dto.Observaciones;
+            actividad.Spi = CalcularSpi(actividad);
 
             await ctx.SaveChangesAsync();
 
@@ -772,6 +801,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                              join p in ctx.Project on a.ProjectId equals p.ProjectId
                              from e in ctx.AcEtapa.Where(x => x.Id == a.EtapaId).DefaultIfEmpty()
                              from w in ctx.Worker.Where(x => x.Id == a.UserId).DefaultIfEmpty()
+                             from w2 in ctx.Worker.Where(x => x.Id == a.UserId2).DefaultIfEmpty()
                              from c in ctx.AcCategoria.Where(x => x.Id == a.CategoriaId).DefaultIfEmpty()
                              from s in ctx.AcEspecialidad.Where(x => x.Id == a.EspecialidadId).DefaultIfEmpty()
                              where a.Id == id
@@ -782,6 +812,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                  Encargado1 = p.ResponsableArqCom,
                                  EtapaNombre = e != null ? e.Nombre : null,
                                  ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
+                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
                                  CategoriaNombre = c != null ? c.Nombre : null,
                                  EspecialidadNombre = s != null ? s.Nombre : null,
                              }).FirstAsync();
@@ -792,7 +823,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Id = act.Id,
                 ProjectId = act.ProjectId,
                 ProjectNombre = row.ProjectNombre,
-                Indice = act.Indice,
+                Orden = act.Orden,
+                Spi = act.Spi,
                 Nombre = act.Nombre,
                 PartidaDeControl = act.Tipo,
                 EtapaId = act.EtapaId,
@@ -803,6 +835,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EspecialidadNombre = row.EspecialidadNombre,
                 UserId = act.UserId,
                 ResponsableNombre = row.ResponsableNombre,
+                UserId2 = act.UserId2,
+                ResponsableNombre2 = row.ResponsableNombre2,
                 Encargado1 = row.Encargado1,
                 InicioProgramado = act.InicioProgramado,
                 FinProgramado = act.FinProgramado,
@@ -824,6 +858,53 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             ctx.AcActividad.Remove(actividad);
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<AvanceSemanalSnapshotResultDTO> SnapshotAvanceSemanal()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var semana = today.AddDays(-(int)today.DayOfWeek + 1);
+
+            var actividades = await ctx.AcActividad
+                .Where(a => a.Activo)
+                .ToListAsync();
+
+            var existentes = await ctx.AcAvanceSemanal
+                .Where(x => x.Semana == semana)
+                .ToDictionaryAsync(x => x.ActividadId);
+
+            foreach (var a in actividades)
+            {
+                var spi = CalcularSpi(a);
+                var porcentaje = CalcularPorcentajeAvance(a, today);
+
+                if (existentes.TryGetValue(a.Id, out var row))
+                {
+                    row.PorcentajeAvance = porcentaje;
+                    row.Spi = spi;
+                }
+                else
+                {
+                    ctx.AcAvanceSemanal.Add(new AcAvanceSemanal
+                    {
+                        ActividadId = a.Id,
+                        Semana = semana,
+                        PorcentajeAvance = porcentaje,
+                        Spi = spi,
+                        CreatedAt = DateTime.UtcNow,
+                    });
+                }
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return new AvanceSemanalSnapshotResultDTO
+            {
+                Total = actividades.Count,
+                Semana = semana,
+                Message = $"Snapshot generado para la semana del {semana:yyyy-MM-dd}.",
+            };
         }
 
         private static async Task<PlantillaActividadDTO?> LoadPlantillaDto(AppDbContext ctx, int id)
@@ -849,6 +930,58 @@ namespace Abril_Backend.Infrastructure.Repositories
                     Activo = p.Activo,
                 }
             ).FirstOrDefaultAsync();
+        }
+
+        private static decimal CalcularSpi(AcActividad a)
+        {
+            if (!a.InicioProgramado.HasValue)
+                return 0m;
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            if (a.FinEfectivo.HasValue)
+            {
+                var diasPlan = (a.FinProgramado!.Value.ToDateTime(TimeOnly.MinValue)
+                              - a.InicioProgramado.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (diasPlan == 0) return 0m;
+                var diasReal = (a.FinEfectivo.Value.ToDateTime(TimeOnly.MinValue)
+                              - (a.InicioEfectivo ?? a.InicioProgramado.Value).ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (diasReal == 0) return 0m;
+                return Math.Round((decimal)(diasPlan / diasReal), 2);
+            }
+
+            if (a.InicioEfectivo.HasValue)
+            {
+                var diasPlan = (a.FinProgramado!.Value.ToDateTime(TimeOnly.MinValue)
+                              - a.InicioProgramado.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (diasPlan == 0) return 0m;
+                var diasTranscurridos = (today.ToDateTime(TimeOnly.MinValue)
+                                       - a.InicioEfectivo.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                return Math.Round((decimal)(diasTranscurridos / diasPlan), 2);
+            }
+
+            return 0m;
+        }
+
+        private static decimal CalcularPorcentajeAvance(AcActividad a, DateOnly today)
+        {
+            if (!a.InicioProgramado.HasValue)
+                return 0m;
+
+            if (a.FinEfectivo.HasValue)
+                return 100m;
+
+            if (a.InicioEfectivo.HasValue && a.FinProgramado.HasValue)
+            {
+                var transcurridos = (today.ToDateTime(TimeOnly.MinValue)
+                                   - a.InicioEfectivo.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                var planificados  = (a.FinProgramado.Value.ToDateTime(TimeOnly.MinValue)
+                                   - a.InicioEfectivo.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (planificados == 0) return 0m;
+                return Math.Min(99m, Math.Max(0m, Math.Round((decimal)(transcurridos / planificados * 100), 2)));
+            }
+
+            return 0m;
         }
 
         private static int? ComputeRetraso(DateOnly? finProgramado, DateOnly? finEfectivo, DateOnly today)
@@ -976,7 +1109,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Nombre = p.Nombre,
                 Tipo = p.Tipo,
                 EtapaId = p.EtapaId,
-                Indice = p.Orden,
+                Orden = p.Orden,
                 Activo = false,
             }).ToList();
 
@@ -1047,7 +1180,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                         select new GanttActividadDTO
                         {
                             Id = a.Id,
-                            Indice = a.Indice,
+                            Orden = a.Orden,
                             Nombre = a.Nombre,
                             Tipo = a.Tipo,
                             EtapaId = a.EtapaId,
@@ -1073,7 +1206,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 query = query.Where(x => x.Activo);
 
             return await query
-                .OrderBy(x => x.Indice)
+                .OrderBy(x => x.Orden)
                 .ThenBy(x => x.Id)
                 .ToListAsync();
         }
@@ -1116,6 +1249,383 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Activas = activas,
                 SinActividades = total == 0,
             };
+        }
+
+        public async Task<ArqComercialDashboardDTO> GetDashboardDataFiltrado(DashboardFiltroDTO filtro)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            var query = ctx.AcActividad.Where(a => a.Activo).AsQueryable();
+
+            if (filtro.CategoriaId.HasValue)
+                query = query.Where(a => a.CategoriaId == filtro.CategoriaId.Value);
+            if (filtro.ProyectoId.HasValue && filtro.ProyectoId.Value > 0)
+                query = query.Where(a => a.ProjectId == filtro.ProyectoId.Value);
+            if (filtro.UserId.HasValue && filtro.UserId.Value > 0)
+                query = query.Where(a => a.UserId == filtro.UserId.Value || a.UserId2 == filtro.UserId.Value);
+            if (filtro.Mes.HasValue)
+                query = query.Where(a =>
+                    (a.InicioProgramado.HasValue && a.InicioProgramado.Value.Month == filtro.Mes.Value) ||
+                    (a.FinProgramado.HasValue    && a.FinProgramado.Value.Month    == filtro.Mes.Value));
+            if (filtro.Semana.HasValue)
+            {
+                var anio  = filtro.Anio ?? today.Year;
+                var jan1  = new DateOnly(anio, 1, 1);
+                var dow   = (int)jan1.DayOfWeek;
+                var offset = dow == 0 ? 6 : dow - 1;
+                var semanaInicio = jan1.AddDays((filtro.Semana.Value - 1) * 7 - offset);
+                var semanaFin    = semanaInicio.AddDays(6);
+                query = query.Where(a =>
+                    (a.InicioProgramado >= semanaInicio && a.InicioProgramado <= semanaFin) ||
+                    (a.FinProgramado    >= semanaInicio && a.FinProgramado    <= semanaFin));
+            }
+
+            var actividades = await query.ToListAsync();
+            var total       = actividades.Count;
+            var culminadas  = actividades.Count(a => a.FinEfectivo != null);
+            var enProceso   = actividades.Count(a => a.InicioEfectivo != null && a.FinEfectivo == null);
+            var vencidas    = actividades.Count(a => a.FinProgramado.HasValue
+                                 && a.FinProgramado.Value < today
+                                 && a.FinEfectivo == null);
+            var pendientes  = actividades.Count(a => a.InicioProgramado.HasValue
+                                 && a.InicioProgramado.Value > today
+                                 && a.InicioEfectivo == null);
+
+            var spiVals = actividades.Where(a => a.Spi.HasValue && a.Spi.Value > 0)
+                .Select(a => (double)a.Spi!.Value).ToList();
+            var eficienciaMedia = spiVals.Count > 0 ? Math.Round(spiVals.Average() * 100, 1) : 0.0;
+            var progresoGlobal  = total > 0 ? Math.Round((double)culminadas / total * 100, 1) : 0.0;
+
+            var semLunes   = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            var semDomingo = semLunes.AddDays(6);
+
+            var alertas = new ArqComercialAlertDTO
+            {
+                VencidasSinCerrar   = vencidas,
+                VencenEstaSemana    = actividades.Count(a =>
+                    a.FinEfectivo == null &&
+                    a.FinProgramado >= semLunes && a.FinProgramado <= semDomingo),
+                ArrancanEstaSemana  = actividades.Count(a =>
+                    a.InicioEfectivo == null &&
+                    a.InicioProgramado >= semLunes && a.InicioProgramado <= semDomingo),
+                HitosProximos14Dias = actividades.Count(a =>
+                    a.Tipo == "HITO" && a.FinEfectivo == null &&
+                    a.FinProgramado >= today && a.FinProgramado <= today.AddDays(14)),
+            };
+
+            var actProjectIds = actividades.Select(a => a.ProjectId).Distinct().ToList();
+            var proyectos     = await ctx.Project
+                .Where(p => actProjectIds.Contains(p.ProjectId))
+                .ToListAsync();
+            var proyectoResponsableMap = proyectos
+                .Where(p => p.ResponsableArqComId != null)
+                .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
+
+            var workerIds = actividades
+                .SelectMany(a =>
+                {
+                    var resp1 = a.UserId ??
+                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                    return new[] { resp1, a.UserId2 };
+                })
+                .Where(id => id.HasValue).Select(id => id!.Value)
+                .Distinct().ToList();
+
+            var workers = workerIds.Count > 0
+                ? await ctx.Worker.Where(w => workerIds.Contains(w.Id)).Include(w => w.Person).ToListAsync()
+                : [];
+
+            var workerNameMap = workers.ToDictionary(w => w.Id, w => w.Person?.FullName ?? $"Worker {w.Id}");
+
+            var tareasPorArquitectoDetalle = workerIds.Select(uid =>
+            {
+                var tareas = actividades.Where(a =>
+                {
+                    var resp1 = a.UserId ??
+                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                    return resp1 == uid || a.UserId2 == uid;
+                }).ToList();
+                var completadas = tareas.Count(a => a.FinEfectivo != null);
+                return new TareasPorArquitectoDTO
+                {
+                    UserId      = uid,
+                    Nombre      = workerNameMap.GetValueOrDefault(uid, $"Worker {uid}"),
+                    Hitos       = tareas.Count(a => a.Tipo == "HITO"),
+                    Entregables = tareas.Count(a => a.Tipo == "ENTREGABLE"),
+                    Consultas   = tareas.Count(a => a.Tipo == "CONSULTA"),
+                    Total       = tareas.Count,
+                    AvancePct   = tareas.Count > 0 ? Math.Round((decimal)completadas / tareas.Count * 100, 1) : 0m,
+                };
+            }).OrderByDescending(t => t.Total).ToList();
+
+            var supervisores = tareasPorArquitectoDetalle.Select(t => new SupervisorProgresoDTO
+            {
+                Nombre      = t.Nombre,
+                Progreso    = (double)t.AvancePct,
+                Completadas = actividades.Count(a =>
+                {
+                    var resp1 = a.UserId ??
+                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                    return (resp1 == t.UserId || a.UserId2 == t.UserId) && a.FinEfectivo != null;
+                }),
+                Total       = t.Total,
+            }).ToList();
+
+            var hitosBase = actividades
+                .Where(a => a.Tipo == "HITO" && a.Estado != EstadoCulminado &&
+                       a.FinProgramado.HasValue && a.FinProgramado.Value <= today.AddDays(30))
+                .OrderBy(a => a.FinProgramado).Take(50).ToList();
+
+            var hitosProjectIds = hitosBase.Select(a => a.ProjectId).Distinct().ToList();
+            var hitosProjects   = hitosProjectIds.Count > 0
+                ? await ctx.Project.Where(p => hitosProjectIds.Contains(p.ProjectId))
+                    .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription ?? "")
+                : [];
+
+            var hitosCriticos = hitosBase.Select(a => new HitoCriticoDTO
+            {
+                Id            = a.Id,
+                Nombre        = a.Nombre,
+                Proyecto      = hitosProjects.GetValueOrDefault(a.ProjectId, ""),
+                Estado        = a.Estado ?? "",
+                FechaLimite   = a.FinProgramado?.ToString("dd/MM/yyyy") ?? "",
+                DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
+            }).ToList();
+
+            var hace8Semanas = today.AddDays(-56);
+            var semanaRaw = await ctx.AcAvanceSemanal
+                .Where(s => s.Semana >= hace8Semanas)
+                .GroupBy(s => s.Semana)
+                .Select(g => new { Semana = g.Key, Real = g.Average(x => x.PorcentajeAvance) })
+                .OrderBy(s => s.Semana)
+                .ToListAsync();
+
+            var semanas = semanaRaw.Select(s => new AvanceSemanalDTO
+            {
+                Semana     = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
+                Real       = s.Real,
+                Programado = Math.Round(s.Real * 0.9m, 2),
+            }).ToList();
+
+            var hace3Semanas = today.AddDays(-21);
+            var spiRaw = await ctx.AcAvanceSemanal
+                .Where(s => s.Semana >= hace3Semanas)
+                .GroupBy(s => s.Semana)
+                .Select(g => new { Semana = g.Key, Spi = g.Average(x => x.Spi) })
+                .OrderBy(s => s.Semana)
+                .ToListAsync();
+
+            var eficienciaSpi = spiRaw.Select(s => new EficienciaSpiDTO
+            {
+                Semana = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
+                Spi    = s.Spi,
+            }).ToList();
+
+            var categorias = await ctx.AcCategoria
+                .Select(c => new CategoriaItemDTO { Id = c.Id, Nombre = c.Nombre })
+                .ToListAsync();
+
+            return new ArqComercialDashboardDTO
+            {
+                Kpis = new ArqComercialKpiDTO
+                {
+                    TotalActividades = total,
+                    Culminadas       = culminadas,
+                    EnProceso        = enProceso,
+                    Vencidas         = vencidas,
+                    Pendientes       = pendientes,
+                    EficienciaMedia  = eficienciaMedia,
+                    ProgresoGlobal   = progresoGlobal,
+                },
+                Alertas            = alertas,
+                Supervisores       = supervisores,
+                HitosCriticos      = hitosCriticos,
+                DistribucionEstado = new List<ArqComercialChartItemDTO>
+                {
+                    new() { Label = "Culminadas", Value = culminadas },
+                    new() { Label = "En Proceso", Value = enProceso  },
+                    new() { Label = "Vencidas",   Value = vencidas   },
+                    new() { Label = "Pendientes", Value = pendientes  },
+                },
+                RankingEficiencia  = tareasPorArquitectoDetalle.Select(t => new ArqComercialChartItemDTO
+                {
+                    Label = t.Nombre.Split(' ').FirstOrDefault() ?? t.Nombre,
+                    Value = (double)t.AvancePct,
+                }).ToList(),
+                TendenciaEficiencia = eficienciaSpi.Select(e => new EficienciaSemanalDTO
+                {
+                    Semana = e.Semana,
+                    Valor  = (double)e.Spi,
+                }).ToList(),
+                ProyeccionAvance = new ProyeccionAvanceDTO
+                {
+                    Labels     = semanas.Select(s => s.Semana).ToList(),
+                    Programado = semanas.Select(s => (double)s.Programado).ToList(),
+                    Real       = semanas.Select(s => (double)s.Real).ToList(),
+                },
+                TareasPorArquitectoDetalle = [.. tareasPorArquitectoDetalle],
+                AvanceSemanal              = [.. semanas],
+                EficienciaSpi              = [.. eficienciaSpi],
+                Categorias                 = [.. categorias],
+            };
+        }
+
+        public async Task<List<ActividadAlertaDTO>> GetActividadesPorAlerta(
+            string tipoAlerta, DashboardFiltroDTO filtro)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var today      = DateOnly.FromDateTime(DateTime.UtcNow);
+            var semLunes   = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            var semDomingo = semLunes.AddDays(6);
+
+            var query = ctx.AcActividad.Where(a => a.Activo).AsQueryable();
+
+            if (filtro.CategoriaId.HasValue)
+                query = query.Where(a => a.CategoriaId == filtro.CategoriaId.Value);
+            if (filtro.ProyectoId.HasValue && filtro.ProyectoId.Value > 0)
+                query = query.Where(a => a.ProjectId == filtro.ProyectoId.Value);
+
+            query = tipoAlerta.ToUpperInvariant() switch
+            {
+                "VENCIDA"      => query.Where(a => a.FinEfectivo == null && a.FinProgramado.HasValue && a.FinProgramado.Value < today),
+                "VENCE_SEMANA" => query.Where(a => a.FinEfectivo == null && a.FinProgramado >= semLunes && a.FinProgramado <= semDomingo),
+                "ARRANQUE"     => query.Where(a => a.InicioEfectivo == null && a.InicioProgramado >= semLunes && a.InicioProgramado <= semDomingo),
+                "HITO_PROXIMO" => query.Where(a => a.Tipo == "HITO" && a.FinEfectivo == null && a.FinProgramado >= today && a.FinProgramado <= today.AddDays(14)),
+                _              => query,
+            };
+
+            var list = await query.OrderBy(a => a.FinProgramado).Take(200).ToListAsync();
+            if (list.Count == 0) return [];
+
+            var projectIds   = list.Select(a => a.ProjectId).Distinct().ToList();
+            var proyectoList = await ctx.Project
+                .Where(p => projectIds.Contains(p.ProjectId))
+                .ToListAsync();
+            var projects               = proyectoList.ToDictionary(p => p.ProjectId, p => p.ProjectDescription ?? "");
+            var proyectoResponsableMap = proyectoList
+                .Where(p => p.ResponsableArqComId != null)
+                .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
+
+            var workerIds = list
+                .SelectMany(a =>
+                {
+                    var resp1 = a.UserId ??
+                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                    return new[] { resp1, a.UserId2 };
+                })
+                .Where(id => id.HasValue).Select(id => id!.Value)
+                .Distinct().ToList();
+
+            var workers = workerIds.Count > 0
+                ? await ctx.Worker.Where(w => workerIds.Contains(w.Id)).Include(w => w.Person).ToListAsync()
+                : [];
+
+            var workerNameMap  = workers.ToDictionary(w => w.Id, w => w.Person?.FullName ?? $"Worker {w.Id}");
+            var workerEmailMap = workers.ToDictionary(w => w.Id, w => w.EmailPersonal ?? "");
+
+            var categoriaIds = list.Where(a => a.CategoriaId.HasValue).Select(a => a.CategoriaId!.Value).Distinct().ToList();
+            var categorias   = categoriaIds.Count > 0
+                ? await ctx.AcCategoria.Where(c => categoriaIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Nombre)
+                : [];
+
+            return list.Select(a =>
+            {
+                var resp1Id = a.UserId ??
+                    (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+                return new ActividadAlertaDTO
+                {
+                    Id            = a.Id,
+                    Nombre        = a.Nombre,
+                    Proyecto      = projects.GetValueOrDefault(a.ProjectId, ""),
+                    Responsable1  = resp1Id.HasValue   ? workerNameMap.GetValueOrDefault(resp1Id.Value)   : null,
+                    Responsable2  = a.UserId2.HasValue ? workerNameMap.GetValueOrDefault(a.UserId2.Value) : null,
+                    EmailResp1    = resp1Id.HasValue   ? workerEmailMap.GetValueOrDefault(resp1Id.Value)  : null,
+                    EmailResp2    = a.UserId2.HasValue ? workerEmailMap.GetValueOrDefault(a.UserId2.Value) : null,
+                    FechaInicio   = a.InicioProgramado?.ToString("dd/MM/yyyy"),
+                    FechaFin      = a.FinProgramado?.ToString("dd/MM/yyyy"),
+                    Estado        = a.Estado,
+                    Spi           = a.Spi,
+                    Tipo          = a.Tipo ?? "",
+                    Categoria     = a.CategoriaId.HasValue ? categorias.GetValueOrDefault(a.CategoriaId.Value) : null,
+                    DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
+                };
+            }).ToList();
+        }
+
+        public async Task EnviarAlertasActividades(
+            List<int> actividadIds, string tipoAlerta,
+            List<string> emailsGestores, IEmailService emailService)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var actividades = await ctx.AcActividad
+                .Where(a => actividadIds.Contains(a.Id))
+                .ToListAsync();
+
+            if (actividades.Count == 0) return;
+
+            var workerIds = actividades
+                .SelectMany(a => new[] { a.UserId, a.UserId2 })
+                .Where(id => id.HasValue).Select(id => id!.Value)
+                .Distinct().ToList();
+
+            var emailMap = new Dictionary<int, string>();
+            if (workerIds.Count > 0)
+            {
+                var we = await ctx.Worker
+                    .Where(w => workerIds.Contains(w.Id))
+                    .Select(w => new { w.Id, w.EmailPersonal })
+                    .ToListAsync();
+                emailMap = we.Where(x => x.EmailPersonal != null)
+                    .ToDictionary(x => x.Id, x => x.EmailPersonal!);
+            }
+
+            var projectIds = actividades.Select(a => a.ProjectId).Distinct().ToList();
+            var projects   = await ctx.Project
+                .Where(p => projectIds.Contains(p.ProjectId))
+                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription ?? "");
+
+            var tituloMap = new Dictionary<string, string>
+            {
+                ["VENCIDA"]      = "Actividades Vencidas Sin Cerrar",
+                ["VENCE_SEMANA"] = "Actividades que Vencen Esta Semana",
+                ["ARRANQUE"]     = "Actividades que Arrancan Esta Semana",
+                ["HITO_PROXIMO"] = "Hitos Próximos a Vencer",
+            };
+            var titulo = tituloMap.GetValueOrDefault(tipoAlerta.ToUpperInvariant(), "Alerta de Actividades AC");
+
+            var destinatarios = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var a in actividades)
+            {
+                if (a.UserId.HasValue  && emailMap.TryGetValue(a.UserId.Value,  out var e1)) destinatarios.Add(e1);
+                if (a.UserId2.HasValue && emailMap.TryGetValue(a.UserId2.Value, out var e2)) destinatarios.Add(e2);
+            }
+            foreach (var eg in emailsGestores.Where(e => !string.IsNullOrEmpty(e)))
+                destinatarios.Add(eg);
+
+            if (destinatarios.Count == 0) return;
+
+            var filas = string.Join("", actividades.Select(a =>
+                $"<tr><td>{a.Nombre}</td><td>{projects.GetValueOrDefault(a.ProjectId, "")}</td>" +
+                $"<td>{a.FinProgramado?.ToString("dd/MM/yyyy")}</td>" +
+                $"<td>{a.Estado}</td><td>{a.Spi:F2}</td></tr>"));
+
+            var html = $"""
+                <h2 style="color:#1E3A5F">{titulo}</h2>
+                <p>Se han identificado <b>{actividades.Count}</b> actividades que requieren atención:</p>
+                <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px">
+                  <thead style="background:#1E3A5F;color:#fff">
+                    <tr><th>Actividad</th><th>Proyecto</th><th>Fecha Fin</th><th>Estado</th><th>SPI</th></tr>
+                  </thead>
+                  <tbody>{filas}</tbody>
+                </table>
+                <p style="color:#9CA3AF;font-size:11px;margin-top:16px">
+                  Enviado automáticamente desde Abril AC Dashboard — {DateTime.Now:dd/MM/yyyy HH:mm}
+                </p>
+                """;
+
+            await emailService.SendAsync(destinatarios.ToList(), titulo, html, isHtml: true);
         }
     }
 }

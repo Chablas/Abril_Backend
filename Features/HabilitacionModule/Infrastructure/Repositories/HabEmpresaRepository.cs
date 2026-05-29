@@ -6,7 +6,6 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 {
@@ -68,11 +67,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var entregable = await ctx.SsHabEmpresa.FirstOrDefaultAsync(h => h.Id == id)
+            var entregable = await ctx.SsHabEmpresa
+                .Include(h => h.Item)
+                .FirstOrDefaultAsync(h => h.Id == id)
                 ?? throw new AbrilException("Entregable no encontrado.", 404);
 
             if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
             {
+                int? ssEmpresaId = empresaId;
+
                 var versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v => v.HabEmpresaId == id);
 
@@ -82,19 +85,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Version = versionActual + 1,
                     ArchivoUrl = dto.ArchivoUrl,
                     SubidoPorUserId = userId,
-                    SubidoPorEmpresaId = empresaId,
+                    SubidoPorEmpresaId = ssEmpresaId,
                     EstadoAlSubir = dto.Estado,
                     CreatedAt = DateTime.UtcNow
                 });
             }
 
-            entregable.Estado = dto.Estado;
-            entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
-            entregable.ArchivoUrl = dto.ArchivoUrl;
-            entregable.ObsAbril = dto.ObsAbril;
-            entregable.ObsContratista = dto.ObsContratista;
-            entregable.Mes = dto.Mes;
-            entregable.Anio = dto.Anio;
+            if (!string.IsNullOrEmpty(dto.Estado))
+                entregable.Estado = dto.Estado;
+            if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
+                entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
+            if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
+            if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
+            if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;
+            if (dto.Mes is not null) entregable.Mes = dto.Mes;
+            if (dto.Anio is not null) entregable.Anio = dto.Anio;
             entregable.UpdatedAt = DateTime.UtcNow;
 
             if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
@@ -201,27 +206,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var empresaExiste = await ctx.SsEmpresaContratista.AnyAsync(e => e.Id == empresaId);
-            if (!empresaExiste)
-                throw new AbrilException("Empresa no encontrada.", 404);
-
             var proyectoExiste = await ctx.Project.AnyAsync(p => p.ProjectId == proyectoId);
             if (!proyectoExiste)
                 throw new AbrilException("Proyecto no encontrado.", 404);
 
-            var yaActiva = await ctx.SsEmpresaProyecto
-                .AnyAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId && ep.Activo);
-            if (yaActiva)
-                throw new AbrilException("La empresa ya está activa en este proyecto.", 409);
+            // Si ya existe una fila para (empresa, proyecto) — reactivar en lugar de insertar
+            // para evitar violación de UNIQUE constraint (empresa_id, proyecto_id) cuando se
+            // re-activa un proyecto previamente desactivado.
+            var existente = await ctx.SsEmpresaProyecto
+                .FirstOrDefaultAsync(ep => ep.EmpresaId == empresaId && ep.ProyectoId == proyectoId);
 
-            ctx.SsEmpresaProyecto.Add(new SsEmpresaProyecto
+            if (existente != null)
             {
-                EmpresaId = empresaId,
-                ProyectoId = proyectoId,
-                Activo = true,
-                FechaInicio = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow
-            });
+                if (existente.Activo)
+                    throw new AbrilException("La empresa ya está activa en este proyecto.", 409);
+
+                existente.Activo      = true;
+                existente.FechaInicio = DateTime.UtcNow;
+                existente.FechaFin    = null;
+            }
+            else
+            {
+                ctx.SsEmpresaProyecto.Add(new SsEmpresaProyecto
+                {
+                    EmpresaId   = empresaId,
+                    ProyectoId  = proyectoId,
+                    Activo      = true,
+                    FechaInicio = DateTime.UtcNow,
+                    CreatedAt   = DateTime.UtcNow
+                });
+            }
+
             await ctx.SaveChangesAsync();
 
             await InicializarEntregablesEmpresaAsync(empresaId, proyectoId);
@@ -267,5 +282,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             registro.FechaFin = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
         }
+
     }
 }

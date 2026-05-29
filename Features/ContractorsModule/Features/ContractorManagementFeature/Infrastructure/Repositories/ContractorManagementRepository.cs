@@ -31,7 +31,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                 join cs in ctx.ContractorState on ct.ContractorStateId equals cs.ContractorStateId
                 join p in ctx.Person on c.LegalRepresentativePersonId equals p.PersonId into personJoin
                 from p in personJoin.DefaultIfEmpty()
-                where ct.Active
+                where ct.Active && ct.State
                 select new { ct, c, cs, p };
 
             if (!string.IsNullOrWhiteSpace(filter.ContributorName))
@@ -39,6 +39,21 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
             if (!string.IsNullOrWhiteSpace(filter.ContributorRuc))
                 query = query.Where(x => x.c.ContributorRuc.Contains(filter.ContributorRuc));
+
+            if (filter.ContractorStateId.HasValue)
+                query = query.Where(x => x.ct.ContractorStateId == filter.ContractorStateId.Value);
+
+            if (!string.IsNullOrWhiteSpace(filter.LegalRepresentativeDni))
+                query = query.Where(x => x.p != null && x.p.DocumentIdentityCode != null &&
+                    x.p.DocumentIdentityCode.Contains(filter.LegalRepresentativeDni));
+
+            if (!string.IsNullOrWhiteSpace(filter.LegalRepresentativeName))
+                query = query.Where(x => x.p != null && x.p.FullName != null &&
+                    x.p.FullName.ToLower().Contains(filter.LegalRepresentativeName.ToLower()));
+
+            if (!string.IsNullOrWhiteSpace(filter.LegalEntityRegistryNumber))
+                query = query.Where(x => x.c.LegalEntityRegistryNumber != null &&
+                    x.c.LegalEntityRegistryNumber.Contains(filter.LegalEntityRegistryNumber));
 
             var totalRecords = await query.CountAsync();
 
@@ -117,11 +132,15 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
         public async Task Approve(int contractorId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.ContractorStateId == PendingContractorStateId);
+
+            var contractor = await ctx.Contractor
+                .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.ContractorStateId == PendingContractorStateId);
             if (contractor is null) return;
+
             contractor.ContractorStateId = ApprovedContractorStateId;
             contractor.UpdatedDateTime = DateTimeOffset.UtcNow;
             contractor.UpdatedUserId = userId;
+
             await ctx.SaveChangesAsync();
         }
 
@@ -143,7 +162,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             var result = await (
                 from ct in ctx.Contractor
                 join c in ctx.Contributor on ct.ContributorId equals c.ContributorId
-                where ct.ContractorId == contractorId && ct.Active
+                where ct.ContractorId == contractorId && ct.Active && ct.State
                 select new ContractorWithEmailsDto
                 {
                     ContractorId = ct.ContractorId,
@@ -175,7 +194,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             using var ctx = _factory.CreateDbContext();
 
             var contractor = await ctx.Contractor
-                .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.Active)
+                .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.Active && c.State)
                 ?? throw new Exception("Contratista no encontrado.");
 
             var contributor = await ctx.Contributor
@@ -287,7 +306,8 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
         public async Task SetActivationToken(int contractorId, string token, DateTime expiry)
         {
             using var ctx = _factory.CreateDbContext();
-            var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId);
+            var contractor = await ctx.Contractor
+                .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.Active && c.State);
             if (contractor is null) return;
             contractor.ActivationToken = token;
             contractor.ActivationTokenExpiry = expiry;

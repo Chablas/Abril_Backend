@@ -36,27 +36,23 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         [HttpGet]
         public async Task<IActionResult> GetPaged(
             [FromQuery] string? search,
-            [FromQuery] string? tipo,
             [FromQuery] bool? activo,
+            [FromQuery] bool? soloContratistas,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
             try
             {
-                var (items, total) = await _repo.GetPagedAsync(search, tipo, activo, page, pageSize);
+                var (items, total) = await _repo.GetPagedAsync(search, activo, soloContratistas, page, pageSize);
 
-                var data = items.Select(MapToList).ToList();
-
-                var result = new PagedResult<EmpresaContratistaListDto>
+                return Ok(new PagedResult<EmpresaContratistaListDto>
                 {
                     Page = page,
                     PageSize = pageSize,
                     TotalRecords = total,
                     TotalPages = (int)Math.Ceiling(total / (double)pageSize),
-                    Data = data
-                };
-
-                return Ok(result);
+                    Data = items
+                });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EmpresaContratistaController.GetPaged"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -71,41 +67,22 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 if (empresa is null)
                     return NotFound(new { message = "Empresa no encontrada." });
 
-                return Ok(MapToDetalle(empresa));
+                return Ok(empresa);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EmpresaContratistaController.GetById"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpPost]
+        [AllowAnonymous]
         public async Task<IActionResult> Create([FromBody] EmpresaContratistaCreateDto dto)
         {
             try
             {
-                var empresa = new SsEmpresaContratista
-                {
-                    Ruc = dto.Ruc,
-                    RazonSocial = dto.RazonSocial,
-                    NombreComercial = dto.NombreComercial,
-                    Rubro = dto.Rubro,
-                    Direccion = dto.Direccion,
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
-                    EmailGerente = dto.EmailGerente,
-                    EmailAdmin = dto.EmailAdmin,
-                    EmailResidente = dto.EmailResidente,
-                    EmailSsoma = dto.EmailSsoma,
-                    LogoUrl = dto.LogoUrl,
-                    PartidaRegistral = dto.PartidaRegistral,
-                    Tipo = dto.Tipo,
-                    Activo = dto.Activo,
-                    ActivoRetirado = dto.ActivoRetirado,
-                    ProyectoId = dto.ProyectoId,
-                    IdLegacy = dto.IdLegacy,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
+                if (await _repo.ExisteRucAsync(dto.Ruc ?? string.Empty))
+                    return StatusCode(400, new { message = "Ya existe una empresa contratista registrada con ese RUC." });
 
-                var creada = await _repo.CreateAsync(empresa);
+                var creada = await _repo.CreateAsync(dto);
 
                 try
                 {
@@ -116,7 +93,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     _logger.LogWarning(ex, "Empresa {Id} creada pero falló el envío del correo de activación.", creada.Id);
                 }
 
-                return StatusCode(201, MapToList(creada));
+                return StatusCode(201, creada);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EmpresaContratistaController.Create"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -131,26 +108,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 if (empresa is null)
                     return NotFound(new { message = "Empresa no encontrada." });
 
-                empresa.Ruc = dto.Ruc;
-                empresa.RazonSocial = dto.RazonSocial;
-                empresa.NombreComercial = dto.NombreComercial;
-                empresa.Rubro = dto.Rubro;
-                empresa.Direccion = dto.Direccion;
-                empresa.EmailGerente = dto.EmailGerente;
-                empresa.EmailAdmin = dto.EmailAdmin;
-                empresa.EmailResidente = dto.EmailResidente;
-                empresa.EmailSsoma = dto.EmailSsoma;
-                empresa.LogoUrl = dto.LogoUrl;
-                empresa.PartidaRegistral = dto.PartidaRegistral;
-                empresa.Tipo = dto.Tipo;
-                empresa.Activo = dto.Activo;
-                empresa.ActivoRetirado = dto.ActivoRetirado;
-                empresa.ProyectoId = dto.ProyectoId;
-                empresa.IdLegacy = dto.IdLegacy;
-                empresa.UpdatedAt = DateTime.UtcNow;
-
-                var actualizada = await _repo.UpdateAsync(empresa);
-                return Ok(MapToDetalle(actualizada));
+                await _repo.UpdateAsync(id, dto);
+                return Ok(await _repo.GetByIdAsync(id));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EmpresaContratistaController.Update"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -165,10 +124,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 if (empresa is null)
                     return NotFound(new { message = "Empresa no encontrada." });
 
-                empresa.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
-                empresa.UpdatedAt = DateTime.UtcNow;
-
-                await _repo.UpdateAsync(empresa);
+                await _repo.UpdatePasswordAsync(id, BCrypt.Net.BCrypt.HashPassword(dto.Password));
                 return Ok(new { message = "Contraseña actualizada." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -250,42 +206,5 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EmpresaContratistaController.RemoveProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
-
-        private static EmpresaContratistaListDto MapToList(SsEmpresaContratista e) => new()
-        {
-            Id = e.Id,
-            RazonSocial = e.RazonSocial,
-            NombreComercial = e.NombreComercial,
-            Ruc = e.Ruc,
-            Tipo = e.Tipo,
-            Activo = e.Activo,
-            EmailAdmin = e.EmailAdmin,
-            EmailSsoma = e.EmailSsoma,
-            LogoUrl = e.LogoUrl,
-            Rubro = e.Rubro
-        };
-
-        private static EmpresaContratistaDetalleDto MapToDetalle(SsEmpresaContratista e) => new()
-        {
-            Id = e.Id,
-            Ruc = e.Ruc,
-            RazonSocial = e.RazonSocial,
-            NombreComercial = e.NombreComercial,
-            Rubro = e.Rubro,
-            Direccion = e.Direccion,
-            EmailGerente = e.EmailGerente,
-            EmailAdmin = e.EmailAdmin,
-            EmailResidente = e.EmailResidente,
-            EmailSsoma = e.EmailSsoma,
-            LogoUrl = e.LogoUrl,
-            PartidaRegistral = e.PartidaRegistral,
-            Tipo = e.Tipo,
-            Activo = e.Activo,
-            ActivoRetirado = e.ActivoRetirado,
-            ProyectoId = e.ProyectoId,
-            IdLegacy = e.IdLegacy,
-            CreatedAt = e.CreatedAt,
-            UpdatedAt = e.UpdatedAt
-        };
     }
 }

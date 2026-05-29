@@ -4,7 +4,7 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
     {
         public int Id { get; set; }
         public int ProjectId { get; set; }
-        public int? Indice { get; set; }
+        public int? Orden { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public string? Tipo { get; set; }
         public int? EtapaId { get; set; }

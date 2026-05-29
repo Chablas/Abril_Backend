@@ -7,6 +7,7 @@ using Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure.Int
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Options;
 using Microsoft.Extensions.Options;
 
 namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Services
@@ -20,6 +21,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
         private readonly FrontendSettings _frontendSettings;
         private readonly IGraphSharePointService _sharePointService;
         private readonly IConfiguration _configuration;
+        private readonly SharePointSiteRef _site;
 
         public ContractorManagementService(
             IContractorManagementRepository repository,
@@ -33,6 +35,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
             _frontendSettings = frontendSettings.Value;
             _sharePointService = sharePointService;
             _configuration = configuration;
+            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
         }
 
         public async Task<PagedResult<ContributorPagedDto>> GetPaged(ContributorFilterDto filter)
@@ -42,6 +45,8 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
 
         public async Task Approve(int contractorId, int userId)
         {
+            // Solo se aprueba al contratista. El envío de credenciales se hace manualmente
+            // desde el botón "Enviar credenciales" (SendCredentials), no automáticamente al aprobar.
             await _repository.Approve(contractorId, userId);
         }
 
@@ -101,8 +106,8 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
             string? fichaRucUrl   = null;
             string? referencesUrl = null;
 
-            var listId = _configuration["SharePoint:ContractorListId"]
-                ?? throw new InvalidOperationException("SharePoint:ContractorListId no está configurado.");
+            var listId = _configuration["SharePoint:Sites:CostosYPresupuestos:ContractorLibraryId"]
+                ?? throw new InvalidOperationException("SharePoint:Sites:CostosYPresupuestos:ContractorLibraryId no está configurado.");
 
             // La carpeta sigue siendo {ruc} - {nombre_original} para no romper archivos previos
             var folderPath = Sanitize($"{existing.ContributorRuc} - {existing.ContributorName}");
@@ -128,6 +133,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
             var fileName  = $"{baseName}{extension}";
             using var stream = file.OpenReadStream();
             var result = await _sharePointService.UploadToSharePointLibraryAsync(
+                site:        _site,
                 libraryName: listId,
                 folderPath:  folderPath,
                 fileName:    fileName,

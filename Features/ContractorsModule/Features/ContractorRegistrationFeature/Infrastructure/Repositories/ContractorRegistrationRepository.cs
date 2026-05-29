@@ -1,3 +1,4 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Dtos;
@@ -12,10 +13,14 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
         private const int PendingContractorStateId = 1;
 
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ILogger<ContractorRegistrationRepository> _logger;
 
-        public ContractorRegistrationRepository(IDbContextFactory<AppDbContext> factory)
+        public ContractorRegistrationRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ILogger<ContractorRegistrationRepository> logger)
         {
             _factory = factory;
+            _logger = logger;
         }
 
         public async Task<List<ContractorPersonTypeDto>> GetPersonTypes()
@@ -34,6 +39,8 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
 
         public async Task Create(ContributorCreateDto dto, int? userId, string? logoUrl, string? brochureUrl, string? fichaRucUrl, string? referencesUrl)
         {
+            try
+            {
             using var ctx = _factory.CreateDbContext();
 
             // Resolve legal representative → find or create Person by DNI
@@ -114,12 +121,17 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                     && int.TryParse(dto.ContributorEmailPersonTypeIds[i], out var ptId))
                     personTypeId = ptId;
 
+                var emailNorm = dto.ContributorEmails[i].Trim().ToLower();
+                var linkedUser = await ctx.User
+                    .FirstOrDefaultAsync(u => u.Email == emailNorm && u.Active && u.State);
+
                 contractor.Emails.Add(new ContractorEmail
                 {
                     Email                  = dto.ContributorEmails[i],
                     ContractorPersonTypeId = personTypeId,
                     CreatedDateTime        = DateTimeOffset.UtcNow,
                     CreatedUserId          = userId,
+                    UserId                 = linkedUser?.UserId,
                     Active = true,
                     State  = true
                 });
@@ -127,6 +139,52 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
 
             ctx.Contractor.Add(contractor);
             await ctx.SaveChangesAsync();
+            } // end try
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR REGISTRO CONTRATISTA: {msg}", ex.ToString());
+                throw;
+            }
+        }
+
+        public async Task<int> ValidateAndGetAttemptNumberAsync(string ruc)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var contributor = await ctx.Contributor
+                .FirstOrDefaultAsync(c => c.ContributorRuc == ruc && c.State);
+
+            if (contributor == null)
+                return 1; // Primera vez que este RUC se registra
+
+            // Todos los contractor records para este contributor (históricos + activos)
+            var allContractors = await ctx.Contractor
+                .Where(c => c.ContributorId == contributor.ContributorId)
+                .OrderByDescending(c => c.CreatedDateTime)
+                .ToListAsync();
+
+            if (!allContractors.Any())
+                return 1;
+
+            // Revisar el estado del más reciente activo
+            var latestActive = allContractors.FirstOrDefault(c => c.State);
+            if (latestActive != null)
+            {
+                if (latestActive.ContractorStateId == 1)
+                    throw new AbrilException(
+                        "Tu empresa ya tiene una solicitud de registro pendiente de revisión. " +
+                        "Por favor espera a ser contactado por Abril Grupo Inmobiliario.", 400);
+
+                if (latestActive.ContractorStateId == 2)
+                    throw new AbrilException(
+                        "Tu empresa ya se encuentra aprobada como contratista de Abril Grupo Inmobiliario. " +
+                        "Si tienes alguna consulta, por favor contáctanos directamente.", 400);
+
+                // ContractorStateId == 3 (No aprobado) → se permite un nuevo intento
+            }
+
+            // Número de intento = total de registros históricos + 1
+            return allContractors.Count + 1;
         }
     }
 }

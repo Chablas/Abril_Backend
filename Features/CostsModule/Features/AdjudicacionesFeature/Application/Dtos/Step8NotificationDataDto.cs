@@ -4,7 +4,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
     {
         public string ProjectDescription  { get; set; } = null!;
         public string ContributorName     { get; set; } = null!;
-        public List<string> OfTecnicaEmails { get; set; } = new();
+        public List<string> StaffObraEmails  { get; set; } = new();
         public List<ProjectSubContractorFileDto> ScannedDocs { get; set; } = new();
     }
 }

@@ -1,4 +1,5 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.AuthModule.Role.Application.Dtos;
 using Abril_Backend.Features.AuthModule.Role.Application.Interfaces;
 using Abril_Backend.Features.AuthModule.Role.Infrastructure.Interfaces;
@@ -39,6 +40,14 @@ namespace Abril_Backend.Features.AuthModule.Role.Application.Services
         public async Task UpdateRoleFeatures(int roleId, List<int> featureIds)
         {
             await _repository.UpdateRoleFeatures(roleId, featureIds);
+        }
+
+        public async Task UpdateRoleDescription(int roleId, RoleUpdateDescriptionDto dto, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.RoleDescription))
+                throw new AbrilException("La descripción del rol es obligatoria.");
+
+            await _repository.UpdateRoleDescription(roleId, dto.RoleDescription, userId);
         }
     }
 }

@@ -37,7 +37,15 @@ using System.Threading.RateLimiting;
 // a propiedades PascalCase (DTOs), igual que la convención que usa EF Core.
 Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 
+// QuestPDF Community License — gratuita para uso interno/<$1M USD revenue anual.
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
 var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 3_000_000_000;
+});
 
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
@@ -74,6 +82,14 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
     {
         throw new Exception("Proveedor de BD no soportado");
     }
+
+    // Errores de EF Core más explícitos (mensaje y constraint name visibles en excepciones).
+    options.EnableDetailedErrors();
+
+    // En no-producción, además mostrar los valores reales de los parámetros SQL.
+    // ⚠ NUNCA habilitar en Production: puede loggear contraseñas/PII.
+    if (!builder.Environment.IsProduction())
+        options.EnableSensitiveDataLogging();
 
     options.AddInterceptors(sp.GetRequiredService<AuditoriaInterceptor>());
 });

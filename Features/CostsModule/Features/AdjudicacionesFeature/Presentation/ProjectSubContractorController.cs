@@ -24,6 +24,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             [FromQuery] int? projectId,
             [FromQuery] string? contributorName,
             [FromQuery] string? contributorRuc,
+            [FromQuery] int? contractTypeId,
+            [FromQuery] int? contractModalityId,
+            [FromQuery] int? paymentMethodId,
             [FromQuery] int? createdUserId,
             [FromQuery] int page = 1)
         {
@@ -39,6 +42,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     ProjectId = projectId,
                     ContributorName = contributorName,
                     ContributorRuc = contributorRuc,
+                    ContractTypeId = contractTypeId,
+                    ContractModalityId = contractModalityId,
+                    PaymentMethodId = paymentMethodId,
                     CreatedUserId = createdUserId,
                     Page = page
                 };
@@ -112,6 +118,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             [FromQuery] int? projectId,
             [FromQuery] string? contributorName,
             [FromQuery] string? contributorRuc,
+            [FromQuery] int? contractTypeId,
+            [FromQuery] int? contractModalityId,
+            [FromQuery] int? paymentMethodId,
             [FromQuery] int? createdUserId,
             [FromQuery] int page = 1)
         {
@@ -127,6 +136,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     ProjectId = projectId,
                     ContributorName = contributorName,
                     ContributorRuc = contributorRuc,
+                    ContractTypeId = contractTypeId,
+                    ContractModalityId = contractModalityId,
+                    PaymentMethodId = paymentMethodId,
                     CreatedUserId = createdUserId,
                     Page = page
                 };
@@ -222,6 +234,84 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         }
 
         [Authorize]
+        [HttpPost("{id}/documents/{documentType}/send-observation-email")]
+        public async Task<IActionResult> SendObservationEmail(int id, string documentType, [FromBody] SendObservationEmailDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+
+                if (!Enum.TryParse<AdjudicacionDocumentType>(documentType, ignoreCase: true, out var docType))
+                    return BadRequest(new { message = $"Tipo de documento inválido: '{documentType}'." });
+
+                await _projectSubContractorService.SendObservationEmailAsync(id, docType, dto, userId);
+                return Ok(new { message = "Correo de observaciones enviado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/send-all-observations-email")]
+        public async Task<IActionResult> SendAllObservationsEmail(int id, [FromBody] SendAllObservationsEmailDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+
+                await _projectSubContractorService.SendAllObservationsEmailAsync(id, dto, userId);
+                return Ok(new { message = "Correo de observaciones enviado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/send-all-levantamiento-email")]
+        public async Task<IActionResult> SendAllLevantamientoEmail(int id, [FromBody] SendAllObservationsEmailDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+
+                await _projectSubContractorService.SendAllLevantamientoEmailAsync(id, dto, userId);
+                return Ok(new { message = "Correo de levantamiento de observaciones enviado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPost("{id}/generate/{documentType}")]
         public async Task<IActionResult> GenerateDocument(int id, string documentType)
         {
@@ -275,7 +365,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
         [Authorize]
         [HttpPatch("{id}/arrival-option")]
-        public async Task<IActionResult> SetArrivalOption(int id, [FromBody] ConfirmStep5DTO dto)
+        public async Task<IActionResult> SetArrivalOption(int id, [FromBody] SetArrivalOptionDto dto)
         {
             try
             {
@@ -382,7 +472,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
                 var userId = int.Parse(userIdClaim.Value);
                 await _projectSubContractorService.SendStep8NotificationAsync(id, dto.GraphAccessToken, userId);
-                return Ok(new { message = "Correo enviado a Oficina Técnica exitosamente." });
+                return Ok(new { message = "Correo enviado a Staff de Obra exitosamente." });
             }
             catch (AbrilException ex)
             {
@@ -396,7 +486,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
         [Authorize]
         [HttpPost("{id}/advance-to-step4")]
-        public async Task<IActionResult> AdvanceToStep4(int id)
+        public async Task<IActionResult> AdvanceToStep4(int id, [FromBody] AdvanceToStep4Dto dto)
         {
             try
             {
@@ -404,9 +494,12 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
+                if (string.IsNullOrWhiteSpace(dto?.GraphAccessToken))
+                    return BadRequest(new { message = "Falta el token de Microsoft Graph del usuario autenticado." });
+
                 var userId = int.Parse(userIdClaim.Value);
-                await _projectSubContractorService.AdvanceToStep4Async(id, userId);
-                return Ok(new { message = "Adjudicación aprobada y Oficina Técnica notificada." });
+                await _projectSubContractorService.AdvanceToStep4Async(id, dto.GraphAccessToken, userId);
+                return Ok(new { message = "Adjudicación aprobada y Staff de Obra notificado." });
             }
             catch (AbrilException ex)
             {

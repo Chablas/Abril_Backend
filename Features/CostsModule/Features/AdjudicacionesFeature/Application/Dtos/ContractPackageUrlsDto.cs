@@ -6,6 +6,26 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? SummarySheetItemId  { get; init; }
         public string? ContractUrl         { get; init; }
         public string? ContractItemId      { get; init; }
+        /// <summary>Cotización adjunta del paso 3. Se inserta dentro del contrato, después del marcador
+        /// &lt;&lt;INSERTAR_COTIZACION_AQUI&gt;&gt;. OriginalFileName se usa para saber si ya es PDF o necesita conversión.</summary>
+        public string? AttachedQuotationUrl         { get; init; }
+        public string? AttachedQuotationItemId      { get; init; }
+        public string? AttachedQuotationFileName    { get; init; }
+        /// <summary>Ficha técnica del paso 3. Se inserta dentro del contrato, después del marcador
+        /// &lt;&lt;INSERTAR_FICHA_TÉCNICA_AQUI&gt;&gt;.</summary>
+        public string? FichaTecnicaUrl              { get; init; }
+        public string? FichaTecnicaItemId           { get; init; }
+        public string? FichaTecnicaFileName         { get; init; }
+        /// <summary>Orden de servicio del paso 3. Se inserta dentro del contrato, después del marcador
+        /// &lt;&lt;INSERTAR_ORDEN_DE_SERVICIO_AQUI&gt;&gt;.</summary>
+        public string? ServiceOrderUrl              { get; init; }
+        public string? ServiceOrderItemId           { get; init; }
+        public string? ServiceOrderFileName         { get; init; }
+        /// <summary>Cronograma del paso 3. Se inserta dentro del contrato, después del marcador
+        /// &lt;&lt;INSERTAR_CRONOGRAMA_AQUI&gt;&gt;.</summary>
+        public string? ScheduleUrl                  { get; init; }
+        public string? ScheduleItemId               { get; init; }
+        public string? ScheduleFileName             { get; init; }
         public string? NonConformingOutputUrl    { get; init; }
         public string? NonConformingOutputItemId { get; init; }
         public string? ToleranceChartUrl         { get; init; }

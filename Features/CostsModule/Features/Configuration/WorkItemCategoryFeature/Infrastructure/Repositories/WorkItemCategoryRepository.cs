@@ -218,5 +218,21 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
 
             await _context.SaveChangesAsync();
         }
+
+        public async Task UpdateManualInstructivo(int workItemCategoryId, string fileUrl, string fileName, int userId)
+        {
+            var record = await _context.WorkItemCategory
+                .FirstOrDefaultAsync(x => x.WorkItemCategoryId == workItemCategoryId && x.State)
+                ?? throw new AbrilException("La partida de control no existe.");
+
+            record.InstructivosFolderId   = fileUrl;
+            record.InstructivosFolderName = fileName;
+            record.InstructivosSyncStatus = 2;
+            record.InstructivosSyncedAt   = DateTimeOffset.UtcNow;
+            record.UpdatedDateTime        = DateTimeOffset.UtcNow;
+            record.UpdatedUserId          = userId;
+
+            await _context.SaveChangesAsync();
+        }
     }
 }

@@ -10,5 +10,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.SctrVidaley
         public int? SctrHabId { get; set; }
         public string EstadoSctr { get; set; } = "Falta";
         public string EstadoVidaLey { get; set; } = "Falta";
+        public string? EmpresaNombre { get; set; }
+        public string? ProyectoNombre { get; set; }
+        public DateTime? FechaVencimiento { get; set; }
     }
 }

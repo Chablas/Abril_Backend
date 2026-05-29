@@ -1,8 +1,10 @@
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Interfaces;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Options;
 using Abril_Backend.Shared.Services.Sunat.Dtos;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using System.Text;
@@ -11,33 +13,29 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 {
     public class ContractorRegistrationService : IContractorRegistrationService
     {
-        private static readonly List<string> _costoYPresupuestosEmails = new()
-        {
-            "eaguinaga@abril.pe",
-            "apimentel@abril.pe",
-            "bquicana@abril.pe",
-            "cavila@abril.pe",
-            //"alvarezvillegaschristian@gmail.com",
-        };
-
         private readonly IContractorRegistrationRepository _repository;
         private readonly ISunatService _sunatService;
         private readonly IGraphSharePointService _sharePointService;
         private readonly IConfiguration _configuration;
         private readonly IEmailService _emailService;
+        private readonly ICostosPresupuestosEmailService _costosPresupuestosEmailService;
+        private readonly SharePointSiteRef _site;
 
         public ContractorRegistrationService(
             IContractorRegistrationRepository repository,
             ISunatService sunatService,
             IGraphSharePointService sharePointService,
             IConfiguration configuration,
-            IEmailService emailService)
+            IEmailService emailService,
+            ICostosPresupuestosEmailService costosPresupuestosEmailService)
         {
             _repository = repository;
             _sunatService = sunatService;
             _sharePointService = sharePointService;
             _configuration = configuration;
             _emailService = emailService;
+            _costosPresupuestosEmailService = costosPresupuestosEmailService;
+            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
         }
 
         public async Task<List<ContractorPersonTypeDto>> GetPersonTypes()
@@ -47,31 +45,54 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 
         public async Task Create(ContributorCreateDto dto, int? userId, string? accessToken = null)
         {
+            // 1. Validar elegibilidad ANTES de subir archivos y obtener el número de intento.
+            //    Lanza AbrilException si el contratista está en espera (1) o ya aprobado (2).
+            int attemptNumber = await _repository.ValidateAndGetAttemptNumberAsync(dto.ContributorRuc);
+
+            // 2. Subir archivos a SharePoint en la subcarpeta del intento correspondiente.
+            //    Esto ocurre solo después de confirmar que el envío está permitido,
+            //    evitando carpetas huérfanas en caso de rechazo.
             string? logoUrl       = null;
             string? brochureUrl   = null;
             string? fichaRucUrl   = null;
             string? referencesUrl = null;
 
-            // Subir archivos a SharePoint usando permisos de aplicación (no requiere token del usuario).
-            // Carpeta: {ruc} - {razonsocial}  (dentro de la biblioteca de contratistas)
-            var listId     = _configuration["SharePoint:ContractorListId"]
-                             ?? throw new InvalidOperationException("SharePoint:ContractorListId no está configurado.");
-            var folderPath = Sanitize($"{dto.ContributorRuc} - {dto.ContributorName}");
+            if (dto.LogoFile is not null || dto.BrochureFile is not null || dto.FichaRucFile is not null || dto.ReferencesListFile is not null)
+            {
+                var listId          = _configuration["SharePoint:Sites:CostosYPresupuestos:ContractorLibraryId"]
+                                      ?? throw new InvalidOperationException("SharePoint:Sites:CostosYPresupuestos:ContractorLibraryId no está configurado.");
+                var desiredFolder   = Sanitize($"{dto.ContributorRuc} - {dto.ContributorName}");
 
-            if (dto.LogoFile is not null)
-                logoUrl = await UploadFile(listId, folderPath, "logo", dto.LogoFile);
+                // Buscar carpeta existente para este RUC (independientemente de si la razón social cambió).
+                // · Si existe y el nombre coincide → se reutiliza tal cual.
+                // · Si existe pero el nombre cambió  → se renombra a la razón social actual.
+                // · Si no existe                    → Graph la crea automáticamente al subir el primer archivo.
+                var existing = await _sharePointService.FindContractorFolderAsync(_site, listId, dto.ContributorRuc);
+                if (existing is not null
+                    && !string.Equals(existing.Value.Name, desiredFolder, StringComparison.OrdinalIgnoreCase))
+                {
+                    await _sharePointService.RenameFolderInLibraryAsync(_site, listId, existing.Value.Id, desiredFolder);
+                }
 
-            if (dto.BrochureFile is not null)
-                brochureUrl = await UploadFile(listId, folderPath, "brochure", dto.BrochureFile);
+                var folderPath = $"{desiredFolder}/Solicitud {attemptNumber}";
 
-            if (dto.FichaRucFile is not null)
-                fichaRucUrl = await UploadFile(listId, folderPath, "ficha_ruc", dto.FichaRucFile);
+                if (dto.LogoFile is not null)
+                    logoUrl = await UploadFile(listId, folderPath, "logo", dto.LogoFile);
 
-            if (dto.ReferencesListFile is not null)
-                referencesUrl = await UploadFile(listId, folderPath, "lista_referencias", dto.ReferencesListFile);
+                if (dto.BrochureFile is not null)
+                    brochureUrl = await UploadFile(listId, folderPath, "brochure", dto.BrochureFile);
 
+                if (dto.FichaRucFile is not null)
+                    fichaRucUrl = await UploadFile(listId, folderPath, "ficha_ruc", dto.FichaRucFile);
+
+                if (dto.ReferencesListFile is not null)
+                    referencesUrl = await UploadFile(listId, folderPath, "lista_referencias", dto.ReferencesListFile);
+            }
+
+            // 3. Crear el registro en base de datos (nuevo Contractor por cada intento).
             await _repository.Create(dto, userId, logoUrl, brochureUrl, fichaRucUrl, referencesUrl);
 
+            // 4. Notificar al equipo interno.
             await SendNewContractorNotificationAsync(dto);
         }
 
@@ -100,8 +121,9 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             body.AppendLine("</ul>");
             body.AppendLine("<p>Por favor, acceda al sistema para completar la revisión del contratista.</p>");
 
+            var costosEmails = await _costosPresupuestosEmailService.GetActiveEmails();
             await _emailService.SendAsync(
-                to:     _costoYPresupuestosEmails,
+                to:     costosEmails,
                 subject: subject,
                 body:    body.ToString(),
                 isHtml:  true);
@@ -119,6 +141,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 
             using var stream = file.OpenReadStream();
             var result = await _sharePointService.UploadToSharePointLibraryAsync(
+                site:        _site,
                 libraryName: listId,
                 folderPath:  folderPath,
                 fileName:    fileName,

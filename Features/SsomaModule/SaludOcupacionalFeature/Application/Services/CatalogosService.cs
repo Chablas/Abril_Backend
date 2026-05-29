@@ -16,6 +16,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<List<ClinicaDto>> ListClinicas(bool soloActivos) => _repo.ListClinicas(soloActivos);
 
+        public Task<ClinicaDto> GetClinicaById(int id) => _repo.GetClinicaById(id);
+
         public Task<ClinicaDto> CreateClinica(ClinicaUpsertDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.Nombre))

@@ -5,7 +5,8 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public int Id { get; set; }
         public int ProjectId { get; set; }
         public string? ProjectNombre { get; set; }
-        public int? Indice { get; set; }
+        public int? Orden { get; set; }
+        public decimal? Spi { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public string? PartidaDeControl { get; set; }
         public int? CategoriaId { get; set; }
@@ -16,6 +17,8 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public string? EtapaNombre { get; set; }
         public int? UserId { get; set; }
         public string? ResponsableNombre { get; set; }
+        public int? UserId2 { get; set; }
+        public string? ResponsableNombre2 { get; set; }
         public string? Encargado1 { get; set; }
         public DateOnly? InicioProgramado { get; set; }
         public DateOnly? FinProgramado { get; set; }

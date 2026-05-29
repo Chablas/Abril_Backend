@@ -8,8 +8,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int ContractorId {get; set;}
         public int ContractTypeId {get; set;}
         public int? ContractModalityId { get; set; }
-        public int ContractOriginId {get; set;}
         public int PaymentMethodId {get; set;}
+        public int? PaymentFormId { get; set; }
         public decimal AdvancePercentage {get;set;}
         public decimal? AdvanceAmount {get; set;}
         public decimal Amount {get; set;}
@@ -33,6 +33,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         // Fondo de garantía (paso 2)
         public int? GuaranteeFundPercentage { get; set; }
         public int? GuaranteeFundDays { get; set; }
+        // Periodo de validez de garantía en días (paso 2)
+        public int? GuaranteeValidityDays { get; set; }
 
         // Llegada a Of. Central (paso 5)
         public bool? ArrivedWithObservations { get; set; }
@@ -49,10 +51,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? ProjectSubContractorInstructivoId { get; set; }
         public int? ProjectSubContractorNonConformingOutputId { get; set; }
         public int? ProjectSubContractorToleranceChartId { get; set; }
+        public int? ProjectSubContractorFichaTecnicaId { get; set; }
+        public int? ProjectSubContractorAnexoId { get; set; }
 
-        public DateTime CreatedDateTime {get; set;}
+        public DateTimeOffset CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
-        public DateTime? UpdatedDateTime {get; set;}
+        public DateTimeOffset? UpdatedDateTime {get; set;}
         public int? UpdatedUserId {get; set;}
         public bool Active {get; set;}
         public bool State {get; set;}
@@ -69,6 +73,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public ProjectSubContractorInstructivo? Instructivo { get; set; }
         public ProjectSubContractorNonConformingOutput? NonConformingOutput { get; set; }
         public ProjectSubContractorToleranceChart? ToleranceChart { get; set; }
+        public ProjectSubContractorFichaTecnica? FichaTecnica { get; set; }
+        public ProjectSubContractorAnexo? Anexo { get; set; }
         public List<ProjectSubContractorQuotationFile> QuotationFiles { get; set; } = new();
         public List<ProjectSubContractorComparativeFile> ComparativeFiles { get; set; } = new();
     }

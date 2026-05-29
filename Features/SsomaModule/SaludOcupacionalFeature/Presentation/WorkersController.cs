@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
+using WorkerUpdateDto = Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers.WorkerUpdateDto;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers;
@@ -68,8 +70,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 if (await _restringidoService.EstaRestringidoPorDniAsync(dto.Dni))
                     throw new AbrilException(MensajeRestriccion, 400);
 
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                if (roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase)))
+                if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
                 {
                     if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaIdJwt))
                         return StatusCode(400, new { message = "No se pudo determinar la empresa del contratista." });
@@ -78,6 +79,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 }
 
                 var id = await _service.Create(dto);
+
+                if (dto.ProyectoId.HasValue)
+                {
+                    await _habRepo.AgregarProyectoAsync(id, new AgregarProyectoDto
+                    {
+                        ProyectoId  = dto.ProyectoId.Value,
+                        EmpresaId   = dto.EmpresaId,
+                        FechaInicio = dto.FechaIngreso,
+                    });
+                }
+
                 await _habRepo.InicializarEntregablesAsync(id);
                 return StatusCode(201, new { id, message = "Trabajador creado exitosamente." });
             }

@@ -14,6 +14,9 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("user_id")]
         public int? UserId { get; set; }
 
+        [Column("user_id2")]
+        public int? UserId2 { get; set; }
+
         [Column("nombre")]
         public string Nombre { get; set; } = string.Empty;
 
@@ -38,8 +41,11 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("activo")]
         public bool Activo { get; set; }
 
-        [Column("indice")]
-        public int? Indice { get; set; }
+        [Column("orden")]
+        public int? Orden { get; set; }
+
+        [Column("spi")]
+        public decimal? Spi { get; set; }
 
         [Column("inicio_programado")]
         public DateOnly? InicioProgramado { get; set; }

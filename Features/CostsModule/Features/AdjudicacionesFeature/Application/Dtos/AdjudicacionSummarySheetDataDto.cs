@@ -3,6 +3,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
     public class AdjudicacionSummarySheetDataDto
     {
         public int ProjectSubContractorId { get; set; }
+        public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = null!;
         public string? Abbreviation { get; set; }
         public string ContributorName { get; set; } = null!;
@@ -17,13 +18,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? ProjectRazonSocial { get; set; }
         public string? ProjectContributorRuc { get; set; }
         public string? ProjectDistrict { get; set; }
+        public string? ProjectLocation { get; set; }
         public string? ProjectLegalEntityRegistryNumber { get; set; }
         public string WorkItemDescription { get; set; } = null!;
         public string ContractTypeDescription { get; set; } = null!;
         public int? ContractModalityId { get; set; }
-        public string ContractOriginDescription { get; set; } = null!;
         public int PaymentMethodId { get; set; }
         public string PaymentMethodDescription { get; set; } = null!;
+        public string? PaymentFormDescription { get; set; }
         public string CurrencyCode { get; set; } = null!;
         public decimal Amount { get; set; }
         public bool HasIgv { get; set; }
@@ -37,6 +39,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public int? PromissoryNoteNumber { get; set; }
         public int? GuaranteeFundPercentage { get; set; }
         public int? GuaranteeFundDays { get; set; }
+        public int? GuaranteeValidityDays { get; set; }
 
         /// <summary>Cláusulas especiales de la partida de control, ordenadas por SortOrder.</summary>
         public List<string> SpecialClauses { get; set; } = [];

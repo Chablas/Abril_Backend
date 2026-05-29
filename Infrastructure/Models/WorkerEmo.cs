@@ -22,6 +22,9 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("fecha_vencimiento")]
         public DateOnly? FechaVencimiento { get; set; }
 
+        [Column("fecha_lectura")]
+        public DateOnly? FechaLectura { get; set; }
+
         [Column("resultado")]
         public string? Resultado { get; set; }
 
@@ -51,6 +54,12 @@ namespace Abril_Backend.Infrastructure.Models
 
         [Column("url_resultado")]
         public string? UrlResultado { get; set; }
+
+        [Column("url_aptitud")]
+        public string? UrlAptitud { get; set; }
+
+        [Column("url_emo_completo")]
+        public string? UrlEmoCompleto { get; set; }
 
         [Column("numero_informe")]
         public string? NumeroInforme { get; set; }

@@ -80,7 +80,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("contract_modality_description");
 
-                    b.Property<DateTime>("CreatedDatetime")
+                    b.Property<DateTimeOffset>("CreatedDatetime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_datetime");
 
@@ -88,7 +88,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("state");
 
-                    b.Property<DateTime?>("UpdatedDatetime")
+                    b.Property<DateTimeOffset?>("UpdatedDatetime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_datetime");
 
@@ -116,7 +116,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("contract_origin_description");
 
-                    b.Property<DateTime>("CreatedDateTime")
+                    b.Property<DateTimeOffset>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
 
@@ -128,7 +128,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("state");
 
-                    b.Property<DateTime?>("UpdatedDateTime")
+                    b.Property<DateTimeOffset?>("UpdatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_date_time");
 
@@ -160,7 +160,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("contract_type_description");
 
-                    b.Property<DateTime>("CreatedDateTime")
+                    b.Property<DateTimeOffset>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
 
@@ -172,7 +172,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("state");
 
-                    b.Property<DateTime?>("UpdatedDateTime")
+                    b.Property<DateTimeOffset?>("UpdatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_date_time");
 
@@ -199,7 +199,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("active");
 
-                    b.Property<DateTime>("CreatedDateTime")
+                    b.Property<DateTimeOffset>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
 
@@ -226,7 +226,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("state");
 
-                    b.Property<DateTime?>("UpdatedDateTime")
+                    b.Property<DateTimeOffset?>("UpdatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_date_time");
 
@@ -253,7 +253,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("active");
 
-                    b.Property<DateTime>("CreatedDateTime")
+                    b.Property<DateTimeOffset>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
 
@@ -270,7 +270,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("state");
 
-                    b.Property<DateTime?>("UpdatedDateTime")
+                    b.Property<DateTimeOffset?>("UpdatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_date_time");
 
@@ -321,10 +321,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("contract_number");
 
-                    b.Property<int>("ContractOriginId")
-                        .HasColumnType("integer")
-                        .HasColumnName("contract_origin_id");
-
                     b.Property<int>("ContractTypeId")
                         .HasColumnType("integer")
                         .HasColumnName("contract_type_id");
@@ -338,7 +334,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("contractor_id");
 
-                    b.Property<DateTime>("CreatedDateTime")
+                    b.Property<DateTimeOffset>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
 
@@ -442,7 +438,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("term_days");
 
-                    b.Property<DateTime?>("UpdatedDateTime")
+                    b.Property<DateTimeOffset?>("UpdatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_date_time");
 
@@ -640,7 +636,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("active");
 
-                    b.Property<DateTime>("CreatedDateTime")
+                    b.Property<DateTimeOffset>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
 
@@ -669,7 +665,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("state");
 
-                    b.Property<DateTime?>("UpdatedDateTime")
+                    b.Property<DateTimeOffset?>("UpdatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_date_time");
 
@@ -1041,7 +1037,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("active");
 
-                    b.Property<DateTime>("CreatedDateTime")
+                    b.Property<DateTimeOffset>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
 
@@ -1070,7 +1066,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("state");
 
-                    b.Property<DateTime?>("UpdatedDateTime")
+                    b.Property<DateTimeOffset?>("UpdatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_date_time");
 
@@ -1414,6 +1410,82 @@ namespace Abril_Backend.Migrations
                     b.ToTable("project_sub_contractor_tolerance_chart", (string)null);
                 });
 
+            modelBuilder.Entity("Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Models.ProjectLink", b =>
+                {
+                    b.Property<int>("ProjectLinkId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("project_link_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProjectLinkId"));
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("boolean")
+                        .HasColumnName("active");
+
+                    b.Property<DateTimeOffset>("CreatedDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date_time");
+
+                    b.Property<int>("CreatedUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_user_id");
+
+                    b.Property<string>("LinkUrl")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("link_url");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<int>("ProjectLinkTypeId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_link_type_id");
+
+                    b.Property<bool>("State")
+                        .HasColumnType("boolean")
+                        .HasColumnName("state");
+
+                    b.Property<DateTimeOffset?>("UpdatedDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date_time");
+
+                    b.Property<int?>("UpdatedUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("updated_user_id");
+
+                    b.HasKey("ProjectLinkId")
+                        .HasName("pk_project_link");
+
+                    b.ToTable("project_link", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Models.ProjectLinkType", b =>
+                {
+                    b.Property<int>("ProjectLinkTypeId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("project_link_type_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProjectLinkTypeId"));
+
+                    b.Property<string>("ProjectLinkTypeDescription")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("project_link_type_description");
+
+                    b.Property<bool>("State")
+                        .HasColumnType("boolean")
+                        .HasColumnName("state");
+
+                    b.HasKey("ProjectLinkTypeId")
+                        .HasName("pk_project_link_type");
+
+                    b.ToTable("project_link_type", (string)null);
+                });
+
             modelBuilder.Entity("Abril_Backend.Features.CostsModule.Shared.Models.Contractor", b =>
                 {
                     b.Property<int>("ContractorId")
@@ -1538,6 +1610,10 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("updated_user_id");
 
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
                     b.HasKey("ContractorEmailId")
                         .HasName("pk_contractor_email");
 
@@ -1546,6 +1622,9 @@ namespace Abril_Backend.Migrations
 
                     b.HasIndex("ContractorPersonTypeId")
                         .HasDatabaseName("ix_contractor_email_contractor_person_type_id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_contractor_email_user_id");
 
                     b.ToTable("contractor_email", (string)null);
                 });
@@ -1690,7 +1769,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnName("contributor_district");
 
                     b.Property<string>("ContributorEconomicActivityDescription")
-                        .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("contributor_economic_activity_description");
 
@@ -1698,6 +1776,10 @@ namespace Abril_Backend.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("contributor_name");
+
+                    b.Property<string>("ContributorNombreComercial")
+                        .HasColumnType("text")
+                        .HasColumnName("contributor_nombre_comercial");
 
                     b.Property<string>("ContributorProvince")
                         .HasColumnType("text")
@@ -1716,6 +1798,10 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("created_user_id");
 
+                    b.Property<string>("EmailAdministrador")
+                        .HasColumnType("text")
+                        .HasColumnName("email_administrador");
+
                     b.Property<bool>("EsAbril")
                         .HasColumnType("boolean")
                         .HasColumnName("es_abril");
@@ -1727,6 +1813,10 @@ namespace Abril_Backend.Migrations
                     b.Property<int?>("LegalRepresentativePersonId")
                         .HasColumnType("integer")
                         .HasColumnName("legal_representative_person_id");
+
+                    b.Property<string>("SpPasswordTemp")
+                        .HasColumnType("text")
+                        .HasColumnName("sp_password_temp");
 
                     b.Property<bool>("State")
                         .HasColumnType("boolean")
@@ -1744,6 +1834,50 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_contributor");
 
                     b.ToTable("contributor", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.CostsModule.Shared.Models.CostosPresupuestosEmail", b =>
+                {
+                    b.Property<int>("CostosPresupuestosEmailId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("costos_presupuestos_email_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("CostosPresupuestosEmailId"));
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("boolean")
+                        .HasColumnName("active");
+
+                    b.Property<DateTimeOffset>("CreatedDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date_time");
+
+                    b.Property<int>("CreatedUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_user_id");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("email");
+
+                    b.Property<bool>("State")
+                        .HasColumnType("boolean")
+                        .HasColumnName("state");
+
+                    b.Property<DateTimeOffset?>("UpdatedDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date_time");
+
+                    b.Property<int?>("UpdatedUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("updated_user_id");
+
+                    b.HasKey("CostosPresupuestosEmailId")
+                        .HasName("pk_costos_presupuestos_email");
+
+                    b.ToTable("costos_presupuestos_email", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.CostsModule.Shared.Models.StaffProjectEmail", b =>
@@ -1979,6 +2113,43 @@ namespace Abril_Backend.Migrations
                     b.ToTable("work_item_category_clause", (string)null);
                 });
 
+            modelBuilder.Entity("Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models.GaRendicion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("PdfFilename")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("pdf_filename");
+
+                    b.Property<string>("PdfItemId")
+                        .HasColumnType("text")
+                        .HasColumnName("pdf_item_id");
+
+                    b.Property<string>("PdfUrl")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("pdf_url");
+
+                    b.Property<DateTimeOffset>("RendidoAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("rendido_at");
+
+                    b.Property<int>("RendidoPorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("rendido_por_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ga_rendicion");
+
+                    b.ToTable("ga_rendicion", (string)null);
+                });
+
             modelBuilder.Entity("Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models.GaLugar", b =>
                 {
                     b.Property<int>("Id")
@@ -2075,6 +2246,51 @@ namespace Abril_Backend.Migrations
                     b.ToTable("ga_motivo_salida", (string)null);
                 });
 
+            modelBuilder.Entity("Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models.GaSolicitudCaptura", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Filename")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("filename");
+
+                    b.Property<string>("ImageItemId")
+                        .HasColumnType("text")
+                        .HasColumnName("image_item_id");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("image_url");
+
+                    b.Property<decimal>("Monto")
+                        .HasColumnType("numeric")
+                        .HasColumnName("monto");
+
+                    b.Property<int>("TrayectoId")
+                        .HasColumnType("integer")
+                        .HasColumnName("trayecto_id");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("uploaded_at");
+
+                    b.Property<int>("UploadedById")
+                        .HasColumnType("integer")
+                        .HasColumnName("uploaded_by_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ga_solicitud_captura");
+
+                    b.ToTable("ga_solicitud_captura", (string)null);
+                });
+
             modelBuilder.Entity("Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models.GaSolicitudSalida", b =>
                 {
                     b.Property<int>("Id")
@@ -2084,18 +2300,78 @@ namespace Abril_Backend.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AprobadorEmail")
+                        .HasColumnType("text")
+                        .HasColumnName("aprobador_email");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<string>("Estado")
+                    b.Property<string>("EstadoAprobacion")
                         .IsRequired()
                         .HasColumnType("text")
-                        .HasColumnName("estado");
+                        .HasColumnName("estado_aprobacion");
+
+                    b.Property<string>("EstadoRendicion")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("estado_rendicion");
+
+                    b.Property<DateTimeOffset?>("FechaDecision")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fecha_decision");
 
                     b.Property<DateOnly>("FechaSalida")
                         .HasColumnType("date")
                         .HasColumnName("fecha_salida");
+
+                    b.Property<TimeOnly?>("HoraSalidaReal")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_salida_real");
+
+                    b.Property<DateTimeOffset?>("HoraSalidaRealRegistradaAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("hora_salida_real_registrada_at");
+
+                    b.Property<int?>("HoraSalidaRealRegistradaPorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("hora_salida_real_registrada_por_id");
+
+                    b.Property<string>("MotivoRechazo")
+                        .HasColumnType("text")
+                        .HasColumnName("motivo_rechazo");
+
+                    b.Property<int?>("RegistradoPorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("registrado_por_id");
+
+                    b.Property<int?>("RendicionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("rendicion_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<int>("WorkerId")
+                        .HasColumnType("integer")
+                        .HasColumnName("worker_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ga_solicitud_salida");
+
+                    b.ToTable("ga_solicitud_salida", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models.GaSolicitudTrayecto", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<TimeOnly?>("HoraRetorno")
                         .HasColumnType("time without time zone")
@@ -2121,26 +2397,61 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("lugar_origen_libre");
 
-                    b.Property<int>("MotivoId")
+                    b.Property<int?>("MotivoId")
                         .HasColumnType("integer")
                         .HasColumnName("motivo_id");
 
-                    b.Property<int?>("RegistradoPorId")
-                        .HasColumnType("integer")
-                        .HasColumnName("registrado_por_id");
+                    b.Property<string>("MotivoLibre")
+                        .HasColumnType("text")
+                        .HasColumnName("motivo_libre");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<int>("WorkerId")
+                    b.Property<int>("Orden")
                         .HasColumnType("integer")
-                        .HasColumnName("worker_id");
+                        .HasColumnName("orden");
+
+                    b.Property<int>("SolicitudId")
+                        .HasColumnType("integer")
+                        .HasColumnName("solicitud_id");
 
                     b.HasKey("Id")
-                        .HasName("pk_ga_solicitud_salida");
+                        .HasName("pk_ga_solicitud_trayecto");
 
-                    b.ToTable("ga_solicitud_salida", (string)null);
+                    b.ToTable("ga_solicitud_trayecto", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models.GaTrayecto", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("LugarDestinoId")
+                        .HasColumnType("integer")
+                        .HasColumnName("lugar_destino_id");
+
+                    b.Property<int>("LugarOrigenId")
+                        .HasColumnType("integer")
+                        .HasColumnName("lugar_origen_id");
+
+                    b.Property<decimal>("Monto")
+                        .HasColumnType("numeric")
+                        .HasColumnName("monto");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ga_trayecto");
+
+                    b.ToTable("ga_trayecto", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.CatCategoria", b =>
@@ -2244,6 +2555,103 @@ namespace Abril_Backend.Migrations
                     b.ToTable("cat_subarea", (string)null);
                 });
 
+            modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsContratistaRol", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("nombre");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ss_contratista_rol");
+
+                    b.ToTable("ss_contratista_rol", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsContratistaUsuario", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<int>("ContractorId")
+                        .HasColumnType("integer")
+                        .HasColumnName("contractor_id");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creado_en");
+
+                    b.Property<int?>("CreadoPor")
+                        .HasColumnType("integer")
+                        .HasColumnName("creado_por");
+
+                    b.Property<int>("RolId")
+                        .HasColumnType("integer")
+                        .HasColumnName("rol_id");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("scope");
+
+                    b.Property<int?>("SystemRoleId")
+                        .HasColumnType("integer")
+                        .HasColumnName("system_role_id");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ss_contratista_usuario");
+
+                    b.HasIndex("RolId")
+                        .HasDatabaseName("ix_ss_contratista_usuario_rol_id");
+
+                    b.ToTable("ss_contratista_usuario", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsContratistaUsuarioProyecto", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ContratistaUsuarioId")
+                        .HasColumnType("integer")
+                        .HasColumnName("contratista_usuario_id");
+
+                    b.Property<int>("ProyectoId")
+                        .HasColumnType("integer")
+                        .HasColumnName("proyecto_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ss_contratista_usuario_proyecto");
+
+                    b.HasIndex("ContratistaUsuarioId")
+                        .HasDatabaseName("ix_ss_contratista_usuario_proyecto_contratista_usuario_id");
+
+                    b.ToTable("ss_contratista_usuario_proyecto", (string)null);
+                });
+
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsCriterioEvaluacion", b =>
                 {
                     b.Property<int>("Id")
@@ -2270,103 +2678,6 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_ss_criterio_evaluacion");
 
                     b.ToTable("ss_criterio_evaluacion", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("Activo")
-                        .HasColumnType("boolean")
-                        .HasColumnName("activo");
-
-                    b.Property<string>("ActivoRetirado")
-                        .HasColumnType("text")
-                        .HasColumnName("activo_retirado");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Direccion")
-                        .HasColumnType("text")
-                        .HasColumnName("direccion");
-
-                    b.Property<string>("EmailAdmin")
-                        .HasColumnType("text")
-                        .HasColumnName("email_admin");
-
-                    b.Property<string>("EmailGerente")
-                        .HasColumnType("text")
-                        .HasColumnName("email_gerente");
-
-                    b.Property<string>("EmailResidente")
-                        .HasColumnType("text")
-                        .HasColumnName("email_residente");
-
-                    b.Property<string>("EmailSsoma")
-                        .HasColumnType("text")
-                        .HasColumnName("email_ssoma");
-
-                    b.Property<int?>("IdLegacy")
-                        .HasColumnType("integer")
-                        .HasColumnName("id_legacy");
-
-                    b.Property<string>("LogoUrl")
-                        .HasColumnType("text")
-                        .HasColumnName("logo_url");
-
-                    b.Property<string>("NombreComercial")
-                        .HasColumnType("text")
-                        .HasColumnName("nombre_comercial");
-
-                    b.Property<string>("PartidaRegistral")
-                        .HasColumnType("text")
-                        .HasColumnName("partida_registral");
-
-                    b.Property<string>("PasswordHash")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("password_hash");
-
-                    b.Property<int?>("ProyectoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("proyecto_id");
-
-                    b.Property<string>("RazonSocial")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("razon_social");
-
-                    b.Property<string>("Rubro")
-                        .HasColumnType("text")
-                        .HasColumnName("rubro");
-
-                    b.Property<string>("Ruc")
-                        .HasColumnType("text")
-                        .HasColumnName("ruc");
-
-                    b.Property<string>("Tipo")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tipo");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_empresa_contratista");
-
-                    b.HasIndex("ProyectoId")
-                        .HasDatabaseName("ix_ss_empresa_contratista_proyecto_id");
-
-                    b.ToTable("ss_empresa_contratista", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaProyecto", b =>
@@ -3235,10 +3546,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<int>("EmpresaId")
-                        .HasColumnType("integer")
-                        .HasColumnName("empresa_id");
-
                     b.Property<DateTime>("ExpiraAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expira_at");
@@ -3252,11 +3559,15 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("usado");
 
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
                     b.HasKey("Id")
                         .HasName("pk_ss_reset_token");
 
-                    b.HasIndex("EmpresaId")
-                        .HasDatabaseName("ix_ss_reset_token_empresa_id");
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_ss_reset_token_user_id");
 
                     b.ToTable("ss_reset_token", (string)null);
                 });
@@ -3728,6 +4039,53 @@ namespace Abril_Backend.Migrations
                     b.ToTable("ss_clinicas", (string)null);
                 });
 
+            modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaAuditoria", b =>
+                {
+                    b.Property<int>("AuditoriaId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("auditoria_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("AuditoriaId"));
+
+                    b.Property<string>("Accion")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("accion");
+
+                    b.Property<int?>("ClinicaId")
+                        .HasColumnType("integer")
+                        .HasColumnName("clinica_id");
+
+                    b.Property<int?>("ClinicaUsuarioId")
+                        .HasColumnType("integer")
+                        .HasColumnName("clinica_usuario_id");
+
+                    b.Property<string>("DetalleAdicional")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("detalle_adicional");
+
+                    b.Property<string>("IpOrigen")
+                        .HasColumnType("text")
+                        .HasColumnName("ip_origen");
+
+                    b.Property<DateTime>("RealizadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("realizado_en");
+
+                    b.Property<string>("UserAgent")
+                        .HasColumnType("text")
+                        .HasColumnName("user_agent");
+
+                    b.HasKey("AuditoriaId")
+                        .HasName("pk_ss_clinica_auditoria");
+
+                    b.HasIndex("ClinicaUsuarioId")
+                        .HasDatabaseName("ix_ss_clinica_auditoria_clinica_usuario_id");
+
+                    b.ToTable("ss_clinica_auditoria", (string)null);
+                });
+
             modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaEmail", b =>
                 {
                     b.Property<int>("Id")
@@ -3800,6 +4158,123 @@ namespace Abril_Backend.Migrations
                         .HasDatabaseName("ix_ss_clinica_reset_token_clinica_id");
 
                     b.ToTable("ss_clinica_reset_token", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaToken", b =>
+                {
+                    b.Property<int>("TokenId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("token_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("TokenId"));
+
+                    b.Property<int>("ClinicaUsuarioId")
+                        .HasColumnType("integer")
+                        .HasColumnName("clinica_usuario_id");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creado_en");
+
+                    b.Property<DateTime>("Expiracion")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expiracion");
+
+                    b.Property<string>("IpSolicitud")
+                        .HasColumnType("text")
+                        .HasColumnName("ip_solicitud");
+
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tipo");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("token");
+
+                    b.Property<DateTime?>("UsadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("usado_en");
+
+                    b.HasKey("TokenId")
+                        .HasName("pk_ss_clinica_tokens");
+
+                    b.HasIndex("ClinicaUsuarioId")
+                        .HasDatabaseName("ix_ss_clinica_tokens_clinica_usuario_id");
+
+                    b.ToTable("ss_clinica_tokens", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaUsuario", b =>
+                {
+                    b.Property<int>("ClinicaUsuarioId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("clinica_usuario_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ClinicaUsuarioId"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<int>("ClinicaId")
+                        .HasColumnType("integer")
+                        .HasColumnName("clinica_id");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creado_en");
+
+                    b.Property<int?>("CreadoPor")
+                        .HasColumnType("integer")
+                        .HasColumnName("creado_por");
+
+                    b.Property<DateTime?>("DesactivadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("desactivado_en");
+
+                    b.Property<int?>("DesactivadoPor")
+                        .HasColumnType("integer")
+                        .HasColumnName("desactivado_por");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("email");
+
+                    b.Property<DateTime?>("ModificadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modificado_en");
+
+                    b.Property<int?>("ModificadoPor")
+                        .HasColumnType("integer")
+                        .HasColumnName("modificado_por");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("nombre");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("password_hash");
+
+                    b.Property<DateTime?>("UltimoAcceso")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ultimo_acceso");
+
+                    b.HasKey("ClinicaUsuarioId")
+                        .HasName("pk_ss_clinica_usuarios");
+
+                    b.HasIndex("ClinicaId")
+                        .HasDatabaseName("ix_ss_clinica_usuarios_clinica_id");
+
+                    b.ToTable("ss_clinica_usuarios", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoExamenDetalle", b =>
@@ -4355,10 +4830,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("date")
                         .HasColumnName("fin_programado");
 
-                    b.Property<int?>("Indice")
-                        .HasColumnType("integer")
-                        .HasColumnName("indice");
-
                     b.Property<DateOnly?>("InicioEfectivo")
                         .HasColumnType("date")
                         .HasColumnName("inicio_efectivo");
@@ -4376,6 +4847,10 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("observaciones");
 
+                    b.Property<int?>("Orden")
+                        .HasColumnType("integer")
+                        .HasColumnName("orden");
+
                     b.Property<string>("Prioridad")
                         .HasColumnType("text")
                         .HasColumnName("prioridad");
@@ -4384,6 +4859,10 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("project_id");
 
+                    b.Property<decimal?>("Spi")
+                        .HasColumnType("numeric")
+                        .HasColumnName("spi");
+
                     b.Property<string>("Tipo")
                         .HasColumnType("text")
                         .HasColumnName("tipo");
@@ -4391,6 +4870,10 @@ namespace Abril_Backend.Migrations
                     b.Property<int?>("UserId")
                         .HasColumnType("integer")
                         .HasColumnName("user_id");
+
+                    b.Property<int?>("UserId2")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id2");
 
                     b.HasKey("Id")
                         .HasName("pk_ac_actividades");
@@ -4446,6 +4929,41 @@ namespace Abril_Backend.Migrations
                         .HasDatabaseName("ix_ac_actividades_plantilla_especialidad_id");
 
                     b.ToTable("ac_actividades_plantilla", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.AcAvanceSemanal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ActividadId")
+                        .HasColumnType("integer")
+                        .HasColumnName("actividad_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<decimal>("PorcentajeAvance")
+                        .HasColumnType("numeric")
+                        .HasColumnName("porcentaje_avance");
+
+                    b.Property<DateOnly>("Semana")
+                        .HasColumnType("date")
+                        .HasColumnName("semana");
+
+                    b.Property<decimal>("Spi")
+                        .HasColumnType("numeric")
+                        .HasColumnName("spi");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ac_avance_semanal");
+
+                    b.ToTable("ac_avance_semanal", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.AcCategoria", b =>
@@ -4552,36 +5070,6 @@ namespace Abril_Backend.Migrations
                     b.ToTable("area", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.AreaSubarea", b =>
-                {
-                    b.Property<int>("AreaSubareaId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("area_subarea_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("AreaSubareaId"));
-
-                    b.Property<int>("AreaId")
-                        .HasColumnType("integer")
-                        .HasColumnName("area_id");
-
-                    b.Property<int?>("SubAreaId")
-                        .HasColumnType("integer")
-                        .HasColumnName("sub_area_id");
-
-                    b.HasKey("AreaSubareaId")
-                        .HasName("pk_area_subarea");
-
-                    b.HasIndex("SubAreaId")
-                        .HasDatabaseName("ix_area_subarea_sub_area_id");
-
-                    b.HasIndex("AreaId", "SubAreaId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_area_subarea_area_id_sub_area_id");
-
-                    b.ToTable("area_subarea", (string)null);
-                });
-
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.CatJefatura", b =>
                 {
                     b.Property<int>("Id")
@@ -4608,61 +5096,6 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_cat_jefatura");
 
                     b.ToTable("cat_jefatura", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.CatalogItem", b =>
-                {
-                    b.Property<int>("CatalogItemId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("catalog_item_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("CatalogItemId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<string>("CatalogItemDescription")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("catalog_item_description");
-
-                    b.Property<int>("CatalogTypeId")
-                        .HasColumnType("integer")
-                        .HasColumnName("catalog_type_id");
-
-                    b.HasKey("CatalogItemId")
-                        .HasName("pk_catalog_item");
-
-                    b.HasIndex("CatalogTypeId")
-                        .HasDatabaseName("ix_catalog_item_catalog_type_id");
-
-                    b.ToTable("catalog_item", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.CatalogType", b =>
-                {
-                    b.Property<int>("CatalogTypeId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("catalog_type_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("CatalogTypeId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<string>("CatalogTypeName")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("catalog_type_name");
-
-                    b.HasKey("CatalogTypeId")
-                        .HasName("pk_catalog_type");
-
-                    b.ToTable("catalog_type", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ConstructionSiteLogbookControl", b =>
@@ -4933,10 +5366,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("area_id");
 
-                    b.Property<int?>("CatalogItemId")
-                        .HasColumnType("integer")
-                        .HasColumnName("catalog_item_id");
-
                     b.Property<DateTimeOffset>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
@@ -5124,6 +5553,10 @@ namespace Abril_Backend.Migrations
                     b.Property<int>("CreatedUserId")
                         .HasColumnType("integer")
                         .HasColumnName("created_user_id");
+
+                    b.Property<DateOnly?>("FechaRealFin")
+                        .HasColumnType("date")
+                        .HasColumnName("fecha_real_fin");
 
                     b.Property<int>("MilestoneId")
                         .HasColumnType("integer")
@@ -5855,134 +6288,6 @@ namespace Abril_Backend.Migrations
                     b.ToTable("role", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeItem", b =>
-                {
-                    b.Property<int>("ScopeItemId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("scope_item_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ScopeItemId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<int>("LessonAreaId")
-                        .HasColumnType("integer")
-                        .HasColumnName("lesson_area_id");
-
-                    b.Property<int>("CatalogItemId")
-                        .HasColumnType("integer")
-                        .HasColumnName("catalog_item_id");
-
-                    b.Property<int>("DisplayOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("display_order");
-
-                    b.Property<int?>("ScopeItemParentId")
-                        .HasColumnType("integer")
-                        .HasColumnName("scope_item_parent_id");
-
-                    b.HasKey("ScopeItemId")
-                        .HasName("pk_scope_item");
-
-                    b.HasIndex("LessonAreaId")
-                        .HasDatabaseName("ix_scope_item_lesson_area_id");
-
-                    b.HasIndex("CatalogItemId")
-                        .HasDatabaseName("ix_scope_item_catalog_item_id");
-
-                    b.HasIndex("ScopeItemParentId")
-                        .HasDatabaseName("ix_scope_item_scope_item_parent_id");
-
-                    b.ToTable("scope_item", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplate", b =>
-                {
-                    b.Property<int>("ScopeTemplateId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("scope_template_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ScopeTemplateId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<DateTimeOffset>("CreatedDateTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_date_time");
-
-                    b.Property<int?>("CreatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("created_user_id");
-
-                    b.Property<string>("TemplateName")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("template_name");
-
-                    b.Property<DateTimeOffset?>("UpdatedDateTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_date_time");
-
-                    b.Property<int?>("UpdatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("updated_user_id");
-
-                    b.HasKey("ScopeTemplateId")
-                        .HasName("pk_scope_template");
-
-                    b.ToTable("scope_template", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplateItem", b =>
-                {
-                    b.Property<int>("ScopeTemplateItemId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("scope_template_item_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ScopeTemplateItemId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<int>("CatalogItemId")
-                        .HasColumnType("integer")
-                        .HasColumnName("catalog_item_id");
-
-                    b.Property<int>("DisplayOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("display_order");
-
-                    b.Property<int?>("ScopeTemplateItemParentId")
-                        .HasColumnType("integer")
-                        .HasColumnName("scope_template_item_parent_id");
-
-                    b.Property<int>("ScopeTemplateId")
-                        .HasColumnType("integer")
-                        .HasColumnName("scope_template_id");
-
-                    b.HasKey("ScopeTemplateItemId")
-                        .HasName("pk_scope_template_item");
-
-                    b.HasIndex("CatalogItemId")
-                        .HasDatabaseName("ix_scope_template_item_catalog_item_id");
-
-                    b.HasIndex("ScopeTemplateItemParentId")
-                        .HasDatabaseName("ix_scope_template_item_scope_template_item_parent_id");
-
-                    b.HasIndex("ScopeTemplateId")
-                        .HasDatabaseName("ix_scope_template_item_scope_template_id");
-
-                    b.ToTable("scope_template_item", (string)null);
-                });
-
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.Stage", b =>
                 {
                     b.Property<int>("StageId")
@@ -6430,10 +6735,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("categoria");
 
-                    b.Property<string>("Celular")
-                        .HasColumnType("text")
-                        .HasColumnName("celular");
-
                     b.Property<string>("CondicionMedica")
                         .HasColumnType("text")
                         .HasColumnName("condicion_medica");
@@ -6572,6 +6873,10 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("date")
                         .HasColumnName("fecha_emo");
 
+                    b.Property<DateOnly?>("FechaLectura")
+                        .HasColumnType("date")
+                        .HasColumnName("fecha_lectura");
+
                     b.Property<DateOnly?>("FechaVencimiento")
                         .HasColumnType("date")
                         .HasColumnName("fecha_vencimiento");
@@ -6611,6 +6916,14 @@ namespace Abril_Backend.Migrations
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
+
+                    b.Property<string>("UrlAptitud")
+                        .HasColumnType("text")
+                        .HasColumnName("url_aptitud");
+
+                    b.Property<string>("UrlEmoCompleto")
+                        .HasColumnType("text")
+                        .HasColumnName("url_emo_completo");
 
                     b.Property<string>("UrlResultado")
                         .HasColumnType("text")
@@ -7041,6 +7354,14 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("responsable_arq_com_id");
 
+                    b.Property<string>("ResponsableUdp")
+                        .HasColumnType("text")
+                        .HasColumnName("responsable_udp");
+
+                    b.Property<int?>("ResponsableUdpId")
+                        .HasColumnType("integer")
+                        .HasColumnName("responsable_udp_id");
+
                     b.Property<bool>("State")
                         .HasColumnType("boolean")
                         .HasColumnName("state");
@@ -7052,6 +7373,10 @@ namespace Abril_Backend.Migrations
                     b.Property<bool>("TieneArquitecturaComercial")
                         .HasColumnType("boolean")
                         .HasColumnName("tiene_arquitectura_comercial");
+
+                    b.Property<bool>("TieneUnidadDeProyectos")
+                        .HasColumnType("boolean")
+                        .HasColumnName("tiene_unidad_de_proyectos");
 
                     b.Property<DateTime?>("UpdatedDateTime")
                         .HasColumnType("timestamp with time zone")
@@ -7068,6 +7393,77 @@ namespace Abril_Backend.Migrations
                         .HasDatabaseName("ix_project_contributor_id");
 
                     b.ToTable("project", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Shared.Models.ProjectActivity", b =>
+                {
+                    b.Property<int>("ProjectActivityId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("project_activity_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProjectActivityId"));
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("boolean")
+                        .HasColumnName("active");
+
+                    b.Property<string>("ActivityDescription")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("activity_description");
+
+                    b.Property<DateOnly?>("ActualEndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("actual_end_date");
+
+                    b.Property<DateTime>("CreatedDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date_time");
+
+                    b.Property<int>("CreatedUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_user_id");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_activity_order");
+
+                    b.Property<DateOnly?>("PlannedEndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("planned_end_date");
+
+                    b.Property<DateOnly?>("PlannedStartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("planned_start_date");
+
+                    b.Property<int>("ProgressPercentage")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("progress_percentage");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<bool>("State")
+                        .HasColumnType("boolean")
+                        .HasColumnName("state");
+
+                    b.Property<DateTime?>("UpdatedDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date_time");
+
+                    b.Property<int?>("UpdatedUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("updated_user_id");
+
+                    b.HasKey("ProjectActivityId")
+                        .HasName("pk_project_activity");
+
+                    b.ToTable("project_activity", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractor", b =>
@@ -7334,9 +7730,16 @@ namespace Abril_Backend.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_contractor_email_contractor_person_type_contractor_person_t");
 
+                    b.HasOne("Abril_Backend.Infrastructure.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .HasConstraintName("fk_contractor_email_user_user_id");
+
                     b.Navigation("Contractor");
 
                     b.Navigation("PersonType");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.CostsModule.Shared.Models.ContractorUser", b =>
@@ -7393,24 +7796,38 @@ namespace Abril_Backend.Migrations
                     b.Navigation("WorkItemCategory");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", b =>
+            modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsContratistaUsuario", b =>
                 {
-                    b.HasOne("Abril_Backend.Shared.Models.Project", "Proyecto")
+                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsContratistaRol", "Rol")
                         .WithMany()
-                        .HasForeignKey("ProyectoId")
-                        .HasConstraintName("fk_ss_empresa_contratista_project_proyecto_id");
+                        .HasForeignKey("RolId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_ss_contratista_usuario_ss_contratista_rol_rol_id");
 
-                    b.Navigation("Proyecto");
+                    b.Navigation("Rol");
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsContratistaUsuarioProyecto", b =>
+                {
+                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsContratistaUsuario", "ContratistaUsuario")
+                        .WithMany("Proyectos")
+                        .HasForeignKey("ContratistaUsuarioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_ss_contratista_usuario_proyecto_ss_contratista_usuario_cont");
+
+                    b.Navigation("ContratistaUsuario");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaProyecto", b =>
                 {
-                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", "Empresa")
+                    b.HasOne("Abril_Backend.Features.CostsModule.Shared.Models.Contributor", "Empresa")
                         .WithMany()
                         .HasForeignKey("EmpresaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_ss_empresa_proyecto_ss_empresa_contratista_empresa_id");
+                        .HasConstraintName("fk_ss_empresa_proyecto_contributor_empresa_id");
 
                     b.HasOne("Abril_Backend.Shared.Models.Project", "Proyecto")
                         .WithMany()
@@ -7445,12 +7862,12 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEvalSupervisor", b =>
                 {
-                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", "Empresa")
+                    b.HasOne("Abril_Backend.Features.CostsModule.Shared.Models.Contributor", "Empresa")
                         .WithMany()
                         .HasForeignKey("EmpresaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_ss_eval_supervisor_ss_empresa_contratista_empresa_id");
+                        .HasConstraintName("fk_ss_eval_supervisor_contributor_empresa_id");
 
                     b.HasOne("Abril_Backend.Shared.Models.Project", "Proyecto")
                         .WithMany()
@@ -7496,19 +7913,19 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsHabBloqueoLog", b =>
                 {
-                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", "EmpresaPropietaria")
+                    b.HasOne("Abril_Backend.Features.CostsModule.Shared.Models.Contributor", "EmpresaPropietaria")
                         .WithMany()
                         .HasForeignKey("EmpresaPropietariaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_ss_hab_bloqueo_log_ss_empresa_contratista_empresa_propietar");
+                        .HasConstraintName("fk_ss_hab_bloqueo_log_contributor_empresa_propietaria_id");
 
-                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", "EmpresaSolicitante")
+                    b.HasOne("Abril_Backend.Features.CostsModule.Shared.Models.Contributor", "EmpresaSolicitante")
                         .WithMany()
                         .HasForeignKey("EmpresaSolicitanteId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_ss_hab_bloqueo_log_ss_empresa_contratista_empresa_solicitan");
+                        .HasConstraintName("fk_ss_hab_bloqueo_log_contributor_empresa_solicitante_id");
 
                     b.HasOne("Abril_Backend.Infrastructure.Models.Worker", "Worker")
                         .WithMany()
@@ -7550,12 +7967,12 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsHabEmpresa", b =>
                 {
-                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", "Empresa")
+                    b.HasOne("Abril_Backend.Features.CostsModule.Shared.Models.Contributor", "Empresa")
                         .WithMany()
                         .HasForeignKey("EmpresaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_ss_hab_empresa_ss_empresa_contratista_empresa_id");
+                        .HasConstraintName("fk_ss_hab_empresa_contributor_empresa_id");
 
                     b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsItemEmpresa", "Item")
                         .WithMany()
@@ -7622,12 +8039,12 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsInduccion", b =>
                 {
-                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", "Empresa")
+                    b.HasOne("Abril_Backend.Features.CostsModule.Shared.Models.Contributor", "Empresa")
                         .WithMany()
                         .HasForeignKey("EmpresaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_ss_induccion_ss_empresa_contratista_empresa_id");
+                        .HasConstraintName("fk_ss_induccion_contributor_empresa_id");
 
                     b.HasOne("Abril_Backend.Shared.Models.Project", "Proyecto")
                         .WithMany()
@@ -7664,14 +8081,12 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsResetToken", b =>
                 {
-                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", "Empresa")
+                    b.HasOne("Abril_Backend.Infrastructure.Models.User", "User")
                         .WithMany()
-                        .HasForeignKey("EmpresaId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_ss_reset_token_ss_empresa_contratista_empresa_id");
+                        .HasForeignKey("UserId")
+                        .HasConstraintName("fk_ss_reset_token_user_user_id");
 
-                    b.Navigation("Empresa");
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsSctrVidaLeyWorker", b =>
@@ -7697,12 +8112,12 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsSctrVidaley", b =>
                 {
-                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEmpresaContratista", "Empresa")
+                    b.HasOne("Abril_Backend.Features.CostsModule.Shared.Models.Contributor", "Empresa")
                         .WithMany()
                         .HasForeignKey("EmpresaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_ss_sctr_vidaley_ss_empresa_contratista_empresa_id");
+                        .HasConstraintName("fk_ss_sctr_vidaley_contributor_empresa_id");
 
                     b.HasOne("Abril_Backend.Shared.Models.Project", "Proyecto")
                         .WithMany()
@@ -7795,6 +8210,16 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Worker");
                 });
 
+            modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaAuditoria", b =>
+                {
+                    b.HasOne("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaUsuario", "ClinicaUsuario")
+                        .WithMany()
+                        .HasForeignKey("ClinicaUsuarioId")
+                        .HasConstraintName("fk_ss_clinica_auditoria_ss_clinica_usuarios_clinica_usuario_id");
+
+                    b.Navigation("ClinicaUsuario");
+                });
+
             modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaEmail", b =>
                 {
                     b.HasOne("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinica", "Clinica")
@@ -7815,6 +8240,30 @@ namespace Abril_Backend.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_ss_clinica_reset_token_ss_clinicas_clinica_id");
+
+                    b.Navigation("Clinica");
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaToken", b =>
+                {
+                    b.HasOne("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaUsuario", "ClinicaUsuario")
+                        .WithMany()
+                        .HasForeignKey("ClinicaUsuarioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_ss_clinica_tokens_ss_clinica_usuarios_clinica_usuario_id");
+
+                    b.Navigation("ClinicaUsuario");
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinicaUsuario", b =>
+                {
+                    b.HasOne("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsClinica", "Clinica")
+                        .WithMany()
+                        .HasForeignKey("ClinicaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_ss_clinica_usuarios_ss_clinicas_clinica_id");
 
                     b.Navigation("Clinica");
                 });
@@ -7982,37 +8431,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Especialidad");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.AreaSubarea", b =>
-                {
-                    b.HasOne("Abril_Backend.Infrastructure.Models.Area", "Area")
-                        .WithMany()
-                        .HasForeignKey("AreaId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_area_subarea_area_area_id");
-
-                    b.HasOne("Abril_Backend.Infrastructure.Models.SubArea", "SubArea")
-                        .WithMany()
-                        .HasForeignKey("SubAreaId")
-                        .HasConstraintName("fk_area_subarea_sub_area_sub_area_id");
-
-                    b.Navigation("Area");
-
-                    b.Navigation("SubArea");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.CatalogItem", b =>
-                {
-                    b.HasOne("Abril_Backend.Infrastructure.Models.CatalogType", "CatalogType")
-                        .WithMany()
-                        .HasForeignKey("CatalogTypeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_catalog_item_catalog_type_catalog_type_id");
-
-                    b.Navigation("CatalogType");
-                });
-
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.Person", b =>
                 {
                     b.HasOne("Abril_Backend.Infrastructure.Models.User", "User")
@@ -8078,68 +8496,6 @@ namespace Abril_Backend.Migrations
                         .HasConstraintName("fk_resident_report_response_image_resident_report_response_res");
 
                     b.Navigation("ResidentReportResponse");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeItem", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea", "LessonArea")
-                        .WithMany()
-                        .HasForeignKey("LessonAreaId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_scope_item_lesson_area_lesson_area_id");
-
-                    b.HasOne("Abril_Backend.Infrastructure.Models.CatalogItem", "CatalogItem")
-                        .WithMany()
-                        .HasForeignKey("CatalogItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_scope_item_catalog_item_catalog_item_id");
-
-                    b.HasOne("Abril_Backend.Infrastructure.Models.ScopeItem", "Parent")
-                        .WithMany("Children")
-                        .HasForeignKey("ScopeItemParentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_scope_item_scope_item_scope_item_parent_id");
-
-                    b.Navigation("LessonArea");
-
-                    b.Navigation("CatalogItem");
-
-                    b.Navigation("Parent");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplate", b =>
-                {
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplateItem", b =>
-                {
-                    b.HasOne("Abril_Backend.Infrastructure.Models.CatalogItem", "CatalogItem")
-                        .WithMany()
-                        .HasForeignKey("CatalogItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_scope_template_item_catalog_item_catalog_item_id");
-
-                    b.HasOne("Abril_Backend.Infrastructure.Models.ScopeTemplateItem", "Parent")
-                        .WithMany("Children")
-                        .HasForeignKey("ScopeTemplateItemParentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_scope_template_item_scope_template_item_scope_template_item_parent_id");
-
-                    b.HasOne("Abril_Backend.Infrastructure.Models.ScopeTemplate", "ScopeTemplate")
-                        .WithMany("Items")
-                        .HasForeignKey("ScopeTemplateId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_scope_template_item_scope_template_scope_template_id");
-
-                    b.Navigation("CatalogItem");
-
-                    b.Navigation("Parent");
-
-                    b.Navigation("ScopeTemplate");
                 });
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.SubArea", b =>
@@ -8340,6 +8696,11 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Users");
                 });
 
+            modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsContratistaUsuario", b =>
+                {
+                    b.Navigation("Proyectos");
+                });
+
             modelBuilder.Entity("Abril_Backend.Features.Habilitacion.Infrastructure.Models.SsEvalSupervisor", b =>
                 {
                     b.Navigation("Items");
@@ -8349,7 +8710,6 @@ namespace Abril_Backend.Migrations
                 {
                     b.Navigation("Workers");
                 });
-
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ResidentReportIncidence", b =>
                 {
@@ -8361,21 +8721,6 @@ namespace Abril_Backend.Migrations
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ResidentReportResponse", b =>
                 {
                     b.Navigation("Images");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeItem", b =>
-                {
-                    b.Navigation("Children");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplate", b =>
-                {
-                    b.Navigation("Items");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Infrastructure.Models.ScopeTemplateItem", b =>
-                {
-                    b.Navigation("Children");
                 });
 
             modelBuilder.Entity("Abril_Backend.Infrastructure.Models.State", b =>

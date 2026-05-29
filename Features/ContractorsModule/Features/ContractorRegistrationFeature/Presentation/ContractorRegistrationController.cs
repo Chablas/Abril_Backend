@@ -15,11 +15,13 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Presentation
     {
         private readonly IContractorRegistrationService _service;
         private readonly IReniecService _reniecService;
+        private readonly ILogger<ContractorRegistrationController> _logger;
 
-        public ContractorRegistrationController(IContractorRegistrationService service, IReniecService reniecService)
+        public ContractorRegistrationController(IContractorRegistrationService service, IReniecService reniecService, ILogger<ContractorRegistrationController> logger)
         {
             _service = service;
             _reniecService = reniecService;
+            _logger = logger;
         }
 
         [HttpGet("person-types")]
@@ -88,8 +90,9 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Presentation
             {
                 return BadRequest(new { message = ex.Message });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "ERROR CONTRACTOR REGISTRATION: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

@@ -2,9 +2,12 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
@@ -54,6 +57,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ContractModality> ContractModality { get; set; }
         public DbSet<ContractOrigin> ContractOrigin { get; set; }
         public DbSet<PaymentMethod> PaymentMethod { get; set; }
+        public DbSet<PaymentForm> PaymentForm { get; set; }
         public DbSet<Contributor> Contributor { get; set; }
         public DbSet<Contractor> Contractor { get; set; }
         public DbSet<ContractorEmail> ContractorEmail { get; set; }
@@ -81,9 +85,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectSubContractorInstructivo> ProjectSubContractorInstructivo { get; set; }
         public DbSet<ProjectSubContractorNonConformingOutput> ProjectSubContractorNonConformingOutput { get; set; }
         public DbSet<ProjectSubContractorToleranceChart> ProjectSubContractorToleranceChart { get; set; }
+        public DbSet<ProjectSubContractorFichaTecnica> ProjectSubContractorFichaTecnica { get; set; }
+        public DbSet<ProjectSubContractorAnexo> ProjectSubContractorAnexo { get; set; }
         public DbSet<StaffProjectEmail> StaffProjectEmail { get; set; }
+        public DbSet<CostosPresupuestosEmail> CostosPresupuestosEmail { get; set; }
         public DbSet<StaffProjectEmailType> StaffProjectEmailType { get; set; }
+        public DbSet<ProjectLink> ProjectLink { get; set; }
+        public DbSet<ProjectLinkType> ProjectLinkType { get; set; }
         public DbSet<AcActividad> AcActividad { get; set; }
+        public DbSet<AcAvanceSemanal> AcAvanceSemanal { get; set; }
         public DbSet<AcEtapa> AcEtapa { get; set; }
         public DbSet<AcActividadPlantilla> AcActividadPlantilla { get; set; }
         public DbSet<AcCategoria> AcCategoria { get; set; }
@@ -109,7 +119,6 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsItemEmpresa> SsItemEmpresa => Set<SsItemEmpresa>();
         public DbSet<SsItemEquipo> SsItemEquipo => Set<SsItemEquipo>();
         public DbSet<SsCriterioEvaluacion> SsCriterioEvaluacion => Set<SsCriterioEvaluacion>();
-        public DbSet<SsEmpresaContratista> SsEmpresaContratista => Set<SsEmpresaContratista>();
         public DbSet<SsEmpresaProyecto> SsEmpresaProyecto => Set<SsEmpresaProyecto>();
         public DbSet<SsHabTrabajador> SsHabTrabajador => Set<SsHabTrabajador>();
         public DbSet<SsHabEmpresa> SsHabEmpresa => Set<SsHabEmpresa>();
@@ -141,10 +150,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaLugar> GaLugar { get; set; }
         public DbSet<GaMotivoSalida> GaMotivoSalida { get; set; }
         public DbSet<GaSolicitudSalida> GaSolicitudSalida { get; set; }
+        public DbSet<GaSolicitudTrayecto> GaSolicitudTrayecto { get; set; }
+        public DbSet<GaSolicitudCaptura> GaSolicitudCaptura { get; set; }
+        public DbSet<GaRendicion> GaRendicion { get; set; }
+        public DbSet<GaTrayecto> GaTrayecto { get; set; }
         public DbSet<Partida> Partida => Set<Partida>();
         public DbSet<PsssScope> PsssScope => Set<PsssScope>();
         public DbSet<PsssTemplate> PsssTemplate => Set<PsssTemplate>();
         public DbSet<PsssTemplateDetail> PsssTemplateDetail => Set<PsssTemplateDetail>();
+        // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();
         public DbSet<AreaSubarea> AreaSubarea => Set<AreaSubarea>();
@@ -155,6 +169,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AreaItem> AreaItem => Set<AreaItem>();
         public DbSet<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope> AreaScope => Set<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea> LessonArea => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea>();
+
+        // ── master ─────────────────────────────────────────────────────────────
+        public DbSet<SsClinicaUsuario> SsClinicaUsuario => Set<SsClinicaUsuario>();
+        public DbSet<SsClinicaToken> SsClinicaToken => Set<SsClinicaToken>();
+        public DbSet<SsClinicaAuditoria> SsClinicaAuditoria => Set<SsClinicaAuditoria>();
+        public DbSet<SsContratistaRol> SsContratistaRoles { get; set; }
+        public DbSet<SsContratistaUsuario> SsContratistaUsuarios { get; set; }
+        public DbSet<SsContratistaUsuarioProyecto> SsContratistaUsuarioProyectos { get; set; }
+        public DbSet<ProjectActivity> ProjectActivity { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -365,6 +388,18 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(s => s.ProjectSubContractorToleranceChartId)
                 .IsRequired(false);
 
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.FichaTecnica)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorFichaTecnicaId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractor>()
+                .HasOne(s => s.Anexo)
+                .WithMany()
+                .HasForeignKey(s => s.ProjectSubContractorAnexoId)
+                .IsRequired(false);
+
             modelBuilder.Entity<ProjectSubContractorNonConformingOutput>()
                 .HasOne(e => e.FileStatus)
                 .WithMany()
@@ -377,12 +412,25 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
                 .IsRequired(false);
 
+            modelBuilder.Entity<ProjectSubContractorFichaTecnica>()
+                .HasOne(e => e.FileStatus)
+                .WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false);
+
+            modelBuilder.Entity<ProjectSubContractorAnexo>()
+                .HasOne(e => e.FileStatus)
+                .WithMany()
+                .HasForeignKey(e => e.ProjectSubContractorFileStatusId)
+                .IsRequired(false);
+
             modelBuilder.Entity<StaffProjectEmail>()
                 .HasOne(s => s.EmailType)
                 .WithMany()
                 .HasForeignKey(s => s.StaffProjectEmailTypeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────
             // AreaSubarea: unique (area_id, sub_area_id)
             modelBuilder.Entity<AreaSubarea>()
                 .HasIndex(a => new { a.AreaId, a.SubAreaId })
@@ -421,6 +469,16 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(s => s.AreaScopeParentId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // ── master ─────────────────────────────────────────────────────
+            modelBuilder.Entity<SsClinicaUsuario>().HasKey(x => x.ClinicaUsuarioId);
+            modelBuilder.Entity<SsClinicaToken>().HasKey(x => x.TokenId);
+            modelBuilder.Entity<SsClinicaAuditoria>().HasKey(x => x.AuditoriaId);
+
+            modelBuilder.Entity<WorkerProyecto>()
+                .HasOne(wp => wp.Worker)
+                .WithMany()
+                .HasForeignKey(wp => wp.WorkerId);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)
@@ -459,6 +517,7 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
 
+            // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────
             // ScopeItem: evitar ambigüedad en FK self-referential con snake_case
             modelBuilder.Entity<ScopeItem>()
                 .Property(s => s.ScopeItemParentId)
@@ -468,6 +527,16 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<ScopeTemplateItem>()
                 .Property(s => s.ScopeTemplateItemParentId)
                 .HasColumnName("scope_template_item_parent_id");
+
+            // ── master ─────────────────────────────────────────────────────
+            modelBuilder.Entity<SsClinicaAuditoria>().Property(e => e.DetalleAdicional).HasColumnType("jsonb");
+            modelBuilder.Entity<ProjectActivity>(entity =>
+            {
+                entity.ToTable("project_activity");
+                entity.Property(e => e.Order).HasColumnName("project_activity_order");
+                entity.Property(e => e.ActivityDescription).IsRequired().HasMaxLength(500);
+                entity.Property(e => e.ProgressPercentage).HasDefaultValue(0);
+            });
         }
     }
 }

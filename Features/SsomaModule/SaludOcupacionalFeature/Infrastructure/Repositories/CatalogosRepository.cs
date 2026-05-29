@@ -37,6 +37,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .ToListAsync();
         }
 
+        public async Task<ClinicaDto> GetClinicaById(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var c = await ctx.SsClinica.FirstOrDefaultAsync(c => c.Id == id)
+                ?? throw new AbrilException("Clínica no encontrada.", 404);
+            return new ClinicaDto
+            {
+                Id = c.Id,
+                Nombre = c.Nombre,
+                Ruc = c.Ruc,
+                Direccion = c.Direccion,
+                Telefono = c.Telefono,
+                Email = c.Email,
+                Activo = c.Activo
+            };
+        }
+
         public async Task<ClinicaDto> CreateClinica(ClinicaUpsertDto dto)
         {
             using var ctx = _factory.CreateDbContext();
@@ -427,9 +444,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Ruc              = e.ContributorRuc,
                     Direccion        = e.ContributorAddress,
                     PartidaRegistral = e.LegalEntityRegistryNumber,
-                    TipoActividad    = e.ContributorEconomicActivityDescription,
+                    TipoActividad    = e.ContributorEconomicActivityDescription ?? "",
                     Activo           = e.Active,
-                    EsAbril          = e.ContributorName != null && e.ContributorName.ToUpper().Contains("ABRIL")
+                    EsAbril          = e.EsAbril
                 })
                 .ToListAsync();
         }

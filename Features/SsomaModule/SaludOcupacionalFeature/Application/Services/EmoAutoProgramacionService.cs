@@ -2,6 +2,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,13 +11,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     public class EmoAutoProgramacionService : IEmoAutoProgramacionService
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IEmailService _emailService;
         private readonly ILogger<EmoAutoProgramacionService> _logger;
 
         public EmoAutoProgramacionService(
             IDbContextFactory<AppDbContext> factory,
+            IEmailService emailService,
             ILogger<EmoAutoProgramacionService> logger)
         {
             _factory = factory;
+            _emailService = emailService;
             _logger = logger;
         }
 
@@ -26,19 +30,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             using var ctx = _factory.CreateDbContext();
 
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5).Date);
-            var ventanaFin = hoy.AddDays(30);
+            var ventanaFin = hoy.AddDays(6);
 
-            // Candidatos: WorkerEmo activo con tipo que requiere renovación,
-            // vencimiento en los próximos 30 días, y vinculación activa.
             var candidatosRaw = await (
                 from e in ctx.WorkerEmo
                 join w in ctx.Worker on e.WorkerId equals w.Id
                 join t in ctx.SsEmoTipo on e.TipoEmoId equals t.Id
                 join v in ctx.WorkerVinculacion on w.Id equals v.WorkerId
+                join contrib in ctx.Contributor on v.EmpresaId equals contrib.ContributorId
+                join proj in ctx.Project on v.ProyectoId equals (int?)proj.ProjectId into projg
+                from proyecto in projg.DefaultIfEmpty()
                 where e.Activo
                     && t.RequiereNuevo
                     && t.VigenciaMeses != null
                     && v.FechaFin == null
+                    && contrib.EsAbril
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) >= hoy.AddDays(1)
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) <= ventanaFin
@@ -48,31 +54,28 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     Worker = w,
                     TipoEmo = t,
                     Vinculacion = v,
-                    WorkerNombre = w.Person != null ? w.Person.FullName : null
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    ContribNombre = contrib.ContributorName,
+                    TipoEmoNombre = t.Nombre,
+                    ProyectoNombre = proyecto != null ? proyecto.ProjectDescription : null
                 }
             ).AsNoTracking().ToListAsync();
 
             if (candidatosRaw.Count == 0) return result;
 
-            // Por cada (WorkerId, TipoEmoId) quedarse con la vinculación más reciente
-            // (puede haber múltiples registros si hay más de una vinculación sin fecha fin).
             var candidatos = candidatosRaw
                 .GroupBy(x => (x.Emo.WorkerId, x.Emo.TipoEmoId))
                 .Select(g => g.OrderByDescending(x => x.Vinculacion.CreatedAt).First())
                 .ToList();
 
-            // Verificar cuáles ya tienen programación activa
-            var workerTipoPares = candidatos
-                .Select(x => new { x.Emo.WorkerId, TipoEmoId = x.Emo.TipoEmoId!.Value })
-                .ToList();
-
-            var workerIds = workerTipoPares.Select(p => p.WorkerId).Distinct().ToList();
+            var workerIds = candidatos.Select(x => x.Emo.WorkerId).Distinct().ToList();
 
             var programacionesExistentes = await ctx.SsProgramacionEmo
                 .AsNoTracking()
                 .Where(p =>
                     workerIds.Contains(p.WorkerId)
                     && p.FechaProgramada >= hoy
+                    && p.Estado != "Completado"
                     && p.Estado != "Cancelado"
                     && p.Estado != "Rechazado por Clínica")
                 .Select(p => new { p.WorkerId, p.TipoEmoId })
@@ -80,6 +83,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             var existentesSet = new HashSet<(int, int)>(
                 programacionesExistentes.Select(p => (p.WorkerId, p.TipoEmoId)));
+
+            var programados = new List<(string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)>();
 
             foreach (var c in candidatos)
             {
@@ -91,8 +96,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     if (existentesSet.Contains(clave))
                     {
                         result.YaTenianProgramacion++;
-                        result.Detalle.Add(
-                            $"Worker {c.Worker.Id} ({c.WorkerNombre}) / TipoEMO {tipoEmoId} — ya tiene programación activa. Omitido.");
+                        result.Detalle.Add($"Worker {c.Worker.Id} ({c.WorkerNombre}) / TipoEMO {tipoEmoId} — ya tiene programación activa. Omitido.");
                         continue;
                     }
 
@@ -104,41 +108,121 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                     var nueva = new SsProgramacionEmo
                     {
-                        WorkerId = c.Emo.WorkerId,
-                        EmpresaId = c.Vinculacion.EmpresaId,
-                        TipoEmoId = tipoEmoId,
-                        FechaProgramada = fechaProg,
-                        Estado = "Programado",
-                        Origen = "Automatico",
-                        Motivo = "Programación automática por vencimiento de EMO",
-                        RegistradoPorId = null,
-                        ClinicaId = null,
-                        CreatedAt = DateTimeOffset.UtcNow,
-                        UpdatedAt = DateTimeOffset.UtcNow
+                        WorkerId          = c.Emo.WorkerId,
+                        EmpresaId         = c.Vinculacion.EmpresaId,
+                        TipoEmoId         = tipoEmoId,
+                        ClinicaId         = 1,
+                        FechaProgramada   = fechaProg,
+                        Estado            = "Programado",
+                        Origen            = "Automatico",
+                        Motivo            = "Programación automática por vencimiento de EMO",
+                        RegistradoPorId   = null,
+                        FechaNotificacion = DateTimeOffset.UtcNow,
+                        CreatedAt         = DateTimeOffset.UtcNow,
+                        UpdatedAt         = DateTimeOffset.UtcNow
                     };
 
                     ctx.SsProgramacionEmo.Add(nueva);
                     await ctx.SaveChangesAsync();
 
+                    programados.Add((
+                        c.WorkerNombre ?? $"Worker {c.Worker.Id}",
+                        c.ContribNombre,
+                        c.ProyectoNombre,
+                        c.TipoEmoNombre,
+                        fechaProg));
+
                     result.Procesados++;
-                    result.Detalle.Add(
-                        $"Worker {c.Worker.Id} ({c.WorkerNombre}) / TipoEMO {tipoEmoId} — programado para {fechaProg:yyyy-MM-dd}.");
+                    result.Detalle.Add($"Worker {c.Worker.Id} ({c.WorkerNombre}) / TipoEMO {tipoEmoId} — programado para {fechaProg:yyyy-MM-dd}.");
                 }
                 catch (Exception ex)
                 {
                     result.Errores++;
                     _logger.LogError(ex, "Error procesando auto-programación para Worker {WorkerId}", c.Worker.Id);
-                    result.Detalle.Add(
-                        $"Worker {c.Worker.Id} ({c.WorkerNombre}) — error: {ex.Message}");
+                    result.Detalle.Add($"Worker {c.Worker.Id} ({c.WorkerNombre}) — error: {ex.Message}");
                 }
             }
+
+            if (programados.Count > 0)
+                await EnviarResumenClinicaAsync(ctx, programados);
 
             return result;
         }
 
-        // Retrocede `dias` días hábiles desde `fecha`.
-        // excluirSabado=true → lunes-viernes (Casa+Staff/Oficina Central).
-        // excluirSabado=false → lunes-sábado (Contratista/Obra).
+        private async Task EnviarResumenClinicaAsync(
+            AppDbContext ctx,
+            List<(string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)> programados)
+        {
+            try
+            {
+                const int clinicaId = 1;
+
+                var toRaw = await ctx.SsClinicaEmail.AsNoTracking()
+                    .Where(e => e.ClinicaId == clinicaId && e.Activo)
+                    .Select(e => e.Email)
+                    .ToListAsync();
+
+                var clinica = await ctx.SsClinica.AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.Id == clinicaId);
+
+                if (toRaw.Count == 0 && clinica?.Email is not null)
+                    toRaw.Add(clinica.Email);
+
+                var to = toRaw
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Select(e => e.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (to.Count == 0) return;
+
+                var filas = string.Join("", programados
+                    .OrderBy(p => p.Fecha)
+                    .ThenBy(p => p.RazonSocial)
+                    .ThenBy(p => p.Nombre)
+                    .Select(p => $@"
+                <tr>
+                    <td style='border:1px solid #ddd;padding:8px;'>{p.Nombre}</td>
+                    <td style='border:1px solid #ddd;padding:8px;'>{p.RazonSocial}</td>
+                    <td style='border:1px solid #ddd;padding:8px;'>{p.Proyecto ?? "—"}</td>
+                    <td style='border:1px solid #ddd;padding:8px;'>{p.TipoEmo}</td>
+                    <td style='border:1px solid #ddd;padding:8px;text-align:center;'>{p.Fecha:dd/MM/yyyy}</td>
+                </tr>"));
+
+                var body = $@"
+            <p>Estimados,</p>
+            <p>Se han programado automáticamente los siguientes <strong>{programados.Count} Exámenes Médicos Ocupacionales (EMO)</strong> para los próximos días:</p>
+            <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
+                <thead>
+                    <tr>
+                        <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Trabajador</th>
+                        <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Empresa</th>
+                        <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Proyecto</th>
+                        <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Tipo EMO</th>
+                        <th style='border:1px solid #ddd;padding:8px;background:#f3f4f6;'>Fecha programada</th>
+                    </tr>
+                </thead>
+                <tbody>{filas}</tbody>
+            </table>
+            <p style='margin-top:16px;'>Por favor revisar y confirmar cada programación en el sistema.</p>
+            <p style='font-size:12px;color:#666;margin-top:24px;'>
+                Esta notificación se generó automáticamente por el sistema Abril.
+            </p>";
+
+                var subject = $"[EMO Programados] {programados.Count} trabajadores — {DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5)):dd/MM/yyyy}";
+
+                await _emailService.SendAsync(
+                    to: to,
+                    subject: subject,
+                    body: body,
+                    isHtml: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error enviando resumen de auto-programación a clínica.");
+            }
+        }
+
         private static DateOnly RestarDiasHabiles(DateOnly fecha, int dias, bool excluirSabado)
         {
             var resultado = fecha;
@@ -154,7 +238,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             return resultado;
         }
 
-        // Avanza al primer día hábil posterior a `fecha`.
         private static DateOnly SiguienteDiaHabil(DateOnly fecha, bool excluirSabado)
         {
             var resultado = fecha.AddDays(1);
@@ -167,8 +250,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             }
         }
 
-        // Casa + Staff u Oficina Central → lunes-viernes.
-        // Contratista u Obra → lunes-sábado.
         private static bool EsCalendarioOficina(Worker worker)
         {
             return string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)

@@ -13,6 +13,9 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<ICatalogosRepository, CatalogosRepository>();
             services.AddScoped<ICatalogosService, CatalogosService>();
 
+            // Clinica usuarios
+            services.AddScoped<IClinicaUsuarioService, ClinicaUsuarioService>();
+
             // EMO
             services.AddScoped<IEmoRepository, EmoRepository>();
             services.AddScoped<IEmoService, EmoService>();

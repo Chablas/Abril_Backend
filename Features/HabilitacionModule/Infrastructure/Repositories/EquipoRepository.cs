@@ -42,8 +42,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var withState = query.Select(e => new
             {
                 Equipo = e,
-                HasPendientes = ctx.SsHabEquipo
-                    .Any(h => h.EquipoId == e.Id && h.Estado != "No Aplica" && h.Estado != "Aprobado")
+                HasPendientes = !ctx.SsHabEquipo.Any(h => h.EquipoId == e.Id)
+                             || ctx.SsHabEquipo.Any(h => h.EquipoId == e.Id && h.Estado != "No Aplica" && h.Estado != "Aprobado")
             });
 
             var total = await withState.CountAsync();
@@ -62,9 +62,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToList();
             var proyectoIds = pageRows.Select(r => r.Equipo.ProyectoId).Distinct().ToList();
 
-            var empresaMap = await ctx.SsEmpresaContratista
-                .Where(e => empresaIds.Contains(e.Id))
-                .ToDictionaryAsync(e => e.Id, e => e.RazonSocial);
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
 
             var proyectoMap = await ctx.Project
                 .Where(p => proyectoIds.Contains(p.ProjectId))
@@ -255,11 +255,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var entregable = await ctx.SsHabEquipo.FirstOrDefaultAsync(h => h.Id == id)
+            var entregable = await ctx.SsHabEquipo
+                .Include(h => h.Item)
+                .FirstOrDefaultAsync(h => h.Id == id)
                 ?? throw new AbrilException("Entregable no encontrado.", 404);
 
             if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl)
             {
+                int? ssEmpresaId = empresaId;
+
                 var versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v => v.HabEquipoId == id);
 
@@ -269,14 +273,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Version = versionActual + 1,
                     ArchivoUrl = dto.ArchivoUrl,
                     SubidoPorUserId = userId,
-                    SubidoPorEmpresaId = empresaId,
+                    SubidoPorEmpresaId = ssEmpresaId,
                     EstadoAlSubir = dto.Estado,
                     CreatedAt = DateTime.UtcNow
                 });
             }
 
-            entregable.Estado = dto.Estado;
-            entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
+            if (!string.IsNullOrEmpty(dto.Estado))
+                entregable.Estado = dto.Estado;
+            if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
+                entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;

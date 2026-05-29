@@ -37,6 +37,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
+                {
+                    if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var contraId))
+                        return StatusCode(403, new { message = "Token de contratista inválido." });
+                    empresaId = contraId;
+                }
+
                 var (items, total) = await _repo.GetPagedAsync(empresaId, proyectoId, tipo, mes, anio, estado, page, pageSize);
                 var result = new PagedResult<SctrVidaLeyDto>
                 {
@@ -86,8 +93,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
 
                 int empresaResolved;
                 if (esContratista)
@@ -107,7 +113,19 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 return StatusCode(201, creado);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception ex) { _logger.LogError(ex, "Error en SctrVidaLeyController.Create"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+            catch (Exception ex)
+            {
+                // Volcar toda la cadena de inner exceptions para diagnosticar errores de PG (FK, NOT NULL, etc.)
+                var inner = ex;
+                var detalle = new System.Text.StringBuilder();
+                while (inner != null)
+                {
+                    detalle.AppendLine($"[{inner.GetType().FullName}] {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                _logger.LogError(ex, "Error en SctrVidaLeyController.Create. Cadena:\n{Detalle}", detalle.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
         }
 
         [HttpGet("trabajadores-por-empresa")]
@@ -134,8 +152,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
 
                 int empresaResolved;
                 if (esContratista)

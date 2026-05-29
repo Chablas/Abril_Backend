@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
 using Abril_Backend.Application.Exceptions;
@@ -13,10 +14,14 @@ namespace Abril_Backend.Controllers
     public class ArquitecturaComercialController : ControllerBase
     {
         private readonly IArquitecturaComercialService _service;
+        private readonly IConfiguration _configuration;
+        private readonly ILogger<ArquitecturaComercialController> _logger;
 
-        public ArquitecturaComercialController(IArquitecturaComercialService service)
+        public ArquitecturaComercialController(IArquitecturaComercialService service, IConfiguration configuration, ILogger<ArquitecturaComercialController> logger)
         {
             _service = service;
+            _configuration = configuration;
+            _logger = logger;
         }
 
         [HttpGet("dashboard")]
@@ -89,9 +94,20 @@ namespace Abril_Backend.Controllers
             [FromQuery] int pagina = 1,
             [FromQuery] int porPagina = 100)
         {
+            var rolesUsuario = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+            var esGestor = rolesUsuario.Contains("GESTOR DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase);
+            bool esUsuarioAc;
+            if (esGestor)
+                esUsuarioAc = false;
+            else if (rolesUsuario.Contains("USUARIO DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase))
+                esUsuarioAc = true;
+            else
+                return Forbid();
+
             try
             {
-                var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina);
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina, userId, esUsuarioAc);
                 return Ok(result);
             }
             catch (Exception)
@@ -319,6 +335,72 @@ namespace Abril_Backend.Controllers
             catch (AbrilException ex)
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("dashboard-v2")]
+        public async Task<IActionResult> GetDashboardV2([FromQuery] DashboardFiltroDTO filtro)
+        {
+            try
+            {
+                var rolesUsuario = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+                var esGestor = rolesUsuario.Contains("GESTOR DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase);
+                if (!esGestor)
+                {
+                    if (rolesUsuario.Contains("USUARIO DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid))
+                            filtro.UserId = uid;
+                    }
+                    else return Forbid();
+                }
+                var result = await _service.GetDashboardDataFiltrado(filtro);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error dashboard AC v2"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("alertas/{tipoAlerta}")]
+        public async Task<IActionResult> GetActividadesPorAlerta(
+            string tipoAlerta, [FromQuery] DashboardFiltroDTO filtro)
+        {
+            try
+            {
+                var result = await _service.GetActividadesPorAlerta(tipoAlerta, filtro);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error alertas AC"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("alertas/enviar")]
+        public async Task<IActionResult> EnviarAlertas([FromBody] EnviarAlertaRequestDTO request)
+        {
+            try
+            {
+                await _service.EnviarAlertasActividades(request);
+                return Ok(new { message = "Alertas enviadas correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error envío alertas AC"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpPost("avance-semanal/snapshot")]
+        public async Task<IActionResult> SnapshotAvanceSemanal()
+        {
+            var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+            if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized();
+
+            try
+            {
+                var result = await _service.SnapshotAvanceSemanal();
+                return Ok(result);
             }
             catch (Exception)
             {

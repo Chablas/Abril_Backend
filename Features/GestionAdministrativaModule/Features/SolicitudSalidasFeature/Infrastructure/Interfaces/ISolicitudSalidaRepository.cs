@@ -1,11 +1,28 @@
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+using Abril_Backend.Infrastructure.Models;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces
 {
     public interface ISolicitudSalidaRepository
     {
         Task<SolicitudSalidaFormDataDto> GetFormData();
-        Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId);
-        Task<int> Create(SolicitudSalidaCreateDto dto, int? userId);
+        Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
+        Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId);
+
+        /// <summary>Crea la solicitud + sus trayectos en una transacción. Devuelve la solicitud (con trayectos) y el worker solicitante.</summary>
+        Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId);
+
+        Task SetAprobadorEmail(int solicitudId, string aprobadorEmail);
+        Task<GaSolicitudSalida?> Aprobar(int solicitudId);
+        Task<GaSolicitudSalida?> Rechazar(int solicitudId, string? motivoRechazo);
+
+        /// <summary>Detalle de la solicitud (con trayectos y capturas). Solo retorna si pertenece al usuario.</summary>
+        Task<SolicitudSalidaDetalleDto?> GetDetalleForUser(int solicitudId, int userId);
+
+        /// <summary>Carga un trayecto verificando que pertenezca al user y que la solicitud esté aprobada + no rendida.</summary>
+        Task<GaSolicitudTrayecto?> GetTrayectoForUploadingCapturas(int trayectoId, int userId);
+
+        Task<List<SolicitudSalidaCapturaDto>> InsertCapturas(int trayectoId, IEnumerable<(string Url, string? ItemId, string Filename, decimal Monto)> items, int userId);
     }
 }

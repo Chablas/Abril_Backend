@@ -1,3 +1,4 @@
+using Abril_Backend.Infrastructure.Models;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Abril_Backend.Features.CostsModule.Shared.Models {
@@ -13,7 +14,9 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models {
         public int? UpdatedUserId { get; set; }
         public bool Active { get; set; }
         public bool State { get; set; }
+        public int? UserId { get; set; }
         public Contractor Contractor { get; set; } = null!;
         public ContractorPersonType? PersonType { get; set; }
+        public User? User { get; set; }
     }
 }

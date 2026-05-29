@@ -14,6 +14,10 @@ using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.GestionAdministrativa
 {
@@ -23,6 +27,8 @@ namespace Abril_Backend.Features.GestionAdministrativa
         {
             // Solicitud Salidas
             services.AddScoped<ISolicitudSalidaRepository, SolicitudSalidaRepository>();
+            services.AddScoped<IApproverResolver, ApproverResolver>();
+            services.AddScoped<ISolicitudSalidaTokenService, SolicitudSalidaTokenService>();
             services.AddScoped<ISolicitudSalidaService, SolicitudSalidaService>();
 
             // Gestión de Salidas
@@ -36,6 +42,10 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // Motivos de salida (configuración)
             services.AddScoped<IGaMotivoSalidaRepository, GaMotivoSalidaRepository>();
             services.AddScoped<IGaMotivoSalidaService, GaMotivoSalidaService>();
+
+            // Trayectos (configuración: par origen-destino con monto)
+            services.AddScoped<IGaTrayectoRepository, GaTrayectoRepository>();
+            services.AddScoped<IGaTrayectoService, GaTrayectoService>();
 
             return services;
         }

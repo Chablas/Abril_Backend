@@ -13,5 +13,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         Task<List<WorkItemCategory>> GetAllActive();
         Task UpdateInstructivosSync(int workItemCategoryId, string? folderId, string? folderName, int syncStatus);
         Task CreateWithSync(string description, string folderId, string folderName, int userId);
+        Task UpdateManualInstructivo(int workItemCategoryId, string fileUrl, string fileName, int userId);
     }
 }

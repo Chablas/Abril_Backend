@@ -86,14 +86,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
+            var dniUpper = dto.Dni.Trim().ToUpper();
+
             var existeActivo = await ctx.Worker
                 .AnyAsync(w => w.Person != null && w.Person.DocumentIdentityCode != null
-                            && w.Person.DocumentIdentityCode.ToUpper() == dto.Dni.Trim().ToUpper()
+                            && w.Person.DocumentIdentityCode.ToUpper() == dniUpper
                             && w.Estado == "ACTIVO");
             if (existeActivo)
                 throw new AbrilException("Ya existe un trabajador activo con ese DNI.", 409);
 
-            var dniUpper = dto.Dni.Trim().ToUpper();
             var workerExistente = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.DocumentIdentityCode != null
                          && w.Person.DocumentIdentityCode.ToUpper() == dniUpper)
@@ -104,19 +105,29 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var now = DateTimeOffset.UtcNow;
 
-            var worker = new Worker
+            // Reusar Person existente para evitar error 23505 (unique en document_identity_code)
+            var person = await ctx.Person
+                .FirstOrDefaultAsync(p => p.DocumentIdentityCode != null
+                                       && p.DocumentIdentityCode.ToUpper() == dniUpper);
+            if (person == null)
             {
-                Person = new Person
+                person = new Person
                 {
                     FullName = dto.ApellidoNombre,
-                    DocumentIdentityCode = dto.Dni.Trim().ToUpper(),
+                    DocumentIdentityCode = dniUpper,
+                    PhoneNumber = int.TryParse(dto.Celular, out var ph1) ? ph1 : (int?)null,
                     Active = true,
                     State = true,
                     CreatedDateTime = DateTime.UtcNow
-                },
-                Celular = dto.Celular,
-                EmailPersonal = dto.EmailPersonal,
-                EmailCorporativo = dto.EmailCorporativo,
+                };
+                ctx.Person.Add(person);
+                await ctx.SaveChangesAsync();
+            }
+
+            var worker = new Worker
+            {
+                Person = person,
+                EmailPersonal = dto.EmailPersonal ?? dto.EmailCorporativo,
                 FechaNacimiento = dto.FechaNacimiento,
                 FechaIngreso = dto.FechaIngreso,
                 Categoria = dto.Categoria,
@@ -163,10 +174,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (worker == null)
                 throw new AbrilException("Trabajador no encontrado.", 404);
 
-            if (worker.Person != null) worker.Person.FullName = dto.ApellidoNombre;
-            worker.Celular = dto.Celular;
-            worker.EmailPersonal = dto.EmailPersonal;
-            worker.EmailCorporativo = dto.EmailCorporativo;
+            if (worker.Person != null)
+            {
+                worker.Person.FullName      = dto.ApellidoNombre;
+                worker.Person.PhoneNumber   = int.TryParse(dto.Celular, out var ph2) ? ph2 : (int?)null;
+            }
+            worker.EmailPersonal = dto.EmailPersonal ?? dto.EmailCorporativo;
             worker.FechaNacimiento = dto.FechaNacimiento;
             worker.FechaIngreso = dto.FechaIngreso;
             worker.Categoria = dto.Categoria;

@@ -10,5 +10,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         Task Update(WorkItemCategoryEditDto dto, int userId);
         Task<bool> Delete(int workItemCategoryId, int userId);
         Task<WorkItemCategorySyncResultDto> SyncInstructivosAsync(int userId);
+        Task UploadInstructivoAsync(int workItemCategoryId, IFormFile file, int userId);
     }
 }

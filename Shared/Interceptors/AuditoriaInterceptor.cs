@@ -11,7 +11,7 @@ namespace Abril_Backend.Shared.Interceptors
         private static readonly HashSet<string> TablasAuditar = new()
         {
             "ss_hab_trabajador", "ss_hab_empresa", "ss_hab_equipo",
-            "ss_sctr_vidaley", "ss_empresa_contratista", "ss_equipo",
+            "ss_sctr_vidaley", "ss_equipo",
             "ss_induccion", "ss_eval_supervisor"
         };
 

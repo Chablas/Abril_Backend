@@ -69,22 +69,42 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en ContratistaAuthController.ResetPassword"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPost("validar-migracion")]
+        public async Task<IActionResult> ValidarMigracion([FromBody] ValidarMigracionDto dto)
+        {
+            try { return Ok(await _service.ValidarMigracionAsync(dto)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ContratistaAuthController.ValidarMigracion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("activar-migracion")]
+        public async Task<IActionResult> ActivarMigracion([FromBody] ActivarMigracionDto dto)
+        {
+            try
+            {
+                await _service.ActivarMigracionAsync(dto);
+                return Ok(new { message = "Cuenta activada correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ContratistaAuthController.ActivarMigracion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPatch("cambiar-password")]
         [Authorize(Roles = "CONTRATISTA")]
         public async Task<IActionResult> CambiarPassword([FromBody] CambiarPasswordDto dto)
         {
             try
             {
-                var claim = User.FindFirst("empresaId")?.Value
-                    ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (!int.TryParse(claim, out var empresaId))
+                var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (!int.TryParse(claim, out var userId))
                     return StatusCode(401, new { message = "Token inválido." });
 
-                await _service.CambiarPasswordAsync(empresaId, dto);
+                await _service.CambiarPasswordAsync(userId, dto);
                 return Ok(new { message = "Contraseña actualizada correctamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ContratistaAuthController.CambiarPassword"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
     }
 }

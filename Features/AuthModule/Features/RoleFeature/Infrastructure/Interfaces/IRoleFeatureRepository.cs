@@ -10,5 +10,6 @@ namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Interfaces
         Task<List<FeatureDto>> GetAllFeatures();
         Task<List<int>> GetRoleFeatureIds(int roleId);
         Task UpdateRoleFeatures(int roleId, List<int> featureIds);
+        Task UpdateRoleDescription(int roleId, string description, int userId);
     }
 }

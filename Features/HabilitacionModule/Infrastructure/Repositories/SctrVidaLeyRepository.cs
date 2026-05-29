@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.SctrVidaley;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -13,11 +14,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly ILogger<SctrVidaLeyRepository> _logger;
+        private readonly ISharePointHabService _sharePoint;
 
-        public SctrVidaLeyRepository(IDbContextFactory<AppDbContext> factory, ILogger<SctrVidaLeyRepository> logger)
+        public SctrVidaLeyRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ILogger<SctrVidaLeyRepository> logger,
+            ISharePointHabService sharePoint)
         {
             _factory = factory;
             _logger = logger;
+            _sharePoint = sharePoint;
         }
 
         public async Task<(List<SctrVidaLeyDto> Items, int Total)> GetPagedAsync(
@@ -77,6 +83,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 Anio = anio,
                 ArchivoUrl = dto.ArchivoUrl,
                 ArchivoUrl2 = dto.ArchivoUrl2,
+                Vigencia = dto.Vigencia.HasValue ? DateTime.SpecifyKind(dto.Vigencia.Value, DateTimeKind.Utc) : null,
                 Estado = "Enviado",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -106,18 +113,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .FirstOrDefaultAsync();
 
             var estadoHab = esAbril ? "Aprobado" : "Enviado";
-            var vigenciaHab = esAbril && dto.Vigencia.HasValue
+            var vigenciaHab = dto.Vigencia.HasValue
                 ? DateTime.SpecifyKind(dto.Vigencia.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
 
-            var item = await ctx.SsItemTrabajador
-                .Where(i => i.EsSctrVidaley)
-                .FirstOrDefaultAsync(i => i.Nombre.Contains(dto.Tipo));
+            var itemNombreBuscar = dto.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
+            var sctrItems = await ctx.SsItemTrabajador
+                .Where(i => i.EsSctrVidaley && i.Activo)
+                .ToListAsync();
+            var item = sctrItems.FirstOrDefault(i =>
+                i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
 
             if (item is not null)
             {
+                var hoyUtc = DateTime.UtcNow.Date;
                 foreach (var workerInput in workersDistinct)
                 {
+                    if (!esAbril && dto.TipoPoliza == "Renovacion")
+                    {
+                        var habVigente = await ctx.SsHabTrabajador
+                            .FirstOrDefaultAsync(h => h.WorkerId == workerInput.WorkerId
+                                                   && h.ItemId == item.Id
+                                                   && h.Estado == "Aprobado"
+                                                   && h.Vigencia >= hoyUtc);
+                        if (habVigente != null)
+                        {
+                            habVigente.ArchivoUrl = dto.ArchivoUrl;
+                            habVigente.UpdatedAt = DateTime.UtcNow;
+                            continue;
+                        }
+                    }
+
                     var hab = await ctx.SsHabTrabajador
                         .FirstOrDefaultAsync(h => h.WorkerId == workerInput.WorkerId && h.ItemId == item.Id);
 
@@ -146,6 +172,43 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await ctx.SaveChangesAsync();
             }
 
+            if (esAbril)
+            {
+                entity.Estado = "Aprobado";
+
+                if (entity.ProyectoId.HasValue)
+                {
+                    var itemEmpresaId = dto.Tipo == "VIDA_LEY" ? 16 : 15;
+                    var habEmpresa = await ctx.SsHabEmpresa
+                        .FirstOrDefaultAsync(h => h.EmpresaId == entity.EmpresaId
+                                               && h.ProyectoId == entity.ProyectoId.Value
+                                               && h.ItemId == itemEmpresaId);
+                    if (habEmpresa is null)
+                    {
+                        ctx.SsHabEmpresa.Add(new SsHabEmpresa
+                        {
+                            EmpresaId = entity.EmpresaId,
+                            ProyectoId = entity.ProyectoId.Value,
+                            ItemId = itemEmpresaId,
+                            Mes = entity.Mes,
+                            Anio = entity.Anio,
+                            Estado = "Aprobado",
+                            Vigencia = vigenciaHab,
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                    }
+                    else
+                    {
+                        habEmpresa.Estado = "Aprobado";
+                        habEmpresa.Vigencia = vigenciaHab;
+                        habEmpresa.UpdatedAt = DateTime.UtcNow;
+                    }
+                }
+
+                await ctx.SaveChangesAsync();
+            }
+
             var dtos = await BuildDtosAsync(ctx, new List<SsSctrVidaley> { entity });
             return dtos.First();
         }
@@ -159,6 +222,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (entity.EmpresaId != empresaId)
                 throw new AbrilException("No tiene permiso para editar esta póliza.", 403);
+
+            var esAbril = await ctx.Contributor
+                .Where(c => c.ContributorId == empresaId)
+                .Select(c => c.EsAbril)
+                .FirstOrDefaultAsync();
 
             var archivoReemplazado = !string.IsNullOrWhiteSpace(dto.ArchivoUrl)
                 && dto.ArchivoUrl != entity.ArchivoUrl;
@@ -174,7 +242,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             entity.ArchivoUrl2 = dto.ArchivoUrl2;
             entity.UpdatedAt = DateTime.UtcNow;
 
-            if (archivoReemplazado && entity.Estado == "Aprobado")
+            if (archivoReemplazado && entity.Estado == "Aprobado" && !esAbril)
                 entity.Estado = "Enviado";
 
             // Workers: calcular delta
@@ -220,9 +288,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             await ctx.SaveChangesAsync();
 
-            var item = await ctx.SsItemTrabajador
-                .Where(i => i.EsSctrVidaley)
-                .FirstOrDefaultAsync(i => i.Nombre.Contains(dto.Tipo));
+            var itemNombreBuscar = dto.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
+            var sctrItems = await ctx.SsItemTrabajador
+                .Where(i => i.EsSctrVidaley && i.Activo)
+                .ToListAsync();
+            var item = sctrItems.FirstOrDefault(i =>
+                i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
 
             if (item is not null)
             {
@@ -232,13 +303,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     var hab = await ctx.SsHabTrabajador
                         .FirstOrDefaultAsync(h => h.WorkerId == workerInput.WorkerId && h.ItemId == item.Id);
 
+                    var estadoNuevoWorker = esAbril ? "Aprobado" : "Enviado";
                     if (hab is null)
                     {
                         ctx.SsHabTrabajador.Add(new SsHabTrabajador
                         {
                             WorkerId = workerInput.WorkerId,
                             ItemId = item.Id,
-                            Estado = "Enviado",
+                            Estado = estadoNuevoWorker,
                             ArchivoUrl = dto.ArchivoUrl,
                             CreatedAt = DateTime.UtcNow,
                             UpdatedAt = DateTime.UtcNow
@@ -246,7 +318,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     }
                     else
                     {
-                        hab.Estado = "Enviado";
+                        hab.Estado = estadoNuevoWorker;
                         hab.ArchivoUrl = dto.ArchivoUrl;
                         hab.UpdatedAt = DateTime.UtcNow;
                     }
@@ -268,7 +340,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 }
 
                 // Si se reemplazó archivo y la póliza volvió a Enviado, actualizar estado en ss_hab_trabajador
-                if (archivoReemplazado)
+                if (archivoReemplazado && !esAbril)
                 {
                     var habsExistentes = await ctx.SsHabTrabajador
                         .Where(h => h.ItemId == item.Id && workerIdsNuevos.Contains(h.WorkerId))
@@ -288,6 +360,46 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await ctx.SaveChangesAsync();
             }
 
+            if (esAbril)
+            {
+                entity.Estado = "Aprobado";
+
+                if (entity.ProyectoId.HasValue)
+                {
+                    var vigenciaHab = dto.Vigencia.HasValue
+                        ? DateTime.SpecifyKind(dto.Vigencia.Value, DateTimeKind.Utc)
+                        : (DateTime?)null;
+                    var itemEmpresaId = dto.Tipo == "VIDA_LEY" ? 16 : 15;
+                    var habEmpresa = await ctx.SsHabEmpresa
+                        .FirstOrDefaultAsync(h => h.EmpresaId == entity.EmpresaId
+                                               && h.ProyectoId == entity.ProyectoId.Value
+                                               && h.ItemId == itemEmpresaId);
+                    if (habEmpresa is null)
+                    {
+                        ctx.SsHabEmpresa.Add(new SsHabEmpresa
+                        {
+                            EmpresaId = entity.EmpresaId,
+                            ProyectoId = entity.ProyectoId.Value,
+                            ItemId = itemEmpresaId,
+                            Mes = entity.Mes,
+                            Anio = entity.Anio,
+                            Estado = "Aprobado",
+                            Vigencia = vigenciaHab,
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                    }
+                    else
+                    {
+                        habEmpresa.Estado = "Aprobado";
+                        habEmpresa.Vigencia = vigenciaHab;
+                        habEmpresa.UpdatedAt = DateTime.UtcNow;
+                    }
+                }
+
+                await ctx.SaveChangesAsync();
+            }
+
             var dtos = await BuildDtosAsync(ctx, new List<SsSctrVidaley> { entity });
             return dtos.First();
         }
@@ -299,9 +411,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var entity = await ctx.SsSctrVidaley.FirstOrDefaultAsync(s => s.Id == id)
                 ?? throw new AbrilException("SCTR/VidaLey no encontrado.", 404);
 
-            var item = await ctx.SsItemTrabajador
-                .Where(i => i.EsSctrVidaley)
-                .FirstOrDefaultAsync(i => i.Nombre.Contains(entity.Tipo));
+            var itemNombreBuscar = entity.Tipo == "VIDA_LEY" ? "Vida" : "SCTR";
+            var sctrItems = await ctx.SsItemTrabajador
+                .Where(i => i.EsSctrVidaley && i.Activo)
+                .ToListAsync();
+            var item = sctrItems.FirstOrDefault(i =>
+                i.Nombre.Contains(itemNombreBuscar, StringComparison.OrdinalIgnoreCase));
 
             var aprobados = dto.WorkerIdsAprobados.Distinct().ToList();
             var rechazados = dto.WorkerIdsRechazados.Distinct().ToList();
@@ -360,6 +475,24 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             else if (aprobados.Count == 0 && rechazados.Count > 0) nuevoEstado = "Rechazado";
             else nuevoEstado = "Parcial";
 
+            // Si no quedan workers con estado Enviado, forzar Aprobado
+            if (item is not null && nuevoEstado != "Rechazado")
+            {
+                var workersDePoliza = await ctx.SsSctrVidaLeyWorker
+                    .Where(w => w.SctrVidaLeyId == id)
+                    .Select(w => w.WorkerId)
+                    .ToListAsync();
+                if (workersDePoliza.Count > 0)
+                {
+                    var pendientes = await ctx.SsHabTrabajador
+                        .Where(h => h.ItemId == item.Id
+                                 && workersDePoliza.Contains(h.WorkerId)
+                                 && h.Estado == "Enviado")
+                        .CountAsync();
+                    if (pendientes == 0) nuevoEstado = "Aprobado";
+                }
+            }
+
             entity.Estado = nuevoEstado;
             entity.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
             entity.ObsAbril = dto.ObsAbril;
@@ -414,184 +547,146 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            _logger.LogInformation("[GetTrabajadoresPorEmpresa] INPUT empresaId={EmpresaId} proyectoId={ProyectoId} tipo={Tipo} tipoPoliza={TipoPoliza} estadoSctr={EstadoSctr} estadoVidaLey={EstadoVidaLey}",
-                empresaId, proyectoId, tipo, tipoPoliza, estadoSctr, estadoVidaLey);
+            // Obtener workerIds desde WorkerVinculacion, aplicando solo los filtros que vienen
+            var vinculacionQuery = ctx.WorkerVinculacion.Where(v => v.FechaFin == null);
+            if (empresaId.HasValue)   vinculacionQuery = vinculacionQuery.Where(v => v.EmpresaId == empresaId.Value);
+            if (proyectoId.HasValue)  vinculacionQuery = vinculacionQuery.Where(v => v.ProyectoId == proyectoId.Value);
 
-            List<int> workerIds;
+            var workerIds = await vinculacionQuery
+                .Select(v => v.WorkerId)
+                .Distinct()
+                .ToListAsync();
 
-            if (!empresaId.HasValue)
+            // Suplemento: WorkerProyecto (multi-proyecto Casa) solo cuando hay filtro de proyecto
+            if (proyectoId.HasValue)
             {
-                // Sin filtro de empresa: todos los workers activos
-                workerIds = await ctx.Worker
-                    .Select(w => w.Id)
-                    .ToListAsync();
+                var wpQuery = ctx.WorkerProyecto
+                    .Where(wp => wp.ProyectoId == proyectoId.Value && wp.FechaFin == null);
+                if (empresaId.HasValue) wpQuery = wpQuery.Where(wp => wp.EmpresaId == empresaId.Value);
 
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Sin empresaId → {Count} workers totales", workerIds.Count);
-            }
-            else
-            {
-                // Si empresaId corresponde a una empresa Abril en contributor, se usa directo.
-                // Si no, es un ss_empresa_contratista.id → resolver via id_legacy.
-                var contributor = await ctx.Contributor
-                    .Where(c => c.ContributorId == empresaId.Value)
-                    .Select(c => new { c.ContributorId, c.ContributorName })
-                    .FirstOrDefaultAsync();
-
-                int contributorId;
-                if (contributor != null
-                    && contributor.ContributorName != null
-                    && contributor.ContributorName.ToUpper().Contains("ABRIL"))
-                {
-                    contributorId = empresaId.Value;
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Empresa Abril detectada en contributor. contributorId={ContributorId} nombre='{Nombre}'",
-                        contributorId, contributor.ContributorName);
-                }
-                else
-                {
-                    var idLegacy = await ctx.SsEmpresaContratista
-                        .Where(e => e.Id == empresaId.Value)
-                        .Select(e => e.IdLegacy)
-                        .FirstOrDefaultAsync();
-
-                    contributorId = idLegacy ?? empresaId.Value;
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Contratista: ss_empresa_contratista.id={EmpresaId} → id_legacy={IdLegacy} → contributorId={ContributorId}",
-                        empresaId.Value, idLegacy, contributorId);
-                }
-
-                // Workers activos en la empresa (y en el proyecto si se especifica)
-                workerIds = await ctx.WorkerProyecto
-                    .Where(wp => wp.EmpresaId == contributorId
-                        && (!proyectoId.HasValue || wp.ProyectoId == proyectoId.Value)
-                        && wp.FechaFin == null)
+                var idsProyecto = await wpQuery
                     .Select(wp => wp.WorkerId)
                     .Distinct()
                     .ToListAsync();
 
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] WorkerProyecto → {Count} workerIds: [{Ids}]",
-                    workerIds.Count, string.Join(",", workerIds));
-
-                // Fallback: worker_vinculaciones (empresas Casa o cuando worker_proyectos no tiene registros).
-                if (workerIds.Count == 0)
-                {
-                    var vinculacionEmpresaIds = contributorId == empresaId.Value
-                        ? new List<int> { contributorId }
-                        : new List<int> { contributorId, empresaId.Value };
-
-                    workerIds = await ctx.WorkerVinculacion
-                        .Where(v => vinculacionEmpresaIds.Contains(v.EmpresaId!.Value)
-                            && (!proyectoId.HasValue || v.ProyectoId == proyectoId.Value)
-                            && v.FechaFin == null)
-                        .Select(v => v.WorkerId)
-                        .Distinct()
-                        .ToListAsync();
-
-                    _logger.LogInformation("[GetTrabajadoresPorEmpresa] Fallback WorkerVinculacion (empresaIds=[{Ids}]) → {Count} workerIds: [{WorkerIds}]",
-                        string.Join(",", vinculacionEmpresaIds), workerIds.Count, string.Join(",", workerIds));
-                }
-
-                if (workerIds.Count == 0)
-                {
-                    _logger.LogWarning("[GetTrabajadoresPorEmpresa] Sin workers para empresaId={EmpresaId} proyectoId={ProyectoId}. Retornando lista vacía.", empresaId, proyectoId);
-                    return [];
-                }
+                workerIds = workerIds.Union(idsProyecto).ToList();
             }
 
-            var workers = await ctx.Worker
-                .Where(w => workerIds.Contains(w.Id))
-                .Select(w => new
-                {
-                    w.Id,
-                    ApellidoNombre = w.Person != null ? w.Person.FullName : null,
-                    Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
-                    w.ObraOficina
-                })
-                .ToListAsync();
+            if (workerIds.Count == 0)
+            {
+                _logger.LogWarning("[GetTrabajadoresPorEmpresa] Sin workers para empresaId={EmpresaId} proyectoId={ProyectoId}. Retornando lista vacía.", empresaId, proyectoId);
+                return [];
+            }
 
             // Items SCTR y VidaLey del catálogo
             var sctrItems = await ctx.SsItemTrabajador
                 .Where(i => i.EsSctrVidaley && i.Activo)
                 .ToListAsync();
 
-            var itemSctr = sctrItems.FirstOrDefault(i => i.Nombre.Contains("SCTR"));
-            var itemVidaLey = sctrItems.FirstOrDefault(i => i.Nombre.Contains("VIDA_LEY") || i.Nombre.Contains("VIDA LEY"));
+            var itemSctr    = sctrItems.FirstOrDefault(i => i.Nombre.Contains("SCTR", StringComparison.OrdinalIgnoreCase));
+            var itemVidaLey = sctrItems.FirstOrDefault(i => i.Nombre.Contains("Vida", StringComparison.OrdinalIgnoreCase));
+            int? itemSctrId    = itemSctr?.Id;
+            int? itemVidaLeyId = itemVidaLey?.Id;
 
-            var itemIdsRelevantes = sctrItems.Select(i => i.Id).ToList();
+            _logger.LogInformation("itemSctr: {item}, itemVidaLey: {item2}", itemSctr?.Nombre, itemVidaLey?.Nombre);
 
-            var habs = await ctx.SsHabTrabajador
-                .Where(h => workerIds.Contains(h.WorkerId) && itemIdsRelevantes.Contains(h.ItemId))
-                .ToListAsync();
+            // Parse filtros de estado antes de la query
+            var valoresSctr = string.IsNullOrWhiteSpace(estadoSctr) ? null
+                : estadoSctr.Replace("%2C", ",").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var valoresVidaLey = string.IsNullOrWhiteSpace(estadoVidaLey) ? null
+                : estadoVidaLey.Replace("%2C", ",").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-            _logger.LogInformation("itemSctr: {item}, itemVidaLey: {item2}, habs count: {count}", itemSctr?.Nombre, itemVidaLey?.Nombre, habs.Count);
+            // LEFT JOIN workers + ss_hab_trabajador SCTR + ss_hab_trabajador VidaLey en BD
+            // COALESCE equivalente: habX != null ? habX.Estado : "Falta"
+            var habQuery =
+                from w in ctx.Worker.Where(w => workerIds.Contains(w.Id))
+                join p in ctx.Person on w.PersonId equals (int?)p.PersonId into pg
+                from person in pg.DefaultIfEmpty()
+                join hs in ctx.SsHabTrabajador.Where(h => h.ItemId == itemSctrId)
+                    on w.Id equals hs.WorkerId into hsg
+                from habSctr in hsg.DefaultIfEmpty()
+                join hv in ctx.SsHabTrabajador.Where(h => h.ItemId == itemVidaLeyId)
+                    on w.Id equals hv.WorkerId into hvg
+                from habVida in hvg.DefaultIfEmpty()
+                select new
+                {
+                    WorkerId       = w.Id,
+                    ApellidoNombre = person != null ? person.FullName : null,
+                    Dni            = person != null ? person.DocumentIdentityCode : null,
+                    ObraOficina    = w.ObraOficina,
+                    EstadoSctr     = habSctr != null ? habSctr.Estado : "Falta",
+                    EstadoVidaLey  = habVida != null ? habVida.Estado : "Falta",
+                    SctrHabId      = habSctr != null ? (int?)habSctr.Id : null,
+                    FechaVencimiento = habSctr != null ? habSctr.Vigencia
+                                     : habVida != null ? habVida.Vigencia
+                                     : (DateTime?)null,
+                };
 
-            // sctrId de la póliza activa (estado Enviado o Parcial) más reciente por worker
+            if (valoresSctr != null)    habQuery = habQuery.Where(x => valoresSctr.Contains(x.EstadoSctr));
+            if (valoresVidaLey != null) habQuery = habQuery.Where(x => valoresVidaLey.Contains(x.EstadoVidaLey));
+
+            var rows = await habQuery.ToListAsync();
+            if (rows.Count == 0) return [];
+
+            // sctrId de la póliza activa (Enviado/Parcial) más reciente — sobre workers ya filtrados
+            var filteredWorkerIds = rows.Select(r => r.WorkerId).Distinct().ToList();
             var sctrIdPorWorker = await (
                 from svw in ctx.SsSctrVidaLeyWorker
                 join s in ctx.SsSctrVidaley on svw.SctrVidaLeyId equals s.Id
-                where workerIds.Contains(svw.WorkerId)
+                where filteredWorkerIds.Contains(svw.WorkerId)
                     && (s.Estado == "Enviado" || s.Estado == "Parcial")
+                    && (tipo == null || s.Tipo == tipo)
                 group svw by svw.WorkerId into g
                 select new { WorkerId = g.Key, SctrId = g.Max(x => x.SctrVidaLeyId) }
             ).ToDictionaryAsync(x => x.WorkerId, x => x.SctrId);
 
-            var result = workers.Select(w =>
+            var rowWorkerIds = rows.Select(r => r.WorkerId).ToList();
+
+            var vinculaciones = await ctx.WorkerVinculacion
+                .Where(wv => rowWorkerIds.Contains(wv.WorkerId) && wv.FechaFin == null)
+                .GroupBy(wv => wv.WorkerId)
+                .Select(g => g.OrderByDescending(wv => wv.Id).First())
+                .ToListAsync();
+
+            var vinMap = vinculaciones.ToDictionary(v => v.WorkerId);
+
+            var empIds  = vinculaciones.Where(v => v.EmpresaId  != null).Select(v => v.EmpresaId!.Value).Distinct().ToList();
+            var proyIds = vinculaciones.Where(v => v.ProyectoId != null).Select(v => v.ProyectoId!.Value).Distinct().ToList();
+
+            var empMap = await ctx.Contributor
+                .Where(c => empIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
+
+            var proyMap = await ctx.Project
+                .Where(p => proyIds.Contains(p.ProjectId))
+                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
+
+            var result = rows.Select(r =>
             {
-                var estadoSctrVal = "Falta";
-                var estadoVidaLeyVal = "Falta";
-                int? sctrHabId = null;
-
-                if (itemSctr is not null)
-                {
-                    var hab = habs.FirstOrDefault(h => h.WorkerId == w.Id && h.ItemId == itemSctr.Id);
-                    if (hab is not null)
-                    {
-                        estadoSctrVal = hab.Estado ?? "Falta";
-                        sctrHabId = hab.Id;
-                    }
-                }
-
-                if (itemVidaLey is not null)
-                {
-                    var hab = habs.FirstOrDefault(h => h.WorkerId == w.Id && h.ItemId == itemVidaLey.Id);
-                    if (hab is not null) estadoVidaLeyVal = hab.Estado ?? "Falta";
-                }
+                vinMap.TryGetValue(r.WorkerId, out var vin);
+                var empNombre  = vin?.EmpresaId  != null && empMap.TryGetValue(vin.EmpresaId.Value,  out var en) ? en : null;
+                var proyNombre = vin?.ProyectoId != null && proyMap.TryGetValue(vin.ProyectoId.Value, out var pn) ? pn : null;
 
                 return new SctrTrabajadorEstadoDto
                 {
-                    WorkerId = w.Id,
-                    ApellidoNombre = w.ApellidoNombre ?? string.Empty,
-                    Dni = w.Dni ?? string.Empty,
-                    ObraOficina = w.ObraOficina,
-                    SctrId = sctrIdPorWorker.TryGetValue(w.Id, out var sid) ? sid : null,
-                    SctrHabId = sctrHabId,
-                    EstadoSctr = estadoSctrVal,
-                    EstadoVidaLey = estadoVidaLeyVal
+                    WorkerId         = r.WorkerId,
+                    ApellidoNombre   = r.ApellidoNombre ?? string.Empty,
+                    Dni              = r.Dni ?? string.Empty,
+                    ObraOficina      = r.ObraOficina,
+                    SctrId           = sctrIdPorWorker.TryGetValue(r.WorkerId, out var sid) ? sid : null,
+                    SctrHabId        = r.SctrHabId,
+                    EstadoSctr       = r.EstadoSctr,
+                    EstadoVidaLey    = r.EstadoVidaLey,
+                    EmpresaNombre    = empNombre,
+                    ProyectoNombre   = proyNombre,
+                    FechaVencimiento = r.FechaVencimiento,
                 };
             }).ToList();
-
-            _logger.LogInformation("[GetTrabajadoresPorEmpresa] Antes de filtros de estado: {Total} trabajadores. itemSctr={ItemSctrId} itemVidaLey={ItemVidaLeyId}",
-                result.Count, itemSctr?.Id.ToString() ?? "null", itemVidaLey?.Id.ToString() ?? "null");
-
-            // Filtros por estado (acepta múltiples valores separados por coma)
-            if (!string.IsNullOrWhiteSpace(estadoSctr))
-            {
-                var valoresSctr = estadoSctr.Replace("%2C", ",").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Aplicando filtro estadoSctr='{EstadoSctr}'", estadoSctr);
-                result = result.Where(r => valoresSctr.Contains(r.EstadoSctr, StringComparer.OrdinalIgnoreCase)).ToList();
-            }
-
-            if (!string.IsNullOrWhiteSpace(estadoVidaLey))
-            {
-                var valoresVidaLey = estadoVidaLey.Replace("%2C", ",").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                _logger.LogInformation("[GetTrabajadoresPorEmpresa] Aplicando filtro estadoVidaLey='{EstadoVidaLey}'", estadoVidaLey);
-                result = result.Where(r => valoresVidaLey.Contains(r.EstadoVidaLey, StringComparer.OrdinalIgnoreCase)).ToList();
-            }
-
-            _logger.LogInformation("[GetTrabajadoresPorEmpresa] RESULTADO FINAL: {Count} trabajadores", result.Count);
 
             return result;
         }
 
-        private static async Task<List<SctrVidaLeyDto>> BuildDtosAsync(
+        private async Task<List<SctrVidaLeyDto>> BuildDtosAsync(
             AppDbContext ctx, List<SsSctrVidaley> entities)
         {
             if (entities.Count == 0) return new List<SctrVidaLeyDto>();
@@ -610,7 +705,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var workersData = await (from svw in ctx.SsSctrVidaLeyWorker
                                      where ids.Contains(svw.SctrVidaLeyId)
-                                     join w in ctx.Worker on svw.WorkerId equals w.Id
+                                     join w in ctx.Worker.Include(x => x.Person) on svw.WorkerId equals w.Id
                                      select new
                                      {
                                          svw.SctrVidaLeyId,
@@ -619,6 +714,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                          ApellidoNombre = w.Person != null ? w.Person.FullName : null,
                                          Dni = w.Person != null ? w.Person.DocumentIdentityCode : null
                                      }).ToListAsync();
+
+            foreach (var w in workersData.Where(x => x.ApellidoNombre == null).Take(3))
+                _logger.LogWarning("Worker sin nombre: workerId={Id} sctrId={SctrId}", w.WorkerId, w.SctrVidaLeyId);
 
             var sctrItem = await ctx.SsItemTrabajador
                 .Where(i => i.EsSctrVidaley)
@@ -631,18 +729,28 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(h => workerIds.Contains(h.WorkerId) && sctrItemIds.Contains(h.ItemId))
                 .ToListAsync();
 
-            return entities.Select(e =>
+            var tasks = entities.Select(async e =>
             {
                 var workersDeEste = workersData.Where(x => x.SctrVidaLeyId == e.Id).ToList();
-                var itemTipo = sctrItem.FirstOrDefault(i => i.Nombre.Contains(e.Tipo));
+                var itemTipo = sctrItem.FirstOrDefault(i =>
+                    e.Tipo == "VIDA_LEY" ? i.Nombre.Contains("Vida") : i.Nombre.Contains("SCTR"));
 
                 var workersDto = workersDeEste.Select(w =>
                 {
                     var aprobado = false;
+                    var estadoWorker = "Falta";
+                    int? sctrHabId = null;
+                    DateTime? fechaVencimiento = null;
                     if (itemTipo is not null)
                     {
                         var hab = habs.FirstOrDefault(h => h.WorkerId == w.WorkerId && h.ItemId == itemTipo.Id);
-                        aprobado = hab is not null && hab.Estado == "Aprobado";
+                        if (hab is not null)
+                        {
+                            aprobado = hab.Estado == "Aprobado";
+                            estadoWorker = hab.Estado ?? "Falta";
+                            sctrHabId = hab.Id;
+                            fechaVencimiento = hab.Vigencia;
+                        }
                     }
                     return new SctrWorkerDto
                     {
@@ -650,9 +758,27 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         ApellidoNombre = w.ApellidoNombre ?? string.Empty,
                         Dni = w.Dni ?? string.Empty,
                         Aprobado = aprobado,
-                        FechaInicioCobertura = w.FechaInicioCobertura
+                        Estado = estadoWorker,
+                        SctrHabId = sctrHabId,
+                        FechaInicioCobertura = w.FechaInicioCobertura,
+                        FechaVencimiento = fechaVencimiento
                     };
                 }).ToList();
+
+                string? archivoUrl = null;
+                string? archivoUrl2 = null;
+
+                if (!string.IsNullOrEmpty(e.ArchivoUrl))
+                {
+                    try { archivoUrl = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl); }
+                    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl); archivoUrl = null; }
+                }
+
+                if (!string.IsNullOrEmpty(e.ArchivoUrl2))
+                {
+                    try { archivoUrl2 = await _sharePoint.GetDownloadUrlAsync(e.ArchivoUrl2); }
+                    catch (Exception ex) { _logger.LogError(ex, "Error resolviendo URL: {Path}", e.ArchivoUrl2); archivoUrl2 = null; }
+                }
 
                 return new SctrVidaLeyDto
                 {
@@ -666,14 +792,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     FechaInicio = e.FechaInicio,
                     Mes = e.Mes,
                     Anio = e.Anio,
-                    ArchivoUrl = e.ArchivoUrl,
-                    ArchivoUrl2 = e.ArchivoUrl2,
+                    ArchivoUrl = archivoUrl,
+                    ArchivoUrl2 = archivoUrl2,
                     Estado = e.Estado,
                     Vigencia = e.Vigencia,
                     ObsAbril = e.ObsAbril,
                     Workers = workersDto
                 };
-            }).ToList();
+            });
+
+            return (await Task.WhenAll(tasks)).ToList();
         }
     }
 }

@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task<PagedResult<EmoPorTrabajadorDto>> ListPorTrabajador(EmoPorTrabajadorFilterDto filter);
         Task<EmoDetalleDto> GetById(int id);
         Task<WorkerEmoHistorialDto> GetHistorialByWorker(int workerId);
-        Task<int> Create(EmoCreateDto dto, int? userId);
+        Task<EmoCreateResultDto> Create(EmoCreateDto dto, int? userId);
         Task Update(int id, EmoUpdateDto dto, int? userId);
         Task UpdateEstado(int id, string estado, int? userId);
     }

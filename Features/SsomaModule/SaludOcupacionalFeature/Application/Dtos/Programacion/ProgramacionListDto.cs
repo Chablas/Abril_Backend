@@ -7,6 +7,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }
         public string? Empresa { get; set; }
+        public string? Proyecto { get; set; }
+        public int? TipoEmoId { get; set; }
         public string? TipoEmo { get; set; }
         public DateOnly FechaProgramada { get; set; }
         public TimeOnly? HoraProgramada { get; set; }
@@ -19,5 +21,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public TimeOnly? CheckInHora { get; set; }
         public string? MotivoRechazo { get; set; }
         public DateTimeOffset? FechaNotificacion { get; set; }
+        public string? Ocupacion { get; set; }
+        public DateOnly? FechaVencimientoEmo { get; set; }
+        public string? Categoria { get; set; }
+        public string? TipoTrabajador { get; set; }
+        public string? InterconsultaEstado { get; set; }
     }
 }

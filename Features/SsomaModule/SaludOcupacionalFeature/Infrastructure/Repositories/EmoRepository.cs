@@ -1,5 +1,6 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
@@ -15,10 +16,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
     {
         private const int PageSize = 10;
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ISharePointHabService _sharePoint;
+        private readonly ILogger<EmoRepository> _logger;
 
-        public EmoRepository(IDbContextFactory<AppDbContext> factory)
+        public EmoRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ISharePointHabService sharePoint,
+            ILogger<EmoRepository> logger)
         {
             _factory = factory;
+            _sharePoint = sharePoint;
+            _logger = logger;
         }
 
         public async Task<PagedResult<EmoListItemDto>> ListPaged(EmoFilterDto filter)
@@ -114,14 +122,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from vv in vvJ.DefaultIfEmpty()
                 join em in ctx.Contributor on vv.EmpresaId equals em.ContributorId into emJ
                 from em in emJ.DefaultIfEmpty()
-                select new { w, ue, t, vv, em };
+                join eop in ctx.Contributor on ue.EmpresaOrigenId equals eop.ContributorId into eopJ
+                from eop in eopJ.DefaultIfEmpty()
+                join proy in ctx.Project on (vv != null ? vv.ProyectoId : -1) equals proy.ProjectId into proyJ
+                from proy in proyJ.DefaultIfEmpty()
+                select new { w, ue, t, vv, em, eop, proy };
+
+            q = q.Where(x => x.em != null && x.em.EsAbril);
 
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {
                 var term = filter.Search.Trim();
                 q = q.Where(x =>
-                    (x.w.Person != null && x.w.Person.FullName != null && x.w.Person.FullName.Contains(term))
-                    || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null && x.w.Person.DocumentIdentityCode.Contains(term)));
+                    (x.w.Person != null && x.w.Person.FullName != null &&
+                     EF.Functions.ILike(x.w.Person.FullName, $"%{term}%"))
+                    || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null &&
+                     EF.Functions.ILike(x.w.Person.DocumentIdentityCode, $"%{term}%")));
             }
             if (!string.IsNullOrWhiteSpace(filter.Aptitud))
                 q = q.Where(x => x.ue != null && x.ue.Aptitud == filter.Aptitud);
@@ -151,6 +167,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Dni = (x.w.Person != null ? x.w.Person.DocumentIdentityCode : null) ?? string.Empty,
                     EmpresaId = x.vv != null ? x.vv.EmpresaId : null,
                     Empresa = x.em != null ? x.em.ContributorName : null,
+                    EmpresaOrigenNombre = x.eop != null ? x.eop.ContributorName : null,
+                    ProyectoNombre = x.proy != null ? x.proy.ProjectDescription : null,
+                    ObraOficina = x.w.ObraOficina,
                     TipoContrata = x.w.ContrataCasa,
                     TieneEmo = x.ue != null,
                     EmoId = x.ue != null ? x.ue.Id : (int?)null,
@@ -358,7 +377,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
         }
 
-        public async Task<int> Create(EmoCreateDto dto, int? userId)
+        public async Task<EmoCreateResultDto> Create(EmoCreateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -384,6 +403,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 Aptitud = dto.Aptitud,
                 RequiereInterconsulta = dto.RequiereInterconsulta,
                 NumeroInforme = dto.NumeroInforme,
+                FechaLectura = dto.FechaLectura,
                 UrlResultado = dto.UrlResultado,
                 Notas = dto.Notas,
                 Estado = "Vigente",
@@ -393,7 +413,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             ctx.WorkerEmo.Add(emo);
-            await ctx.SaveChangesAsync();
+            await ctx.SaveChangesAsync();  // necesario para generar emo.Id antes de usarlo
+
+            // Vincular interconsulta pendiente (sin EmoId) al nuevo EMO
+            var interconsultaPendiente = await ctx.SsInterconsulta
+                .Where(i => i.WorkerId == dto.WorkerId
+                         && i.EmoId == null
+                         && i.Estado == "Pendiente")
+                .OrderByDescending(i => i.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (interconsultaPendiente != null)
+            {
+                interconsultaPendiente.EmoId = emo.Id;
+                interconsultaPendiente.UpdatedAt = DateTimeOffset.UtcNow;
+
+                if (dto.DocumentoInterconsulta != null && dto.DocumentoInterconsulta.Length > 0)
+                {
+                    try
+                    {
+                        using var stream = dto.DocumentoInterconsulta.OpenReadStream();
+                        interconsultaPendiente.UrlInforme = await _sharePoint.SubirArchivoAsync(
+                            stream, dto.DocumentoInterconsulta.FileName, "interconsulta");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Error subiendo documento de interconsulta para worker {WorkerId}", dto.WorkerId);
+                    }
+                }
+            }
 
             foreach (var ex in dto.Examenes)
             {
@@ -420,17 +469,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 });
             }
 
-            if (dto.Aptitud == "Observado" && dto.RequiereInterconsulta)
+            if (dto.InterconsultaInline != null ||
+                (dto.Aptitud == "Observado" && dto.RequiereInterconsulta) ||
+                dto.Aptitud == "No Apto")
             {
+                var ic = dto.InterconsultaInline;
                 ctx.SsInterconsulta.Add(new SsInterconsulta
                 {
                     EmoId = emo.Id,
                     WorkerId = emo.WorkerId,
-                    Especialidad = "Por definir",
-                    MedicoDerivaId = dto.MedicoId,
+                    Especialidad = ic?.Especialidad ?? "Por definir",
+                    MedicoDerivaId = ic?.MedicoDerivaId ?? dto.MedicoId,
                     FechaDerivacion = dto.FechaEmo,
+                    CentroAtencion = ic?.CentroAtencion,
+                    Diagnostico = ic?.Diagnostico,
+                    Cie10 = ic?.Cie10,
                     Estado = "Pendiente",
-                    RequiereSeguimiento = false,
+                    RequiereSeguimiento = ic?.RequiereSeguimiento ?? false,
                     RegistradoPorId = userId,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow
@@ -458,10 +513,30 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
             }
 
+            _logger.LogInformation("ArchivoLectura: {val}", dto.ArchivoLectura == null ? "NULL" : dto.ArchivoLectura.FileName);
+            if (dto.ArchivoLectura != null && dto.ArchivoLectura.Length > 0)
+            {
+                try
+                {
+                    using var stream = dto.ArchivoLectura.OpenReadStream();
+                    emo.UrlResultado = await _sharePoint.SubirArchivoAsync(
+                        stream, dto.ArchivoLectura.FileName, "lectura-emo");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Error subiendo archivo de lectura EMO para worker {WorkerId}", dto.WorkerId);
+                }
+            }
+
             await SincronizarEntregableEmoAsync(ctx, emo, worker);
 
             await ctx.SaveChangesAsync();
-            return emo.Id;
+            return new EmoCreateResultDto
+            {
+                EmoId = emo.Id,
+                InterconsultaId = interconsultaPendiente?.Id
+            };
         }
 
         public async Task Update(int id, EmoUpdateDto dto, int? userId)
@@ -567,13 +642,29 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     hab.Estado = "Rechazado";
                     break;
                 case "Observado":
-                    hab.Estado = "En Plazo";
+                    hab.Estado = "En plazo";
                     break;
                 default:
                     return;
             }
 
             hab.UpdatedAt = DateTime.UtcNow;
+
+            if (emo.UrlResultado != null &&
+                (emo.Aptitud == "Apto" || emo.Aptitud == "Apto con Restricciones"))
+            {
+                var habLectura = await ctx.SsHabTrabajador
+                    .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.LecturaEmo);
+                if (habLectura != null)
+                {
+                    habLectura.Estado = "Aprobado";
+                    habLectura.Vigencia = emo.FechaVencimiento.HasValue
+                        ? emo.FechaVencimiento.Value.ToDateTime(TimeOnly.MinValue)
+                        : null;
+                    habLectura.ArchivoUrl = emo.UrlResultado;
+                    habLectura.UpdatedAt = DateTime.UtcNow;
+                }
+            }
         }
     }
 }

@@ -22,14 +22,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId)
+        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion)
         {
             try
             {
                 var filters = new GestionSalidaFiltersDto
                 {
-                    WorkerId        = workerId,
-                    LugarProyectoId = lugarProyectoId,
+                    WorkerId         = workerId,
+                    LugarProyectoId  = lugarProyectoId,
+                    EstadoRendicion  = estadoRendicion,
+                    EstadoAprobacion = estadoAprobacion,
                 };
                 return Ok(await _service.GetAll(filters));
             }
@@ -45,14 +47,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet("exportar-excel")]
-        public async Task<IActionResult> ExportarExcel([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId)
+        public async Task<IActionResult> ExportarExcel([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion)
         {
             try
             {
                 var filters = new GestionSalidaFiltersDto
                 {
-                    WorkerId        = workerId,
-                    LugarProyectoId = lugarProyectoId,
+                    WorkerId         = workerId,
+                    LugarProyectoId  = lugarProyectoId,
+                    EstadoRendicion  = estadoRendicion,
+                    EstadoAprobacion = estadoAprobacion,
                 };
                 var bytes = await _service.GetExcel(filters);
                 return File(
@@ -68,6 +72,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en GestionSalidaController.ExportarExcel");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("{id:int}/detalle")]
+        public async Task<IActionResult> GetDetalle(int id)
+        {
+            try
+            {
+                var detalle = await _service.GetDetalle(id);
+                if (detalle == null)
+                    return NotFound(new { message = "Solicitud no encontrada." });
+                return Ok(detalle);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionSalidaController.GetDetalle");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -134,6 +159,63 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en GestionSalidaController.Rechazar");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("{id:int}/hora-salida-real")]
+        public async Task<IActionResult> SetHoraSalidaReal(int id, [FromBody] RegistrarHoraSalidaRealDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                await _service.SetHoraSalidaReal(id, dto.HoraSalidaReal, userId.Value);
+                return Ok(new { message = "Hora real registrada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionSalidaController.SetHoraSalidaReal");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("marcar-rendidas")]
+        public async Task<IActionResult> MarcarRendidas([FromBody] MarcarRendidasBulkDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                if (dto?.Ids == null || dto.Ids.Count == 0)
+                    return BadRequest(new { message = "Debes seleccionar al menos una solicitud." });
+
+                var (pdfBytes, count) = await _service.RendirYGenerarPlanilla(dto.Ids, userId.Value);
+
+                // Header custom para que el frontend pueda mostrar el contador en el toast.
+                Response.Headers.Append("X-Rendidas-Count", count.ToString());
+                Response.Headers.Append("Access-Control-Expose-Headers", "X-Rendidas-Count, Content-Disposition");
+
+                var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
+                return File(pdfBytes, "application/pdf", filename);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionSalidaController.MarcarRendidas");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

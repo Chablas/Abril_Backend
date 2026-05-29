@@ -33,13 +33,15 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] string? estadoHabilitacion,
             [FromQuery] string? contratistaCasa,
             [FromQuery] bool soloRetirados = false,
+            [FromQuery] bool soloVerificacion = false,
+            [FromQuery] bool soloSinEmo = false,
+            [FromQuery] bool soloEmoVencido = false,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
             try
             {
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                if (roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase)))
+                if (User.FindFirst("tipo")?.Value == "CONTRATISTA" && !soloVerificacion)
                 {
                     if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))
                         return StatusCode(403, new { message = "Token de contratista inválido." });
@@ -47,7 +49,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 }
 
                 var (items, total) = await _repo.GetWorkersHabilitacionAsync(
-                    search, empresaId, proyectoId, estadoHabilitacion, contratistaCasa, page, pageSize, soloRetirados);
+                    search, empresaId, proyectoId, estadoHabilitacion, contratistaCasa, page, pageSize, soloRetirados, soloSinEmo, soloEmoVencido);
 
                 var result = new PagedResult<WorkerHabilitacionListDto>
                 {
@@ -95,8 +97,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                if (roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase)))
+                if (User.FindFirst("tipo")?.Value == "CONTRATISTA")
                 {
                     var empresaClaim = User.FindFirst("empresaId")?.Value;
                     if (!int.TryParse(empresaClaim, out var empresaJwt))
@@ -118,12 +119,14 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                var esContratista = roles.Any(r => r.Equals("CONTRATISTA", StringComparison.OrdinalIgnoreCase));
-                var esAprobador = roles.Any(r => RolesAprobadores.Contains(r, StringComparer.OrdinalIgnoreCase));
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
+                var esAprobador = User.FindAll(ClaimTypes.Role).Any(c => RolesAprobadores.Contains(c.Value, StringComparer.OrdinalIgnoreCase));
 
-                if (esContratista && !string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase))
-                    return StatusCode(403, new { message = "Los contratistas solo pueden enviar entregables; la aprobación es interna." });
+                if (esContratista)
+                {
+                    dto.Estado = "Enviado";
+                    dto.Vigencia = null;
+                }
 
                 if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase) && !esAprobador)
                     return StatusCode(403, new { message = "Solo ADMINISTRADOR SSOMA o ADMINISTRADOR DE UDP pueden aprobar." });
@@ -281,6 +284,26 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.MarcarInduccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("reparar-vinculaciones")]
+        public async Task<IActionResult> RepararVinculaciones()
+        {
+            if (!User.Claims.Any(c => c.Type == ClaimTypes.Role && RolesAprobadores.Contains(c.Value)))
+                return StatusCode(403, new { message = "Solo administradores pueden ejecutar esta operación." });
+            try
+            {
+                var reparados = await _repo.RepararVinculacionesAsync();
+                return Ok(new
+                {
+                    total = reparados.Count,
+                    message = reparados.Count == 0
+                        ? "No se encontraron workers con vinculaciones inconsistentes."
+                        : $"{reparados.Count} worker(s) reparados.",
+                    workers = reparados,
+                });
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabTrabajadorController.RepararVinculaciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
     }
 }

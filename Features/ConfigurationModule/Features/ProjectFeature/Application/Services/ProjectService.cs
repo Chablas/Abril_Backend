@@ -18,11 +18,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
             _sunatService = sunatService;
         }
 
-        public async Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize)
+        public async Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null)
         {
             if (page < 1) page = 1;
             if (pageSize < 1) pageSize = 200;
-            return await _repository.GetPaged(page, pageSize);
+            return await _repository.GetPaged(page, pageSize, ruc, razonSocial, projectDescription);
         }
 
         public async Task Create(ProjectCreateDto dto, int userId)

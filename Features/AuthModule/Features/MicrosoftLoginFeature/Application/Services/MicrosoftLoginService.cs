@@ -39,6 +39,14 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
 
             var email = profile.Mail ?? profile.UserPrincipalName;
 
+            // El acceso vía Microsoft SSO está restringido al tenant @abril.pe.
+            if (string.IsNullOrWhiteSpace(email)
+                || !email.Trim().EndsWith("@abril.pe", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new AbrilException(
+                    "Solo se permite el acceso con cuentas corporativas @abril.pe.", 403);
+            }
+
             var user = await _repository.GetUserByEmailAsync(email);
 
             if (user is null)
@@ -47,6 +55,19 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
                 user = existingPerson is not null
                     ? await _repository.CreateUserAndLinkPersonAsync(profile, existingPerson.PersonId)
                     : await _repository.CreateUserFromGraphAsync(profile);
+
+                // Primer login: si el correo es del tenant @abril.pe, asignar rol "USUARIO ABRIL" (RoleId = 12).
+                if (!string.IsNullOrWhiteSpace(email)
+                    && email.Trim().EndsWith("@abril.pe", StringComparison.OrdinalIgnoreCase))
+                {
+                    var rolAbril = await _repository.AssignRoleAsync(user.UserId, 12);
+                    if (rolAbril is not null)
+                    {
+                        user.Roles ??= new();
+                        if (!user.Roles.Any(r => r.RoleId == rolAbril.RoleId))
+                            user.Roles.Add(rolAbril);
+                    }
+                }
             }
             else if (user.Person is null || user.Person.PersonId == 0)
             {

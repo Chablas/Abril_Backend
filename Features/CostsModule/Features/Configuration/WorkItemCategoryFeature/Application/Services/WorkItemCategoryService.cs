@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCategoryFeature.Application.Dtos;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCategoryFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCategoryFeature.Infrastructure.Interfaces;
@@ -14,17 +15,20 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         private readonly IWorkItemCategoryRepository _repository;
         private readonly IGraphSharePointService _graphSharePoint;
         private readonly OneDriveOptions _oneDriveOptions;
+        private readonly SharePointSiteRef _site;
 
         private static readonly Regex _folderPrefixRegex = new(@"^\d+\.\s*", RegexOptions.Compiled);
 
         public WorkItemCategoryService(
             IWorkItemCategoryRepository repository,
             IGraphSharePointService graphSharePoint,
-            IOptions<OneDriveOptions> oneDriveOptions)
+            IOptions<OneDriveOptions> oneDriveOptions,
+            IConfiguration configuration)
         {
             _repository = repository;
             _graphSharePoint = graphSharePoint;
             _oneDriveOptions = oneDriveOptions.Value;
+            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
         }
 
         public async Task<PagedResult<WorkItemCategoryDto>> GetPaged(WorkItemCategoryFilterDto filter)
@@ -41,6 +45,27 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
 
         public async Task<bool> Delete(int workItemCategoryId, int userId)
             => await _repository.Delete(workItemCategoryId, userId);
+
+        public async Task UploadInstructivoAsync(int workItemCategoryId, IFormFile file, int userId)
+        {
+            if (file == null || file.Length == 0)
+                throw new AbrilException("El archivo no puede estar vacío.");
+
+            using var stream = file.OpenReadStream();
+            var result = await _graphSharePoint.UploadToSharePointLibraryAsync(
+                site:        _site,
+                libraryName: "Adjudicaciones",
+                folderPath:  "INSTRUCTIVOS",
+                fileName:    file.FileName,
+                fileStream:  stream,
+                contentType: file.ContentType ?? "application/octet-stream")
+                ?? throw new AbrilException("No se pudo subir el archivo al servidor.");
+
+            var fileUrl = result.WebUrl
+                ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+
+            await _repository.UpdateManualInstructivo(workItemCategoryId, fileUrl, file.FileName, userId);
+        }
 
         public async Task<WorkItemCategorySyncResultDto> SyncInstructivosAsync(int userId)
         {

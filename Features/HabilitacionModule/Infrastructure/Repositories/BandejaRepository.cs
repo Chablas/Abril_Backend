@@ -35,8 +35,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 SELECT
     ht.id, 'TRABAJADOR' as tipo,
     i.nombre as nombre_entregable,
-    w.apellido_nombre as entidad_nombre,
-    ec.razon_social as empresa_nombre,
+    COALESCE(per.full_name, '') as entidad_nombre,
+    ec.contributor_name as empresa_nombre,
     p.project_description as proyecto_nombre,
     p.project_id as proyecto_id,
     ht.estado,
@@ -48,6 +48,7 @@ SELECT
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
 JOIN workers w ON w.id = ht.worker_id
+LEFT JOIN person per ON per.person_id = w.person_id
 LEFT JOIN LATERAL (
     SELECT empresa_id, proyecto_id
     FROM worker_vinculaciones
@@ -55,23 +56,24 @@ LEFT JOIN LATERAL (
     ORDER BY created_at DESC, id DESC
     LIMIT 1
 ) wv ON TRUE
-LEFT JOIN ss_empresa_contratista ec ON ec.id = wv.empresa_id
+LEFT JOIN contributor ec ON ec.contributor_id = wv.empresa_id
 LEFT JOIN project p ON p.project_id = wv.proyecto_id
 WHERE ht.estado = 'Enviado'
-  AND ht.item_id NOT IN (11, 13)
+  AND ht.item_id NOT IN (11, 12, 13)
   AND NOT (ht.item_id IN (4, 25) AND w.contrata_casa = 'Casa')
   AND (@ProyectoId IS NULL OR wv.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR wv.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'TRABAJADOR')
+  AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
 
 UNION ALL
 
 SELECT
     he.id, 'EMPRESA' as tipo,
     i.nombre as nombre_entregable,
-    ec.razon_social as entidad_nombre,
-    ec.razon_social as empresa_nombre,
+    ec.contributor_name as entidad_nombre,
+    ec.contributor_name as empresa_nombre,
     p.project_description as proyecto_nombre,
     he.proyecto_id,
     he.estado,
@@ -82,13 +84,15 @@ SELECT
     he.updated_at as fecha_envio
 FROM ss_hab_empresa he
 JOIN ss_item_empresa i ON i.id = he.item_id
-JOIN ss_empresa_contratista ec ON ec.id = he.empresa_id
+JOIN contributor ec ON ec.contributor_id = he.empresa_id
 JOIN project p ON p.project_id = he.proyecto_id
 WHERE he.estado = 'Enviado'
+  AND he.item_id NOT IN (15, 16)
   AND (@ProyectoId IS NULL OR he.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR he.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'EMPRESA')
+  AND (@Search IS NULL OR ec.contributor_name ILIKE '%' || @Search || '%')
 
 UNION ALL
 
@@ -96,7 +100,7 @@ SELECT
     heq.id, 'EQUIPO' as tipo,
     i.nombre as nombre_entregable,
     CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) as entidad_nombre,
-    ec.razon_social as empresa_nombre,
+    ec.contributor_name as empresa_nombre,
     p.project_description as proyecto_nombre,
     eq.proyecto_id,
     heq.estado,
@@ -108,20 +112,21 @@ SELECT
 FROM ss_hab_equipo heq
 JOIN ss_item_equipo i ON i.id = heq.item_id
 JOIN ss_equipo eq ON eq.id = heq.equipo_id
-LEFT JOIN ss_empresa_contratista ec ON ec.id = eq.propietario_empresa_id
+LEFT JOIN contributor ec ON ec.contributor_id = eq.propietario_empresa_id
 JOIN project p ON p.project_id = eq.proyecto_id
 WHERE heq.estado = 'Enviado'
   AND (@ProyectoId IS NULL OR eq.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR eq.propietario_empresa_id = @EmpresaId)
   AND (@Tipo IS NULL OR @Tipo = 'EQUIPO')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
+  AND (@Search IS NULL OR CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) ILIKE '%' || @Search || '%')
 
 UNION ALL
 
 SELECT
     i.id, 'INDUCCION' as tipo,
     'Inducción de Obra' as nombre_entregable,
-    w.apellido_nombre as entidad_nombre,
+    COALESCE(per.full_name, '') as entidad_nombre,
     c.contributor_name as empresa_nombre,
     p.project_description as proyecto_nombre,
     p.project_id as proyecto_id,
@@ -133,6 +138,7 @@ SELECT
     i.created_at as fecha_envio
 FROM ss_induccion i
 JOIN workers w ON w.id = i.worker_id
+LEFT JOIN person per ON per.person_id = w.person_id
 JOIN contributor c ON c.contributor_id = i.empresa_id
 JOIN project p ON p.project_id = i.proyecto_id
 WHERE i.estado = 'PROGRAMADA'
@@ -140,11 +146,12 @@ WHERE i.estado = 'PROGRAMADA'
   AND (@EmpresaId IS NULL OR i.empresa_id = @EmpresaId)
   AND (@Tipo IS NULL OR @Tipo = 'INDUCCION')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
+  AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
 ";
 
         public async Task<(List<BandejaItemDto> Items, int Total)> GetPendientesAsync(
             string? tipo, int? proyectoId, int? empresaId,
-            string? responsable, int page, int pageSize)
+            string? responsable, string? search, int page, int pageSize)
         {
             var parametros = new
             {
@@ -152,6 +159,7 @@ WHERE i.estado = 'PROGRAMADA'
                 ProyectoId = proyectoId,
                 EmpresaId = empresaId,
                 Responsable = responsable,
+                Search = search,
                 PageSize = pageSize,
                 Offset = (page - 1) * pageSize
             };
@@ -171,7 +179,7 @@ LIMIT @PageSize OFFSET @Offset";
 
         public async Task<CursorPagedResult<BandejaItemDto>> GetPendientesCursorAsync(
             string? tipo, int? proyectoId, int? empresaId,
-            string? responsable, string? cursor, int pageSize)
+            string? responsable, string? search, string? cursor, int pageSize)
         {
             DateTime? cursorFecha = null;
             int? cursorId = null;
@@ -198,6 +206,7 @@ LIMIT @PageSize OFFSET @Offset";
                 ProyectoId = proyectoId,
                 EmpresaId = empresaId,
                 Responsable = responsable,
+                Search = search,
                 CursorFecha = cursorFecha,
                 CursorId = cursorId,
                 PageSize = pageSize + 1
@@ -219,7 +228,8 @@ LIMIT @PageSize";
                 Tipo = tipo,
                 ProyectoId = proyectoId,
                 EmpresaId = empresaId,
-                Responsable = responsable
+                Responsable = responsable,
+                Search = search
             });
 
             var hasMore = rows.Count > pageSize;
@@ -241,6 +251,20 @@ LIMIT @PageSize";
                 NextCursor = nextCursor,
                 HasMore = hasMore
             };
+        }
+
+        public async Task<List<string>> GetEmpresasUnicasAsync()
+        {
+            const string sql = @"
+SELECT DISTINCT ec.contributor_name
+FROM ss_hab_empresa he
+JOIN contributor ec ON ec.contributor_id = he.empresa_id
+WHERE he.estado = 'Enviado'
+ORDER BY ec.contributor_name";
+
+            using var conn = CreateConnection();
+            var result = await conn.QueryAsync<string>(sql);
+            return result.ToList();
         }
 
         public async Task<SsHabTrabajador?> AprobarTrabajadorAsync(int id, BandejaAprobarDto dto, int userId)

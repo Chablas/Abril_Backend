@@ -49,11 +49,12 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
 
     public class HitoCriticoDTO
     {
-        public string Nombre { get; set; } = string.Empty;
-        public string Proyecto { get; set; } = string.Empty;
-        public string FechaLimite { get; set; } = string.Empty;
-        public int DiasRestantes { get; set; }
-        public string Estado { get; set; } = string.Empty;
+        public int    Id            { get; set; }
+        public string Nombre        { get; set; } = string.Empty;
+        public string Proyecto      { get; set; } = string.Empty;
+        public string FechaLimite   { get; set; } = string.Empty;
+        public int    DiasRestantes { get; set; }
+        public string Estado        { get; set; } = string.Empty;
     }
 
     public class ArqComercialDashboardDTO
@@ -66,6 +67,10 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public List<EficienciaSemanalDTO> TendenciaEficiencia { get; set; } = new();
         public List<SupervisorProgresoDTO> Supervisores { get; set; } = new();
         public List<HitoCriticoDTO> HitosCriticos { get; set; } = new();
+        public TareasPorArquitectoDTO[] TareasPorArquitectoDetalle { get; set; } = [];
+        public AvanceSemanalDTO[]       AvanceSemanal              { get; set; } = [];
+        public EficienciaSpiDTO[]       EficienciaSpi              { get; set; } = [];
+        public CategoriaItemDTO[]       Categorias                 { get; set; } = [];
     }
 
     public class ArqComercialFilterOptionDTO

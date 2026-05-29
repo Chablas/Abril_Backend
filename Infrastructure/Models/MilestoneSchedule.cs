@@ -12,5 +12,6 @@ namespace Abril_Backend.Infrastructure.Models {
         public int? UpdatedUserId {get; set;}
         public bool Active {get; set;}
         public bool State {get; set;}
+        public DateOnly? FechaRealFin {get; set;}
     }
 }

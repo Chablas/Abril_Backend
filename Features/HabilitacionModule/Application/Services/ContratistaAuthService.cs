@@ -7,6 +7,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -46,7 +47,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (user is null || string.IsNullOrEmpty(user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 
-            if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.Password))
+            if (!VerificarPassword(user, dto.Password, user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 
             var contractorEmail = await ctx.ContractorEmail
@@ -136,55 +137,42 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         public async Task<ContratistaTokenDto> ActivarCuentaAsync(ActivarCuentaDto dto)
         {
-            try
+            using var ctx = _factory.CreateDbContext();
+
+            var token = await BuscarTokenVigenteAsync(ctx, dto.Token)
+                ?? throw new AbrilException("Enlace inválido o expirado.", 400);
+
+            if (string.IsNullOrEmpty(dto.Password) || dto.Password.Length < 6)
+                throw new AbrilException("La contraseña debe tener al menos 6 caracteres.", 400);
+
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == token.UserId && u.Active && u.State)
+                ?? throw new AbrilException("Usuario no encontrado.", 404);
+
+            user.Password = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+            user.UpdatedDateTime = DateTime.UtcNow;
+            token.Usado = true;
+
+            await ctx.SaveChangesAsync();
+
+            var emailBuscar = user.Email!.Trim().ToLower();
+            var huerfano = await ctx.ContractorEmail
+                .FirstOrDefaultAsync(ce => ce.Email.ToLower() == emailBuscar && ce.UserId == null && ce.Active && ce.State);
+            if (huerfano != null)
             {
-                using var ctx = _factory.CreateDbContext();
-
-                Console.WriteLine("[ACTIVAR] Paso 1 - buscando token");
-                var token = await BuscarTokenVigenteAsync(ctx, dto.Token)
-                    ?? throw new AbrilException("Enlace inválido o expirado.", 400);
-
-                Console.WriteLine("[ACTIVAR] Paso 2 - validando password");
-                if (string.IsNullOrEmpty(dto.Password) || dto.Password.Length < 6)
-                    throw new AbrilException("La contraseña debe tener al menos 6 caracteres.", 400);
-
-                Console.WriteLine("[ACTIVAR] Paso 3 - buscando user");
-                var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == token.UserId && u.Active && u.State)
-                    ?? throw new AbrilException("Usuario no encontrado.", 404);
-
-                user.Password = BCrypt.Net.BCrypt.HashPassword(dto.Password);
-                user.UpdatedDateTime = DateTime.UtcNow;
-                token.Usado = true;
-
+                huerfano.UserId = user.UserId;
                 await ctx.SaveChangesAsync();
-
-                var emailBuscar = user.Email!.Trim().ToLower();
-                var huerfano = await ctx.ContractorEmail
-                    .FirstOrDefaultAsync(ce => ce.Email.ToLower() == emailBuscar && ce.UserId == null && ce.Active && ce.State);
-                if (huerfano != null)
-                {
-                    huerfano.UserId = user.UserId;
-                    await ctx.SaveChangesAsync();
-                }
-
-                Console.WriteLine("[ACTIVAR] Paso 4 - generando token");
-                var contractorEmail = await ctx.ContractorEmail
-                    .Include(ce => ce.Contractor)
-                        .ThenInclude(c => c.Contributor)
-                    .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
-                    ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
-
-                var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
-                var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
-
-                return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures, systemRoleIds);
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ACTIVAR ERROR] {ex.GetType().Name}: {ex.Message}");
-                Console.WriteLine($"[ACTIVAR STACK] {ex.StackTrace}");
-                throw;
-            }
+
+            var contractorEmail = await ctx.ContractorEmail
+                .Include(ce => ce.Contractor)
+                    .ThenInclude(c => c.Contributor)
+                .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
+                ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
+
+            var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
+            var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
+
+            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures, systemRoleIds);
         }
 
         public async Task SolicitarResetPasswordAsync(SolicitarResetDto dto)
@@ -251,7 +239,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == userId)
                 ?? throw new AbrilException("Usuario no encontrado.", 404);
 
-            if (!BCrypt.Net.BCrypt.Verify(dto.PasswordActual, user.Password))
+            if (string.IsNullOrEmpty(user.Password) || !VerificarPassword(user, dto.PasswordActual, user.Password))
                 throw new AbrilException("Contraseña actual incorrecta.", 400);
 
             user.Password = BCrypt.Net.BCrypt.HashPassword(dto.PasswordNuevo);
@@ -352,6 +340,47 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 ce.UserId = user.UserId;
 
             await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Verifica la contraseña soportando hashes BCrypt ($2a$/$2b$/$2y$) y
+        /// ASP.NET Identity (PBKDF2). Si un esquema falla, intenta con el otro,
+        /// para convivir con contraseñas almacenadas en ambos formatos.
+        /// </summary>
+        private bool VerificarPassword(User user, string plainPassword, string storedHash)
+        {
+            if (string.IsNullOrEmpty(storedHash) || string.IsNullOrEmpty(plainPassword))
+                return false;
+
+            // 1) BCrypt: sus hashes empiezan con $2a$, $2b$ o $2y$.
+            if (storedHash.StartsWith("$2"))
+            {
+                try
+                {
+                    if (BCrypt.Net.BCrypt.Verify(plainPassword, storedHash))
+                        return true;
+                }
+                catch (BCrypt.Net.SaltParseException)
+                {
+                    _logger.LogWarning("Hash BCrypt inválido para el usuario {UserId}.", user.UserId);
+                }
+            }
+
+            // 2) Fallback a ASP.NET Identity (PBKDF2).
+            try
+            {
+                var hasher = new PasswordHasher<User>();
+                var resultado = hasher.VerifyHashedPassword(user, storedHash, plainPassword);
+                if (resultado != PasswordVerificationResult.Failed)
+                    return true;
+            }
+            catch (FormatException)
+            {
+                // El hash no tiene formato Identity tampoco.
+                _logger.LogWarning("Hash de password no reconocido para el usuario {UserId}.", user.UserId);
+            }
+
+            return false;
         }
 
         private static async Task<string> CrearTokenAsync(AppDbContext ctx, int userId, TimeSpan duracion)

@@ -56,5 +56,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             return _repo.ClinicaAccion(id, dto, userId);
         }
+
+        public Task<List<ProgramacionHabilitacionDto>> GetHabilitacionAsync(ProgramacionHabilitacionFiltrosDto filtros)
+            => _repo.GetHabilitacionAsync(filtros);
+
+        public Task PatchNotificadoAsync(int id, bool notificado)
+            => _repo.PatchNotificadoAsync(id, notificado);
     }
 }

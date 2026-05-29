@@ -30,7 +30,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             using var ctx = _factory.CreateDbContext();
 
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5).Date);
-            var ventanaFin = hoy.AddDays(30);
+            var ventanaFin = hoy.AddDays(6);
 
             var candidatosRaw = await (
                 from e in ctx.WorkerEmo
@@ -70,6 +70,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Where(p =>
                     workerIds.Contains(p.WorkerId)
                     && p.FechaProgramada >= hoy
+                    && p.Estado != "Completado"
                     && p.Estado != "Cancelado"
                     && p.Estado != "Rechazado por Clínica")
                 .Select(p => new { p.WorkerId, p.TipoEmoId })

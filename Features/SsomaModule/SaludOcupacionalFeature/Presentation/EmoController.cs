@@ -71,12 +71,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPost("emos")]
-        public async Task<IActionResult> Create([FromBody] EmoCreateDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> Create(
+            [FromForm] EmoCreateDto dto,
+            [FromForm] IFormFile? documentoInterconsulta,
+            [FromForm] IFormFile? archivoLectura)
         {
             try
             {
-                var id = await _service.Create(dto, CurrentUserId());
-                return Ok(new { id, message = "EMO registrado exitosamente." });
+                dto.DocumentoInterconsulta = documentoInterconsulta;
+                dto.ArchivoLectura = archivoLectura;
+                var result = await _service.Create(dto, CurrentUserId());
+                return Ok(new { id = result.EmoId, interconsultaId = result.InterconsultaId, message = "EMO registrado exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -115,8 +121,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                     throw new AbrilException("El archivo es obligatorio.", 400);
 
                 var tipoNorm = tipo?.Trim() ?? string.Empty;
-                if (tipoNorm != "Aptitud" && tipoNorm != "EMO")
-                    throw new AbrilException("El tipo debe ser 'Aptitud' o 'EMO'.", 400);
+                if (tipoNorm != "Aptitud" && tipoNorm != "EMO" && tipoNorm != "Lectura")
+                    throw new AbrilException("El tipo debe ser 'Aptitud', 'EMO' o 'Lectura'.", 400);
 
                 using var ctx = _factory.CreateDbContext();
 
@@ -127,7 +133,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 
                 var dni = emo.Worker?.Person?.DocumentIdentityCode ?? emo.WorkerId.ToString();
                 var fecha = DateTime.UtcNow.ToString("yyyyMMdd");
-                var contexto = tipoNorm == "Aptitud" ? "emo-aptitud" : "emo-completo";
+                var contexto = tipoNorm == "Aptitud" ? "emo-aptitud"
+                             : tipoNorm == "Lectura" ? "lectura-emo"
+                             : "emo-completo";
                 var fileName = $"{dni}_{tipoNorm}_{fecha}.pdf";
 
                 string path;
@@ -136,6 +144,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 
                 if (tipoNorm == "Aptitud")
                     emo.UrlAptitud = path;
+                else if (tipoNorm == "Lectura")
+                    emo.UrlResultado = path;
                 else
                     emo.UrlEmoCompleto = path;
 

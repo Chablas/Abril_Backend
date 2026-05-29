@@ -52,7 +52,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<(List<WorkerHabilitacionListDto> Items, int Total)> GetWorkersHabilitacionAsync(
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
-            int page, int pageSize, bool soloRetirados = false)
+            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -86,7 +86,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
                         ? "No Autorizado"
-                        : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id && h.Estado == "En Plazo" &&
+                        : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id && h.Estado == "En plazo" &&
                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
                         ? "Autorizado Temporalmente"
                         : "Habilitado"
@@ -129,6 +129,24 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(estadoHabilitacion))
                 baseQuery = baseQuery.Where(x => x.EstadoCalc == estadoHabilitacion);
+
+            if (soloSinEmo)
+                baseQuery = baseQuery.Where(x =>
+                    x.Worker.FechaRetiro == null
+                    && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
+                                                   && v.FechaFin == null
+                                                   && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
+                    && !ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo));
+
+            if (soloEmoVencido)
+            {
+                var hoy = DateOnly.FromDateTime(DateTime.Today);
+                baseQuery = baseQuery.Where(x =>
+                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id
+                                       && e.Activo
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoy));
+            }
 
             var total = await baseQuery.CountAsync();
 

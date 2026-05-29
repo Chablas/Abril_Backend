@@ -75,7 +75,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var entity = new SsSctrVidaley
             {
                 EmpresaId = empresaId,
-                ProyectoId = dto.ProyectoId == 0 ? null : dto.ProyectoId,
+                ProyectoId = dto.ProyectoId,
                 Tipo = dto.Tipo,
                 TipoPoliza = string.IsNullOrWhiteSpace(dto.TipoPoliza) ? "Renovacion" : dto.TipoPoliza,
                 FechaInicio = dto.FechaInicio.HasValue ? DateTime.SpecifyKind(dto.FechaInicio.Value, DateTimeKind.Utc) : null,

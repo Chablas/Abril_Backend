@@ -140,14 +140,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
             var rawItems = await (
                 from sti in ctx.ScopeTemplateItem
                 join ci in ctx.CatalogItem on sti.CatalogItemId equals ci.CatalogItemId
-                join pStiJ in ctx.ScopeTemplateItem on sti.ScopeTemplateItemParentId equals pStiJ.ScopeTemplateItemId into pGrp
-                from pSti in pGrp.DefaultIfEmpty()
                 where templateIds.Contains(sti.ScopeTemplateId) && sti.Active
                 orderby sti.ScopeTemplateId, sti.DisplayOrder
                 select new
                 {
                     sti.ScopeTemplateId,
-                    ParentCatalogItemId = (int?)(pSti != null ? (int?)pSti.CatalogItemId : null),
+                    sti.ScopeTemplateItemId,
+                    sti.ScopeTemplateItemParentId,
                     sti.DisplayOrder,
                     sti.CatalogItemId,
                     ci.CatalogItemDescription
@@ -163,9 +162,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
                     .Where(i => i.ScopeTemplateId == t.ScopeTemplateId)
                     .Select(i => new ScopeTemplateItemNodeDTO
                     {
+                        NodeId = i.ScopeTemplateItemId,
+                        ParentNodeId = i.ScopeTemplateItemParentId,
                         CatalogItemId = i.CatalogItemId,
                         CatalogItemDescription = i.CatalogItemDescription,
-                        ParentCatalogItemId = i.ParentCatalogItemId,
                         DisplayOrder = i.DisplayOrder
                     })
                     .ToList()
@@ -218,6 +218,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
             int scopeTemplateId,
             List<ScopeTemplateItemNodeDTO> nodes)
         {
+            // nodeId (del cliente: real o temporal negativo) → scope_template_item_id recién creado
             var inserted = new Dictionary<int, int>();
             var pending = nodes.ToList();
             int safety = pending.Count + 5;
@@ -225,8 +226,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
             while (pending.Count > 0 && safety-- > 0)
             {
                 var ready = pending
-                    .Where(n => !n.ParentCatalogItemId.HasValue
-                                || inserted.ContainsKey(n.ParentCatalogItemId.Value))
+                    .Where(n => !n.ParentNodeId.HasValue
+                                || inserted.ContainsKey(n.ParentNodeId.Value))
                     .OrderBy(n => n.DisplayOrder)
                     .ToList();
 
@@ -234,8 +235,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
                 foreach (var node in ready)
                 {
-                    int? parentStiId = node.ParentCatalogItemId.HasValue
-                        ? inserted[node.ParentCatalogItemId.Value]
+                    int? parentStiId = node.ParentNodeId.HasValue
+                        ? inserted[node.ParentNodeId.Value]
                         : (int?)null;
 
                     var entity = new ScopeTemplateItem
@@ -249,7 +250,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
 
                     ctx.ScopeTemplateItem.Add(entity);
                     await ctx.SaveChangesAsync();
-                    inserted[node.CatalogItemId] = entity.ScopeTemplateItemId;
+                    inserted[node.NodeId] = entity.ScopeTemplateItemId;
                 }
 
                 pending = pending.Except(ready).ToList();

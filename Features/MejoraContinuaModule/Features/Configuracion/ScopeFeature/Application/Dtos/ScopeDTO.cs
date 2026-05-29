@@ -28,11 +28,20 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Sco
     }
 
     // ── ScopeTemplate ────────────────────────────────────────────
+    // NodeId/ParentNodeId identifican un nodo único dentro del árbol de la
+    // plantilla (un mismo catalog_item puede aparecer varias veces bajo padres
+    // distintos, por eso CatalogItemId NO sirve como clave de árbol).
+    //   • En la respuesta (GET): NodeId = scope_template_item_id real.
+    //   • En el request (POST/PUT): NodeId puede ser un id real (nodo existente
+    //     reutilizable) o un id temporal negativo (-1, -2, ...) generado por el
+    //     cliente para nodos nuevos. El backend solo usa NodeId/ParentNodeId
+    //     para resolver el árbol durante la inserción.
     public class ScopeTemplateItemNodeDTO
     {
+        public int NodeId { get; set; }
+        public int? ParentNodeId { get; set; }
         public int CatalogItemId { get; set; }
         public string CatalogItemDescription { get; set; } = string.Empty;
-        public int? ParentCatalogItemId { get; set; }
         public int DisplayOrder { get; set; }
     }
 

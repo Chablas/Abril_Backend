@@ -1,4 +1,6 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Application.DTOs;
+using Abril_Backend.Features.Habilitacion.Application;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Inducciones;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -72,6 +74,16 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     var systemRoles = User.FindFirst("systemRoles")?.Value ?? "";
                     if (systemRoles.Split(',').Contains("49"))
                         empresaId = null;
+                }
+
+                var proyectosFiltro = ContratistaProyectosHelper.GetProyectosFiltro(User);
+                if (proyectosFiltro != null && proyectoId == null)
+                {
+                    if (proyectosFiltro.Count == 1)
+                        proyectoId = proyectosFiltro[0];
+                    else if (proyectosFiltro.Count == 0)
+                        return Ok(new List<object>());
+                    // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
                 }
 
                 _logger.LogInformation("GetInducciones — empresaId={EmpresaId}, systemRoles={SystemRoles}",

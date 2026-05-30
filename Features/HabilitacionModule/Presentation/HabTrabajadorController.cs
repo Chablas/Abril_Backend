@@ -1,5 +1,6 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -46,6 +47,16 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))
                         return StatusCode(403, new { message = "Token de contratista inválido." });
                     empresaId = empresaJwt;
+                }
+
+                var proyectosFiltro = ContratistaProyectosHelper.GetProyectosFiltro(User);
+                if (proyectosFiltro != null && proyectoId == null)
+                {
+                    if (proyectosFiltro.Count == 1)
+                        proyectoId = proyectosFiltro[0];
+                    else if (proyectosFiltro.Count == 0)
+                        return Ok(new PagedResult<object> { Data = new() });
+                    // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
                 }
 
                 var (items, total) = await _repo.GetWorkersHabilitacionAsync(

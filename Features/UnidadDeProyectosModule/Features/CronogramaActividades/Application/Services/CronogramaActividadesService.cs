@@ -37,5 +37,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         public Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId)
             => _repository.ImportarMppAsync(proyectoId, archivo, userId);
+
+        public Task<List<ActividadDto>> ReordenarActividadesAsync(int proyectoId, List<ReordenarItem> items)
+            => _repository.ReordenarActividadesAsync(proyectoId, items);
+
+        public Task<List<ActividadDto>> CambiarJerarquiaAsync(int proyectoId, CambiarJerarquiaRequest request)
+            => _repository.CambiarJerarquiaAsync(proyectoId, request);
+
+        public Task<List<DebugActividadOrdenDto>> GetDebugOrderAsync(int proyectoId)
+            => _repository.GetDebugOrderAsync(proyectoId);
+
+        public Task<List<ActividadDto>> SubirNivelAsync(int proyectoId, int actividadId)
+            => _repository.SubirNivelAsync(proyectoId, actividadId);
+
+        public Task<List<ActividadDto>> BajarNivelAsync(int proyectoId, int actividadId)
+            => _repository.BajarNivelAsync(proyectoId, actividadId);
     }
 }

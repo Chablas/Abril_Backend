@@ -113,6 +113,72 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/reordenar
+        [HttpPatch("{proyectoId:int}/actividades/reordenar")]
+        public async Task<IActionResult> ReordenarActividades(int proyectoId, [FromBody] List<ReordenarItem> items)
+        {
+            try
+            {
+                var result = await _service.ReordenarActividadesAsync(proyectoId, items);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/{actividadId}/subir-nivel
+        [HttpPatch("{proyectoId:int}/actividades/{actividadId:int}/subir-nivel")]
+        public async Task<IActionResult> SubirNivel(int proyectoId, int actividadId)
+        {
+            try
+            {
+                var result = await _service.SubirNivelAsync(proyectoId, actividadId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/{actividadId}/bajar-nivel
+        [HttpPatch("{proyectoId:int}/actividades/{actividadId:int}/bajar-nivel")]
+        public async Task<IActionResult> BajarNivel(int proyectoId, int actividadId)
+        {
+            try
+            {
+                var result = await _service.BajarNivelAsync(proyectoId, actividadId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // GET /api/v1/cronograma-actividades/{proyectoId}/debug-order
+        [HttpGet("{proyectoId:int}/debug-order")]
+        [AllowAnonymous]
+        public async Task<IActionResult> DebugOrder(int proyectoId)
+        {
+            try
+            {
+                var result = await _service.GetDebugOrderAsync(proyectoId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // PUT /api/v1/cronograma-actividades/{proyectoId}/cambiar-jerarquia
+        [HttpPut("{proyectoId:int}/cambiar-jerarquia")]
+        public async Task<IActionResult> CambiarJerarquia(int proyectoId, [FromBody] CambiarJerarquiaRequest request)
+        {
+            try
+            {
+                var result = await _service.CambiarJerarquiaAsync(proyectoId, request);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // POST /api/v1/cronograma-actividades/{proyectoId}/importar-mpp
         [HttpPost("{proyectoId:int}/importar-mpp")]
         [RequestSizeLimit(52_428_800)] // 50 MB

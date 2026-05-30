@@ -13,5 +13,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         Task EliminarActividadAsync(int projectActivityId, int userId);
         Task<List<DebugProyectoDto>> GetDebugProyectosAsync();
         Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId);
+        Task<List<ActividadDto>> ReordenarActividadesAsync(int proyectoId, List<ReordenarItem> items);
+        Task<List<ActividadDto>> CambiarJerarquiaAsync(int proyectoId, CambiarJerarquiaRequest request);
+        Task<List<DebugActividadOrdenDto>> GetDebugOrderAsync(int proyectoId);
+        Task<List<ActividadDto>> SubirNivelAsync(int proyectoId, int actividadId);
+        Task<List<ActividadDto>> BajarNivelAsync(int proyectoId, int actividadId);
     }
 }

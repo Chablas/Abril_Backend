@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-05-29 — MPXJ.Net importar-mpp + ProjectActivity jerarquía padre/hijo + CronogramaActividades fixes
+> Última actualización: 2026-05-30 — CronogramaActividades: order global único (DFS) + reordenar/subir-nivel/bajar-nivel + totalActividades
 
 ---
 
@@ -3798,3 +3798,90 @@ CREATE INDEX IF NOT EXISTS ix_project_activity_parent_id ON project_activity(par
 ### 6. Debugging temporal
 
 `ImportarMpp` en el controlador tiene `Console.WriteLine($"[ImportarMpp ERROR] {ex}")` en el catch genérico para visibilidad de errores en consola. Quitar antes de merge a master.
+
+---
+
+## Sesión 2026-05-30 — CronogramaActividades: reordenamiento con order global único + cambio de jerarquía
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Order global único (DFS) — decisión de diseño
+
+`project_activity_order` ahora es **global y único por proyecto** (1, 2, 3, … sin repeticiones), no relativo por nivel de hermanos. El árbol se aplana en orden DFS: cada padre aparece antes que sus hijos, y los hermanos en su orden relativo.
+
+**Problema detectado:** los reordenamientos parciales del frontend (solo hermanos) producían `order` duplicados entre niveles distintos (varias filas con `order=1`, `order=12`, etc.), dejando el `ORDER BY project_activity_order` indeterminado. Verificado con el proyecto 17 (CAPULÍ): 188 actividades con orders repetidos.
+
+**Reparación de datos en Aiven** (CTE recursivo, no se versiona como migración):
+```sql
+WITH RECURSIVE dfs AS (
+    SELECT project_activity_id, ARRAY[project_activity_order] AS sort_path
+    FROM project_activity
+    WHERE project_id = :pid AND state = true AND parent_id IS NULL
+    UNION ALL
+    SELECT pa.project_activity_id, dfs.sort_path || pa.project_activity_order
+    FROM project_activity pa
+    INNER JOIN dfs ON pa.parent_id = dfs.project_activity_id
+    WHERE pa.project_id = :pid AND pa.state = true
+),
+ordered_activities AS (
+    SELECT project_activity_id, ROW_NUMBER() OVER (ORDER BY sort_path)::int AS new_order
+    FROM dfs
+)
+UPDATE project_activity pa
+SET project_activity_order = oa.new_order
+FROM ordered_activities oa
+WHERE pa.project_activity_id = oa.project_activity_id;
+```
+Ejecutado sobre proyecto 17 → 188 filas, 0 duplicados. **Pendiente:** correr el mismo UPDATE en cualquier otro proyecto con datos previos a este fix.
+
+> Nota operativa: `psql` no está en PATH en este entorno. Para consultas/UPDATEs ad-hoc contra Aiven se usó un mini console app .NET 10 temporal con `Npgsql` 10.0.0 (la DLL net10.0 no carga en PowerShell 5.1 vía `Add-Type`). El endpoint `debug-order` (abajo) cubre la inspección de solo-lectura sin salir de la app.
+
+### 2. PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/reordenar
+
+Ruta exacta consumida por el frontend (es `PATCH`, no `PUT`; va bajo `/actividades/`). El frontend envía **todas** las actividades del proyecto con su nuevo order global.
+
+`ReordenarActividadesAsync(int proyectoId, List<ReordenarItem> items)`:
+- Valida lista no vacía (400) y que todas las IDs pertenezcan al proyecto (400 si alguna falta).
+- **NO** valida que compartan `parentId` — esa validación se eliminó al pasar a order global (antes existía y rompía el drag&drop entre niveles).
+- Actualiza `project_activity_order` de cada item y retorna la lista completa del proyecto ordenada por `Order ASC`.
+- Logs de debug en consola: items recibidos, por cada item `ID/parentId/orderAnterior→nuevoOrder`, y `"Reordenamiento completado"`.
+
+`ReordenarItem { ProjectActivityId, Order }`.
+
+### 3. Cambio de jerarquía — subir / bajar nivel
+
+```
+PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/{actividadId}/subir-nivel
+PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/{actividadId}/bajar-nivel
+```
+
+Ambos cargan todas las actividades del proyecto en memoria (un query) y propagan el cambio de nivel a los descendientes con el helper recursivo `ActualizarHijosRecursivo(parentId, levelDelta, todas)`.
+
+**`SubirNivelAsync`** (nivel n → n−1):
+- 400 `"La actividad ya está en el nivel más alto."` si `HierarchyLevel == 0`.
+- Nuevo `ParentId` = `parentId` del padre actual (el abuelo); `null` si el padre era raíz.
+- `HierarchyLevel -= 1` en la actividad y `−1` en todos los descendientes.
+
+**`BajarNivelAsync`** (nivel n → n+1):
+- Busca el **hermano inmediatamente anterior**: mismo `ParentId`, mayor `Order` que sea menor al de la actividad (`OrderByDescending(Order).FirstOrDefault()`).
+- 400 `"No hay un padre disponible para asignar esta actividad."` si no existe hermano anterior.
+- Nuevo `ParentId` = ese hermano; `HierarchyLevel += 1` en la actividad y `+1` en descendientes.
+
+Ambos retornan la lista completa del proyecto ordenada por `Order ASC`.
+
+> También existe el `CambiarJerarquiaAsync` genérico (`PUT .../cambiar-jerarquia`, body `{ projectActivityId, nuevoHierarchyLevel, nuevoParentId }`) que aplica el delta de nivel y propaga a hijos. subir/bajar-nivel son los atajos que usa el frontend.
+
+### 4. Crear actividad acepta jerarquía
+
+`CrearActividadRequest` ampliado con `HierarchyLevel` (int, default 0) y `ParentId` (int?). Se persisten en `CrearActividadAsync` y se devuelven en el `ActividadDto`. También se corrigió el return de `EditarActividadAsync` (faltaban `HierarchyLevel` y `ParentId` en el DTO de respuesta).
+
+### 5. GET proyectos → totalActividades
+
+`ProyectoSimpleCronogramaDto` ahora incluye `TotalActividades`. `GetProyectosAsync` lo resuelve con subconsulta correlacionada (traducida a SQL, sin eval en cliente) usando el mismo filtro que `GetActividadesAsync` (`State && Active`), por lo que el conteo coincide con lo que el frontend ve al abrir el proyecto.
+
+### 6. Endpoint debug de solo-lectura
+
+```
+GET /api/v1/cronograma-actividades/{proyectoId}/debug-order   [AllowAnonymous]
+```
+Retorna `[{ projectActivityId, description, order, parentId, hierarchyLevel }]` ordenado por `Order ASC`. Útil para verificar el estado real del árbol/order en BD sin token. **Temporal — quitar antes de merge a master** (junto con `debug-proyectos` y los `Console.WriteLine` de reordenar/importar).

@@ -5,6 +5,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = string.Empty;
         public string? ResponsableUdp { get; set; }
+        public int TotalActividades { get; set; }
     }
 
     public class ActividadDto
@@ -27,6 +28,21 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public DateOnly? PlannedStartDate { get; set; }
         public DateOnly? PlannedEndDate { get; set; }
         public int ProgressPercentage { get; set; } = 0;
+        public int HierarchyLevel { get; set; } = 0;
+        public int? ParentId { get; set; }
+    }
+
+    public class ReordenarItem
+    {
+        public int ProjectActivityId { get; set; }
+        public int Order { get; set; }
+    }
+
+    public class CambiarJerarquiaRequest
+    {
+        public int ProjectActivityId { get; set; }
+        public int NuevoHierarchyLevel { get; set; }
+        public int? NuevoParentId { get; set; }
     }
 
     public class EditarActividadRequest
@@ -57,5 +73,14 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     {
         public int ActividadesImportadas { get; set; }
         public int ActividadesEliminadas { get; set; }
+    }
+
+    public class DebugActividadOrdenDto
+    {
+        public int ProjectActivityId { get; set; }
+        public string Description { get; set; } = string.Empty;
+        public int Order { get; set; }
+        public int? ParentId { get; set; }
+        public int HierarchyLevel { get; set; }
     }
 }

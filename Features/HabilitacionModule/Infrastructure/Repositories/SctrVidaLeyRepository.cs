@@ -795,7 +795,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         FechaInicioCobertura = w.FechaInicioCobertura,
                         FechaVencimiento = fechaVencimiento
                     };
-                }).ToList();
+                }).OrderBy(w => w.ApellidoNombre).ToList();
 
                 string? archivoUrl = null;
                 string? archivoUrl2 = null;

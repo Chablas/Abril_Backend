@@ -17,5 +17,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<SctrTrabajadorEstadoDto>> GetTrabajadoresPorEmpresaAsync(
             int? empresaId, int? proyectoId, string? tipo, string? tipoPoliza,
             string? estadoSctr, string? estadoVidaLey);
+
+        Task RecalcularEstadoPolizasAsync();
     }
 }

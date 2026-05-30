@@ -681,6 +681,41 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return result;
         }
 
+        public async Task RecalcularEstadoPolizasAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var polizas = await ctx.SsSctrVidaley.ToListAsync();
+            var sctrItems = await ctx.SsItemTrabajador
+                .Where(i => i.Nombre.Contains("SCTR") || i.Nombre.Contains("Vida"))
+                .ToListAsync();
+
+            foreach (var poliza in polizas)
+            {
+                var item = sctrItems.FirstOrDefault(i =>
+                    poliza.Tipo == "VIDA_LEY" ? i.Nombre.Contains("Vida") : i.Nombre.Contains("SCTR"));
+                if (item is null) continue;
+
+                var workerIds = await ctx.SsSctrVidaLeyWorker
+                    .Where(w => w.SctrVidaLeyId == poliza.Id)
+                    .Select(w => w.WorkerId)
+                    .ToListAsync();
+
+                if (!workerIds.Any()) continue;
+
+                var pendientes = await ctx.SsHabTrabajador
+                    .Where(h => h.ItemId == item.Id
+                             && workerIds.Contains(h.WorkerId)
+                             && (h.Estado == "Enviado" || h.Estado == "En revision"))
+                    .CountAsync();
+
+                poliza.Estado = pendientes > 0 ? "Enviado" : "Aprobado";
+                poliza.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
         private async Task<List<SctrVidaLeyDto>> BuildDtosAsync(
             AppDbContext ctx, List<SsSctrVidaley> entities)
         {

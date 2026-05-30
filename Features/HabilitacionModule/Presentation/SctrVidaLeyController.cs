@@ -175,6 +175,19 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en SctrVidaLeyController.Update"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPost("recalcular-estados")]
+        [AllowAnonymous]
+        public async Task<IActionResult> RecalcularEstados()
+        {
+            try
+            {
+                await _repo.RecalcularEstadoPolizasAsync();
+                return Ok("Estados recalculados.");
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en SctrVidaLeyController.RecalcularEstados"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPatch("{id:int}/aprobar")]
         public async Task<IActionResult> Aprobar(int id, [FromBody] SctrVidaLeyAprobarDto dto)
         {

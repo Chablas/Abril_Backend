@@ -169,6 +169,32 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
                 ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
 
+            // Paso 8 — Crear OWNER en ss_contratista_usuario si no existe
+            var contractorIdActivar = contractorEmail.Contractor.ContributorId;
+            var rolOwnerActivar = await ctx.SsContratistaRoles
+                .FirstOrDefaultAsync(r => r.Nombre == "OWNER");
+            if (rolOwnerActivar != null)
+            {
+                var ownerExisteActivar = await ctx.SsContratistaUsuarios
+                    .AnyAsync(cu => cu.ContractorId == contractorIdActivar
+                                 && cu.RolId == rolOwnerActivar.Id);
+                if (!ownerExisteActivar)
+                {
+                    ctx.SsContratistaUsuarios.Add(new SsContratistaUsuario
+                    {
+                        ContractorId = contractorIdActivar,
+                        UserId = user.UserId,
+                        RolId = rolOwnerActivar.Id,
+                        Scope = "TODOS",
+                        Activo = true,
+                        CreadoEn = DateTime.UtcNow,
+                        CreadoPor = null,
+                        SystemRoleId = null
+                    });
+                    await ctx.SaveChangesAsync();
+                }
+            }
+
             var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
             var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
 
@@ -340,6 +366,31 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 ce.UserId = user.UserId;
 
             await ctx.SaveChangesAsync();
+
+            // Paso 8 — Crear OWNER en ss_contratista_usuario si no existe
+            var rolOwner = await ctx.SsContratistaRoles
+                .FirstOrDefaultAsync(r => r.Nombre == "OWNER");
+            if (rolOwner != null)
+            {
+                var ownerExiste = await ctx.SsContratistaUsuarios
+                    .AnyAsync(cu => cu.ContractorId == contractor.ContributorId
+                                 && cu.RolId == rolOwner.Id);
+                if (!ownerExiste)
+                {
+                    ctx.SsContratistaUsuarios.Add(new SsContratistaUsuario
+                    {
+                        ContractorId = contractor.ContributorId,
+                        UserId = user.UserId,
+                        RolId = rolOwner.Id,
+                        Scope = "TODOS",
+                        Activo = true,
+                        CreadoEn = DateTime.UtcNow,
+                        CreadoPor = null,
+                        SystemRoleId = null
+                    });
+                    await ctx.SaveChangesAsync();
+                }
+            }
         }
 
         /// <summary>

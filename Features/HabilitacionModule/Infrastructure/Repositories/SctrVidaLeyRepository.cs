@@ -471,6 +471,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 }
             }
 
+            await ctx.SaveChangesAsync();
+
             // Estado de la póliza — solo 2 estados: Enviado o Aprobado
             var workersDePoliza = await ctx.SsSctrVidaLeyWorker
                 .Where(w => w.SctrVidaLeyId == id)

@@ -471,27 +471,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 }
             }
 
-            string nuevoEstado;
-            if (rechazados.Count == 0 && aprobados.Count > 0) nuevoEstado = "Aprobado";
-            else if (aprobados.Count == 0 && rechazados.Count > 0) nuevoEstado = "Rechazado";
-            else nuevoEstado = "Parcial";
+            // Estado de la póliza — solo 2 estados: Enviado o Aprobado
+            var workersDePoliza = await ctx.SsSctrVidaLeyWorker
+                .Where(w => w.SctrVidaLeyId == id)
+                .Select(w => w.WorkerId)
+                .ToListAsync();
 
-            // Si no quedan workers con estado Enviado, forzar Aprobado
-            if (item is not null && nuevoEstado != "Rechazado")
+            string nuevoEstado = "Aprobado";
+            if (item is not null && workersDePoliza.Count > 0)
             {
-                var workersDePoliza = await ctx.SsSctrVidaLeyWorker
-                    .Where(w => w.SctrVidaLeyId == id)
-                    .Select(w => w.WorkerId)
-                    .ToListAsync();
-                if (workersDePoliza.Count > 0)
-                {
-                    var pendientes = await ctx.SsHabTrabajador
-                        .Where(h => h.ItemId == item.Id
-                                 && workersDePoliza.Contains(h.WorkerId)
-                                 && h.Estado == "Enviado")
-                        .CountAsync();
-                    if (pendientes == 0) nuevoEstado = "Aprobado";
-                }
+                var pendientes = await ctx.SsHabTrabajador
+                    .Where(h => h.ItemId == item.Id
+                             && workersDePoliza.Contains(h.WorkerId)
+                             && (h.Estado == "Enviado" || h.Estado == "En revision"))
+                    .CountAsync();
+                if (pendientes > 0) nuevoEstado = "Enviado";
             }
 
             entity.Estado = nuevoEstado;

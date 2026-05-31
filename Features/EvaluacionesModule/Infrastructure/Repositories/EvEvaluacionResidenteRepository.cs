@@ -118,7 +118,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     p.full_name            AS NombreCompleto,
                     p.user_id              AS UserId,
                     pr.project_id          AS ProjectId,
-                    pr.project_description AS ProjectNombre
+                    pr.project_description AS ProjectNombre,
+                    w.area                 AS Area,
+                    w.subarea              AS Subarea
                 FROM workers w
                 JOIN person p   ON p.person_id    = w.person_id
                 JOIN app_user u ON u.user_id       = p.user_id
@@ -143,6 +145,20 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var result = (await conn.QueryAsync<ResidenteEvaluableDto>(sql, new { EvaluadorUserId = evaluadorUserId })).ToList();
             result.ForEach(r => r.PuedeVerTodos = puedeVerTodos);
             return result;
+        }
+
+        public async Task<string?> GetMiSubareaAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return await conn.QueryFirstOrDefaultAsync<string>(
+                @"SELECT w.subarea
+                  FROM workers w
+                  JOIN person p ON p.person_id = w.person_id
+                  WHERE p.user_id = @UserId
+                  LIMIT 1",
+                new { UserId = userId });
         }
 
         private static async Task<List<EvEvaluacionResidenteResponseDto>> MapToResponseDtos(

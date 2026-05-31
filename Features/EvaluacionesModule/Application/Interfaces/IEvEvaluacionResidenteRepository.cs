@@ -12,5 +12,6 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         Task<bool> ExisteAsync(int periodoId, int evaluadorUserId, int evaluadoUserId, string areaNombre);
         Task<EvEvaluacionResidenteResponseDto?> GetDetalleAsync(int id);
         Task<List<ResidenteEvaluableDto>> GetResidentesEvaluablesAsync(int evaluadorUserId);
+        Task<string?> GetMiSubareaAsync(int userId);
     }
 }

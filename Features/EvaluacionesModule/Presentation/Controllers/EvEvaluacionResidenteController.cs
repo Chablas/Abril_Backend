@@ -107,6 +107,18 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en EvEvaluacionResidenteController.GetMiPerfil"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("mi-subarea")]
+        public async Task<IActionResult> GetMiSubarea()
+        {
+            try
+            {
+                var subarea = await _repo.GetMiSubareaAsync(GetUserId());
+                return Ok(new { subarea });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvEvaluacionResidenteController.GetMiSubarea"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("residentes-evaluables")]
         public async Task<IActionResult> GetResidentesEvaluables()
         {

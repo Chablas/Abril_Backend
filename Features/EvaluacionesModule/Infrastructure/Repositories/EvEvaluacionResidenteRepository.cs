@@ -117,13 +117,12 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 SELECT DISTINCT
                     p.full_name            AS NombreCompleto,
                     p.user_id              AS UserId,
-                    wp.proyecto_id         AS ProjectId,
+                    pr.project_id          AS ProjectId,
                     pr.project_description AS ProjectNombre
                 FROM workers w
-                JOIN person p   ON p.person_id  = w.person_id
-                JOIN app_user u ON u.user_id     = p.user_id
-                JOIN ss_hab_worker_proyecto wp ON wp.worker_id  = p.user_id
-                JOIN project pr ON pr.project_id = wp.proyecto_id
+                JOIN person p   ON p.person_id    = w.person_id
+                JOIN app_user u ON u.user_id       = p.user_id
+                JOIN project pr ON pr.contributor_id = w.contributor_id
                 WHERE w.ocupacion = 'Residencia'
                   AND w.estado   != 'Retirado'
                   AND u.active    = true";
@@ -131,9 +130,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var sql = puedeVerTodos
                 ? selectBase + "\nORDER BY p.full_name"
                 : selectBase + @"
-                  AND wp.proyecto_id IN (
-                      SELECT proyecto_id FROM ss_hab_worker_proyecto
-                      WHERE worker_id = @EvaluadorUserId
+                  AND pr.project_id = (
+                      SELECT pr2.project_id
+                      FROM workers w2
+                      JOIN person p2  ON p2.person_id    = w2.person_id
+                      JOIN project pr2 ON pr2.contributor_id = w2.contributor_id
+                      WHERE p2.user_id = @EvaluadorUserId
+                      LIMIT 1
                   )
                 ORDER BY p.full_name";
 

@@ -2,6 +2,7 @@ using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
@@ -92,6 +93,28 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             var dtos = await MapToResponseDtos(ctx, [eval]);
             return dtos.FirstOrDefault();
+        }
+
+        public async Task<List<ResidenteEvaluableDto>> GetResidentesEvaluablesAsync(int evaluadorUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            var result = await conn.QueryAsync<ResidenteEvaluableDto>(
+                @"SELECT DISTINCT
+                    u.user_id      AS UserId,
+                    p.full_name    AS NombreCompleto,
+                    pr.project_id  AS ProjectId,
+                    pr.project_description AS ProjectNombre
+                  FROM app_user u
+                  JOIN person p   ON p.user_id   = u.user_id
+                  JOIN ss_hab_worker_proyecto wp ON wp.worker_id  = u.user_id
+                  JOIN project pr ON pr.project_id = wp.proyecto_id
+                  WHERE u.active = true
+                    AND u.user_id != @EvaluadorUserId
+                  ORDER BY p.full_name",
+                new { EvaluadorUserId = evaluadorUserId });
+            return result.ToList();
         }
 
         private static async Task<List<EvEvaluacionResidenteResponseDto>> MapToResponseDtos(

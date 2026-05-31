@@ -107,6 +107,14 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error en EvEvaluacionResidenteController.GetMiPerfil"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("residentes-evaluables")]
+        public async Task<IActionResult> GetResidentesEvaluables()
+        {
+            try { return Ok(await _repo.GetResidentesEvaluablesAsync(GetUserId())); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en EvEvaluacionResidenteController.GetResidentesEvaluables"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetDetalle(int id)
         {

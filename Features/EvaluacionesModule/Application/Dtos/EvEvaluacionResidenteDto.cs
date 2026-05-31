@@ -47,4 +47,12 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public int? Puntaje { get; set; }
         public bool EsNa { get; set; }
     }
+
+    public class ResidenteEvaluableDto
+    {
+        public int UserId { get; set; }
+        public string NombreCompleto { get; set; } = string.Empty;
+        public int? ProjectId { get; set; }
+        public string? ProjectNombre { get; set; }
+    }
 }

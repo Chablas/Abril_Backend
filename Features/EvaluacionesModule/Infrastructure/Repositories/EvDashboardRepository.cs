@@ -165,7 +165,12 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 .Take(10)
                 .ToListAsync();
 
-            var evaluadorIds = comentarios.Select(e => e.EvaluadorUserId).Distinct().ToList();
+            var evaluadorIds = comentarios
+                .Select(e => e.EvaluadorUserId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .Distinct()
+                .ToList();
             var persons = await ctx.Person
                 .Where(p => p.UserId.HasValue && evaluadorIds.Contains(p.UserId.Value))
                 .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "");
@@ -174,8 +179,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             {
                 Id = e.Id,
                 PeriodoId = e.PeriodoId,
-                EvaluadorUserId = e.EvaluadorUserId,
-                EvaluadorNombre = persons.GetValueOrDefault(e.EvaluadorUserId, ""),
+                EvaluadorUserId = e.EvaluadorUserId ?? 0,
+                EvaluadorNombre = e.EvaluadorUserId.HasValue ? persons.GetValueOrDefault(e.EvaluadorUserId.Value, "") : "",
                 EvaluadoUserId = e.EvaluadoUserId,
                 ProjectId = e.ProjectId,
                 ProjectNombre = e.Project?.ProjectDescription,

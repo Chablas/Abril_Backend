@@ -8,7 +8,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Models
     {
         public int Id { get; set; }
         public int PeriodoId { get; set; }
-        public int EvaluadorUserId { get; set; }
+        public int? EvaluadorUserId { get; set; }
+        public int? EvaluadorPersonId { get; set; }
         public int EvaluadoUserId { get; set; }
         public int? ProjectId { get; set; }
         public string AreaNombre { get; set; } = string.Empty;

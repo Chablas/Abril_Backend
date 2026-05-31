@@ -121,7 +121,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             AppDbContext ctx, List<EvEvaluacionResidente> evals)
         {
             var userIds = evals
-                .SelectMany(e => new[] { e.EvaluadorUserId, e.EvaluadoUserId })
+                .SelectMany(e => new int?[] { e.EvaluadorUserId, e.EvaluadoUserId })
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
                 .Distinct()
                 .ToList();
 
@@ -137,8 +139,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     ? new DateTime(e.Periodo.Anio, e.Periodo.Mes, 1)
                         .ToString("MMMM", new System.Globalization.CultureInfo("es-PE"))
                     : "",
-                EvaluadorUserId = e.EvaluadorUserId,
-                EvaluadorNombre = persons.GetValueOrDefault(e.EvaluadorUserId, ""),
+                EvaluadorUserId = e.EvaluadorUserId ?? 0,
+                EvaluadorNombre = e.EvaluadorUserId.HasValue ? persons.GetValueOrDefault(e.EvaluadorUserId.Value, "") : "",
                 EvaluadoUserId = e.EvaluadoUserId,
                 EvaluadoNombre = persons.GetValueOrDefault(e.EvaluadoUserId, ""),
                 ProjectId = e.ProjectId,

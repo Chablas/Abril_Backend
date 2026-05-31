@@ -1,0 +1,206 @@
+using Abril_Backend.Features.Evaluaciones.Application.Dtos;
+using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
+using Abril_Backend.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
+{
+    public class EvDashboardRepository : IEvDashboardRepository
+    {
+        private readonly IDbContextFactory<AppDbContext> _factory;
+
+        public EvDashboardRepository(IDbContextFactory<AppDbContext> factory)
+        {
+            _factory = factory;
+        }
+
+        public async Task<List<EvAreaPromedioDto>> GetPromediosPorAreaAsync(int periodoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.EvEvaluacionesResidente
+                .Where(e => e.PeriodoId == periodoId && !e.NoAplica && e.Nota.HasValue)
+                .GroupBy(e => e.AreaNombre)
+                .Select(g => new EvAreaPromedioDto
+                {
+                    AreaNombre = g.Key,
+                    Promedio = Math.Round(g.Average(e => e.Nota!.Value), 1),
+                    TotalEvaluaciones = g.Count()
+                })
+                .OrderByDescending(a => a.Promedio)
+                .ToListAsync();
+        }
+
+        public async Task<List<EvTendenciaDto>> GetTendenciaAsync(int anio)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var raw = await ctx.EvEvaluacionesResidente
+                .Where(e => e.Periodo!.Anio == anio && !e.NoAplica && e.Nota.HasValue)
+                .Include(e => e.Periodo)
+                .ToListAsync();
+
+            var userIds = raw.Select(e => e.EvaluadoUserId).Distinct().ToList();
+            var persons = await ctx.Person
+                .Where(p => p.UserId.HasValue && userIds.Contains(p.UserId.Value))
+                .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "");
+
+            return raw
+                .GroupBy(e => new { e.Periodo!.Mes, e.Periodo.Anio, e.EvaluadoUserId })
+                .Select(g => new EvTendenciaDto
+                {
+                    Mes = g.Key.Mes,
+                    Anio = g.Key.Anio,
+                    NombreMes = new DateTime(g.Key.Anio, g.Key.Mes, 1)
+                        .ToString("MMM", new System.Globalization.CultureInfo("es-PE")),
+                    UserId = g.Key.EvaluadoUserId,
+                    Nombre = persons.GetValueOrDefault(g.Key.EvaluadoUserId, ""),
+                    Promedio = Math.Round(g.Average(e => e.Nota!.Value), 1)
+                })
+                .OrderBy(t => t.Anio)
+                .ThenBy(t => t.Mes)
+                .ToList();
+        }
+
+        public async Task<List<EvPendienteDto>> GetPendientesAsync(int periodoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var completadas = await ctx.EvEvaluacionesResidente
+                .Where(e => e.PeriodoId == periodoId)
+                .GroupBy(e => e.EvaluadorUserId)
+                .Select(g => new { UserId = g.Key, Areas = g.Select(e => e.AreaNombre).ToList() })
+                .ToListAsync();
+
+            // Trae todos los usuarios con proyecto asignado (evaluadores potenciales)
+            var evaluadores = await (
+                from up in ctx.UserProject
+                join u in ctx.User on up.UserId equals u.UserId
+                join p in ctx.Person on u.UserId equals p.UserId
+                select new { up.UserId, u.Email, Nombre = p.FullName ?? "" }
+            ).Distinct().ToListAsync();
+
+            return evaluadores
+                .Select(e =>
+                {
+                    var comp = completadas.FirstOrDefault(c => c.UserId == e.UserId);
+                    return new EvPendienteDto
+                    {
+                        UserId = e.UserId,
+                        Nombre = e.Nombre,
+                        Email = e.Email ?? "",
+                        AreasCompletadas = comp?.Areas ?? [],
+                        AreasPendientes = comp == null ? ["Sin evaluaciones"] : []
+                    };
+                })
+                .Where(e => e.AreasPendientes.Count != 0)
+                .ToList();
+        }
+
+        public async Task<List<EvResidenteResumenDto>> GetResidentesResumenAsync(int periodoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var evals = await ctx.EvEvaluacionesResidente
+                .Where(e => e.PeriodoId == periodoId && !e.NoAplica && e.Nota.HasValue)
+                .Include(e => e.Project)
+                .ToListAsync();
+
+            var userIds = evals.Select(e => e.EvaluadoUserId).Distinct().ToList();
+            var persons = await ctx.Person
+                .Where(p => p.UserId.HasValue && userIds.Contains(p.UserId.Value))
+                .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "");
+
+            var periodoAnterior = await ctx.EvPeriodos
+                .Where(p => p.Id < periodoId)
+                .OrderByDescending(p => p.Id)
+                .FirstOrDefaultAsync();
+
+            var evalsAnt = periodoAnterior != null
+                ? await ctx.EvEvaluacionesResidente
+                    .Where(e => e.PeriodoId == periodoAnterior.Id && !e.NoAplica && e.Nota.HasValue)
+                    .Select(e => new { e.EvaluadoUserId, e.Nota })
+                    .ToListAsync()
+                : [];
+
+            return evals
+                .GroupBy(e => new { e.EvaluadoUserId, e.ProjectId, ProyectoNombre = e.Project?.ProjectDescription })
+                .Select(g => new EvResidenteResumenDto
+                {
+                    UserId = g.Key.EvaluadoUserId,
+                    Nombre = persons.GetValueOrDefault(g.Key.EvaluadoUserId, ""),
+                    ProjectId = g.Key.ProjectId,
+                    ProjectNombre = g.Key.ProyectoNombre,
+                    PromedioGeneral = Math.Round(g.Average(e => e.Nota!.Value), 1),
+                    PromedioMesAnterior = evalsAnt.Any(a => a.EvaluadoUserId == g.Key.EvaluadoUserId)
+                        ? Math.Round(evalsAnt
+                            .Where(a => a.EvaluadoUserId == g.Key.EvaluadoUserId)
+                            .Average(a => a.Nota!.Value), 1)
+                        : null,
+                    PromediosPorArea = g
+                        .GroupBy(e => e.AreaNombre)
+                        .Select(ag => new EvAreaPromedioDto
+                        {
+                            AreaNombre = ag.Key,
+                            Promedio = Math.Round(ag.Average(e => e.Nota!.Value), 1),
+                            TotalEvaluaciones = ag.Count()
+                        })
+                        .OrderByDescending(a => a.Promedio)
+                        .ToList()
+                })
+                .OrderByDescending(r => r.PromedioGeneral)
+                .ToList();
+        }
+
+        public async Task<EvDashboardGerenciaDto> GetDashboardGerenciaAsync(int periodoId)
+        {
+            var residentes = await GetResidentesResumenAsync(periodoId);
+            var areas = await GetPromediosPorAreaAsync(periodoId);
+            var tendencia = await GetTendenciaAsync(DateTime.Today.Year);
+
+            using var ctx = _factory.CreateDbContext();
+
+            var comentarios = await ctx.EvEvaluacionesResidente
+                .Where(e => e.PeriodoId == periodoId && !string.IsNullOrEmpty(e.Comentario))
+                .Include(e => e.Project)
+                .OrderByDescending(e => e.CreatedAt)
+                .Take(10)
+                .ToListAsync();
+
+            var evaluadorIds = comentarios.Select(e => e.EvaluadorUserId).Distinct().ToList();
+            var persons = await ctx.Person
+                .Where(p => p.UserId.HasValue && evaluadorIds.Contains(p.UserId.Value))
+                .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "");
+
+            var ultimosComentarios = comentarios.Select(e => new EvEvaluacionResidenteResponseDto
+            {
+                Id = e.Id,
+                PeriodoId = e.PeriodoId,
+                EvaluadorUserId = e.EvaluadorUserId,
+                EvaluadorNombre = persons.GetValueOrDefault(e.EvaluadorUserId, ""),
+                EvaluadoUserId = e.EvaluadoUserId,
+                ProjectId = e.ProjectId,
+                ProjectNombre = e.Project?.ProjectDescription,
+                AreaNombre = e.AreaNombre,
+                Nota = e.Nota,
+                Comentario = e.Comentario,
+                CreatedAt = e.CreatedAt
+            }).ToList();
+
+            var totalEsperadas = await ctx.UserProject.CountAsync();
+
+            return new EvDashboardGerenciaDto
+            {
+                PromedioGeneral = residentes.Count != 0
+                    ? Math.Round(residentes.Average(r => r.PromedioGeneral ?? 0), 1)
+                    : null,
+                TotalResidentes = residentes.Select(r => r.UserId).Distinct().Count(),
+                EvaluacionesCompletadas = await ctx.EvEvaluacionesResidente.CountAsync(e => e.PeriodoId == periodoId),
+                EvaluacionesEsperadas = totalEsperadas,
+                BajoRendimiento = residentes.Count(r => r.PromedioGeneral < 12),
+                Residentes = residentes,
+                PromediosPorArea = areas,
+                UltimosComentarios = ultimosComentarios,
+                Tendencia = tendencia
+            };
+        }
+    }
+}

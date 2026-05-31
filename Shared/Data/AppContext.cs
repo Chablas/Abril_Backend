@@ -9,6 +9,7 @@ using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
+using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -178,6 +179,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsContratistaUsuario> SsContratistaUsuarios { get; set; }
         public DbSet<SsContratistaUsuarioProyecto> SsContratistaUsuarioProyectos { get; set; }
         public DbSet<ProjectActivity> ProjectActivity { get; set; }
+        public DbSet<EvPeriodo> EvPeriodos => Set<EvPeriodo>();
+        public DbSet<EvPlantilla> EvPlantillas => Set<EvPlantilla>();
+        public DbSet<EvEvaluacionResidente> EvEvaluacionesResidente => Set<EvEvaluacionResidente>();
+        public DbSet<EvEvaluacionResidenteDetalle> EvEvaluacionesResidenteDetalle => Set<EvEvaluacionResidenteDetalle>();
+        public DbSet<EvNoAplica> EvNoAplica => Set<EvNoAplica>();
+        public DbSet<EvRecordatorioLog> EvRecordatorioLogs => Set<EvRecordatorioLog>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

@@ -1,0 +1,18 @@
+using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
+using Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Abril_Backend.Features.Evaluaciones
+{
+    public static class EvaluacionesModuleExtensions
+    {
+        public static IServiceCollection AddEvaluacionesModule(this IServiceCollection services)
+        {
+            services.AddScoped<IEvPeriodoRepository, EvPeriodoRepository>();
+            services.AddScoped<IEvPlantillaRepository, EvPlantillaRepository>();
+            services.AddScoped<IEvEvaluacionResidenteRepository, EvEvaluacionResidenteRepository>();
+            services.AddScoped<IEvDashboardRepository, EvDashboardRepository>();
+            return services;
+        }
+    }
+}

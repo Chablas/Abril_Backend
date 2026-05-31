@@ -100,21 +100,46 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
-            var result = await conn.QueryAsync<ResidenteEvaluableDto>(
-                @"SELECT DISTINCT
-                    u.user_id      AS UserId,
-                    p.full_name    AS NombreCompleto,
-                    pr.project_id  AS ProjectId,
-                    pr.project_description AS ProjectNombre
-                  FROM app_user u
-                  JOIN person p   ON p.user_id   = u.user_id
-                  JOIN ss_hab_worker_proyecto wp ON wp.worker_id  = u.user_id
-                  JOIN project pr ON pr.project_id = wp.proyecto_id
-                  WHERE u.active = true
-                    AND u.user_id != @EvaluadorUserId
-                  ORDER BY p.full_name",
+
+            // Paso 1: obtener obra_oficina del evaluador
+            var obraOficina = await conn.QueryFirstOrDefaultAsync<string>(
+                @"SELECT w.obra_oficina
+                  FROM workers w
+                  JOIN person p ON p.person_id = w.person_id
+                  WHERE p.user_id = @EvaluadorUserId
+                  LIMIT 1",
                 new { EvaluadorUserId = evaluadorUserId });
-            return result.ToList();
+
+            var puedeVerTodos = string.Equals(obraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
+
+            // Paso 2: residentes según scope
+            const string selectBase = @"
+                SELECT DISTINCT
+                    p.full_name            AS NombreCompleto,
+                    p.user_id              AS UserId,
+                    wp.proyecto_id         AS ProjectId,
+                    pr.project_description AS ProjectNombre
+                FROM workers w
+                JOIN person p   ON p.person_id  = w.person_id
+                JOIN app_user u ON u.user_id     = p.user_id
+                JOIN ss_hab_worker_proyecto wp ON wp.worker_id  = p.user_id
+                JOIN project pr ON pr.project_id = wp.proyecto_id
+                WHERE w.ocupacion = 'Residencia'
+                  AND w.estado   != 'Retirado'
+                  AND u.active    = true";
+
+            var sql = puedeVerTodos
+                ? selectBase + "\nORDER BY p.full_name"
+                : selectBase + @"
+                  AND wp.proyecto_id IN (
+                      SELECT proyecto_id FROM ss_hab_worker_proyecto
+                      WHERE worker_id = @EvaluadorUserId
+                  )
+                ORDER BY p.full_name";
+
+            var result = (await conn.QueryAsync<ResidenteEvaluableDto>(sql, new { EvaluadorUserId = evaluadorUserId })).ToList();
+            result.ForEach(r => r.PuedeVerTodos = puedeVerTodos);
+            return result;
         }
 
         private static async Task<List<EvEvaluacionResidenteResponseDto>> MapToResponseDtos(

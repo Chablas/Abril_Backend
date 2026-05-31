@@ -54,5 +54,6 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public string NombreCompleto { get; set; } = string.Empty;
         public int? ProjectId { get; set; }
         public string? ProjectNombre { get; set; }
+        public bool PuedeVerTodos { get; set; }
     }
 }

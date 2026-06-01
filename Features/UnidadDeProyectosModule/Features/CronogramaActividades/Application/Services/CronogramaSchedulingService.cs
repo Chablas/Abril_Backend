@@ -285,33 +285,44 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 .GroupBy(a => a.ParentId!.Value)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            // Post-orden: calcula hijos antes que el padre
+            // Post-orden con memoización: calcula los hijos antes que el padre, a cualquier nivel.
+            // 0 = sin visitar, 1 = en proceso (guarda anti-ciclo), 2 = terminado.
+            var estado = new Dictionary<int, int>();
+
             void Procesar(ProjectActivity nodo)
             {
-                if (!hijosDe.TryGetValue(nodo.ProjectActivityId, out var hijos) || hijos.Count == 0)
-                    return; // hoja: conserva sus fechas
+                var st = estado.GetValueOrDefault(nodo.ProjectActivityId, 0);
+                if (st != 0) return; // ya terminado, o en proceso (ciclo) → no reentrar
+                estado[nodo.ProjectActivityId] = 1;
 
-                foreach (var h in hijos) Procesar(h);
-
-                var inicios = hijos.Where(h => h.PlannedStartDate.HasValue)
-                                   .Select(h => h.PlannedStartDate!.Value).ToList();
-                var fines = hijos.Where(h => h.PlannedEndDate.HasValue)
-                                 .Select(h => h.PlannedEndDate!.Value).ToList();
-
-                var nuevoInicio = inicios.Count > 0 ? inicios.Min() : (DateOnly?)null;
-                var nuevoFin = fines.Count > 0 ? fines.Max() : (DateOnly?)null;
-
-                if (nodo.PlannedStartDate != nuevoInicio || nodo.PlannedEndDate != nuevoFin)
+                if (hijosDe.TryGetValue(nodo.ProjectActivityId, out var hijos) && hijos.Count > 0)
                 {
-                    nodo.PlannedStartDate = nuevoInicio;
-                    nodo.PlannedEndDate = nuevoFin;
-                    nodo.UpdatedDateTime = DateTime.UtcNow;
+                    foreach (var h in hijos) Procesar(h);
+
+                    var inicios = hijos.Where(h => h.PlannedStartDate.HasValue)
+                                       .Select(h => h.PlannedStartDate!.Value).ToList();
+                    var fines = hijos.Where(h => h.PlannedEndDate.HasValue)
+                                     .Select(h => h.PlannedEndDate!.Value).ToList();
+
+                    var nuevoInicio = inicios.Count > 0 ? inicios.Min() : (DateOnly?)null;
+                    var nuevoFin = fines.Count > 0 ? fines.Max() : (DateOnly?)null;
+
+                    if (nodo.PlannedStartDate != nuevoInicio || nodo.PlannedEndDate != nuevoFin)
+                    {
+                        nodo.PlannedStartDate = nuevoInicio;
+                        nodo.PlannedEndDate = nuevoFin;
+                        nodo.UpdatedDateTime = DateTime.UtcNow;
+                    }
                 }
+                // las hojas conservan sus fechas
+
+                estado[nodo.ProjectActivityId] = 2;
             }
 
-            // Raíces = sin padre dentro del proyecto
-            foreach (var raiz in todas.Where(a => !a.ParentId.HasValue))
-                Procesar(raiz);
+            // Procesa TODOS los nodos (no solo raíces), para cubrir subárboles huérfanos.
+            // La recursión a hijos + memoización garantizan el orden bottom-up correcto.
+            foreach (var nodo in todas)
+                Procesar(nodo);
 
             await ctx.SaveChangesAsync();
         }

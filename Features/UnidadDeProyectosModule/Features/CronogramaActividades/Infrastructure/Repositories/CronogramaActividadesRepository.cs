@@ -265,6 +265,21 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     .Where(a => a.ProjectId == proyectoId)
                     .ToListAsync();
                 int eliminadas = existentes.Count;
+
+                // Primero borrar las dependencias (predecesoras) que referencian a esas
+                // actividades, ya sea como sucesora o como predecesora; de lo contrario el
+                // FK fk_activity_predecessor_project_activity_predecessor_id (ON DELETE RESTRICT)
+                // bloquea el RemoveRange de las actividades.
+                var actividadIds = existentes.Select(a => a.ProjectActivityId).ToList();
+                if (actividadIds.Count > 0)
+                {
+                    var predsAEliminar = await ctx.ActivityPredecessors
+                        .Where(p => actividadIds.Contains(p.ActivityId)
+                                 || actividadIds.Contains(p.PredecessorId))
+                        .ToListAsync();
+                    ctx.ActivityPredecessors.RemoveRange(predsAEliminar);
+                }
+
                 ctx.ProjectActivity.RemoveRange(existentes);
                 await ctx.SaveChangesAsync();
 

@@ -45,8 +45,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public Task<List<DebugProyectoDto>> GetDebugProyectosAsync()
             => _repository.GetDebugProyectosAsync();
 
-        public Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId)
-            => _repository.ImportarMppAsync(proyectoId, archivo, userId);
+        public async Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId)
+        {
+            var result = await _repository.ImportarMppAsync(proyectoId, archivo, userId);
+            // Tras importar, los nodos padre deben reflejar MIN/MAX de sus hijos (cualquier nivel)
+            await _scheduling.RecalcularFechasPadresAsync(proyectoId);
+            return result;
+        }
 
         public Task<List<ActividadDto>> ReordenarActividadesAsync(int proyectoId, List<ReordenarItem> items)
             => _repository.ReordenarActividadesAsync(proyectoId, items);

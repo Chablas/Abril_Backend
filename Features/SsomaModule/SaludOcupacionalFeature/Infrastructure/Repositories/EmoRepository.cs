@@ -532,6 +532,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             await SincronizarEntregableEmoAsync(ctx, emo, worker);
 
+            var progActiva = await ctx.SsProgramacionEmo
+                .Where(p => p.WorkerId == emo.WorkerId
+                         && (p.Estado == "En Atención"
+                             || p.Estado == "Aceptado por Clínica"
+                             || p.Estado == "Programado"))
+                .OrderByDescending(p => p.FechaProgramada)
+                .FirstOrDefaultAsync();
+            if (progActiva != null)
+            {
+                progActiva.Estado = "Completado";
+                progActiva.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
             if (dto.FechaLectura.HasValue)
             {
                 var lecturaEmo = await ctx.SsHabTrabajador

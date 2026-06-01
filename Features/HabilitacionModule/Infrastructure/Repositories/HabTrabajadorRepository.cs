@@ -132,21 +132,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (soloSinEmo)
                 baseQuery = baseQuery.Where(x =>
-                    x.Worker.FechaRetiro == null
-                    && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
-                                                   && v.FechaFin == null
-                                                   && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
-                    && !ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo));
+                    (x.Worker.ContrataCasa != "Casa" && !ctx.SsHabTrabajador
+                        .Any(h => h.WorkerId == x.Worker.Id && h.ItemId == 4
+                               && h.Estado == "Aprobado"))
+                    ||
+                    (x.Worker.ContrataCasa == "Casa" && !ctx.WorkerEmo
+                        .Any(e => e.WorkerId == x.Worker.Id && e.Activo
+                               && e.Aptitud != "No Apto"
+                               && e.Aptitud != "Observado"
+                               && e.FechaVencimiento >= DateOnly.FromDateTime(DateTime.Today))));
 
             if (soloEmoVencido)
-            {
-                var hoy = DateOnly.FromDateTime(DateTime.Today);
                 baseQuery = baseQuery.Where(x =>
-                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id
-                                       && e.Activo
-                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
-                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoy));
-            }
+                    (x.Worker.ContrataCasa != "Casa" && ctx.SsHabTrabajador
+                        .Any(h => h.WorkerId == x.Worker.Id && h.ItemId == 4
+                               && h.Estado == "Vencido"))
+                    ||
+                    (x.Worker.ContrataCasa == "Casa" && !ctx.WorkerEmo
+                        .Any(e => e.WorkerId == x.Worker.Id && e.Activo
+                               && e.FechaVencimiento >= DateOnly.FromDateTime(DateTime.Today))));
 
             var total = await baseQuery.CountAsync();
 

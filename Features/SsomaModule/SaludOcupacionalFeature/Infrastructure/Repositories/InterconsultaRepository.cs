@@ -71,7 +71,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 WorkerId = dto.WorkerId,
                 Especialidad = dto.Especialidad,
                 MedicoDerivaId = dto.MedicoDerivaId,
-                FechaDerivacion = dto.FechaDerivacion,
+                FechaDerivacion = DateOnly.FromDateTime(DateTime.Today),
                 CentroAtencion = dto.CentroAtencion,
                 RequiereSeguimiento = dto.RequiereSeguimiento,
                 UrlInforme = dto.UrlInforme,

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
@@ -16,7 +17,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public DateOnly? FechaLectura { get; set; }
         public string? UrlResultado { get; set; }
         public string? Notas { get; set; }
-        public InterconsultaInlineDto? InterconsultaInline { get; set; }
+        public string? InterconsultaInlineJson { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public InterconsultaInlineDto? InterconsultaInline =>
+            string.IsNullOrEmpty(InterconsultaInlineJson)
+                ? null
+                : JsonSerializer.Deserialize<InterconsultaInlineDto>(InterconsultaInlineJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
         public List<EmoExamenDto> Examenes { get; set; } = new();
         public List<EmoRestriccionDto> Restricciones { get; set; } = new();
 

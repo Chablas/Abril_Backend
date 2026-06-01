@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-05-31 — EvaluacionesModule completo (periodos, plantilla, evaluaciones residente, dashboard). Dapper también en EvaluacionesModule. EvaluadorUserId nullable en EvEvaluacionResidente.
+> Última actualización: 2026-05-31 — EvaluacionesModule completo. GetResidentesResumenAsync: periodo anterior por Anio/Mes calendario (no por Id) + campo Evaluaciones poblado con evaluador, criterios y comentarios (Include Detalles, diccionario evaluadores separado de evaluados).
 
 ---
 
@@ -979,8 +979,9 @@ GET              /api/v1/evaluaciones/dashboard/pendientes
 **Lógica clave:**
 - Nota = `promedio(puntajes donde EsNa=false) × 4` (escala 1-5 → 20)
 - `EvaluacionesEsperadas = residentes.Count * 8`
-- `GetResidentesResumenAsync` agrupa por `EvaluadoUserId`; ProjectId/Nombre = `g.First()`
+- `GetResidentesResumenAsync` agrupa por `EvaluadoUserId`; ProjectId/Nombre = `g.First()`. Periodo anterior buscado por `(Anio, Mes)` calendario real (no por `Id`). Campo `Evaluaciones` poblado con evaluador, criterios y comentarios — usa `.Include(Detalles)` en el query inicial (evita N+1) + diccionario `evaluadores` separado del de `persons` (evaluados).
 - `GetTendenciaAsync()` sin filtro año
+- No existe ningún job/cron/hosted service para recordatorios de evaluaciones. `EvRecordatorioLog` es solo tabla de log pasivo.
 
 **Dapper en `EvEvaluacionResidenteRepository`** — patrón:
 ```csharp

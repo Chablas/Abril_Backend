@@ -111,7 +111,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                             .Where(i => i.WorkerId == x.p.WorkerId)
                             .OrderByDescending(i => i.FechaDerivacion)
                             .Select(i => (string?)i.Estado)
-                            .FirstOrDefault()
+                            .FirstOrDefault(),
+                        TieneInterconsulta = ctx.SsInterconsulta
+                            .Any(i => i.WorkerId == x.p.WorkerId && i.Estado == "Pendiente")
                     })
                     .ToListAsync();
             }
@@ -224,7 +226,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ent.CheckInHora = dto.CheckInHora ?? TimeOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
                     break;
                 case "Completar":
-                    ent.Estado = "En Atención";
                     if (dto.EmoResultadoId.HasValue) ent.EmoResultadoId = dto.EmoResultadoId;
                     break;
             }

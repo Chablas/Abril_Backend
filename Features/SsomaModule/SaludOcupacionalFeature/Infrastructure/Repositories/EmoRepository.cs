@@ -534,14 +534,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var progActiva = await ctx.SsProgramacionEmo
                 .Where(p => p.WorkerId == emo.WorkerId
-                         && (p.Estado == "En Atención"
-                             || p.Estado == "Aceptado por Clínica"
-                             || p.Estado == "Programado"))
+                         && p.Estado == "En Atención")
                 .OrderByDescending(p => p.FechaProgramada)
                 .FirstOrDefaultAsync();
             if (progActiva != null)
             {
                 progActiva.Estado = "Completado";
+                progActiva.EmoResultadoId = emo.Id;
                 progActiva.UpdatedAt = DateTimeOffset.UtcNow;
             }
 

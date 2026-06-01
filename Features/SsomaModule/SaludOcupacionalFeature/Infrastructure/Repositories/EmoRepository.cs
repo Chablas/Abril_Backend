@@ -7,6 +7,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
@@ -530,6 +531,32 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
 
             await SincronizarEntregableEmoAsync(ctx, emo, worker);
+
+            var progActiva = await ctx.SsProgramacionEmo
+                .Where(p => p.WorkerId == emo.WorkerId
+                         && p.Estado == "En Atención")
+                .OrderByDescending(p => p.FechaProgramada)
+                .FirstOrDefaultAsync();
+            if (progActiva != null)
+            {
+                progActiva.Estado = "Completado";
+                progActiva.EmoResultadoId = emo.Id;
+                progActiva.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
+            if (dto.FechaLectura.HasValue)
+            {
+                var lecturaEmo = await ctx.SsHabTrabajador
+                    .Include(h => h.Item)
+                    .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == 25);
+                if (lecturaEmo != null)
+                {
+                    lecturaEmo.Estado = "Aprobado";
+                    lecturaEmo.Vigencia = HabilitacionDateHelper.AsUtc(
+                        dto.FechaLectura.Value.ToDateTime(TimeOnly.MinValue));
+                    lecturaEmo.UpdatedAt = DateTime.UtcNow;
+                }
+            }
 
             await ctx.SaveChangesAsync();
             return new EmoCreateResultDto

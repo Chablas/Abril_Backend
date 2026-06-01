@@ -111,7 +111,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                             .Where(i => i.WorkerId == x.p.WorkerId)
                             .OrderByDescending(i => i.FechaDerivacion)
                             .Select(i => (string?)i.Estado)
-                            .FirstOrDefault()
+                            .FirstOrDefault(),
+                        TieneInterconsulta = ctx.SsInterconsulta
+                            .Any(i => i.WorkerId == x.p.WorkerId && i.Estado == "Pendiente")
                     })
                     .ToListAsync();
             }
@@ -178,6 +180,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
         public async Task UpdateEstado(int id, string estado, int? emoResultadoId, int? userId)
         {
+            if (estado == "Completado")
+                throw new AbrilException("El estado 'Completado' solo puede asignarse al registrar el resultado del EMO.", 400);
+
             using var ctx = _factory.CreateDbContext();
             var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id)
                 ?? throw new AbrilException("Programación no encontrada.", 404);
@@ -221,7 +226,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ent.CheckInHora = dto.CheckInHora ?? TimeOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
                     break;
                 case "Completar":
-                    ent.Estado = "Completado";
                     if (dto.EmoResultadoId.HasValue) ent.EmoResultadoId = dto.EmoResultadoId;
                     break;
             }

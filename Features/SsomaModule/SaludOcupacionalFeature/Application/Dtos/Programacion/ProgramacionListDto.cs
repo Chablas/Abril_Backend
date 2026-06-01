@@ -26,5 +26,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public string? Categoria { get; set; }
         public string? TipoTrabajador { get; set; }
         public string? InterconsultaEstado { get; set; }
+        public bool TieneInterconsulta { get; set; }
     }
 }

@@ -18,5 +18,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         Task<List<DebugActividadOrdenDto>> GetDebugOrderAsync(int proyectoId);
         Task<List<ActividadDto>> SubirNivelAsync(int proyectoId, int actividadId);
         Task<List<ActividadDto>> BajarNivelAsync(int proyectoId, int actividadId);
+
+        // Feriados
+        Task<List<FeriadoDto>> GetFeriadosAsync();
+        Task<FeriadoDto> CrearFeriadoAsync(CrearFeriadoRequest request);
+        Task EliminarFeriadoAsync(int id);
+
+        // Predecesoras + cascada
+        Task<ActualizarPredecesorasResultDto> ActualizarPredecesorasAsync(int activityId, List<int> predecessorIds);
+        Task<CascadaResultDto> PreviewCascadaAsync(int proyectoId);
+        Task<CascadaResultDto> AplicarCascadaAsync(int proyectoId);
     }
 }

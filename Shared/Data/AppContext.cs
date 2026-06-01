@@ -164,6 +164,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsContratistaUsuario> SsContratistaUsuarios { get; set; }
         public DbSet<SsContratistaUsuarioProyecto> SsContratistaUsuarioProyectos { get; set; }
         public DbSet<ProjectActivity> ProjectActivity { get; set; }
+        public DbSet<Feriado> Feriados { get; set; }
+        public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -473,6 +475,32 @@ namespace Abril_Backend.Infrastructure.Data
                     .HasForeignKey(e => e.ParentId)
                     .IsRequired(false)
                     .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<Feriado>(entity =>
+            {
+                entity.ToTable("feriados");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Fecha).IsRequired();
+                entity.Property(e => e.Descripcion).HasMaxLength(200);
+                entity.HasIndex(e => e.Fecha).IsUnique();
+            });
+
+            modelBuilder.Entity<ActivityPredecessor>(entity =>
+            {
+                entity.ToTable("activity_predecessor");
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => new { e.ActivityId, e.PredecessorId }).IsUnique();
+                entity.HasIndex(e => e.ActivityId);
+                entity.HasIndex(e => e.PredecessorId);
+                entity.HasOne<ProjectActivity>()
+                    .WithMany()
+                    .HasForeignKey(e => e.ActivityId)
+                    .OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne<ProjectActivity>()
+                    .WithMany()
+                    .HasForeignKey(e => e.PredecessorId)
+                    .OnDelete(DeleteBehavior.Restrict);
             });
         }
     }

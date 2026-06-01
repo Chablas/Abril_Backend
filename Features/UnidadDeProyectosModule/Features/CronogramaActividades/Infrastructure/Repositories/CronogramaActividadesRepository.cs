@@ -38,23 +38,44 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public async Task<List<ActividadDto>> GetActividadesAsync(int proyectoId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.ProjectActivity
+
+            var actividades = await ctx.ProjectActivity
                 .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
                 .OrderBy(a => a.Order)
-                .Select(a => new ActividadDto
-                {
-                    ProjectActivityId = a.ProjectActivityId,
-                    ProjectId = a.ProjectId,
-                    ActivityDescription = a.ActivityDescription,
-                    PlannedStartDate = a.PlannedStartDate,
-                    PlannedEndDate = a.PlannedEndDate,
-                    ActualEndDate = a.ActualEndDate,
-                    ProgressPercentage = a.ProgressPercentage,
-                    Order = a.Order,
-                    HierarchyLevel = a.HierarchyLevel,
-                    ParentId = a.ParentId
-                })
                 .ToListAsync();
+
+            var ids = actividades.Select(a => a.ProjectActivityId).ToHashSet();
+
+            // Predecesoras de cada actividad del proyecto
+            var relaciones = await ctx.ActivityPredecessors
+                .Where(r => ids.Contains(r.ActivityId))
+                .Select(r => new { r.ActivityId, r.PredecessorId })
+                .ToListAsync();
+            var predecesorasPorActividad = relaciones
+                .GroupBy(r => r.ActivityId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.PredecessorId).ToList());
+
+            // Un nodo es padre si alguna actividad activa lo referencia como ParentId
+            var idsPadre = actividades
+                .Where(a => a.ParentId.HasValue)
+                .Select(a => a.ParentId!.Value)
+                .ToHashSet();
+
+            return actividades.Select(a => new ActividadDto
+            {
+                ProjectActivityId = a.ProjectActivityId,
+                ProjectId = a.ProjectId,
+                ActivityDescription = a.ActivityDescription,
+                PlannedStartDate = a.PlannedStartDate,
+                PlannedEndDate = a.PlannedEndDate,
+                ActualEndDate = a.ActualEndDate,
+                ProgressPercentage = a.ProgressPercentage,
+                Order = a.Order,
+                HierarchyLevel = a.HierarchyLevel,
+                ParentId = a.ParentId,
+                Predecesoras = predecesorasPorActividad.GetValueOrDefault(a.ProjectActivityId, new List<int>()),
+                EsPadre = idsPadre.Contains(a.ProjectActivityId)
+            }).ToList();
         }
 
         public async Task<ActividadDto> CrearActividadAsync(int proyectoId, CrearActividadRequest request, int userId)
@@ -108,6 +129,18 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 .FirstOrDefaultAsync(a => a.ProjectActivityId == projectActivityId && a.State);
             if (activity == null)
                 throw new AbrilException("Actividad no encontrada.", 404);
+
+            // Los nodos padre tienen fechas calculadas (MIN/MAX de hijos): no se editan manualmente
+            bool esPadre = await ctx.ProjectActivity
+                .AnyAsync(a => a.ParentId == projectActivityId && a.State && a.Active);
+            if (esPadre &&
+                (request.PlannedStartDate != activity.PlannedStartDate ||
+                 request.PlannedEndDate != activity.PlannedEndDate))
+            {
+                throw new AbrilException(
+                    "No se pueden editar las fechas de una actividad con sub-actividades. " +
+                    "Sus fechas se calculan automáticamente a partir de sus hijos.", 400);
+            }
 
             activity.ActivityDescription = request.ActivityDescription;
             activity.PlannedStartDate = request.PlannedStartDate;
@@ -497,6 +530,140 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     ParentId = a.ParentId
                 })
                 .ToListAsync();
+        }
+
+        // ─────────────────────────── Feriados ───────────────────────────
+
+        public async Task<List<FeriadoDto>> GetFeriadosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Feriados
+                .OrderBy(f => f.Fecha)
+                .Select(f => new FeriadoDto
+                {
+                    Id = f.Id,
+                    Fecha = f.Fecha,
+                    Descripcion = f.Descripcion
+                })
+                .ToListAsync();
+        }
+
+        public async Task<FeriadoDto> CrearFeriadoAsync(CrearFeriadoRequest request)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var existe = await ctx.Feriados.AnyAsync(f => f.Fecha == request.Fecha);
+            if (existe)
+                throw new AbrilException("Ya existe un feriado registrado para esa fecha.", 400);
+
+            var feriado = new Feriado
+            {
+                Fecha = request.Fecha,
+                Descripcion = request.Descripcion
+            };
+            ctx.Feriados.Add(feriado);
+            await ctx.SaveChangesAsync();
+
+            return new FeriadoDto
+            {
+                Id = feriado.Id,
+                Fecha = feriado.Fecha,
+                Descripcion = feriado.Descripcion
+            };
+        }
+
+        public async Task EliminarFeriadoAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var feriado = await ctx.Feriados.FirstOrDefaultAsync(f => f.Id == id);
+            if (feriado == null)
+                throw new AbrilException("Feriado no encontrado.", 404);
+
+            ctx.Feriados.Remove(feriado);
+            await ctx.SaveChangesAsync();
+        }
+
+        // ─────────────────────────── Predecesoras ───────────────────────────
+
+        public async Task<int> GetProyectoIdDeActividadAsync(int activityId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var actividad = await ctx.ProjectActivity
+                .Where(a => a.ProjectActivityId == activityId && a.State && a.Active)
+                .Select(a => (int?)a.ProjectId)
+                .FirstOrDefaultAsync();
+            if (actividad == null)
+                throw new AbrilException("Actividad no encontrada.", 404);
+            return actividad.Value;
+        }
+
+        public async Task<List<int>> GetPredecesorasAsync(int activityId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.ActivityPredecessors
+                .Where(r => r.ActivityId == activityId)
+                .Select(r => r.PredecessorId)
+                .ToListAsync();
+        }
+
+        public async Task SetPredecesorasAsync(int activityId, List<int> predecessorIds)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var actividad = await ctx.ProjectActivity
+                .FirstOrDefaultAsync(a => a.ProjectActivityId == activityId && a.State && a.Active);
+            if (actividad == null)
+                throw new AbrilException("Actividad no encontrada.", 404);
+
+            // Solo las hojas pueden tener predecesoras
+            bool esPadre = await ctx.ProjectActivity
+                .AnyAsync(a => a.ParentId == activityId && a.State && a.Active);
+            if (esPadre)
+                throw new AbrilException(
+                    "Una actividad con sub-actividades no puede tener predecesoras.", 400);
+
+            var distintas = predecessorIds.Where(p => p != activityId).Distinct().ToList();
+
+            if (distintas.Count > 0)
+            {
+                // Las predecesoras deben existir, ser del mismo proyecto y ser hojas
+                var candidatas = await ctx.ProjectActivity
+                    .Where(a => distintas.Contains(a.ProjectActivityId) && a.State && a.Active)
+                    .Select(a => new { a.ProjectActivityId, a.ProjectId })
+                    .ToListAsync();
+
+                if (candidatas.Count != distintas.Count)
+                    throw new AbrilException("Una o más predecesoras no existen.", 400);
+
+                if (candidatas.Any(c => c.ProjectId != actividad.ProjectId))
+                    throw new AbrilException("Las predecesoras deben pertenecer al mismo proyecto.", 400);
+
+                var idsPredConHijos = await ctx.ProjectActivity
+                    .Where(a => a.ParentId.HasValue
+                             && distintas.Contains(a.ParentId.Value)
+                             && a.State && a.Active)
+                    .Select(a => a.ParentId!.Value)
+                    .Distinct()
+                    .ToListAsync();
+                if (idsPredConHijos.Count > 0)
+                    throw new AbrilException(
+                        "Una predecesora con sub-actividades no es válida; solo se permiten hojas.", 400);
+            }
+
+            // Reemplazo completo del conjunto de predecesoras
+            var existentes = await ctx.ActivityPredecessors
+                .Where(r => r.ActivityId == activityId)
+                .ToListAsync();
+            ctx.ActivityPredecessors.RemoveRange(existentes);
+
+            foreach (var predId in distintas)
+                ctx.ActivityPredecessors.Add(new ActivityPredecessor
+                {
+                    ActivityId = activityId,
+                    PredecessorId = predId
+                });
+
+            await ctx.SaveChangesAsync();
         }
 
         private static void ActualizarHijosRecursivo(int parentId, int levelDelta, List<ProjectActivity> todas)

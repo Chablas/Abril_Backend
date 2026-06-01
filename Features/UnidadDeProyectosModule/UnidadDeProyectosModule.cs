@@ -28,6 +28,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule
             // CronogramaActividades
             services.AddScoped<ICronogramaActividadesRepository, CronogramaActividadesRepository>();
             services.AddScoped<ICronogramaActividadesService, CronogramaActividadesService>();
+            services.AddScoped<ICronogramaSchedulingService, CronogramaSchedulingService>();
 
             return services;
         }

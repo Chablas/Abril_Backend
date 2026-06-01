@@ -20,6 +20,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public int Order { get; set; }
         public int HierarchyLevel { get; set; }
         public int? ParentId { get; set; }
+        /// <summary>Ids de las actividades predecesoras (Fin a Inicio). Solo hojas participan.</summary>
+        public List<int> Predecesoras { get; set; } = new();
+        /// <summary>True si la actividad tiene hijos (es nodo padre, fechas calculadas).</summary>
+        public bool EsPadre { get; set; }
     }
 
     public class CrearActividadRequest
@@ -82,5 +86,58 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public int Order { get; set; }
         public int? ParentId { get; set; }
         public int HierarchyLevel { get; set; }
+    }
+
+    // ─────────────────────────── Feriados ───────────────────────────
+
+    public class FeriadoDto
+    {
+        public int Id { get; set; }
+        public DateOnly Fecha { get; set; }
+        public string? Descripcion { get; set; }
+    }
+
+    public class CrearFeriadoRequest
+    {
+        public DateOnly Fecha { get; set; }
+        public string? Descripcion { get; set; }
+    }
+
+    // ─────────────────────────── Predecesoras ───────────────────────────
+
+    /// <summary>Reemplaza por completo el conjunto de predecesoras de una actividad.</summary>
+    public class ActualizarPredecesorasRequest
+    {
+        public List<int> PredecessorIds { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Resultado de fijar predecesoras: la lista resultante + el preview de
+    /// la cascada que se aplicaría (sin persistir todavía).
+    /// </summary>
+    public class ActualizarPredecesorasResultDto
+    {
+        public int ProjectActivityId { get; set; }
+        public List<int> Predecesoras { get; set; } = new();
+        public CascadaResultDto PreviewCascada { get; set; } = new();
+    }
+
+    // ─────────────────────────── Cascada ───────────────────────────
+
+    /// <summary>Una actividad que se movería (o se movió) al recalcular la cascada.</summary>
+    public class CascadaCambioDto
+    {
+        public int ProjectActivityId { get; set; }
+        public string ActivityDescription { get; set; } = string.Empty;
+        public DateOnly? InicioAnterior { get; set; }
+        public DateOnly? InicioNuevo { get; set; }
+        public DateOnly? FinAnterior { get; set; }
+        public DateOnly? FinNuevo { get; set; }
+    }
+
+    public class CascadaResultDto
+    {
+        public bool HayCambios { get; set; }
+        public List<CascadaCambioDto> Cambios { get; set; } = new();
     }
 }

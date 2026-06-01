@@ -60,13 +60,13 @@ namespace Abril_Backend.Infrastructure.Repositories {
             };
         }
 
-        public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsThisMonth()
+        public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsThisMonth(string period)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var currentPeriod = DateTime.UtcNow
-                
-                .ToString("MM-yyyy");
+            // El período viene del llamador (formato "MM-yyyy") para que la fecha
+            // simulada de ReminderService se propague correctamente al filtro.
+            var currentPeriod = period;
 
             var query =
                 from up in ctx.UserProject

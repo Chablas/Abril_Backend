@@ -56,7 +56,8 @@ namespace Abril_Backend.Controllers
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _userProjectRepository.GetUsersWithoutLessonsThisMonth();
+                var period = DateTime.UtcNow.ToString("MM-yyyy");
+                var result = await _userProjectRepository.GetUsersWithoutLessonsThisMonth(period);
                 return Ok(result);
             }
             catch (Exception)

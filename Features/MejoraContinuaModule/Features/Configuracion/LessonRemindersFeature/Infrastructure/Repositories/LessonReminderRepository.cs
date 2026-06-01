@@ -279,5 +279,89 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 }
             ).ToListAsync();
         }
+
+        public async Task<List<PendingStaffMemberDTO>> GetPendingMembersForProjectAsync(
+            int projectId,
+            string period,
+            IReadOnlyList<string> emails)
+        {
+            if (emails == null || emails.Count == 0)
+                return new List<PendingStaffMemberDTO>();
+
+            // Normalizar: trim + lower, dedup
+            var normalized = emails
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e.Trim().ToLower())
+                .Distinct()
+                .ToList();
+
+            if (normalized.Count == 0)
+                return new List<PendingStaffMemberDTO>();
+
+            using var ctx = _factory.CreateDbContext();
+
+            // Match case-insensitive contra user.email (también lowercased en el lado servidor)
+            var matchedUsers = await (
+                from u in ctx.User
+                join p in ctx.Person on u.UserId equals p.UserId into pj
+                from p in pj.DefaultIfEmpty()
+                where u.Email != null && normalized.Contains(u.Email.ToLower())
+                select new
+                {
+                    u.UserId,
+                    Email = u.Email!,
+                    FullName = p != null ? p.FullName : null
+                }
+            ).ToListAsync();
+
+            var userByEmail = matchedUsers
+                .GroupBy(x => x.Email.Trim().ToLower())
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            // ¿Qué user_ids ya cumplieron (tienen lección del proyecto/período)?
+            var matchedUserIds = matchedUsers.Select(u => u.UserId).Distinct().ToList();
+
+            var compliedUserIds = matchedUserIds.Count == 0
+                ? new HashSet<int>()
+                : (await ctx.Lesson
+                    .Where(l => matchedUserIds.Contains(l.CreatedUserId)
+                                && l.ProjectId == projectId
+                                && l.Period == period
+                                && l.State == true
+                                && l.Active == true)
+                    .Select(l => l.CreatedUserId)
+                    .Distinct()
+                    .ToListAsync())
+                    .ToHashSet();
+
+            var pending = new List<PendingStaffMemberDTO>();
+            foreach (var email in normalized)
+            {
+                if (userByEmail.TryGetValue(email, out var u))
+                {
+                    if (!compliedUserIds.Contains(u.UserId))
+                    {
+                        pending.Add(new PendingStaffMemberDTO
+                        {
+                            Email = u.Email,        // versión "original" guardada en BD
+                            UserId = u.UserId,
+                            FullName = u.FullName
+                        });
+                    }
+                }
+                else
+                {
+                    // No existe en user → no hay cómo verificar cumplimiento → pendiente.
+                    pending.Add(new PendingStaffMemberDTO
+                    {
+                        Email = email,
+                        UserId = null,
+                        FullName = null
+                    });
+                }
+            }
+
+            return pending;
+        }
     }
 }

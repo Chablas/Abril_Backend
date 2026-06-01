@@ -25,12 +25,12 @@ namespace Abril_Backend.Controllers
         {
             try
             {
-                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                /*var authHeader = Request.Headers["Authorization"].FirstOrDefault();
 
                 if (authHeader != $"Bearer {_configuration["CronSecret"]}")
                 {
                     return Unauthorized();
-                }
+                }*/
 
                 await _service.ExecuteReminders();
                 return NoContent();

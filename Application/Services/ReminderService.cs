@@ -99,7 +99,7 @@ namespace Abril_Backend.Application.Services
         public async Task<bool> ExecuteReminders()
         {
             var today = DateTime.UtcNow.AddHours(-5);
-            //var today = new DateTime(2026, 3, 27);
+            //var today = new DateTime(2026, 6, 26);
             if (IsInFirstDayOfMonth(today))
             {
                 Console.WriteLine("⏰ Recordatorio mensual a supervisores ejecutado");
@@ -114,7 +114,9 @@ namespace Abril_Backend.Application.Services
             if (IsInLastFiveBusinessDays(today))
             {
                 Console.WriteLine("⏰ Recordatorio mensual para subir lecciones aprendidas ejecutado");
-                await SendLessonsLearnedMonthlyRemindersAsync(DateTime.UtcNow.AddHours(-5));
+                // Pasamos `today` (puede estar simulado) para que el período del filtro,
+                // el periodLabel del correo y el canal de staff sean consistentes.
+                await SendLessonsLearnedMonthlyRemindersAsync(today);
                 Console.WriteLine("📧 Recordatorios enviados correctamente");
 
                 // este deberia ejecutarse el ultimo dia laborable del mes
@@ -172,21 +174,32 @@ namespace Abril_Backend.Application.Services
 
         public async Task SendLessonsLearnedMonthlyRemindersAsync(DateTime executionDate)
         {
-            var pendingUserProjects = await _userProjectRepository.GetUsersWithoutLessonsThisMonth();
+            var currentPeriod = executionDate.ToString("MM-yyyy");
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
-            //var periodLabel = "Enero 2026";
             var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
 
+            // ─────────────────────────────────────────────────────────────────
+            // CANAL 1 — user_project: usuarios asignados a proyectos que no han
+            // subido lecciones este mes.
+            // ─────────────────────────────────────────────────────────────────
+            var pendingUserProjects = await _userProjectRepository.GetUsersWithoutLessonsThisMonth(currentPeriod);
+            Console.WriteLine($"📊 [user_project] pendientes: {pendingUserProjects.Count}");
+
             // Staff emails activos por proyecto (project_staff_reminder.active=true).
-            // Se notifica al grupo de staff de cada proyecto con usuarios pendientes.
+            // En el canal 1 los usamos como CC; en el canal 2 son el origen mismo.
             var activeStaffEmails = await _lessonReminderRepository.GetActiveStaffEmailsAsync();
             var staffByProjectId = activeStaffEmails
                 .GroupBy(s => s.ProjectId)
                 .ToDictionary(g => g.Key, g => g.First().StaffEmail);
 
+            // Para deduplicar entre canal 1 y canal 2: si ya mandé al user X
+            // por el canal 1 (porque está en user_project), no le mando otra
+            // vez por el canal 2 aunque sea miembro del staff_email.
+            var emailedThisRun = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var item in pendingUserProjects)
             {
-                Console.WriteLine(item.Email);
+                Console.WriteLine($"   • {item.UserFullName} <{item.Email}> · {item.Projects.Count} proyectos");
                 var projectsHtml = string.Join("",
                     item.Projects.Select(p => $"<li>{p.ProjectDescription}</li>")
                 );
@@ -242,6 +255,91 @@ namespace Abril_Backend.Application.Services
                     cc: staffCcSet.Count > 0 ? staffCcSet.ToList() : null,
                     bcc: new List<string> {"calvarez@abril.pe"}
                 );
+
+                if (!string.IsNullOrWhiteSpace(item.Email))
+                    emailedThisRun.Add(item.Email.Trim());
+            }
+
+            // ─────────────────────────────────────────────────────────────────
+            // CANAL 2 — project_staff_reminder: para cada proyecto cuyo
+            // staff_email está activo, expandir el grupo a sus miembros y
+            // verificar individualmente que cada uno haya subido lección al
+            // proyecto este mes. Los miembros que no aparecen en `user` se
+            // consideran pendientes (no hay cómo verificar).
+            // ─────────────────────────────────────────────────────────────────
+            Console.WriteLine($"📊 [project_staff_reminder] proyectos activos: {activeStaffEmails.Count}");
+
+            foreach (var staffProject in activeStaffEmails)
+            {
+                // Expandir el grupo a miembros individuales.
+                var members = await _emailGroupResolver.ExpandAsync(
+                    new List<string> { staffProject.StaffEmail }
+                );
+
+                // Si la expansión devuelve vacío o el correo no es grupo,
+                // tratamos al propio staff_email como destinatario.
+                if (members == null || members.Count == 0)
+                    members = new List<string> { staffProject.StaffEmail };
+
+                Console.WriteLine(
+                    $"   • staff de {staffProject.ProjectDescription} ({staffProject.StaffEmail}) " +
+                    $"→ expandido a {members.Count} miembro(s)"
+                );
+
+                // Filtrar a los que NO tienen lección registrada para el proyecto/período.
+                var pendingMembers = await _lessonReminderRepository
+                    .GetPendingMembersForProjectAsync(staffProject.ProjectId, currentPeriod, members);
+
+                Console.WriteLine($"       pendientes: {pendingMembers.Count}");
+
+                foreach (var m in pendingMembers)
+                {
+                    // Dedup: no mandar dos veces si ya recibió correo por el canal 1
+                    if (emailedThisRun.Contains(m.Email)) continue;
+
+                    var greeting = !string.IsNullOrWhiteSpace(m.FullName)
+                        ? $"Estimado(a) <strong>{m.FullName}</strong>,"
+                        : "Estimado(a),";
+
+                    var body = $@"
+                    <p>{greeting}</p>
+
+                    <p>
+                        Como miembro del staff del proyecto
+                        <strong>{staffProject.ProjectDescription}</strong>, te recordamos que aún
+                        no tienes registrada tu <strong>lección aprendida</strong> correspondiente
+                        a <strong>{periodLabel}</strong>.
+                    </p>
+
+                    <p>
+                        Por favor ingresa a la plataforma y completa el envío:
+                    </p>
+
+                    <p>
+                        👉 <a href='{platformUrl}' target='_blank'>
+                            Acceder a la plataforma
+                        </a>
+                    </p>
+
+                    <p style='font-size: 12px; color: #666;'>
+                        Este recordatorio se envía automáticamente a los miembros del grupo
+                        <strong>{staffProject.StaffEmail}</strong>.
+                    </p>
+
+                    <p>Gracias por tu compromiso con la mejora continua.</p>
+                    ";
+
+                    // Enviar directo (ya está expandido — no volver a expandir).
+                    await _emailService.SendAsync(
+                        to: new List<string> { m.Email },
+                        subject: $"🔔 Abril App Recordatorio: lección pendiente para {staffProject.ProjectDescription} — {periodLabel}",
+                        body: body,
+                        isHtml: true,
+                        bcc: new List<string> { "calvarez@abril.pe" }
+                    );
+
+                    emailedThisRun.Add(m.Email);
+                }
             }
         }
 

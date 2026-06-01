@@ -71,4 +71,18 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public string ProjectDescription { get; set; } = string.Empty;
         public string StaffEmail { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// Miembro de un grupo de correos (staff_email expandido) que está pendiente
+    /// de subir su lección aprendida del mes para un proyecto específico.
+    ///   • Si UserId != null: el correo está en la tabla user; FullName puede venir.
+    ///   • Si UserId == null: el correo no existe como user en el sistema;
+    ///     se considera pendiente porque no hay cómo verificar.
+    /// </summary>
+    public class PendingStaffMemberDTO
+    {
+        public string Email { get; set; } = string.Empty;
+        public int? UserId { get; set; }
+        public string? FullName { get; set; }
+    }
 }

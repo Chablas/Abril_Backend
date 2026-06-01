@@ -685,8 +685,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 if (habLectura != null)
                 {
                     habLectura.Estado = "Aprobado";
-                    habLectura.Vigencia = emo.FechaVencimiento.HasValue
-                        ? emo.FechaVencimiento.Value.ToDateTime(TimeOnly.MinValue)
+                    var fvLectura = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
+                    habLectura.Vigencia = fvLectura.HasValue
+                        ? fvLectura.Value.ToDateTime(TimeOnly.MinValue)
                         : null;
                     habLectura.ArchivoUrl = emo.UrlResultado;
                     habLectura.UpdatedAt = DateTime.UtcNow;

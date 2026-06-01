@@ -132,25 +132,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (soloSinEmo)
                 baseQuery = baseQuery.Where(x =>
-                    (x.Worker.ContrataCasa != "Casa" && !ctx.SsHabTrabajador
-                        .Any(h => h.WorkerId == x.Worker.Id && h.ItemId == 4
-                               && h.Estado == "Aprobado"))
-                    ||
-                    (x.Worker.ContrataCasa == "Casa" && !ctx.WorkerEmo
-                        .Any(e => e.WorkerId == x.Worker.Id && e.Activo
-                               && e.Aptitud != "No Apto"
-                               && e.Aptitud != "Observado"
-                               && e.FechaVencimiento >= DateOnly.FromDateTime(DateTime.Today))));
+                    x.Worker.FechaRetiro == null
+                    && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
+                                                   && v.FechaFin == null
+                                                   && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
+                    && !ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo));
 
             if (soloEmoVencido)
+            {
+                var hoy = DateOnly.FromDateTime(DateTime.Today);
                 baseQuery = baseQuery.Where(x =>
-                    (x.Worker.ContrataCasa != "Casa" && ctx.SsHabTrabajador
-                        .Any(h => h.WorkerId == x.Worker.Id && h.ItemId == 4
-                               && h.Estado == "Vencido"))
-                    ||
-                    (x.Worker.ContrataCasa == "Casa" && !ctx.WorkerEmo
-                        .Any(e => e.WorkerId == x.Worker.Id && e.Activo
-                               && e.FechaVencimiento >= DateOnly.FromDateTime(DateTime.Today))));
+                    ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id
+                                       && e.Activo
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
+                                       && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoy));
+            }
 
             var total = await baseQuery.CountAsync();
 
@@ -200,12 +196,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 })
                 .ToDictionaryAsync(x => x.WorkerId, x => x.FechaVencimiento);
 
+            var progMap = await ctx.SsProgramacionEmo
+                .Where(p => workerIds.Contains(p.WorkerId)
+                         && p.Estado != "Completado"
+                         && p.Estado != "Cancelado"
+                         && p.Estado != "Rechazado por Clínica")
+                .GroupBy(p => p.WorkerId)
+                .Select(g => new
+                {
+                    WorkerId = g.Key,
+                    Estado = g.OrderByDescending(p => p.FechaProgramada)
+                               .Select(p => (string?)p.Estado)
+                               .FirstOrDefault()
+                })
+                .ToDictionaryAsync(x => x.WorkerId, x => x.Estado);
+
+            var interconsultaWorkerIds = (await ctx.SsInterconsulta
+                .Where(i => workerIds.Contains(i.WorkerId) && i.Estado == "Pendiente")
+                .Select(i => i.WorkerId)
+                .Distinct()
+                .ToListAsync()).ToHashSet();
+
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
             var items = pageRows.Select(r =>
             {
                 var vinc = soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva;
                 emoMap.TryGetValue(r.Worker.Id, out var emoVenc);
+                progMap.TryGetValue(r.Worker.Id, out var progEstado);
+                var estadoProg = progEstado != null
+                    ? (interconsultaWorkerIds.Contains(r.Worker.Id) ? "Interconsulta" : progEstado)
+                    : null;
                 return new WorkerHabilitacionListDto
                 {
                     WorkerId = r.Worker.Id,
@@ -224,7 +245,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     TieneEmo = emoMap.ContainsKey(r.Worker.Id),
                     DiasRestantesEmo = emoVenc.HasValue
                         ? (int?)(emoVenc.Value.DayNumber - today.DayNumber)
-                        : null
+                        : null,
+                    EstadoProgramacionEmo = estadoProg
                 };
             }).ToList();
 

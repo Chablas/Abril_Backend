@@ -413,6 +413,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
             };
+            var emosAnteriores = await ctx.WorkerEmo
+                .Where(e => e.WorkerId == emo.WorkerId && e.Activo)
+                .ToListAsync();
+            foreach (var e in emosAnteriores)
+            {
+                e.Activo = false;
+                e.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
             ctx.WorkerEmo.Add(emo);
             await ctx.SaveChangesAsync();  // necesario para generar emo.Id antes de usarlo
 

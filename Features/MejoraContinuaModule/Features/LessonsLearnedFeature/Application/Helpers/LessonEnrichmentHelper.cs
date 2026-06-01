@@ -5,13 +5,25 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 {
     public class LessonEnrichmentData
     {
+        /// <summary>Path completo (incluyendo Gerencia) joineado con " / ". Para vista de detalle.</summary>
         public string? AreaDescription { get; set; }
+        /// <summary>
+        /// Path "corto" para listas/tarjetas: omite los nodos cuyo área_type es "Área de Gerencia"
+        /// y devuelve los nombres en MAYÚSCULAS unidos con " / ".
+        /// </summary>
+        public string? AreaListDescription { get; set; }
         public string? PhaseDescription { get; set; }
         public string? StageDescription { get; set; }
         public string? LayerDescription { get; set; }
         public string? SubStageDescription { get; set; }
         public string? SubSpecialtyDescription { get; set; }
         public string? PartidaDescription { get; set; }
+    }
+
+    /// <summary>Nombre del area_type que debe ocultarse en listas/tarjetas (se conserva en detalle).</summary>
+    internal static class AreaTypeNames
+    {
+        public const string Gerencia = "Área de Gerencia";
     }
 
     /// <summary>
@@ -37,7 +49,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 .Distinct()
                 .ToList();
 
+            // pathByLessonAreaId: ruta completa (para detalle) y filtrada (para lista/tarjetas).
             var pathByLessonAreaId = new Dictionary<int, string>();
+            var pathListByLessonAreaId = new Dictionary<int, string>();
             if (lessonAreaIds.Count > 0)
             {
                 var laToScope = await ctx.LessonArea
@@ -45,26 +59,42 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     .Select(la => new { la.LessonAreaId, la.AreaScopeId })
                     .ToListAsync();
 
+                // Trae el nombre del área Y el nombre del tipo (para filtrar gerencias).
                 var allAreaScope = await (
                     from s in ctx.AreaScope
                     join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
+                    join at in ctx.AreaType on ai.AreaTypeId equals at.AreaTypeId
                     where s.State && ai.State
-                    select new { s.AreaScopeId, s.AreaScopeParentId, ai.AreaItemName }
+                    select new
+                    {
+                        s.AreaScopeId,
+                        s.AreaScopeParentId,
+                        ai.AreaItemName,
+                        AreaTypeName = at.AreaTypeName
+                    }
                 ).ToListAsync();
                 var areaScopeById = allAreaScope.ToDictionary(n => n.AreaScopeId);
 
                 foreach (var la in laToScope)
                 {
-                    var parts = new List<string>();
+                    var fullParts = new List<string>();
+                    var listParts = new List<string>();
                     int? cur = la.AreaScopeId;
                     int safety = 50;
                     while (cur.HasValue && safety-- > 0 && areaScopeById.TryGetValue(cur.Value, out var n))
                     {
-                        parts.Insert(0, n.AreaItemName);
+                        fullParts.Insert(0, n.AreaItemName);
+                        // Para la vista lista: omitir nodos cuyo area_type es Gerencia.
+                        if (!string.Equals(n.AreaTypeName, AreaTypeNames.Gerencia, StringComparison.OrdinalIgnoreCase))
+                        {
+                            listParts.Insert(0, n.AreaItemName.ToUpperInvariant());
+                        }
                         cur = n.AreaScopeParentId;
                     }
-                    if (parts.Count > 0)
-                        pathByLessonAreaId[la.LessonAreaId] = string.Join(" / ", parts);
+                    if (fullParts.Count > 0)
+                        pathByLessonAreaId[la.LessonAreaId] = string.Join(" / ", fullParts);
+                    if (listParts.Count > 0)
+                        pathListByLessonAreaId[la.LessonAreaId] = string.Join(" / ", listParts);
                 }
             }
 
@@ -149,6 +179,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     && pathByLessonAreaId.TryGetValue(l.LessonAreaId.Value, out var path))
                 {
                     e.AreaDescription = path;
+                }
+                if (l.LessonAreaId.HasValue
+                    && pathListByLessonAreaId.TryGetValue(l.LessonAreaId.Value, out var listPath))
+                {
+                    e.AreaListDescription = listPath;
                 }
                 if (l.LessonAreaId.HasValue && l.CatalogItemId.HasValue
                     && classByPair.TryGetValue((l.LessonAreaId.Value, l.CatalogItemId.Value), out var classMap))

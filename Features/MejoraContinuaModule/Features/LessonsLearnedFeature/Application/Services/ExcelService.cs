@@ -1,4 +1,5 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
 using ClosedXML.Excel;
 
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Services

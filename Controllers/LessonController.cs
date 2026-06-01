@@ -3,150 +3,35 @@ using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Application.DTOs;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
-using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Services;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Application.Exceptions;
 
 namespace Abril_Backend.Controllers
 {
-
+    /// <summary>
+    /// Controlador legacy que ahora SOLO contiene endpoints relacionados al dashboard
+    /// de lecciones aprendidas (envío de PDF + datos agregados). El resto de los
+    /// endpoints fueron migrados a
+    /// Features/MejoraContinuaModule/Features/LessonsLearnedFeature/Presentation/LessonsLearnedController.cs.
+    /// </summary>
     [ApiController]
     [Route("api/v1/[controller]")]
     public class LessonController : ControllerBase
     {
-        private readonly LessonRepository _lessonRepository;
         private readonly DashboardRepository _dashboardRepository;
-        private readonly ExcelService _excelService;
         private readonly IEmailService _emailService;
 
         public LessonController(
-            LessonRepository lessonRepository,
             DashboardRepository dashboardRepository,
-            ExcelService excelService,
-            IEmailService emailService
-            )
+            IEmailService emailService)
         {
-            _lessonRepository = lessonRepository;
             _dashboardRepository = dashboardRepository;
-            _excelService = excelService;
             _emailService = emailService;
-        }
-
-        /*[HttpGet("all")]
-        public async Task<IActionResult> GetAll()
-        {
-            var data = await _lessonRepository.GetAll();
-            return Ok(data);
-        }*/
-
-        [Authorize]
-        [HttpGet("all")]
-        public async Task<IActionResult> GetLessonsFilter(
-            [FromQuery] string? period,
-            [FromQuery] int? stateId,
-            [FromQuery] int? projectId,
-            [FromQuery] int? areaId,
-            [FromQuery] int? phaseId,
-            [FromQuery] int? stageId,
-            [FromQuery] int? layerId,
-            [FromQuery] int? subStageId,
-            [FromQuery] int? subSpecialtyId
-        )
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var result = await _lessonRepository.GetLessonsFilter(
-                    period, stateId, projectId, areaId, phaseId, stageId, layerId, subStageId, subSpecialtyId
-                );
-
-                return Ok(result);
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [Authorize]
-        [HttpGet]
-        [Route("{id}")]
-        public async Task<IActionResult> GetById(int id)
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var data = await _lessonRepository.GetById(id);
-                if (data == null)
-                {
-                    return NotFound(new { message = "Lección no encontrada" });
-                }
-                return Ok(data);
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [Authorize]
-        [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1)
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                if (page < 1)
-                    page = 1;
-
-                var result = await _lessonRepository.GetPaged(page);
-                return Ok(result);
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [Authorize]
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(int id)
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var userId = int.Parse(userIdClaim.Value);
-
-                var result = await _lessonRepository.DeleteSoftAsync(id, userId);
-                if (!result)
-                    return NotFound(new { message = "Lección no encontrada." });
-                return Ok(new { message = "Lección eliminada exitosamente." });
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
         }
 
         [Authorize]
         [HttpPost("dashboard")]
-        public async Task<IActionResult> GetDashboardData([FromBody] List<int> subStageIds, 
+        public async Task<IActionResult> GetDashboardData([FromBody] List<int> subStageIds,
             [FromQuery] DateTime? periodDate,
             [FromQuery] int? stateId,
             [FromQuery] int? projectId,
@@ -223,14 +108,14 @@ namespace Abril_Backend.Controllers
                     body: "Adjunto PDF mensual",
                     isHtml: false,
                     attachments: new List<EmailAttachment>
-                {
-                    new EmailAttachment
                     {
-                        FileName = pdf.FileName,
-                        ContentType = pdf.ContentType,
-                        Content = fileBytes,
-                    }
-                });
+                        new EmailAttachment
+                        {
+                            FileName = pdf.FileName,
+                            ContentType = pdf.ContentType,
+                            Content = fileBytes,
+                        }
+                    });
 
                 return Ok(new { message = "PDF enviado correctamente" });
             }
@@ -243,57 +128,5 @@ namespace Abril_Backend.Controllers
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
-
-        [Authorize]
-        [HttpGet("export-excel")]
-        public async Task<IActionResult> ExportExcel([FromQuery] string? period,
-            [FromQuery] int? stateId,
-            [FromQuery] int? projectId,
-            [FromQuery] int? areaId,
-            [FromQuery] int? phaseId,
-            [FromQuery] int? stageId,
-            [FromQuery] int? layerId,
-            [FromQuery] int? subStageId,
-            [FromQuery] int? subSpecialtyId)
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var lessons = await _lessonRepository.GetLessonsFilter(
-                    period, stateId, projectId, areaId, phaseId, stageId, layerId, subStageId, subSpecialtyId
-                );
-
-                var fileBytes = await _excelService.GenerateLessonsExcel(lessons);
-
-                return File(
-                    fileBytes,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "Lecciones_Aprendidas.xlsx"
-                );
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        /*
-        [HttpPatch("[action]")]
-        [Consumes("multipart/form-data")]
-        public IActionResult Patch([FromForm] UpdateLessonDTO dto) {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var updated = _repository.Update(dto);
-            if (!updated)
-                return NotFound("La lección no existe");
-
-            return Ok(new { message = "Lección actualizada correctamente" });
-        }
-        */
     }
 }

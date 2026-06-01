@@ -173,7 +173,6 @@ builder.Services.AddScoped<IArquitecturaComercialRepository, ArquitecturaComerci
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddScoped<LayerRepository>();
-builder.Services.AddScoped<LessonRepository>();
 builder.Services.AddScoped<MilestoneRepository>();
 builder.Services.AddScoped<MilestoneScheduleRepository>();
 builder.Services.AddScoped<MilestoneScheduleHistoryRepository>();

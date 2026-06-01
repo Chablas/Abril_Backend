@@ -2,6 +2,8 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Helpers;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models;
+using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
@@ -10,6 +12,10 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using System.Data;
 using ProjectModel = Abril_Backend.Shared.Models.Project;
+using AreaTypeModel = Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaType;
+// La feature LessonsLearned tiene su propio LessonPeriodDTO (copia del legacy).
+// Resolver el conflicto: en este archivo siempre apuntamos al de la feature.
+using LessonPeriodDTO = Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos.LessonPeriodDTO;
 
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Infrastructure.Repositories
 {
@@ -27,6 +33,108 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             _factory = factory;
             _fileStorageService = fileStorageService;
             _containerResolver = containerResolver;
+        }
+
+        /// <summary>
+        /// Devuelve los lesson_id que casan con los filtros de clasificación
+        /// (Fase/Etapa/Nivel/Subetapa/Subespecialidad). En el modelo nuevo esos filtros
+        /// se interpretan como catalog_item_id: una lección casa si la cadena de su
+        /// scope_item (desde la hoja catalog_item_id hacia la raíz, dentro de su
+        /// lesson_area) contiene TODOS los catalog_item_id seleccionados (semántica AND).
+        /// Devuelve null si no hay ningún filtro de clasificación activo.
+        /// </summary>
+        private static async Task<List<int>?> ComputeCatalogFilterLessonIdsAsync(
+            AppDbContext ctx,
+            int? phaseId, int? stageId, int? layerId, int? subStageId, int? subSpecialtyId)
+        {
+            var required = new List<int>();
+            if (phaseId.HasValue) required.Add(phaseId.Value);
+            if (stageId.HasValue) required.Add(stageId.Value);
+            if (layerId.HasValue) required.Add(layerId.Value);
+            if (subStageId.HasValue) required.Add(subStageId.Value);
+            if (subSpecialtyId.HasValue) required.Add(subSpecialtyId.Value);
+            if (required.Count == 0) return null;
+
+            // Lecciones candidatas (modelo nuevo: lesson_area_id + catalog_item_id no nulos)
+            var candidates = await ctx.Lesson
+                .Where(x => x.Active && x.LessonAreaId != null && x.CatalogItemId != null)
+                .Select(x => new { x.LessonId, AreaId = x.LessonAreaId!.Value, CatId = x.CatalogItemId!.Value })
+                .ToListAsync();
+            if (candidates.Count == 0) return new List<int>();
+
+            // Todos los scope_item activos
+            var scope = await ctx.ScopeItem
+                .Where(si => si.Active)
+                .Select(si => new { si.ScopeItemId, si.LessonAreaId, si.CatalogItemId, si.ScopeItemParentId })
+                .ToListAsync();
+            var scopeById = scope.ToDictionary(s => s.ScopeItemId);
+
+            // Hoja por (lesson_area_id, catalog_item_id)
+            var leafByPair = new Dictionary<(int, int), int>();
+            foreach (var s in scope)
+            {
+                var key = (s.LessonAreaId, s.CatalogItemId);
+                if (!leafByPair.ContainsKey(key)) leafByPair[key] = s.ScopeItemId;
+            }
+
+            var matching = new List<int>();
+            foreach (var c in candidates)
+            {
+                if (!leafByPair.TryGetValue((c.AreaId, c.CatId), out var leafId)) continue;
+
+                var chain = new HashSet<int>();
+                int? cur = leafId;
+                int safety = 50;
+                while (cur.HasValue && safety-- > 0 && scopeById.TryGetValue(cur.Value, out var n))
+                {
+                    chain.Add(n.CatalogItemId);
+                    cur = n.ScopeItemParentId;
+                }
+
+                if (required.All(r => chain.Contains(r)))
+                    matching.Add(c.LessonId);
+            }
+
+            return matching;
+        }
+
+        /// <summary>
+        /// Opciones de los desplegables de Fase/Etapa/Nivel/Subetapa/Subespecialidad
+        /// para el listado de lecciones. En el modelo nuevo provienen de catalog_item
+        /// agrupado por catalog_type (de los scope_item activos). El Id devuelto en cada
+        /// *SimpleDTO es el catalog_item_id (lo que luego viaja como filtro).
+        /// </summary>
+        private static async Task<(
+            List<PhaseSimpleDTO> Phases,
+            List<StageSimpleDTO> Stages,
+            List<LayerSimpleDTO> Layers,
+            List<SubStageSimpleDTO> SubStages,
+            List<SubSpecialtySimpleDTO> SubSpecialties
+        )> LoadCatalogFilterOptionsAsync(AppDbContext ctx)
+        {
+            var options = await (
+                from si in ctx.ScopeItem
+                join ci in ctx.CatalogItem on si.CatalogItemId equals ci.CatalogItemId
+                join ct in ctx.CatalogType on ci.CatalogTypeId equals ct.CatalogTypeId
+                where si.Active && ci.Active
+                select new { ct.CatalogTypeName, ci.CatalogItemId, ci.CatalogItemDescription }
+            ).Distinct().ToListAsync();
+
+            List<T> Build<T>(string typeName, Func<int, string, T> factory) =>
+                options.Where(o => o.CatalogTypeName == typeName)
+                       .GroupBy(o => o.CatalogItemId)
+                       .Select(g => g.First())
+                       .OrderBy(o => o.CatalogItemDescription)
+                       .Select(o => factory(o.CatalogItemId, o.CatalogItemDescription))
+                       .ToList();
+
+            return (
+                Build("Fase",            (id, d) => new PhaseSimpleDTO { PhaseId = id, PhaseDescription = d }),
+                Build("Etapa",           (id, d) => new StageSimpleDTO { StageId = id, StageDescription = d }),
+                Build("Nivel",           (id, d) => new LayerSimpleDTO { LayerId = id, LayerDescription = d }),
+                Build("Subetapa",        (id, d) => new SubStageSimpleDTO { SubStageId = id, SubStageDescription = d }),
+                Build("Subespecialidad", (id, d) => new SubSpecialtySimpleDTO { SubSpecialtyId = id, SubSpecialtyDescription = d })
+            );
         }
 
         public async Task<PagedResult<LessonListDTO>> GetLessonsFilterPaged(
@@ -64,6 +172,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
             if (userId.HasValue)
                 query = query.Where(x => x.CreatedUserId == userId.Value);
+
+            // Filtros de clasificación (Fase/Etapa/Nivel/Subetapa/Subespecialidad) por
+            // catalog_item_id del modelo nuevo (scope_item walk-up), no por psss.
+            var catalogLessonIds = await ComputeCatalogFilterLessonIdsAsync(
+                ctx, phaseId, stageId, layerId, subStageId, subSpecialtyId);
+            if (catalogLessonIds != null)
+                query = query.Where(x => catalogLessonIds.Contains(x.LessonId));
 
             var result =
                 from lesson in query
@@ -122,20 +237,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     person
                 };
 
-            if (phaseId.HasValue)
-                result = result.Where(x => x.psss != null && x.psss.PhaseId == phaseId.Value);
-
-            if (stageId.HasValue)
-                result = result.Where(x => x.psss != null && x.psss.StageId == stageId.Value);
-
-            if (layerId.HasValue)
-                result = result.Where(x => x.psss != null && x.psss.LayerId == layerId.Value);
-
-            if (subStageId.HasValue)
-                result = result.Where(x => x.psss != null && x.psss.SubStageId == subStageId.Value);
-
-            if (subSpecialtyId.HasValue)
-                result = result.Where(x => x.psss != null && x.psss.SubSpecialtyId == subSpecialtyId.Value);
+            // (Los filtros de clasificación ya se aplicaron arriba vía catalog_item_id.)
 
             var totalRecords = await result.CountAsync();
 
@@ -230,6 +332,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             {
                 if (!enrichments.TryGetValue(lesson.LessonId, out var e)) continue;
                 if (e.AreaDescription != null)         lesson.AreaDescription = e.AreaDescription;
+                if (e.AreaListDescription != null)     lesson.AreaListDescription = e.AreaListDescription;
                 if (e.PhaseDescription != null)        lesson.PhaseDescription = e.PhaseDescription;
                 if (e.StageDescription != null)        lesson.StageDescription = e.StageDescription;
                 if (e.LayerDescription != null)        lesson.LayerDescription = e.LayerDescription;
@@ -291,6 +394,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             string cAreaId = ctx.Col<Area>(nameof(Area.AreaId));
             string cAreaDesc = ctx.Col<Area>(nameof(Area.AreaDescription));
             string cAreaState = ctx.Col<Area>(nameof(Area.State));
+
+            // Nota: las tablas/columnas del nuevo modelo (lesson_area / area_scope /
+            // area_item) ya NO se referencian dentro del SQL Dapper; el dropdown de
+            // áreas y el filtro por área se resuelven via EF más abajo. Por eso no
+            // se declaran aquí los Table/Col<> correspondientes.
 
             string tPsss = ctx.Table<PhaseStageSubStageSubSpecialty>();
             string cPsssId = ctx.Col<PhaseStageSubStageSubSpecialty>(nameof(PhaseStageSubStageSubSpecialty.PhaseStageSubStageSubSpecialtyId));
@@ -377,7 +485,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
             if (filter.AreaId.HasValue)
             {
-                whereConditions.Add($"l.{cLessonAreaId} = @AreaId");
+                // El filtro recibe ahora un lesson_area_id (las ramas activas que se
+                // muestran en /mejora-continua/configuration/areas). Match directo.
+                whereConditions.Add($"l.{cLessonLessonAreaId} = @AreaId");
                 parameters.Add("@AreaId", filter.AreaId.Value);
             }
 
@@ -387,34 +497,21 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 parameters.Add("@UserId", filter.UserId.Value);
             }
 
-            if (filter.PhaseId.HasValue)
+            // Filtros de clasificación (Fase/Etapa/Nivel/Subetapa/Subespecialidad) por
+            // catalog_item_id (modelo nuevo, scope_item walk-up), no por psss.
+            var catalogLessonIds = await ComputeCatalogFilterLessonIdsAsync(
+                ctx, filter.PhaseId, filter.StageId, filter.LayerId, filter.SubStageId, filter.SubSpecialtyId);
+            if (catalogLessonIds != null)
             {
-                whereConditions.Add($"psss.{cPsssPhaseId} = @PhaseId");
-                parameters.Add("@PhaseId", filter.PhaseId.Value);
-            }
-
-            if (filter.StageId.HasValue)
-            {
-                whereConditions.Add($"psss.{cPsssStageId} = @StageId");
-                parameters.Add("@StageId", filter.StageId.Value);
-            }
-
-            if (filter.LayerId.HasValue)
-            {
-                whereConditions.Add($"psss.{cPsssLayerId} = @LayerId");
-                parameters.Add("@LayerId", filter.LayerId.Value);
-            }
-
-            if (filter.SubStageId.HasValue)
-            {
-                whereConditions.Add($"psss.{cPsssSubStageId} = @SubStageId");
-                parameters.Add("@SubStageId", filter.SubStageId.Value);
-            }
-
-            if (filter.SubSpecialtyId.HasValue)
-            {
-                whereConditions.Add($"psss.{cPsssSubSpecialtyId} = @SubSpecialtyId");
-                parameters.Add("@SubSpecialtyId", filter.SubSpecialtyId.Value);
+                if (catalogLessonIds.Count == 0)
+                {
+                    whereConditions.Add("FALSE");
+                }
+                else
+                {
+                    whereConditions.Add($"l.{cLessonId} = ANY(@CatalogLessonIds)");
+                    parameters.Add("@CatalogLessonIds", catalogLessonIds.ToArray());
+                }
             }
 
             string whereClause = string.Join(" AND ", whereConditions);
@@ -493,9 +590,11 @@ WHERE li.{cLiState} = TRUE
     LIMIT @PageSize OFFSET @PageOffset
   );
 
--- 4. Filters: areas (state = true)
-SELECT {cAreaId} AS ""AreaId"", {cAreaDesc} AS ""AreaDescription""
-FROM {tArea} WHERE {cAreaState} = TRUE ORDER BY {cAreaDesc};
+-- 4. Filters: áreas. Devolvemos cero filas aquí: las áreas activas para el
+-- dropdown se calculan separadamente con EF (recorriendo lesson_area →
+-- area_scope para reconstruir el path completo). Mantenemos el SELECT vacío
+-- para no desincronizar el orden de ReadAsync<>() del multi-query.
+SELECT 0 AS ""AreaId"", '' AS ""AreaDescription"" WHERE FALSE;
 
 -- 5. Filters: projects (active = true AND state = true)
 SELECT {cProjectId} AS ""ProjectId"", {cProjectDesc} AS ""ProjectDescription""
@@ -505,25 +604,14 @@ FROM {tProject} WHERE {cProjectActive} = TRUE AND {cProjectState} = TRUE ORDER B
 SELECT DISTINCT {cLessonPeriodDate} AS ""PeriodDate""
 FROM {tLesson} WHERE {cLessonState} = TRUE ORDER BY 1 DESC;
 
--- 7. Filters: phases (state = true, ordenado por order)
-SELECT {cPhaseId} AS ""PhaseId"", {cPhaseDesc} AS ""PhaseDescription""
-FROM {tPhase} WHERE {cPhaseState} = TRUE ORDER BY {cPhaseOrder};
-
--- 8. Filters: stages (sin filtro)
-SELECT {cStageId} AS ""StageId"", {cStageDesc} AS ""StageDescription""
-FROM {tStage} ORDER BY {cStageDesc};
-
--- 9. Filters: layers (sin filtro)
-SELECT {cLayerId} AS ""LayerId"", {cLayerDesc} AS ""LayerDescription""
-FROM {tLayer} ORDER BY {cLayerDesc};
-
--- 10. Filters: substages (sin filtro)
-SELECT {cSubStageId} AS ""SubStageId"", {cSubStageDesc} AS ""SubStageDescription""
-FROM {tSubStage} ORDER BY {cSubStageDesc};
-
--- 11. Filters: subspecialties (state = true)
-SELECT {cSubSpecId} AS ""SubSpecialtyId"", {cSubSpecDesc} AS ""SubSpecialtyDescription""
-FROM {tSubSpec} WHERE {cSubSpecState} = TRUE ORDER BY {cSubSpecDesc};
+-- 7-11. Filters de clasificación: placeholders vacíos. Las opciones reales
+-- (Fase/Etapa/Nivel/Subetapa/Subespecialidad) se calculan con EF abajo desde
+-- catalog_item/catalog_type (los Ids son catalog_item_id).
+SELECT 0 AS ""PhaseId"", '' AS ""PhaseDescription"" WHERE FALSE;
+SELECT 0 AS ""StageId"", '' AS ""StageDescription"" WHERE FALSE;
+SELECT 0 AS ""LayerId"", '' AS ""LayerDescription"" WHERE FALSE;
+SELECT 0 AS ""SubStageId"", '' AS ""SubStageDescription"" WHERE FALSE;
+SELECT 0 AS ""SubSpecialtyId"", '' AS ""SubSpecialtyDescription"" WHERE FALSE;
 
 -- 12. Filters: users con join a person (active = true)
 SELECT u.{cUserId} AS ""UserId"", pe.{cPersonFullName} AS ""FullName""
@@ -546,15 +634,23 @@ ORDER BY pe.{cPersonFullName};
             var images = (await multi.ReadAsync<LessonImageDTO>()).ToList();
 
             // 4-12. Filters
-            var areas = (await multi.ReadAsync<AreaSimpleDTO>()).ToList();
+            // Consumimos el SELECT vacío del bloque 4 (placeholder) para mantener
+            // el orden de lectura. Las áreas reales se calculan abajo con EF.
+            _ = (await multi.ReadAsync<AreaSimpleDTO>()).ToList();
             var projects = (await multi.ReadAsync<ProjectSimpleDTO>()).ToList();
             var periods = (await multi.ReadAsync<LessonPeriodDTO>()).ToList();
-            var phases = (await multi.ReadAsync<PhaseSimpleDTO>()).ToList();
-            var stages = (await multi.ReadAsync<StageSimpleDTO>()).ToList();
-            var layers = (await multi.ReadAsync<LayerSimpleDTO>()).ToList();
-            var subStages = (await multi.ReadAsync<SubStageSimpleDTO>()).ToList();
-            var subSpecialties = (await multi.ReadAsync<SubSpecialtySimpleDTO>()).ToList();
+            // Placeholders vacíos (bloques 7-11). Las opciones reales se calculan con EF abajo.
+            _ = (await multi.ReadAsync<PhaseSimpleDTO>()).ToList();
+            _ = (await multi.ReadAsync<StageSimpleDTO>()).ToList();
+            _ = (await multi.ReadAsync<LayerSimpleDTO>()).ToList();
+            _ = (await multi.ReadAsync<SubStageSimpleDTO>()).ToList();
+            _ = (await multi.ReadAsync<SubSpecialtySimpleDTO>()).ToList();
             var users = (await multi.ReadAsync<UserFilterDTO>()).ToList();
+
+            // Opciones de clasificación (Fase/Etapa/Nivel/Subetapa/Subespecialidad) desde
+            // el modelo nuevo: catalog_item agrupado por catalog_type. Los Ids son catalog_item_id.
+            var (phases, stages, layers, subStages, subSpecialties) =
+                await LoadCatalogFilterOptionsAsync(ctx);
 
             var imagesByLesson = images.GroupBy(i => i.LessonId).ToDictionary(g => g.Key, g => g.ToList());
             foreach (var lesson in lessons)
@@ -575,12 +671,61 @@ ORDER BY pe.{cPersonFullName};
             {
                 if (!enrichments.TryGetValue(lesson.LessonId, out var e)) continue;
                 if (e.AreaDescription != null)         lesson.AreaDescription = e.AreaDescription;
+                if (e.AreaListDescription != null)     lesson.AreaListDescription = e.AreaListDescription;
                 if (e.PhaseDescription != null)        lesson.PhaseDescription = e.PhaseDescription;
                 if (e.StageDescription != null)        lesson.StageDescription = e.StageDescription;
                 if (e.LayerDescription != null)        lesson.LayerDescription = e.LayerDescription;
                 if (e.SubStageDescription != null)     lesson.SubStageDescription = e.SubStageDescription;
                 if (e.SubSpecialtyDescription != null) lesson.SubSpecialtyDescription = e.SubSpecialtyDescription;
                 if (e.PartidaDescription != null)      lesson.PartidaDescription = e.PartidaDescription;
+            }
+
+            // Áreas del dropdown: solo las ramas ACTIVAS configuradas en
+            // /mejora-continua/configuration/areas (lesson_area.active = true).
+            // El AreaId es el lesson_area_id (lo que el WHERE de arriba usa para casar);
+            // la descripción es el path completo del area_scope.
+            var activeLessonAreas = await ctx.LessonArea
+                .Where(la => la.Active)
+                .Select(la => new { la.LessonAreaId, la.AreaScopeId })
+                .ToListAsync();
+
+            List<AreaSimpleDTO> areas;
+            if (activeLessonAreas.Count == 0)
+            {
+                areas = new List<AreaSimpleDTO>();
+            }
+            else
+            {
+                // Cargamos todos los nodos vivos de area_scope una sola vez para reconstruir
+                // los paths desde la raíz hasta cada hoja-de-lesson_area.
+                var scopeNodes = await (
+                    from s in ctx.AreaScope
+                    join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
+                    where s.State && ai.State
+                    select new { s.AreaScopeId, s.AreaScopeParentId, ai.AreaItemName }
+                ).ToListAsync();
+                var nodeById = scopeNodes.ToDictionary(n => n.AreaScopeId);
+
+                areas = activeLessonAreas
+                    .Select(la =>
+                    {
+                        var parts = new List<string>();
+                        int? cur = la.AreaScopeId;
+                        int safety = 50;
+                        while (cur.HasValue && safety-- > 0 && nodeById.TryGetValue(cur.Value, out var n))
+                        {
+                            parts.Insert(0, n.AreaItemName);
+                            cur = n.AreaScopeParentId;
+                        }
+                        return new AreaSimpleDTO
+                        {
+                            AreaId = la.LessonAreaId,
+                            AreaDescription = string.Join(" > ", parts)
+                        };
+                    })
+                    .Where(a => !string.IsNullOrWhiteSpace(a.AreaDescription))
+                    .OrderBy(a => a.AreaDescription)
+                    .ToList();
             }
 
             int totalPages = pageSize == 0 ? 0 : (totalRecords + pageSize - 1) / pageSize;
@@ -858,6 +1003,349 @@ ORDER BY pe.{cPersonFullName};
                 .ToList();
 
             return result;
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Métodos migrados desde el legacy Infrastructure/Repositories/LessonRepository.cs.
+        // Reescritos para usar IDbContextFactory<AppDbContext> en vez de un AppDbContext
+        // inyectado (siguiendo la convención de los repos vertical-slice).
+        // ──────────────────────────────────────────────────────────────────
+
+        public async Task<LessonDetailDTO?> GetByIdAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var registro = await (
+                from lesson in ctx.Lesson
+
+                join project in ctx.Project
+                    on lesson.ProjectId equals project.ProjectId into pj
+                from project in pj.DefaultIfEmpty()
+
+                join area in ctx.Area
+                    on lesson.AreaId equals area.AreaId into aj
+                from area in aj.DefaultIfEmpty()
+
+                join psss in ctx.PhaseStageSubStageSubSpecialty
+                    on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId into pssj
+                from psss in pssj.DefaultIfEmpty()
+
+                join phase in ctx.Phase
+                    on psss.PhaseId equals phase.PhaseId into ph
+                from phase in ph.DefaultIfEmpty()
+
+                join stage in ctx.Stage
+                    on psss.StageId equals stage.StageId into stj
+                from stage in stj.DefaultIfEmpty()
+
+                join layer in ctx.Layer
+                    on psss.LayerId equals layer.LayerId into lj
+                from layer in lj.DefaultIfEmpty()
+
+                join substage in ctx.SubStage
+                    on psss.SubStageId equals substage.SubStageId into ss
+                from substage in ss.DefaultIfEmpty()
+
+                join subspecialty in ctx.SubSpecialty
+                    on psss.SubSpecialtyId equals subspecialty.SubSpecialtyId into sp
+                from subspecialty in sp.DefaultIfEmpty()
+
+                join partida in ctx.Partida
+                    on psss.PartidaId equals partida.PartidaId into paj
+                from partida in paj.DefaultIfEmpty()
+
+                join user in ctx.User
+                    on lesson.CreatedUserId equals user.UserId into us
+                from user in us.DefaultIfEmpty()
+
+                join person in ctx.Person
+                    on user.UserId equals person.UserId into pe
+                from person in pe.DefaultIfEmpty()
+
+                join state in ctx.State
+                    on lesson.StateId equals state.StateId
+
+                where lesson.State == true && lesson.LessonId == id
+
+                select new LessonDetailDTO
+                {
+                    LessonId = lesson.LessonId,
+                    LessonCode = lesson.LessonCode,
+                    Period = lesson.Period,
+                    ProblemDescription = lesson.ProblemDescription,
+                    ReasonDescription = lesson.ReasonDescription,
+                    LessonDescription = lesson.LessonDescription,
+                    ImpactDescription = lesson.ImpactDescription,
+
+                    ProjectId = lesson.ProjectId,
+                    ProjectDescription = project != null ? project.ProjectDescription : null,
+
+                    AreaId = lesson.AreaId,
+                    AreaDescription = area != null ? area.AreaDescription : null,
+
+                    LessonAreaId = lesson.LessonAreaId,
+                    CatalogItemId = lesson.CatalogItemId,
+
+                    PhaseStageSubStageSubSpecialtyId = lesson.PhaseStageSubStageSubSpecialtyId,
+
+                    PhaseId = psss != null ? (int?)psss.PhaseId : null,
+                    PhaseDescription = phase != null ? phase.PhaseDescription : null,
+
+                    StageId = psss != null ? psss.StageId : null,
+                    StageDescription = stage != null ? stage.StageDescription : null,
+
+                    LayerId = psss != null ? psss.LayerId : null,
+                    LayerDescription = layer != null ? layer.LayerDescription : null,
+
+                    SubStageId = psss != null ? psss.SubStageId : null,
+                    SubStageDescription = substage != null ? substage.SubStageDescription : null,
+
+                    SubSpecialtyId = psss != null ? psss.SubSpecialtyId : null,
+                    SubSpecialtyDescription = subspecialty != null ? subspecialty.SubSpecialtyDescription : null,
+
+                    PartidaId = psss != null ? psss.PartidaId : null,
+                    PartidaDescription = partida != null ? partida.PartidaDescription : null,
+
+                    StateId = lesson.StateId,
+                    StateDescription = state.StateDescription,
+
+                    CreatedDateTime = lesson.CreatedDateTime,
+                    CreatedUserId = lesson.CreatedUserId,
+                    CreatedUserFullName = person != null ? person.FullName : null,
+                    UpdatedDateTime = lesson.UpdatedDateTime,
+                    UpdatedUserId = lesson.UpdatedUserId,
+                    Active = lesson.Active
+                }
+            ).FirstOrDefaultAsync();
+
+            if (registro == null) return null;
+
+            registro.Images = await (
+                from img in ctx.LessonImages
+                join imagetype in ctx.ImageType
+                    on img.ImageTypeId equals imagetype.ImageTypeId
+                where img.LessonId == id && img.State == true
+                select new LessonImageDTO
+                {
+                    LessonImageId = img.LessonImageId,
+                    ImageUrl = img.ImageUrl,
+                    LessonId = img.LessonId,
+                    ImageTypeId = img.ImageTypeId,
+                    ImageTypeDescription = imagetype.ImageTypeDescription
+                }
+            ).ToListAsync();
+
+            // Enriquecer con área (lesson_area → area_scope → area_item) y
+            // clasificación (scope_item walk-up por catalog_type) del nuevo modelo.
+            var enrichments = await LessonEnrichmentHelper.ComputeAsync(
+                ctx,
+                new[] { (registro.LessonId, registro.LessonAreaId, registro.CatalogItemId) }
+            );
+            if (enrichments.TryGetValue(registro.LessonId, out var e))
+            {
+                if (e.AreaDescription != null)         registro.AreaDescription = e.AreaDescription;
+                if (e.AreaListDescription != null)     registro.AreaListDescription = e.AreaListDescription;
+                if (e.PhaseDescription != null)        registro.PhaseDescription = e.PhaseDescription;
+                if (e.StageDescription != null)        registro.StageDescription = e.StageDescription;
+                if (e.LayerDescription != null)        registro.LayerDescription = e.LayerDescription;
+                if (e.SubStageDescription != null)     registro.SubStageDescription = e.SubStageDescription;
+                if (e.SubSpecialtyDescription != null) registro.SubSpecialtyDescription = e.SubSpecialtyDescription;
+                if (e.PartidaDescription != null)      registro.PartidaDescription = e.PartidaDescription;
+            }
+
+            return registro;
+        }
+
+        public async Task<List<LessonListDTO>> GetLessonsFilterAsync(
+            string? period,
+            int? stateId,
+            int? projectId,
+            int? areaId,
+            int? phaseId,
+            int? stageId,
+            int? layerId,
+            int? subStageId,
+            int? subSpecialtyId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var query = ctx.Lesson.Where(x => x.Active).AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(period))
+                query = query.Where(x => x.Period == period);
+            if (stateId.HasValue)
+                query = query.Where(x => x.StateId == stateId.Value);
+            if (projectId.HasValue)
+                query = query.Where(x => x.ProjectId == projectId.Value);
+            if (areaId.HasValue)
+                query = query.Where(x => x.AreaId == areaId.Value);
+
+            // Filtros de clasificación por catalog_item_id (modelo nuevo), no por psss.
+            var catalogLessonIds = await ComputeCatalogFilterLessonIdsAsync(
+                ctx, phaseId, stageId, layerId, subStageId, subSpecialtyId);
+            if (catalogLessonIds != null)
+                query = query.Where(x => catalogLessonIds.Contains(x.LessonId));
+
+            var result =
+                from lesson in query
+                join project in ctx.Project on lesson.ProjectId equals project.ProjectId into pj
+                from project in pj.DefaultIfEmpty()
+
+                join area in ctx.Area on lesson.AreaId equals area.AreaId
+
+                join psss in ctx.PhaseStageSubStageSubSpecialty
+                    on lesson.PhaseStageSubStageSubSpecialtyId equals psss.PhaseStageSubStageSubSpecialtyId into ps
+                from psss in ps.DefaultIfEmpty()
+
+                join phase in ctx.Phase on psss.PhaseId equals phase.PhaseId into ph
+                from phase in ph.DefaultIfEmpty()
+
+                join stage in ctx.Stage on psss.StageId equals stage.StageId into st
+                from stage in st.DefaultIfEmpty()
+
+                join layer in ctx.Layer on psss.LayerId equals layer.LayerId into ly
+                from layer in ly.DefaultIfEmpty()
+
+                join substage in ctx.SubStage on psss.SubStageId equals substage.SubStageId into ss
+                from substage in ss.DefaultIfEmpty()
+
+                join subspecialty in ctx.SubSpecialty
+                    on psss.SubSpecialtyId equals subspecialty.SubSpecialtyId into sp
+                from subspecialty in sp.DefaultIfEmpty()
+
+                join user in ctx.User
+                    on lesson.CreatedUserId equals user.UserId into us
+                from user in us.DefaultIfEmpty()
+
+                join person in ctx.Person
+                    on user.UserId equals person.UserId into pe
+                from person in pe.DefaultIfEmpty()
+
+                join state in ctx.State on lesson.StateId equals state.StateId
+                select new { lesson, project, area, psss, phase, stage, layer, substage, subspecialty, state, person };
+
+            // (Los filtros de clasificación ya se aplicaron arriba vía catalog_item_id.)
+
+            var registros = await result
+                .OrderByDescending(x => x.lesson.CreatedDateTime)
+                .Select(x => new LessonListDTO
+                {
+                    LessonId = x.lesson.LessonId,
+                    LessonCode = x.lesson.LessonCode,
+                    Period = x.lesson.Period,
+                    ProblemDescription = x.lesson.ProblemDescription,
+                    ReasonDescription = x.lesson.ReasonDescription,
+                    LessonDescription = x.lesson.LessonDescription,
+                    ImpactDescription = x.lesson.ImpactDescription,
+
+                    ProjectId = x.lesson.ProjectId,
+                    ProjectDescription = x.project != null ? x.project.ProjectDescription : null,
+
+                    AreaId = x.lesson.AreaId,
+                    AreaDescription = x.area.AreaDescription,
+
+                    LessonAreaId = x.lesson.LessonAreaId,
+                    CatalogItemId = x.lesson.CatalogItemId,
+
+                    PhaseStageSubStageSubSpecialtyId = x.lesson.PhaseStageSubStageSubSpecialtyId,
+
+                    PhaseId = x.psss != null ? (int?)x.psss.PhaseId : null,
+                    PhaseDescription = x.phase != null ? x.phase.PhaseDescription : null,
+
+                    StageId = x.psss != null ? (int?)x.psss.StageId : null,
+                    StageDescription = x.stage != null ? x.stage.StageDescription : null,
+
+                    LayerId = x.psss != null ? (int?)x.psss.LayerId : null,
+                    LayerDescription = x.layer != null ? x.layer.LayerDescription : null,
+
+                    SubStageId = x.psss != null ? (int?)x.psss.SubStageId : null,
+                    SubStageDescription = x.substage != null ? x.substage.SubStageDescription : null,
+
+                    SubSpecialtyId = x.psss != null ? (int?)x.psss.SubSpecialtyId : null,
+                    SubSpecialtyDescription = x.subspecialty != null ? x.subspecialty.SubSpecialtyDescription : null,
+
+                    StateId = x.lesson.StateId,
+                    StateDescription = x.state.StateDescription,
+
+                    CreatedDateTime = x.lesson.CreatedDateTime,
+                    CreatedUserId = x.lesson.CreatedUserId,
+                    CreatedUserFullName = x.person != null ? x.person.FullName : null,
+                    UpdatedDateTime = x.lesson.UpdatedDateTime,
+                    UpdatedUserId = x.lesson.UpdatedUserId,
+                    Active = x.lesson.Active,
+                    Images = new List<LessonImageDTO>()
+                })
+                .ToListAsync();
+
+            var lessonIds = registros.Select(x => x.LessonId).ToList();
+
+            var imagenes = await (
+                from img in ctx.LessonImages
+                join imagetype in ctx.ImageType on img.ImageTypeId equals imagetype.ImageTypeId
+                where img.State == true && lessonIds.Contains(img.LessonId)
+                select new LessonImageDTO
+                {
+                    LessonImageId = img.LessonImageId,
+                    ImageUrl = img.ImageUrl,
+                    LessonId = img.LessonId,
+                    ImageTypeId = img.ImageTypeId,
+                    ImageTypeDescription = imagetype.ImageTypeDescription
+                }
+            ).ToListAsync();
+
+            var imagesByLesson = imagenes.GroupBy(i => i.LessonId).ToDictionary(g => g.Key, g => g.ToList());
+            foreach (var lesson in registros)
+            {
+                if (imagesByLesson.TryGetValue(lesson.LessonId, out var imgs))
+                    lesson.Images = imgs;
+            }
+
+            // Enriquecer área + clasificación desde el nuevo modelo
+            var enrichments = await LessonEnrichmentHelper.ComputeAsync(
+                ctx,
+                registros.Select(r => (r.LessonId, r.LessonAreaId, r.CatalogItemId)).ToList()
+            );
+            foreach (var lesson in registros)
+            {
+                if (!enrichments.TryGetValue(lesson.LessonId, out var e)) continue;
+                if (e.AreaDescription != null)         lesson.AreaDescription = e.AreaDescription;
+                if (e.AreaListDescription != null)     lesson.AreaListDescription = e.AreaListDescription;
+                if (e.PhaseDescription != null)        lesson.PhaseDescription = e.PhaseDescription;
+                if (e.StageDescription != null)        lesson.StageDescription = e.StageDescription;
+                if (e.LayerDescription != null)        lesson.LayerDescription = e.LayerDescription;
+                if (e.SubStageDescription != null)     lesson.SubStageDescription = e.SubStageDescription;
+                if (e.SubSpecialtyDescription != null) lesson.SubSpecialtyDescription = e.SubSpecialtyDescription;
+                if (e.PartidaDescription != null)      lesson.PartidaDescription = e.PartidaDescription;
+            }
+
+            return registros;
+        }
+
+        public async Task<bool> DeleteSoftAsync(int lessonId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var lesson = await ctx.Lesson
+                .FirstOrDefaultAsync(u => u.LessonId == lessonId && u.State == true);
+
+            if (lesson == null) return false;
+
+            lesson.State = false;
+            lesson.Active = false;
+            lesson.UpdatedDateTime = DateTime.UtcNow;
+            lesson.UpdatedUserId = userId;
+
+            await ctx.LessonImages
+                .Where(x => x.LessonId == lessonId && x.State == true)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.State, false)
+                    .SetProperty(x => x.Active, false)
+                    .SetProperty(x => x.UpdatedDateTime, DateTime.UtcNow)
+                    .SetProperty(x => x.UpdatedUserId, userId)
+                );
+
+            await ctx.SaveChangesAsync();
+            return true;
         }
 
         private async Task SaveImagesAsync(

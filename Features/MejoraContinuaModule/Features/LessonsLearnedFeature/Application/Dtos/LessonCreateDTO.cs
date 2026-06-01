@@ -1,18 +1,18 @@
 using Microsoft.AspNetCore.Http;
 using System.ComponentModel.DataAnnotations;
 
-namespace Abril_Backend.Application.DTOs
+namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos
 {
     public class LessonCreateDTO
     {
         [MaxLength(2000, ErrorMessage = "La descripción del problema no puede exceder 2000 caracteres.")]
-        public string ProblemDescription { get; set; }
+        public string ProblemDescription { get; set; } = string.Empty;
         [MaxLength(2000, ErrorMessage = "La descripción de la causa no puede exceder 2000 caracteres.")]
-        public string ReasonDescription { get; set; }
+        public string ReasonDescription { get; set; } = string.Empty;
         [MaxLength(2000, ErrorMessage = "La descripción de la lección no puede exceder 2000 caracteres.")]
-        public string LessonDescription { get; set; }
+        public string LessonDescription { get; set; } = string.Empty;
         [MaxLength(2000, ErrorMessage = "La descripción del impacto no puede exceder 2000 caracteres.")]
-        public string ImpactDescription { get; set; }
+        public string ImpactDescription { get; set; } = string.Empty;
         public int ProjectId { get; set; }
         // Legacy: areaId queda opcional (las lecciones nuevas usan LessonAreaId).
         public int AreaId { get; set; }

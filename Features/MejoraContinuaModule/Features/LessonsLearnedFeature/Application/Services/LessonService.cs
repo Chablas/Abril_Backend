@@ -50,5 +50,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         {
             return await _lessonRepository.GetFiltersForCreateAsync(areaId, subAreaId);
         }
+
+        public Task<LessonDetailDTO?> GetByIdAsync(int id)
+            => _lessonRepository.GetByIdAsync(id);
+
+        public Task<List<LessonListDTO>> GetLessonsFilterAsync(
+            string? period, int? stateId, int? projectId, int? areaId,
+            int? phaseId, int? stageId, int? layerId, int? subStageId, int? subSpecialtyId)
+            => _lessonRepository.GetLessonsFilterAsync(
+                period, stateId, projectId, areaId, phaseId, stageId, layerId, subStageId, subSpecialtyId);
+
+        public Task<bool> DeleteSoftAsync(int lessonId, int userId)
+            => _lessonRepository.DeleteSoftAsync(lessonId, userId);
     }
 }

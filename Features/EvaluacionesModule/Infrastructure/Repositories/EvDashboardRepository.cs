@@ -109,14 +109,19 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 .Where(p => p.UserId.HasValue && userIds.Contains(p.UserId.Value))
                 .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "");
 
+            var periodoActual = await ctx.EvPeriodos
+                .FirstAsync(p => p.Id == periodoId);
+
             var periodoAnterior = await ctx.EvPeriodos
-                .Where(p => p.Id < periodoId)
-                .OrderByDescending(p => p.Id)
+                .Where(p => (p.Anio == periodoActual.Anio && p.Mes < periodoActual.Mes)
+                         || p.Anio < periodoActual.Anio)
+                .OrderByDescending(p => p.Anio)
+                .ThenByDescending(p => p.Mes)
                 .FirstOrDefaultAsync();
 
             var evalsAnt = periodoAnterior != null
                 ? await ctx.EvEvaluacionesResidente
-                    .Where(e => e.PeriodoId == periodoAnterior.Id && !e.NoAplica && e.Nota.HasValue)
+                    .Where(e => e.PeriodoId == periodoAnterior.Id && e.Nota.HasValue)
                     .Select(e => new { e.EvaluadoUserId, e.Nota })
                     .ToListAsync()
                 : [];

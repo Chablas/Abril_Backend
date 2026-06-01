@@ -102,6 +102,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var evals = await ctx.EvEvaluacionesResidente
                 .Where(e => e.PeriodoId == periodoId && !e.NoAplica && e.Nota.HasValue)
                 .Include(e => e.Project)
+                .Include(e => e.Detalles)
                 .ToListAsync();
 
             var userIds = evals.Select(e => e.EvaluadoUserId).Distinct().ToList();
@@ -126,6 +127,15 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     .ToListAsync()
                 : [];
 
+            var evaluadorIds = evals
+                .Select(e => e.EvaluadorUserId ?? 0)
+                .Where(id => id != 0)
+                .Distinct()
+                .ToList();
+            var evaluadores = await ctx.Person
+                .Where(p => p.UserId.HasValue && evaluadorIds.Contains(p.UserId.Value))
+                .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "");
+
             return evals
                 .GroupBy(e => e.EvaluadoUserId)
                 .Select(g => new EvResidenteResumenDto
@@ -149,7 +159,27 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                             TotalEvaluaciones = ag.Count()
                         })
                         .OrderByDescending(a => a.Promedio)
-                        .ToList()
+                        .ToList(),
+                    Evaluaciones = g.Select(e => new EvEvaluacionResidenteResponseDto
+                    {
+                        Id = e.Id,
+                        AreaNombre = e.AreaNombre,
+                        Nota = e.Nota,
+                        Comentario = e.Comentario,
+                        NoAplica = e.NoAplica,
+                        EvaluadorUserId = e.EvaluadorUserId ?? 0,
+                        EvaluadorNombre = e.EvaluadorUserId.HasValue
+                            ? evaluadores.GetValueOrDefault(e.EvaluadorUserId.Value, "")
+                            : "",
+                        CreatedAt = e.CreatedAt,
+                        Detalles = e.Detalles.Select(d => new EvDetalleResponseDto
+                        {
+                            Id = d.Id,
+                            Criterio = d.Criterio,
+                            Puntaje = d.Puntaje,
+                            EsNa = d.EsNa
+                        }).ToList()
+                    }).ToList()
                 })
                 .OrderByDescending(r => r.PromedioGeneral)
                 .ToList();

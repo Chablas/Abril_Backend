@@ -43,6 +43,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 where e.Activo
                     && t.RequiereNuevo
                     && t.VigenciaMeses != null
+                    && !t.Nombre.ToLower().Contains("retiro")
                     && v.FechaFin == null
                     && contrib.EsAbril
                     && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null

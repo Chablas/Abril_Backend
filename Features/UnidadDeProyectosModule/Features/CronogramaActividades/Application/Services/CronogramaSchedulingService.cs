@@ -145,7 +145,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             }
             await ctx.SaveChangesAsync();
 
-            // Tras mover las hojas, los nodos padre deben reflejar min/max de sus hijos
+            // Tras mover actividades (hojas y padres), sincronizar fechas padre ↔ hijos
             await RecalcularFechasPadresInternoAsync(ctx, proyectoId);
 
             return new CascadaResultDto { HayCambios = cambios.Count > 0, Cambios = cambios };
@@ -154,6 +154,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         /// <summary>
         /// Núcleo del cálculo de cascada. Devuelve los cambios y el diccionario de
         /// entidades (rastreadas por <paramref name="ctx"/>) para permitir persistir.
+        /// Soporta predecesoras tanto para hojas como para nodos padre.
         /// </summary>
         private async Task<(List<CascadaCambioDto> cambios, Dictionary<int, ProjectActivity> actividades)>
             CalcularCascadaAsync(AppDbContext ctx, int proyectoId)
@@ -173,6 +174,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 .Where(r => idSet.Contains(r.ActivityId))
                 .Select(r => new { r.ActivityId, r.PredecessorId })
                 .ToListAsync();
+
+            // Jerarquía padre → hijos directos (para desplazar subárboles cuando el sucesor es padre)
+            var hijosDe = lista
+                .Where(a => a.ParentId.HasValue && idSet.Contains(a.ParentId.Value))
+                .GroupBy(a => a.ParentId!.Value)
+                .ToDictionary(g => g.Key, g => g.Select(a => a.ProjectActivityId).ToList());
+            var idsPadre = hijosDe.Keys.ToHashSet();
 
             // Predecesoras por sucesora + adyacencia sucesora (para Kahn) + grado de entrada
             var predecesorasDe = new Dictionary<int, List<int>>();
@@ -194,7 +202,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 inDegree[r.ActivityId]++;
             }
 
-            // Duración hábil original y fin "vigente" (se va actualizando en cascada)
+            // Duración hábil original (solo hojas) y fin "vigente" (se actualiza en cascada)
             var duracion = new Dictionary<int, int>();
             var finVigente = new Dictionary<int, DateTime?>();
             foreach (var a in lista)
@@ -212,13 +220,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
             var cambios = new List<CascadaCambioDto>();
 
-            // Orden topológico (Kahn)
+            // Orden topológico (Kahn) sobre las relaciones de predecesoras
             var queue = new Queue<int>(inDegree.Where(kv => kv.Value == 0).Select(kv => kv.Key));
             while (queue.Count > 0)
             {
                 var id = queue.Dequeue();
 
-                // Solo recalculan las actividades que tienen predecesoras
                 if (predecesorasDe.TryGetValue(id, out var preds) && preds.Count > 0)
                 {
                     var finesPred = preds
@@ -231,25 +238,40 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     {
                         var maxFin = finesPred.Max();
                         var nuevoInicio = NextBusinessDay(maxFin, feriados);
-                        var nuevoFin = AddBusinessDays(nuevoInicio, duracion[id] - 1, feriados);
-
                         var inicioNuevoDo = DateOnly.FromDateTime(nuevoInicio);
-                        var finNuevoDo = DateOnly.FromDateTime(nuevoFin);
-
                         var act = actividades[id];
-                        if (act.PlannedStartDate != inicioNuevoDo || act.PlannedEndDate != finNuevoDo)
+
+                        if (idsPadre.Contains(id))
                         {
-                            cambios.Add(new CascadaCambioDto
+                            // Sucesor es nodo padre: desplazar todo el subárbol por el mismo delta calendario.
+                            // Preserva las duraciones y offsets relativos entre los hijos.
+                            if (act.PlannedStartDate.HasValue)
                             {
-                                ProjectActivityId = id,
-                                ActivityDescription = act.ActivityDescription,
-                                InicioAnterior = act.PlannedStartDate,
-                                InicioNuevo = inicioNuevoDo,
-                                FinAnterior = act.PlannedEndDate,
-                                FinNuevo = finNuevoDo
-                            });
+                                int deltaCalDias = inicioNuevoDo.DayNumber - act.PlannedStartDate.Value.DayNumber;
+                                if (deltaCalDias != 0)
+                                    DesplazarSubarbol(id, deltaCalDias, actividades, hijosDe, cambios, finVigente);
+                            }
                         }
-                        finVigente[id] = nuevoFin;
+                        else
+                        {
+                            // Sucesor es hoja: reposicionar preservando duración hábil original
+                            var nuevoFin = AddBusinessDays(nuevoInicio, duracion[id] - 1, feriados);
+                            var finNuevoDo = DateOnly.FromDateTime(nuevoFin);
+
+                            if (act.PlannedStartDate != inicioNuevoDo || act.PlannedEndDate != finNuevoDo)
+                            {
+                                cambios.Add(new CascadaCambioDto
+                                {
+                                    ProjectActivityId = id,
+                                    ActivityDescription = act.ActivityDescription,
+                                    InicioAnterior = act.PlannedStartDate,
+                                    InicioNuevo = inicioNuevoDo,
+                                    FinAnterior = act.PlannedEndDate,
+                                    FinNuevo = finNuevoDo
+                                });
+                            }
+                            finVigente[id] = nuevoFin;
+                        }
                     }
                 }
 
@@ -266,6 +288,54 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             return (cambios, actividades);
         }
 
+        /// <summary>
+        /// Desplaza el nodo raíz y todos sus descendientes por <paramref name="deltaCalDias"/>
+        /// días calendario, manteniendo las duraciones y offsets internos del subárbol.
+        /// Registra los cambios en <paramref name="cambios"/> y actualiza
+        /// <paramref name="finVigente"/> para que los sucesores del subárbol vean las fechas correctas.
+        /// </summary>
+        private static void DesplazarSubarbol(
+            int rootId,
+            int deltaCalDias,
+            Dictionary<int, ProjectActivity> actividades,
+            Dictionary<int, List<int>> hijosDe,
+            List<CascadaCambioDto> cambios,
+            Dictionary<int, DateTime?> finVigente)
+        {
+            var nodo = actividades[rootId];
+            var inicioAnterior = nodo.PlannedStartDate;
+            var finAnterior = nodo.PlannedEndDate;
+
+            DateOnly? nuevoInicio = inicioAnterior.HasValue
+                ? inicioAnterior.Value.AddDays(deltaCalDias)
+                : (DateOnly?)null;
+            DateOnly? nuevoFin = finAnterior.HasValue
+                ? finAnterior.Value.AddDays(deltaCalDias)
+                : (DateOnly?)null;
+
+            if (inicioAnterior != nuevoInicio || finAnterior != nuevoFin)
+            {
+                cambios.Add(new CascadaCambioDto
+                {
+                    ProjectActivityId = rootId,
+                    ActivityDescription = nodo.ActivityDescription,
+                    InicioAnterior = inicioAnterior,
+                    InicioNuevo = nuevoInicio,
+                    FinAnterior = finAnterior,
+                    FinNuevo = nuevoFin
+                });
+            }
+
+            // Actualizar fin vigente para que los sucesores directos de este nodo vean el fin correcto
+            finVigente[rootId] = nuevoFin.HasValue
+                ? nuevoFin.Value.ToDateTime(TimeOnly.MinValue)
+                : (DateTime?)null;
+
+            if (hijosDe.TryGetValue(rootId, out var hijos))
+                foreach (var hijoId in hijos)
+                    DesplazarSubarbol(hijoId, deltaCalDias, actividades, hijosDe, cambios, finVigente);
+        }
+
         // ─────────────────────────── Fechas de nodos padre ───────────────────────────
 
         public async Task RecalcularFechasPadresAsync(int proyectoId)
@@ -276,63 +346,38 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         private static async Task RecalcularFechasPadresInternoAsync(AppDbContext ctx, int proyectoId)
         {
-            // Sin filtro por HierarchyLevel: cualquier nodo con ≥1 hijo es padre.
+            // 1. TODAS las actividades activas del proyecto, sin filtro por nivel.
             var todas = await ctx.ProjectActivity
                 .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
                 .ToListAsync();
 
             if (todas.Count == 0) return;
 
-            // esPadre ≡ el id del nodo aparece como clave aquí (≥1 actividad con ParentId = su id).
+            // 2. esPadre ≡ aparece como clave en hijosDe
+            //    (existe ≥1 actividad activa con ParentId = ese id).
             var hijosDe = todas
                 .Where(a => a.ParentId.HasValue)
                 .GroupBy(a => a.ParentId!.Value)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            // BFS desde raíces → orden top-down; recorrerlo al revés da bottom-up garantizado:
-            //   hojas → padres directos → abuelos → nivel 0.
-            // Esto evita recursión (sin riesgo de stack overflow en jerarquías profundas)
-            // y elimina el bug del DFS donde un nodo marcado "terminado" por una rama
-            // puede ser leído por otra rama antes de que sus fechas estén actualizadas.
-            var idSet = todas.Select(a => a.ProjectActivityId).ToHashSet();
-            var bfsOrder = new List<ProjectActivity>(todas.Count);
-            var visitados = new HashSet<int>(todas.Count);
-            var queue = new Queue<ProjectActivity>();
-
-            // Raíces: nodos sin padre dentro del proyecto activo
-            foreach (var nodo in todas)
-                if (!nodo.ParentId.HasValue || !idSet.Contains(nodo.ParentId.Value))
-                    queue.Enqueue(nodo);
-
-            while (queue.Count > 0)
+            // 3. Orden bottom-up REAL: HierarchyLevel DESCENDENTE.
+            //    Los nodos más profundos se procesan primero; cuando llegamos a un padre
+            //    en nivel L, todos sus hijos (nivel > L) ya tienen fechas actualizadas en memoria.
+            //    No depende de la coherencia de ParentId para el orden — solo para detectar hijos.
+            foreach (var nodo in todas.OrderByDescending(a => a.HierarchyLevel))
             {
-                var nodo = queue.Dequeue();
-                if (!visitados.Add(nodo.ProjectActivityId)) continue;
-                bfsOrder.Add(nodo);
-                if (hijosDe.TryGetValue(nodo.ProjectActivityId, out var hijos))
-                    foreach (var h in hijos) queue.Enqueue(h);
-            }
-
-            // Nodos no alcanzados desde ninguna raíz (datos con ciclo en ParentId): agregar al final
-            foreach (var nodo in todas)
-                if (!visitados.Contains(nodo.ProjectActivityId))
-                    bfsOrder.Add(nodo);
-
-            // Recorrer en orden inverso al BFS: los nodos más profundos (hojas) se procesan primero.
-            // Cuando llegamos a un padre, sus hijos ya tienen fechas actualizadas.
-            for (int i = bfsOrder.Count - 1; i >= 0; i--)
-            {
-                var nodo = bfsOrder[i];
                 if (!hijosDe.TryGetValue(nodo.ProjectActivityId, out var hijos) || hijos.Count == 0)
-                    continue; // hoja: conserva sus fechas originales
+                    continue; // hoja: conserva sus fechas
 
+                // 4. Fecha padre = MIN inicio / MAX fin de sus hijos directos.
+                //    Los hijos ya fueron actualizados (están a nivel > nodo.HierarchyLevel).
                 var inicios = hijos.Where(h => h.PlannedStartDate.HasValue)
                                    .Select(h => h.PlannedStartDate!.Value).ToList();
-                var fines = hijos.Where(h => h.PlannedEndDate.HasValue)
-                                 .Select(h => h.PlannedEndDate!.Value).ToList();
+                var fines   = hijos.Where(h => h.PlannedEndDate.HasValue)
+                                   .Select(h => h.PlannedEndDate!.Value).ToList();
 
                 var nuevoInicio = inicios.Count > 0 ? inicios.Min() : (DateOnly?)null;
-                var nuevoFin = fines.Count > 0 ? fines.Max() : (DateOnly?)null;
+                var nuevoFin    = fines.Count   > 0 ? fines.Max()   : (DateOnly?)null;
 
                 if (nodo.PlannedStartDate != nuevoInicio || nodo.PlannedEndDate != nuevoFin)
                 {

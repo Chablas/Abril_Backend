@@ -69,6 +69,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 PlannedStartDate = a.PlannedStartDate,
                 PlannedEndDate = a.PlannedEndDate,
                 ActualEndDate = a.ActualEndDate,
+                BaselineStartDate = a.BaselineStartDate,
+                BaselineEndDate = a.BaselineEndDate,
                 ProgressPercentage = a.ProgressPercentage,
                 Order = a.Order,
                 HierarchyLevel = a.HierarchyLevel,
@@ -114,6 +116,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 PlannedStartDate = activity.PlannedStartDate,
                 PlannedEndDate = activity.PlannedEndDate,
                 ActualEndDate = activity.ActualEndDate,
+                BaselineStartDate = activity.BaselineStartDate,
+                BaselineEndDate = activity.BaselineEndDate,
                 ProgressPercentage = activity.ProgressPercentage,
                 Order = activity.Order,
                 HierarchyLevel = activity.HierarchyLevel,
@@ -160,6 +164,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 PlannedStartDate = activity.PlannedStartDate,
                 PlannedEndDate = activity.PlannedEndDate,
                 ActualEndDate = activity.ActualEndDate,
+                BaselineStartDate = activity.BaselineStartDate,
+                BaselineEndDate = activity.BaselineEndDate,
                 ProgressPercentage = activity.ProgressPercentage,
                 Order = activity.Order,
                 HierarchyLevel = activity.HierarchyLevel,
@@ -382,6 +388,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     PlannedStartDate = a.PlannedStartDate,
                     PlannedEndDate = a.PlannedEndDate,
                     ActualEndDate = a.ActualEndDate,
+                    BaselineStartDate = a.BaselineStartDate,
+                    BaselineEndDate = a.BaselineEndDate,
                     ProgressPercentage = a.ProgressPercentage,
                     Order = a.Order,
                     HierarchyLevel = a.HierarchyLevel,
@@ -443,6 +451,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     PlannedStartDate = a.PlannedStartDate,
                     PlannedEndDate = a.PlannedEndDate,
                     ActualEndDate = a.ActualEndDate,
+                    BaselineStartDate = a.BaselineStartDate,
+                    BaselineEndDate = a.BaselineEndDate,
                     ProgressPercentage = a.ProgressPercentage,
                     Order = a.Order,
                     HierarchyLevel = a.HierarchyLevel,
@@ -491,6 +501,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     PlannedStartDate = a.PlannedStartDate,
                     PlannedEndDate = a.PlannedEndDate,
                     ActualEndDate = a.ActualEndDate,
+                    BaselineStartDate = a.BaselineStartDate,
+                    BaselineEndDate = a.BaselineEndDate,
                     ProgressPercentage = a.ProgressPercentage,
                     Order = a.Order,
                     HierarchyLevel = a.HierarchyLevel,
@@ -539,6 +551,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     PlannedStartDate = a.PlannedStartDate,
                     PlannedEndDate = a.PlannedEndDate,
                     ActualEndDate = a.ActualEndDate,
+                    BaselineStartDate = a.BaselineStartDate,
+                    BaselineEndDate = a.BaselineEndDate,
                     ProgressPercentage = a.ProgressPercentage,
                     Order = a.Order,
                     HierarchyLevel = a.HierarchyLevel,
@@ -630,18 +644,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             if (actividad == null)
                 throw new AbrilException("Actividad no encontrada.", 404);
 
-            // Solo las hojas pueden tener predecesoras
-            bool esPadre = await ctx.ProjectActivity
-                .AnyAsync(a => a.ParentId == activityId && a.State && a.Active);
-            if (esPadre)
-                throw new AbrilException(
-                    "Una actividad con sub-actividades no puede tener predecesoras.", 400);
-
             var distintas = predecessorIds.Where(p => p != activityId).Distinct().ToList();
 
             if (distintas.Count > 0)
             {
-                // Las predecesoras deben existir, ser del mismo proyecto y ser hojas
+                // Las predecesoras deben existir y ser del mismo proyecto (padre o hoja, ambos válidos)
                 var candidatas = await ctx.ProjectActivity
                     .Where(a => distintas.Contains(a.ProjectActivityId) && a.State && a.Active)
                     .Select(a => new { a.ProjectActivityId, a.ProjectId })
@@ -652,17 +659,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
                 if (candidatas.Any(c => c.ProjectId != actividad.ProjectId))
                     throw new AbrilException("Las predecesoras deben pertenecer al mismo proyecto.", 400);
-
-                var idsPredConHijos = await ctx.ProjectActivity
-                    .Where(a => a.ParentId.HasValue
-                             && distintas.Contains(a.ParentId.Value)
-                             && a.State && a.Active)
-                    .Select(a => a.ParentId!.Value)
-                    .Distinct()
-                    .ToListAsync();
-                if (idsPredConHijos.Count > 0)
-                    throw new AbrilException(
-                        "Una predecesora con sub-actividades no es válida; solo se permiten hojas.", 400);
             }
 
             // Reemplazo completo del conjunto de predecesoras
@@ -679,6 +675,48 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 });
 
             await ctx.SaveChangesAsync();
+        }
+
+        // ─────────────────────────── Línea base ───────────────────────────
+
+        public async Task<ActividadDto> ActualizarLineaBaseAsync(int projectActivityId, ActualizarLineaBaseRequest request, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var activity = await ctx.ProjectActivity
+                .FirstOrDefaultAsync(a => a.ProjectActivityId == projectActivityId && a.State && a.Active);
+            if (activity == null)
+                throw new AbrilException("Actividad no encontrada.", 404);
+
+            bool esPadre = await ctx.ProjectActivity
+                .AnyAsync(a => a.ParentId == projectActivityId && a.State && a.Active);
+            if (esPadre)
+                throw new AbrilException(
+                    "La línea base solo puede definirse en actividades hoja (sin sub-actividades).", 400);
+
+            activity.BaselineStartDate = request.BaselineStartDate;
+            activity.BaselineEndDate = request.BaselineEndDate;
+            activity.UpdatedDateTime = DateTime.UtcNow;
+            activity.UpdatedUserId = userId;
+
+            await ctx.SaveChangesAsync();
+
+            return new ActividadDto
+            {
+                ProjectActivityId = activity.ProjectActivityId,
+                ProjectId = activity.ProjectId,
+                ActivityDescription = activity.ActivityDescription,
+                PlannedStartDate = activity.PlannedStartDate,
+                PlannedEndDate = activity.PlannedEndDate,
+                ActualEndDate = activity.ActualEndDate,
+                BaselineStartDate = activity.BaselineStartDate,
+                BaselineEndDate = activity.BaselineEndDate,
+                ProgressPercentage = activity.ProgressPercentage,
+                Order = activity.Order,
+                HierarchyLevel = activity.HierarchyLevel,
+                ParentId = activity.ParentId,
+                EsPadre = false
+            };
         }
 
         private static void ActualizarHijosRecursivo(int parentId, int levelDelta, List<ProjectActivity> todas)

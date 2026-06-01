@@ -8,6 +8,8 @@ namespace Abril_Backend.Shared.Models
         public DateOnly? PlannedStartDate { get; set; }
         public DateOnly? PlannedEndDate { get; set; }
         public DateOnly? ActualEndDate { get; set; }
+        public DateOnly? BaselineStartDate { get; set; }
+        public DateOnly? BaselineEndDate { get; set; }
         public int ProgressPercentage { get; set; }
         public int Order { get; set; }
         public int? ParentId { get; set; }

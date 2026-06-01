@@ -3936,3 +3936,76 @@ Features\UnidadDeProyectosModule\
 ```
 
 Sin referencias cruzadas entre features, namespaces correctos en todos los archivos, y `UnidadDeProyectosModule.cs` registrando las tres features por separado. Build limpio.
+
+---
+
+## Sesión 2026-06-01 (cont.) — Fechas línea base + predecesoras para padres + RecalcularFechasPadres fix definitivo
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Fechas línea base en `project_activity`
+
+**BD (Aiven):** `ALTER TABLE project_activity ADD COLUMN IF NOT EXISTS baseline_start_date date, ADD COLUMN IF NOT EXISTS baseline_end_date date;` — aplicado y verificado.
+
+**Migración EF:** `20260601184746_AddBaselineDatesProjectActivity.cs`.
+
+**Modelo:** `ProjectActivity` + `BaselineStartDate DateOnly?` + `BaselineEndDate DateOnly?`.
+
+**DTO:** `ActividadDto` + ambos campos. Nueva clase `ActualizarLineaBaseRequest { BaselineStartDate, BaselineEndDate }`.
+
+**Endpoint:** `PATCH /api/v1/cronograma-actividades/actividades/{id}/linea-base`
+- 404 si no existe o inactiva.
+- 400 `"La línea base solo puede definirse en actividades hoja (sin sub-actividades)."` si `esPadre = true`.
+- Permite sobrescribir si ya tenía fechas base (el frontend advierte al usuario).
+- Devuelve `ActividadDto` completo.
+
+Todos los mapeos de `ActividadDto` en el repositorio (7 lugares: `GetActividadesAsync`, `CrearActividadAsync`, `EditarActividadAsync`, y los 4 LINQ-to-SQL en reordenar/subir/bajar/cambiar-jerarquía) actualizados con `BaselineStartDate` y `BaselineEndDate`.
+
+### 2. Predecesoras para nodos padre (cambio de regla)
+
+**Antes:** solo hojas podían ser predecesoras o tener predecesoras.  
+**Ahora:** cualquier nodo (padre o hoja) puede ser predecesor o tener predecesoras.
+
+**`SetPredecesorasAsync`** — eliminadas dos validaciones:
+- `"Una actividad con sub-actividades no puede tener predecesoras."` → removida.
+- `"Una predecesora con sub-actividades no es válida; solo se permiten hojas."` → removida.
+- Se conserva: existencia en mismo proyecto, auto-exclusión.
+
+**`CalcularCascadaAsync`** — nueva bifurcación en el bucle Kahn:
+- **Sucesor hoja:** comportamiento anterior sin cambios (reposicionar con `AddBusinessDays`, preservar duración hábil).
+- **Sucesor padre:** `DesplazarSubarbol(id, deltaCalDias, ...)` — desplaza el nodo padre y TODOS sus descendientes por el mismo delta calendario, manteniendo duraciones y offsets internos.
+
+**`DesplazarSubarbol`** (nuevo método estático privado):
+- Calcula `delta = nuevoInicio.DayNumber - actual.PlannedStartDate.DayNumber` (días calendario).
+- Aplica `+delta` a `PlannedStartDate` y `PlannedEndDate` del nodo y de cada descendiente recursivamente.
+- Registra un `CascadaCambioDto` por cada nodo movido.
+- Actualiza `finVigente[id]` para que los sucesores en el grafo de predecesoras vean el fin correcto.
+- Si un descendiente tiene además predecesoras externas, la cascada lo reposicionará y `RecalcularFechasPadresInternoAsync` corregirá al padre.
+
+### 3. RecalcularFechasPadresInternoAsync — fix definitivo
+
+**Problema:** la implementación BFS+reverso anterior asumía que el orden inverso de descubrimiento BFS era siempre bottom-up. En árboles con ramas de profundidad desigual, la asignación de ParentId podía no estar perfectamente alineada con HierarchyLevel (especialmente tras importar MPPs con nodos omitidos o raíces virtuales), haciendo que el reverso procesara algunos padres antes que sus descendientes.
+
+**Síntoma observado:** "fila 75 'Proyecto' muestra fin 22/05/2026 pero tiene hijos con fechas hasta 2028".
+
+**Solución:** reemplazar BFS+reverso por `OrderByDescending(HierarchyLevel)`:
+- El MPP importa `HierarchyLevel = tarea.OutlineLevel` directamente.
+- Un padre siempre está en nivel L, sus hijos en nivel L+1.
+- Procesando de mayor a menor nivel, cuando se llega a un padre en nivel L, **todos sus hijos directos (nivel > L) ya tienen fechas actualizadas en memoria**.
+- No depende de la coherencia de `ParentId` para el ordenamiento (solo lo usa para detectar hijos vía `hijosDe`).
+
+**Código final:**
+```csharp
+foreach (var nodo in todas.OrderByDescending(a => a.HierarchyLevel))
+{
+    if (!hijosDe.TryGetValue(nodo.ProjectActivityId, out var hijos) || hijos.Count == 0) continue;
+    var inicios = hijos.Where(h => h.PlannedStartDate.HasValue).Select(h => h.PlannedStartDate!.Value).ToList();
+    var fines   = hijos.Where(h => h.PlannedEndDate.HasValue).Select(h => h.PlannedEndDate!.Value).ToList();
+    var nuevoInicio = inicios.Count > 0 ? inicios.Min() : (DateOnly?)null;
+    var nuevoFin    = fines.Count   > 0 ? fines.Max()   : (DateOnly?)null;
+    if (nodo.PlannedStartDate != nuevoInicio || nodo.PlannedEndDate != nuevoFin)
+    { nodo.PlannedStartDate = nuevoInicio; nodo.PlannedEndDate = nuevoFin; nodo.UpdatedDateTime = DateTime.UtcNow; }
+}
+```
+
+`RecalcularFechasPadresAsync` (y su versión interna) se llama en: `ImportarMppAsync`, `AplicarCascadaAsync`, `EditarActividadAsync`.

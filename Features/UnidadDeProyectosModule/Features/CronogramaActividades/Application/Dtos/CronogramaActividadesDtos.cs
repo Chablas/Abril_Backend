@@ -16,6 +16,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public DateOnly? PlannedStartDate { get; set; }
         public DateOnly? PlannedEndDate { get; set; }
         public DateOnly? ActualEndDate { get; set; }
+        public DateOnly? BaselineStartDate { get; set; }
+        public DateOnly? BaselineEndDate { get; set; }
         public int ProgressPercentage { get; set; }
         public int Order { get; set; }
         public int HierarchyLevel { get; set; }
@@ -24,6 +26,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public List<int> Predecesoras { get; set; } = new();
         /// <summary>True si la actividad tiene hijos (es nodo padre, fechas calculadas).</summary>
         public bool EsPadre { get; set; }
+    }
+
+    public class ActualizarLineaBaseRequest
+    {
+        public DateOnly? BaselineStartDate { get; set; }
+        public DateOnly? BaselineEndDate { get; set; }
     }
 
     public class CrearActividadRequest

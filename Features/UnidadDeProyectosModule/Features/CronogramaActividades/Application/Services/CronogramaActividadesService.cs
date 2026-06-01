@@ -81,6 +81,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         // ─────────────────────────── Predecesoras + cascada ───────────────────────────
 
+        public Task<ActividadDto> ActualizarLineaBaseAsync(int projectActivityId, ActualizarLineaBaseRequest request, int userId)
+            => _repository.ActualizarLineaBaseAsync(projectActivityId, request, userId);
+
         public async Task<ActualizarPredecesorasResultDto> ActualizarPredecesorasAsync(int activityId, List<int> predecessorIds)
         {
             var proyectoId = await _repository.GetProyectoIdDeActividadAsync(activityId);

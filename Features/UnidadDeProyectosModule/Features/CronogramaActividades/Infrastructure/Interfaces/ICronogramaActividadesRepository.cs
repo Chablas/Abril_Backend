@@ -24,6 +24,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         Task<FeriadoDto> CrearFeriadoAsync(CrearFeriadoRequest request);
         Task EliminarFeriadoAsync(int id);
 
+        // Línea base
+        Task<ActividadDto> ActualizarLineaBaseAsync(int projectActivityId, ActualizarLineaBaseRequest request, int userId);
+
         // Predecesoras
         Task<List<int>> GetPredecesorasAsync(int activityId);
         Task SetPredecesorasAsync(int activityId, List<int> predecessorIds);

@@ -179,6 +179,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // PATCH /api/v1/cronograma-actividades/actividades/{id}/linea-base
+        [HttpPatch("actividades/{id:int}/linea-base")]
+        public async Task<IActionResult> ActualizarLineaBase(int id, [FromBody] ActualizarLineaBaseRequest request)
+        {
+            try
+            {
+                var result = await _service.ActualizarLineaBaseAsync(id, request, GetUserId());
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // ─────────────────────────── Feriados ───────────────────────────
 
         // GET /api/v1/cronograma-actividades/feriados

@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-05-31 — EvaluacionesModule completo. GetResidentesResumenAsync: periodo anterior por Anio/Mes calendario (no por Id) + campo Evaluaciones poblado con evaluador, criterios y comentarios (Include Detalles, diccionario evaluadores separado de evaluados).
+> Última actualización: 2026-05-31 — EvaluacionesModule: cron recordatorios + descargo (EvRecordatorioService, EvRecordatorioRepository, EvRecordatorioController). IEvRecordatorioService registrado en AddEvaluacionesModule.
 
 ---
 
@@ -974,6 +974,8 @@ GET              /api/v1/evaluaciones/dashboard/residentes
 GET              /api/v1/evaluaciones/dashboard/areas
 GET              /api/v1/evaluaciones/dashboard/tendencia   ← sin parámetro año (todos los períodos)
 GET              /api/v1/evaluaciones/dashboard/pendientes
+GET              /api/v1/evaluaciones/recordatorios/enviar    ← CronSecret, envía recordatorios del periodo activo
+GET              /api/v1/evaluaciones/recordatorios/descargo  ← CronSecret, envía descargos tras cierre de periodo
 ```
 
 **Lógica clave:**
@@ -981,7 +983,14 @@ GET              /api/v1/evaluaciones/dashboard/pendientes
 - `EvaluacionesEsperadas = residentes.Count * 8`
 - `GetResidentesResumenAsync` agrupa por `EvaluadoUserId`; ProjectId/Nombre = `g.First()`. Periodo anterior buscado por `(Anio, Mes)` calendario real (no por `Id`). Campo `Evaluaciones` poblado con evaluador, criterios y comentarios — usa `.Include(Detalles)` en el query inicial (evita N+1) + diccionario `evaluadores` separado del de `persons` (evaluados).
 - `GetTendenciaAsync()` sin filtro año
-- No existe ningún job/cron/hosted service para recordatorios de evaluaciones. `EvRecordatorioLog` es solo tabla de log pasivo.
+
+**Cron de recordatorios (`EvRecordatorioService`):**
+- `GET /recordatorios/enviar` — autenticado con `CronSecret` (sin `[Authorize]`). Día de apertura = PRIMER_AVISO a todos; días siguientes = RECORDATORIO_DIA_{n} solo a pendientes. CC al jefe mapeado desde `cat_jefatura` por subarea.
+- `GET /recordatorios/descargo` — se dispara el día después del cierre (periodo cerrado ayer). Envía descargo a quien no evaluó nada, con CC al gerente de proyectos (`coriundo@abril.pe`) y jefe directo.
+- `EvRecordatorioRepository.GetEvaluadoresPendientesAsync` — Dapper. Filtra `workers WHERE area='Proyectos' AND subarea NOT IN ('Residencia','Almacenero','Proyectos')`. Une con `cat_jefatura` por CASE de subarea. `soloSinEvaluar=true` agrega NOT EXISTS sobre `ev_evaluacion_residente`.
+- `YaEnvioRecordatorioHoyAsync` — antiduplicado por `(periodoId, userId, tipo)` en ventana UTC del día.
+- `EvRecordatorioLog` ahora es usado activamente (ya no solo tabla pasiva).
+- `AddEvaluacionesModule` registra `IEvRecordatorioRepository` + `IEvRecordatorioService`.
 
 **Dapper en `EvEvaluacionResidenteRepository`** — patrón:
 ```csharp

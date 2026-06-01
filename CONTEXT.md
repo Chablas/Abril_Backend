@@ -3885,3 +3885,54 @@ Ambos retornan la lista completa del proyecto ordenada por `Order ASC`.
 GET /api/v1/cronograma-actividades/{proyectoId}/debug-order   [AllowAnonymous]
 ```
 Retorna `[{ projectActivityId, description, order, parentId, hierarchyLevel }]` ordenado por `Order ASC`. Útil para verificar el estado real del árbol/order en BD sin token. **Temporal — quitar antes de merge a master** (junto con `debug-proyectos` y los `Console.WriteLine` de reordenar/importar).
+
+---
+
+## Sesión 2026-06-01 — RecalcularFechasPadres: DFS → BFS+reverso; verificación estructura de módulo
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Bug en `RecalcularFechasPadresInternoAsync` — DFS con memoización reemplazado por BFS + reverso
+
+**Síntoma:** tras importar un MPP, los nodos de nivel 3 (o cualquier nivel intermedio) que tienen hijos mostraban fechas inconsistentes con sus hijos — el recálculo bottom-up no propagaba correctamente a todos los niveles.
+
+**Causa raíz del DFS:** el outer `foreach (var nodo in todas)` podía visitar un nodo intermedio (p.ej. nivel 3, que es padre de nivel 4) *antes* de que el DFS lo alcanzara por la rama de su propio subárbol. Al marcarlo `estado=2` con sus fechas **originales del MPP**, cuando su padre (nivel 2) luego llamaba `Procesar(nivel3)`, lo encontraba terminado y leía las fechas obsoletas en lugar de las actualizadas desde los hijos.
+
+**Solución — BFS + iteración inversa** (archivo: `CronogramaSchedulingService.cs`, método `RecalcularFechasPadresInternoAsync`):
+
+```
+BFS desde raíces → bfsOrder = [raíz, nivel1, nivel2, nivel3, nivel4…hojas]
+Iterar bfsOrder al revés → [hojas, nivel3, nivel2, nivel1, raíz]
+```
+
+Al procesar en este orden, cuando se llega a un nodo padre **todos sus descendientes ya tienen fechas actualizadas** (están en posiciones de mayor índice del array, por tanto se iteraron antes en el `for` invertido). Las referencias en `hijosDe` apuntan a los mismos objetos en memoria → lectura inmediata de valores actualizados.
+
+**Ventajas adicionales:**
+- Sin recursión → sin riesgo de `StackOverflowException` en jerarquías profundas
+- Nodos huérfanos con ciclo en `ParentId` se agregan al final del BFS y se procesan primero en el reverso (caso defensivo)
+- `esPadre` calculado exclusivamente por `hijosDe.TryGetValue(id, ...)` — sin ningún filtro por `HierarchyLevel`
+
+**Los tres criterios verificados:**
+
+| Criterio | Estado |
+|---|---|
+| Sin filtro por `HierarchyLevel` | ✓ Query solo filtra `ProjectId + State + Active`. `hijosDe` se construye por `ParentId` únicamente |
+| Bottom-up garantizado | ✓ BFS invertido: hojas → padres directos → abuelos → nivel 0, sin excepción |
+| `esPadre` correcto | ✓ `hijosDe.TryGetValue(id, ...)` ≡ "existe ≥1 actividad con `ParentId = id`" |
+
+Build: 0 errores.
+
+### 2. Verificación de estructura de módulo — ya estaba correctamente separada
+
+Ante una solicitud de reorganizar `UnidadDeProyectosModule` en dos features independientes, se verificó que la separación **ya existía** desde sesiones anteriores:
+
+```
+Features\UnidadDeProyectosModule\
+├── UnidadDeProyectosModule.cs          ← registro DI de los tres features
+└── Features\
+    ├── CronogramaActividades\           ← namespace ...CronogramaActividades.*
+    ├── ProjectsDashboard\               ← namespace ...ProjectsDashboard.*
+    └── LessonsLearnedDashboard\         ← namespace ...LessonsLearnedDashboard.*
+```
+
+Sin referencias cruzadas entre features, namespaces correctos en todos los archivos, y `UnidadDeProyectosModule.cs` registrando las tres features por separado. Build limpio.

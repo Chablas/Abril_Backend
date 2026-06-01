@@ -276,53 +276,71 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         private static async Task RecalcularFechasPadresInternoAsync(AppDbContext ctx, int proyectoId)
         {
+            // Sin filtro por HierarchyLevel: cualquier nodo con ≥1 hijo es padre.
             var todas = await ctx.ProjectActivity
                 .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
                 .ToListAsync();
 
+            if (todas.Count == 0) return;
+
+            // esPadre ≡ el id del nodo aparece como clave aquí (≥1 actividad con ParentId = su id).
             var hijosDe = todas
                 .Where(a => a.ParentId.HasValue)
                 .GroupBy(a => a.ParentId!.Value)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            // Post-orden con memoización: calcula los hijos antes que el padre, a cualquier nivel.
-            // 0 = sin visitar, 1 = en proceso (guarda anti-ciclo), 2 = terminado.
-            var estado = new Dictionary<int, int>();
+            // BFS desde raíces → orden top-down; recorrerlo al revés da bottom-up garantizado:
+            //   hojas → padres directos → abuelos → nivel 0.
+            // Esto evita recursión (sin riesgo de stack overflow en jerarquías profundas)
+            // y elimina el bug del DFS donde un nodo marcado "terminado" por una rama
+            // puede ser leído por otra rama antes de que sus fechas estén actualizadas.
+            var idSet = todas.Select(a => a.ProjectActivityId).ToHashSet();
+            var bfsOrder = new List<ProjectActivity>(todas.Count);
+            var visitados = new HashSet<int>(todas.Count);
+            var queue = new Queue<ProjectActivity>();
 
-            void Procesar(ProjectActivity nodo)
+            // Raíces: nodos sin padre dentro del proyecto activo
+            foreach (var nodo in todas)
+                if (!nodo.ParentId.HasValue || !idSet.Contains(nodo.ParentId.Value))
+                    queue.Enqueue(nodo);
+
+            while (queue.Count > 0)
             {
-                var st = estado.GetValueOrDefault(nodo.ProjectActivityId, 0);
-                if (st != 0) return; // ya terminado, o en proceso (ciclo) → no reentrar
-                estado[nodo.ProjectActivityId] = 1;
-
-                if (hijosDe.TryGetValue(nodo.ProjectActivityId, out var hijos) && hijos.Count > 0)
-                {
-                    foreach (var h in hijos) Procesar(h);
-
-                    var inicios = hijos.Where(h => h.PlannedStartDate.HasValue)
-                                       .Select(h => h.PlannedStartDate!.Value).ToList();
-                    var fines = hijos.Where(h => h.PlannedEndDate.HasValue)
-                                     .Select(h => h.PlannedEndDate!.Value).ToList();
-
-                    var nuevoInicio = inicios.Count > 0 ? inicios.Min() : (DateOnly?)null;
-                    var nuevoFin = fines.Count > 0 ? fines.Max() : (DateOnly?)null;
-
-                    if (nodo.PlannedStartDate != nuevoInicio || nodo.PlannedEndDate != nuevoFin)
-                    {
-                        nodo.PlannedStartDate = nuevoInicio;
-                        nodo.PlannedEndDate = nuevoFin;
-                        nodo.UpdatedDateTime = DateTime.UtcNow;
-                    }
-                }
-                // las hojas conservan sus fechas
-
-                estado[nodo.ProjectActivityId] = 2;
+                var nodo = queue.Dequeue();
+                if (!visitados.Add(nodo.ProjectActivityId)) continue;
+                bfsOrder.Add(nodo);
+                if (hijosDe.TryGetValue(nodo.ProjectActivityId, out var hijos))
+                    foreach (var h in hijos) queue.Enqueue(h);
             }
 
-            // Procesa TODOS los nodos (no solo raíces), para cubrir subárboles huérfanos.
-            // La recursión a hijos + memoización garantizan el orden bottom-up correcto.
+            // Nodos no alcanzados desde ninguna raíz (datos con ciclo en ParentId): agregar al final
             foreach (var nodo in todas)
-                Procesar(nodo);
+                if (!visitados.Contains(nodo.ProjectActivityId))
+                    bfsOrder.Add(nodo);
+
+            // Recorrer en orden inverso al BFS: los nodos más profundos (hojas) se procesan primero.
+            // Cuando llegamos a un padre, sus hijos ya tienen fechas actualizadas.
+            for (int i = bfsOrder.Count - 1; i >= 0; i--)
+            {
+                var nodo = bfsOrder[i];
+                if (!hijosDe.TryGetValue(nodo.ProjectActivityId, out var hijos) || hijos.Count == 0)
+                    continue; // hoja: conserva sus fechas originales
+
+                var inicios = hijos.Where(h => h.PlannedStartDate.HasValue)
+                                   .Select(h => h.PlannedStartDate!.Value).ToList();
+                var fines = hijos.Where(h => h.PlannedEndDate.HasValue)
+                                 .Select(h => h.PlannedEndDate!.Value).ToList();
+
+                var nuevoInicio = inicios.Count > 0 ? inicios.Min() : (DateOnly?)null;
+                var nuevoFin = fines.Count > 0 ? fines.Max() : (DateOnly?)null;
+
+                if (nodo.PlannedStartDate != nuevoInicio || nodo.PlannedEndDate != nuevoFin)
+                {
+                    nodo.PlannedStartDate = nuevoInicio;
+                    nodo.PlannedEndDate = nuevoFin;
+                    nodo.UpdatedDateTime = DateTime.UtcNow;
+                }
+            }
 
             await ctx.SaveChangesAsync();
         }

@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace Abril_Backend.Shared.Services.Graph.Services
 {
-    public class GraphUserService : IGraphUserService
+    public class GraphUserService : IGraphUserService, IEmailGroupResolver
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
@@ -96,51 +96,11 @@ namespace Abril_Backend.Shared.Services.Graph.Services
             {
                 try
                 {
-                    // Buscar el grupo por email
-                    var groupUrl = $"https://graph.microsoft.com/v1.0/groups" +
-                                   $"?$filter=mail eq '{email}'" +
-                                   $"&$select=id,displayName" +
-                                   $"&$count=true";
+                    var members = await TryExpandGroupAsync(client, email);
+                    if (members is null) continue;   // no era un grupo
 
-                    var groupResponse = await client.GetAsync(groupUrl);
-                    if (!groupResponse.IsSuccessStatusCode) continue;
-
-                    var groupJson = await groupResponse.Content.ReadAsStringAsync();
-                    using var groupDoc = JsonDocument.Parse(groupJson);
-
-                    if (!groupDoc.RootElement.TryGetProperty("value", out var groupArray)) continue;
-
-                    var firstGroup = groupArray.EnumerateArray().FirstOrDefault();
-                    if (firstGroup.ValueKind == JsonValueKind.Undefined) continue;
-                    if (!firstGroup.TryGetProperty("id", out var groupIdProp)) continue;
-
-                    var groupId = groupIdProp.GetString();
-                    if (string.IsNullOrEmpty(groupId)) continue;
-
-                    Console.WriteLine($"[GraphUserService] '{email}' es un grupo ({groupId}), expandiendo miembros...");
-
-                    // Obtener miembros del grupo (solo usuarios, no sub-grupos)
-                    var membersUrl = $"https://graph.microsoft.com/v1.0/groups/{groupId}/members" +
-                                     $"?$select=displayName,mail,jobTitle,mobilePhone,businessPhones";
-
-                    var membersResponse = await client.GetAsync(membersUrl);
-                    if (!membersResponse.IsSuccessStatusCode) continue;
-
-                    var membersJson = await membersResponse.Content.ReadAsStringAsync();
-                    using var membersDoc = JsonDocument.Parse(membersJson);
-
-                    if (!membersDoc.RootElement.TryGetProperty("value", out var membersArray)) continue;
-
-                    foreach (var member in membersArray.EnumerateArray())
+                    foreach (var profile in members)
                     {
-                        // Saltar sub-grupos anidados (su @odata.type contiene "group")
-                        if (member.TryGetProperty("@odata.type", out var odataType) &&
-                            odataType.GetString()?.Contains("group", StringComparison.OrdinalIgnoreCase) == true)
-                            continue;
-
-                        var profile = ParseUserProfile(member);
-                        if (profile is null) continue;
-
                         if (foundMails.Add(profile.Mail))
                             result.Add(profile);
                     }
@@ -152,6 +112,122 @@ namespace Abril_Backend.Shared.Services.Graph.Services
             }
 
             return result;
+        }
+
+        public async Task<List<string>> ExpandAsync(IEnumerable<string> emails)
+        {
+            var distinctEmails = (emails ?? Enumerable.Empty<string>())
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (distinctEmails.Count == 0)
+                return new List<string>();
+
+            var appToken = await GetAppTokenAsync();
+            if (string.IsNullOrEmpty(appToken))
+            {
+                // Sin token de app no podemos detectar grupos. Para no perder destinatarios,
+                // se devuelven los correos tal cual (pass-through total). Si alguno era un grupo
+                // que el proveedor de correo no sabe entregar, fallará solo ese envío.
+                Console.WriteLine("[EmailGroupResolver] No se pudo obtener token de app; pass-through sin expandir.");
+                return distinctEmails;
+            }
+
+            var client = BuildClient(appToken);
+            var result = new List<string>();
+            var seen   = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var email in distinctEmails)
+            {
+                try
+                {
+                    var members = await TryExpandGroupAsync(client, email);
+
+                    if (members is not null)
+                    {
+                        // Es un grupo → desglosar en los correos de sus miembros
+                        foreach (var m in members)
+                            if (!string.IsNullOrWhiteSpace(m.Mail) && seen.Add(m.Mail))
+                                result.Add(m.Mail);
+                    }
+                    else if (seen.Add(email))
+                    {
+                        // No es un grupo → conservar el correo tal cual (pass-through)
+                        result.Add(email);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[EmailGroupResolver] Error resolviendo '{email}': {ex.Message}. Se conserva el correo tal cual.");
+                    if (seen.Add(email))
+                        result.Add(email);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Si <paramref name="email"/> corresponde a un grupo (mail-enabled), devuelve la lista de
+        /// perfiles de sus miembros usuario (excluye sub-grupos anidados). Devuelve <c>null</c> si el
+        /// correo NO corresponde a ningún grupo (es usuario, externo o no existe). Una lista vacía
+        /// significa que SÍ es un grupo pero no se pudieron leer/parsear sus miembros.
+        /// </summary>
+        private static async Task<List<GraphUserProfileDto>?> TryExpandGroupAsync(HttpClient client, string email)
+        {
+            // Buscar el grupo por email
+            var groupUrl = $"https://graph.microsoft.com/v1.0/groups" +
+                           $"?$filter=mail eq '{email}'" +
+                           $"&$select=id,displayName" +
+                           $"&$count=true";
+
+            var groupResponse = await client.GetAsync(groupUrl);
+            if (!groupResponse.IsSuccessStatusCode) return null;
+
+            var groupJson = await groupResponse.Content.ReadAsStringAsync();
+            using var groupDoc = JsonDocument.Parse(groupJson);
+
+            if (!groupDoc.RootElement.TryGetProperty("value", out var groupArray)) return null;
+
+            var firstGroup = groupArray.EnumerateArray().FirstOrDefault();
+            if (firstGroup.ValueKind == JsonValueKind.Undefined) return null;
+            if (!firstGroup.TryGetProperty("id", out var groupIdProp)) return null;
+
+            var groupId = groupIdProp.GetString();
+            if (string.IsNullOrEmpty(groupId)) return null;
+
+            Console.WriteLine($"[GraphUserService] '{email}' es un grupo ({groupId}), expandiendo miembros...");
+
+            var members = new List<GraphUserProfileDto>();
+
+            // Obtener miembros del grupo (solo usuarios, no sub-grupos)
+            var membersUrl = $"https://graph.microsoft.com/v1.0/groups/{groupId}/members" +
+                             $"?$select=displayName,mail,jobTitle,mobilePhone,businessPhones";
+
+            var membersResponse = await client.GetAsync(membersUrl);
+            if (!membersResponse.IsSuccessStatusCode) return members;
+
+            var membersJson = await membersResponse.Content.ReadAsStringAsync();
+            using var membersDoc = JsonDocument.Parse(membersJson);
+
+            if (!membersDoc.RootElement.TryGetProperty("value", out var membersArray)) return members;
+
+            foreach (var member in membersArray.EnumerateArray())
+            {
+                // Saltar sub-grupos anidados (su @odata.type contiene "group")
+                if (member.TryGetProperty("@odata.type", out var odataType) &&
+                    odataType.GetString()?.Contains("group", StringComparison.OrdinalIgnoreCase) == true)
+                    continue;
+
+                var profile = ParseUserProfile(member);
+                if (profile is null) continue;
+
+                members.Add(profile);
+            }
+
+            return members;
         }
 
         public async Task<GraphUserProfileDto?> GetCurrentUserProfileAsync(string graphAccessToken)

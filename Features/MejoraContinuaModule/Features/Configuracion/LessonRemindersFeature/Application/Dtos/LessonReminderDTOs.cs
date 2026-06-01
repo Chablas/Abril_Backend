@@ -21,6 +21,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public bool Active { get; set; }
     }
 
+    public class ToggleLessonReminderResultDTO
+    {
+        public int UserProjectId { get; set; }
+        public bool Active { get; set; }
+    }
+
     public class LessonReminderCreateDataDTO
     {
         public List<LessonReminderUserDTO> Users { get; set; } = new();

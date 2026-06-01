@@ -1,6 +1,8 @@
 using Microsoft.OpenApi;
 using Abril_Backend.Shared.Services.Email.Interfaces;
 using Abril_Backend.Shared.Services.Email.Services;
+using Abril_Backend.Shared.Services.Graph.Interfaces;
+using Abril_Backend.Shared.Services.Graph.Services;
 using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
@@ -200,6 +202,11 @@ builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>
 {
     client.BaseAddress = new Uri("https://graph.microsoft.com/");
 });
+
+// Resolver de grupos de correo (desglosa grupos → miembros antes de enviar).
+// Registrado globalmente para que cualquier módulo lo pueda inyectar (p. ej. recordatorios
+// de lecciones aprendidas vía PowerAutomate). Lo implementa GraphUserService.
+builder.Services.AddScoped<IEmailGroupResolver, GraphUserService>();
 builder.Services.AddHttpClient<ISunatService, DecolectaSunatService>(client =>
 {
     var baseUrl = builder.Configuration["Sunat:BaseUrl"];

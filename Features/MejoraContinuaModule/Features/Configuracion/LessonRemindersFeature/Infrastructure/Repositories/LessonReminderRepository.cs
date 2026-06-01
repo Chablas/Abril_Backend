@@ -153,6 +153,31 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             return true;
         }
 
+        public async Task<ToggleLessonReminderResultDTO> ToggleActiveAsync(int userProjectId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var userProject = await ctx.UserProject
+                .FirstOrDefaultAsync(u => u.UserProjectId == userProjectId && u.State == true);
+
+            if (userProject == null)
+                throw new AbrilException("El recordatorio no existe.", 404);
+
+            // Invierte solo Active (State permanece true). El cron filtra por Active == true,
+            // así que un recordatorio inactivo deja de enviarse sin perder el registro.
+            userProject.Active = !userProject.Active;
+            userProject.UpdatedDateTime = DateTime.UtcNow;
+            userProject.UpdatedUserId = userId;
+
+            await ctx.SaveChangesAsync();
+
+            return new ToggleLessonReminderResultDTO
+            {
+                UserProjectId = userProject.UserProjectId,
+                Active = userProject.Active
+            };
+        }
+
         // ─────────────────────────────────────────────────────────────────────
         // Filtro project_staff_reminder (toggle por proyecto con staff_email)
         // ─────────────────────────────────────────────────────────────────────

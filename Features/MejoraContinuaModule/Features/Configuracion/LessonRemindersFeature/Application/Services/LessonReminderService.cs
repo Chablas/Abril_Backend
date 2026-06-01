@@ -17,6 +17,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public Task<LessonReminderCreateDataDTO> GetCreateData() => _repository.GetCreateData();
         public Task Create(LessonReminderCreateDTO dto, int userId) => _repository.Create(dto, userId);
         public Task<bool> DeleteSoftAsync(int userProjectId, int userId) => _repository.DeleteSoftAsync(userProjectId, userId);
+        public Task<ToggleLessonReminderResultDTO> ToggleActiveAsync(int userProjectId, int userId) => _repository.ToggleActiveAsync(userProjectId, userId);
 
         public Task<List<ProjectStaffReminderConfigItemDTO>> GetAllProjectStaffAsync() => _repository.GetAllProjectStaffAsync();
         public Task<ToggleProjectStaffReminderResultDTO> ToggleProjectStaffAsync(int projectId) => _repository.ToggleProjectStaffAsync(projectId);

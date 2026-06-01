@@ -8,6 +8,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         Task<LessonReminderCreateDataDTO> GetCreateData();
         Task Create(LessonReminderCreateDTO dto, int userId);
         Task<bool> DeleteSoftAsync(int userProjectId, int userId);
+        Task<ToggleLessonReminderResultDTO> ToggleActiveAsync(int userProjectId, int userId);
 
         // Filtro de staff_email por proyecto
         Task<List<ProjectStaffReminderConfigItemDTO>> GetAllProjectStaffAsync();

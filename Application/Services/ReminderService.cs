@@ -3,6 +3,7 @@ using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Graph.Interfaces;
 using System.Globalization;
 
 namespace Abril_Backend.Application.Services
@@ -14,6 +15,7 @@ namespace Abril_Backend.Application.Services
         private readonly IEmailService _emailService;
         private readonly IMilestoneScheduleHistoryRepository _milestoneScheduleHistoryRepository;
         private readonly ILessonReminderRepository _lessonReminderRepository;
+        private readonly IEmailGroupResolver _emailGroupResolver;
         private readonly List<string> _systemAdminsEmails = new List<string>
         {
             "alvarezvillegaschristian@outlook.com",
@@ -45,7 +47,8 @@ namespace Abril_Backend.Application.Services
             IEmailService emailService,
             IMilestoneScheduleRepository milestoneScheduleRepository,
             IMilestoneScheduleHistoryRepository milestoneScheduleHistoryRepository,
-            ILessonReminderRepository lessonReminderRepository
+            ILessonReminderRepository lessonReminderRepository,
+            IEmailGroupResolver emailGroupResolver
         )
         {
             _userProjectRepository = userProjectRepository;
@@ -53,6 +56,45 @@ namespace Abril_Backend.Application.Services
             _milestoneScheduleRepository = milestoneScheduleRepository;
             _milestoneScheduleHistoryRepository = milestoneScheduleHistoryRepository;
             _lessonReminderRepository = lessonReminderRepository;
+            _emailGroupResolver = emailGroupResolver;
+        }
+
+        /// <summary>
+        /// Envía un correo desglosando previamente los grupos de correo (mail-enabled) en
+        /// los correos de sus miembros, tanto en To como en Cc/Bcc. Si un destinatario no es
+        /// grupo, se conserva tal cual. Esto evita que un grupo como AppAbrilTest@abril.pe no
+        /// llegue a sus miembros cuando el proveedor (PowerAutomate) no sabe entregar a grupos.
+        /// </summary>
+        private async Task SendEmailExpandingGroupsAsync(
+            List<string> to,
+            string subject,
+            string body,
+            bool isHtml,
+            List<string>? cc = null,
+            List<string>? bcc = null)
+        {
+            var expandedTo = await ExpandRecipientsAsync(to) ?? to;
+            var expandedCc = await ExpandRecipientsAsync(cc);
+            var expandedBcc = await ExpandRecipientsAsync(bcc);
+
+            await _emailService.SendAsync(
+                to: expandedTo,
+                subject: subject,
+                body: body,
+                isHtml: isHtml,
+                cc: expandedCc,
+                bcc: expandedBcc);
+        }
+
+        private async Task<List<string>?> ExpandRecipientsAsync(List<string>? emails)
+        {
+            if (emails == null || emails.Count == 0)
+                return emails;
+
+            var expanded = await _emailGroupResolver.ExpandAsync(emails);
+            // ExpandAsync ya hace dedup y pass-through; si por algún motivo vuelve vacío,
+            // conservamos la lista original para no perder destinatarios.
+            return expanded.Count > 0 ? expanded : emails;
         }
         public async Task<bool> ExecuteReminders()
         {
@@ -192,7 +234,7 @@ namespace Abril_Backend.Application.Services
                     }
                 }
 
-                await _emailService.SendAsync(
+                await SendEmailExpandingGroupsAsync(
                     to: to,
                     subject: "🔔 Abril App Recordatorio: envío mensual de lecciones aprendidas pendiente",
                     body: body,
@@ -262,7 +304,7 @@ namespace Abril_Backend.Application.Services
         </p>
     ";
 
-            await _emailService.SendAsync(
+            await SendEmailExpandingGroupsAsync(
                 to: emailsTo,
                 //to: new List<string> {"alvarezvillegaschristian@outlook.com"},
                 subject: $"📊 Reporte mensual: usuarios sin lecciones — {periodLabel}",
@@ -328,7 +370,7 @@ namespace Abril_Backend.Application.Services
             </p>
             ";
 
-            await _emailService.SendAsync(
+            await SendEmailExpandingGroupsAsync(
                 to: _residentsEmails,
                 subject: $"📊 Reporte mensual: cambios en cronogramas — {periodLabel}",
                 body: body,
@@ -381,7 +423,7 @@ namespace Abril_Backend.Application.Services
                 <p>Gracias por tu compromiso con la mejora continua.</p>
                 ";
 
-                await _emailService.SendAsync(
+                await SendEmailExpandingGroupsAsync(
                     to: new List<string> { item.Email },
                     subject: "🔔 Abril App Recordatorio: envío mensual de cronograma de hitos pendiente",
                     body: body,

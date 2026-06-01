@@ -30,11 +30,11 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 .ToListAsync();
         }
 
-        public async Task<List<EvTendenciaDto>> GetTendenciaAsync(int anio)
+        public async Task<List<EvTendenciaDto>> GetTendenciaAsync()
         {
             using var ctx = _factory.CreateDbContext();
             var raw = await ctx.EvEvaluacionesResidente
-                .Where(e => e.Periodo!.Anio == anio && !e.NoAplica && e.Nota.HasValue)
+                .Where(e => !e.NoAplica && e.Nota.HasValue)
                 .Include(e => e.Periodo)
                 .ToListAsync();
 
@@ -122,17 +122,17 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 : [];
 
             return evals
-                .GroupBy(e => new { e.EvaluadoUserId, e.ProjectId, ProyectoNombre = e.Project?.ProjectDescription })
+                .GroupBy(e => e.EvaluadoUserId)
                 .Select(g => new EvResidenteResumenDto
                 {
-                    UserId = g.Key.EvaluadoUserId,
-                    Nombre = persons.GetValueOrDefault(g.Key.EvaluadoUserId, ""),
-                    ProjectId = g.Key.ProjectId,
-                    ProjectNombre = g.Key.ProyectoNombre,
+                    UserId = g.Key,
+                    Nombre = persons.GetValueOrDefault(g.Key, ""),
+                    ProjectId = g.First().ProjectId,
+                    ProjectNombre = g.First().Project?.ProjectDescription,
                     PromedioGeneral = Math.Round(g.Average(e => e.Nota!.Value), 1),
-                    PromedioMesAnterior = evalsAnt.Any(a => a.EvaluadoUserId == g.Key.EvaluadoUserId)
+                    PromedioMesAnterior = evalsAnt.Any(a => a.EvaluadoUserId == g.Key)
                         ? Math.Round(evalsAnt
-                            .Where(a => a.EvaluadoUserId == g.Key.EvaluadoUserId)
+                            .Where(a => a.EvaluadoUserId == g.Key)
                             .Average(a => a.Nota!.Value), 1)
                         : null,
                     PromediosPorArea = g
@@ -154,7 +154,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         {
             var residentes = await GetResidentesResumenAsync(periodoId);
             var areas = await GetPromediosPorAreaAsync(periodoId);
-            var tendencia = await GetTendenciaAsync(DateTime.Today.Year);
+            var tendencia = await GetTendenciaAsync();
 
             using var ctx = _factory.CreateDbContext();
 
@@ -190,8 +190,6 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 CreatedAt = e.CreatedAt
             }).ToList();
 
-            var totalEsperadas = await ctx.UserProject.CountAsync();
-
             return new EvDashboardGerenciaDto
             {
                 PromedioGeneral = residentes.Count != 0
@@ -199,7 +197,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     : null,
                 TotalResidentes = residentes.Select(r => r.UserId).Distinct().Count(),
                 EvaluacionesCompletadas = await ctx.EvEvaluacionesResidente.CountAsync(e => e.PeriodoId == periodoId),
-                EvaluacionesEsperadas = totalEsperadas,
+                EvaluacionesEsperadas = residentes.Count * 8,
                 BajoRendimiento = residentes.Count(r => r.PromedioGeneral < 12),
                 Residentes = residentes,
                 PromediosPorArea = areas,

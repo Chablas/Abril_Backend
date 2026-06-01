@@ -64,9 +64,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
         }
 
         [HttpGet("tendencia")]
-        public async Task<IActionResult> GetTendencia([FromQuery] int? anio)
+        public async Task<IActionResult> GetTendencia()
         {
-            try { return Ok(await _dashRepo.GetTendenciaAsync(anio ?? DateTime.Today.Year)); }
+            try { return Ok(await _dashRepo.GetTendenciaAsync()); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en EvDashboardController.GetTendencia"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }

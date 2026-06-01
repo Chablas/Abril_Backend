@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
+using Abril_Backend.Features.Evaluaciones.Application.Services;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,6 +13,8 @@ namespace Abril_Backend.Features.Evaluaciones
             services.AddScoped<IEvPlantillaRepository, EvPlantillaRepository>();
             services.AddScoped<IEvEvaluacionResidenteRepository, EvEvaluacionResidenteRepository>();
             services.AddScoped<IEvDashboardRepository, EvDashboardRepository>();
+            services.AddScoped<IEvRecordatorioRepository, EvRecordatorioRepository>();
+            services.AddScoped<IEvRecordatorioService, EvRecordatorioService>();
             return services;
         }
     }

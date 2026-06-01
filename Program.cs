@@ -171,7 +171,6 @@ builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 builder.Services.AddScoped<IArquitecturaComercialRepository, ArquitecturaComercialRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
-builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddScoped<LayerRepository>();
 builder.Services.AddScoped<MilestoneRepository>();
 builder.Services.AddScoped<MilestoneScheduleRepository>();

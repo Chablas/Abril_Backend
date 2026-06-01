@@ -2,10 +2,6 @@ using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActivida
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Application.Services;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Repositories;
-using Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedDashboard.Application.Interfaces;
-using Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedDashboard.Application.Services;
-using Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedDashboard.Infrastructure.Interfaces;
-using Abril_Backend.Features.UnidadDeProyectosModule.Features.LessonsLearnedDashboard.Infrastructure.Repositories;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashboard.Application.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashboard.Application.Services;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashboard.Infrastructure.Interfaces;
@@ -17,10 +13,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule
     {
         public static IServiceCollection AddUnidadDeProyectosModule(this IServiceCollection services)
         {
-            // LessonsLearnedDashboard
-            services.AddScoped<ILessonsLearnedDashboardRepository, LessonsLearnedDashboardRepository>();
-            services.AddScoped<ILessonsLearnedDashboardService, LessonsLearnedDashboardService>();
-
             // ProjectsDashboard
             services.AddScoped<IProjectsDashboardRepository, ProjectsDashboardRepository>();
             services.AddScoped<IProjectsDashboardService, ProjectsDashboardService>();

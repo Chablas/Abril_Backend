@@ -26,6 +26,10 @@ using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonR
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Services;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardFeature.Application.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardFeature.Application.Services;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.MejoraContinuaModule
 {
@@ -66,6 +70,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule
             // LessonReminders (asignación usuario-proyecto para recordatorios mensuales)
             services.AddScoped<ILessonReminderRepository, LessonReminderRepository>();
             services.AddScoped<ILessonReminderService, LessonReminderService>();
+
+            // LessonsDashboard (dashboard de lecciones aprendidas, modelo nuevo)
+            services.AddScoped<ILessonsDashboardRepository, LessonsDashboardRepository>();
+            services.AddScoped<ILessonsDashboardService, LessonsDashboardService>();
 
             return services;
         }

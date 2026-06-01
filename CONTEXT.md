@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-05-29 — SctrVidaLeyRepository optimizado (LEFT JOIN habs + bulk vinculaciones), AprobarAsync fuerza Aprobado si sin pendientes, CatalogosRepository ListEmpresas sin filtro EsAbril
+> Última actualización: 2026-05-31 — EvaluacionesModule completo (periodos, plantilla, evaluaciones residente, dashboard). Dapper también en EvaluacionesModule. EvaluadorUserId nullable en EvEvaluacionResidente.
 
 ---
 
@@ -15,7 +15,7 @@
 | Auth              | JWT Bearer interno (`Jwt:Key`) + Azure AD (Microsoft Entra) — ambos coexisten, política default acepta los dos |
 | Email             | PowerAutomate / SendGrid / SMTP (selector `Email:EmailProvider`)                                               |
 | Storage           | Azure Blob / local `wwwroot/uploads` (selector `Storage:StorageProvider`)                                      |
-| Queries complejas | **Dapper** + `NpgsqlConnection` directa (solo en `BandejaRepository`)                                          |
+| Queries complejas | **Dapper** + conexión directa (`NpgsqlConnection` en `BandejaRepository`; `ctx.Database.GetDbConnection()` en `EvEvaluacionResidenteRepository`) |
 | Fechas UTC        | `HabilitacionDateHelper` — `AsUtc()` y `ResolverVigencia()`                                                    |
 | Puerto dev        | 5236 http / 7298 https                                                                                         |
 | Swagger           | Solo en Development en `/swagger`                                                                              |
@@ -71,6 +71,7 @@ Features/<Modulo>Module/
 | `GestionAdministrativaModule` | `AddGestionAdministrativaModule` | SolicitudSalidas, GestionSalidas, Lugares, MotivosSalida |
 | `MejoraContinuaModule` | `AddMejoraContinuaModule` | LessonsLearned, AreasYSubareas, PsssTemplate, Relations |
 | `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | LessonsLearnedDashboard, ProjectsDashboard |
+| `EvaluacionesModule` | `AddEvaluacionesModule` | Evaluaciones de residentes — periodos, plantilla, evaluaciones, dashboard [nuevo 2026-05-31] |
 
 **ArquitecturaComercial** vive en capa tradicional, no en Features.
 
@@ -933,6 +934,65 @@ Nuevos modelos:
 - `SsSeguimientoMedico` — seguimiento médico post-EMO
 - `SsEmoRestriccion` — restricciones médicas por EMO
 - `SsClinicaEmail` — emails por clínica (`ss_clinica_emails`)
+
+---
+
+### 11i. EvaluacionesModule (`Features/EvaluacionesModule/`) — nuevo 2026-05-31
+
+Namespace: `Abril_Backend.Features.Evaluaciones.*`. Estructura `Application/Infrastructure/Presentation` sin sub-features. Interfaces de repo en `Application/Interfaces/` (no en `Infrastructure/Interfaces/`).
+
+**Modelos** (`Infrastructure/Models/`):
+| Entidad | Tabla | Notas |
+|---|---|---|
+| `EvPeriodo` | `ev_periodo` | Mes, Año, FechaApertura, FechaCierre, Activo |
+| `EvPlantilla` | `ev_plantilla` | AreaNombre, Criterio, Orden, Activo, Version |
+| `EvEvaluacionResidente` | `ev_evaluacion_residente` | `EvaluadorUserId int?`, `EvaluadorPersonId int?`, `EvaluadoUserId int`, FK→EvPeriodo, FK→Project |
+| `EvEvaluacionResidenteDetalle` | `ev_evaluacion_residente_detalle` | FK→EvEvaluacionResidente, FK→EvPlantilla, Puntaje, EsNa |
+| `EvNoAplica` | `ev_no_aplica` | FK→EvPeriodo |
+| `EvRecordatorioLog` | `ev_recordatorio_log` | Sin navegaciones |
+
+**DbSets en AppDbContext:** EvPeriodos, EvPlantillas, EvEvaluacionesResidente, EvEvaluacionesResidenteDetalle, EvNoAplica, EvRecordatorioLogs
+
+**Endpoints:**
+```
+GET/POST         /api/v1/evaluaciones/periodos
+PUT              /api/v1/evaluaciones/periodos/{id}/activar|desactivar
+GET              /api/v1/evaluaciones/plantilla
+GET              /api/v1/evaluaciones/plantilla/areas
+GET              /api/v1/evaluaciones/plantilla/{area}
+POST             /api/v1/evaluaciones/plantilla
+PUT              /api/v1/evaluaciones/plantilla/{id}
+POST             /api/v1/evaluaciones/residentes           ← crea evaluación (valida periodo activo, duplicados)
+GET              /api/v1/evaluaciones/residentes/periodo/{periodoId}
+GET              /api/v1/evaluaciones/residentes/mis-evaluaciones
+GET              /api/v1/evaluaciones/residentes/mi-perfil
+GET              /api/v1/evaluaciones/residentes/mi-subarea          ← Dapper → { subarea }
+GET              /api/v1/evaluaciones/residentes/residentes-evaluables  ← Dapper, 2 pasos
+GET              /api/v1/evaluaciones/residentes/{id}
+GET              /api/v1/evaluaciones/dashboard/gerencia
+GET              /api/v1/evaluaciones/dashboard/residentes
+GET              /api/v1/evaluaciones/dashboard/areas
+GET              /api/v1/evaluaciones/dashboard/tendencia   ← sin parámetro año (todos los períodos)
+GET              /api/v1/evaluaciones/dashboard/pendientes
+```
+
+**Lógica clave:**
+- Nota = `promedio(puntajes donde EsNa=false) × 4` (escala 1-5 → 20)
+- `EvaluacionesEsperadas = residentes.Count * 8`
+- `GetResidentesResumenAsync` agrupa por `EvaluadoUserId`; ProjectId/Nombre = `g.First()`
+- `GetTendenciaAsync()` sin filtro año
+
+**Dapper en `EvEvaluacionResidenteRepository`** — patrón:
+```csharp
+await ctx.Database.OpenConnectionAsync();
+var conn = ctx.Database.GetDbConnection();
+await conn.QueryAsync<T>(sql, params)
+```
+`GetResidentesEvaluablesAsync(evaluadorUserId)`:
+- Paso 1: lee `obra_oficina` del evaluador (`workers → person WHERE user_id = @id LIMIT 1`)
+- Paso 2: si `obra_oficina = 'Oficina Central'` → todos los residentes activos; si no → filtra por `project_id` del evaluador
+- Join: `workers → person → app_user → project ON contributor_id = w.contributor_id`
+- `ResidenteEvaluableDto`: UserId, NombreCompleto, ProjectId, ProjectNombre, Area, Subarea, PuedeVerTodos
 
 ---
 

@@ -540,7 +540,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
         public async Task<List<SctrTrabajadorEstadoDto>> GetTrabajadoresPorEmpresaAsync(
             int? empresaId, int? proyectoId, string? tipo, string? tipoPoliza,
-            string? estadoSctr, string? estadoVidaLey)
+            string? estadoSctr, string? estadoVidaLey, string? obraOficina = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -567,6 +567,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .ToListAsync();
 
                 workerIds = workerIds.Union(idsProyecto).ToList();
+            }
+
+            // Filtro por obraOficina: "OficinaStaff" → solo Oficina Central y Staff
+            if (obraOficina == "OficinaStaff" && workerIds.Count > 0)
+            {
+                var idsOficinaStaff = await ctx.Worker
+                    .Where(w => workerIds.Contains(w.Id)
+                             && (w.ObraOficina == "Oficina Central" || w.ObraOficina == "Staff"))
+                    .Select(w => w.Id)
+                    .ToListAsync();
+                workerIds = idsOficinaStaff;
             }
 
             if (workerIds.Count == 0)

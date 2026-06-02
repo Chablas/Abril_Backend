@@ -242,10 +242,18 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     var person = await ctx.Person.FirstOrDefaultAsync(p => p.UserId == userId && p.State);
                     if (person != null)
                     {
-                        person.FirstNames = dto.FirstNames;
-                        person.FirstLastName = dto.FirstLastName;
-                        person.SecondLastName = dto.SecondLastName;
-                        person.FullName = $"{dto.FirstNames} {dto.FirstLastName} {dto.SecondLastName}";
+                        if (!string.IsNullOrWhiteSpace(dto.FirstNames))
+                            person.FirstNames = dto.FirstNames;
+                        if (!string.IsNullOrWhiteSpace(dto.FirstLastName))
+                            person.FirstLastName = dto.FirstLastName;
+                        if (!string.IsNullOrWhiteSpace(dto.SecondLastName))
+                            person.SecondLastName = dto.SecondLastName;
+
+                        var fullName = string.Join(" ", new[] { person.FirstNames, person.FirstLastName, person.SecondLastName }
+                            .Where(n => !string.IsNullOrWhiteSpace(n)));
+                        if (!string.IsNullOrWhiteSpace(fullName))
+                            person.FullName = fullName;
+
                         person.PhoneNumber = dto.PhoneNumber;
                         person.UpdatedDateTime = DateTime.UtcNow;
                         person.UpdatedUserId = updatedUserId;

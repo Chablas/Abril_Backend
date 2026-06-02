@@ -52,7 +52,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<(List<WorkerHabilitacionListDto> Items, int Total)> GetWorkersHabilitacionAsync(
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
-            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false)
+            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -138,6 +138,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                                    && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
                     && !ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo));
 
+            if (soloSinVidaLey)
+                baseQuery = baseQuery.Where(x =>
+                    x.Worker.FechaRetiro == null
+                    && (x.Worker.ObraOficina == "Oficina Central" || x.Worker.ObraOficina == "Staff")
+                    && x.Worker.ContrataCasa == "Casa"
+                    && x.Worker.Categoria != "Practicante"
+                    && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
+                                                   && v.FechaFin == null
+                                                   && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
+                    && !ctx.SsHabTrabajador.Any(h => h.WorkerId == x.Worker.Id
+                                                  && h.ItemId == 13
+                                                  && h.Estado == "Aprobado"));
+
             if (soloEmoVencido)
             {
                 var hoy = DateOnly.FromDateTime(DateTime.Today);
@@ -196,12 +209,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 })
                 .ToDictionaryAsync(x => x.WorkerId, x => x.FechaVencimiento);
 
+            var progMap = await ctx.SsProgramacionEmo
+                .Where(p => workerIds.Contains(p.WorkerId)
+                         && p.Estado != "Completado"
+                         && p.Estado != "Cancelado"
+                         && p.Estado != "Rechazado por Clínica")
+                .GroupBy(p => p.WorkerId)
+                .Select(g => new
+                {
+                    WorkerId = g.Key,
+                    Estado = g.OrderByDescending(p => p.FechaProgramada)
+                               .Select(p => (string?)p.Estado)
+                               .FirstOrDefault()
+                })
+                .ToDictionaryAsync(x => x.WorkerId, x => x.Estado);
+
+            var interconsultaWorkerIds = (await ctx.SsInterconsulta
+                .Where(i => workerIds.Contains(i.WorkerId) && i.Estado == "Pendiente")
+                .Select(i => i.WorkerId)
+                .Distinct()
+                .ToListAsync()).ToHashSet();
+
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
             var items = pageRows.Select(r =>
             {
                 var vinc = soloRetirados ? r.LatestVincCualquiera : r.LatestVincActiva;
                 emoMap.TryGetValue(r.Worker.Id, out var emoVenc);
+                progMap.TryGetValue(r.Worker.Id, out var progEstado);
+                var estadoProg = progEstado != null
+                    ? (interconsultaWorkerIds.Contains(r.Worker.Id) ? "Interconsulta" : progEstado)
+                    : null;
                 return new WorkerHabilitacionListDto
                 {
                     WorkerId = r.Worker.Id,
@@ -220,7 +258,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     TieneEmo = emoMap.ContainsKey(r.Worker.Id),
                     DiasRestantesEmo = emoVenc.HasValue
                         ? (int?)(emoVenc.Value.DayNumber - today.DayNumber)
-                        : null
+                        : null,
+                    EstadoProgramacionEmo = estadoProg
                 };
             }).ToList();
 

@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-05-31 — EvaluacionesModule: cron recordatorios + descargo (EvRecordatorioService, EvRecordatorioRepository, EvRecordatorioController). IEvRecordatorioService registrado en AddEvaluacionesModule.
+> Última actualización: 2026-06-02 — Pull master: MejoraContinuaModule refactorizado (LessonsLearned + LessonsDashboard migrados desde UnidadDeProyectosModule, LessonReminderFeature nueva), LessonController raíz eliminado, DTOs Lesson movidos a Features, IEmailGroupResolver añadido a Shared/Services/Graph.
 
 ---
 
@@ -69,8 +69,8 @@ Features/<Modulo>Module/
 | `CostsModule` | `AddCostsModule` | Adjudicaciones (contrato completo), WorkItem, StaffProjectEmail, ProjectLink |
 | `ConfigurationModule` | `AddConfigurationModule` | ProjectFeature (CRUD proyectos AC) |
 | `GestionAdministrativaModule` | `AddGestionAdministrativaModule` | SolicitudSalidas, GestionSalidas, Lugares, MotivosSalida |
-| `MejoraContinuaModule` | `AddMejoraContinuaModule` | LessonsLearned, AreasYSubareas, PsssTemplate, Relations |
-| `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | LessonsLearnedDashboard, ProjectsDashboard |
+| `MejoraContinuaModule` | `AddMejoraContinuaModule` | LessonsLearned, LessonsDashboard, LessonReminder, AreasYSubareas, PsssTemplate, Relations |
+| `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | ProjectsDashboard (LessonsLearnedDashboard migrado a MejoraContinua) |
 | `EvaluacionesModule` | `AddEvaluacionesModule` | Evaluaciones de residentes — periodos, plantilla, evaluaciones, dashboard [nuevo 2026-05-31] |
 
 **ArquitecturaComercial** vive en capa tradicional, no en Features.

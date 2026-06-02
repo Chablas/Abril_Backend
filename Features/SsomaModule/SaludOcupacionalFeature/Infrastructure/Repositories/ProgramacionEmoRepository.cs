@@ -228,6 +228,30 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 case "Completar":
                     if (dto.EmoResultadoId.HasValue) ent.EmoResultadoId = dto.EmoResultadoId;
                     break;
+                case "No Asistió":
+                    ent.Estado = "No se presentó";
+                    ent.UpdatedAt = DateTimeOffset.UtcNow;
+
+                    var habCert = await ctx.SsHabTrabajador
+                        .FirstOrDefaultAsync(h => h.WorkerId == ent.WorkerId && h.ItemId == 4);
+                    if (habCert != null)
+                    {
+                        var hoyNoAsistio = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
+                        var emoActivo = await ctx.WorkerEmo
+                            .Where(e => e.WorkerId == ent.WorkerId && e.Activo)
+                            .OrderByDescending(e => e.FechaVencimiento)
+                            .FirstOrDefaultAsync();
+
+                        habCert.Estado = emoActivo == null
+                            ? "Falta"
+                            : emoActivo.FechaVencimiento < hoyNoAsistio
+                                ? "Vencido"
+                                : "Aprobado";
+                        habCert.UpdatedAt = DateTime.UtcNow;
+                    }
+
+                    await ctx.SaveChangesAsync();
+                    return;
             }
 
             ent.UpdatedAt = DateTimeOffset.UtcNow;

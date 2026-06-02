@@ -174,6 +174,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (workerIds.Count == 0) return [];
 
+            var workerIdsConProgramacion = await ctx.SsInduccion
+                .Where(i => i.ProyectoId == proyectoId
+                         && workerIds.Contains(i.WorkerId)
+                         && i.Estado == "PROGRAMADA")
+                .Select(i => i.WorkerId)
+                .Distinct()
+                .ToListAsync();
+
+            workerIds = workerIds
+                .Where(id => !workerIdsConProgramacion.Contains(id))
+                .ToList();
+
+            if (workerIds.Count == 0) return [];
+
             // Si se filtra por empresa, reducir a workers con vinculación con esa empresa
             if (empresaId.HasValue)
             {

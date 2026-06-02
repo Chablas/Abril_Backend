@@ -22,7 +22,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
         public async Task<IActionResult> GetData(
             [FromQuery] DateTimeOffset? periodDate,
             [FromQuery] int? userId,
-            [FromQuery] int? lessonAreaId)
+            [FromQuery] int? lessonAreaId,
+            [FromQuery] List<int>? projectIds)
         {
             try
             {
@@ -30,7 +31,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetData(periodDate, userId, lessonAreaId);
+                var result = await _service.GetData(periodDate, userId, lessonAreaId, projectIds);
                 return Ok(result);
             }
             catch (Exception)

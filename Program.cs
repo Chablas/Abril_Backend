@@ -306,7 +306,12 @@ builder.Services.AddAuthorization(options =>
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+// Manejo global de fallos de conectividad con la BD → 503 con detalle real (no 500 opaco).
+builder.Services.AddExceptionHandler<Abril_Backend.Shared.Exceptions.DatabaseExceptionHandler>();
+builder.Services.AddProblemDetails();
+
 var app = builder.Build();
+app.UseExceptionHandler();
 app.UseStaticFiles();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

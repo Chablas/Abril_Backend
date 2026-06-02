@@ -4,7 +4,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
 {
     public interface ILessonsDashboardRepository
     {
-        Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, int? lessonAreaId);
+        Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, int? lessonAreaId, List<int>? projectIds);
         Task<LessonsDashboardFiltersDTO> GetFiltersAsync();
     }
 }

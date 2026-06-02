@@ -25,7 +25,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             _factory = factory;
         }
 
-        public async Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, int? lessonAreaId)
+        public async Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, int? lessonAreaId, List<int>? projectIds)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -42,6 +42,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 q = q.Where(l => l.CreatedUserId == userId.Value);
             if (lessonAreaId.HasValue)
                 q = q.Where(l => l.LessonAreaId == lessonAreaId.Value);
+            if (projectIds != null && projectIds.Count > 0)
+                q = q.Where(l => l.ProjectId != null && projectIds.Contains(l.ProjectId.Value));
 
             var lessons = await q
                 .Select(l => new
@@ -55,19 +57,37 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 .ToListAsync();
 
             // Tendencia mensual: ignora el filtro de período para mostrar la evolución
-            // completa en el tiempo, respetando los filtros de usuario y área.
-            var lessonsByMonth = await BuildMonthlyTrendAsync(ctx, userId, lessonAreaId);
+            // completa en el tiempo, respetando los filtros de usuario, área y proyectos.
+            var lessonsByMonth = await BuildMonthlyTrendAsync(ctx, userId, lessonAreaId, projectIds);
+
+            // Usuarios pendientes (de registrar lecciones) del período seleccionado o del mes actual.
+            var (pendingLabel, pendingUsers) = await BuildPendingUsersAsync(ctx, periodDate);
 
             if (lessons.Count == 0)
-                return new LessonsDashboardDataDTO { LessonsByMonth = lessonsByMonth };
+                return new LessonsDashboardDataDTO
+                {
+                    LessonsByMonth = lessonsByMonth,
+                    PendingPeriodLabel = pendingLabel,
+                    PendingUsers = pendingUsers
+                };
 
             // 2. Descripciones de proyecto
-            var projectIds = lessons.Where(l => l.ProjectId.HasValue).Select(l => l.ProjectId!.Value).Distinct().ToList();
+            var lessonProjectIds = lessons.Where(l => l.ProjectId.HasValue).Select(l => l.ProjectId!.Value).Distinct().ToList();
             var projDescById = (await ctx.Project
-                    .Where(p => projectIds.Contains(p.ProjectId))
+                    .Where(p => lessonProjectIds.Contains(p.ProjectId))
                     .Select(p => new { p.ProjectId, p.ProjectDescription })
                     .ToListAsync())
                 .ToDictionary(p => p.ProjectId, p => p.ProjectDescription ?? string.Empty);
+
+            // 2b. Nombres de usuario (para el ranking "Top usuarios")
+            var userIds = lessons.Select(l => l.CreatedUserId).Distinct().ToList();
+            var userNameById = (await (
+                    from u in ctx.User
+                    join p in ctx.Person on u.UserId equals p.UserId
+                    where userIds.Contains(u.UserId)
+                    select new { u.UserId, p.FullName }
+                ).ToListAsync())
+                .ToDictionary(x => x.UserId, x => x.FullName ?? $"Usuario {x.UserId}");
 
             // 3. Etiqueta de área (lesson_area -> area_scope -> area_item: nombre de la hoja)
             var areaLabelById = await BuildAreaLabelsAsync(ctx);
@@ -116,6 +136,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             // 5. Agregaciones
             var byProject = new Dictionary<int, (string Label, int Count)>();
             var byArea = new Dictionary<int, (string Label, int Count)>();
+            var byUser = new Dictionary<int, (string Label, int Count)>();
             var byPhase = new Dictionary<int, (string Label, int Count)>();
             var bySubStage = new Dictionary<int, (string Label, int Count)>();
             // (phaseId, stageId) -> (phaseLabel, stageLabel, count)
@@ -126,6 +147,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             foreach (var l in lessons)
             {
                 distinctUsers.Add(l.CreatedUserId);
+
+                // Usuario (ranking de aportes)
+                var ulabel = userNameById.TryGetValue(l.CreatedUserId, out var un) ? un : $"Usuario {l.CreatedUserId}";
+                Bump(byUser, l.CreatedUserId, ulabel);
 
                 // Proyecto
                 if (l.ProjectId.HasValue)
@@ -227,22 +252,72 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 },
                 LessonsByProject = ToChart(byProject),
                 LessonsByArea = ToChart(byArea),
+                LessonsByUser = ToChart(byUser),
                 LessonsByPhase = ToChart(byPhase),
                 LessonsBySubStage = ToChart(bySubStage),
                 LessonsByPhaseAndStage = phaseStageCharts,
-                LessonsByMonth = lessonsByMonth
+                LessonsByMonth = lessonsByMonth,
+                PendingPeriodLabel = pendingLabel,
+                PendingUsers = pendingUsers
             };
         }
 
         /// <summary>
-        /// Tendencia mensual: lecciones agrupadas por mes (period_date), en orden cronológico.
-        /// No aplica el filtro de período (para ver la evolución completa); sí usuario y área.
+        /// Usuarios asignados a recordatorios (user_project activos) que NO han registrado
+        /// una lección en el período objetivo (el seleccionado, o el mes actual en hora Lima).
+        /// Lista accionable que refleja la misma lógica del cron de recordatorios.
         /// </summary>
-        private async Task<List<ChartItemDTO>> BuildMonthlyTrendAsync(AppDbContext ctx, int? userId, int? lessonAreaId)
+        private async Task<(string Label, List<PendingUserDTO> Users)> BuildPendingUsersAsync(
+            AppDbContext ctx, DateTimeOffset? periodDate)
+        {
+            var basis = periodDate ?? DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(-5));
+            var target = new DateTimeOffset(basis.Year, basis.Month, 1, 0, 0, 0, TimeSpan.Zero);
+            var label = target.ToString("MM-yyyy");
+
+            var rows = await (
+                from up in ctx.UserProject
+                join u in ctx.User on up.UserId equals u.UserId
+                join p in ctx.Person on u.UserId equals p.UserId
+                join pj in ctx.Project on up.ProjectId equals pj.ProjectId
+                where up.State && up.Active
+                      && !ctx.Lesson.Any(l =>
+                            l.CreatedUserId == up.UserId &&
+                            l.ProjectId == up.ProjectId &&
+                            l.PeriodDate == target &&
+                            l.State && l.Active)
+                select new { up.UserId, p.FullName, u.Email, pj.ProjectDescription }
+            ).ToListAsync();
+
+            var users = rows
+                .GroupBy(x => new { x.UserId, x.FullName, x.Email })
+                .Select(g => new PendingUserDTO
+                {
+                    UserId = g.Key.UserId,
+                    FullName = g.Key.FullName,
+                    Email = g.Key.Email,
+                    Projects = g.Select(x => x.ProjectDescription ?? string.Empty)
+                                .Where(d => !string.IsNullOrWhiteSpace(d))
+                                .Distinct()
+                                .OrderBy(d => d)
+                                .ToList()
+                })
+                .OrderBy(u => u.FullName)
+                .ToList();
+
+            return (label, users);
+        }
+
+        /// <summary>
+        /// Tendencia mensual: lecciones agrupadas por mes (period_date), en orden cronológico.
+        /// No aplica el filtro de período (para ver la evolución completa); sí usuario, área y proyectos.
+        /// </summary>
+        private async Task<List<ChartItemDTO>> BuildMonthlyTrendAsync(AppDbContext ctx, int? userId, int? lessonAreaId, List<int>? projectIds)
         {
             var q = ctx.Lesson.Where(l => l.Active && l.State && l.PeriodDate != null);
             if (userId.HasValue) q = q.Where(l => l.CreatedUserId == userId.Value);
             if (lessonAreaId.HasValue) q = q.Where(l => l.LessonAreaId == lessonAreaId.Value);
+            if (projectIds != null && projectIds.Count > 0)
+                q = q.Where(l => l.ProjectId != null && projectIds.Contains(l.ProjectId.Value));
 
             var monthly = await q
                 .GroupBy(l => l.PeriodDate)
@@ -287,11 +362,24 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 .OrderBy(a => a.AreaDescription)
                 .ToList();
 
+            // Proyectos que tienen al menos una lección activa (para el filtro).
+            var projects = await (
+                from p in ctx.Project
+                where ctx.Lesson.Any(l => l.ProjectId == p.ProjectId && l.Active && l.State)
+                orderby p.ProjectDescription
+                select new DashboardProjectDTO
+                {
+                    ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription ?? string.Empty
+                }
+            ).ToListAsync();
+
             return new LessonsDashboardFiltersDTO
             {
                 Periods = periods,
                 Users = users,
-                Areas = areas
+                Areas = areas,
+                Projects = projects
             };
         }
 

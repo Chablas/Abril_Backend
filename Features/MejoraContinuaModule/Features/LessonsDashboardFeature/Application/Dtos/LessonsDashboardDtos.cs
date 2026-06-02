@@ -30,9 +30,22 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
         public List<ChartItemDTO> LessonsByMonth { get; set; } = new();
         public List<ChartItemDTO> LessonsByProject { get; set; } = new();
         public List<ChartItemDTO> LessonsByArea { get; set; } = new();
+        public List<ChartItemDTO> LessonsByUser { get; set; } = new();
         public List<ChartItemDTO> LessonsByPhase { get; set; } = new();
         public List<PhaseStageChartDTO> LessonsByPhaseAndStage { get; set; } = new();
         public List<ChartItemDTO> LessonsBySubStage { get; set; } = new();
+
+        // Usuarios que debían registrar lecciones (user_project) y no lo han hecho en el período.
+        public string PendingPeriodLabel { get; set; } = string.Empty;
+        public List<PendingUserDTO> PendingUsers { get; set; } = new();
+    }
+
+    public class PendingUserDTO
+    {
+        public int UserId { get; set; }
+        public string? FullName { get; set; }
+        public string? Email { get; set; }
+        public List<string> Projects { get; set; } = new();
     }
 
     public class DashboardPeriodDTO
@@ -52,10 +65,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
         public string AreaDescription { get; set; } = string.Empty;
     }
 
+    public class DashboardProjectDTO
+    {
+        public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = string.Empty;
+    }
+
     public class LessonsDashboardFiltersDTO
     {
         public List<DashboardPeriodDTO> Periods { get; set; } = new();
         public List<DashboardUserDTO> Users { get; set; } = new();
         public List<DashboardAreaDTO> Areas { get; set; } = new();
+        public List<DashboardProjectDTO> Projects { get; set; } = new();
     }
 }

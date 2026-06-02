@@ -14,6 +14,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
 
         Task<SsHabTrabajador> UpdateEntregableAsync(int id, WorkerEntregableUpdateDto dto, int? userId, int? empresaId = null);
 
+        Task<int?> GetEntregableItemIdAsync(int habTrabajadorId);
+
         Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoAsync(int habTrabajadorId);
 
         Task CambiarObraAsync(int workerId, WorkerCambiarObraDto dto);

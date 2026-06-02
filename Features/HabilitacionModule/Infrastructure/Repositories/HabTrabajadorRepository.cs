@@ -266,6 +266,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return (items, total);
         }
 
+        public async Task<int?> GetEntregableItemIdAsync(int habTrabajadorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsHabTrabajador
+                .Where(h => h.Id == habTrabajadorId)
+                .Select(h => (int?)h.ItemId)
+                .FirstOrDefaultAsync();
+        }
+
         public async Task<List<WorkerEntregableDto>> GetEntregablesWorkerAsync(int workerId)
         {
             using var ctx = _factory.CreateDbContext();

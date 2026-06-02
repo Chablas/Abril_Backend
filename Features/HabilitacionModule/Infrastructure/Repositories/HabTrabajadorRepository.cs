@@ -143,6 +143,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     x.Worker.FechaRetiro == null
                     && (x.Worker.ObraOficina == "Oficina Central" || x.Worker.ObraOficina == "Staff")
                     && x.Worker.ContrataCasa == "Casa"
+                    && x.Worker.Categoria != "Practicante"
                     && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
                                                    && v.FechaFin == null
                                                    && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))

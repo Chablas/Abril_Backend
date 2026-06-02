@@ -51,8 +51,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             if (accion == "Rechazar" && string.IsNullOrWhiteSpace(dto.MotivoRechazo))
                 throw new AbrilException("El motivo de rechazo es obligatorio.", 400);
 
-            if (accion is not ("Aceptar" or "Rechazar" or "CheckIn" or "Completar"))
-                throw new AbrilException("Acción no reconocida. Use: Aceptar, Rechazar, CheckIn, Completar.", 400);
+            if (accion is not ("Aceptar" or "Rechazar" or "CheckIn" or "Completar" or "No Asistió"))
+                throw new AbrilException("Acción no reconocida. Use: Aceptar, Rechazar, CheckIn, Completar, No Asistió.", 400);
 
             return _repo.ClinicaAccion(id, dto, userId);
         }

@@ -266,6 +266,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             var area        = first?.Area             ?? "";
             var razonSocial = first?.RazonSocial      ?? "";
             var ruc         = first?.Ruc              ?? "";
+            // Label del documento: DNI (tipo 1) | CE (tipo 2) | DNI por defecto.
+            var documentoLabel = first?.TrabajadorDocumentTypeId switch
+            {
+                2 => "CE:",
+                _ => "DNI:",
+            };
             string periodo  = trabajadorItems.Count > 0
                 ? $"{trabajadorItems.Min(i => i.FechaSalida):dd/MM/yyyy}   AL   {trabajadorItems.Max(i => i.FechaSalida):dd/MM/yyyy}"
                 : "";
@@ -307,11 +313,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         r.RelativeItem().Element(c => InfoLine(c, "NOMBRE DEL ÁREA/PROYECTO:", area));
                     });
 
-                    info.Item().Element(c => InfoLine(c, "APELLIDOS Y NOMBRE:", trabajador));
+                    info.Item().Element(c => InfoLine(c, "NOMBRES Y APELLIDOS:", trabajador));
 
                     info.Item().Row(r =>
                     {
-                        r.RelativeItem().Element(c => InfoLine(c, "DNI:", dni));
+                        r.RelativeItem().Element(c => InfoLine(c, documentoLabel, dni));
                         r.RelativeItem().Element(c => InfoLine(c, "PERIODO DEL:", periodo));
                     });
                 });
@@ -380,14 +386,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         {
                             fc.Item().LineHorizontal(0.7f);
                             fc.Item().PaddingTop(2).AlignCenter()
-                                .Text("Firma del Residente").FontSize(9).Italic();
+                                .Text("Firma de Jefatura").FontSize(9).Italic();
                         });
                         row.ConstantItem(60); // spacer
                         row.RelativeItem().AlignCenter().Column(fc =>
                         {
                             fc.Item().LineHorizontal(0.7f);
                             fc.Item().PaddingTop(2).AlignCenter()
-                                .Text("Firma del Responsable").FontSize(9).Italic();
+                                .Text("Firma de Gerencia").FontSize(9).Italic();
                         });
                     });
                 }

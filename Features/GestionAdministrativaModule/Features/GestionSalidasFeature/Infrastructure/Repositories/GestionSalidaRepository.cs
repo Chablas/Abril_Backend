@@ -504,6 +504,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         WorkerId         = w.Id,
                         TrabajadorNombre = per != null ? (per.FullName ?? "") : "",
                         TrabajadorDni    = per != null ? per.DocumentIdentityCode : null,
+                        TrabajadorDocumentTypeId = per != null ? per.DocumentIdentityTypeId : null,
                         Area             = w.Area,
                         FechaSalida      = s.FechaSalida,
                         Motivo           = m != null ? m.Descripcion : (t.MotivoLibre ?? ""),

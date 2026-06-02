@@ -123,6 +123,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public int WorkerId { get; set; }
         public string TrabajadorNombre { get; set; } = string.Empty;
         public string? TrabajadorDni { get; set; }
+        /// <summary>person.document_identity_type_id (1 = DNI, 2 = CE). Define la etiqueta del documento en el PDF.</summary>
+        public int? TrabajadorDocumentTypeId { get; set; }
         public string? Area { get; set; }
         public DateOnly FechaSalida { get; set; }
         public string Motivo { get; set; } = string.Empty;

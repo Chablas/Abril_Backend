@@ -47,21 +47,19 @@ namespace Abril_Backend.Controllers
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var phasesTask = _phaseRepository.GetAllFactory();
-                var stagesTask = _stageRepository.GetAllFactory();
-                var layersTask = _layerRepository.GetAllFactory();
-                var subStagesTask = _subStageRepository.GetAllFactory();
-                var subSpecialtiesTask = _subSpecialtyRepository.GetAllFactory();
-
-                await Task.WhenAll(phasesTask, stagesTask, layersTask, subStagesTask, subSpecialtiesTask);
+                var phases = await _phaseRepository.GetAllFactory();
+                var stages = await _stageRepository.GetAllFactory();
+                var layers = await _layerRepository.GetAllFactory();
+                var subStages = await _subStageRepository.GetAllFactory();
+                var subSpecialties = await _subSpecialtyRepository.GetAllFactory();
 
                 var result = new
                 {
-                    Phases = phasesTask.Result,
-                    Stages = stagesTask.Result,
-                    Layers = layersTask.Result,
-                    SubStages = subStagesTask.Result,
-                    SubSpecialties = subSpecialtiesTask.Result,
+                    Phases = phases,
+                    Stages = stages,
+                    Layers = layers,
+                    SubStages = subStages,
+                    SubSpecialties = subSpecialties,
                 };
 
                 return Ok(result);

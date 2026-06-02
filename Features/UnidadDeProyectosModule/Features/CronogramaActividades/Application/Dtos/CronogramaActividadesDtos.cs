@@ -66,6 +66,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public DateOnly? PlannedEndDate { get; set; }
         public DateOnly? ActualEndDate { get; set; }
         public int ProgressPercentage { get; set; }
+        /// <summary>Si se incluye (no null), reemplaza por completo las predecesoras y aplica la cascada.</summary>
+        public List<int>? PredecessorIds { get; set; }
     }
 
     public class CulminarActividadDto
@@ -87,15 +89,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     {
         public int ActividadesImportadas { get; set; }
         public int ActividadesEliminadas { get; set; }
-    }
-
-    public class DebugActividadOrdenDto
-    {
-        public int ProjectActivityId { get; set; }
-        public string Description { get; set; } = string.Empty;
-        public int Order { get; set; }
-        public int? ParentId { get; set; }
-        public int HierarchyLevel { get; set; }
     }
 
     // ─────────────────────────── Feriados ───────────────────────────
@@ -130,6 +123,34 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public int ProjectActivityId { get; set; }
         public List<int> Predecesoras { get; set; } = new();
         public CascadaResultDto PreviewCascada { get; set; } = new();
+    }
+
+    // ─────────────────────────── GetActividades response ───────────────────────────
+
+    /// <summary>Cabecera del proyecto en la vista de cronograma.</summary>
+    public class ProyectoCronogramaHeaderDto
+    {
+        public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = string.Empty;
+        public string? ResponsableUdp { get; set; }
+        public DateOnly? FechaInicio { get; set; }
+    }
+
+    /// <summary>Respuesta del GET /{proyectoId}/actividades.</summary>
+    public class ActividadesProyectoResponseDto
+    {
+        public ProyectoCronogramaHeaderDto Proyecto { get; set; } = new();
+        public List<ActividadDto> Actividades { get; set; } = new();
+    }
+
+    // ─────────────────────────── Editar actividad response ───────────────────────────
+
+    /// <summary>Respuesta del PUT /actividades/{id}.</summary>
+    public class EditarActividadResultDto
+    {
+        public ActividadDto Actividad { get; set; } = new();
+        /// <summary>Resultado de la cascada aplicada. Null si no se enviaron PredecessorIds y las fechas no dispararon cascada.</summary>
+        public CascadaResultDto? Cascada { get; set; }
     }
 
     // ─────────────────────────── Cascada ───────────────────────────

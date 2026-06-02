@@ -107,17 +107,15 @@ namespace Abril_Backend.Application.Services
 
         public async Task<IvtControlPdfFiltersDTO> GetFiltersData()
         {
-            var residentsFullNameTask = _userRepository.GetResidentsFullName();
-            var projectWithResidentsTask = _projecResidentRepository.GetProjectsDescription();
-            var schedulePeriodsTask = _repository.GetIvtControlPeriods();
-
-            await Task.WhenAll(residentsFullNameTask, projectWithResidentsTask, schedulePeriodsTask);
+            var residents = await _userRepository.GetResidentsFullName();
+            var projects = await _projecResidentRepository.GetProjectsDescription();
+            var periods = await _repository.GetIvtControlPeriods();
 
             var response = new IvtControlPdfFiltersDTO
             {
-                Projects = await projectWithResidentsTask,
-                Residents = await residentsFullNameTask,
-                Periods = await schedulePeriodsTask,
+                Projects = projects,
+                Residents = residents,
+                Periods = periods,
             };
 
             return response;

@@ -104,15 +104,13 @@ namespace Abril_Backend.Controllers
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var usersTask = _userRepository.GetAllFilterFactory();
-                var projectsTask = _projectRepository.GetAllFactory();
-
-                await Task.WhenAll(usersTask, projectsTask);
+                var users = await _userRepository.GetAllFilterFactory();
+                var projects = await _projectRepository.GetAllFactory();
 
                 var response = new UserProjectCreateDataDTO
                 {
-                    UserPersons = await usersTask,
-                    Projects = await projectsTask
+                    UserPersons = users,
+                    Projects = projects
                 };
 
                 return Ok(response);

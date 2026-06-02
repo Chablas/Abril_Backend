@@ -22,18 +22,40 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public Task<List<ProyectoSimpleCronogramaDto>> GetProyectosAsync()
             => _repository.GetProyectosAsync();
 
-        public Task<List<ActividadDto>> GetActividadesAsync(int proyectoId)
+        public Task<ActividadesProyectoResponseDto> GetActividadesAsync(int proyectoId)
             => _repository.GetActividadesAsync(proyectoId);
 
         public Task<ActividadDto> CrearActividadAsync(int proyectoId, CrearActividadRequest request, int userId)
             => _repository.CrearActividadAsync(proyectoId, request, userId);
 
-        public async Task<ActividadDto> EditarActividadAsync(int projectActivityId, EditarActividadRequest request, int userId)
+        public async Task<EditarActividadResultDto> EditarActividadAsync(int projectActivityId, EditarActividadRequest request, int userId)
         {
             var actividad = await _repository.EditarActividadAsync(projectActivityId, request, userId);
-            // Editar una hoja puede cambiar las fechas de sus padres
             await _scheduling.RecalcularFechasPadresAsync(actividad.ProjectId);
-            return actividad;
+
+            CascadaResultDto? cascada = null;
+
+            if (request.PredecessorIds != null)
+            {
+                var limpias = request.PredecessorIds
+                    .Where(p => p != projectActivityId)
+                    .Distinct()
+                    .ToList();
+
+                if (await _scheduling.DetectCycleAsync(actividad.ProjectId, projectActivityId, limpias))
+                    throw new AbrilException(
+                        "La dependencia genera un ciclo entre actividades y no es válida.", 400);
+
+                await _repository.SetPredecesorasAsync(projectActivityId, limpias);
+                cascada = await _scheduling.AplicarCascadaAsync(actividad.ProjectId);
+                actividad.Predecesoras = limpias;
+            }
+
+            return new EditarActividadResultDto
+            {
+                Actividad = actividad,
+                Cascada = cascada
+            };
         }
 
         public Task<CulminarActividadDto> CulminarActividadAsync(int projectActivityId, int userId)
@@ -58,9 +80,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         public Task<List<ActividadDto>> CambiarJerarquiaAsync(int proyectoId, CambiarJerarquiaRequest request)
             => _repository.CambiarJerarquiaAsync(proyectoId, request);
-
-        public Task<List<DebugActividadOrdenDto>> GetDebugOrderAsync(int proyectoId)
-            => _repository.GetDebugOrderAsync(proyectoId);
 
         public Task<List<ActividadDto>> SubirNivelAsync(int proyectoId, int actividadId)
             => _repository.SubirNivelAsync(proyectoId, actividadId);

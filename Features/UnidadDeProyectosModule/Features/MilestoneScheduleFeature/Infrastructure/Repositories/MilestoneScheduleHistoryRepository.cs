@@ -45,14 +45,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 .OrderByDescending(h => h.CreatedDateTime)
                 .FirstOrDefaultAsync();
 
+            // Carga los hitos del último historial UNA SOLA VEZ; se reutiliza en ambos bloques
+            List<MilestoneSchedule> lastMilestones = new();
             if (lastHistory != null)
             {
-                var lastMilestones = await _context.MilestoneSchedule
+                lastMilestones = await _context.MilestoneSchedule
                     .Where(ms => ms.MilestoneScheduleHistoryId == lastHistory.MilestoneScheduleHistoryId
                                  && ms.Active && ms.State)
                     .OrderBy(ms => ms.Order)
                     .ToListAsync();
+            }
 
+            if (lastHistory != null)
+            {
                 var newMilestones = dto.MilestoneSchedules.OrderBy(ms => ms.Order).ToList();
 
                 if (lastMilestones.Count == newMilestones.Count)
@@ -80,15 +85,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
             if (lastHistory != null)
             {
-                var lastMilestones = await _context.MilestoneSchedule
-                    .Where(ms => ms.MilestoneScheduleHistoryId == lastHistory.MilestoneScheduleHistoryId
-                                 && ms.Active && ms.State)
-                    .ToListAsync();
-
+                // milestoneIds: unión de los nuevos y los del historial anterior (ya en memoria)
                 var milestoneIds = dto.MilestoneSchedules.Select(m => m.MilestoneId)
-                    .Union(_context.MilestoneSchedule
-                        .Where(ms => ms.MilestoneScheduleHistoryId == lastHistory.MilestoneScheduleHistoryId)
-                        .Select(ms => ms.MilestoneId))
+                    .Union(lastMilestones.Select(ms => ms.MilestoneId))
                     .Distinct()
                     .ToList();
 

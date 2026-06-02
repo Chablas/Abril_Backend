@@ -62,7 +62,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
-            var usersTask = (
+            var users = await (
                 from u in ctx.User
                 join p in ctx.Person on u.UserId equals p.UserId
                 where u.Active == true
@@ -78,7 +78,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 }
             ).ToListAsync();
 
-            var projectsTask = ctx.Project
+            var projects = await ctx.Project
                 .Where(p => p.State && p.Active)
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new LessonReminderProjectDTO
@@ -88,12 +88,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 })
                 .ToListAsync();
 
-            await Task.WhenAll(usersTask, projectsTask);
-
             return new LessonReminderCreateDataDTO
             {
-                Users = await usersTask,
-                Projects = await projectsTask
+                Users = users,
+                Projects = projects
             };
         }
 

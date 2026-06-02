@@ -100,15 +100,13 @@ namespace Abril_Backend.Application.Services
 
         public async Task<TrackingFiltersDto> GetFilters()
         {
-            var projectsTask = _projecResidentRepository.GetProjectsDescription();
-            var residentsTask = _userRepository.GetResidentsFullName();
-
-            await Task.WhenAll(projectsTask, residentsTask);
+            var projects = await _projecResidentRepository.GetProjectsDescription();
+            var residents = await _userRepository.GetResidentsFullName();
 
             return new TrackingFiltersDto
             {
-                Projects = await projectsTask,
-                Residents = await residentsTask,
+                Projects = projects,
+                Residents = residents,
             };
         }
 

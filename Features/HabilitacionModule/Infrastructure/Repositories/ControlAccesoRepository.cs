@@ -52,7 +52,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return await BuildDtosAsync(ctx, workers, esOficinaCentral);
         }
 
-        public async Task<List<ControlAccesoWorkerDto>> GetNoAutorizadosAsync(int proyectoId)
+        public async Task<List<ControlAccesoWorkerDto>> GetNoAutorizadosAsync(int proyectoId, string? estadoHabilitacion)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -78,9 +78,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Distinct()
                 .ToListAsync();
 
+            var noAutorizadosSet = noAutorizadosIds.ToHashSet();
+
+            List<int> filteredIds = estadoHabilitacion switch
+            {
+                "No Autorizado" => noAutorizadosIds,
+                "Habilitado"    => workerIds.Where(id => !noAutorizadosSet.Contains(id)).ToList(),
+                _               => workerIds
+            };
+
+            if (filteredIds.Count == 0) return [];
+
             var workers = await ctx.Worker
                 .Include(w => w.Person)
-                .Where(w => noAutorizadosIds.Contains(w.Id))
+                .Where(w => filteredIds.Contains(w.Id))
                 .ToListAsync();
 
             return await BuildDtosAsync(ctx, workers);

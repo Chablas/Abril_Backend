@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Archivos;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
@@ -92,6 +93,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 if (request.HabTrabajadorId is int habId)
                 {
                     var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
+
+                    if (esContratista)
+                    {
+                        var itemId = await _habTrabajadorRepo.GetEntregableItemIdAsync(habId);
+                        if (itemId == HabItemIds.InduccionObra)
+                            return BadRequest(new { message = "La Inducción de Obra no puede ser enviada por el contratista. Debe ser aprobada presencialmente." });
+                    }
 
                     var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
                     int? userId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;

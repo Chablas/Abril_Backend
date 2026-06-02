@@ -4131,3 +4131,40 @@ foreach (var nodo in todas.OrderByDescending(a => a.HierarchyLevel))
 ```
 
 `RecalcularFechasPadresAsync` (y su versión interna) se llama en: `ImportarMppAsync`, `AplicarCascadaAsync`, `EditarActividadAsync`.
+
+---
+
+## Sesión 2026-06-02 — Arquitectura, contratos API y eficiencia BD
+
+### Reglas de codificación establecidas (ver sección §REGLAS al inicio)
+- R1: 1 acción = 1 endpoint = 1 query
+- R2: Task.WhenAll solo para Microsoft Graph
+- R3: Sin N+1
+- R4: Sin roundtrips en Dapper
+- R5: Estructura por features
+
+### Fixes de eficiencia en CronogramaActividadesRepository
+- ImportarMppAsync: N+1 resuelto — 2 pasadas con 2 SaveChangesAsync en vez de N
+- MilestoneScheduleHistoryRepository.Create: query duplicada ejecutada 1 sola vez
+- Reordenar/Subir/BajarNivel: SELECT post-save eliminado, se mapea desde memoria
+- Editar/ActualizarLineaBase: 2 queries combinadas en 1 con proyección EF
+
+### Nuevos contratos API (CronogramaActividades)
+- GET /{proyectoId}/actividades → ActividadesProyectoResponseDto { proyecto, actividades }
+  (elimina la segunda llamada a /proyectos desde el frontend)
+- PUT /actividades/{id} → acepta PredecessorIds? en el body, devuelve EditarActividadResultDto { actividad, cascada? }
+  (unifica editar + predecesoras + cascada en 1 sola llamada)
+- PUT /actividades/{id}/predecesoras → mantiene como legacy deprecated
+
+### Nuevos contratos API (ProjectsDashboard)
+- GET /projects-dashboard → incluye campo Filtros en el response
+  (elimina la segunda llamada a /filters desde el frontend)
+- GET /projects-dashboard/filters → mantiene como legacy deprecated
+
+### Limpieza pre-merge
+- Eliminado endpoint GET /cronograma-actividades/debug-order
+- Eliminados Console.WriteLine en ImportarMppAsync
+
+### Migraciones aplicadas en Aiven
+- 20260601184746_AddBaselineDatesProjectActivity — aplicada manualmente vía pgAdmin
+  (baseline_start_date, baseline_end_date nullable en project_activity)

@@ -1,6 +1,7 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -136,6 +137,10 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
 
                 if (esContratista)
                 {
+                    var itemId = await _repo.GetEntregableItemIdAsync(id);
+                    if (itemId == HabItemIds.InduccionObra)
+                        return BadRequest(new { message = "La Inducción de Obra no puede ser enviada por el contratista. Debe ser aprobada presencialmente." });
+
                     dto.Estado = "Enviado";
                     dto.Vigencia = null;
                 }

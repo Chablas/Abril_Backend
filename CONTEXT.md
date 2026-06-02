@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-01 — SsomaModule/HabilitacionModule: flujo EMO completo refactorizado, EstadoProgramacionEmo en lista habilitación, acción "No Asistió", obraOficina en SCTR.
+> Última actualización: 2026-06-01 — SsomaModule/HabilitacionModule: flujo EMO refactorizado, EstadoProgramacionEmo, "No Asistió", obraOficina SCTR, soloSinVidaLey en lista habilitación.
 
 ---
 
@@ -3777,7 +3777,31 @@ En `GetWorkersHabilitacionAsync` (post-fetch sobre `pageRows`):
 - **`interconsultaWorkerIds`**: workers con `SsInterconsulta.Estado == "Pendiente"`.
 - **Mapeo**: si hay interconsulta pendiente → `"Interconsulta"`; si no → `progMap[workerId]` (Programado / Aceptado por Clínica / En Atención / …); si sin programación → `null`.
 
-### 7. SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync — parámetro obraOficina
+### 7. GetWorkersHabilitacionAsync — parámetro soloSinVidaLey
+
+Nuevo parámetro `bool soloSinVidaLey = false` agregado en:
+- `IHabTrabajadorRepository` (interfaz)
+- `HabTrabajadorRepository.GetWorkersHabilitacionAsync` (implementación)
+- `HabTrabajadorController.GetWorkers` (`[FromQuery] bool soloSinVidaLey = false`)
+
+Filtro exacto (después de `soloSinEmo`, antes de `soloEmoVencido`):
+```csharp
+if (soloSinVidaLey)
+    baseQuery = baseQuery.Where(x =>
+        x.Worker.FechaRetiro == null
+        && (x.Worker.ObraOficina == "Oficina Central" || x.Worker.ObraOficina == "Staff")
+        && x.Worker.ContrataCasa == "Casa"
+        && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
+                                       && v.FechaFin == null
+                                       && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
+        && !ctx.SsHabTrabajador.Any(h => h.WorkerId == x.Worker.Id
+                                      && h.ItemId == 13        // Vida Ley
+                                      && h.Estado == "Aprobado"));
+```
+
+Semántica: workers Casa de Oficina Central/Staff, activos, empresa Abril, **sin** Vida Ley aprobada.
+
+### 8. SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync — parámetro obraOficina
 
 Nuevo parámetro `string? obraOficina = null`. Si `obraOficina == "OficinaStaff"`, después de construir `workerIds`, filtra:
 ```csharp

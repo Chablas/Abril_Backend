@@ -52,7 +52,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<(List<WorkerHabilitacionListDto> Items, int Total)> GetWorkersHabilitacionAsync(
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
-            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false)
+            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -137,6 +137,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                                    && v.FechaFin == null
                                                    && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
                     && !ctx.WorkerEmo.Any(e => e.WorkerId == x.Worker.Id && e.Activo));
+
+            if (soloSinVidaLey)
+                baseQuery = baseQuery.Where(x =>
+                    x.Worker.FechaRetiro == null
+                    && (x.Worker.ObraOficina == "Oficina Central" || x.Worker.ObraOficina == "Staff")
+                    && x.Worker.ContrataCasa == "Casa"
+                    && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
+                                                   && v.FechaFin == null
+                                                   && ctx.Contributor.Any(c => c.ContributorId == v.EmpresaId && c.EsAbril))
+                    && !ctx.SsHabTrabajador.Any(h => h.WorkerId == x.Worker.Id
+                                                  && h.ItemId == 13
+                                                  && h.Estado == "Aprobado"));
 
             if (soloEmoVencido)
             {

@@ -96,6 +96,18 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.GetList"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPatch("{id:int}/reprogramar")]
+        public async Task<IActionResult> Reprogramar(int id, [FromBody] InduccionReprogramarDto? dto = null)
+        {
+            try
+            {
+                await _repo.ReprogramarAsync(id, dto);
+                return Ok(new { message = "Inducción reprogramada." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.Reprogramar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPatch("{id:int}/aprobar")]
         public async Task<IActionResult> Aprobar(int id)
         {

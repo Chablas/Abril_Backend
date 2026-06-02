@@ -275,6 +275,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .ToList();
         }
 
+        public async Task ReprogramarAsync(int id, InduccionReprogramarDto? dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var induccion = await ctx.SsInduccion.FirstOrDefaultAsync(i => i.Id == id)
+                ?? throw new AbrilException("Inducción no encontrada.", 404);
+
+            if (induccion.Estado == "REALIZADA")
+                throw new AbrilException("No se puede reprogramar una inducción ya realizada.", 400);
+
+            induccion.Estado = "PROGRAMADA";
+            induccion.UpdatedAt = DateTime.UtcNow;
+
+            if (dto != null)
+            {
+                if (dto.FechaProgramada.HasValue)
+                    induccion.FechaProgramada = DateTime.SpecifyKind(dto.FechaProgramada.Value, DateTimeKind.Utc);
+                if (dto.ProyectoId.HasValue)
+                    induccion.ProyectoId = dto.ProyectoId.Value;
+                if (dto.TrabajoAltura.HasValue)
+                    induccion.TrabajoAltura = dto.TrabajoAltura.Value;
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task AprobarAsync(int id)
         {
             using var ctx = _factory.CreateDbContext();

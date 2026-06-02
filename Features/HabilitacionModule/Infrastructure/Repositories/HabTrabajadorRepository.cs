@@ -1344,31 +1344,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 CreatedAt = DateTime.UtcNow
             });
 
-            var tipoRetiro = await ctx.SsEmoTipo
-                .FirstOrDefaultAsync(t => t.Nombre.ToLower().Contains("retiro"));
-            if (tipoRetiro != null)
-            {
-                var hoyRetiro = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
-                var yaExisteRetiro = await ctx.SsProgramacionEmo.AnyAsync(p =>
-                    p.WorkerId == workerId &&
-                    p.TipoEmoId == tipoRetiro.Id &&
-                    p.Estado != "Cancelado" &&
-                    p.FechaProgramada >= hoyRetiro);
-                if (!yaExisteRetiro)
-                    ctx.SsProgramacionEmo.Add(new SsProgramacionEmo
-                    {
-                        WorkerId = workerId,
-                        EmpresaId = vinculacion?.EmpresaId,
-                        TipoEmoId = tipoRetiro.Id,
-                        FechaProgramada = fechaRetiro,
-                        Estado = "Programado",
-                        Origen = "Automatico",
-                        Motivo = "EMO de retiro generado automáticamente por baja del trabajador",
-                        CreatedAt = DateTimeOffset.UtcNow,
-                        UpdatedAt = DateTimeOffset.UtcNow
-                    });
-            }
-
             await ctx.SaveChangesAsync();
         }
 
@@ -1429,38 +1404,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EmpresaAnteriorId = vinc?.EmpresaId,
                     CreatedAt = DateTime.UtcNow
                 });
-            }
-
-            var tipoRetiroMasivo = await ctx.SsEmoTipo
-                .FirstOrDefaultAsync(t => t.Nombre.ToLower().Contains("retiro"));
-            if (tipoRetiroMasivo != null)
-            {
-                var hoyMasivo = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5));
-                var yaExistenRetiroIds = await ctx.SsProgramacionEmo
-                    .Where(p => workerIds.Contains(p.WorkerId) &&
-                                p.TipoEmoId == tipoRetiroMasivo.Id &&
-                                p.Estado != "Cancelado" &&
-                                p.FechaProgramada >= hoyMasivo)
-                    .Select(p => p.WorkerId)
-                    .ToListAsync();
-                var yaExistenRetiroSet = new HashSet<int>(yaExistenRetiroIds);
-                foreach (var w in workers)
-                {
-                    if (yaExistenRetiroSet.Contains(w.Id)) continue;
-                    vincMap.TryGetValue(w.Id, out var vincRetiro);
-                    ctx.SsProgramacionEmo.Add(new SsProgramacionEmo
-                    {
-                        WorkerId = w.Id,
-                        EmpresaId = vincRetiro?.EmpresaId,
-                        TipoEmoId = tipoRetiroMasivo.Id,
-                        FechaProgramada = fechaRetiro,
-                        Estado = "Programado",
-                        Origen = "Automatico",
-                        Motivo = "EMO de retiro generado automáticamente por baja del trabajador",
-                        CreatedAt = DateTimeOffset.UtcNow,
-                        UpdatedAt = DateTimeOffset.UtcNow
-                    });
-                }
             }
 
             await ctx.SaveChangesAsync();

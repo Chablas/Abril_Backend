@@ -1217,7 +1217,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 : "";
             var tipoDocumentoGarantia = data.PaymentMethodId == 2
                 ? $"PAGARÉ N°{numPagareStr}{abreviaturaProyecto}-{DateTime.UtcNow.Year} Y LETRA DE GARANTÍA"
-                : "LETRA DE GARANTÍA";
+                : "-";
 
             // Cláusulas del numeral 5.1.x según la forma de pago (PaymentMethodId).
             // Los valores se insertan ya resueltos y la negrita inline se marca con **…**.
@@ -1260,6 +1260,25 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 };
             }
 
+            // ── Valores de adelanto para la hoja resumen del contrato ─────────────
+            // Si no hay adelanto efectivo (0 o null) los placeholders resuelven a "-" en lugar de "0.00%" / "S/ 0.00".
+            var hasAdvance = data.AdvancePercentage.HasValue && data.AdvancePercentage.Value > 0;
+            var advancePercentageDisplay = hasAdvance ? $"{data.AdvancePercentage:N2}%" : "-";
+            var advanceAmountDisplay = hasAdvance
+                ? $"{currencySymbol} {advanceAmount:N2} {(data.HasIgv ? "Inc. IGV" : "No Inc. IGV")}"
+                : "-";
+
+            // {{HOJA_RESUMEN_FORMA_DE_PAGO}}: con adelanto incluye descripción + % + saldo;
+            //                                sin adelanto solo "7 días hábiles".
+            var hojaResumenFormaDePago = data.PaymentMethodId == 2
+                ? $"{data.PaymentMethodDescription} {advancePercentageDisplay}, saldo valorizaciones a 7 días hábiles"
+                : "7 días hábiles";
+
+            // {{HOJA_RESUMEN_ADELANTO_MONTO}}: con adelanto → "% - monto"; sin adelanto → única "-".
+            var hojaResumenAdelantoMonto = data.PaymentMethodId == 2
+                ? $"{advancePercentageDisplay} - {advanceAmountDisplay}"
+                : "-";
+
             var replacements = new Dictionary<string, string>
             {
                 // Contratista
@@ -1286,7 +1305,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{MONTO}}",                         $"{currencySymbol} {data.Amount:N2}" },
                 { "{{MONTO_CON_IGV}}",                 $"{currencySymbol} {data.Amount:N2} {(data.HasIgv ? "incluido IGV" : "sin IGV")}" },
                 { "{{MONTO_EN_PALABRAS}}",             montoEnPalabras },
-                { "{{MONEDA}}",                        monedaMayuscula },
+                { "{{MONEDA}}",                        $"EN {monedaMayuscula}" },
                 { "{{FECHA_INICIO}}",                  data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
                 { "{{FECHA_FIN}}",                     data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
                 // Fecha de firma del contrato formateada como "10 de julio del 2025" (es-PE; "del" en lugar de "de").
@@ -1298,9 +1317,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                         : "" },
                 { "{{PLAZO_NUM}}",                     plazo.ToString() },
                 { "{{PLAZO_EN_PALABRAS}}",             plazoPalabras },
-                { "{{ADVANCE_PERCENTAGE}}",            data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
+                { "{{ADVANCE_PERCENTAGE}}",            advancePercentageDisplay },
                 { "{{FORMA_DE_PAGO_ADVANCE_PERCENTAGE}}", data.PaymentMethodId == 2 && data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
-                { "{{ADVANCE_AMOUNT}}",                $"{currencySymbol} {advanceAmount:N2}" },
+                { "{{ADVANCE_AMOUNT}}",                advanceAmountDisplay },
+                { "{{HOJA_RESUMEN_FORMA_DE_PAGO}}",    hojaResumenFormaDePago },
+                { "{{HOJA_RESUMEN_ADELANTO_MONTO}}",   hojaResumenAdelantoMonto },
                 { "{{ADVANCE_AMOUNT_EN_PALABRAS}}",    advanceAmountEnPalabras },
                 { "{{DIFERENCIA_MONTO}}",              diferenciaFormato },
                 { "{{DIFERENCIA_MONTO_EN_PALABRAS}}", diferenciaEnPalabras },
@@ -1311,6 +1332,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{FONDO_GARANTÍA_PLAZO_EN_AÑOS}}",  fondoAniosTexto },
                 { "{{FONDO_GARANTÍA_PLAZO_NUM_PALABRA}}", $"{fondoMeses} ({fondoMesesPalabras})" },
                 { "{{TIPO_CONTRATO}}",                 data.ContractTypeDescription },
+                { "{{TIPO_CONTRATO_MAYÚSCULA}}",       (data.ContractTypeDescription ?? "").ToUpper() },
                 { "{{PARTIDA}}",                       data.WorkItemDescription },
                 { "{{AÑO_ACTUAL}}",                    DateTime.UtcNow.Year.ToString() },
                 { "{{NUM_CONTRATO}}",                  data.ContractNumber.HasValue ? data.ContractNumber.Value.ToString("D3") : "" },

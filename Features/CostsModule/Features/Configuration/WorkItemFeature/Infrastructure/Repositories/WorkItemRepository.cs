@@ -24,7 +24,10 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             var query = _context.WorkItem.Where(x => x.State);
 
             if (!string.IsNullOrWhiteSpace(filter.Description))
-                query = query.Where(x => x.WorkItemDescription.Contains(filter.Description));
+            {
+                var descLower = filter.Description.ToLower();
+                query = query.Where(x => x.WorkItemDescription.ToLower().Contains(descLower));
+            }
 
             var totalRecords = await query.CountAsync();
 

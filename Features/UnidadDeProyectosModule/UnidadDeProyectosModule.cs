@@ -6,6 +6,15 @@ using Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashboard.
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashboard.Application.Services;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashboard.Infrastructure.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashboard.Infrastructure.Repositories;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Services;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Repositories;
+// Projects (paged-with-residents) — same feature
+using IProjectsRepo = Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces.IProjectsRepository;
+using ProjectsRepo  = Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Repositories.ProjectsRepository;
+using IProjectsSvc  = Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces.IProjectsService;
+using ProjectsSvc   = Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Services.ProjectsService;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule
 {
@@ -20,6 +29,17 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule
             // CronogramaActividades
             services.AddScoped<ICronogramaActividadesRepository, CronogramaActividadesRepository>();
             services.AddScoped<ICronogramaActividadesService, CronogramaActividadesService>();
+            services.AddScoped<ICronogramaSchedulingService, CronogramaSchedulingService>();
+
+            // MilestoneSchedule
+            services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
+            services.AddScoped<IMilestoneScheduleService, MilestoneScheduleService>();
+            services.AddScoped<IMilestoneScheduleHistoryRepository, MilestoneScheduleHistoryRepository>();
+            services.AddScoped<IMilestoneScheduleHistoryService, MilestoneScheduleHistoryService>();
+
+            // Projects (paged-with-residents)
+            services.AddScoped<IProjectsRepo, ProjectsRepo>();
+            services.AddScoped<IProjectsSvc, ProjectsSvc>();
 
             return services;
         }

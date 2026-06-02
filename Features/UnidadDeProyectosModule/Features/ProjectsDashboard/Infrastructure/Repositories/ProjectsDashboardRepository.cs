@@ -24,29 +24,39 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
 
         public async Task<(List<ProyectoSimpleDto> Projects, List<string> Estados, List<ResponsableSimpleDto> Responsables)> GetFiltersDataFactory()
         {
-            using var ctx1 = _factory.CreateDbContext();
-            using var ctx2 = _factory.CreateDbContext();
-            using var ctx3 = _factory.CreateDbContext();
+            using var ctx = _factory.CreateDbContext();
 
-            var projectsTask = ctx1.Project
+            // Una sola query trae las columnas necesarias; las 3 listas se derivan en memoria.
+            var rows = await ctx.Project
                 .Where(p => p.State && p.TieneUnidadDeProyectos)
+                .Select(p => new
+                {
+                    p.ProjectId,
+                    p.ProjectDescription,
+                    p.Estado,
+                    p.ResponsableUdpId,
+                    p.ResponsableUdp
+                })
+                .ToListAsync();
+
+            var projects = rows
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProyectoSimpleDto
                 {
                     Id = p.ProjectId,
                     Nombre = p.ProjectDescription
                 })
-                .ToListAsync();
+                .ToList();
 
-            var estadosTask = ctx2.Project
-                .Where(p => p.State && p.TieneUnidadDeProyectos && p.Estado != null)
+            var estados = rows
+                .Where(p => p.Estado != null)
                 .Select(p => p.Estado!)
                 .Distinct()
                 .OrderBy(e => e)
-                .ToListAsync();
+                .ToList();
 
-            var responsablesTask = ctx3.Project
-                .Where(p => p.State && p.TieneUnidadDeProyectos && p.ResponsableUdpId.HasValue)
+            var responsables = rows
+                .Where(p => p.ResponsableUdpId.HasValue)
                 .Select(p => new { p.ResponsableUdpId, p.ResponsableUdp })
                 .Distinct()
                 .Select(r => new ResponsableSimpleDto
@@ -55,27 +65,28 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
                     Nombre = r.ResponsableUdp
                 })
                 .OrderBy(r => r.Nombre)
-                .ToListAsync();
+                .ToList();
 
-            await Task.WhenAll(projectsTask, estadosTask, responsablesTask);
-
-            return (projectsTask.Result, estadosTask.Result, responsablesTask.Result);
+            return (projects, estados, responsables);
         }
 
         // -----------------------------------------------------------------------
         // Dashboard principal
         // -----------------------------------------------------------------------
 
-        public async Task<List<ProyectoDetalleDto>> GetDashboardDataAsync(
-            int? proyectoId, string? estado, int? responsableId, DateOnly today)
+        public async Task<(List<ProyectoDetalleDto> Proyectos, List<ResponsableRankingDto> Ranking, List<HeatmapResponsableDto> Heatmap)> GetDashboardAsync(
+            int? proyectoId, string? estado, int? responsableId, DateOnly today, DateOnly heatDesde, DateOnly heatHasta)
         {
             try
             {
+                // Una sola conexión. Los datos base (proyectos + actividades) se cargan UNA vez
+                // y dashboard, ranking y heatmap se calculan en memoria sobre ese mismo dataset.
                 using var ctx = _factory.CreateDbContext();
 
                 var projects = await BuildProjectQueryAsync(ctx, proyectoId, estado, responsableId);
                 _logger.LogInformation("DASHBOARD_DEBUG projects={Count}", projects.Count);
-                if (projects.Count == 0) return new();
+                if (projects.Count == 0)
+                    return (new(), new(), new());
 
                 var projectIds = projects.Select(p => p.ProjectId).ToList();
                 var activities = await GetActivitiesAsync(ctx, projectIds);
@@ -85,11 +96,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
                     .GroupBy(a => a.ProjectId)
                     .ToDictionary(g => g.Key, g => g.ToList());
 
-                return projects.Select(p =>
+                var proyectos = projects.Select(p =>
                 {
                     var items = activitiesByProject.TryGetValue(p.ProjectId, out var list) ? list : new();
                     return BuildProyectoDetalle(p.ProjectId, p.ProjectDescription, p.Estado, p.ResponsableNombre, items, today);
                 }).ToList();
+
+                var ranking = BuildRanking(projects, activitiesByProject, today);
+                var heatmap = BuildHeatmap(projects, activitiesByProject, heatDesde, heatHasta);
+
+                return (proyectos, ranking, heatmap);
             }
             catch (Exception ex)
             {
@@ -102,23 +118,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
         // Ranking de responsables
         // -----------------------------------------------------------------------
 
-        public async Task<List<ResponsableRankingDto>> GetRankingResponsablesAsync(
-            int? proyectoId, string? estado, int? responsableId, DateOnly today)
+        private static List<ResponsableRankingDto> BuildRanking(
+            List<ProjectFlat> projects,
+            Dictionary<int, List<ActivityFlat>> activitiesByProject,
+            DateOnly today)
         {
-            using var ctx = _factory.CreateDbContext();
-
-            var projects = await BuildProjectQueryAsync(ctx, proyectoId, estado, responsableId);
-            if (projects.Count == 0) return new();
-
             var proyectosConResponsable = projects.Where(p => p.ResponsableId.HasValue).ToList();
             if (proyectosConResponsable.Count == 0) return new();
-
-            var projectIds = proyectosConResponsable.Select(p => p.ProjectId).ToList();
-            var activities = await GetActivitiesAsync(ctx, projectIds);
-
-            var activitiesByProject = activities
-                .GroupBy(a => a.ProjectId)
-                .ToDictionary(g => g.Key, g => g.ToList());
 
             var responsableNombre = proyectosConResponsable
                 .GroupBy(p => p.ResponsableId!.Value)
@@ -159,27 +165,25 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
         // Heatmap de carga
         // -----------------------------------------------------------------------
 
-        public async Task<List<HeatmapResponsableDto>> GetHeatmapCargaAsync(
-            int? proyectoId, string? estado, int? responsableId, DateOnly fechaDesde, DateOnly fechaHasta)
+        private static List<HeatmapResponsableDto> BuildHeatmap(
+            List<ProjectFlat> projects,
+            Dictionary<int, List<ActivityFlat>> activitiesByProject,
+            DateOnly fechaDesde, DateOnly fechaHasta)
         {
-            using var ctx = _factory.CreateDbContext();
-
-            var projects = await BuildProjectQueryAsync(ctx, proyectoId, estado, responsableId);
             var proyectosConResponsable = projects.Where(p => p.ResponsableId.HasValue).ToList();
             if (proyectosConResponsable.Count == 0) return new();
 
-            var projectIds = proyectosConResponsable.Select(p => p.ProjectId).ToList();
-            var activities = await GetActivitiesAsync(ctx, projectIds, fechaDesde, fechaHasta);
-            if (activities.Count == 0) return new();
-
             var projectResponsable = proyectosConResponsable
-                .ToDictionary(p => p.ProjectId, p => new { p.ResponsableId, p.ResponsableNombre });
+                .ToDictionary(p => p.ProjectId, p => p.ResponsableNombre);
 
-            var flat = activities
-                .Where(a => a.PlannedEndDate.HasValue && projectResponsable.ContainsKey(a.ProjectId))
+            var flat = proyectosConResponsable
+                .SelectMany(p => activitiesByProject.TryGetValue(p.ProjectId, out var s) ? s : new())
+                .Where(a => a.PlannedEndDate.HasValue
+                         && a.PlannedEndDate.Value >= fechaDesde
+                         && a.PlannedEndDate.Value <= fechaHasta)
                 .Select(a => new
                 {
-                    Responsable = projectResponsable[a.ProjectId].ResponsableNombre ?? string.Empty,
+                    Responsable = projectResponsable[a.ProjectId] ?? string.Empty,
                     Semana = ToIsoWeekLabel(a.PlannedEndDate!.Value)
                 })
                 .GroupBy(a => new { a.Responsable, a.Semana })

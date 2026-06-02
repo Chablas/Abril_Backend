@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260601002547_AddFeriadosAndActivityPredecessor")]
+    partial class AddFeriadosAndActivityPredecessor
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -7660,14 +7663,6 @@ namespace Abril_Backend.Migrations
                     b.Property<DateOnly?>("ActualEndDate")
                         .HasColumnType("date")
                         .HasColumnName("actual_end_date");
-
-                    b.Property<DateOnly?>("BaselineEndDate")
-                        .HasColumnType("date")
-                        .HasColumnName("baseline_end_date");
-
-                    b.Property<DateOnly?>("BaselineStartDate")
-                        .HasColumnType("date")
-                        .HasColumnName("baseline_start_date");
 
                     b.Property<DateTime>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")

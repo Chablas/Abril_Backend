@@ -3,7 +3,9 @@ using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActivida
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Mpxj = MPXJ.Net;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Repositories
 {
@@ -19,36 +21,148 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public async Task<List<ProyectoSimpleCronogramaDto>> GetProyectosAsync()
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.Project
+
+            var proyectos = await ctx.Project
                 .Where(p => p.State && p.TieneUnidadDeProyectos)
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProyectoSimpleCronogramaDto
                 {
                     ProjectId = p.ProjectId,
                     ProjectDescription = p.ProjectDescription,
-                    ResponsableUdp = p.ResponsableUdp
+                    ResponsableUdp = p.ResponsableUdp,
+                    TotalActividades = ctx.ProjectActivity
+                        .Count(a => a.ProjectId == p.ProjectId && a.State && a.Active)
                 })
                 .ToListAsync();
+
+            if (proyectos.Count == 0)
+                return proyectos;
+
+            var projectIds = proyectos.Select(p => p.ProjectId).ToList();
+
+            // Una sola query para TODAS las actividades de TODOS los proyectos (evita N+1).
+            var actividades = await ctx.ProjectActivity
+                .Where(a => projectIds.Contains(a.ProjectId) && a.State && a.Active)
+                .Select(a => new ActividadAvance
+                {
+                    ProjectActivityId = a.ProjectActivityId,
+                    ProjectId = a.ProjectId,
+                    ParentId = a.ParentId,
+                    HierarchyLevel = a.HierarchyLevel,
+                    ActualEndDate = a.ActualEndDate,
+                    ProgressPercentage = a.ProgressPercentage
+                })
+                .ToListAsync();
+
+            var actividadesPorProyecto = actividades
+                .GroupBy(a => a.ProjectId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var proyecto in proyectos)
+            {
+                proyecto.Avance = actividadesPorProyecto.TryGetValue(proyecto.ProjectId, out var acts)
+                    ? CalcularAvanceNivel0(acts)
+                    : 0;
+            }
+
+            return proyectos;
+        }
+
+        /// <summary>Vista mínima de una actividad para calcular el avance del proyecto.</summary>
+        private sealed class ActividadAvance
+        {
+            public int ProjectActivityId { get; set; }
+            public int ProjectId { get; set; }
+            public int? ParentId { get; set; }
+            public int HierarchyLevel { get; set; }
+            public DateOnly? ActualEndDate { get; set; }
+            public int ProgressPercentage { get; set; }
+        }
+
+        /// <summary>
+        /// Avance del/los nodo(s) de nivel 0: promedio recursivo de hijos directos en cada nivel.
+        /// Hoja = 100 si está culminada (ActualEndDate), si no su ProgressPercentage. 0 si no hay actividades.
+        /// </summary>
+        private static int CalcularAvanceNivel0(List<ActividadAvance> acts)
+        {
+            var nivel0 = acts.Where(a => a.HierarchyLevel == 0).ToList();
+            if (nivel0.Count == 0) return 0;
+
+            var porId = acts.ToDictionary(a => a.ProjectActivityId);
+            var hijosPorPadre = acts
+                .Where(a => a.ParentId.HasValue)
+                .GroupBy(a => a.ParentId!.Value)
+                .ToDictionary(g => g.Key, g => g.ToList());
+            var memo = new Dictionary<int, int>();
+
+            int Calc(int id)
+            {
+                if (memo.TryGetValue(id, out var cached)) return cached;
+
+                int result;
+                if (hijosPorPadre.TryGetValue(id, out var hijos) && hijos.Count > 0)
+                {
+                    var suma = hijos.Sum(h => Calc(h.ProjectActivityId));
+                    result = (int)Math.Round((double)suma / hijos.Count, MidpointRounding.AwayFromZero);
+                }
+                else
+                {
+                    result = porId.TryGetValue(id, out var a)
+                        ? (a.ActualEndDate.HasValue ? 100 : a.ProgressPercentage)
+                        : 0;
+                }
+
+                memo[id] = result;
+                return result;
+            }
+
+            var total = nivel0.Sum(n => Calc(n.ProjectActivityId));
+            return (int)Math.Round((double)total / nivel0.Count, MidpointRounding.AwayFromZero);
         }
 
         public async Task<List<ActividadDto>> GetActividadesAsync(int proyectoId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.ProjectActivity
+
+            var actividades = await ctx.ProjectActivity
                 .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
                 .OrderBy(a => a.Order)
-                .Select(a => new ActividadDto
-                {
-                    ProjectActivityId = a.ProjectActivityId,
-                    ProjectId = a.ProjectId,
-                    ActivityDescription = a.ActivityDescription,
-                    PlannedStartDate = a.PlannedStartDate,
-                    PlannedEndDate = a.PlannedEndDate,
-                    ActualEndDate = a.ActualEndDate,
-                    ProgressPercentage = a.ProgressPercentage,
-                    Order = a.Order
-                })
                 .ToListAsync();
+
+            var ids = actividades.Select(a => a.ProjectActivityId).ToHashSet();
+
+            // Predecesoras de cada actividad del proyecto
+            var relaciones = await ctx.ActivityPredecessors
+                .Where(r => ids.Contains(r.ActivityId))
+                .Select(r => new { r.ActivityId, r.PredecessorId })
+                .ToListAsync();
+            var predecesorasPorActividad = relaciones
+                .GroupBy(r => r.ActivityId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.PredecessorId).ToList());
+
+            // Un nodo es padre si alguna actividad activa lo referencia como ParentId
+            var idsPadre = actividades
+                .Where(a => a.ParentId.HasValue)
+                .Select(a => a.ParentId!.Value)
+                .ToHashSet();
+
+            return actividades.Select(a => new ActividadDto
+            {
+                ProjectActivityId = a.ProjectActivityId,
+                ProjectId = a.ProjectId,
+                ActivityDescription = a.ActivityDescription,
+                PlannedStartDate = a.PlannedStartDate,
+                PlannedEndDate = a.PlannedEndDate,
+                ActualEndDate = a.ActualEndDate,
+                BaselineStartDate = a.BaselineStartDate,
+                BaselineEndDate = a.BaselineEndDate,
+                ProgressPercentage = a.ProgressPercentage,
+                Order = a.Order,
+                HierarchyLevel = a.HierarchyLevel,
+                ParentId = a.ParentId,
+                Predecesoras = predecesorasPorActividad.GetValueOrDefault(a.ProjectActivityId, new List<int>()),
+                EsPadre = idsPadre.Contains(a.ProjectActivityId)
+            }).ToList();
         }
 
         public async Task<ActividadDto> CrearActividadAsync(int proyectoId, CrearActividadRequest request, int userId)
@@ -69,6 +183,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 ActualEndDate = null,
                 ProgressPercentage = request.ProgressPercentage,
                 Order = maxOrder + 1,
+                HierarchyLevel = request.HierarchyLevel,
+                ParentId = request.ParentId,
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
                 Active = true,
@@ -85,8 +201,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 PlannedStartDate = activity.PlannedStartDate,
                 PlannedEndDate = activity.PlannedEndDate,
                 ActualEndDate = activity.ActualEndDate,
+                BaselineStartDate = activity.BaselineStartDate,
+                BaselineEndDate = activity.BaselineEndDate,
                 ProgressPercentage = activity.ProgressPercentage,
-                Order = activity.Order
+                Order = activity.Order,
+                HierarchyLevel = activity.HierarchyLevel,
+                ParentId = activity.ParentId
             };
         }
 
@@ -98,6 +218,18 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 .FirstOrDefaultAsync(a => a.ProjectActivityId == projectActivityId && a.State);
             if (activity == null)
                 throw new AbrilException("Actividad no encontrada.", 404);
+
+            // Los nodos padre tienen fechas calculadas (MIN/MAX de hijos): no se editan manualmente
+            bool esPadre = await ctx.ProjectActivity
+                .AnyAsync(a => a.ParentId == projectActivityId && a.State && a.Active);
+            if (esPadre &&
+                (request.PlannedStartDate != activity.PlannedStartDate ||
+                 request.PlannedEndDate != activity.PlannedEndDate))
+            {
+                throw new AbrilException(
+                    "No se pueden editar las fechas de una actividad con sub-actividades. " +
+                    "Sus fechas se calculan automáticamente a partir de sus hijos.", 400);
+            }
 
             activity.ActivityDescription = request.ActivityDescription;
             activity.PlannedStartDate = request.PlannedStartDate;
@@ -117,8 +249,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 PlannedStartDate = activity.PlannedStartDate,
                 PlannedEndDate = activity.PlannedEndDate,
                 ActualEndDate = activity.ActualEndDate,
+                BaselineStartDate = activity.BaselineStartDate,
+                BaselineEndDate = activity.BaselineEndDate,
                 ProgressPercentage = activity.ProgressPercentage,
-                Order = activity.Order
+                Order = activity.Order,
+                HierarchyLevel = activity.HierarchyLevel,
+                ParentId = activity.ParentId
             };
         }
 
@@ -131,9 +267,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             if (activity == null)
                 throw new AbrilException("Actividad no encontrada.", 404);
 
-            activity.ActualEndDate = activity.ActualEndDate.HasValue
-                ? null
-                : DateOnly.FromDateTime(DateTime.UtcNow);
+            if (activity.ActualEndDate.HasValue)
+            {
+                activity.ActualEndDate = null;
+                activity.ProgressPercentage = 0;
+            }
+            else
+            {
+                activity.ActualEndDate = DateOnly.FromDateTime(DateTime.UtcNow);
+                activity.ProgressPercentage = 100;
+            }
             activity.UpdatedDateTime = DateTime.UtcNow;
             activity.UpdatedUserId = userId;
 
@@ -142,8 +285,24 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             return new CulminarActividadDto
             {
                 ProjectActivityId = activity.ProjectActivityId,
-                ActualEndDate = activity.ActualEndDate
+                ActualEndDate = activity.ActualEndDate,
+                ProgressPercentage = activity.ProgressPercentage
             };
+        }
+
+        public async Task<List<DebugProyectoDto>> GetDebugProyectosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Project
+                .OrderBy(p => p.ProjectId)
+                .Select(p => new DebugProyectoDto
+                {
+                    ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    TieneUnidadDeProyectos = p.TieneUnidadDeProyectos,
+                    State = p.State
+                })
+                .ToListAsync();
         }
 
         public async Task EliminarActividadAsync(int projectActivityId, int userId)
@@ -161,6 +320,503 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             activity.UpdatedUserId = userId;
 
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId)
+        {
+            if (archivo == null || archivo.Length == 0)
+                throw new AbrilException("El archivo .mpp está vacío o no fue enviado.", 400);
+
+            using var ctx = _factory.CreateDbContext();
+
+            var proyecto = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == proyectoId && p.State);
+            if (proyecto == null)
+                throw new AbrilException("Proyecto no encontrado.", 404);
+
+            // Guardar el archivo en un path temporal para que MPXJ pueda leerlo
+            var tempPath = Path.Combine(Path.GetTempPath(), $"mpp_{Guid.NewGuid()}.mpp");
+            try
+            {
+                using (var fs = File.Create(tempPath))
+                    await archivo.CopyToAsync(fs);
+
+                var projectFile = new Mpxj.UniversalProjectReader().Read(tempPath);
+
+                // Fecha de inicio del proyecto en el .mpp (DateTime? nativo en MPXJ.Net)
+                DateTime? mppStartDt = projectFile.ProjectProperties.StartDate;
+                DateOnly? mppStartDate = mppStartDt.HasValue ? DateOnly.FromDateTime(mppStartDt.Value) : null;
+
+                // Calcular offset en días entre el inicio del .mpp y la fecha real del proyecto en BD
+                int offsetDias = 0;
+                if (mppStartDate.HasValue && proyecto.FechaInicio.HasValue)
+                    offsetDias = proyecto.FechaInicio.Value.DayNumber - mppStartDate.Value.DayNumber;
+
+                // Eliminar todas las actividades existentes del proyecto (eliminación física)
+                var existentes = await ctx.ProjectActivity
+                    .Where(a => a.ProjectId == proyectoId)
+                    .ToListAsync();
+                int eliminadas = existentes.Count;
+
+                // Primero borrar las dependencias (predecesoras) que referencian a esas
+                // actividades, ya sea como sucesora o como predecesora; de lo contrario el
+                // FK fk_activity_predecessor_project_activity_predecessor_id (ON DELETE RESTRICT)
+                // bloquea el RemoveRange de las actividades.
+                var actividadIds = existentes.Select(a => a.ProjectActivityId).ToList();
+                if (actividadIds.Count > 0)
+                {
+                    var predsAEliminar = await ctx.ActivityPredecessors
+                        .Where(p => actividadIds.Contains(p.ActivityId)
+                                 || actividadIds.Contains(p.PredecessorId))
+                        .ToListAsync();
+                    ctx.ActivityPredecessors.RemoveRange(predsAEliminar);
+                }
+
+                ctx.ProjectActivity.RemoveRange(existentes);
+                await ctx.SaveChangesAsync();
+
+                // Mapeo: UniqueID del .mpp → ProjectActivityId generado en BD
+                var uniqueIdToDbId = new Dictionary<int, int>();
+
+                int orden = 1;
+                foreach (var tarea in projectFile.Tasks)
+                {
+                    // Omitir la tarea raíz nula que MPP genera como contenedor
+                    if (tarea.Null || string.IsNullOrWhiteSpace(tarea.Name)) continue;
+
+                    int level = tarea.OutlineLevel ?? 0;
+                    int uniqueId = tarea.UniqueID ?? 0;
+
+                    // Resolver parent_id en BD a partir del UniqueID del padre en el .mpp
+                    int? parentDbId = null;
+                    var parentMpxj = tarea.ParentTask;
+                    if (parentMpxj != null)
+                    {
+                        int parentUniqueId = parentMpxj.UniqueID ?? 0;
+                        if (parentUniqueId > 0 && uniqueIdToDbId.TryGetValue(parentUniqueId, out var pid))
+                            parentDbId = pid;
+                    }
+
+                    // Aplicar offset de fechas
+                    DateOnly? inicio = AplicarOffset(tarea.Start, offsetDias);
+                    DateOnly? fin = AplicarOffset(tarea.Finish, offsetDias);
+
+                    var nueva = new ProjectActivity
+                    {
+                        ProjectId = proyectoId,
+                        ActivityDescription = tarea.Name.Trim(),
+                        PlannedStartDate = inicio,
+                        PlannedEndDate = fin,
+                        ActualEndDate = null,
+                        ProgressPercentage = 0,
+                        Order = orden++,
+                        ParentId = parentDbId,
+                        HierarchyLevel = level,
+                        CreatedDateTime = DateTime.UtcNow,
+                        CreatedUserId = userId,
+                        Active = true,
+                        State = true
+                    };
+                    ctx.ProjectActivity.Add(nueva);
+                    await ctx.SaveChangesAsync();
+
+                    if (uniqueId > 0)
+                        uniqueIdToDbId[uniqueId] = nueva.ProjectActivityId;
+                }
+
+                return new ImportarMppResultDto
+                {
+                    ActividadesImportadas = orden - 1,
+                    ActividadesEliminadas = eliminadas
+                };
+            }
+            finally
+            {
+                if (File.Exists(tempPath)) File.Delete(tempPath);
+            }
+        }
+
+        public async Task<List<ActividadDto>> ReordenarActividadesAsync(int proyectoId, List<ReordenarItem> items)
+        {
+            if (items == null || items.Count == 0)
+                throw new AbrilException("La lista de actividades a reordenar está vacía.", 400);
+
+            Console.WriteLine($"[Reordenar] proyectoId={proyectoId} items recibidos={items.Count}");
+
+            using var ctx = _factory.CreateDbContext();
+
+            var ids = items.Select(i => i.ProjectActivityId).ToList();
+            var activities = await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State && ids.Contains(a.ProjectActivityId))
+                .ToListAsync();
+
+            if (activities.Count != ids.Count)
+                throw new AbrilException("Una o más actividades no pertenecen al proyecto o no existen.", 400);
+
+            foreach (var item in items)
+            {
+                var activity = activities.First(a => a.ProjectActivityId == item.ProjectActivityId);
+                Console.WriteLine($"[Reordenar]   ID={item.ProjectActivityId} parentId={activity.ParentId} orderAnterior={activity.Order} → nuevoOrder={item.Order}");
+                activity.Order = item.Order;
+            }
+
+            await ctx.SaveChangesAsync();
+            Console.WriteLine("[Reordenar] Reordenamiento completado");
+
+            return await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
+                .OrderBy(a => a.Order)
+                .Select(a => new ActividadDto
+                {
+                    ProjectActivityId = a.ProjectActivityId,
+                    ProjectId = a.ProjectId,
+                    ActivityDescription = a.ActivityDescription,
+                    PlannedStartDate = a.PlannedStartDate,
+                    PlannedEndDate = a.PlannedEndDate,
+                    ActualEndDate = a.ActualEndDate,
+                    BaselineStartDate = a.BaselineStartDate,
+                    BaselineEndDate = a.BaselineEndDate,
+                    ProgressPercentage = a.ProgressPercentage,
+                    Order = a.Order,
+                    HierarchyLevel = a.HierarchyLevel,
+                    ParentId = a.ParentId
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<DebugActividadOrdenDto>> GetDebugOrderAsync(int proyectoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
+                .OrderBy(a => a.Order)
+                .Select(a => new DebugActividadOrdenDto
+                {
+                    ProjectActivityId = a.ProjectActivityId,
+                    Description = a.ActivityDescription,
+                    Order = a.Order,
+                    ParentId = a.ParentId,
+                    HierarchyLevel = a.HierarchyLevel
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<ActividadDto>> CambiarJerarquiaAsync(int proyectoId, CambiarJerarquiaRequest request)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var activity = await ctx.ProjectActivity
+                .FirstOrDefaultAsync(a => a.ProjectActivityId == request.ProjectActivityId && a.State);
+            if (activity == null)
+                throw new AbrilException("Actividad no encontrada.", 404);
+            if (activity.ProjectId != proyectoId)
+                throw new AbrilException("La actividad no pertenece al proyecto indicado.", 400);
+
+            int levelDelta = request.NuevoHierarchyLevel - activity.HierarchyLevel;
+            activity.HierarchyLevel = request.NuevoHierarchyLevel;
+            activity.ParentId = request.NuevoParentId;
+
+            if (levelDelta != 0)
+            {
+                var todas = await ctx.ProjectActivity
+                    .Where(a => a.ProjectId == proyectoId && a.State)
+                    .ToListAsync();
+                ActualizarHijosRecursivo(activity.ProjectActivityId, levelDelta, todas);
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
+                .OrderBy(a => a.Order)
+                .Select(a => new ActividadDto
+                {
+                    ProjectActivityId = a.ProjectActivityId,
+                    ProjectId = a.ProjectId,
+                    ActivityDescription = a.ActivityDescription,
+                    PlannedStartDate = a.PlannedStartDate,
+                    PlannedEndDate = a.PlannedEndDate,
+                    ActualEndDate = a.ActualEndDate,
+                    BaselineStartDate = a.BaselineStartDate,
+                    BaselineEndDate = a.BaselineEndDate,
+                    ProgressPercentage = a.ProgressPercentage,
+                    Order = a.Order,
+                    HierarchyLevel = a.HierarchyLevel,
+                    ParentId = a.ParentId
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<ActividadDto>> SubirNivelAsync(int proyectoId, int actividadId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var todas = await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State)
+                .ToListAsync();
+
+            var actividad = todas.FirstOrDefault(a => a.ProjectActivityId == actividadId);
+            if (actividad == null)
+                throw new AbrilException("Actividad no encontrada.", 404);
+
+            if (actividad.HierarchyLevel == 0)
+                throw new AbrilException("La actividad ya está en el nivel más alto.", 400);
+
+            // Nuevo parentId = abuelo (parentId del padre actual)
+            int? nuevoParentId = null;
+            if (actividad.ParentId.HasValue)
+            {
+                var padre = todas.FirstOrDefault(a => a.ProjectActivityId == actividad.ParentId.Value);
+                nuevoParentId = padre?.ParentId;
+            }
+
+            actividad.HierarchyLevel -= 1;
+            actividad.ParentId = nuevoParentId;
+            ActualizarHijosRecursivo(actividadId, -1, todas);
+
+            await ctx.SaveChangesAsync();
+
+            return await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
+                .OrderBy(a => a.Order)
+                .Select(a => new ActividadDto
+                {
+                    ProjectActivityId = a.ProjectActivityId,
+                    ProjectId = a.ProjectId,
+                    ActivityDescription = a.ActivityDescription,
+                    PlannedStartDate = a.PlannedStartDate,
+                    PlannedEndDate = a.PlannedEndDate,
+                    ActualEndDate = a.ActualEndDate,
+                    BaselineStartDate = a.BaselineStartDate,
+                    BaselineEndDate = a.BaselineEndDate,
+                    ProgressPercentage = a.ProgressPercentage,
+                    Order = a.Order,
+                    HierarchyLevel = a.HierarchyLevel,
+                    ParentId = a.ParentId
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<ActividadDto>> BajarNivelAsync(int proyectoId, int actividadId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var todas = await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State)
+                .ToListAsync();
+
+            var actividad = todas.FirstOrDefault(a => a.ProjectActivityId == actividadId);
+            if (actividad == null)
+                throw new AbrilException("Actividad no encontrada.", 404);
+
+            // Hermano inmediatamente anterior: mismo parentId, mayor order menor que el actual
+            var hermanoAnterior = todas
+                .Where(a => a.ParentId == actividad.ParentId
+                         && a.ProjectActivityId != actividadId
+                         && a.Order < actividad.Order)
+                .OrderByDescending(a => a.Order)
+                .FirstOrDefault();
+
+            if (hermanoAnterior == null)
+                throw new AbrilException("No hay un padre disponible para asignar esta actividad.", 400);
+
+            actividad.HierarchyLevel += 1;
+            actividad.ParentId = hermanoAnterior.ProjectActivityId;
+            ActualizarHijosRecursivo(actividadId, 1, todas);
+
+            await ctx.SaveChangesAsync();
+
+            return await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
+                .OrderBy(a => a.Order)
+                .Select(a => new ActividadDto
+                {
+                    ProjectActivityId = a.ProjectActivityId,
+                    ProjectId = a.ProjectId,
+                    ActivityDescription = a.ActivityDescription,
+                    PlannedStartDate = a.PlannedStartDate,
+                    PlannedEndDate = a.PlannedEndDate,
+                    ActualEndDate = a.ActualEndDate,
+                    BaselineStartDate = a.BaselineStartDate,
+                    BaselineEndDate = a.BaselineEndDate,
+                    ProgressPercentage = a.ProgressPercentage,
+                    Order = a.Order,
+                    HierarchyLevel = a.HierarchyLevel,
+                    ParentId = a.ParentId
+                })
+                .ToListAsync();
+        }
+
+        // ─────────────────────────── Feriados ───────────────────────────
+
+        public async Task<List<FeriadoDto>> GetFeriadosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Feriados
+                .OrderBy(f => f.Fecha)
+                .Select(f => new FeriadoDto
+                {
+                    Id = f.Id,
+                    Fecha = f.Fecha,
+                    Descripcion = f.Descripcion
+                })
+                .ToListAsync();
+        }
+
+        public async Task<FeriadoDto> CrearFeriadoAsync(CrearFeriadoRequest request)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var existe = await ctx.Feriados.AnyAsync(f => f.Fecha == request.Fecha);
+            if (existe)
+                throw new AbrilException("Ya existe un feriado registrado para esa fecha.", 400);
+
+            var feriado = new Feriado
+            {
+                Fecha = request.Fecha,
+                Descripcion = request.Descripcion
+            };
+            ctx.Feriados.Add(feriado);
+            await ctx.SaveChangesAsync();
+
+            return new FeriadoDto
+            {
+                Id = feriado.Id,
+                Fecha = feriado.Fecha,
+                Descripcion = feriado.Descripcion
+            };
+        }
+
+        public async Task EliminarFeriadoAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var feriado = await ctx.Feriados.FirstOrDefaultAsync(f => f.Id == id);
+            if (feriado == null)
+                throw new AbrilException("Feriado no encontrado.", 404);
+
+            ctx.Feriados.Remove(feriado);
+            await ctx.SaveChangesAsync();
+        }
+
+        // ─────────────────────────── Predecesoras ───────────────────────────
+
+        public async Task<int> GetProyectoIdDeActividadAsync(int activityId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var actividad = await ctx.ProjectActivity
+                .Where(a => a.ProjectActivityId == activityId && a.State && a.Active)
+                .Select(a => (int?)a.ProjectId)
+                .FirstOrDefaultAsync();
+            if (actividad == null)
+                throw new AbrilException("Actividad no encontrada.", 404);
+            return actividad.Value;
+        }
+
+        public async Task<List<int>> GetPredecesorasAsync(int activityId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.ActivityPredecessors
+                .Where(r => r.ActivityId == activityId)
+                .Select(r => r.PredecessorId)
+                .ToListAsync();
+        }
+
+        public async Task SetPredecesorasAsync(int activityId, List<int> predecessorIds)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var actividad = await ctx.ProjectActivity
+                .FirstOrDefaultAsync(a => a.ProjectActivityId == activityId && a.State && a.Active);
+            if (actividad == null)
+                throw new AbrilException("Actividad no encontrada.", 404);
+
+            var distintas = predecessorIds.Where(p => p != activityId).Distinct().ToList();
+
+            if (distintas.Count > 0)
+            {
+                // Las predecesoras deben existir y ser del mismo proyecto (padre o hoja, ambos válidos)
+                var candidatas = await ctx.ProjectActivity
+                    .Where(a => distintas.Contains(a.ProjectActivityId) && a.State && a.Active)
+                    .Select(a => new { a.ProjectActivityId, a.ProjectId })
+                    .ToListAsync();
+
+                if (candidatas.Count != distintas.Count)
+                    throw new AbrilException("Una o más predecesoras no existen.", 400);
+
+                if (candidatas.Any(c => c.ProjectId != actividad.ProjectId))
+                    throw new AbrilException("Las predecesoras deben pertenecer al mismo proyecto.", 400);
+            }
+
+            // Reemplazo completo del conjunto de predecesoras
+            var existentes = await ctx.ActivityPredecessors
+                .Where(r => r.ActivityId == activityId)
+                .ToListAsync();
+            ctx.ActivityPredecessors.RemoveRange(existentes);
+
+            foreach (var predId in distintas)
+                ctx.ActivityPredecessors.Add(new ActivityPredecessor
+                {
+                    ActivityId = activityId,
+                    PredecessorId = predId
+                });
+
+            await ctx.SaveChangesAsync();
+        }
+
+        // ─────────────────────────── Línea base ───────────────────────────
+
+        public async Task<ActividadDto> ActualizarLineaBaseAsync(int projectActivityId, ActualizarLineaBaseRequest request, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var activity = await ctx.ProjectActivity
+                .FirstOrDefaultAsync(a => a.ProjectActivityId == projectActivityId && a.State && a.Active);
+            if (activity == null)
+                throw new AbrilException("Actividad no encontrada.", 404);
+
+            bool esPadre = await ctx.ProjectActivity
+                .AnyAsync(a => a.ParentId == projectActivityId && a.State && a.Active);
+            if (esPadre)
+                throw new AbrilException(
+                    "La línea base solo puede definirse en actividades hoja (sin sub-actividades).", 400);
+
+            activity.BaselineStartDate = request.BaselineStartDate;
+            activity.BaselineEndDate = request.BaselineEndDate;
+            activity.UpdatedDateTime = DateTime.UtcNow;
+            activity.UpdatedUserId = userId;
+
+            await ctx.SaveChangesAsync();
+
+            return new ActividadDto
+            {
+                ProjectActivityId = activity.ProjectActivityId,
+                ProjectId = activity.ProjectId,
+                ActivityDescription = activity.ActivityDescription,
+                PlannedStartDate = activity.PlannedStartDate,
+                PlannedEndDate = activity.PlannedEndDate,
+                ActualEndDate = activity.ActualEndDate,
+                BaselineStartDate = activity.BaselineStartDate,
+                BaselineEndDate = activity.BaselineEndDate,
+                ProgressPercentage = activity.ProgressPercentage,
+                Order = activity.Order,
+                HierarchyLevel = activity.HierarchyLevel,
+                ParentId = activity.ParentId,
+                EsPadre = false
+            };
+        }
+
+        private static void ActualizarHijosRecursivo(int parentId, int levelDelta, List<ProjectActivity> todas)
+        {
+            foreach (var hijo in todas.Where(a => a.ParentId == parentId))
+            {
+                hijo.HierarchyLevel += levelDelta;
+                ActualizarHijosRecursivo(hijo.ProjectActivityId, levelDelta, todas);
+            }
+        }
+
+        private static DateOnly? AplicarOffset(DateTime? fecha, int offsetDias)
+        {
+            if (!fecha.HasValue) return null;
+            return DateOnly.FromDateTime(fecha.Value).AddDays(offsetDias);
         }
     }
 }

@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260527214201_AddFotoUrlToProject")]
+    partial class AddFotoUrlToProject
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -240,38 +243,6 @@ namespace Abril_Backend.Migrations
                     b.ToTable("currency", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.PaymentForm", b =>
-                {
-                    b.Property<int>("PaymentFormId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("payment_form_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("PaymentFormId"));
-
-                    b.Property<DateTimeOffset>("CreatedDatetime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_datetime");
-
-                    b.Property<string>("PaymentFormDescription")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("payment_form_description");
-
-                    b.Property<bool>("State")
-                        .HasColumnType("boolean")
-                        .HasColumnName("state");
-
-                    b.Property<DateTimeOffset?>("UpdatedDatetime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_datetime");
-
-                    b.HasKey("PaymentFormId")
-                        .HasName("pk_payment_form");
-
-                    b.ToTable("payment_form", (string)null);
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.PaymentMethod", b =>
                 {
                     b.Property<int>("PaymentMethodId")
@@ -390,17 +361,9 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("guarantee_fund_percentage");
 
-                    b.Property<int?>("GuaranteeValidityDays")
-                        .HasColumnType("integer")
-                        .HasColumnName("guarantee_validity_days");
-
                     b.Property<bool>("HasIgv")
                         .HasColumnType("boolean")
                         .HasColumnName("has_igv");
-
-                    b.Property<int?>("PaymentFormId")
-                        .HasColumnType("integer")
-                        .HasColumnName("payment_form_id");
 
                     b.Property<int>("PaymentMethodId")
                         .HasColumnType("integer")
@@ -409,10 +372,6 @@ namespace Abril_Backend.Migrations
                     b.Property<int>("ProjectId")
                         .HasColumnType("integer")
                         .HasColumnName("project_id");
-
-                    b.Property<int?>("ProjectSubContractorAnexoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_sub_contractor_anexo_id");
 
                     b.Property<int?>("ProjectSubContractorAttachedQuotationId")
                         .HasColumnType("integer")
@@ -425,10 +384,6 @@ namespace Abril_Backend.Migrations
                     b.Property<int?>("ProjectSubContractorContractId")
                         .HasColumnType("integer")
                         .HasColumnName("project_sub_contractor_contract_id");
-
-                    b.Property<int?>("ProjectSubContractorFichaTecnicaId")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_sub_contractor_ficha_tecnica_id");
 
                     b.Property<int?>("ProjectSubContractorInstructivoId")
                         .HasColumnType("integer")
@@ -511,9 +466,6 @@ namespace Abril_Backend.Migrations
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_project_sub_contractor_project_id");
 
-                    b.HasIndex("ProjectSubContractorAnexoId")
-                        .HasDatabaseName("ix_project_sub_contractor_project_sub_contractor_anexo_id");
-
                     b.HasIndex("ProjectSubContractorAttachedQuotationId")
                         .HasDatabaseName("ix_project_sub_contractor_project_sub_contractor_attached_quot");
 
@@ -522,9 +474,6 @@ namespace Abril_Backend.Migrations
 
                     b.HasIndex("ProjectSubContractorContractId")
                         .HasDatabaseName("ix_project_sub_contractor_project_sub_contractor_contract_id");
-
-                    b.HasIndex("ProjectSubContractorFichaTecnicaId")
-                        .HasDatabaseName("ix_project_sub_contractor_project_sub_contractor_ficha_tecnica");
 
                     b.HasIndex("ProjectSubContractorInstructivoId")
                         .HasDatabaseName("ix_project_sub_contractor_project_sub_contractor_instructivo_id");
@@ -551,68 +500,6 @@ namespace Abril_Backend.Migrations
                         .HasDatabaseName("ix_project_sub_contractor_project_sub_contractor_tolerance_cha");
 
                     b.ToTable("project_sub_contractor", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorAnexo", b =>
-                {
-                    b.Property<int>("ProjectSubContractorAnexoId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("project_sub_contractor_anexo_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProjectSubContractorAnexoId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<DateTimeOffset>("CreatedDatetime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_datetime");
-
-                    b.Property<int>("CreatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("created_user_id");
-
-                    b.Property<string>("FileUrl")
-                        .HasColumnType("text")
-                        .HasColumnName("file_url");
-
-                    b.Property<string>("Observation")
-                        .HasColumnType("text")
-                        .HasColumnName("observation");
-
-                    b.Property<string>("OriginalFileName")
-                        .HasColumnType("text")
-                        .HasColumnName("original_file_name");
-
-                    b.Property<int?>("ProjectSubContractorFileStatusId")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_sub_contractor_file_status_id");
-
-                    b.Property<string>("SharepointItemId")
-                        .HasColumnType("text")
-                        .HasColumnName("sharepoint_item_id");
-
-                    b.Property<bool>("State")
-                        .HasColumnType("boolean")
-                        .HasColumnName("state");
-
-                    b.Property<DateTimeOffset?>("UpdatedDatetime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_datetime");
-
-                    b.Property<int?>("UpdatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("updated_user_id");
-
-                    b.HasKey("ProjectSubContractorAnexoId")
-                        .HasName("pk_project_sub_contractor_anexo");
-
-                    b.HasIndex("ProjectSubContractorFileStatusId")
-                        .HasDatabaseName("ix_project_sub_contractor_anexo_project_sub_contractor_file_st");
-
-                    b.ToTable("project_sub_contractor_anexo", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorAttachedQuotation", b =>
@@ -858,68 +745,6 @@ namespace Abril_Backend.Migrations
                         .HasDatabaseName("ix_project_sub_contractor_contract_project_sub_contractor_file");
 
                     b.ToTable("project_sub_contractor_contract", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorFichaTecnica", b =>
-                {
-                    b.Property<int>("ProjectSubContractorFichaTecnicaId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("project_sub_contractor_ficha_tecnica_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProjectSubContractorFichaTecnicaId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<DateTimeOffset>("CreatedDatetime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_datetime");
-
-                    b.Property<int>("CreatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("created_user_id");
-
-                    b.Property<string>("FileUrl")
-                        .HasColumnType("text")
-                        .HasColumnName("file_url");
-
-                    b.Property<string>("Observation")
-                        .HasColumnType("text")
-                        .HasColumnName("observation");
-
-                    b.Property<string>("OriginalFileName")
-                        .HasColumnType("text")
-                        .HasColumnName("original_file_name");
-
-                    b.Property<int?>("ProjectSubContractorFileStatusId")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_sub_contractor_file_status_id");
-
-                    b.Property<string>("SharepointItemId")
-                        .HasColumnType("text")
-                        .HasColumnName("sharepoint_item_id");
-
-                    b.Property<bool>("State")
-                        .HasColumnType("boolean")
-                        .HasColumnName("state");
-
-                    b.Property<DateTimeOffset?>("UpdatedDatetime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_datetime");
-
-                    b.Property<int?>("UpdatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("updated_user_id");
-
-                    b.HasKey("ProjectSubContractorFichaTecnicaId")
-                        .HasName("pk_project_sub_contractor_ficha_tecnica");
-
-                    b.HasIndex("ProjectSubContractorFileStatusId")
-                        .HasDatabaseName("ix_project_sub_contractor_ficha_tecnica_project_sub_contractor");
-
-                    b.ToTable("project_sub_contractor_ficha_tecnica", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorFileStatus", b =>
@@ -4638,7 +4463,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("diagnostico");
 
-                    b.Property<int?>("EmoId")
+                    b.Property<int>("EmoId")
                         .HasColumnType("integer")
                         .HasColumnName("emo_id");
 
@@ -4815,10 +4640,6 @@ namespace Abril_Backend.Migrations
                     b.Property<string>("Notas")
                         .HasColumnType("text")
                         .HasColumnName("notas");
-
-                    b.Property<bool>("Notificado")
-                        .HasColumnType("boolean")
-                        .HasColumnName("notificado");
 
                     b.Property<string>("Origen")
                         .IsRequired()
@@ -6933,6 +6754,10 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("EmailCorporativo")
+                        .HasColumnType("text")
+                        .HasColumnName("email_corporativo");
+
                     b.Property<string>("EmailPersonal")
                         .HasColumnType("text")
                         .HasColumnName("email_personal");
@@ -7329,39 +7154,6 @@ namespace Abril_Backend.Migrations
                     b.ToTable("worker_vinculaciones", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Shared.Models.ActivityPredecessor", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ActivityId")
-                        .HasColumnType("integer")
-                        .HasColumnName("activity_id");
-
-                    b.Property<int>("PredecessorId")
-                        .HasColumnType("integer")
-                        .HasColumnName("predecessor_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_activity_predecessor");
-
-                    b.HasIndex("ActivityId")
-                        .HasDatabaseName("ix_activity_predecessor_activity_id");
-
-                    b.HasIndex("PredecessorId")
-                        .HasDatabaseName("ix_activity_predecessor_predecessor_id");
-
-                    b.HasIndex("ActivityId", "PredecessorId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_activity_predecessor_activity_id_predecessor_id");
-
-                    b.ToTable("activity_predecessor", (string)null);
-                });
-
             modelBuilder.Entity("Abril_Backend.Shared.Models.AuditoriaCambio", b =>
                 {
                     b.Property<long>("Id")
@@ -7417,34 +7209,6 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_auditoria_cambios");
 
                     b.ToTable("auditoria_cambios", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Shared.Models.Feriado", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Descripcion")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("descripcion");
-
-                    b.Property<DateOnly>("Fecha")
-                        .HasColumnType("date")
-                        .HasColumnName("fecha");
-
-                    b.HasKey("Id")
-                        .HasName("pk_feriados");
-
-                    b.HasIndex("Fecha")
-                        .IsUnique()
-                        .HasDatabaseName("ix_feriados_fecha");
-
-                    b.ToTable("feriados", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Shared.Models.Project", b =>
@@ -7661,14 +7425,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("date")
                         .HasColumnName("actual_end_date");
 
-                    b.Property<DateOnly?>("BaselineEndDate")
-                        .HasColumnType("date")
-                        .HasColumnName("baseline_end_date");
-
-                    b.Property<DateOnly?>("BaselineStartDate")
-                        .HasColumnType("date")
-                        .HasColumnName("baseline_start_date");
-
                     b.Property<DateTime>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_date_time");
@@ -7677,17 +7433,9 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("created_user_id");
 
-                    b.Property<int>("HierarchyLevel")
-                        .HasColumnType("integer")
-                        .HasColumnName("hierarchy_level");
-
                     b.Property<int>("Order")
                         .HasColumnType("integer")
                         .HasColumnName("project_activity_order");
-
-                    b.Property<int?>("ParentId")
-                        .HasColumnType("integer")
-                        .HasColumnName("parent_id");
 
                     b.Property<DateOnly?>("PlannedEndDate")
                         .HasColumnType("date")
@@ -7722,9 +7470,6 @@ namespace Abril_Backend.Migrations
                     b.HasKey("ProjectActivityId")
                         .HasName("pk_project_activity");
 
-                    b.HasIndex("ParentId")
-                        .HasDatabaseName("ix_project_activity_parent_id");
-
                     b.ToTable("project_activity", (string)null);
                 });
 
@@ -7744,11 +7489,6 @@ namespace Abril_Backend.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_project_sub_contractor_project_project_id");
 
-                    b.HasOne("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorAnexo", "Anexo")
-                        .WithMany()
-                        .HasForeignKey("ProjectSubContractorAnexoId")
-                        .HasConstraintName("fk_project_sub_contractor_project_sub_contractor_anexo_project");
-
                     b.HasOne("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorAttachedQuotation", "AttachedQuotation")
                         .WithMany()
                         .HasForeignKey("ProjectSubContractorAttachedQuotationId")
@@ -7763,11 +7503,6 @@ namespace Abril_Backend.Migrations
                         .WithMany()
                         .HasForeignKey("ProjectSubContractorContractId")
                         .HasConstraintName("fk_project_sub_contractor_project_sub_contractor_contract_proj");
-
-                    b.HasOne("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorFichaTecnica", "FichaTecnica")
-                        .WithMany()
-                        .HasForeignKey("ProjectSubContractorFichaTecnicaId")
-                        .HasConstraintName("fk_project_sub_contractor_project_sub_contractor_ficha_tecnica");
 
                     b.HasOne("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorInstructivo", "Instructivo")
                         .WithMany()
@@ -7809,8 +7544,6 @@ namespace Abril_Backend.Migrations
                         .HasForeignKey("ProjectSubContractorToleranceChartId")
                         .HasConstraintName("fk_project_sub_contractor_project_sub_contractor_tolerance_cha");
 
-                    b.Navigation("Anexo");
-
                     b.Navigation("AttachedQuotation");
 
                     b.Navigation("Budget");
@@ -7818,8 +7551,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Contract");
 
                     b.Navigation("Contractor");
-
-                    b.Navigation("FichaTecnica");
 
                     b.Navigation("Instructivo");
 
@@ -7838,16 +7569,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("SummarySheet");
 
                     b.Navigation("ToleranceChart");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorAnexo", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorFileStatus", "FileStatus")
-                        .WithMany()
-                        .HasForeignKey("ProjectSubContractorFileStatusId")
-                        .HasConstraintName("fk_project_sub_contractor_anexo_project_sub_contractor_file_st");
-
-                    b.Navigation("FileStatus");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorAttachedQuotation", b =>
@@ -7891,16 +7612,6 @@ namespace Abril_Backend.Migrations
                         .HasForeignKey("ProjectSubContractorFileStatusId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_project_sub_contractor_contract_project_sub_contractor_file");
-
-                    b.Navigation("FileStatus");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorFichaTecnica", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractorFileStatus", "FileStatus")
-                        .WithMany()
-                        .HasForeignKey("ProjectSubContractorFileStatusId")
-                        .HasConstraintName("fk_project_sub_contractor_ficha_tecnica_project_sub_contractor");
 
                     b.Navigation("FileStatus");
                 });
@@ -8609,6 +8320,8 @@ namespace Abril_Backend.Migrations
                     b.HasOne("Abril_Backend.Infrastructure.Models.WorkerEmo", "Emo")
                         .WithMany()
                         .HasForeignKey("EmoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
                         .HasConstraintName("fk_ss_interconsultas_worker_emos_emo_id");
 
                     b.HasOne("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsMedicoOcupacional", "MedicoDeriva")
@@ -8965,23 +8678,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Worker");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Shared.Models.ActivityPredecessor", b =>
-                {
-                    b.HasOne("Abril_Backend.Shared.Models.ProjectActivity", null)
-                        .WithMany()
-                        .HasForeignKey("ActivityId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_activity_predecessor_project_activity_activity_id");
-
-                    b.HasOne("Abril_Backend.Shared.Models.ProjectActivity", null)
-                        .WithMany()
-                        .HasForeignKey("PredecessorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_activity_predecessor_project_activity_predecessor_id");
-                });
-
             modelBuilder.Entity("Abril_Backend.Shared.Models.Project", b =>
                 {
                     b.HasOne("Abril_Backend.Features.CostsModule.Shared.Models.Contributor", "Contributor")
@@ -8991,15 +8687,6 @@ namespace Abril_Backend.Migrations
                         .HasConstraintName("fk_project_contributor_contributor_id");
 
                     b.Navigation("Contributor");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Shared.Models.ProjectActivity", b =>
-                {
-                    b.HasOne("Abril_Backend.Shared.Models.ProjectActivity", null)
-                        .WithMany()
-                        .HasForeignKey("ParentId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_project_activity_project_activity_parent_id");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractor", b =>

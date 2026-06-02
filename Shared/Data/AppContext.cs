@@ -185,6 +185,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvEvaluacionResidenteDetalle> EvEvaluacionesResidenteDetalle => Set<EvEvaluacionResidenteDetalle>();
         public DbSet<EvNoAplica> EvNoAplica => Set<EvNoAplica>();
         public DbSet<EvRecordatorioLog> EvRecordatorioLogs => Set<EvRecordatorioLog>();
+        public DbSet<Feriado> Feriados { get; set; }
+        public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -538,6 +540,37 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.Order).HasColumnName("project_activity_order");
                 entity.Property(e => e.ActivityDescription).IsRequired().HasMaxLength(500);
                 entity.Property(e => e.ProgressPercentage).HasDefaultValue(0);
+                entity.HasOne<ProjectActivity>()
+                    .WithMany()
+                    .HasForeignKey(e => e.ParentId)
+                    .IsRequired(false)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<Feriado>(entity =>
+            {
+                entity.ToTable("feriados");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Fecha).IsRequired();
+                entity.Property(e => e.Descripcion).HasMaxLength(200);
+                entity.HasIndex(e => e.Fecha).IsUnique();
+            });
+
+            modelBuilder.Entity<ActivityPredecessor>(entity =>
+            {
+                entity.ToTable("activity_predecessor");
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => new { e.ActivityId, e.PredecessorId }).IsUnique();
+                entity.HasIndex(e => e.ActivityId);
+                entity.HasIndex(e => e.PredecessorId);
+                entity.HasOne<ProjectActivity>()
+                    .WithMany()
+                    .HasForeignKey(e => e.ActivityId)
+                    .OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne<ProjectActivity>()
+                    .WithMany()
+                    .HasForeignKey(e => e.PredecessorId)
+                    .OnDelete(DeleteBehavior.Restrict);
             });
         }
     }

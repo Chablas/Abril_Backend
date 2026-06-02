@@ -1,7 +1,6 @@
-using Abril_Backend.Application.DTOs;
-using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 
-namespace Abril_Backend.Infrastructure.Interfaces
+namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces
 {
     public interface IMilestoneScheduleHistoryRepository
     {

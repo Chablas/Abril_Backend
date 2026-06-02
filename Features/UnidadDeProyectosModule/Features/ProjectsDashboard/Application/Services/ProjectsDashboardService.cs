@@ -31,15 +31,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
             var heatDesde = fechaDesde ?? today;
             var heatHasta = fechaHasta ?? today.AddDays(12 * 7);
 
-            var proyectosTask = _dashboardRepository.GetDashboardDataAsync(proyectoId, estado, responsableId, today);
-            var rankingTask = _dashboardRepository.GetRankingResponsablesAsync(proyectoId, estado, responsableId, today);
-            var heatmapTask = _dashboardRepository.GetHeatmapCargaAsync(proyectoId, estado, responsableId, heatDesde, heatHasta);
-
-            await Task.WhenAll(proyectosTask, rankingTask, heatmapTask);
-
-            var proyectos = proyectosTask.Result;
-            var ranking = rankingTask.Result;
-            var heatmap = heatmapTask.Result;
+            // Una sola llamada al repositorio = una sola conexión a la BD.
+            var (proyectos, ranking, heatmap) = await _dashboardRepository.GetDashboardAsync(
+                proyectoId, estado, responsableId, today, heatDesde, heatHasta);
 
             var total = proyectos.Count;
             var sinActividades = proyectos.Count(p => p.TotalActividades == 0);

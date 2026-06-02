@@ -3701,3 +3701,381 @@ completar-emo.ts — agregar documentoInterconsulta: File | null = null y handle
 completar-emo.html — agregar input file dentro de *ngIf="requiereInterconsulta"
 EmoService.createEmo() — pasar documentoInterconsulta como campo FormData
 Después de POST /emos exitoso, si response.interconsultaId != null → llamar POST /interconsultas/{id}/documentos con el archivo
+
+---
+
+## Sesión 2026-05-28 — CronogramaActividades fixes + GET /project/paged-with-residents
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Fix: GET /cronograma-actividades/proyectos filtra por actividades existentes
+
+`Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs`
+
+`GetProyectosAsync` devolvía todos los proyectos con `TieneUnidadDeProyectos=true`. Corregido para devolver solo los que tienen al menos una fila activa en `project_activity`:
+
+```csharp
+.Where(p => p.State && p.TieneUnidadDeProyectos &&
+            ctx.ProjectActivity.Any(a => a.ProjectId == p.ProjectId && a.State && a.Active))
+```
+
+### 2. Fix: PATCH /cronograma-actividades/actividades/{id}/culminar setea progressPercentage
+
+`CronogramaActividadesRepository.CulminarActividadAsync` solo toggleaba `ActualEndDate`. Corregido:
+- Al culminar: `ActualEndDate = hoy`, `ProgressPercentage = 100`
+- Al revertir: `ActualEndDate = null`, `ProgressPercentage = 0`
+
+`CulminarActividadDto` ampliado con campo `ProgressPercentage` para que el frontend actualice el estado sin re-fetch.
+
+### 3. Endpoint debug temporal GET /cronograma-actividades/debug-proyectos
+
+Agregado para diagnosticar qué proyectos existen en `project` con sus flags (`project_id`, `project_description`, `tiene_unidad_de_proyectos`, `state`). **Pendiente eliminar** tras confirmar proyectos UDP en producción.
+
+### 4. Fix: GET /project/paged-with-residents devuelve todos los proyectos UDP
+
+`Infrastructure/Repositories/ProjectRepository.cs` — `GetPagedWithResidents`
+
+Tenía `ProjectResident.Any(...)` en el `Where`, que excluía proyectos sin residente asignado (solo salían 7 de 13). Corregido a `Active && State && TieneUnidadDeProyectos`. Proyectos sin residente retornan `residentFullNames: []`.
+
+### 5. Feat: parámetro search en GET /project/paged-with-residents
+
+Agregado `[FromQuery] string? search` que filtra por `project_description` (case-insensitive, `Contains`) antes de la paginación. El `TotalRecords` del response refleja el conteo filtrado.
+
+```
+GET /api/v1/project/paged-with-residents?page=1&search=kauri
+```
+
+### 6. Feat: pageSize dinámico en GET /project/paged-with-residents
+
+`const int pageSize = 10` estaba hardcodeado en el repository ignorando lo que mandaba el frontend. Reemplazado por parámetro `[FromQuery] int pageSize = 10` que recorre toda la cadena controller → service → repository.
+
+```
+GET /api/v1/project/paged-with-residents?page=1&pageSize=12&search=kauri
+```
+
+### 7. Firma actual del endpoint
+
+```
+GET /api/v1/project/paged-with-residents?page={int=1}&pageSize={int=10}&search={string?}
+```
+
+Archivos modificados: `ProjectController.cs`, `IProjectService.cs`, `ProjectService.cs`, `IProjectRepository.cs`, `ProjectRepository.cs`.
+
+---
+
+## Sesión 2026-05-29 — Diagnóstico POST /milestoneScheduleHistory 400
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Investigación de causas de 400 Bad Request en POST /api/v1/milestoneScheduleHistory
+
+Sin modificar código — diagnóstico de lectura.
+
+**Archivos revisados:**
+- `Controllers/MilestoneScheduleHistoryController.cs`
+- `Application/DTOs/MilestoneScheduleHistory/MilestoneScheduleHistoryCreateDTO.cs`
+- `Application/DTOs/MilestoneSchedule/MilestoneScheduleCreateDTO.cs`
+- `Infrastructure/Repositories/MilestoneScheduleHistoryRepository.cs`
+
+**DTOs sin validación explícita:**
+
+`MilestoneScheduleHistoryCreateDTO`: `ProjectId`, `List<MilestoneScheduleCreateDTO> MilestoneSchedules`, `bool ForceSave` — ningún `[Required]`.
+
+`MilestoneScheduleCreateDTO`: `MilestoneId`, `Order`, `DateOnly PlannedStartDate` (non-nullable), `DateOnly? PlannedEndDate` — ningún `[Required]`.
+
+**Causa 1 — model binding automático de ASP.NET Core:**
+
+`PlannedStartDate` es `DateOnly` (no-nullable). Si el payload envía `null` o lo omite, el framework rechaza con 400 antes de ejecutar el action. Requiere formato `"YYYY-MM-DD"` en JSON.
+
+**Causa 2 — `AbrilException` desde el repository (llega al controller → `return BadRequest`):**
+
+| Línea | Condición | Mensaje |
+|-------|-----------|---------|
+| 80 | Mismo count, todos los campos iguales, `ForceSave=false` | `"El cronograma es igual a la última versión subida."` |
+| 108 | `DetectChanges` no detecta cambios, `ForceSave=false` | `"El cronograma es igual a la última versión subida."` |
+| 122 | `ForceSave=true` pero hay cambios | `"Para guardar sin cambios la última versión subida debe ser igual a la que se está editando actualmente."` |
+
+**Diagnóstico:** el 400 más frecuente en primer envío es `PlannedStartDate` nulo o con formato incorrecto. Si el cronograma ya existe sin cambios, cae en las líneas 80/108.
+
+---
+
+## Sesión 2026-05-29 — CronogramaActividades: importar MPP + jerarquía padre/hijo
+
+Rama: `feature/cronograma-actividades`
+
+### 1. MPXJ.Net instalado
+
+`dotnet add package MPXJ.Net` → versión **16.2.0**. Usa IKVM para compilar Java → .NET en build time (primera compilación lenta, luego cacheada). El namespace correcto es **`MPXJ.Net`** (no `net.sf.mpxj`). API completamente .NET: propiedades PascalCase, fechas como `DateTime?`, sin tipos Java en surface.
+
+Nota de Docker: requiere `libfontconfig` (`RUN apt-get update && apt-get install -y libfontconfig`).
+
+### 2. ProjectActivity — nuevas columnas
+
+Entidad `Shared/Models/ProjectActivity.cs`:
+- `ParentId` (int?) — FK self-referencing a la misma tabla, nullable
+- `HierarchyLevel` (int) — nivel de jerarquía (0 = raíz); mapeado a `hierarchy_level`
+
+Configuración en `AppDbContext.ConfigurePostgreSQL`:
+```csharp
+entity.HasOne<ProjectActivity>()
+    .WithMany()
+    .HasForeignKey(e => e.ParentId)
+    .IsRequired(false)
+    .OnDelete(DeleteBehavior.SetNull);
+```
+
+### 3. Migración EF
+
+`Migrations/20260529194643_AddProjectActivityHierarchy.cs` — agrega `hierarchy_level` (int NOT NULL DEFAULT 0), `parent_id` (int nullable), FK `fk_project_activity_project_activity_parent_id` (ON DELETE SET NULL), índice `ix_project_activity_parent_id`.
+
+**Aplicación en Aiven:** SQL idempotente vía `psql.exe` (nunca `dotnet ef database update` en prod):
+
+```sql
+ALTER TABLE project_activity ADD COLUMN IF NOT EXISTS hierarchy_level integer NOT NULL DEFAULT 0;
+ALTER TABLE project_activity ADD COLUMN IF NOT EXISTS parent_id integer;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_project_activity_project_activity_parent_id') THEN
+        ALTER TABLE project_activity ADD CONSTRAINT fk_project_activity_project_activity_parent_id
+            FOREIGN KEY (parent_id) REFERENCES project_activity(project_activity_id) ON DELETE SET NULL;
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS ix_project_activity_parent_id ON project_activity(parent_id);
+```
+
+### 4. Endpoint POST /api/v1/cronograma-actividades/{proyectoId}/importar-mpp
+
+**Controlador:** `CronogramaActividadesController` — `[RequestSizeLimit(52_428_800)]` (50 MB), parámetro `IFormFile archivo`.
+
+**Lógica en `CronogramaActividadesRepository.ImportarMppAsync`:**
+
+1. Guarda el IFormFile en temp path (`Path.GetTempPath()`), siempre limpiado en `finally`.
+2. Lee con `new Mpxj.UniversalProjectReader().Read(tempPath)` → `ProjectFile`.
+3. Calcula `offsetDias` = `proyecto.FechaInicio.DayNumber - mppStartDate.DayNumber` (si ambas están presentes). Aplica el offset a cada fecha de tarea.
+4. Elimina **físicamente** (RemoveRange) todas las actividades existentes del proyecto antes de insertar.
+5. Itera `projectFile.Tasks` en orden; salta tareas con `Null == true` o nombre vacío.
+6. Resuelve `ParentId` en BD usando un diccionario `uniqueId (MPP) → ProjectActivityId (BD)` actualizado tras cada `SaveChangesAsync`.
+7. Inserta una actividad por vez (para poder capturar el ID generado y resolver hijos).
+8. Retorna `ImportarMppResultDto { ActividadesImportadas, ActividadesEliminadas }`.
+
+**Alias namespace:** `using Mpxj = MPXJ.Net;` evita colisión de `MPXJ.Net.Task` con `System.Threading.Tasks.Task`.
+
+### 5. Fixes en endpoints existentes
+
+**`GetProyectosAsync`** — eliminado filtro `ctx.ProjectActivity.Any(...)` que excluía proyectos sin actividades. Ahora devuelve todos los proyectos con `State && TieneUnidadDeProyectos`, sin importar si tienen actividades cargadas.
+
+**`GetActividadesAsync`** — `ActividadDto` y su mapeo LINQ ampliados con `HierarchyLevel` y `ParentId`.
+
+### 6. Debugging temporal
+
+`ImportarMpp` en el controlador tiene `Console.WriteLine($"[ImportarMpp ERROR] {ex}")` en el catch genérico para visibilidad de errores en consola. Quitar antes de merge a master.
+
+---
+
+## Sesión 2026-05-30 — CronogramaActividades: reordenamiento con order global único + cambio de jerarquía
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Order global único (DFS) — decisión de diseño
+
+`project_activity_order` ahora es **global y único por proyecto** (1, 2, 3, … sin repeticiones), no relativo por nivel de hermanos. El árbol se aplana en orden DFS: cada padre aparece antes que sus hijos, y los hermanos en su orden relativo.
+
+**Problema detectado:** los reordenamientos parciales del frontend (solo hermanos) producían `order` duplicados entre niveles distintos (varias filas con `order=1`, `order=12`, etc.), dejando el `ORDER BY project_activity_order` indeterminado. Verificado con el proyecto 17 (CAPULÍ): 188 actividades con orders repetidos.
+
+**Reparación de datos en Aiven** (CTE recursivo, no se versiona como migración):
+```sql
+WITH RECURSIVE dfs AS (
+    SELECT project_activity_id, ARRAY[project_activity_order] AS sort_path
+    FROM project_activity
+    WHERE project_id = :pid AND state = true AND parent_id IS NULL
+    UNION ALL
+    SELECT pa.project_activity_id, dfs.sort_path || pa.project_activity_order
+    FROM project_activity pa
+    INNER JOIN dfs ON pa.parent_id = dfs.project_activity_id
+    WHERE pa.project_id = :pid AND pa.state = true
+),
+ordered_activities AS (
+    SELECT project_activity_id, ROW_NUMBER() OVER (ORDER BY sort_path)::int AS new_order
+    FROM dfs
+)
+UPDATE project_activity pa
+SET project_activity_order = oa.new_order
+FROM ordered_activities oa
+WHERE pa.project_activity_id = oa.project_activity_id;
+```
+Ejecutado sobre proyecto 17 → 188 filas, 0 duplicados. **Pendiente:** correr el mismo UPDATE en cualquier otro proyecto con datos previos a este fix.
+
+> Nota operativa: `psql` no está en PATH en este entorno. Para consultas/UPDATEs ad-hoc contra Aiven se usó un mini console app .NET 10 temporal con `Npgsql` 10.0.0 (la DLL net10.0 no carga en PowerShell 5.1 vía `Add-Type`). El endpoint `debug-order` (abajo) cubre la inspección de solo-lectura sin salir de la app.
+
+### 2. PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/reordenar
+
+Ruta exacta consumida por el frontend (es `PATCH`, no `PUT`; va bajo `/actividades/`). El frontend envía **todas** las actividades del proyecto con su nuevo order global.
+
+`ReordenarActividadesAsync(int proyectoId, List<ReordenarItem> items)`:
+- Valida lista no vacía (400) y que todas las IDs pertenezcan al proyecto (400 si alguna falta).
+- **NO** valida que compartan `parentId` — esa validación se eliminó al pasar a order global (antes existía y rompía el drag&drop entre niveles).
+- Actualiza `project_activity_order` de cada item y retorna la lista completa del proyecto ordenada por `Order ASC`.
+- Logs de debug en consola: items recibidos, por cada item `ID/parentId/orderAnterior→nuevoOrder`, y `"Reordenamiento completado"`.
+
+`ReordenarItem { ProjectActivityId, Order }`.
+
+### 3. Cambio de jerarquía — subir / bajar nivel
+
+```
+PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/{actividadId}/subir-nivel
+PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/{actividadId}/bajar-nivel
+```
+
+Ambos cargan todas las actividades del proyecto en memoria (un query) y propagan el cambio de nivel a los descendientes con el helper recursivo `ActualizarHijosRecursivo(parentId, levelDelta, todas)`.
+
+**`SubirNivelAsync`** (nivel n → n−1):
+- 400 `"La actividad ya está en el nivel más alto."` si `HierarchyLevel == 0`.
+- Nuevo `ParentId` = `parentId` del padre actual (el abuelo); `null` si el padre era raíz.
+- `HierarchyLevel -= 1` en la actividad y `−1` en todos los descendientes.
+
+**`BajarNivelAsync`** (nivel n → n+1):
+- Busca el **hermano inmediatamente anterior**: mismo `ParentId`, mayor `Order` que sea menor al de la actividad (`OrderByDescending(Order).FirstOrDefault()`).
+- 400 `"No hay un padre disponible para asignar esta actividad."` si no existe hermano anterior.
+- Nuevo `ParentId` = ese hermano; `HierarchyLevel += 1` en la actividad y `+1` en descendientes.
+
+Ambos retornan la lista completa del proyecto ordenada por `Order ASC`.
+
+> También existe el `CambiarJerarquiaAsync` genérico (`PUT .../cambiar-jerarquia`, body `{ projectActivityId, nuevoHierarchyLevel, nuevoParentId }`) que aplica el delta de nivel y propaga a hijos. subir/bajar-nivel son los atajos que usa el frontend.
+
+### 4. Crear actividad acepta jerarquía
+
+`CrearActividadRequest` ampliado con `HierarchyLevel` (int, default 0) y `ParentId` (int?). Se persisten en `CrearActividadAsync` y se devuelven en el `ActividadDto`. También se corrigió el return de `EditarActividadAsync` (faltaban `HierarchyLevel` y `ParentId` en el DTO de respuesta).
+
+### 5. GET proyectos → totalActividades
+
+`ProyectoSimpleCronogramaDto` ahora incluye `TotalActividades`. `GetProyectosAsync` lo resuelve con subconsulta correlacionada (traducida a SQL, sin eval en cliente) usando el mismo filtro que `GetActividadesAsync` (`State && Active`), por lo que el conteo coincide con lo que el frontend ve al abrir el proyecto.
+
+### 6. Endpoint debug de solo-lectura
+
+```
+GET /api/v1/cronograma-actividades/{proyectoId}/debug-order   [AllowAnonymous]
+```
+Retorna `[{ projectActivityId, description, order, parentId, hierarchyLevel }]` ordenado por `Order ASC`. Útil para verificar el estado real del árbol/order en BD sin token. **Temporal — quitar antes de merge a master** (junto con `debug-proyectos` y los `Console.WriteLine` de reordenar/importar).
+
+---
+
+## Sesión 2026-06-01 — RecalcularFechasPadres: DFS → BFS+reverso; verificación estructura de módulo
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Bug en `RecalcularFechasPadresInternoAsync` — DFS con memoización reemplazado por BFS + reverso
+
+**Síntoma:** tras importar un MPP, los nodos de nivel 3 (o cualquier nivel intermedio) que tienen hijos mostraban fechas inconsistentes con sus hijos — el recálculo bottom-up no propagaba correctamente a todos los niveles.
+
+**Causa raíz del DFS:** el outer `foreach (var nodo in todas)` podía visitar un nodo intermedio (p.ej. nivel 3, que es padre de nivel 4) *antes* de que el DFS lo alcanzara por la rama de su propio subárbol. Al marcarlo `estado=2` con sus fechas **originales del MPP**, cuando su padre (nivel 2) luego llamaba `Procesar(nivel3)`, lo encontraba terminado y leía las fechas obsoletas en lugar de las actualizadas desde los hijos.
+
+**Solución — BFS + iteración inversa** (archivo: `CronogramaSchedulingService.cs`, método `RecalcularFechasPadresInternoAsync`):
+
+```
+BFS desde raíces → bfsOrder = [raíz, nivel1, nivel2, nivel3, nivel4…hojas]
+Iterar bfsOrder al revés → [hojas, nivel3, nivel2, nivel1, raíz]
+```
+
+Al procesar en este orden, cuando se llega a un nodo padre **todos sus descendientes ya tienen fechas actualizadas** (están en posiciones de mayor índice del array, por tanto se iteraron antes en el `for` invertido). Las referencias en `hijosDe` apuntan a los mismos objetos en memoria → lectura inmediata de valores actualizados.
+
+**Ventajas adicionales:**
+- Sin recursión → sin riesgo de `StackOverflowException` en jerarquías profundas
+- Nodos huérfanos con ciclo en `ParentId` se agregan al final del BFS y se procesan primero en el reverso (caso defensivo)
+- `esPadre` calculado exclusivamente por `hijosDe.TryGetValue(id, ...)` — sin ningún filtro por `HierarchyLevel`
+
+**Los tres criterios verificados:**
+
+| Criterio | Estado |
+|---|---|
+| Sin filtro por `HierarchyLevel` | ✓ Query solo filtra `ProjectId + State + Active`. `hijosDe` se construye por `ParentId` únicamente |
+| Bottom-up garantizado | ✓ BFS invertido: hojas → padres directos → abuelos → nivel 0, sin excepción |
+| `esPadre` correcto | ✓ `hijosDe.TryGetValue(id, ...)` ≡ "existe ≥1 actividad con `ParentId = id`" |
+
+Build: 0 errores.
+
+### 2. Verificación de estructura de módulo — ya estaba correctamente separada
+
+Ante una solicitud de reorganizar `UnidadDeProyectosModule` en dos features independientes, se verificó que la separación **ya existía** desde sesiones anteriores:
+
+```
+Features\UnidadDeProyectosModule\
+├── UnidadDeProyectosModule.cs          ← registro DI de los tres features
+└── Features\
+    ├── CronogramaActividades\           ← namespace ...CronogramaActividades.*
+    ├── ProjectsDashboard\               ← namespace ...ProjectsDashboard.*
+    └── LessonsLearnedDashboard\         ← namespace ...LessonsLearnedDashboard.*
+```
+
+Sin referencias cruzadas entre features, namespaces correctos en todos los archivos, y `UnidadDeProyectosModule.cs` registrando las tres features por separado. Build limpio.
+
+---
+
+## Sesión 2026-06-01 (cont.) — Fechas línea base + predecesoras para padres + RecalcularFechasPadres fix definitivo
+
+Rama: `feature/cronograma-actividades`
+
+### 1. Fechas línea base en `project_activity`
+
+**BD (Aiven):** `ALTER TABLE project_activity ADD COLUMN IF NOT EXISTS baseline_start_date date, ADD COLUMN IF NOT EXISTS baseline_end_date date;` — aplicado y verificado.
+
+**Migración EF:** `20260601184746_AddBaselineDatesProjectActivity.cs`.
+
+**Modelo:** `ProjectActivity` + `BaselineStartDate DateOnly?` + `BaselineEndDate DateOnly?`.
+
+**DTO:** `ActividadDto` + ambos campos. Nueva clase `ActualizarLineaBaseRequest { BaselineStartDate, BaselineEndDate }`.
+
+**Endpoint:** `PATCH /api/v1/cronograma-actividades/actividades/{id}/linea-base`
+- 404 si no existe o inactiva.
+- 400 `"La línea base solo puede definirse en actividades hoja (sin sub-actividades)."` si `esPadre = true`.
+- Permite sobrescribir si ya tenía fechas base (el frontend advierte al usuario).
+- Devuelve `ActividadDto` completo.
+
+Todos los mapeos de `ActividadDto` en el repositorio (7 lugares: `GetActividadesAsync`, `CrearActividadAsync`, `EditarActividadAsync`, y los 4 LINQ-to-SQL en reordenar/subir/bajar/cambiar-jerarquía) actualizados con `BaselineStartDate` y `BaselineEndDate`.
+
+### 2. Predecesoras para nodos padre (cambio de regla)
+
+**Antes:** solo hojas podían ser predecesoras o tener predecesoras.  
+**Ahora:** cualquier nodo (padre o hoja) puede ser predecesor o tener predecesoras.
+
+**`SetPredecesorasAsync`** — eliminadas dos validaciones:
+- `"Una actividad con sub-actividades no puede tener predecesoras."` → removida.
+- `"Una predecesora con sub-actividades no es válida; solo se permiten hojas."` → removida.
+- Se conserva: existencia en mismo proyecto, auto-exclusión.
+
+**`CalcularCascadaAsync`** — nueva bifurcación en el bucle Kahn:
+- **Sucesor hoja:** comportamiento anterior sin cambios (reposicionar con `AddBusinessDays`, preservar duración hábil).
+- **Sucesor padre:** `DesplazarSubarbol(id, deltaCalDias, ...)` — desplaza el nodo padre y TODOS sus descendientes por el mismo delta calendario, manteniendo duraciones y offsets internos.
+
+**`DesplazarSubarbol`** (nuevo método estático privado):
+- Calcula `delta = nuevoInicio.DayNumber - actual.PlannedStartDate.DayNumber` (días calendario).
+- Aplica `+delta` a `PlannedStartDate` y `PlannedEndDate` del nodo y de cada descendiente recursivamente.
+- Registra un `CascadaCambioDto` por cada nodo movido.
+- Actualiza `finVigente[id]` para que los sucesores en el grafo de predecesoras vean el fin correcto.
+- Si un descendiente tiene además predecesoras externas, la cascada lo reposicionará y `RecalcularFechasPadresInternoAsync` corregirá al padre.
+
+### 3. RecalcularFechasPadresInternoAsync — fix definitivo
+
+**Problema:** la implementación BFS+reverso anterior asumía que el orden inverso de descubrimiento BFS era siempre bottom-up. En árboles con ramas de profundidad desigual, la asignación de ParentId podía no estar perfectamente alineada con HierarchyLevel (especialmente tras importar MPPs con nodos omitidos o raíces virtuales), haciendo que el reverso procesara algunos padres antes que sus descendientes.
+
+**Síntoma observado:** "fila 75 'Proyecto' muestra fin 22/05/2026 pero tiene hijos con fechas hasta 2028".
+
+**Solución:** reemplazar BFS+reverso por `OrderByDescending(HierarchyLevel)`:
+- El MPP importa `HierarchyLevel = tarea.OutlineLevel` directamente.
+- Un padre siempre está en nivel L, sus hijos en nivel L+1.
+- Procesando de mayor a menor nivel, cuando se llega a un padre en nivel L, **todos sus hijos directos (nivel > L) ya tienen fechas actualizadas en memoria**.
+- No depende de la coherencia de `ParentId` para el ordenamiento (solo lo usa para detectar hijos vía `hijosDe`).
+
+**Código final:**
+```csharp
+foreach (var nodo in todas.OrderByDescending(a => a.HierarchyLevel))
+{
+    if (!hijosDe.TryGetValue(nodo.ProjectActivityId, out var hijos) || hijos.Count == 0) continue;
+    var inicios = hijos.Where(h => h.PlannedStartDate.HasValue).Select(h => h.PlannedStartDate!.Value).ToList();
+    var fines   = hijos.Where(h => h.PlannedEndDate.HasValue).Select(h => h.PlannedEndDate!.Value).ToList();
+    var nuevoInicio = inicios.Count > 0 ? inicios.Min() : (DateOnly?)null;
+    var nuevoFin    = fines.Count   > 0 ? fines.Max()   : (DateOnly?)null;
+    if (nodo.PlannedStartDate != nuevoInicio || nodo.PlannedEndDate != nuevoFin)
+    { nodo.PlannedStartDate = nuevoInicio; nodo.PlannedEndDate = nuevoFin; nodo.UpdatedDateTime = DateTime.UtcNow; }
+}
+```
+
+`RecalcularFechasPadresAsync` (y su versión interna) se llama en: `ImportarMppAsync`, `AplicarCascadaAsync`, `EditarActividadAsync`.

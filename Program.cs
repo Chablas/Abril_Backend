@@ -144,7 +144,6 @@ builder.Services.AddMejoraContinuaModule();
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();
 builder.Services.AddScoped<IProjectResidentService, ProjectResidentService>();
-builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<IReminderService, ReminderService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IResidentReportIncidenceService, ResidentReportIncidenceService>();
@@ -155,8 +154,6 @@ builder.Services.AddScoped<IRoleService, RoleService>();
 builder.Services.AddScoped<IArquitecturaComercialService, ArquitecturaComercialService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
-builder.Services.AddScoped<IMilestoneScheduleRepository, MilestoneScheduleRepository>();
-builder.Services.AddScoped<IMilestoneScheduleHistoryRepository, MilestoneScheduleHistoryRepository>();
 builder.Services.AddScoped<IIvtControlPdfRepository, IvtControlPdfRepository>();
 builder.Services.AddScoped<IUserProjectRepository, UserProjectRepository>();
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
@@ -173,8 +170,6 @@ builder.Services.AddScoped<IArquitecturaComercialRepository, ArquitecturaComerci
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<LayerRepository>();
 builder.Services.AddScoped<MilestoneRepository>();
-builder.Services.AddScoped<MilestoneScheduleRepository>();
-builder.Services.AddScoped<MilestoneScheduleHistoryRepository>();
 builder.Services.AddScoped<PersonRepository>();
 builder.Services.AddScoped<PhaseRepository>();
 builder.Services.AddScoped<PhaseStageSubStageSubSpecialtyRepository>();
@@ -269,6 +264,7 @@ builder.Services.AddSwaggerGen(c =>
     {
         { new OpenApiSecuritySchemeReference("Bearer"), new List<string>() }
     });
+    c.MapType<IFormFile>(() => new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" });
 });
 builder.Services.AddAuthentication("Bearer")
     .AddJwtBearer("Bearer", options => {

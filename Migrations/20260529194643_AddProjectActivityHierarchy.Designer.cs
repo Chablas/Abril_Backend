@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260529194643_AddProjectActivityHierarchy")]
+    partial class AddProjectActivityHierarchy
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -7329,39 +7332,6 @@ namespace Abril_Backend.Migrations
                     b.ToTable("worker_vinculaciones", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Shared.Models.ActivityPredecessor", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ActivityId")
-                        .HasColumnType("integer")
-                        .HasColumnName("activity_id");
-
-                    b.Property<int>("PredecessorId")
-                        .HasColumnType("integer")
-                        .HasColumnName("predecessor_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_activity_predecessor");
-
-                    b.HasIndex("ActivityId")
-                        .HasDatabaseName("ix_activity_predecessor_activity_id");
-
-                    b.HasIndex("PredecessorId")
-                        .HasDatabaseName("ix_activity_predecessor_predecessor_id");
-
-                    b.HasIndex("ActivityId", "PredecessorId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_activity_predecessor_activity_id_predecessor_id");
-
-                    b.ToTable("activity_predecessor", (string)null);
-                });
-
             modelBuilder.Entity("Abril_Backend.Shared.Models.AuditoriaCambio", b =>
                 {
                     b.Property<long>("Id")
@@ -7417,34 +7387,6 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_auditoria_cambios");
 
                     b.ToTable("auditoria_cambios", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Shared.Models.Feriado", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Descripcion")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("descripcion");
-
-                    b.Property<DateOnly>("Fecha")
-                        .HasColumnType("date")
-                        .HasColumnName("fecha");
-
-                    b.HasKey("Id")
-                        .HasName("pk_feriados");
-
-                    b.HasIndex("Fecha")
-                        .IsUnique()
-                        .HasDatabaseName("ix_feriados_fecha");
-
-                    b.ToTable("feriados", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Shared.Models.Project", b =>
@@ -7660,14 +7602,6 @@ namespace Abril_Backend.Migrations
                     b.Property<DateOnly?>("ActualEndDate")
                         .HasColumnType("date")
                         .HasColumnName("actual_end_date");
-
-                    b.Property<DateOnly?>("BaselineEndDate")
-                        .HasColumnType("date")
-                        .HasColumnName("baseline_end_date");
-
-                    b.Property<DateOnly?>("BaselineStartDate")
-                        .HasColumnType("date")
-                        .HasColumnName("baseline_start_date");
 
                     b.Property<DateTime>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
@@ -8963,23 +8897,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Proyecto");
 
                     b.Navigation("Worker");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Shared.Models.ActivityPredecessor", b =>
-                {
-                    b.HasOne("Abril_Backend.Shared.Models.ProjectActivity", null)
-                        .WithMany()
-                        .HasForeignKey("ActivityId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_activity_predecessor_project_activity_activity_id");
-
-                    b.HasOne("Abril_Backend.Shared.Models.ProjectActivity", null)
-                        .WithMany()
-                        .HasForeignKey("PredecessorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_activity_predecessor_project_activity_predecessor_id");
                 });
 
             modelBuilder.Entity("Abril_Backend.Shared.Models.Project", b =>

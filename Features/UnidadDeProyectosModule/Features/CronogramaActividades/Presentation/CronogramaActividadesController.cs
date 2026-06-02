@@ -87,6 +87,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // GET /api/v1/cronograma-actividades/debug-proyectos  — TEMPORAL, quitar tras diagnóstico
+        [HttpGet("debug-proyectos")]
+        public async Task<IActionResult> DebugProyectos()
+        {
+            try
+            {
+                var result = await _service.GetDebugProyectosAsync();
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // DELETE /api/v1/cronograma-actividades/actividades/{projectActivityId}
         [HttpDelete("actividades/{projectActivityId:int}")]
         public async Task<IActionResult> EliminarActividad(int projectActivityId)
@@ -98,6 +111,185 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/reordenar
+        [HttpPatch("{proyectoId:int}/actividades/reordenar")]
+        public async Task<IActionResult> ReordenarActividades(int proyectoId, [FromBody] List<ReordenarItem> items)
+        {
+            try
+            {
+                var result = await _service.ReordenarActividadesAsync(proyectoId, items);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/{actividadId}/subir-nivel
+        [HttpPatch("{proyectoId:int}/actividades/{actividadId:int}/subir-nivel")]
+        public async Task<IActionResult> SubirNivel(int proyectoId, int actividadId)
+        {
+            try
+            {
+                var result = await _service.SubirNivelAsync(proyectoId, actividadId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // PATCH /api/v1/cronograma-actividades/{proyectoId}/actividades/{actividadId}/bajar-nivel
+        [HttpPatch("{proyectoId:int}/actividades/{actividadId:int}/bajar-nivel")]
+        public async Task<IActionResult> BajarNivel(int proyectoId, int actividadId)
+        {
+            try
+            {
+                var result = await _service.BajarNivelAsync(proyectoId, actividadId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // GET /api/v1/cronograma-actividades/{proyectoId}/debug-order
+        [HttpGet("{proyectoId:int}/debug-order")]
+        [AllowAnonymous]
+        public async Task<IActionResult> DebugOrder(int proyectoId)
+        {
+            try
+            {
+                var result = await _service.GetDebugOrderAsync(proyectoId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // PUT /api/v1/cronograma-actividades/{proyectoId}/cambiar-jerarquia
+        [HttpPut("{proyectoId:int}/cambiar-jerarquia")]
+        public async Task<IActionResult> CambiarJerarquia(int proyectoId, [FromBody] CambiarJerarquiaRequest request)
+        {
+            try
+            {
+                var result = await _service.CambiarJerarquiaAsync(proyectoId, request);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // PATCH /api/v1/cronograma-actividades/actividades/{id}/linea-base
+        [HttpPatch("actividades/{id:int}/linea-base")]
+        public async Task<IActionResult> ActualizarLineaBase(int id, [FromBody] ActualizarLineaBaseRequest request)
+        {
+            try
+            {
+                var result = await _service.ActualizarLineaBaseAsync(id, request, GetUserId());
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ─────────────────────────── Feriados ───────────────────────────
+
+        // GET /api/v1/cronograma-actividades/feriados
+        [HttpGet("feriados")]
+        public async Task<IActionResult> GetFeriados()
+        {
+            try
+            {
+                var result = await _service.GetFeriadosAsync();
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // POST /api/v1/cronograma-actividades/feriados
+        [HttpPost("feriados")]
+        public async Task<IActionResult> CrearFeriado([FromBody] CrearFeriadoRequest request)
+        {
+            try
+            {
+                var result = await _service.CrearFeriadoAsync(request);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // DELETE /api/v1/cronograma-actividades/feriados/{id}
+        [HttpDelete("feriados/{id:int}")]
+        public async Task<IActionResult> EliminarFeriado(int id)
+        {
+            try
+            {
+                await _service.EliminarFeriadoAsync(id);
+                return NoContent();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ─────────────────────────── Predecesoras + cascada ───────────────────────────
+
+        // PUT /api/v1/cronograma-actividades/actividades/{projectActivityId}/predecesoras
+        [HttpPut("actividades/{projectActivityId:int}/predecesoras")]
+        public async Task<IActionResult> ActualizarPredecesoras(int projectActivityId, [FromBody] ActualizarPredecesorasRequest request)
+        {
+            try
+            {
+                var result = await _service.ActualizarPredecesorasAsync(projectActivityId, request.PredecessorIds);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // POST /api/v1/cronograma-actividades/{proyectoId}/recalcular-cascada/preview
+        [HttpPost("{proyectoId:int}/recalcular-cascada/preview")]
+        public async Task<IActionResult> PreviewCascada(int proyectoId)
+        {
+            try
+            {
+                var result = await _service.PreviewCascadaAsync(proyectoId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // POST /api/v1/cronograma-actividades/{proyectoId}/recalcular-cascada/aplicar
+        [HttpPost("{proyectoId:int}/recalcular-cascada/aplicar")]
+        public async Task<IActionResult> AplicarCascada(int proyectoId)
+        {
+            try
+            {
+                var result = await _service.AplicarCascadaAsync(proyectoId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // POST /api/v1/cronograma-actividades/{proyectoId}/importar-mpp
+        [HttpPost("{proyectoId:int}/importar-mpp")]
+        [RequestSizeLimit(52_428_800)] // 50 MB
+        public async Task<IActionResult> ImportarMpp(int proyectoId, IFormFile archivo)
+        {
+            try
+            {
+                var result = await _service.ImportarMppAsync(proyectoId, archivo, GetUserId());
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ImportarMpp ERROR] {ex}");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-05-31 — EvaluacionesModule: cron recordatorios + descargo (EvRecordatorioService, EvRecordatorioRepository, EvRecordatorioController). IEvRecordatorioService registrado en AddEvaluacionesModule.
+> Última actualización: 2026-06-01 — SsomaModule/HabilitacionModule: flujo EMO completo refactorizado, EstadoProgramacionEmo en lista habilitación, acción "No Asistió", obraOficina en SCTR.
 
 ---
 
@@ -3701,3 +3701,89 @@ completar-emo.ts — agregar documentoInterconsulta: File | null = null y handle
 completar-emo.html — agregar input file dentro de *ngIf="requiereInterconsulta"
 EmoService.createEmo() — pasar documentoInterconsulta como campo FormData
 Después de POST /emos exitoso, si response.interconsultaId != null → llamar POST /interconsultas/{id}/documentos con el archivo
+
+---
+
+## Sesión 2026-06-01 — Refactorización flujo EMO, habilitación y SCTR
+
+### 1. EmoRepository.Create — cambios acumulados
+
+**a) Inactivar EMOs anteriores antes de insertar nuevo** (antes de `ctx.WorkerEmo.Add(emo)`):
+```csharp
+var emosAnteriores = await ctx.WorkerEmo
+    .Where(e => e.WorkerId == emo.WorkerId && e.Activo)
+    .ToListAsync();
+foreach (var e in emosAnteriores) { e.Activo = false; e.UpdatedAt = DateTimeOffset.UtcNow; }
+```
+Garantiza que solo el EMO recién registrado quede `Activo = true`.
+
+**b) Auto-marcar programación como "Completado"** (después de `SincronizarEntregableEmoAsync`):
+```csharp
+// Solo si NO hay interconsulta pendiente (interconsultaPendiente == null)
+// ↑ distingue contexto agenda (final) vs contexto interconsultas (levantamiento intermedio)
+var progActiva = await ctx.SsProgramacionEmo
+    .Where(p => p.WorkerId == emo.WorkerId && p.Estado == "En Atención")
+    .OrderByDescending(p => p.FechaProgramada).FirstOrDefaultAsync();
+if (progActiva != null) { progActiva.Estado = "Completado"; progActiva.EmoResultadoId = emo.Id; }
+```
+
+**c) Auto-aprobar LecturaEmo (item 25) si viene `dto.FechaLectura`**:
+```csharp
+if (dto.FechaLectura.HasValue) {
+    lecturaEmo.Estado = "Aprobado";
+    lecturaEmo.Vigencia = HabilitacionDateHelper.AsUtc(dto.FechaLectura.Value.ToDateTime(TimeOnly.MinValue));
+}
+```
+
+**d) `InterconsultaInlineJson`** — `EmoCreateDto.InterconsultaInline` es ahora una propiedad calculada que deserializa `InterconsultaInlineJson string?` (porque el endpoint usa `[FromForm]` y los objetos anidados no se bindean desde multipart).
+
+**e) `InterconsultaRepository.Create`** — `FechaDerivacion = DateOnly.FromDateTime(DateTime.Today)` siempre (ignora `dto.FechaDerivacion`).
+
+### 2. SincronizarEntregableEmoAsync — bug fix vigencia
+
+`LecturaEmo` (item 25) ahora usa `emo.FechaVencimientoCalculada ?? emo.FechaVencimiento` igual que `CertAptitud`. Antes usaba solo `emo.FechaVencimiento`, causando discrepancia.
+
+### 3. ProgramacionEmoRepository.ClinicaAccion — nueva acción "No Asistió"
+
+```csharp
+case "No Asistió":
+    ent.Estado = "No se presentó";
+    // Actualiza SsHabTrabajador item 4 según EMO activo más reciente:
+    // Sin EMO → "Falta" | FechaVencimiento < hoy → "Vencido" | vigente → "Aprobado"
+    await ctx.SaveChangesAsync(); return;
+```
+
+`ProgramacionEmoService.ClinicaAccion` — "No Asistió" agregado al guard de acciones válidas.
+
+### 4. ProgramacionEmoRepository — reglas de estado para programaciones
+
+- **`ClinicaAccion("Completar")`**: ya NO cambia estado (solo asigna `EmoResultadoId`). El estado lo gestiona `EmoRepository.Create`.
+- **`UpdateEstado`**: guard que rechaza estado `"Completado"` con 400 — ese estado solo llega desde `EmoRepository.Create`.
+
+### 5. EmoAutoProgramacionService — excluir tipo "Retiro"
+
+Condición añadida al `where` de candidatos:
+```csharp
+&& !t.Nombre.ToLower().Contains("retiro")
+```
+Los EMOs de tipo "Retiro" solo se crean desde `BajaAsync`/`BajaMasivaAsync`, nunca por auto-programación.
+
+### 6. WorkerHabilitacionListDto — campo EstadoProgramacionEmo
+
+Nuevo campo `string? EstadoProgramacionEmo` en `WorkerHabilitacionListDto`.
+
+En `GetWorkersHabilitacionAsync` (post-fetch sobre `pageRows`):
+- **`progMap`**: programación activa más reciente por worker (excluye Completado, Cancelado, Rechazado por Clínica). Toma `Estado` de la programación con mayor `FechaProgramada`.
+- **`interconsultaWorkerIds`**: workers con `SsInterconsulta.Estado == "Pendiente"`.
+- **Mapeo**: si hay interconsulta pendiente → `"Interconsulta"`; si no → `progMap[workerId]` (Programado / Aceptado por Clínica / En Atención / …); si sin programación → `null`.
+
+### 7. SctrVidaLeyRepository.GetTrabajadoresPorEmpresaAsync — parámetro obraOficina
+
+Nuevo parámetro `string? obraOficina = null`. Si `obraOficina == "OficinaStaff"`, después de construir `workerIds`, filtra:
+```csharp
+workerIds = ctx.Worker
+    .Where(w => workerIds.Contains(w.Id)
+             && (w.ObraOficina == "Oficina Central" || w.ObraOficina == "Staff"))
+    .Select(w => w.Id).ToListAsync();
+```
+Propagado en `ISctrVidaLeyRepository` y en `SctrVidaLeyController.GetTrabajadoresPorEmpresa` como `[FromQuery] string? obraOficina`.

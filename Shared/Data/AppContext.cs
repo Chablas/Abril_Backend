@@ -490,6 +490,10 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(wp => wp.WorkerId);
 
+            modelBuilder.Entity<SsomaPasoCategoria>().ToTable("ssoma_paso_categoria");
+            modelBuilder.Entity<SsomaPaso>().ToTable("ssoma_paso");
+            modelBuilder.Entity<SsomaPasoActividad>().ToTable("ssoma_paso_actividad");
+            modelBuilder.Entity<SsomaPasoEjecucion>().ToTable("ssoma_paso_ejecucion");
             modelBuilder.Entity<SsomaPaso>()
                 .HasMany(x => x.Actividades).WithOne(x => x.Paso).HasForeignKey(x => x.PasoId);
             modelBuilder.Entity<SsomaPasoActividad>()

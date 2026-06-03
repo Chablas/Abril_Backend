@@ -134,10 +134,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.FechaProgramada == default)
                 throw new AbrilException("La fecha es obligatoria.", 400);
 
+            var empresaId = dto.EmpresaId;
+            if (empresaId == null)
+            {
+                var hoy = DateOnly.FromDateTime(DateTime.Today);
+                empresaId = await ctx.WorkerVinculacion
+                    .Where(v => v.WorkerId == dto.WorkerId && (v.FechaFin == null || v.FechaFin >= hoy))
+                    .OrderByDescending(v => v.FechaInicio)
+                    .Select(v => (int?)v.EmpresaId)
+                    .FirstOrDefaultAsync();
+            }
+
             var ent = new SsProgramacionEmo
             {
                 WorkerId = dto.WorkerId,
-                EmpresaId = dto.EmpresaId,
+                EmpresaId = empresaId,
                 TipoEmoId = dto.TipoEmoId,
                 FechaProgramada = dto.FechaProgramada,
                 HoraProgramada = dto.HoraProgramada,

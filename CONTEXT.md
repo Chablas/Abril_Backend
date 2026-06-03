@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-02 — Pull master: MejoraContinuaModule refactorizado (LessonsLearned + LessonsDashboard migrados desde UnidadDeProyectosModule, LessonReminderFeature nueva), LessonController raíz eliminado, DTOs Lesson movidos a Features, IEmailGroupResolver añadido a Shared/Services/Graph.
+> Última actualización: 2026-06-03 — EvaluacionesModule: 4 reglas GetResidentesEvaluablesAsync, EvAsignacionSupervisor (entidad + endpoints GET/PUT asignaciones + GET proyectos), GetEvaluadoresPendientesAsync reescrito con 3 queries por regla (R1 OC Proyectos, R2 UDP/BIM, R3 Staff), recordatorio /enviar sin CC. SsomaModule: PasoFeature construido (17 endpoints api/v1/ssoma-paso, SPI, Gantt, cron, instanciación plantillas).
 
 ---
 
@@ -63,7 +63,7 @@ Features/<Modulo>Module/
 | Módulo | Registro DI | Contenido |
 |--------|-------------|-----------|
 | `HabilitacionModule` | `AddHabilitacionModule` | Principal activo — ver sección 5 |
-| `SsomaModule` | `AddSsomaModule` | EMO, programación, alertas automáticas, clínica, reportes SUNAFIL |
+| `SsomaModule` | `AddSsomaModule` | EMO, programación, alertas automáticas, clínica, reportes SUNAFIL. **PasoFeature** (PASO - Programa Anual de Seguridad, ruta `api/v1/ssoma-paso`) |
 | `AuthModule` | `AddAuthModule` | MicrosoftLogin, MicrosoftProfile, ContractorCredentials, RoleFeature, UserFeature |
 | `ContractorsModule` | `AddContractorsModule` | ContractorRegistration, ContractorManagement |
 | `CostsModule` | `AddCostsModule` | Adjudicaciones (contrato completo), WorkItem, StaffProjectEmail, ProjectLink |
@@ -71,7 +71,7 @@ Features/<Modulo>Module/
 | `GestionAdministrativaModule` | `AddGestionAdministrativaModule` | SolicitudSalidas, GestionSalidas, Lugares, MotivosSalida |
 | `MejoraContinuaModule` | `AddMejoraContinuaModule` | LessonsLearned, LessonsDashboard, LessonReminder, AreasYSubareas, PsssTemplate, Relations |
 | `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | ProjectsDashboard (LessonsLearnedDashboard migrado a MejoraContinua) |
-| `EvaluacionesModule` | `AddEvaluacionesModule` | Evaluaciones de residentes — periodos, plantilla, evaluaciones, dashboard [nuevo 2026-05-31] |
+| `EvaluacionesModule` | `AddEvaluacionesModule` | Evaluaciones de residentes — periodos, plantilla, evaluaciones, dashboard. EvAsignacionSupervisor (supervisores UDP/BIM). Cron recordatorios + descargo. |
 
 **ArquitecturaComercial** vive en capa tradicional, no en Features.
 
@@ -992,17 +992,38 @@ GET              /api/v1/evaluaciones/recordatorios/descargo  ← CronSecret, en
 - `EvRecordatorioLog` ahora es usado activamente (ya no solo tabla pasiva).
 - `AddEvaluacionesModule` registra `IEvRecordatorioRepository` + `IEvRecordatorioService`.
 
+**EvAsignacionSupervisor** (`ev_asignacion_supervisor`) — tabla manual en BD. Entidad con `SupervisorWorkerId` (FK→`workers.id`), `ProjectId`, `Activo`, `CreatedAt`, `UpdatedAt`, `UpdatedByUserId`. DbSet `EvAsignacionesSupervisor` en AppDbContext.
+
+**Endpoints asignaciones supervisor:**
+```
+GET  /api/v1/evaluaciones/asignaciones-supervisor           → supervisores UDP/BIM con sus proyectos asignados
+GET  /api/v1/evaluaciones/asignaciones-supervisor/proyectos → proyectos activos (excluye General/AC/Post Venta/OC)
+PUT  /api/v1/evaluaciones/asignaciones-supervisor/{workerId} body: { projectIds: [] } → reemplaza asignaciones
+```
+El PUT desactiva activas no-en-lista → reactiva existentes → inserta nuevas. Registra `updated_at`/`updated_by_user_id` del JWT.
+
+**4 reglas `GetResidentesEvaluablesAsync(evaluadorUserId)` — Dapper:**
+- Lee `workers.id`, `obra_oficina`, `area`, `subarea`, `categoria` del evaluador en 1 query.
+- **R4**: `categoria='Gerente' AND area='Proyectos'` → lista vacía (no evalúa).
+- **R1**: OC + Proyectos + `categoria IN ('Jefe','Coordinador')` + subarea no-especial → todos los residentes, `PuedeVerTodos=true`.
+- **R2**: subarea IN ('Unidad de Proyectos','Planeamiento BIM') → consulta `ev_asignacion_supervisor WHERE activo=true` → residentes de esos proyectos con `ANY(@ProjectIds)`.
+- **R3** (fallback/Staff): residentes del mismo proyecto via subquery `contributor_id`.
+- ⚠️ La PK de `workers` es `id` (columna `id`), NO `worker_id`. Usar `w.id AS WorkerId` en Dapper.
+
+**`GetEvaluadoresPendientesAsync` — 3 queries independientes (Dapper), resultado combinado con `Concat`:**
+- **R1**: OC + Proyectos + `categoria IN ('Jefe','Coordinador')` + subarea no-especial. INNER JOIN app_user. Pendiente: NOT EXISTS en `ev_evaluacion_residente`.
+- **R2**: subarea IN ('UDP','BIM') + tiene asignaciones activas en `ev_asignacion_supervisor`. LEFT JOIN app_user. Pendiente: EXISTS residente en sus proyectos sin su evaluación.
+- **R3**: `obra_oficina != 'Oficina Central'` + tiene residente en su proyecto. INNER JOIN app_user. Pendiente: EXISTS residente del proyecto sin evaluación suya.
+- R4 (Gerente+Proyectos) excluido de los tres.
+- CC: `/enviar` sin CC (`null`); `/descargo` con CC jefatura + `coriundo@abril.pe`.
+
 **Dapper en `EvEvaluacionResidenteRepository`** — patrón:
 ```csharp
 await ctx.Database.OpenConnectionAsync();
 var conn = ctx.Database.GetDbConnection();
 await conn.QueryAsync<T>(sql, params)
 ```
-`GetResidentesEvaluablesAsync(evaluadorUserId)`:
-- Paso 1: lee `obra_oficina` del evaluador (`workers → person WHERE user_id = @id LIMIT 1`)
-- Paso 2: si `obra_oficina = 'Oficina Central'` → todos los residentes activos; si no → filtra por `project_id` del evaluador
-- Join: `workers → person → app_user → project ON contributor_id = w.contributor_id`
-- `ResidenteEvaluableDto`: UserId, NombreCompleto, ProjectId, ProjectNombre, Area, Subarea, PuedeVerTodos
+`GetResidentesEvaluablesAsync` — Join: `workers → person → app_user → project ON contributor_id = w.contributor_id`. `ResidenteEvaluableDto`: UserId, NombreCompleto, ProjectId, ProjectNombre, Area, Subarea, PuedeVerTodos.
 
 ---
 

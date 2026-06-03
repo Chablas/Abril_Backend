@@ -2,6 +2,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories;
+using Abril_Backend.Features.Ssoma.Paso.Services;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -48,6 +49,9 @@ namespace Abril_Backend.Features.Ssoma
 
             // Resumen diario EMO (cron 4:30pm)
             services.AddScoped<IEmoResumenDiarioService, EmoResumenDiarioService>();
+
+            // PASO — Programa Anual de Seguridad
+            services.AddScoped<IPasoService, PasoService>();
 
             return services;
         }

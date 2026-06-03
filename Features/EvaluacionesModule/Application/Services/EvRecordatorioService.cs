@@ -46,10 +46,6 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                 if (await _repo.YaEnvioRecordatorioHoyAsync(periodo.Id, ev.UserId, tipoLog))
                     continue;
 
-                var cc = new List<string>();
-                if (!string.IsNullOrEmpty(ev.JefeEmail))
-                    cc.Add(ev.JefeEmail);
-
                 var asunto = $"[Evaluación Residentes] Recordatorio — {mesAnio}";
                 var cuerpo = BuildCuerpoRecordatorio(ev, mesAnio, esPrimerDia);
 
@@ -60,12 +56,12 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                         subject: asunto,
                         body: cuerpo,
                         isHtml: true,
-                        cc: cc.Count > 0 ? cc : null);
+                        cc: null);
 
                     await _repo.RegistrarLogAsync(
                         periodo.Id, ev.UserId, tipoLog,
                         ev.EmailPersonal,
-                        ccJefatura: cc.Count > 0,
+                        ccJefatura: false,
                         ccGerencia: false);
 
                     enviados++;

@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-03 — EvaluacionesModule: 4 reglas GetResidentesEvaluablesAsync, EvAsignacionSupervisor (entidad + endpoints GET/PUT asignaciones + GET proyectos), GetEvaluadoresPendientesAsync reescrito con 3 queries por regla (R1 OC Proyectos, R2 UDP/BIM, R3 Staff), recordatorio /enviar sin CC. SsomaModule: PasoFeature construido (17 endpoints api/v1/ssoma-paso, SPI, Gantt, cron, instanciación plantillas).
+> Última actualización: 2026-06-03 — EvaluacionesModule: 4 reglas GetResidentesEvaluablesAsync, EvAsignacionSupervisor (entidad + endpoints GET/PUT asignaciones + GET proyectos), GetEvaluadoresPendientesAsync reescrito con 3 queries por regla (R1 OC Proyectos, R2 UDP/BIM, R3 Staff), recordatorio /enviar sin CC. SsomaModule: PasoFeature construido (17 endpoints api/v1/ssoma-paso, SPI, Gantt, cron, instanciación plantillas). Fix agenda clínica: `ProgramacionEmoRepository.Create` resuelve `empresa_id` desde `WorkerVinculacion` activa cuando `dto.EmpresaId == null` (antes quedaba null y el filtro `x.em != null && x.em.EsAbril` excluía el registro del listado).
 
 ---
 

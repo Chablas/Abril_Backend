@@ -10,7 +10,8 @@ namespace Abril_Backend.Infrastructure.Models {
         public string? ImpactDescription {get; set;}
         public int? ProjectId {get; set;}
         public int AreaId {get; set;}
-        public int? PhaseStageSubStageSubSpecialtyId {get; set;}
+        // Nota: la columna legacy `phase_stage_sub_stage_sub_specialty_id` queda
+        // huérfana en BD (sin mapping EF) — se conserva para no perder histórico.
         public int? CatalogItemId {get; set;}
         /// <summary>Rama seleccionada en lecciones (modelo nuevo). Nullable para no romper lecciones viejas.</summary>
         public int? LessonAreaId {get; set;}

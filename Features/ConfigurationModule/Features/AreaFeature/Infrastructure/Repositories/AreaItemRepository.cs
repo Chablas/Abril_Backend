@@ -91,11 +91,13 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
             if (!typeExists)
                 throw new AbrilException("El tipo de área no existe.");
 
-            // Duplicados solo cuentan entre registros vivos (state = true)
+            // Duplicados solo cuentan entre registros vivos (state = true) del MISMO tipo de área.
+            // Se permite el mismo nombre en tipos distintos (p. ej. "Costos y Presupuestos"
+            // como Área Estándar y como Área Obra_Oficina).
             var duplicate = await _context.AreaItem.AnyAsync(i =>
-                i.State && i.AreaItemName.ToLower() == name.ToLower());
+                i.State && i.AreaTypeId == dto.AreaTypeId && i.AreaItemName.ToLower() == name.ToLower());
             if (duplicate)
-                throw new AbrilException("Ya existe un área con ese nombre.");
+                throw new AbrilException("Ya existe un área con ese nombre para este tipo de área.");
 
             _context.AreaItem.Add(new AreaItem
             {
@@ -121,12 +123,14 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
             if (!typeExists)
                 throw new AbrilException("El tipo de área no existe.");
 
+            // Duplicado solo dentro del MISMO tipo de área (se permite el mismo nombre en tipos distintos).
             var duplicate = await _context.AreaItem.AnyAsync(i =>
                 i.State &&
+                i.AreaTypeId == dto.AreaTypeId &&
                 i.AreaItemName.ToLower() == name.ToLower() &&
                 i.AreaItemId != dto.AreaItemId);
             if (duplicate)
-                throw new AbrilException("Ya existe otra área con ese nombre.");
+                throw new AbrilException("Ya existe otra área con ese nombre para este tipo de área.");
 
             entity.AreaItemName = name;
             entity.AreaTypeId = dto.AreaTypeId;

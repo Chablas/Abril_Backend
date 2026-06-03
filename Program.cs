@@ -168,15 +168,9 @@ builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 builder.Services.AddScoped<IArquitecturaComercialRepository, ArquitecturaComercialRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
-builder.Services.AddScoped<LayerRepository>();
 builder.Services.AddScoped<MilestoneRepository>();
 builder.Services.AddScoped<PersonRepository>();
-builder.Services.AddScoped<PhaseRepository>();
-builder.Services.AddScoped<PhaseStageSubStageSubSpecialtyRepository>();
 builder.Services.AddScoped<ProjectRepository>();
-builder.Services.AddScoped<StageRepository>();
-builder.Services.AddScoped<SubSpecialtyRepository>();
-builder.Services.AddScoped<SubStageRepository>();
 builder.Services.AddScoped<UserProjectRepository>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ExcelService>();

@@ -9,31 +9,29 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         public string? ReasonDescription { get; set; }
         public string? LessonDescription { get; set; }
         public string? ImpactDescription { get; set; }
+
         public int? ProjectId { get; set; }
         public string? ProjectDescription { get; set; }
+
         public int AreaId { get; set; }
-        /// <summary>Path completo del área (incluye Gerencia). Usado en la vista de detalle.</summary>
+        /// <summary>Path completo del área (incluye Gerencia). Para vista de detalle.</summary>
         public string? AreaDescription { get; set; }
-        /// <summary>Path "corto" para tabla/tarjetas: sin nodos de tipo Gerencia, en MAYÚSCULAS.</summary>
+        /// <summary>Path "corto" para tabla/tarjetas: sin Gerencia, MAYÚSCULAS.</summary>
         public string? AreaListDescription { get; set; }
+
         public int? LessonAreaId { get; set; }
         public int? CatalogItemId { get; set; }
-        public int? PhaseStageSubStageSubSpecialtyId { get; set; }
-        public int? PhaseId { get; set; }
-        public string? PhaseDescription { get; set; }
-        public int? StageId { get; set; }
-        public string? StageDescription { get; set; }
-        public int? LayerId { get; set; }
-        public string? LayerDescription { get; set; }
-        public int? SubStageId { get; set; }
-        public string? SubStageDescription { get; set; }
-        public int? SubSpecialtyId { get; set; }
-        public string? SubSpecialtyDescription { get; set; }
-        public int? PartidaId { get; set; }
-        public string? PartidaDescription { get; set; }
+        /// <summary>
+        /// Segmentos de la clasificación caminando scope_item hacia arriba.
+        /// Cada entrada trae el nombre del catalog_type (Fase / Etapa / Nivel / …)
+        /// y la descripción del catalog_item. Ordenados de raíz a hoja.
+        /// </summary>
+        public List<LessonClassificationSegmentDTO> ClassificationSegments { get; set; } = new();
+
         public int StateId { get; set; }
         public string StateDescription { get; set; } = string.Empty;
         public List<LessonImageDTO>? Images { get; set; }
+
         public DateTimeOffset CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public string? CreatedUserFullName { get; set; }

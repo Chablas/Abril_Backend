@@ -9,28 +9,25 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         public string? ReasonDescription { get; set; }
         public string? LessonDescription { get; set; }
         public string? ImpactDescription { get; set; }
+
         public int? ProjectId { get; set; }
         public string? ProjectDescription { get; set; }
+
         public int AreaId { get; set; }
-        /// <summary>Path completo del área (incluye Gerencia). Mostrado en el modal de detalle.</summary>
+        /// <summary>Path completo del área (incluye Gerencia).</summary>
         public string? AreaDescription { get; set; }
-        /// <summary>Path "corto" sin Gerencia, en MAYÚSCULAS. Espejo del campo en LessonListDTO.</summary>
+        /// <summary>Path "corto" sin Gerencia, MAYÚSCULAS.</summary>
         public string? AreaListDescription { get; set; }
+
         public int? LessonAreaId { get; set; }
         public int? CatalogItemId { get; set; }
-        public int? PhaseStageSubStageSubSpecialtyId { get; set; }
-        public int? PhaseId { get; set; }
-        public string? PhaseDescription { get; set; }
-        public int? StageId { get; set; }
-        public string? StageDescription { get; set; }
-        public int? LayerId { get; set; }
-        public string? LayerDescription { get; set; }
-        public int? SubStageId { get; set; }
-        public string? SubStageDescription { get; set; }
-        public int? SubSpecialtyId { get; set; }
-        public string? SubSpecialtyDescription { get; set; }
-        public int? PartidaId { get; set; }
-        public string? PartidaDescription { get; set; }
+        /// <summary>
+        /// Segmentos de la clasificación caminando scope_item hacia arriba.
+        /// Cada entrada trae el nombre del catalog_type (Fase / Etapa / Nivel / …)
+        /// y la descripción del catalog_item. Ordenados de raíz a hoja.
+        /// </summary>
+        public List<LessonClassificationSegmentDTO> ClassificationSegments { get; set; } = new();
+
         public int StateId { get; set; }
         public string StateDescription { get; set; } = string.Empty;
         public List<LessonImageDTO>? Images { get; set; }
@@ -50,5 +47,16 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         public int LessonId { get; set; }
         public int ImageTypeId { get; set; }
         public string ImageTypeDescription { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Un nivel de la clasificación derivada de scope_item: nombre del catalog_type
+    /// (Fase / Etapa / Nivel / Subetapa / Subespecialidad / Partida) + descripción
+    /// del catalog_item asociado a la lección.
+    /// </summary>
+    public class LessonClassificationSegmentDTO
+    {
+        public string CatalogTypeName { get; set; } = string.Empty;
+        public string CatalogItemDescription { get; set; } = string.Empty;
     }
 }

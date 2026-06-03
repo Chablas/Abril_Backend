@@ -1,4 +1,3 @@
-using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Application.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
@@ -34,27 +33,41 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? stateId,
             [FromQuery] int? projectId,
             [FromQuery] int? areaId,
-            [FromQuery] int? phaseId,
-            [FromQuery] int? stageId,
-            [FromQuery] int? layerId,
-            [FromQuery] int? subStageId,
-            [FromQuery] int? subSpecialtyId,
             [FromQuery] int? userId,
+            [FromQuery] string? catalogItemIds,
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 10
-        )
+            [FromQuery] int pageSize = 10)
         {
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _lessonService.GetLessonsFilterPaged(
-                    periodDate, stateId, projectId, areaId, phaseId, stageId, layerId,
-                    subStageId, subSpecialtyId, userId, page, pageSize
-                );
-                return Ok(result);
+                List<int>? parsedCatalogIds = null;
+                if (!string.IsNullOrWhiteSpace(catalogItemIds))
+                {
+                    parsedCatalogIds = catalogItemIds
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(s => int.TryParse(s, out var n) ? (int?)n : null)
+                        .Where(n => n.HasValue)
+                        .Select(n => n!.Value)
+                        .ToList();
+                }
+
+                // Reusa la sobrecarga interna del service via filter DTO (incluye catalogItemIds).
+                var filter = new LessonFilterDTO
+                {
+                    PeriodDate = periodDate,
+                    StateId = stateId,
+                    ProjectId = projectId,
+                    AreaId = areaId,
+                    UserId = userId,
+                    CatalogItemIds = parsedCatalogIds,
+                    Page = page,
+                    PageSize = pageSize
+                };
+                var pagedResult = await _lessonService.GetPagedWithFilters(filter);
+                return Ok(pagedResult.Paged);
             }
             catch (Exception)
             {
@@ -69,21 +82,28 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? stateId,
             [FromQuery] int? projectId,
             [FromQuery] int? areaId,
-            [FromQuery] int? phaseId,
-            [FromQuery] int? stageId,
-            [FromQuery] int? layerId,
-            [FromQuery] int? subStageId,
-            [FromQuery] int? subSpecialtyId,
             [FromQuery] int? userId,
+            [FromQuery] string? catalogItemIds,
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 10
-        )
+            [FromQuery] int pageSize = 10)
         {
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
+
+                // catalogItemIds llega como CSV (ej. "5,12,34") para mantener simple
+                // el contrato HTTP. Lo parseamos a List<int>.
+                List<int>? parsedCatalogIds = null;
+                if (!string.IsNullOrWhiteSpace(catalogItemIds))
+                {
+                    parsedCatalogIds = catalogItemIds
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(s => int.TryParse(s, out var n) ? (int?)n : null)
+                        .Where(n => n.HasValue)
+                        .Select(n => n!.Value)
+                        .ToList();
+                }
 
                 var filter = new LessonFilterDTO
                 {
@@ -91,12 +111,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     StateId = stateId,
                     ProjectId = projectId,
                     AreaId = areaId,
-                    PhaseId = phaseId,
-                    StageId = stageId,
-                    LayerId = layerId,
-                    SubStageId = subStageId,
-                    SubSpecialtyId = subSpecialtyId,
                     UserId = userId,
+                    CatalogItemIds = parsedCatalogIds,
                     Page = page,
                     PageSize = pageSize
                 };
@@ -118,8 +134,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
                 var userId = int.Parse(userIdClaim.Value);
                 var lessonId = await _lessonService.CreateAsync(dto, userId);
@@ -142,17 +157,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
                 if (lessonAreaId <= 0)
                     return BadRequest(new { message = "Debe seleccionar un área" });
 
                 var tree = await _scopeService.GetScopeForLessonAsync(lessonAreaId);
-
-                if (tree == null || !tree.Any())
-                    return NoContent();
-
+                if (tree == null || !tree.Any()) return NoContent();
                 return Ok(tree);
             }
             catch (Exception)
@@ -161,10 +172,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             }
         }
 
-        // ────────────────────────────────────────────────────────────────────
-        // Endpoints migrados desde el legacy Controllers/LessonController.cs.
-        // ────────────────────────────────────────────────────────────────────
-
         [Authorize]
         [HttpGet("all")]
         public async Task<IActionResult> GetLessonsFilter(
@@ -172,20 +179,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? stateId,
             [FromQuery] int? projectId,
             [FromQuery] int? areaId,
-            [FromQuery] int? phaseId,
-            [FromQuery] int? stageId,
-            [FromQuery] int? layerId,
-            [FromQuery] int? subStageId,
-            [FromQuery] int? subSpecialtyId)
+            [FromQuery] int? userId)
         {
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _lessonService.GetLessonsFilterAsync(
-                    period, stateId, projectId, areaId, phaseId, stageId, layerId, subStageId, subSpecialtyId);
+                var result = await _lessonService.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId);
                 return Ok(result);
             }
             catch (Exception)
@@ -201,12 +202,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
                 var data = await _lessonService.GetByIdAsync(id);
-                if (data == null)
-                    return NotFound(new { message = "Lección no encontrada" });
+                if (data == null) return NotFound(new { message = "Lección no encontrada" });
                 return Ok(data);
             }
             catch (Exception)
@@ -222,14 +221,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
                 var userId = int.Parse(userIdClaim.Value);
-
                 var result = await _lessonService.DeleteSoftAsync(id, userId);
-                if (!result)
-                    return NotFound(new { message = "Lección no encontrada." });
+                if (!result) return NotFound(new { message = "Lección no encontrada." });
                 return Ok(new { message = "Lección eliminada exitosamente." });
             }
             catch (Exception)
@@ -245,28 +241,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? stateId,
             [FromQuery] int? projectId,
             [FromQuery] int? areaId,
-            [FromQuery] int? phaseId,
-            [FromQuery] int? stageId,
-            [FromQuery] int? layerId,
-            [FromQuery] int? subStageId,
-            [FromQuery] int? subSpecialtyId)
+            [FromQuery] int? userId)
         {
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
-                var lessons = await _lessonService.GetLessonsFilterAsync(
-                    period, stateId, projectId, areaId, phaseId, stageId, layerId, subStageId, subSpecialtyId);
-
+                var lessons = await _lessonService.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId);
                 var fileBytes = await _excelService.GenerateLessonsExcel(lessons);
 
-                return File(
-                    fileBytes,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "Lecciones_Aprendidas.xlsx"
-                );
+                return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Lecciones_Aprendidas.xlsx");
             }
             catch (Exception)
             {

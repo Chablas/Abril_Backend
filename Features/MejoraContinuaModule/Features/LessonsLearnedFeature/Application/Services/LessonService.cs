@@ -14,51 +14,26 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             _lessonRepository = lessonRepository;
         }
 
-        public async Task<PagedResult<LessonListDTO>> GetLessonsFilterPaged(
-            DateTimeOffset? periodDate,
-            int? stateId,
-            int? projectId,
-            int? areaId,
-            int? phaseId,
-            int? stageId,
-            int? layerId,
-            int? subStageId,
-            int? subSpecialtyId,
-            int? userId,
-            int page,
-            int pageSize
-        )
-        {
-            return await _lessonRepository.GetLessonsFilterPaged(
-                periodDate, stateId, projectId, areaId, phaseId, stageId, layerId,
-                subStageId, subSpecialtyId, userId, page, pageSize
-            );
-        }
-
-        public async Task<LessonsPagedWithFiltersDTO> GetPagedWithFilters(LessonFilterDTO filter)
-        {
-            if (filter.Page < 1) filter.Page = 1;
-            return await _lessonRepository.GetPagedWithFiltersAsync(filter);
-        }
-
-        public async Task<object?> CreateAsync(LessonCreateDTO dto, int userId)
-        {
-            return await _lessonRepository.CreateAsync(dto, userId);
-        }
-
-        public async Task<List<PhaseStageSubStageSubSpecialtyDTO>> GetFiltersForCreateAsync(int areaId, int? subAreaId)
-        {
-            return await _lessonRepository.GetFiltersForCreateAsync(areaId, subAreaId);
-        }
-
         public Task<LessonDetailDTO?> GetByIdAsync(int id)
             => _lessonRepository.GetByIdAsync(id);
 
+        public Task<PagedResult<LessonListDTO>> GetLessonsFilterPaged(
+            DateTimeOffset? periodDate, int? stateId, int? projectId,
+            int? areaId, int? userId, int page, int pageSize)
+            => _lessonRepository.GetLessonsFilterPaged(periodDate, stateId, projectId, areaId, userId, page, pageSize);
+
+        public Task<LessonsPagedWithFiltersDTO> GetPagedWithFilters(LessonFilterDTO filter)
+        {
+            if (filter.Page < 1) filter.Page = 1;
+            return _lessonRepository.GetPagedWithFiltersAsync(filter);
+        }
+
         public Task<List<LessonListDTO>> GetLessonsFilterAsync(
-            string? period, int? stateId, int? projectId, int? areaId,
-            int? phaseId, int? stageId, int? layerId, int? subStageId, int? subSpecialtyId)
-            => _lessonRepository.GetLessonsFilterAsync(
-                period, stateId, projectId, areaId, phaseId, stageId, layerId, subStageId, subSpecialtyId);
+            string? period, int? stateId, int? projectId, int? areaId, int? userId)
+            => _lessonRepository.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId);
+
+        public Task<object?> CreateAsync(LessonCreateDTO dto, int userId)
+            => _lessonRepository.CreateAsync(dto, userId);
 
         public Task<bool> DeleteSoftAsync(int lessonId, int userId)
             => _lessonRepository.DeleteSoftAsync(lessonId, userId);

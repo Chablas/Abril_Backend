@@ -93,11 +93,20 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             var areaLabelById = await BuildAreaLabelsAsync(ctx);
 
             // 4. Clasificación por scope_item (Fase/Etapa/Subetapa) por (lesson_area_id, catalog_item_id)
+            //
+            // El ORDER BY ScopeItemId es CRÍTICO: como un mismo par puede aparecer
+            // en múltiples scope_items (catalog_item reutilizado bajo padres
+            // distintos), tenemos que elegir UNO de forma determinística para
+            // poder contar cada lección bajo una sola fase. Usamos "menor id
+            // gana" — mismo criterio que LessonRepository.BuildAncestorCatalogItemsByPairAsync
+            // y LessonEnrichmentHelper. Si se cambia, debe cambiarse en los tres
+            // lugares al mismo tiempo o dashboard/listado/filtro se desincronizan.
             var scope = await (
                 from si in ctx.ScopeItem
                 join ci in ctx.CatalogItem on si.CatalogItemId equals ci.CatalogItemId
                 join ct in ctx.CatalogType on ci.CatalogTypeId equals ct.CatalogTypeId
                 where si.Active
+                orderby si.ScopeItemId
                 select new
                 {
                     si.ScopeItemId,

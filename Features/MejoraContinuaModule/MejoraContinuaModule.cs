@@ -6,10 +6,6 @@ using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Services;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Infrastructure.Repositories;
-using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Application.Interfaces;
-using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Application.Services;
-using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Infrastructure.Interfaces;
-using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.PsssTemplateFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Application.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Application.Services;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Interfaces;
@@ -43,17 +39,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule
             services.AddScoped<ISubAreaRepository, SubAreaRepository>();
             services.AddScoped<ISubAreaService, SubAreaService>();
 
-            // PsssScope (área y subárea)
-            services.AddScoped<IPsssScopeRepository, PsssScopeRepository>();
-            services.AddScoped<IPsssScopeService, PsssScopeService>();
-
             // LessonsLearned
             services.AddScoped<ILessonRepository, LessonRepository>();
             services.AddScoped<ILessonService, LessonService>();
-
-            // PsssTemplate
-            services.AddScoped<IPsssTemplateRepository, PsssTemplateRepository>();
-            services.AddScoped<IPsssTemplateService, PsssTemplateService>();
 
             // LessonAreas (filtro de areas habilitadas para Lecciones Aprendidas)
             services.AddScoped<ILessonAreaRepository, LessonAreaRepository>();

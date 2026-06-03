@@ -1898,16 +1898,53 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     instructivo.ProjectSubContractorFileStatusId = statusId; instructivo.Observation = observation; instructivo.UpdatedDatetime = now; instructivo.UpdatedUserId = userId;
                     break;
 
+                // Causales de No Conformidad y Cuadro de Tolerancias ya no suben archivo: el estado
+                // (Aprobado / No aplica) es el único dato, por lo que se hace UPSERT — si no existe
+                // un registro aún, se crea solo para guardar el estado.
                 case AdjudicacionDocumentType.NonConformingOutput:
-                    if (!psc.ProjectSubContractorNonConformingOutputId.HasValue) throw new AbrilException("No existe un registro de Salidas No Conforme para actualizar.");
-                    var nonConformingOutput = await _context.ProjectSubContractorNonConformingOutput.FindAsync(psc.ProjectSubContractorNonConformingOutputId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    nonConformingOutput.ProjectSubContractorFileStatusId = statusId; nonConformingOutput.Observation = observation; nonConformingOutput.UpdatedDatetime = now; nonConformingOutput.UpdatedUserId = userId;
+                    if (psc.ProjectSubContractorNonConformingOutputId.HasValue)
+                    {
+                        var nonConformingOutput = await _context.ProjectSubContractorNonConformingOutput.FindAsync(psc.ProjectSubContractorNonConformingOutputId.Value) ?? throw new AbrilException("Documento no encontrado.");
+                        nonConformingOutput.ProjectSubContractorFileStatusId = statusId; nonConformingOutput.Observation = observation; nonConformingOutput.UpdatedDatetime = now; nonConformingOutput.UpdatedUserId = userId;
+                    }
+                    else
+                    {
+                        var nonConformingOutput = new ProjectSubContractorNonConformingOutput
+                        {
+                            ProjectSubContractorFileStatusId = statusId,
+                            Observation = observation,
+                            CreatedDatetime = now,
+                            CreatedUserId = userId,
+                            Active = true,
+                            State = true
+                        };
+                        _context.ProjectSubContractorNonConformingOutput.Add(nonConformingOutput);
+                        await _context.SaveChangesAsync();
+                        psc.ProjectSubContractorNonConformingOutputId = nonConformingOutput.ProjectSubContractorNonConformingOutputId;
+                    }
                     break;
 
                 case AdjudicacionDocumentType.ToleranceChart:
-                    if (!psc.ProjectSubContractorToleranceChartId.HasValue) throw new AbrilException("No existe un registro de Cuadro de Tolerancias para actualizar.");
-                    var toleranceChart = await _context.ProjectSubContractorToleranceChart.FindAsync(psc.ProjectSubContractorToleranceChartId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    toleranceChart.ProjectSubContractorFileStatusId = statusId; toleranceChart.Observation = observation; toleranceChart.UpdatedDatetime = now; toleranceChart.UpdatedUserId = userId;
+                    if (psc.ProjectSubContractorToleranceChartId.HasValue)
+                    {
+                        var toleranceChart = await _context.ProjectSubContractorToleranceChart.FindAsync(psc.ProjectSubContractorToleranceChartId.Value) ?? throw new AbrilException("Documento no encontrado.");
+                        toleranceChart.ProjectSubContractorFileStatusId = statusId; toleranceChart.Observation = observation; toleranceChart.UpdatedDatetime = now; toleranceChart.UpdatedUserId = userId;
+                    }
+                    else
+                    {
+                        var toleranceChart = new ProjectSubContractorToleranceChart
+                        {
+                            ProjectSubContractorFileStatusId = statusId,
+                            Observation = observation,
+                            CreatedDatetime = now,
+                            CreatedUserId = userId,
+                            Active = true,
+                            State = true
+                        };
+                        _context.ProjectSubContractorToleranceChart.Add(toleranceChart);
+                        await _context.SaveChangesAsync();
+                        psc.ProjectSubContractorToleranceChartId = toleranceChart.ProjectSubContractorToleranceChartId;
+                    }
                     break;
 
                 case AdjudicacionDocumentType.FichaTecnica:
@@ -2227,23 +2264,18 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     .FirstOrDefaultAsync()
                 : null;
 
-            // Los documentos opcionales se excluyen del paquete si tienen estado "No aplica" (statusId = 1),
-            // aunque tengan un archivo subido. En ese caso se retorna null y el servicio los omite.
-            var nonConformingOutput = ids.ProjectSubContractorNonConformingOutputId.HasValue
-                ? await ctx.ProjectSubContractorNonConformingOutput
-                    .Where(x => x.ProjectSubContractorNonConformingOutputId == ids.ProjectSubContractorNonConformingOutputId.Value
-                             && x.ProjectSubContractorFileStatusId != 1)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
-                    .FirstOrDefaultAsync()
-                : null;
+            // Causales de No Conformidad y Cuadro de Tolerancias ya NO usan archivo subido:
+            // se incluye un PDF de plantilla fijo solo cuando el estado es "Aprobado" (statusId = 4).
+            const int AprobadoStatusId = 4;
+            var nonConformingApproved = ids.ProjectSubContractorNonConformingOutputId.HasValue
+                && await ctx.ProjectSubContractorNonConformingOutput.AnyAsync(x =>
+                    x.ProjectSubContractorNonConformingOutputId == ids.ProjectSubContractorNonConformingOutputId.Value
+                    && x.ProjectSubContractorFileStatusId == AprobadoStatusId);
 
-            var toleranceChart = ids.ProjectSubContractorToleranceChartId.HasValue
-                ? await ctx.ProjectSubContractorToleranceChart
-                    .Where(x => x.ProjectSubContractorToleranceChartId == ids.ProjectSubContractorToleranceChartId.Value
-                             && x.ProjectSubContractorFileStatusId != 1)
-                    .Select(x => new { x.FileUrl, x.SharepointItemId })
-                    .FirstOrDefaultAsync()
-                : null;
+            var toleranceChartApproved = ids.ProjectSubContractorToleranceChartId.HasValue
+                && await ctx.ProjectSubContractorToleranceChart.AnyAsync(x =>
+                    x.ProjectSubContractorToleranceChartId == ids.ProjectSubContractorToleranceChartId.Value
+                    && x.ProjectSubContractorFileStatusId == AprobadoStatusId);
 
             var instructivo = ids.ProjectSubContractorInstructivoId.HasValue
                 ? await ctx.ProjectSubContractorInstructivo
@@ -2282,10 +2314,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ScheduleUrl                 = schedule?.FileUrl,
                 ScheduleItemId              = schedule?.SharepointItemId,
                 ScheduleFileName            = schedule?.OriginalFileName,
-                NonConformingOutputUrl      = nonConformingOutput?.FileUrl,
-                NonConformingOutputItemId   = nonConformingOutput?.SharepointItemId,
-                ToleranceChartUrl           = toleranceChart?.FileUrl,
-                ToleranceChartItemId        = toleranceChart?.SharepointItemId,
+                NonConformingOutputApproved = nonConformingApproved,
+                ToleranceChartApproved      = toleranceChartApproved,
                 InstructivoUrl              = instructivo?.FileUrl,
                 InstructivoItemId           = instructivo?.SharepointItemId,
                 PromissoryNoteUrl           = promissoryNote?.FileUrl,

@@ -26,10 +26,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? ScheduleUrl                  { get; init; }
         public string? ScheduleItemId               { get; init; }
         public string? ScheduleFileName             { get; init; }
-        public string? NonConformingOutputUrl    { get; init; }
-        public string? NonConformingOutputItemId { get; init; }
-        public string? ToleranceChartUrl         { get; init; }
-        public string? ToleranceChartItemId      { get; init; }
+        /// <summary>Causales de No Conformidad: ya no se sube archivo; se usa un PDF de plantilla fijo.
+        /// True cuando el estado es "Aprobado" (4) → se incluye en el paquete justo después del contrato.</summary>
+        public bool NonConformingOutputApproved { get; init; }
+        /// <summary>Cuadro de Tolerancias: ya no se sube archivo; se usa un PDF de plantilla fijo.
+        /// True cuando el estado es "Aprobado" (4) → se incluye en el paquete después de Causales.</summary>
+        public bool ToleranceChartApproved { get; init; }
         public string? InstructivoUrl            { get; init; }
         public string? InstructivoItemId         { get; init; }
         /// <summary>Presente solo cuando la adjudicación tiene contrato con adelanto.</summary>

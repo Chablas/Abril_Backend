@@ -32,6 +32,9 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         /// <summary>
         /// Sube un archivo a una biblioteca de documentos compartida en el sitio indicado por
         /// <paramref name="site"/>, usando permisos de aplicación (Sites.ReadWrite.All).
+        /// Si <paramref name="autoRenameOnLock"/> es true y el archivo destino está bloqueado/en uso
+        /// (HTTP 423), reintenta con un nombre alterno ("nombre (2).ext", "(3)", …). El nombre
+        /// finalmente usado se devuelve en <see cref="SharePointUploadResultDto.FileName"/>.
         /// </summary>
         Task<SharePointUploadResultDto?> UploadToSharePointLibraryAsync(
             SharePointSiteRef site,
@@ -39,7 +42,8 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
             string folderPath,
             string fileName,
             Stream fileStream,
-            string contentType = "application/octet-stream");
+            string contentType = "application/octet-stream",
+            bool autoRenameOnLock = false);
 
         /// <summary>
         /// Descarga el contenido de un archivo del sitio indicado por <paramref name="site"/>

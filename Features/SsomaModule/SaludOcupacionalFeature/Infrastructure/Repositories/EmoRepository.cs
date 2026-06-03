@@ -552,6 +552,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 progActiva.EmoResultadoId = emo.Id;
                 progActiva.UpdatedAt = DateTimeOffset.UtcNow;
             }
+            else
+            {
+                ctx.SsProgramacionEmo.Add(new SsProgramacionEmo
+                {
+                    WorkerId = dto.WorkerId,
+                    TipoEmoId = dto.TipoEmoId!.Value,
+                    EmpresaId = dto.EmpresaOrigenId,
+                    ClinicaId = dto.ClinicaId,
+                    MedicoId = dto.MedicoId,
+                    FechaProgramada = dto.FechaEmo,
+                    EmoResultadoId = emo.Id,
+                    Estado = "Completado",
+                    Origen = "Registro directo",
+                    Notas = dto.Notas,
+                    RegistradoPorId = userId,
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+            }
 
             if (dto.FechaLectura.HasValue)
             {

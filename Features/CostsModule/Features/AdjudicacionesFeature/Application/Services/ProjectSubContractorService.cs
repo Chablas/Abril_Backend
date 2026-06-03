@@ -1861,12 +1861,20 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     ? $"{currencySymbol} -"
                     : $"{currencySymbol} {v.ToString("#,##0.00", inv)}";
 
+            // Número de documento del contrato: {N°:D3}{ABREV}-{AÑO}, p. ej. "011MAX-2026".
+            // Mismo formato que aparece en el N° DOC y en el título.
+            var abrevProyecto = !string.IsNullOrWhiteSpace(data.Abbreviation)
+                ? data.Abbreviation
+                : (data.ProjectDescription.Length >= 3
+                    ? data.ProjectDescription[..3].ToUpperInvariant()
+                    : data.ProjectDescription.ToUpperInvariant());
+            var docNumber = data.ContractNumber.HasValue
+                ? $"{data.ContractNumber.Value:D3}{abrevProyecto}-{DateTime.UtcNow.Year}"
+                : data.ProjectSubContractorId.ToString("D4");
+
             // ── Row 2: Title ───────────────────────────────────────────────────
             ws.Range("B2:N2").Merge();
-            var contractLabel = data.ContractNumber.HasValue
-                ? data.ContractNumber.Value.ToString("D3")
-                : data.ProjectSubContractorId.ToString("D4");
-            ws.Cell("B2").Value = $"RESUMEN DEL CONTRATO N°{contractLabel} " +
+            ws.Cell("B2").Value = $"RESUMEN DEL CONTRATO N°{docNumber} " +
                                   $"{data.ContractTypeDescription.ToUpper()} POR EL SERVICIO DE " +
                                   $"{data.WorkItemDescription.ToUpper()}";
             ws.Range("B2:N2").Style.Font.Bold       = true;
@@ -1885,11 +1893,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("C6").Value = data.ContributorName;
 
             ws.Cell("B8").Value = "Fecha:"; ws.Cell("B8").Style.Font.Bold = true;
+            // Fecha como TEXTO (no valor de fecha): evita la indentación/derecha del formato fecha
+            // y que el locale del visor cambie el formato (p. ej. "1/12/2026" en vez de "12/01/2026").
             if (data.SigningDate.HasValue)
-            {
-                ws.Cell("C8").Value = data.SigningDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("C8").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("C8").Value = data.SigningDate.Value.ToString("dd/MM/yyyy", inv);
 
             // ── Row 11: Sub-header ─────────────────────────────────────────────
             ws.Range("B11:D11").Merge();
@@ -1940,13 +1947,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Range("B13:C14").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Range("B13:C14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // D – Fecha contrato
+            // D – Fecha contrato (texto)
             ws.Range("D13:D14").Merge();
             if (data.SigningDate.HasValue)
-            {
-                ws.Cell("D13").Value = data.SigningDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("D13").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("D13").Value = data.SigningDate.Value.ToString("dd/MM/yyyy", inv);
             ws.Cell("D13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("D13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("D13:D14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
@@ -1960,9 +1964,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // F – N° DOC
             ws.Range("F13:F14").Merge();
-            ws.Cell("F13").Value = "";
+            ws.Cell("F13").Value = $"CONTRATO N°{docNumber}";
             ws.Cell("F13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("F13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("F13").Style.Alignment.WrapText   = true;
             ws.Range("F13:F14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // G – Cheque / Recibo (vacío)
@@ -1991,24 +1996,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("J13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Range("J13:J14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // K – Inicio
+            // K – Inicio (texto)
             ws.Range("K13:K14").Merge();
             if (data.StartDate.HasValue)
-            {
-                ws.Cell("K13").Value = data.StartDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("K13").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("K13").Value = data.StartDate.Value.ToString("dd/MM/yyyy", inv);
             ws.Cell("K13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("K13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("K13:K14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // L – Fin
+            // L – Fin (texto)
             ws.Range("L13:L14").Merge();
             if (data.EndDate.HasValue)
-            {
-                ws.Cell("L13").Value = data.EndDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("L13").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("L13").Value = data.EndDate.Value.ToString("dd/MM/yyyy", inv);
             ws.Cell("L13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("L13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("L13:L14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;

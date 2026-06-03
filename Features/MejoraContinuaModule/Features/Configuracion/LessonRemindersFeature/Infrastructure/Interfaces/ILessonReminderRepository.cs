@@ -1,14 +1,30 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Dtos;
 
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces
 {
     public interface ILessonReminderRepository
     {
-        Task<object> GetPaged(int page, int pageSize);
+        Task<object> GetPaged(int page, int pageSize, string? subarea = null);
         Task<LessonReminderCreateDataDTO> GetCreateData();
         Task Create(LessonReminderCreateDTO dto, int userId);
         Task<bool> DeleteSoftAsync(int userProjectId, int userId);
         Task<ToggleLessonReminderResultDTO> ToggleActiveAsync(int userProjectId, int userId);
+
+        // ── Recordatorios por correo (consumidos por ReminderService) ──────────
+        /// <summary>
+        /// Usuarios (con sus proyectos) asignados vía user_project que NO han subido
+        /// lecciones en el período indicado (formato "MM-yyyy"). Filtra por
+        /// user_project.state/active = true y ausencia de lesson(created_user_id,
+        /// project_id, period, state, active).
+        /// </summary>
+        Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsThisMonth(string period);
+
+        /// <summary>
+        /// Igual que el anterior pero filtrando por period_date (primer día del mes
+        /// de <paramref name="periodDate"/>). Usado para el reporte a supervisores.
+        /// </summary>
+        Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsByPeriod(DateTime periodDate);
 
         // Filtro de staff_email por proyecto
         Task<List<ProjectStaffReminderConfigItemDTO>> GetAllProjectStaffAsync();

@@ -1,3 +1,4 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Dtos;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
@@ -17,33 +18,45 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             _factory = factory;
         }
 
-        public async Task<object> GetPaged(int page, int pageSize)
+        public async Task<object> GetPaged(int page, int pageSize, string? subarea = null)
         {
             page = page < 1 ? 1 : page;
             pageSize = pageSize < 1 ? 10 : pageSize;
 
             using var ctx = _factory.CreateDbContext();
 
-            var query =
+            var baseQuery =
                 from up in ctx.UserProject
                 join u in ctx.User on up.UserId equals u.UserId
                 join p in ctx.Person on u.UserId equals p.UserId
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
-                orderby up.UserProjectId descending
-                select new LessonReminderDTO
+                select new { up, p, pj };
+
+            // Filtro opcional por subárea: el usuario pertenece (vía person) a un
+            // worker cuya subarea coincide con la seleccionada.
+            if (!string.IsNullOrWhiteSpace(subarea))
+            {
+                var sa = subarea.Trim();
+                baseQuery = baseQuery.Where(x =>
+                    ctx.Worker.Any(w => w.PersonId == x.p.PersonId && w.Subarea == sa));
+            }
+
+            var query = baseQuery
+                .OrderByDescending(x => x.up.UserProjectId)
+                .Select(x => new LessonReminderDTO
                 {
-                    UserProjectId = up.UserProjectId,
-                    UserId = up.UserId,
-                    UserFullName = p.FullName,
-                    ProjectId = up.ProjectId,
-                    ProjectDescription = pj.ProjectDescription ?? string.Empty,
-                    CreatedDateTime = up.CreatedDateTime,
-                    CreatedUserId = up.CreatedUserId,
-                    UpdatedDateTime = up.UpdatedDateTime,
-                    UpdatedUserId = up.UpdatedUserId,
-                    Active = up.Active
-                };
+                    UserProjectId = x.up.UserProjectId,
+                    UserId = x.up.UserId,
+                    UserFullName = x.p.FullName,
+                    ProjectId = x.up.ProjectId,
+                    ProjectDescription = x.pj.ProjectDescription ?? string.Empty,
+                    CreatedDateTime = x.up.CreatedDateTime,
+                    CreatedUserId = x.up.CreatedUserId,
+                    UpdatedDateTime = x.up.UpdatedDateTime,
+                    UpdatedUserId = x.up.UpdatedUserId,
+                    Active = x.up.Active
+                });
 
             var totalRecords = await query.CountAsync();
             var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
@@ -62,7 +75,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
-            var usersTask = (
+            // IMPORTANTE: ejecutar SECUENCIALMENTE sobre una sola instancia de DbContext.
+            // DbContext no es thread-safe; lanzar ambas queries con Task.WhenAll sobre el
+            // mismo ctx provoca "A second operation was started on this context instance"
+            // (Npgsql/PostgreSQL no soporta operaciones concurrentes en la misma conexión).
+            var users = await (
                 from u in ctx.User
                 join p in ctx.Person on u.UserId equals p.UserId
                 where u.Active == true
@@ -78,7 +95,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 }
             ).ToListAsync();
 
-            var projectsTask = ctx.Project
+            var projects = await ctx.Project
                 .Where(p => p.State && p.Active)
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new LessonReminderProjectDTO
@@ -88,12 +105,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 })
                 .ToListAsync();
 
-            await Task.WhenAll(usersTask, projectsTask);
-
             return new LessonReminderCreateDataDTO
             {
-                Users = await usersTask,
-                Projects = await projectsTask
+                Users = users,
+                Projects = projects
             };
         }
 
@@ -362,6 +377,96 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             }
 
             return pending;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Usuarios pendientes (user_project) — consumido por ReminderService
+        // ─────────────────────────────────────────────────────────────────────
+
+        public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsThisMonth(string period)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // El período viene del llamador (formato "MM-yyyy") para que la fecha
+            // simulada de ReminderService se propague correctamente al filtro.
+            var currentPeriod = period;
+
+            var query =
+                from up in ctx.UserProject
+                join u in ctx.User on up.UserId equals u.UserId
+                join p in ctx.Person on u.UserId equals p.UserId
+                join pj in ctx.Project on up.ProjectId equals pj.ProjectId
+                where up.State == true
+                      && up.Active == true
+                      && !ctx.Lesson.Any(l =>
+                             l.CreatedUserId == up.UserId &&
+                             l.ProjectId == up.ProjectId &&
+                             l.Period == currentPeriod &&
+                             l.State == true &&
+                             l.Active == true
+                         )
+                group new { up, pj, u } by new
+                {
+                    up.UserId,
+                    p.FullName,
+                    u.Email
+                }
+                into g
+                select new UserWithoutLessonsDTO
+                {
+                    UserId = g.Key.UserId,
+                    UserFullName = g.Key.FullName,
+                    Email = g.Key.Email,
+                    Projects = g.Select(x => new ProjectSimpleDTO
+                    {
+                        ProjectId = x.pj.ProjectId,
+                        ProjectDescription = x.pj.ProjectDescription ?? string.Empty
+                    }).ToList()
+                };
+
+            return await query.ToListAsync();
+        }
+
+        public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsByPeriod(DateTime periodDate)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var targetPeriod = new DateTime(periodDate.Year, periodDate.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            var query =
+                from up in ctx.UserProject
+                join u in ctx.User on up.UserId equals u.UserId
+                join p in ctx.Person on u.UserId equals p.UserId
+                join pj in ctx.Project on up.ProjectId equals pj.ProjectId
+                where up.State == true
+                      && up.Active == true
+                      && !ctx.Lesson.Any(l =>
+                             l.CreatedUserId == up.UserId &&
+                             l.ProjectId == up.ProjectId &&
+                             l.PeriodDate == targetPeriod &&
+                             l.State == true &&
+                             l.Active == true
+                         )
+                group new { up, pj, u } by new
+                {
+                    up.UserId,
+                    p.FullName,
+                    u.Email
+                }
+                into g
+                select new UserWithoutLessonsDTO
+                {
+                    UserId = g.Key.UserId,
+                    UserFullName = g.Key.FullName,
+                    Email = g.Key.Email,
+                    Projects = g.Select(x => new ProjectSimpleDTO
+                    {
+                        ProjectId = x.pj.ProjectId,
+                        ProjectDescription = x.pj.ProjectDescription ?? string.Empty
+                    }).ToList()
+                };
+
+            return await query.ToListAsync();
         }
     }
 }

@@ -155,7 +155,6 @@ builder.Services.AddScoped<IArquitecturaComercialService, ArquitecturaComercialS
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IIvtControlPdfRepository, IvtControlPdfRepository>();
-builder.Services.AddScoped<IUserProjectRepository, UserProjectRepository>();
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IProjectResidentRepository, ProjectResidentRepository>();
@@ -171,7 +170,6 @@ builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<MilestoneRepository>();
 builder.Services.AddScoped<PersonRepository>();
 builder.Services.AddScoped<ProjectRepository>();
-builder.Services.AddScoped<UserProjectRepository>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ExcelService>();
 builder.Services.Configure<EmailSettings>(

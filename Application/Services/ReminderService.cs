@@ -11,7 +11,6 @@ namespace Abril_Backend.Application.Services
 {
     public class ReminderService : IReminderService
     {
-        private readonly IUserProjectRepository _userProjectRepository;
         private readonly IMilestoneScheduleRepository _milestoneScheduleRepository;
         private readonly IEmailService _emailService;
         private readonly IMilestoneScheduleHistoryRepository _milestoneScheduleHistoryRepository;
@@ -44,7 +43,6 @@ namespace Abril_Backend.Application.Services
             "granmanzano_op@abril.pe"*/
         };
         public ReminderService(
-            IUserProjectRepository userProjectRepository,
             IEmailService emailService,
             IMilestoneScheduleRepository milestoneScheduleRepository,
             IMilestoneScheduleHistoryRepository milestoneScheduleHistoryRepository,
@@ -52,7 +50,6 @@ namespace Abril_Backend.Application.Services
             IEmailGroupResolver emailGroupResolver
         )
         {
-            _userProjectRepository = userProjectRepository;
             _emailService = emailService;
             _milestoneScheduleRepository = milestoneScheduleRepository;
             _milestoneScheduleHistoryRepository = milestoneScheduleHistoryRepository;
@@ -183,7 +180,7 @@ namespace Abril_Backend.Application.Services
             // CANAL 1 — user_project: usuarios asignados a proyectos que no han
             // subido lecciones este mes.
             // ─────────────────────────────────────────────────────────────────
-            var pendingUserProjects = await _userProjectRepository.GetUsersWithoutLessonsThisMonth(currentPeriod);
+            var pendingUserProjects = await _lessonReminderRepository.GetUsersWithoutLessonsThisMonth(currentPeriod);
             Console.WriteLine($"📊 [user_project] pendientes: {pendingUserProjects.Count}");
 
             // Staff emails activos por proyecto (project_staff_reminder.active=true).
@@ -349,7 +346,7 @@ namespace Abril_Backend.Application.Services
             var previousMonthDate = executionDate.AddMonths(-1);
             var periodLabel = previousMonthDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
 
-            var pendingUserProjects = await _userProjectRepository.GetUsersWithoutLessonsByPeriod(previousMonthDate);
+            var pendingUserProjects = await _lessonReminderRepository.GetUsersWithoutLessonsByPeriod(previousMonthDate);
 
             if (!pendingUserProjects.Any())
                 return;

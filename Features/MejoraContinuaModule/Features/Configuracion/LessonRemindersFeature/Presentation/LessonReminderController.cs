@@ -20,7 +20,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
         [Authorize]
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 10, [FromQuery] string? subarea = null)
         {
             try
             {
@@ -29,7 +29,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 if (page < 1) page = 1;
-                var result = await _service.GetPaged(page, pageSize);
+                var result = await _service.GetPaged(page, pageSize, subarea);
                 return Ok(result);
             }
             catch (Exception)

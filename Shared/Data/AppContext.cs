@@ -10,6 +10,7 @@ using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructu
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
+using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -186,6 +187,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvNoAplica> EvNoAplica => Set<EvNoAplica>();
         public DbSet<EvRecordatorioLog> EvRecordatorioLogs => Set<EvRecordatorioLog>();
         public DbSet<EvAsignacionSupervisor> EvAsignacionesSupervisor => Set<EvAsignacionSupervisor>();
+        public DbSet<SsomaPasoCategoria> SsomaPasoCategorias { get; set; }
+        public DbSet<SsomaPaso> SsomaPasos { get; set; }
+        public DbSet<SsomaPasoActividad> SsomaPasoActividades { get; set; }
+        public DbSet<SsomaPasoEjecucion> SsomaPasoEjecuciones { get; set; }
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
 
@@ -484,6 +489,13 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(wp => wp.Worker)
                 .WithMany()
                 .HasForeignKey(wp => wp.WorkerId);
+
+            modelBuilder.Entity<SsomaPaso>()
+                .HasMany(x => x.Actividades).WithOne(x => x.Paso).HasForeignKey(x => x.PasoId);
+            modelBuilder.Entity<SsomaPasoActividad>()
+                .HasOne(x => x.Categoria).WithMany().HasForeignKey(x => x.CategoriaId);
+            modelBuilder.Entity<SsomaPasoActividad>()
+                .HasMany(x => x.Ejecuciones).WithOne(x => x.Actividad).HasForeignKey(x => x.ActividadId);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

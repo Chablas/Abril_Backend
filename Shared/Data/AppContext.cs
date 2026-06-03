@@ -185,6 +185,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvEvaluacionResidenteDetalle> EvEvaluacionesResidenteDetalle => Set<EvEvaluacionResidenteDetalle>();
         public DbSet<EvNoAplica> EvNoAplica => Set<EvNoAplica>();
         public DbSet<EvRecordatorioLog> EvRecordatorioLogs => Set<EvRecordatorioLog>();
+        public DbSet<EvAsignacionSupervisor> EvAsignacionesSupervisor => Set<EvAsignacionSupervisor>();
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
 

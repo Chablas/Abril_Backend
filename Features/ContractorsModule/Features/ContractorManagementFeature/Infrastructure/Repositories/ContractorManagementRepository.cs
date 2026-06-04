@@ -228,18 +228,37 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             else if (!string.IsNullOrWhiteSpace(dto.LegalRepresentativeDni)
                   || !string.IsNullOrWhiteSpace(dto.LegalRepresentativeFullName))
             {
-                var newPerson = new Abril_Backend.Infrastructure.Models.Person
+                var dni = dto.LegalRepresentativeDni?.Trim();
+
+                // Si ya existe una persona con ese DNI (aunque no esté asociada a este contratista),
+                // se reutiliza y se le actualiza el nombre — así no se viola la restricción única
+                // person_document_identity_code_key al intentar insertar un duplicado.
+                var existingPerson = !string.IsNullOrWhiteSpace(dni)
+                    ? await ctx.Person.FirstOrDefaultAsync(p => p.DocumentIdentityCode == dni)
+                    : null;
+
+                if (existingPerson is not null)
                 {
-                    DocumentIdentityCode = dto.LegalRepresentativeDni?.Trim(),
-                    FullName             = dto.LegalRepresentativeFullName?.Trim(),
-                    CreatedDateTime      = DateTime.UtcNow,
-                    CreatedUserId        = userId,
-                    Active               = true,
-                    State                = true
-                };
-                ctx.Person.Add(newPerson);
-                await ctx.SaveChangesAsync();   // flush para obtener PersonId
-                contributor.LegalRepresentativePersonId = newPerson.PersonId;
+                    existingPerson.FullName        = dto.LegalRepresentativeFullName?.Trim();
+                    existingPerson.UpdatedDateTime = DateTime.UtcNow;
+                    existingPerson.UpdatedUserId   = userId;
+                    contributor.LegalRepresentativePersonId = existingPerson.PersonId;
+                }
+                else
+                {
+                    var newPerson = new Abril_Backend.Infrastructure.Models.Person
+                    {
+                        DocumentIdentityCode = dni,
+                        FullName             = dto.LegalRepresentativeFullName?.Trim(),
+                        CreatedDateTime      = DateTime.UtcNow,
+                        CreatedUserId        = userId,
+                        Active               = true,
+                        State                = true
+                    };
+                    ctx.Person.Add(newPerson);
+                    await ctx.SaveChangesAsync();   // flush para obtener PersonId
+                    contributor.LegalRepresentativePersonId = newPerson.PersonId;
+                }
             }
 
             // ── Archivos (null = conservar el existente) ──────────────────────────

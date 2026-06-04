@@ -32,6 +32,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         /// <summary>Cuadro de Tolerancias: ya no se sube archivo; se usa un PDF de plantilla fijo.
         /// True cuando el estado es "Aprobado" (4) → se incluye en el paquete después de Causales.</summary>
         public bool ToleranceChartApproved { get; init; }
+        /// <summary>Protección de Acabados: documento de plantilla fijo (sin archivo).
+        /// True cuando el estado es "Sí aplica" (4) → se incluye en el paquete después de Cuadro de Tolerancias.</summary>
+        public bool FinishProtectionApproved { get; init; }
         public string? InstructivoUrl            { get; init; }
         public string? InstructivoItemId         { get; init; }
         /// <summary>Presente solo cuando la adjudicación tiene contrato con adelanto.</summary>

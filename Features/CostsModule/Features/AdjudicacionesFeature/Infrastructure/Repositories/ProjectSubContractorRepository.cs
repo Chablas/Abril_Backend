@@ -527,8 +527,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     PromissoryNote    = x.promissoryNoteDoc == null    ? null : new ProjectSubContractorFileDto { FileUrl = x.promissoryNoteDoc.FileUrl!,    OriginalFileName = x.promissoryNoteDoc.OriginalFileName,    StatusId = x.promissoryNoteDoc.ProjectSubContractorFileStatusId,    StatusDescription = x.promissoryNoteDoc.FileStatus == null    ? null : x.promissoryNoteDoc.FileStatus.ProjectSubContractorFileStatusDescription,    Observation = x.promissoryNoteDoc.Observation },
                     Package           = x.packageDoc == null           ? null : new ProjectSubContractorFileDto { FileUrl = x.packageDoc.FileUrl!,           OriginalFileName = x.packageDoc.OriginalFileName },
                     Instructivo       = x.instructivoDoc == null       ? null : new ProjectSubContractorFileDto { FileUrl = x.instructivoDoc.FileUrl!,       OriginalFileName = x.instructivoDoc.OriginalFileName,       StatusId = x.instructivoDoc.ProjectSubContractorFileStatusId,       StatusDescription = x.instructivoDoc.FileStatus == null       ? null : x.instructivoDoc.FileStatus.ProjectSubContractorFileStatusDescription,       Observation = x.instructivoDoc.Observation },
-                    NonConformingOutput = x.nonConformingDoc == null   ? null : new ProjectSubContractorFileDto { FileUrl = x.nonConformingDoc.FileUrl!,     OriginalFileName = x.nonConformingDoc.OriginalFileName,     StatusId = x.nonConformingDoc.ProjectSubContractorFileStatusId,     StatusDescription = x.nonConformingDoc.FileStatus == null     ? null : x.nonConformingDoc.FileStatus.ProjectSubContractorFileStatusDescription,     Observation = x.nonConformingDoc.Observation },
-                    ToleranceChart    = x.toleranceChartDoc == null    ? null : new ProjectSubContractorFileDto { FileUrl = x.toleranceChartDoc.FileUrl!,    OriginalFileName = x.toleranceChartDoc.OriginalFileName,    StatusId = x.toleranceChartDoc.ProjectSubContractorFileStatusId,    StatusDescription = x.toleranceChartDoc.FileStatus == null    ? null : x.toleranceChartDoc.FileStatus.ProjectSubContractorFileStatusDescription,    Observation = x.toleranceChartDoc.Observation },
+                    NonConformingOutput = x.psc.NonConformingOutputStatusId == null ? null : new ProjectSubContractorFileDto { StatusId = x.psc.NonConformingOutputStatusId },
+                    ToleranceChart    = x.psc.ToleranceChartStatusId == null ? null : new ProjectSubContractorFileDto { StatusId = x.psc.ToleranceChartStatusId },
+                    FinishProtection  = x.psc.FinishProtectionStatusId == null ? null : new ProjectSubContractorFileDto { StatusId = x.psc.FinishProtectionStatusId },
                     FichaTecnica      = x.fichaTecnicaDoc == null      ? null : new ProjectSubContractorFileDto { FileUrl = x.fichaTecnicaDoc.FileUrl!,      OriginalFileName = x.fichaTecnicaDoc.OriginalFileName,      StatusId = x.fichaTecnicaDoc.ProjectSubContractorFileStatusId,      StatusDescription = x.fichaTecnicaDoc.FileStatus == null      ? null : x.fichaTecnicaDoc.FileStatus.ProjectSubContractorFileStatusDescription,      Observation = x.fichaTecnicaDoc.Observation },
                     Anexo             = x.anexoDoc == null             ? null : new ProjectSubContractorFileDto { FileUrl = x.anexoDoc.FileUrl!,             OriginalFileName = x.anexoDoc.OriginalFileName,             StatusId = x.anexoDoc.ProjectSubContractorFileStatusId,             StatusDescription = x.anexoDoc.FileStatus == null             ? null : x.anexoDoc.FileStatus.ProjectSubContractorFileStatusDescription,             Observation = x.anexoDoc.Observation },
                 })
@@ -654,6 +655,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscGuaranteeFundDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeFundDays));
             string cPscGuaranteeValidityDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeValidityDays));
             string cPscArrivedWithObservations = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivedWithObservations));
+            string cPscNonConformingStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.NonConformingOutputStatusId));
+            string cPscToleranceStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ToleranceChartStatusId));
+            string cPscFinishProtectionStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.FinishProtectionStatusId));
             string cPscCreatedDateTime = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.CreatedDateTime));
             string cPscAdvancePercentage = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.AdvancePercentage));
             string cPscAdvanceAmount = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.AdvanceAmount));
@@ -940,6 +944,9 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscGuaranteeFundDays} AS ""GuaranteeFundDays"",
        psc.{cPscGuaranteeValidityDays} AS ""GuaranteeValidityDays"",
        psc.{cPscArrivedWithObservations} AS ""ArrivedWithObservations"",
+       psc.{cPscNonConformingStatusId} AS ""NonConformingOutputStatusId"",
+       psc.{cPscToleranceStatusId} AS ""ToleranceChartStatusId"",
+       psc.{cPscFinishProtectionStatusId} AS ""FinishProtectionStatusId"",
        psc.{cPscCreatedDateTime} AS ""CreatedDateTime"",
        creator_p.{cPersonCreatorFullName} AS ""CreatedUserFullName"",
        contractDoc.{cContractDocFileUrl} AS contract_file_url,
@@ -1156,8 +1163,9 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     PromissoryNote = raw.promissory_note_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.promissory_note_file_url, OriginalFileName = raw.promissory_note_file_name, StatusId = (int?)raw.promissory_note_status_id, StatusDescription = raw.promissory_note_status_desc, Observation = raw.promissory_note_observation } : null,
                     Package = raw.package_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.package_file_url, OriginalFileName = raw.package_file_name } : null,
                     Instructivo = raw.instructivo_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.instructivo_file_url, OriginalFileName = raw.instructivo_file_name, StatusId = (int?)raw.instructivo_status_id, StatusDescription = raw.instructivo_status_desc, Observation = raw.instructivo_observation } : null,
-                    NonConformingOutput = raw.non_conforming_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.non_conforming_file_url, OriginalFileName = raw.non_conforming_file_name, StatusId = (int?)raw.non_conforming_status_id, StatusDescription = raw.non_conforming_status_desc, Observation = raw.non_conforming_observation } : null,
-                    ToleranceChart = raw.tolerance_chart_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.tolerance_chart_file_url, OriginalFileName = raw.tolerance_chart_file_name, StatusId = (int?)raw.tolerance_chart_status_id, StatusDescription = raw.tolerance_chart_status_desc, Observation = raw.tolerance_chart_observation } : null,
+                    NonConformingOutput = ((int?)raw.NonConformingOutputStatusId) != null ? new ProjectSubContractorFileDto { StatusId = (int?)raw.NonConformingOutputStatusId } : null,
+                    ToleranceChart = ((int?)raw.ToleranceChartStatusId) != null ? new ProjectSubContractorFileDto { StatusId = (int?)raw.ToleranceChartStatusId } : null,
+                    FinishProtection = ((int?)raw.FinishProtectionStatusId) != null ? new ProjectSubContractorFileDto { StatusId = (int?)raw.FinishProtectionStatusId } : null,
                     FichaTecnica = raw.ficha_tecnica_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.ficha_tecnica_file_url, OriginalFileName = raw.ficha_tecnica_file_name, StatusId = (int?)raw.ficha_tecnica_status_id, StatusDescription = raw.ficha_tecnica_status_desc, Observation = raw.ficha_tecnica_observation } : null,
                     Anexo = raw.anexo_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.anexo_file_url, OriginalFileName = raw.anexo_file_name, StatusId = (int?)raw.anexo_status_id, StatusDescription = raw.anexo_status_desc, Observation = raw.anexo_observation } : null,
                 });
@@ -1779,6 +1787,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     Abbreviation              = p.Abbreviation,
                     ProjectDistrict           = p.ProjectDistrict,
                     ProjectLocation           = p.ProjectLocation,
+                    Niveles                   = p.LevelDescription ?? p.NumNiveles,
                     ProjectRazonSocial                  = projContrib != null ? projContrib.ContributorName : null,
                     ProjectContributorRuc               = projContrib != null ? projContrib.ContributorRuc : null,
                     ProjectLegalEntityRegistryNumber    = projContrib != null ? projContrib.LegalEntityRegistryNumber : null,
@@ -1898,53 +1907,15 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     instructivo.ProjectSubContractorFileStatusId = statusId; instructivo.Observation = observation; instructivo.UpdatedDatetime = now; instructivo.UpdatedUserId = userId;
                     break;
 
-                // Causales de No Conformidad y Cuadro de Tolerancias ya no suben archivo: el estado
-                // (Aprobado / No aplica) es el único dato, por lo que se hace UPSERT — si no existe
-                // un registro aún, se crea solo para guardar el estado.
+                // Causales de No Conformidad y Cuadro de Tolerancias: documentos de plantilla, sin
+                // archivo. El estado se guarda directamente en una columna de la adjudicación
+                // (igual que Protección de Acabados).
                 case AdjudicacionDocumentType.NonConformingOutput:
-                    if (psc.ProjectSubContractorNonConformingOutputId.HasValue)
-                    {
-                        var nonConformingOutput = await _context.ProjectSubContractorNonConformingOutput.FindAsync(psc.ProjectSubContractorNonConformingOutputId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                        nonConformingOutput.ProjectSubContractorFileStatusId = statusId; nonConformingOutput.Observation = observation; nonConformingOutput.UpdatedDatetime = now; nonConformingOutput.UpdatedUserId = userId;
-                    }
-                    else
-                    {
-                        var nonConformingOutput = new ProjectSubContractorNonConformingOutput
-                        {
-                            ProjectSubContractorFileStatusId = statusId,
-                            Observation = observation,
-                            CreatedDatetime = now,
-                            CreatedUserId = userId,
-                            Active = true,
-                            State = true
-                        };
-                        _context.ProjectSubContractorNonConformingOutput.Add(nonConformingOutput);
-                        await _context.SaveChangesAsync();
-                        psc.ProjectSubContractorNonConformingOutputId = nonConformingOutput.ProjectSubContractorNonConformingOutputId;
-                    }
+                    psc.NonConformingOutputStatusId = statusId;
                     break;
 
                 case AdjudicacionDocumentType.ToleranceChart:
-                    if (psc.ProjectSubContractorToleranceChartId.HasValue)
-                    {
-                        var toleranceChart = await _context.ProjectSubContractorToleranceChart.FindAsync(psc.ProjectSubContractorToleranceChartId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                        toleranceChart.ProjectSubContractorFileStatusId = statusId; toleranceChart.Observation = observation; toleranceChart.UpdatedDatetime = now; toleranceChart.UpdatedUserId = userId;
-                    }
-                    else
-                    {
-                        var toleranceChart = new ProjectSubContractorToleranceChart
-                        {
-                            ProjectSubContractorFileStatusId = statusId,
-                            Observation = observation,
-                            CreatedDatetime = now,
-                            CreatedUserId = userId,
-                            Active = true,
-                            State = true
-                        };
-                        _context.ProjectSubContractorToleranceChart.Add(toleranceChart);
-                        await _context.SaveChangesAsync();
-                        psc.ProjectSubContractorToleranceChartId = toleranceChart.ProjectSubContractorToleranceChartId;
-                    }
+                    psc.ToleranceChartStatusId = statusId;
                     break;
 
                 case AdjudicacionDocumentType.FichaTecnica:
@@ -1957,6 +1928,12 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     if (!psc.ProjectSubContractorAnexoId.HasValue) throw new AbrilException("No existe un registro de Anexos para actualizar.");
                     var anexo = await _context.ProjectSubContractorAnexo.FindAsync(psc.ProjectSubContractorAnexoId.Value) ?? throw new AbrilException("Documento no encontrado.");
                     anexo.ProjectSubContractorFileStatusId = statusId; anexo.Observation = observation; anexo.UpdatedDatetime = now; anexo.UpdatedUserId = userId;
+                    break;
+
+                // Protección de Acabados: documento de plantilla, sin archivo. El estado se guarda
+                // directamente en una columna de la adjudicación.
+                case AdjudicacionDocumentType.FinishProtection:
+                    psc.FinishProtectionStatusId = statusId;
                     break;
 
                 default:
@@ -2207,8 +2184,9 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     x.ProjectSubContractorFichaTecnicaId,
                     x.ProjectSubContractorServiceOrderId,
                     x.ProjectSubContractorScheduleId,
-                    x.ProjectSubContractorNonConformingOutputId,
-                    x.ProjectSubContractorToleranceChartId,
+                    x.NonConformingOutputStatusId,
+                    x.ToleranceChartStatusId,
+                    x.FinishProtectionStatusId,
                     x.ProjectSubContractorInstructivoId,
                     x.ProjectSubContractorPromissoryNoteId,
                     x.ContractNumber,
@@ -2264,18 +2242,13 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     .FirstOrDefaultAsync()
                 : null;
 
-            // Causales de No Conformidad y Cuadro de Tolerancias ya NO usan archivo subido:
-            // se incluye un PDF de plantilla fijo solo cuando el estado es "Aprobado" (statusId = 4).
+            // Causales de No Conformidad, Cuadro de Tolerancias y Protección de Acabados: documentos
+            // de plantilla fija. El estado se guarda en columnas de la adjudicación; el PDF de
+            // plantilla se incluye solo cuando el estado es "Sí aplica" (statusId = 4).
             const int AprobadoStatusId = 4;
-            var nonConformingApproved = ids.ProjectSubContractorNonConformingOutputId.HasValue
-                && await ctx.ProjectSubContractorNonConformingOutput.AnyAsync(x =>
-                    x.ProjectSubContractorNonConformingOutputId == ids.ProjectSubContractorNonConformingOutputId.Value
-                    && x.ProjectSubContractorFileStatusId == AprobadoStatusId);
-
-            var toleranceChartApproved = ids.ProjectSubContractorToleranceChartId.HasValue
-                && await ctx.ProjectSubContractorToleranceChart.AnyAsync(x =>
-                    x.ProjectSubContractorToleranceChartId == ids.ProjectSubContractorToleranceChartId.Value
-                    && x.ProjectSubContractorFileStatusId == AprobadoStatusId);
+            var nonConformingApproved   = ids.NonConformingOutputStatusId == AprobadoStatusId;
+            var toleranceChartApproved  = ids.ToleranceChartStatusId      == AprobadoStatusId;
+            var finishProtectionApproved = ids.FinishProtectionStatusId   == AprobadoStatusId;
 
             var instructivo = ids.ProjectSubContractorInstructivoId.HasValue
                 ? await ctx.ProjectSubContractorInstructivo
@@ -2316,6 +2289,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ScheduleFileName            = schedule?.OriginalFileName,
                 NonConformingOutputApproved = nonConformingApproved,
                 ToleranceChartApproved      = toleranceChartApproved,
+                FinishProtectionApproved    = finishProtectionApproved,
                 InstructivoUrl              = instructivo?.FileUrl,
                 InstructivoItemId           = instructivo?.SharepointItemId,
                 PromissoryNoteUrl           = promissoryNote?.FileUrl,

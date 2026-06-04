@@ -54,6 +54,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? ProjectSubContractorFichaTecnicaId { get; set; }
         public int? ProjectSubContractorAnexoId { get; set; }
 
+        // Documentos de plantilla fija (no se sube archivo). Solo guardan el estado:
+        // 4 = Sí aplica → va en el paquete; 1 = No aplica → no va.
+        public int? NonConformingOutputStatusId { get; set; }
+        public int? ToleranceChartStatusId { get; set; }
+        public int? FinishProtectionStatusId { get; set; }
+
         public DateTimeOffset CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTimeOffset? UpdatedDateTime {get; set;}

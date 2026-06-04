@@ -19,6 +19,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? ProjectContributorRuc { get; set; }
         public string? ProjectDistrict { get; set; }
         public string? ProjectLocation { get; set; }
+        /// <summary>N° de niveles: project.level_description, con fallback a project.num_niveles.</summary>
+        public string? Niveles { get; set; }
         public string? ProjectLegalEntityRegistryNumber { get; set; }
         public string WorkItemDescription { get; set; } = null!;
         public string ContractTypeDescription { get; set; } = null!;

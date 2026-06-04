@@ -857,6 +857,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.Instructivo        => "Instructivo",
             AdjudicacionDocumentType.NonConformingOutput => "Causales de Conformidad",
             AdjudicacionDocumentType.ToleranceChart     => "Cuadro de Tolerancias",
+            AdjudicacionDocumentType.FinishProtection   => "Protección de Acabados",
             AdjudicacionDocumentType.FichaTecnica       => "Ficha Técnica",
             AdjudicacionDocumentType.Anexo              => "Anexos",
             _                                           => documentType.ToString(),
@@ -871,12 +872,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (file is null || file.Length == 0)
                 throw new AbrilException("El archivo no puede estar vacío.");
 
-            // Causales de No Conformidad y Cuadro de Tolerancias no se suben: usan un PDF de plantilla
-            // fijo. Solo se controla su estado (Aprobado / No aplica).
+            // Causales de No Conformidad, Cuadro de Tolerancias y Protección de Acabados no se suben:
+            // usan un PDF de plantilla fijo. Solo se controla su estado (Sí aplica / No aplica).
             if (documentType is AdjudicacionDocumentType.NonConformingOutput
-                             or AdjudicacionDocumentType.ToleranceChart)
+                             or AdjudicacionDocumentType.ToleranceChart
+                             or AdjudicacionDocumentType.FinishProtection)
                 throw new AbrilException(
-                    "Este documento no se sube: se usa el documento estándar de Abril. Solo configure su estado (Aprobado / No aplica).",
+                    "Este documento no se sube: se usa el documento estándar de Abril. Solo configure su estado (Sí aplica / No aplica).",
                     400);
 
             // La cotización adjunta debe ser PDF — se inserta dentro del contrato (paso 4)
@@ -1465,13 +1467,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var moneda = data.CurrencyCode == "USD" ? "dólares" : "soles";
             var advanceAmountEnPalabras = $"{advancePalabras} con {advanceCentavos:D2}/100 {moneda}";
 
-            // Monto total en palabras
-            var entero   = (long)Math.Truncate(data.Amount);
-            var centavos = (int)Math.Round((data.Amount - entero) * 100);
-            var palabras = entero.ToWords(esCulture);
-            palabras = char.ToUpper(palabras[0]) + palabras[1..];
-            var montoEnPalabras = $"{palabras} con {centavos:D2}/100 {moneda}";
-
             // ADVANCE_FECHA_FIN: end_date + 3 meses
             var advanceFechaFin = data.EndDate.HasValue
                 ? data.EndDate.Value.AddMonths(3).ToString("dd/MM/yyyy")
@@ -1504,7 +1499,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{ADVANCE_AMOUNT}}",                   $"{currencySymbol} {advanceAmount:N2}" },
                 { "{{ADVANCE_AMOUNT_EN_PALABRAS}}",       advanceAmountEnPalabras },
                 { "{{ADVANCE_FECHA_FIN}}",                advanceFechaFin },
-                { "{{MONTO_EN_PALABRAS}}",                montoEnPalabras },
+                { "{{MONEDA}}",                           moneda.ToUpperInvariant() },
                 { "{{PARTIDA}}",                          data.WorkItemDescription },
                 { "{{FECHA_ACTUAL}}",                     fechaActual },
                 { "{{CONTRATISTA_RAZON_SOCIAL}}",         data.ContributorName },
@@ -1593,7 +1588,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))          downloads.Add((docs.InstructivoItemId,          AlreadyPdf: false));
             if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))       downloads.Add((docs.PromissoryNoteItemId,       AlreadyPdf: false));
 
-            if (downloads.Count == 0 && !docs.NonConformingOutputApproved && !docs.ToleranceChartApproved)
+            if (downloads.Count == 0 && !docs.NonConformingOutputApproved && !docs.ToleranceChartApproved && !docs.FinishProtectionApproved)
                 throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
 
             var downloaded = await _sharePointService.DownloadMultipleAsPdfFromSharePointAsync(_site, "Adjudicaciones", downloads);
@@ -1634,13 +1629,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 pdfBytesList.Add(contractPdf);
             }
 
-            // Causales de No Conformidad y Cuadro de Tolerancias: van JUSTO DESPUÉS del contrato
-            // (primero Causales, luego Cuadro). Ya no se suben: se usa un PDF de plantilla fijo y solo
-            // se incluyen cuando su estado es "Aprobado".
+            // Causales de No Conformidad, Cuadro de Tolerancias y Protección de Acabados: van JUSTO
+            // DESPUÉS del contrato (en ese orden). Ya no se suben: se usa un PDF de plantilla fijo y
+            // solo se incluyen cuando su estado es "Sí aplica" (Aprobado).
             if (docs.NonConformingOutputApproved)
                 pdfBytesList.Add(ReadTemplatePdf("causales_de_no_conformidad.pdf"));
             if (docs.ToleranceChartApproved)
                 pdfBytesList.Add(ReadTemplatePdf("cuadro_de_tolerancias.pdf"));
+            if (docs.FinishProtectionApproved)
+                pdfBytesList.Add(ReadTemplatePdf("proteccion_de_acabados.pdf"));
 
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))         pdfBytesList.Add(downloaded[docs.InstructivoItemId]);
             if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))      pdfBytesList.Add(downloaded[docs.PromissoryNoteItemId]);
@@ -1892,6 +1889,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("B6").Value = "Contratista:"; ws.Cell("B6").Style.Font.Bold = true;
             ws.Cell("C6").Value = data.ContributorName;
 
+            ws.Cell("B7").Value = "N° de niveles:"; ws.Cell("B7").Style.Font.Bold = true;
+            if (!string.IsNullOrWhiteSpace(data.Niveles))
+                ws.Cell("C7").Value = data.Niveles;
+
             ws.Cell("B8").Value = "Fecha:"; ws.Cell("B8").Style.Font.Bold = true;
             // Fecha como TEXTO (no valor de fecha): evita la indentación/derecha del formato fecha
             // y que el locale del visor cambie el formato (p. ej. "1/12/2026" en vez de "12/01/2026").
@@ -1970,8 +1971,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("F13").Style.Alignment.WrapText   = true;
             ws.Range("F13:F14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // G – Cheque / Recibo (vacío)
+            // G – Cheque / Recibo: solo en contratos CON adelanto (PaymentMethodId == 2) se indica el
+            // documento de garantía: "PAGARÉ N°{N°}{ABREV}-{AÑO} Y LETRA DE GARANTÍA" (igual que el contrato).
             ws.Range("G13:G14").Merge();
+            if (data.PaymentMethodId == 2)
+            {
+                var numPagare = data.PromissoryNoteNumber.HasValue
+                    ? data.PromissoryNoteNumber.Value.ToString("D3")
+                    : "";
+                ws.Cell("G13").Value = $"PAGARÉ N°{numPagare}{abrevProyecto}-{DateTime.UtcNow.Year} Y LETRA DE GARANTÍA";
+            }
+            ws.Cell("G13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell("G13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("G13").Style.Alignment.WrapText   = true;
             ws.Range("G13:G14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // H – % Adelanto
@@ -2103,6 +2115,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.Instructivo           => "Instructivos",
             AdjudicacionDocumentType.NonConformingOutput   => "Salidas No Conforme",
             AdjudicacionDocumentType.ToleranceChart        => "Cuadro de Tolerancias",
+            AdjudicacionDocumentType.FinishProtection      => "Proteccion de Acabados",
             AdjudicacionDocumentType.FichaTecnica          => "Ficha Tecnica",
             AdjudicacionDocumentType.Anexo                 => "Anexos",
             _ => throw new ArgumentOutOfRangeException(nameof(documentType))

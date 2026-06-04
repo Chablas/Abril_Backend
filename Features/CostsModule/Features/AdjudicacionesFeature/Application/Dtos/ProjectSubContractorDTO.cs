@@ -67,9 +67,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public ProjectSubContractorFileDto? Package { get; set; }
         // Instructivo (paso 3 — obtenido desde OneDrive de Calidad)
         public ProjectSubContractorFileDto? Instructivo { get; set; }
-        // Salidas no conforme y cuadro de tolerancias (paso 3 — solo subida)
+        // Salidas no conforme y cuadro de tolerancias (paso 3 — solo estado, usan plantilla)
         public ProjectSubContractorFileDto? NonConformingOutput { get; set; }
         public ProjectSubContractorFileDto? ToleranceChart { get; set; }
+        // Protección de Acabados (paso 3 — solo estado, usa plantilla). Solo expone StatusId.
+        public ProjectSubContractorFileDto? FinishProtection { get; set; }
         // Ficha técnica y anexos (paso 3 — solo subida)
         public ProjectSubContractorFileDto? FichaTecnica { get; set; }
         public ProjectSubContractorFileDto? Anexo { get; set; }

@@ -121,6 +121,44 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return path;
         }
 
+        public async Task<string> SubirArchivoEnRutaAsync(Stream fileStream, string fileName, string libraryContexto, string carpetaPath)
+        {
+            var siteId = ResolverSiteId(libraryContexto);
+            if (string.IsNullOrWhiteSpace(siteId))
+                throw new AbrilException("SharePoint no está configurado.", 500);
+
+            var token = await GetAccessTokenAsync()
+                ?? throw new AbrilException("No se pudo obtener token de Microsoft Graph.", 500);
+
+            var libraryId = ResolverLibraryId(libraryContexto);
+            var driveId = await GetDriveIdAsync(siteId, token, libraryId)
+                ?? throw new AbrilException("No se pudo resolver el drive de SharePoint.", 500);
+
+            var fechaPrefix = DateTime.UtcNow.ToString("yyyyMMdd");
+            var fileNameLimpio = SanitizarNombreArchivo(fileName);
+            var path = $"{carpetaPath.Trim('/')}/{fechaPrefix}_{fileNameLimpio}";
+
+            var encoded = Uri.EscapeDataString(path).Replace("%2F", "/");
+            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var content = new StreamContent(fileStream);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var response = await client.PutAsync(url, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("SharePoint upload falló ({Status}) para {Path}: {Body}",
+                    response.StatusCode, path, body);
+                throw new AbrilException($"Error al subir archivo a SharePoint ({(int)response.StatusCode}).", 502);
+            }
+
+            return path;
+        }
+
         private static string NormalizarPath(string rawPath)
         {
             var path = rawPath.Trim().TrimStart('/');
@@ -198,7 +236,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("emo-aptitud"))   return _configuration["SharePoint:Sites:SSOMAApps:AptitudesLibraryId"];
             if (c.Contains("emo-completo"))  return _configuration["SharePoint:Sites:SSOMAApps:EMOSLibraryId"];
             if (c.Contains("interconsulta")) return _configuration["SharePoint:Sites:SSOMAApps:EmoInterconsultasLibraryId"];
-            if (c.Contains("lectura-emo"))   return _configuration["SharePoint:Sites:SSOMAApps:LecturaEmosLibraryId"];
+            if (c.Contains("lectura-emo"))      return _configuration["SharePoint:Sites:SSOMAApps:LecturaEmosLibraryId"];
+            if (c.Contains("paso-evidencias")) return _configuration["SharePoint:Sites:SSOMAApps:PasoEvidenciasLibraryId"];
             return null;
         }
 

@@ -172,9 +172,10 @@ public class PasoController : ControllerBase
     }
 
     [HttpPatch("ejecucion/{id:int}/evidencia")]
-    public async Task<IActionResult> SubirEvidencia(int id, [FromBody] SubirEvidenciaRequest req)
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> SubirEvidencia(int id, [FromForm] IFormFile file)
     {
-        try { return Ok(await _service.SubirEvidenciaAsync(id, req, GetUserId())); }
+        try { return Ok(await _service.SubirEvidenciaAsync(id, file, GetUserId())); }
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.SubirEvidencia"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }

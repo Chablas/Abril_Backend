@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Ssoma.Paso.Dtos;
+using Microsoft.AspNetCore.Http;
 
 namespace Abril_Backend.Features.Ssoma.Paso.Services;
 
@@ -20,6 +21,6 @@ public interface IPasoService
     Task DeleteActividadAsync(int id);
     Task<PasoEjecucionDto> RegistrarEjecucionAsync(RegistrarEjecucionRequest req, int userId);
     Task<PasoEjecucionDto> ReprogramarEjecucionAsync(int id, ReprogramarEjecucionRequest req, int userId);
-    Task<PasoEjecucionDto> SubirEvidenciaAsync(int ejecucionId, SubirEvidenciaRequest req, int userId);
+    Task<PasoEjecucionDto> SubirEvidenciaAsync(int ejecucionId, IFormFile file, int userId);
     Task ProcesarCronAsync();
 }

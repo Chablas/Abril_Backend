@@ -1131,14 +1131,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             int itemIdTipo = tipo == "SCTR" ? 11 : 13;
 
             var polizas = await ctx.SsSctrVidaley
-                .Where(sv => (sv.Estado == "Enviado" || sv.Estado == "Aprobado")
+                .Where(sv => (sv.Estado == "Enviado" || sv.Estado == "Aprobado" || sv.Estado == "En revision")
                           && sv.Tipo == tipo
                           && ctx.SsSctrVidaLeyWorker.Any(svw => svw.SctrVidaLeyId == sv.Id && svw.WorkerId == workerId))
                 .ToListAsync();
 
             foreach (var poliza in polizas)
             {
-                var countEnviados = await ctx.SsSctrVidaLeyWorker
+                int countEnviado = await ctx.SsSctrVidaLeyWorker
                     .Where(svw => svw.SctrVidaLeyId == poliza.Id)
                     .Join(ctx.SsHabTrabajador,
                           svw => svw.WorkerId,
@@ -1146,7 +1146,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                           (svw, ht) => ht)
                     .CountAsync(ht => ht.ItemId == itemIdTipo && ht.Estado == "Enviado");
 
-                var nuevoEstado = countEnviados > 0 ? "Enviado" : "Aprobado";
+                int countEnRevision = await ctx.SsSctrVidaLeyWorker
+                    .Where(svw => svw.SctrVidaLeyId == poliza.Id)
+                    .Join(ctx.SsHabTrabajador,
+                          svw => svw.WorkerId,
+                          ht => ht.WorkerId,
+                          (svw, ht) => ht)
+                    .CountAsync(ht => ht.ItemId == itemIdTipo && ht.Estado == "En revision");
+
+                var nuevoEstado = countEnviado > 0 ? "Enviado"
+                                : countEnRevision > 0 ? "En revision"
+                                : "Aprobado";
                 if (poliza.Estado != nuevoEstado)
                 {
                     poliza.Estado = nuevoEstado;

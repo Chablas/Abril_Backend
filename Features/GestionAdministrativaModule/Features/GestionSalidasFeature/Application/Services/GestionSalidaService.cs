@@ -149,9 +149,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     "Cada trayecto debe tener al menos una captura con monto, o (para trabajadores de Tecnología de la Información) un trayecto registrado en el catálogo.",
                     400);
 
-            // 2. Cargar info y generar PDF en memoria.
-            var datos = await _repo.GetRendicionData(elegiblesIds);
-            var pdf   = GenerarPlanillaPdf(datos);
+            // 2. Cargar info, consumir el correlativo de planilla y generar PDF en memoria.
+            var datos          = await _repo.GetRendicionData(elegiblesIds);
+            var numeroPlanilla = await _repo.GetNextNumeroPlanillaAsync();
+            var numeroLabel    = $"TI: {numeroPlanilla:D6}";
+            var pdf            = GenerarPlanillaPdf(datos, numeroLabel);
 
             // 3. Subir a SharePoint ANTES de marcar como rendidas.
             //    Si el upload falla, no se modifica nada en BD (estricto).
@@ -186,7 +188,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             // 4. Persistir GaRendicion + marcar solicitudes (transacción interna).
             var rendidasIds = await _repo.CrearRendicionYMarcarBulk(
-                elegiblesIds, userId, pdfUrl, pdfItemId, filename);
+                elegiblesIds, userId, pdfUrl, pdfItemId, filename, numeroPlanilla);
 
             return (pdf, rendidasIds.Count);
         }
@@ -213,13 +215,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return _logoBytes;
         }
 
-        private static byte[] GenerarPlanillaPdf(List<RendicionItemDto> items)
+        private static byte[] GenerarPlanillaPdf(List<RendicionItemDto> items, string numeroLabel)
         {
             var grupos = items.GroupBy(x => x.WorkerId).Select(g => g.ToList()).ToList();
             if (grupos.Count == 0) grupos.Add(new List<RendicionItemDto>());
 
-            // Una "página lógica" por chunk de FilasPorPagina dentro de cada grupo.
-            // En QuestPDF lo modelamos como múltiples Document.Page() — cada chunk es su propia página.
             var paginas = new List<(List<RendicionItemDto> trabajadorItems, List<RendicionItemDto> pageItems, bool isLast, int pageNum, int totalPages)>();
             foreach (var g in grupos)
             {
@@ -243,7 +243,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         page.Margin(25);
                         page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(10));
 
-                        page.Content().Element(c => RenderPagina(c, pag.trabajadorItems, pag.pageItems, pag.isLast, pag.pageNum, pag.totalPages, logo));
+                        page.Content().Element(c => RenderPagina(c, pag.trabajadorItems, pag.pageItems, pag.isLast, pag.pageNum, pag.totalPages, logo, numeroLabel));
+
+                        // Pie de página común a todas las páginas — número de registro (izq)
+                        // y "Página X de Y" (der) cuando aplique.
+                        var pageNum_   = pag.pageNum;
+                        var totalPages_ = pag.totalPages;
+                        page.Footer().PaddingTop(4).Row(footerRow =>
+                        {
+                            footerRow.RelativeItem().AlignLeft()
+                                .Text(numeroLabel).FontSize(9).Bold().FontColor(Colors.Grey.Darken2);
+                            footerRow.RelativeItem().AlignRight()
+                                .Text(totalPages_ > 1 ? $"Página {pageNum_} de {totalPages_}" : "")
+                                .FontSize(9).FontColor(Colors.Grey.Medium);
+                        });
                     });
                 }
             });
@@ -258,7 +271,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             bool isLastPage,
             int pageNum,
             int totalPages,
-            byte[]? logo)
+            byte[]? logo,
+            string numeroLabel)
         {
             var first       = trabajadorItems.FirstOrDefault();
             var trabajador  = first?.TrabajadorNombre ?? "";
@@ -296,7 +310,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         titleRow.RelativeItem(3).Border(1).AlignCenter().AlignMiddle()
                             .Text("PLANILLA DE GASTO POR MOVILIDAD Nº")
                             .FontSize(11).Bold();
-                        titleRow.RelativeItem(1).Border(1); // caja vacía para el número
+                        titleRow.RelativeItem(1).Border(1).AlignCenter().AlignMiddle()
+                            .Text(numeroLabel).FontSize(10).Bold();
                     });
                 });
 
@@ -398,13 +413,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     });
                 }
 
-                // ── Indicador de página (si el trabajador ocupa varias) ──────
-                if (totalPages > 1)
-                {
-                    col.Item().PaddingTop(8).AlignRight()
-                        .Text($"Página {pageNum} de {totalPages}")
-                        .FontSize(9).FontColor(Colors.Grey.Medium);
-                }
+                // (El indicador "Página X de Y" se muestra ahora en el footer global de la página.)
             });
         }
 

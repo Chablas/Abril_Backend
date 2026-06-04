@@ -16,5 +16,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// <summary>Usuario que disparó la rendición.</summary>
         public int RendidoPorId { get; set; }
         public DateTimeOffset RendidoAt { get; set; }
+        /// <summary>Número correlativo del registro de planilla — se imprime como "TI: 000NNN" en el PDF.</summary>
+        public int? NumeroPlanilla { get; set; }
     }
 }

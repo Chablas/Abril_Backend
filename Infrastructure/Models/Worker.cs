@@ -49,6 +49,13 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("subarea")]
         public string? Subarea { get; set; }
 
+        /// <summary>
+        /// FK a <c>area_scope</c>. Reemplaza el uso de <see cref="Area"/>/<see cref="Subarea"/>
+        /// (texto plano) para resolver jefaturas vía el árbol jerárquico.
+        /// </summary>
+        [Column("area_scope_id")]
+        public int? AreaScopeId { get; set; }
+
         [Column("contrata_casa")]
         public string? ContrataCasa { get; set; }
 

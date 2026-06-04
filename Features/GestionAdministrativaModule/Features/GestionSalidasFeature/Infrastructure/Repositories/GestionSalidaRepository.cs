@@ -215,12 +215,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             await ctx.SaveChangesAsync();
         }
 
+        public async Task<int> GetNextNumeroPlanillaAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var values = await ctx.Database
+                .SqlQuery<int>($"SELECT nextval('seq_planilla_numero')::int AS \"Value\"")
+                .ToListAsync();
+            return values.First();
+        }
+
         public async Task<List<int>> CrearRendicionYMarcarBulk(
             IEnumerable<int> ids,
             int userId,
             string pdfUrl,
             string? pdfItemId,
-            string pdfFilename)
+            string pdfFilename,
+            int numeroPlanilla)
         {
             using var ctx = _factory.CreateDbContext();
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
@@ -244,11 +254,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
                 var rendicion = new GaRendicion
                 {
-                    PdfUrl       = pdfUrl,
-                    PdfItemId    = pdfItemId,
-                    PdfFilename  = pdfFilename,
-                    RendidoPorId = userId,
-                    RendidoAt    = now,
+                    PdfUrl         = pdfUrl,
+                    PdfItemId      = pdfItemId,
+                    PdfFilename    = pdfFilename,
+                    RendidoPorId   = userId,
+                    RendidoAt      = now,
+                    NumeroPlanilla = numeroPlanilla,
                 };
                 ctx.GaRendicion.Add(rendicion);
                 await ctx.SaveChangesAsync();
@@ -505,7 +516,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         TrabajadorNombre = per != null ? (per.FullName ?? "") : "",
                         TrabajadorDni    = per != null ? per.DocumentIdentityCode : null,
                         TrabajadorDocumentTypeId = per != null ? per.DocumentIdentityTypeId : null,
-                        Area             = w.Area,
+                        Area             = w.Area,     // fallback; se sobrescribe abajo si hay area_scope_id
                         FechaSalida      = s.FechaSalida,
                         Motivo           = m != null ? m.Descripcion : (t.MotivoLibre ?? ""),
                         LugarOrigen      = lo == null ? t.LugarOrigenLibre
@@ -518,10 +529,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         Ruc              = cont != null ? cont.ContributorRuc  : null,
                     },
                     Subarea = w.Subarea,
+                    WorkerAreaScopeId = w.AreaScopeId,
                     t.LugarOrigenId,
                     t.LugarDestinoId,
                 }
             ).ToListAsync();
+
+            // Resolver nombre del área navegando hacia arriba en area_scope hasta encontrar
+            // el primer nodo cuyo tipo sea "Área Estándar" (saltando "Área de Gerencia", etc).
+            var areaResueltaPorWorker = await ResolverAreaPorWorkerAsync(
+                ctx,
+                rowsRaw.Where(r => r.WorkerAreaScopeId.HasValue)
+                       .Select(r => r.Item.WorkerId)
+                       .Distinct()
+                       .ToList(),
+                rowsRaw.Where(r => r.WorkerAreaScopeId.HasValue)
+                       .ToDictionary(r => r.Item.WorkerId, r => r.WorkerAreaScopeId!.Value));
+
+            foreach (var r in rowsRaw)
+            {
+                if (areaResueltaPorWorker.TryGetValue(r.Item.WorkerId, out var nombreArea) && !string.IsNullOrWhiteSpace(nombreArea))
+                    r.Item.Area = nombreArea;
+            }
 
             // Importe por trayecto (suma de capturas)
             var trayectoIds = rowsRaw.Select(r => r.Item.Id).ToList();
@@ -573,7 +602,58 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             await ctx.SaveChangesAsync();
         }
 
-        private const string SubareaTi = "Tecnología de la Información";
+        private const string SubareaTi              = "Tecnología de la Información";
+        private const string TipoAreaEstandar       = "Área Estándar";
+
+        /// <summary>
+        /// Para cada workerId dado (con area_scope_id), camina hacia arriba en el árbol
+        /// area_scope y devuelve el nombre del primer nodo cuyo tipo (area_type.area_type_name)
+        /// sea "Área Estándar". Si no encuentra uno, devuelve null para ese worker.
+        /// </summary>
+        private static async Task<Dictionary<int, string?>> ResolverAreaPorWorkerAsync(
+            AppDbContext ctx,
+            List<int> workerIds,
+            Dictionary<int, int> workerToScope)
+        {
+            var resultado = new Dictionary<int, string?>();
+            if (workerIds.Count == 0) return resultado;
+
+            // Topología: scopeId → (nombre, tipo, padre)
+            var nodos = await (
+                from sc in ctx.AreaScope
+                join it in ctx.AreaItem on sc.AreaItemId equals it.AreaItemId
+                join tp in ctx.AreaType on it.AreaTypeId equals tp.AreaTypeId
+                select new
+                {
+                    sc.AreaScopeId,
+                    sc.AreaScopeParentId,
+                    Nombre = it.AreaItemName,
+                    Tipo   = tp.AreaTypeName,
+                }
+            ).ToDictionaryAsync(
+                x => x.AreaScopeId,
+                x => (Padre: x.AreaScopeParentId, Nombre: x.Nombre, Tipo: x.Tipo));
+
+            foreach (var workerId in workerIds)
+            {
+                if (!workerToScope.TryGetValue(workerId, out var startScope)) continue;
+
+                string? nombre = null;
+                var seen = new HashSet<int>();
+                int? curr = startScope;
+                while (curr.HasValue && seen.Add(curr.Value) && nodos.TryGetValue(curr.Value, out var nodo))
+                {
+                    if (string.Equals(nodo.Tipo, TipoAreaEstandar, StringComparison.OrdinalIgnoreCase))
+                    {
+                        nombre = nodo.Nombre;
+                        break;
+                    }
+                    curr = nodo.Padre;
+                }
+                resultado[workerId] = nombre;
+            }
+            return resultado;
+        }
 
         /// <summary>
         /// Carga el catálogo de trayectos activos en memoria. Llave: (lugar_origen_id, lugar_destino_id).

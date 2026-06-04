@@ -517,10 +517,17 @@ public class PasoService : IPasoService
         using var ctx = _factory.CreateDbContext();
         var anioFiltro = anio ?? DateTime.Today.Year;
 
+        var proyectosOperativos = await ctx.Project
+            .Where(p => p.Operativo && p.Active)
+            .Select(p => p.ProjectId)
+            .ToListAsync();
+
         var pasos = await ctx.SsomaPasos
-            .Where(p => !p.EsPlantilla && p.Anio == anioFiltro)
+            .Where(p => !p.EsPlantilla && p.Anio == anioFiltro && p.ProyectoId != null && proyectosOperativos.Contains(p.ProyectoId!.Value))
             .Include(p => p.Actividades.Where(a => a.Activo))
                 .ThenInclude(a => a.Ejecuciones)
+            .Include(p => p.Actividades.Where(a => a.Activo))
+                .ThenInclude(a => a.Categoria)
             .ToListAsync();
 
         var proyIds = pasos.Where(p => p.ProyectoId.HasValue).Select(p => p.ProyectoId!.Value).Distinct().ToList();
@@ -561,6 +568,18 @@ public class PasoService : IPasoService
                 };
             }).ToList();
 
+        SpiPorAmbitoDto CalcAmbitoConsolidado(string ambito)
+        {
+            var ejs = pasos
+                .SelectMany(p => p.Actividades)
+                .Where(a => string.Equals(a.Categoria?.Ambito, ambito, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(a => a.Ejecuciones).ToList();
+            var ph = ejs.Count(e => e.FechaProgramada <= hoy);
+            var eh = ejs.Count(e => e.Estado == "Ejecutado" && e.FechaProgramada <= hoy);
+            var spi = CalcularSpi(ph, eh);
+            return new SpiPorAmbitoDto { Spi = spi, Color = SpiColor(spi), Planificadas = ph, Ejecutadas = eh, Vencidas = ejs.Count(e => e.Estado == "Vencido") };
+        }
+
         return new PasoDashboardDto
         {
             AnioActual = anioFiltro,
@@ -571,7 +590,10 @@ public class PasoService : IPasoService
             PorcentajeAvanceConsolidado = pctCons,
             TotalVencidas = totalVencTotal,
             TotalProximasVencer = proxTotal,
-            PorProyecto = porProyecto
+            PorProyecto = porProyecto,
+            Seguridad = CalcAmbitoConsolidado("Seguridad"),
+            Salud     = CalcAmbitoConsolidado("Salud"),
+            Ambiente  = CalcAmbitoConsolidado("Ambiente"),
         };
     }
 

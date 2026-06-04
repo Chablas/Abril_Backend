@@ -61,6 +61,7 @@ namespace Abril_Backend.Shared.Models {
         // Flags
         public bool TieneArquitecturaComercial {get; set;}
         public bool TieneUnidadDeProyectos {get; set;}
+        public bool Operativo { get; set; } = true;
 
         // Foto
         public string? FotoUrl {get; set;}

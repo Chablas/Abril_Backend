@@ -17,9 +17,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         }
 
         /// <summary>
-        /// Lista cada HOJA del árbol area_scope como una rama con su path completo
-        /// (desde la raíz hasta esa hoja). Cada rama trae su estado en lesson_area
-        /// (active=false si todavía no se ha togglado).
+        /// Lista CADA NODO del árbol area_scope (hoja o intermedio) como una rama con su
+        /// path completo (desde la raíz hasta ese nodo). Cada rama trae su estado en
+        /// lesson_area (active=false si todavía no se ha togglado). Antes solo se listaban
+        /// las hojas, lo que ocultaba un nodo intermedio (p. ej. "Unidad de Proyectos")
+        /// en cuanto se le agregaba un hijo, aunque tuviera relaciones propias.
         /// </summary>
         public async Task<List<LessonAreaConfigItemDTO>> GetAllAsync()
         {
@@ -42,10 +44,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             ).ToListAsync();
 
             var byId = scopeNodes.ToDictionary(n => n.AreaScopeId);
-            var hasChildren = scopeNodes
-                .Where(n => n.AreaScopeParentId.HasValue)
-                .Select(n => n.AreaScopeParentId!.Value)
-                .ToHashSet();
 
             var lessonAreas = await ctx.LessonArea.ToListAsync();
             var laByScopeId = lessonAreas.ToDictionary(l => l.AreaScopeId);
@@ -53,10 +51,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             var result = new List<LessonAreaConfigItemDTO>();
             foreach (var node in scopeNodes)
             {
-                // Solo las hojas (nodos sin hijos) representan "ramas" completas
-                if (hasChildren.Contains(node.AreaScopeId)) continue;
+                // Se incluye CUALQUIER nodo (hoja o intermedio), no solo las hojas:
+                // un nodo intermedio también es una rama válida y puede tener relaciones propias.
 
-                // Reconstruir path desde la raíz hasta esta hoja
+                // Reconstruir path desde la raíz hasta este nodo
                 var path = new List<LessonAreaSegmentDTO>();
                 int? cur = node.AreaScopeId;
                 int safety = 50;

@@ -871,6 +871,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (file is null || file.Length == 0)
                 throw new AbrilException("El archivo no puede estar vacío.");
 
+            // Causales de No Conformidad y Cuadro de Tolerancias no se suben: usan un PDF de plantilla
+            // fijo. Solo se controla su estado (Aprobado / No aplica).
+            if (documentType is AdjudicacionDocumentType.NonConformingOutput
+                             or AdjudicacionDocumentType.ToleranceChart)
+                throw new AbrilException(
+                    "Este documento no se sube: se usa el documento estándar de Abril. Solo configure su estado (Aprobado / No aplica).",
+                    400);
+
             // La cotización adjunta debe ser PDF — se inserta dentro del contrato (paso 4)
             // y para eso se mergea a nivel PDF.
             if (documentType == AdjudicacionDocumentType.AttachedQuotation)
@@ -1399,25 +1407,30 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             string fileUrl;
             string? contractItemId;
+            string finalFileName;
             using (var ms = new MemoryStream(docBytes))
             {
+                // autoRenameOnLock: si ya existe un contrato con el mismo nombre abierto/en uso
+                // (HTTP 423), se sube con un nombre alterno ("… (2).docx") en lugar de fallar.
                 var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                    site:        _site,
-                    libraryName: "Adjudicaciones",
-                    folderPath:  folderPath,
-                    fileName:    fileName,
-                    fileStream:  ms,
-                    contentType: docxMime)
+                    site:             _site,
+                    libraryName:      "Adjudicaciones",
+                    folderPath:       folderPath,
+                    fileName:         fileName,
+                    fileStream:       ms,
+                    contentType:      docxMime,
+                    autoRenameOnLock: true)
                     ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
 
-                fileUrl       = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+                fileUrl        = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
                 contractItemId = spResult.ItemId;
+                finalFileName  = spResult.FileName ?? fileName;   // puede diferir si hubo renombrado
             }
 
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.Contract, fileUrl, fileName, userId, contractItemId);
+                projectSubContractorId, AdjudicacionDocumentType.Contract, fileUrl, finalFileName, userId, contractItemId);
 
-            return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
+            return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = finalFileName };
         }
 
         private async Task<DocumentUploadResponseDto> GeneratePromissoryNoteAsync(
@@ -1553,10 +1566,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 throw new AbrilException("La hoja resumen debe ser regenerada antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
             if (!string.IsNullOrEmpty(docs.ContractUrl) && string.IsNullOrEmpty(docs.ContractItemId))
                 throw new AbrilException("El contrato debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
-            if (!string.IsNullOrEmpty(docs.NonConformingOutputUrl) && string.IsNullOrEmpty(docs.NonConformingOutputItemId))
-                throw new AbrilException("Las salidas no conformes deben ser recargadas antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
-            if (!string.IsNullOrEmpty(docs.ToleranceChartUrl) && string.IsNullOrEmpty(docs.ToleranceChartItemId))
-                throw new AbrilException("El cuadro de tolerancias debe ser recargado antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
+            // Causales de No Conformidad y Cuadro de Tolerancias ya no se suben: usan PDF de plantilla
+            // y solo dependen del estado (Aprobado / No aplica), por lo que no requieren validación de archivo.
             if (!string.IsNullOrEmpty(docs.InstructivoUrl) && string.IsNullOrEmpty(docs.InstructivoItemId))
                 throw new AbrilException("El instructivo debe ser recargado antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
             if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
@@ -1579,12 +1590,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (!string.IsNullOrEmpty(docs.FichaTecnicaItemId))         downloads.Add((docs.FichaTecnicaItemId,         AlreadyPdf: IsPdf(docs.FichaTecnicaFileName)));
             if (!string.IsNullOrEmpty(docs.ServiceOrderItemId))         downloads.Add((docs.ServiceOrderItemId,         AlreadyPdf: IsPdf(docs.ServiceOrderFileName)));
             if (!string.IsNullOrEmpty(docs.ScheduleItemId))             downloads.Add((docs.ScheduleItemId,             AlreadyPdf: IsPdf(docs.ScheduleFileName)));
-            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))  downloads.Add((docs.NonConformingOutputItemId,  AlreadyPdf: false));
-            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))       downloads.Add((docs.ToleranceChartItemId,       AlreadyPdf: false));
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))          downloads.Add((docs.InstructivoItemId,          AlreadyPdf: false));
             if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))       downloads.Add((docs.PromissoryNoteItemId,       AlreadyPdf: false));
 
-            if (downloads.Count == 0)
+            if (downloads.Count == 0 && !docs.NonConformingOutputApproved && !docs.ToleranceChartApproved)
                 throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
 
             var downloaded = await _sharePointService.DownloadMultipleAsPdfFromSharePointAsync(_site, "Adjudicaciones", downloads);
@@ -1600,16 +1609,24 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
                 // Inserciones DENTRO del contrato — cada una se aplica si el archivo correspondiente existe.
                 // Si el marcador no aparece en el contrato, InsertPdfAfterMarker hace fallback al final.
-                var inserts = new (string ItemId, string Marker)[]
+                //
+                // 'insertsVisualOrder' = orden en que deben aparecer de ARRIBA hacia ABAJO en el PDF final:
+                //   1) Cotización  2) Orden de Servicio  3) Ficha Técnica   (todos en Anexo 1)  4) Cronograma (Anexo 2)
+                //
+                // OJO: cuando varios marcadores están en la MISMA página, InsertPdfAfterMarker inserta el PDF
+                // justo después de esa página, por lo que cada inserción empuja hacia abajo a la anterior:
+                // la ÚLTIMA insertada queda PRIMERA. Por eso se procesa en orden INVERSO al orden visual deseado.
+                var insertsVisualOrder = new (string ItemId, string Marker)[]
                 {
                     (docs.AttachedQuotationItemId ?? "", ContractQuotationMarker),
-                    (docs.FichaTecnicaItemId      ?? "", ContractFichaTecnicaMarker),
                     (docs.ServiceOrderItemId      ?? "", ContractServiceOrderMarker),
+                    (docs.FichaTecnicaItemId      ?? "", ContractFichaTecnicaMarker),
                     (docs.ScheduleItemId          ?? "", ContractScheduleMarker),
                 };
 
-                foreach (var (itemId, marker) in inserts)
+                for (int i = insertsVisualOrder.Length - 1; i >= 0; i--)
                 {
+                    var (itemId, marker) = insertsVisualOrder[i];
                     if (string.IsNullOrEmpty(itemId)) continue;
                     contractPdf = InsertPdfAfterMarker(contractPdf, downloaded[itemId], marker);
                 }
@@ -1617,8 +1634,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 pdfBytesList.Add(contractPdf);
             }
 
-            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId)) pdfBytesList.Add(downloaded[docs.NonConformingOutputItemId]);
-            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))      pdfBytesList.Add(downloaded[docs.ToleranceChartItemId]);
+            // Causales de No Conformidad y Cuadro de Tolerancias: van JUSTO DESPUÉS del contrato
+            // (primero Causales, luego Cuadro). Ya no se suben: se usa un PDF de plantilla fijo y solo
+            // se incluyen cuando su estado es "Aprobado".
+            if (docs.NonConformingOutputApproved)
+                pdfBytesList.Add(ReadTemplatePdf("causales_de_no_conformidad.pdf"));
+            if (docs.ToleranceChartApproved)
+                pdfBytesList.Add(ReadTemplatePdf("cuadro_de_tolerancias.pdf"));
+
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))         pdfBytesList.Add(downloaded[docs.InstructivoItemId]);
             if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))      pdfBytesList.Add(downloaded[docs.PromissoryNoteItemId]);
 
@@ -1667,6 +1690,24 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 projectSubContractorId, AdjudicacionDocumentType.ContractPackage, fileUrl, fileName, userId, spResult.ItemId);
 
             return (mergedBytes, fileUrl, fileName);
+        }
+
+        /// <summary>
+        /// Lee un PDF de plantilla fijo desde Features/CostsModule/Features/AdjudicacionesFeature/Templates.
+        /// Se usa para Causales de No Conformidad y Cuadro de Tolerancias (documentos estándar de Abril).
+        /// </summary>
+        private static byte[] ReadTemplatePdf(string fileName)
+        {
+            var path = Path.Combine(
+                AppContext.BaseDirectory,
+                "Features", "CostsModule", "Features", "AdjudicacionesFeature",
+                "Templates", fileName);
+
+            if (!File.Exists(path))
+                throw new AbrilException(
+                    $"No se encontró la plantilla '{fileName}' en el servidor. Contacte al administrador del sistema.");
+
+            return File.ReadAllBytes(path);
         }
 
         private static byte[] MergePdfs(List<byte[]> pdfBytesList)
@@ -1808,16 +1849,37 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 : 0;
             var currencySymbol = data.CurrencyCode == "USD" ? "US$" : "S/";
 
+            // Los montos se escriben como TEXTO con separadores fijos (coma para miles, punto para
+            // decimales), p. ej. "S/ 1,258,621.42" o "US$ 1,258,621.42". Se hace así porque Excel
+            // SIEMPRE usa los separadores del locale del visor para celdas numéricas (ignora el locale
+            // del formato), por lo que un formato numérico saldría como "1.258.621,42" en es-PE.
+            // Escribirlo como texto garantiza el formato en cualquier visor o al convertir a PDF.
+            // El cero se muestra como guion, estilo contable.
+            var inv = CultureInfo.InvariantCulture;
+            string FormatMoney(decimal v) =>
+                v == 0m
+                    ? $"{currencySymbol} -"
+                    : $"{currencySymbol} {v.ToString("#,##0.00", inv)}";
+
+            // Número de documento del contrato: {N°:D3}{ABREV}-{AÑO}, p. ej. "011MAX-2026".
+            // Mismo formato que aparece en el N° DOC y en el título.
+            var abrevProyecto = !string.IsNullOrWhiteSpace(data.Abbreviation)
+                ? data.Abbreviation
+                : (data.ProjectDescription.Length >= 3
+                    ? data.ProjectDescription[..3].ToUpperInvariant()
+                    : data.ProjectDescription.ToUpperInvariant());
+            var docNumber = data.ContractNumber.HasValue
+                ? $"{data.ContractNumber.Value:D3}{abrevProyecto}-{DateTime.UtcNow.Year}"
+                : data.ProjectSubContractorId.ToString("D4");
+
             // ── Row 2: Title ───────────────────────────────────────────────────
             ws.Range("B2:N2").Merge();
-            var contractLabel = data.ContractNumber.HasValue
-                ? data.ContractNumber.Value.ToString("D3")
-                : data.ProjectSubContractorId.ToString("D4");
-            ws.Cell("B2").Value = $"RESUMEN DEL CONTRATO N°{contractLabel} " +
+            ws.Cell("B2").Value = $"RESUMEN DEL CONTRATO N°{docNumber} " +
                                   $"{data.ContractTypeDescription.ToUpper()} POR EL SERVICIO DE " +
                                   $"{data.WorkItemDescription.ToUpper()}";
             ws.Range("B2:N2").Style.Font.Bold       = true;
             ws.Range("B2:N2").Style.Font.FontSize   = 11;
+            ws.Range("B2:N2").Style.Fill.BackgroundColor = XLColor.FromHtml("#D9D9D9");
             ws.Range("B2:N2").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Range("B2:N2").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("B2:N2").Style.Alignment.WrapText   = true;
@@ -1831,11 +1893,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("C6").Value = data.ContributorName;
 
             ws.Cell("B8").Value = "Fecha:"; ws.Cell("B8").Style.Font.Bold = true;
+            // Fecha como TEXTO (no valor de fecha): evita la indentación/derecha del formato fecha
+            // y que el locale del visor cambie el formato (p. ej. "1/12/2026" en vez de "12/01/2026").
             if (data.SigningDate.HasValue)
-            {
-                ws.Cell("C8").Value = data.SigningDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("C8").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("C8").Value = data.SigningDate.Value.ToString("dd/MM/yyyy", inv);
 
             // ── Row 11: Sub-header ─────────────────────────────────────────────
             ws.Range("B11:D11").Merge();
@@ -1871,7 +1932,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             SetHeader("F12:F12", "N° DOC");
             SetHeader("G12:G12", "CHEQUE / RECIBO");
             SetHeader("H12:H12", "% ADELANTO");
-            SetHeader("I12:I12", "IMPORTE ADELANTO\nS/");
+            SetHeader("I12:I12", $"IMPORTE ADELANTO\n{currencySymbol}");
             SetHeader("J12:J12", "SALDO");
             SetHeader("K12:K12", "INICIO");
             SetHeader("L12:L12", "FIN");
@@ -1886,30 +1947,27 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Range("B13:C14").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Range("B13:C14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // D – Fecha contrato
+            // D – Fecha contrato (texto)
             ws.Range("D13:D14").Merge();
             if (data.SigningDate.HasValue)
-            {
-                ws.Cell("D13").Value = data.SigningDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("D13").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("D13").Value = data.SigningDate.Value.ToString("dd/MM/yyyy", inv);
             ws.Cell("D13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("D13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("D13:D14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // E – Monto contratado
             ws.Range("E13:E14").Merge();
-            ws.Cell("E13").Value = data.Amount;
-            ws.Cell("E13").Style.NumberFormat.Format  = $"\"{currencySymbol}\" #,##0.00";
-            ws.Cell("E13").Style.Font.FontColor       = XLColor.FromHtml("#E26B0A");
+            ws.Cell("E13").Value = FormatMoney(data.Amount);
             ws.Cell("E13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("E13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Range("E13:E14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // F – N° DOC
             ws.Range("F13:F14").Merge();
-            ws.Cell("F13").Value = "";
+            ws.Cell("F13").Value = $"CONTRATO N°{docNumber}";
             ws.Cell("F13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("F13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("F13").Style.Alignment.WrapText   = true;
             ws.Range("F13:F14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // G – Cheque / Recibo (vacío)
@@ -1918,8 +1976,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // H – % Adelanto
             ws.Range("H13:H14").Merge();
-            ws.Cell("H13").Value = (data.AdvancePercentage ?? 0) / 100m;
-            ws.Cell("H13").Style.NumberFormat.Format  = "0.00%";
+            ws.Cell("H13").Value = $"{(data.AdvancePercentage ?? 0).ToString("0.00", inv)}%";
             ws.Cell("H13").Style.Font.Bold            = true;
             ws.Cell("H13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("H13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
@@ -1927,37 +1984,30 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // I – Importe adelanto
             ws.Range("I13:I14").Merge();
-            ws.Cell("I13").Value = advance;
-            ws.Cell("I13").Style.NumberFormat.Format = "\"S/\" #,##0.00";
+            ws.Cell("I13").Value = FormatMoney(advance);
             ws.Cell("I13").Style.Alignment.Vertical  = XLAlignmentVerticalValues.Center;
+            ws.Cell("I13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Range("I13:I14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // J – Saldo
             ws.Range("J13:J14").Merge();
-            ws.Cell("J13").Value = saldo;
-            ws.Cell("J13").Style.NumberFormat.Format  = $"\"{currencySymbol}\" #,##0.00";
-            ws.Cell("J13").Style.Font.FontColor       = XLColor.FromHtml("#E26B0A");
+            ws.Cell("J13").Value = FormatMoney(saldo);
             ws.Cell("J13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("J13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Range("J13:J14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // K – Inicio
+            // K – Inicio (texto)
             ws.Range("K13:K14").Merge();
             if (data.StartDate.HasValue)
-            {
-                ws.Cell("K13").Value = data.StartDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("K13").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("K13").Value = data.StartDate.Value.ToString("dd/MM/yyyy", inv);
             ws.Cell("K13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("K13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("K13:K14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // L – Fin
+            // L – Fin (texto)
             ws.Range("L13:L14").Merge();
             if (data.EndDate.HasValue)
-            {
-                ws.Cell("L13").Value = data.EndDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("L13").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("L13").Value = data.EndDate.Value.ToString("dd/MM/yyyy", inv);
             ws.Cell("L13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("L13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("L13:L14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
@@ -1978,10 +2028,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Range("B15:D15").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("B15:D15").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            ws.Cell("E15").Value = data.Amount;
-            ws.Cell("E15").Style.NumberFormat.Format  = $"\"{currencySymbol}\" #,##0.00";
+            ws.Cell("E15").Value = FormatMoney(data.Amount);
             ws.Cell("E15").Style.Font.Bold            = true;
             ws.Cell("E15").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("E15").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Cell("E15").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             foreach (var col in new[] { "F", "G", "H", "I", "J" })

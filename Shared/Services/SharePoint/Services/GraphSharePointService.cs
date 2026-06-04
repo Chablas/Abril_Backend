@@ -49,21 +49,81 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             string folderPath,
             string fileName,
             Stream fileStream,
-            string contentType = "application/octet-stream")
+            string contentType = "application/octet-stream",
+            bool autoRenameOnLock = false)
         {
             var token   = await GetAppTokenAsync();
             var siteId  = await EnsureSiteIdAsync(token, site);
             var driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
 
-            var fullPath = $"{folderPath.Trim('/')}/{fileName}";
-            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{EscapePath(fullPath)}:/content";
+            var cleanFolder = folderPath.Trim('/');
 
-            return await UploadStreamAsync(token, url, fileStream, contentType);
+            string BuildUrl(string name) =>
+                $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{EscapePath($"{cleanFolder}/{name}")}:/content";
+
+            // Camino normal: un solo intento; ante bloqueo (423) lanza AbrilException (comportamiento previo).
+            if (!autoRenameOnLock)
+            {
+                var result = await UploadStreamAsync(token, BuildUrl(fileName), fileStream, contentType);
+                return result is null ? null : new SharePointUploadResultDto
+                {
+                    WebUrl   = result.WebUrl,
+                    ItemId   = result.ItemId,
+                    FileName = fileName
+                };
+            }
+
+            // Camino con auto-renombrado: bufferizamos los bytes para poder reintentar con otro nombre,
+            // porque el stream se consume en cada intento.
+            byte[] bytes;
+            using (var buffer = new MemoryStream())
+            {
+                await fileStream.CopyToAsync(buffer);
+                bytes = buffer.ToArray();
+            }
+
+            const int maxAttempts = 20;
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                var candidate = attempt == 0 ? fileName : AppendNameSuffix(fileName, attempt + 1);
+
+                using var ms = new MemoryStream(bytes);
+                var (result, locked) = await TryUploadOnceAsync(token, BuildUrl(candidate), ms, contentType);
+
+                if (!locked)
+                {
+                    return result is null ? null : new SharePointUploadResultDto
+                    {
+                        WebUrl   = result.WebUrl,
+                        ItemId   = result.ItemId,
+                        FileName = candidate
+                    };
+                }
+                // bloqueado → probar el siguiente nombre
+            }
+
+            throw new AbrilException(
+                "No se pudo guardar el archivo: el nombre está en uso y no se pudo generar un nombre alterno disponible. " +
+                "Intente nuevamente en unos minutos.",
+                StatusCodes.Status409Conflict);
         }
 
         // ── Helpers compartidos ──────────────────────────────────────────────
 
-        private async Task<SharePointUploadResultDto?> UploadStreamAsync(
+        /// <summary>Inserta " (n)" antes de la extensión: "Contrato.docx" → "Contrato (2).docx".</summary>
+        private static string AppendNameSuffix(string fileName, int n)
+        {
+            var ext  = Path.GetExtension(fileName);
+            var name = Path.GetFileNameWithoutExtension(fileName);
+            return $"{name} ({n}){ext}";
+        }
+
+        /// <summary>
+        /// Sube el stream una sola vez. Devuelve (result, locked): si el destino está bloqueado/en uso
+        /// (HTTP 423) devuelve (null, true) sin lanzar, para que el caller pueda reintentar con otro nombre.
+        /// Otros errores no exitosos lanzan InvalidOperationException.
+        /// </summary>
+        private async Task<(SharePointUploadResultDto? result, bool locked)> TryUploadOnceAsync(
             string token,
             string uploadUrl,
             Stream fileStream,
@@ -78,16 +138,11 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
 
             var response = await client.PutAsync(uploadUrl, content);
 
+            if ((int)response.StatusCode == 423)
+                return (null, true);
+
             if (!response.IsSuccessStatusCode)
             {
-                if ((int)response.StatusCode == 423)
-                {
-                    throw new AbrilException(
-                        "No se puede guardar el archivo porque ya existe un archivo con el mismo nombre que está abierto o en uso. " +
-                        "Por favor, cierre la pestaña o cancele la descarga del archivo en uso e intente de nuevo.",
-                        StatusCodes.Status409Conflict);
-                }
-
                 var error = await response.Content.ReadAsStringAsync();
                 throw new InvalidOperationException(
                     $"Upload falló [{(int)response.StatusCode}]: {error}");
@@ -104,7 +159,24 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                 ? idProp.GetString()
                 : null;
 
-            return new SharePointUploadResultDto { WebUrl = webUrl, ItemId = itemId };
+            return (new SharePointUploadResultDto { WebUrl = webUrl, ItemId = itemId }, false);
+        }
+
+        private async Task<SharePointUploadResultDto?> UploadStreamAsync(
+            string token,
+            string uploadUrl,
+            Stream fileStream,
+            string contentType)
+        {
+            var (result, locked) = await TryUploadOnceAsync(token, uploadUrl, fileStream, contentType);
+
+            if (locked)
+                throw new AbrilException(
+                    "No se puede guardar el archivo porque ya existe un archivo con el mismo nombre que está abierto o en uso. " +
+                    "Por favor, cierre la pestaña o cancele la descarga del archivo en uso e intente de nuevo.",
+                    StatusCodes.Status409Conflict);
+
+            return result;
         }
 
         private async Task<string> EnsureSiteIdAsync(string token, SharePointSiteRef site)

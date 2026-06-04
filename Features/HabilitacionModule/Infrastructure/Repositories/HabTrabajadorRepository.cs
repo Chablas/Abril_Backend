@@ -449,6 +449,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             await ctx.SaveChangesAsync();
+
+            if ((esAprobacion || esRechazo) && (entregable.ItemId == HabItemIds.Sctr || entregable.ItemId == HabItemIds.VidaLey))
+            {
+                try
+                {
+                    await SincronizarPolizasSctrVidaLeyAsync(entregable.WorkerId, entregable.ItemId, ctx);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[SincronizarPolizas] Error sincronizando póliza workerId={WorkerId} itemId={ItemId}", entregable.WorkerId, entregable.ItemId);
+                }
+            }
+
             return entregable;
         }
 
@@ -1110,6 +1123,38 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ctx.SsHabTrabajador.AddRange(nuevos);
                 await ctx.SaveChangesAsync();
             }
+        }
+
+        private static async Task SincronizarPolizasSctrVidaLeyAsync(int workerId, int itemId, AppDbContext ctx)
+        {
+            var tipo = itemId == HabItemIds.VidaLey ? "VIDA_LEY" : "SCTR";
+            int itemIdTipo = tipo == "SCTR" ? 11 : 13;
+
+            var polizas = await ctx.SsSctrVidaley
+                .Where(sv => (sv.Estado == "Enviado" || sv.Estado == "Aprobado")
+                          && sv.Tipo == tipo
+                          && ctx.SsSctrVidaLeyWorker.Any(svw => svw.SctrVidaLeyId == sv.Id && svw.WorkerId == workerId))
+                .ToListAsync();
+
+            foreach (var poliza in polizas)
+            {
+                var countEnviados = await ctx.SsSctrVidaLeyWorker
+                    .Where(svw => svw.SctrVidaLeyId == poliza.Id)
+                    .Join(ctx.SsHabTrabajador,
+                          svw => svw.WorkerId,
+                          ht => ht.WorkerId,
+                          (svw, ht) => ht)
+                    .CountAsync(ht => ht.ItemId == itemIdTipo && ht.Estado == "Enviado");
+
+                var nuevoEstado = countEnviados > 0 ? "Enviado" : "Aprobado";
+                if (poliza.Estado != nuevoEstado)
+                {
+                    poliza.Estado = nuevoEstado;
+                    poliza.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            await ctx.SaveChangesAsync();
         }
 
         private static bool CsvContiene(string? csv, string? valor)

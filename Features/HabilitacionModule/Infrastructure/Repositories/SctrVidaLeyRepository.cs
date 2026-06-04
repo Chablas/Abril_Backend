@@ -127,6 +127,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (item is not null)
             {
                 var hoyUtc = DateTime.UtcNow.Date;
+                var estadosResultantes = new List<string>(workersDistinct.Count);
                 foreach (var workerInput in workersDistinct)
                 {
                     if (!esAbril && dto.TipoPoliza == "Renovacion")
@@ -141,6 +142,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             habVigente.Estado = "En revision";
                             habVigente.ArchivoUrl = dto.ArchivoUrl;
                             habVigente.UpdatedAt = DateTime.UtcNow;
+                            estadosResultantes.Add("En revision");
                             continue;
                         }
                     }
@@ -169,7 +171,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         hab.ArchivoUrl = dto.ArchivoUrl;
                         hab.UpdatedAt = DateTime.UtcNow;
                     }
+                    estadosResultantes.Add(estadoHab);
                 }
+
+                if (!esAbril)
+                {
+                    var hayEnviados   = estadosResultantes.Any(e => e == "Enviado");
+                    var hayEnRevision = estadosResultantes.Any(e => e == "En revision");
+                    entity.Estado = hayEnviados   ? "Enviado"
+                                  : hayEnRevision ? "En revision"
+                                  : "Aprobado";
+                }
+
                 await ctx.SaveChangesAsync();
             }
 
@@ -473,7 +486,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             await ctx.SaveChangesAsync();
 
-            // Estado de la póliza — solo 2 estados: Enviado o Aprobado
+            // Estado de la póliza — prioridad: Enviado > En revision > Aprobado
             var workersDePoliza = await ctx.SsSctrVidaLeyWorker
                 .Where(w => w.SctrVidaLeyId == id)
                 .Select(w => w.WorkerId)
@@ -482,12 +495,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             string nuevoEstado = "Aprobado";
             if (item is not null && workersDePoliza.Count > 0)
             {
-                var pendientes = await ctx.SsHabTrabajador
+                var countEnviado = await ctx.SsHabTrabajador
                     .Where(h => h.ItemId == item.Id
                              && workersDePoliza.Contains(h.WorkerId)
-                             && (h.Estado == "Enviado" || h.Estado == "En revision"))
+                             && h.Estado == "Enviado")
                     .CountAsync();
-                if (pendientes > 0) nuevoEstado = "Enviado";
+
+                var countEnRevision = await ctx.SsHabTrabajador
+                    .Where(h => h.ItemId == item.Id
+                             && workersDePoliza.Contains(h.WorkerId)
+                             && h.Estado == "En revision")
+                    .CountAsync();
+
+                nuevoEstado = countEnviado > 0 ? "Enviado"
+                            : countEnRevision > 0 ? "En revision"
+                            : "Aprobado";
             }
 
             entity.Estado = nuevoEstado;

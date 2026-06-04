@@ -1,7 +1,9 @@
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.Paso.Dtos;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Ssoma.Paso.Services;
@@ -9,10 +11,12 @@ namespace Abril_Backend.Features.Ssoma.Paso.Services;
 public class PasoService : IPasoService
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
+    private readonly ISharePointHabService _sharePoint;
 
-    public PasoService(IDbContextFactory<AppDbContext> factory)
+    public PasoService(IDbContextFactory<AppDbContext> factory, ISharePointHabService sharePoint)
     {
         _factory = factory;
+        _sharePoint = sharePoint;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -769,15 +773,25 @@ public class PasoService : IPasoService
         return MapEjecucion(ejecucion, new Dictionary<int, string>());
     }
 
-    public async Task<PasoEjecucionDto> SubirEvidenciaAsync(int ejecucionId, SubirEvidenciaRequest req, int userId)
+    public async Task<PasoEjecucionDto> SubirEvidenciaAsync(int ejecucionId, IFormFile file, int userId)
     {
         using var ctx = _factory.CreateDbContext();
-        var ejecucion = await ctx.SsomaPasoEjecuciones.FindAsync(ejecucionId)
+        var ejecucion = await ctx.SsomaPasoEjecuciones
+            .Include(e => e.Actividad).ThenInclude(a => a.Paso)
+            .FirstOrDefaultAsync(e => e.Id == ejecucionId)
             ?? throw new KeyNotFoundException("Ejecución no encontrada.");
 
-        ejecucion.EvidenciaNombre = req.EvidenciaNombre;
-        ejecucion.EvidenciaUrl = req.EvidenciaUrl;
-        ejecucion.EvidenciaSpId = req.EvidenciaSpId;
+        var actividad = ejecucion.Actividad;
+        var paso = actividad.Paso;
+        var carpetaPath = $"PASO/{paso.Anio}/{paso.ProyectoId}/{actividad.Id}";
+
+        string evidenciaUrl;
+        using (var stream = file.OpenReadStream())
+            evidenciaUrl = await _sharePoint.SubirArchivoEnRutaAsync(stream, file.FileName, "paso-evidencias", carpetaPath);
+
+        ejecucion.EvidenciaNombre = file.FileName;
+        ejecucion.EvidenciaUrl = evidenciaUrl;
+        ejecucion.EvidenciaSpId = null;
         ejecucion.RegistradoPor = userId;
         ejecucion.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();

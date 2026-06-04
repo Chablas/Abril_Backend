@@ -36,6 +36,9 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 !t.Used &&
                 t.ExpiresAt > DateTime.UtcNow
             );
+            if (tokenEntity == null)
+                return null;
+
             var dto = new UserPasswordTokenDTO
             {
                 UserId = tokenEntity.UserId,

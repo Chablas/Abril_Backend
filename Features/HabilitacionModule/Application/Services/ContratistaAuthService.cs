@@ -55,14 +55,34 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                     .ThenInclude(c => c.Contributor)
                 .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State);
 
-            if (contractorEmail is null)
-                throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
+            Contractor? contractor;
+            Contributor? contributor;
+
+            if (contractorEmail is not null)
+            {
+                contractor  = contractorEmail.Contractor;
+                contributor = contractor.Contributor;
+            }
+            else
+            {
+                var contractorId = (await ctx.SsContratistaUsuarios
+                    .FirstOrDefaultAsync(cu => cu.UserId == user.UserId && cu.Activo))
+                    ?.ContractorId;
+
+                if (contractorId == null)
+                    throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
+
+                contractor = await ctx.Contractor
+                    .Include(c => c.Contributor)
+                    .FirstOrDefaultAsync(c => c.ContributorId == contractorId)
+                    ?? throw new AbrilException("Empresa no encontrada.", 401);
+
+                contributor = contractor.Contributor
+                    ?? throw new AbrilException("Empresa no encontrada.", 401);
+            }
 
             var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
-            var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
-
-            var contractor = contractorEmail.Contractor;
-            var contributor = contractor.Contributor;
+            var systemRoleIds   = await GetSystemRoleIdsAsync(ctx, user.UserId);
 
             var usuarioContratista = await ctx.SsContratistaUsuarios
                 .Include(u => u.Proyectos)

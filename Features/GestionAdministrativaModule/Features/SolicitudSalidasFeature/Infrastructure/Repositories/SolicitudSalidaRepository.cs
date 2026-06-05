@@ -65,11 +65,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
 
             if (filters != null)
             {
-                if (!string.IsNullOrWhiteSpace(filters.EstadoAprobacion))
-                    query = query.Where(s => s.EstadoAprobacion == filters.EstadoAprobacion);
+                var aprobId = EstadosSalida.Aprobacion.IdFromNombre(filters.EstadoAprobacion);
+                if (aprobId.HasValue)
+                    query = query.Where(s => s.EstadoAprobacionId == aprobId.Value);
 
-                if (!string.IsNullOrWhiteSpace(filters.EstadoRendicion))
-                    query = query.Where(s => s.EstadoRendicion == filters.EstadoRendicion);
+                var rendId = EstadosSalida.Rendicion.IdFromNombre(filters.EstadoRendicion);
+                if (rendId.HasValue)
+                    query = query.Where(s => s.EstadoRendicionId == rendId.Value);
 
                 if (filters.LugarProyectoId.HasValue)
                 {
@@ -137,8 +139,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     LugarOrigen  = first?.LugarOrigen,
                     LugarDestino = last?.LugarDestino,
                     TrayectosCount   = trList.Count,
-                    EstadoAprobacion = s.EstadoAprobacion,
-                    EstadoRendicion  = s.EstadoRendicion,
+                    EstadoAprobacion = EstadosSalida.Aprobacion.Nombre(s.EstadoAprobacionId),
+                    EstadoRendicion  = EstadosSalida.Rendicion.Nombre(s.EstadoRendicionId),
                     CreatedAt        = s.CreatedAt,
                 });
             }
@@ -167,11 +169,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var now = DateTimeOffset.UtcNow;
             var solicitud = new GaSolicitudSalida
             {
-                WorkerId         = solicitante.Id,
-                FechaSalida      = dto.FechaSalida,
-                EstadoAprobacion = "Pendiente",
-                EstadoRendicion  = "No rendido",
-                RegistradoPorId  = userId,
+                WorkerId           = solicitante.Id,
+                FechaSalida        = dto.FechaSalida,
+                EstadoAprobacionId = EstadosSalida.Aprobacion.Pendiente,
+                EstadoRendicionId  = EstadosSalida.Rendicion.NoRendido,
+                RegistradoPorId    = userId,
                 CreatedAt        = now,
                 UpdatedAt        = now,
             };
@@ -223,8 +225,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         {
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId);
-            if (s == null || s.EstadoAprobacion != "Pendiente") return null;
-            s.EstadoAprobacion = "Aprobado";
+            if (s == null || s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente) return null;
+            s.EstadoAprobacionId = EstadosSalida.Aprobacion.Aprobado;
             s.FechaDecision    = DateTimeOffset.UtcNow;
             s.UpdatedAt        = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
@@ -235,8 +237,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         {
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId);
-            if (s == null || s.EstadoAprobacion != "Pendiente") return null;
-            s.EstadoAprobacion = "Rechazado";
+            if (s == null || s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente) return null;
+            s.EstadoAprobacionId = EstadosSalida.Aprobacion.Rechazado;
             s.MotivoRechazo    = string.IsNullOrWhiteSpace(motivoRechazo) ? null : motivoRechazo.Trim();
             s.FechaDecision    = DateTimeOffset.UtcNow;
             s.UpdatedAt        = DateTimeOffset.UtcNow;
@@ -259,7 +261,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 .Where(s => s.Id == solicitudId && s.WorkerId == workerInfo.Id)
                 .Select(s => new
                 {
-                    s.Id, s.FechaSalida, s.EstadoAprobacion, s.EstadoRendicion,
+                    s.Id, s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId,
                     s.CreatedAt, s.MotivoRechazo
                 })
                 .FirstOrDefaultAsync();
@@ -356,8 +358,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             {
                 Id               = solicitud.Id,
                 FechaSalida      = solicitud.FechaSalida,
-                EstadoAprobacion = solicitud.EstadoAprobacion,
-                EstadoRendicion  = solicitud.EstadoRendicion,
+                EstadoAprobacion = EstadosSalida.Aprobacion.Nombre(solicitud.EstadoAprobacionId),
+                EstadoRendicion  = EstadosSalida.Rendicion.Nombre(solicitud.EstadoRendicionId),
                 CreatedAt        = solicitud.CreatedAt,
                 MotivoRechazo    = solicitud.MotivoRechazo,
                 Trayectos        = trayectosListado,
@@ -408,8 +410,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 join per in ctx.Person          on w.PersonId    equals (int?)per.PersonId
                 where t.Id == trayectoId
                    && per.UserId == userId
-                   && s.EstadoAprobacion == "Aprobado"
-                   && s.EstadoRendicion  == "No rendido"
+                   && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+                   && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido
                 select t
             ).FirstOrDefaultAsync();
         }

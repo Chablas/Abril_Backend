@@ -198,7 +198,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
         // ── Generación de la planilla de gasto por movilidad (QuestPDF) ──────
 
-        private const int FilasPorPagina = 10;
+        private const int FilasPorPagina = 15;
+
+        /// <summary>Tamaño de letra de las celdas de la tabla — reducido para que entren 15 filas/página.</summary>
+        private const float TablaFontSize = 7.5f;
+
+        /// <summary>Máximo de líneas que puede ocupar el texto de una celda de la tabla.</summary>
+        private const int TablaMaxLineas = 2;
 
         private static string LogoPath() => Path.Combine(
             AppContext.BaseDirectory,
@@ -292,7 +298,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             container.Column(col =>
             {
-                col.Spacing(10);
+                col.Spacing(6);
 
                 // ── Header: logo izquierda + caja título derecha ─────────────
                 col.Item().Row(row =>
@@ -316,9 +322,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 });
 
                 // ── Info section ─────────────────────────────────────────────
-                col.Item().PaddingTop(5).Column(info =>
+                col.Item().PaddingTop(3).Column(info =>
                 {
-                    info.Spacing(4);
+                    info.Spacing(2);
 
                     info.Item().Element(c => InfoLine(c, "RAZÓN SOCIAL:", razonSocial));
 
@@ -338,7 +344,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 });
 
                 // ── Tabla ────────────────────────────────────────────────────
-                col.Item().PaddingTop(10).Table(table =>
+                col.Item().PaddingTop(6).Table(table =>
                 {
                     table.ColumnsDefinition(c =>
                     {
@@ -352,29 +358,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     table.Header(h =>
                     {
                         static IContainer Th(IContainer c) => c.Border(1).Background(Colors.Grey.Lighten4)
-                            .PaddingVertical(6).AlignCenter().AlignMiddle();
-                        h.Cell().Element(Th).Text("FECHA").Bold();
-                        h.Cell().Element(Th).Text("MOTIVO").Bold();
-                        h.Cell().Element(Th).Text("ORIGEN").Bold();
-                        h.Cell().Element(Th).Text("DESTINO").Bold();
-                        h.Cell().Element(Th).Text("IMPORTE S/").Bold();
+                            .PaddingVertical(3).AlignCenter().AlignMiddle();
+                        h.Cell().Element(Th).Text("FECHA").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("MOTIVO").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("ORIGEN").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("DESTINO").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("IMPORTE S/").Bold().FontSize(TablaFontSize);
                     });
 
-                    static IContainer Td(IContainer c) => c.Border(1).PaddingVertical(5).PaddingHorizontal(4).AlignMiddle();
+                    static IContainer Td(IContainer c) => c.Border(1).PaddingVertical(2).PaddingHorizontal(4).AlignMiddle();
+
+                    // Texto de celda recortado a un máximo de 2 líneas (evita "textazos").
+                    static void CeldaTexto(IContainer c, string value, bool center = false) =>
+                        (center ? c.AlignCenter() : c)
+                            .Text(value ?? "").FontSize(TablaFontSize).ClampLines(TablaMaxLineas);
 
                     foreach (var it in pageItems)
                     {
-                        table.Cell().Element(Td).AlignCenter().Text(it.FechaSalida.ToString("dd/MM/yyyy"));
-                        table.Cell().Element(Td).Text(it.Motivo ?? "");
-                        table.Cell().Element(Td).Text(it.LugarOrigen ?? "");
-                        table.Cell().Element(Td).Text(it.LugarDestino ?? "");
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.FechaSalida.ToString("dd/MM/yyyy"), center: true));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.Motivo ?? ""));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarOrigen ?? ""));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarDestino ?? ""));
                         // Importe: mostrar siempre que venga del catálogo (incluso si es 0.00)
                         // o cuando la suma de capturas sea > 0. Si el trayecto no tiene
                         // ninguna fuente, dejar la celda vacía.
                         table.Cell().Element(Td).AlignRight().Text(
                             (it.EsCatalogo || it.Importe > 0)
                                 ? it.Importe.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))
-                                : "");
+                                : "").FontSize(TablaFontSize);
                     }
 
                     if (isLastPage)
@@ -395,7 +406,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 // ── Firmas (solo última página del trabajador) ───────────────
                 if (isLastPage)
                 {
-                    col.Item().PaddingTop(40).Row(row =>
+                    col.Item().PaddingTop(24).Row(row =>
                     {
                         row.RelativeItem().AlignCenter().Column(fc =>
                         {
@@ -421,10 +432,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         {
             container.Row(r =>
             {
-                r.ConstantItem(170).AlignMiddle().Text(label).Bold().FontSize(10);
+                r.ConstantItem(155).AlignMiddle().Text(label).Bold().FontSize(9);
                 r.RelativeItem().BorderBottom(0.6f).BorderColor(Colors.Grey.Darken1)
-                    .PaddingBottom(2).AlignMiddle()
-                    .Text(value ?? "").FontSize(10);
+                    .PaddingBottom(1).AlignMiddle()
+                    .Text(value ?? "").FontSize(9);
             });
         }
 

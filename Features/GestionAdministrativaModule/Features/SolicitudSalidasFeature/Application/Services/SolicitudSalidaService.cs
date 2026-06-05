@@ -595,7 +595,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     where s.Id == solicitudId
                     select new
                     {
-                        s.Id, s.FechaSalida, s.EstadoAprobacion, s.WorkerId,
+                        s.Id, s.FechaSalida, s.EstadoAprobacionId, s.WorkerId,
                         Nombre = p != null ? (p.FullName ?? "Trabajador") : "Trabajador",
                         Email  = u != null ? u.Email : null,
                     }
@@ -606,9 +606,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     _logger.LogWarning("NotifySolicitanteAprobada: solicitud {SolicitudId} no encontrada.", solicitudId);
                     return;
                 }
-                if (info.EstadoAprobacion != "Aprobado")
+                if (info.EstadoAprobacionId != EstadosSalida.Aprobacion.Aprobado)
                 {
-                    _logger.LogWarning("NotifySolicitanteAprobada: solicitud {SolicitudId} no está en estado Aprobado (estado actual: {Estado}). Email no enviado.", solicitudId, info.EstadoAprobacion);
+                    _logger.LogWarning("NotifySolicitanteAprobada: solicitud {SolicitudId} no está en estado Aprobado (estado actual: {Estado}). Email no enviado.", solicitudId, EstadosSalida.Aprobacion.Nombre(info.EstadoAprobacionId));
                     return;
                 }
                 if (string.IsNullOrWhiteSpace(info.Email))

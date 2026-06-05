@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.Paso.Dtos;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
@@ -179,7 +180,7 @@ public class PasoService : IPasoService
 
         var total = await query.CountAsync();
         var pasos = await query
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
             .OrderByDescending(p => p.CreatedAt)
             .Skip((q.Page - 1) * q.PageSize)
@@ -211,9 +212,9 @@ public class PasoService : IPasoService
     {
         using var ctx = _factory.CreateDbContext();
         var paso = await ctx.SsomaPasos
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Categoria)
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
             .FirstOrDefaultAsync(p => p.Id == id);
 
@@ -306,7 +307,7 @@ public class PasoService : IPasoService
     {
         using var ctx = _factory.CreateDbContext();
         var paso = await ctx.SsomaPasos
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
             .FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new KeyNotFoundException("PASO no encontrado.");
@@ -331,7 +332,7 @@ public class PasoService : IPasoService
     {
         using var ctx = _factory.CreateDbContext();
         var paso = await ctx.SsomaPasos
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
             .FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new KeyNotFoundException("PASO no encontrado.");
@@ -357,7 +358,7 @@ public class PasoService : IPasoService
     {
         using var ctx = _factory.CreateDbContext();
         var plantilla = await ctx.SsomaPasos
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
             .FirstOrDefaultAsync(p => p.Id == plantillaId)
             ?? throw new KeyNotFoundException("Plantilla no encontrada.");
 
@@ -413,9 +414,9 @@ public class PasoService : IPasoService
     {
         using var ctx = _factory.CreateDbContext();
         var paso = await ctx.SsomaPasos
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Categoria)
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
             .FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new KeyNotFoundException("PASO no encontrado.");
@@ -464,9 +465,9 @@ public class PasoService : IPasoService
     {
         using var ctx = _factory.CreateDbContext();
         var paso = await ctx.SsomaPasos
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Categoria)
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
             .FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new KeyNotFoundException("PASO no encontrado.");
@@ -524,9 +525,9 @@ public class PasoService : IPasoService
 
         var pasos = await ctx.SsomaPasos
             .Where(p => !p.EsPlantilla && p.Anio == anioFiltro && p.ProyectoId != null && proyectosOperativos.Contains(p.ProyectoId!.Value))
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
-            .Include(p => p.Actividades.Where(a => a.Activo))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Categoria)
             .ToListAsync();
 
@@ -721,12 +722,38 @@ public class PasoService : IPasoService
         return MapActividad(act, personas);
     }
 
-    public async Task DeleteActividadAsync(int id)
+    public async Task DeleteActividadAsync(int id, string motivo, int userId)
     {
         using var ctx = _factory.CreateDbContext();
         var act = await ctx.SsomaPasoActividades.FindAsync(id)
             ?? throw new KeyNotFoundException("Actividad no encontrada.");
+
+        var valorAnterior = JsonSerializer.Serialize(new
+        {
+            act.Id, act.PasoId, act.CategoriaId, act.Nombre, act.Descripcion,
+            act.Alcance, act.Frecuencia, act.ResponsableId, act.ResponsableTexto,
+            act.MesInicio, act.MesFin, act.CantidadPlanificada, act.Horas,
+            act.Recursos, act.Indicador, act.Meta, act.Orden, act.Activo
+        });
+
         act.Activo = false;
+        act.DeletedAt = DateTime.UtcNow;
+        act.DeletedBy = userId;
+        act.MotivoEliminacion = motivo;
+
+        ctx.SsomaPasoAuditorias.Add(new SsomaPasoAuditoria
+        {
+            Tipo = "ELIMINACION",
+            Entidad = "ACTIVIDAD",
+            EntidadId = id,
+            PasoId = act.PasoId,
+            Descripcion = act.Nombre,
+            Motivo = motivo,
+            ValorAnterior = valorAnterior,
+            UsuarioId = userId,
+            CreatedAt = DateTime.UtcNow
+        });
+
         await ctx.SaveChangesAsync();
     }
 
@@ -779,17 +806,37 @@ public class PasoService : IPasoService
     public async Task<PasoEjecucionDto> ReprogramarEjecucionAsync(int id, ReprogramarEjecucionRequest req, int userId)
     {
         using var ctx = _factory.CreateDbContext();
-        var ejecucion = await ctx.SsomaPasoEjecuciones.FindAsync(id)
+        var ejecucion = await ctx.SsomaPasoEjecuciones
+            .Include(e => e.Actividad)
+            .FirstOrDefaultAsync(e => e.Id == id)
             ?? throw new KeyNotFoundException("Ejecución no encontrada.");
 
         if (ejecucion.Estado == "Ejecutado")
             throw new InvalidOperationException("No se puede reprogramar una ejecución ya ejecutada.");
+
+        var fechaAnterior = ejecucion.FechaProgramada;
+        var estadoAnterior = ejecucion.Estado;
 
         ejecucion.FechaReprogramada = req.NuevaFecha;
         ejecucion.MotivoReprogramacion = req.Motivo;
         ejecucion.Estado = "Reprogramado";
         ejecucion.RegistradoPor = userId;
         ejecucion.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+
+        ctx.SsomaPasoAuditorias.Add(new SsomaPasoAuditoria
+        {
+            Tipo = "REPROGRAMACION",
+            Entidad = "EJECUCION",
+            EntidadId = ejecucion.Id,
+            PasoId = ejecucion.Actividad.PasoId,
+            Descripcion = ejecucion.Actividad.Nombre,
+            Motivo = req.Motivo,
+            ValorAnterior = JsonSerializer.Serialize(new { FechaProgramada = fechaAnterior, Estado = estadoAnterior }),
+            ValorNuevo = JsonSerializer.Serialize(new { ejecucion.FechaReprogramada, ejecucion.Estado }),
+            UsuarioId = userId,
+            CreatedAt = DateTime.UtcNow
+        });
         await ctx.SaveChangesAsync();
 
         return MapEjecucion(ejecucion, new Dictionary<int, string>());
@@ -821,6 +868,133 @@ public class PasoService : IPasoService
         return MapEjecucion(ejecucion, new Dictionary<int, string>());
     }
 
+    // ── Auditoría ─────────────────────────────────────────────────────────────
+
+    public async Task<List<PasoAuditoriaDto>> GetAuditoriaAsync(int actividadId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsomaPasoAuditorias
+            .Where(a => a.EntidadId == actividadId && a.Entidad == "ACTIVIDAD")
+            .OrderByDescending(a => a.CreatedAt)
+            .Select(a => new PasoAuditoriaDto
+            {
+                Id = a.Id,
+                Tipo = a.Tipo,
+                Descripcion = a.Descripcion,
+                Motivo = a.Motivo,
+                ValorAnterior = a.ValorAnterior,
+                ValorNuevo = a.ValorNuevo,
+                UsuarioId = a.UsuarioId,
+                CreatedAt = a.CreatedAt.ToString("dd/MM/yyyy HH:mm")
+            })
+            .ToListAsync();
+    }
+
+    // ── Resumen Mes ───────────────────────────────────────────────────────────
+
+    public async Task<PasoResumenMesDto> GetResumenMesAsync(int id, int anio, int mes)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var fechaInicio = new DateOnly(anio, mes, 1);
+        var fechaFin = new DateOnly(anio, mes, DateTime.DaysInMonth(anio, mes));
+        var paso = await ctx.SsomaPasos
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
+                .ThenInclude(a => a.Categoria)
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
+                .ThenInclude(a => a.Ejecuciones.Where(e => e.FechaProgramada >= fechaInicio && e.FechaProgramada <= fechaFin))
+            .FirstOrDefaultAsync(p => p.Id == id)
+            ?? throw new KeyNotFoundException("PASO no encontrado.");
+
+        string[] nombresMes = { "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre" };
+        string NombreMes() => mes >= 1 && mes <= 12 ? nombresMes[mes] : "";
+        PasoResumenMesDto Vacio() => new() { Anio = anio, Mes = mes, NombreMes = NombreMes(),
+            Seguridad = new(), Salud = new(), Ambiente = new(), Actividades = new() };
+
+        // ── Calcular mes del ciclo ────────────────────────────────────────────
+        // El ciclo comienza en paso.MesInicio del año:
+        //   - Si MesInicio > 6 (segunda mitad): el ciclo arranca en Anio-1
+        //   - Si MesInicio <= 6 (primera mitad): arranca en Anio
+        int cicloStartYear = paso.MesInicio > 6 ? paso.Anio - 1 : paso.Anio;
+        int cicloStartAbs  = cicloStartYear * 12 + paso.MesInicio - 1; // meses absolutos 0-base
+        int cicloEndAbs    = cicloStartAbs + 11;
+        int requestedAbs   = anio * 12 + mes - 1;
+
+        // PROBLEMA 3: fecha solicitada fuera del ciclo → resumen vacío
+        if (requestedAbs < cicloStartAbs || requestedAbs > cicloEndAbs)
+            return Vacio();
+
+        int mesCiclo = requestedAbs - cicloStartAbs + 1; // 1-based (1=primer mes del ciclo)
+
+        // ── Filtrar actividades para este mes del ciclo ───────────────────────
+        // PROBLEMA 1+2: filtrar por mes del ciclo, no por mes calendario.
+        // Actividades "Unica" solo se incluyen si tienen ejecución real este mes.
+        var actividadesEnMes = paso.Actividades
+            .Where(act => act.Frecuencia == "Unica"
+                ? act.Ejecuciones.Any()
+                : act.MesInicio <= mesCiclo && act.MesFin >= mesCiclo)
+            .OrderBy(a => a.Categoria?.Ambito)
+            .ThenBy(a => a.Orden ?? 999)
+            .ToList();
+
+        var items = actividadesEnMes.Select(act =>
+        {
+            var ej = act.Ejecuciones.FirstOrDefault();
+            return new PasoResumenMesActividadDto
+            {
+                ActividadId = act.Id,
+                Nombre = act.Nombre,
+                CategoriaNombre = act.Categoria?.Nombre ?? "",
+                CategoriaAmbito = act.Categoria?.Ambito ?? "",
+                Frecuencia = act.Frecuencia,
+                EjecucionId = ej?.Id,
+                FechaProgramada = ej?.FechaProgramada,
+                Estado = ej is null ? "SinProgramar" : ej.Estado,
+                FechaEjecutada = ej?.FechaEjecutada,
+                Observaciones = ej?.Observaciones,
+                EvidenciaNombre = ej?.EvidenciaNombre,
+                EvidenciaUrl = ej?.EvidenciaUrl
+            };
+        }).ToList();
+
+        // totalProgramadas = TODAS las actividades del mes del ciclo (tengan o no ejecución)
+        var totalProgramadas = items.Count;
+        var completadas = items.Count(i => i.Estado == "Ejecutado");
+        var pendientes  = items.Count(i => i.Estado == "Programado" || i.Estado == "SinProgramar");
+        var vencidas    = items.Count(i => i.Estado == "Vencido");
+        int porcentajeAvance = totalProgramadas > 0
+            ? (int)Math.Round((double)completadas / totalProgramadas * 100)
+            : 0;
+
+        PasoResumenMesAmbitoDto CalcAmbito(string ambito)
+        {
+            var f = items.Where(i => i.CategoriaAmbito.Equals(ambito, StringComparison.OrdinalIgnoreCase)).ToList();
+            return new PasoResumenMesAmbitoDto
+            {
+                Programadas = f.Count,
+                Completadas = f.Count(i => i.Estado == "Ejecutado"),
+                Pendientes  = f.Count(i => i.Estado == "Programado" || i.Estado == "SinProgramar"),
+                Vencidas    = f.Count(i => i.Estado == "Vencido")
+            };
+        }
+
+        return new PasoResumenMesDto
+        {
+            Anio = anio,
+            Mes = mes,
+            NombreMes = NombreMes(),
+            TotalProgramadas = totalProgramadas,
+            Completadas = completadas,
+            Pendientes = pendientes,
+            Vencidas = vencidas,
+            PorcentajeAvance = porcentajeAvance,
+            Seguridad = CalcAmbito("Seguridad"),
+            Salud = CalcAmbito("Salud"),
+            Ambiente = CalcAmbito("Ambiente"),
+            Actividades = items
+        };
+    }
+
     // ── Cron ─────────────────────────────────────────────────────────────────
 
     public async Task ProcesarCronAsync()
@@ -846,7 +1020,7 @@ public class PasoService : IPasoService
     {
         var actividades = await ctx.SsomaPasoActividades
             .Include(a => a.Paso)
-            .Where(a => a.Activo
+            .Where(a => a.Activo && a.DeletedAt == null
                 && a.Paso.Estado == "Activo"
                 && !a.Paso.EsPlantilla
                 && a.Paso.Anio == anio

@@ -1,6 +1,6 @@
 # CONTEXT_SSOMA.md — SSOMA Intelligence Platform
 
-> Última actualización: 2026-06-03 — PASO construido y en producción. 17 endpoints api/v1/ssoma-paso. PasoFeature en Features/SsomaModule/PasoFeature/. Registrado en SsomaModule.cs como IPasoService.
+> Última actualización: 2026-06-05 — PASO en producción. 20 endpoints api/v1/ssoma-paso. Soft delete auditado + tabla ssoma_paso_auditoria. Resumen mensual con lógica de ciclo correcta. PasoFeature en Features/SsomaModule/PasoFeature/. Registrado en SsomaModule.cs como IPasoService.
 > Pegar este archivo al inicio de cada chat nuevo cuando se trabaje en este módulo.
 
 ---
@@ -132,13 +132,38 @@ CREATE TABLE ssoma_paso_actividad (
     categoria_id INT NOT NULL REFERENCES ssoma_paso_categoria(id),
     nombre VARCHAR(300) NOT NULL,
     descripcion TEXT,
+    alcance TEXT,
     frecuencia VARCHAR(20) NOT NULL, -- Mensual | Bimestral | Trimestral | Semestral | Anual | Unica
     responsable_id INT REFERENCES app_user(id),
-    mes_inicio INT NOT NULL DEFAULT 1,  -- 1-12
-    mes_fin INT NOT NULL DEFAULT 12,    -- 1-12
+    responsable_texto VARCHAR(200),
+    mes_inicio INT NOT NULL DEFAULT 1,  -- 1-12 (mes del CICLO, no calendario)
+    mes_fin INT NOT NULL DEFAULT 12,    -- 1-12 (mes del CICLO)
     cantidad_planificada INT NOT NULL DEFAULT 1,
+    horas DECIMAL(8,2),
+    recursos TEXT,
+    indicador VARCHAR(300) NOT NULL DEFAULT 'N° Actividades Ejecutadas/N°Programadas*100',
+    meta VARCHAR(100) NOT NULL DEFAULT '100%',
     orden INT,
-    activo BOOLEAN NOT NULL DEFAULT TRUE
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Soft delete auditado (agregar con ALTER TABLE si tabla ya existe)
+    deleted_at TIMESTAMP,
+    deleted_by INT,
+    motivo_eliminacion TEXT
+);
+
+-- Auditoría de cambios PASO
+CREATE TABLE ssoma_paso_auditoria (
+    id SERIAL PRIMARY KEY,
+    tipo VARCHAR(50) NOT NULL,          -- ELIMINACION | REPROGRAMACION
+    entidad VARCHAR(50) NOT NULL,       -- ACTIVIDAD | EJECUCION
+    entidad_id INT NOT NULL,
+    paso_id INT NOT NULL,
+    descripcion TEXT,
+    motivo TEXT,
+    valor_anterior JSONB,
+    valor_nuevo JSONB,
+    usuario_id INT,
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Ejecuciones (instancias mensuales generadas por cronjob + registradas manualmente)
@@ -159,23 +184,23 @@ CREATE TABLE ssoma_paso_ejecucion (
 );
 ```
 
-### 3.12 Implementación backend — estado actual (2026-06-03)
+### 3.12 Implementación backend — estado actual (2026-06-05)
 
 **Ubicación:**
 ```
 Features/SsomaModule/PasoFeature/
-  Entities/SsomaPasoEntities.cs         — 4 entidades EF
+  Entities/SsomaPasoEntities.cs         — 5 entidades EF (+ SsomaPasoAuditoria)
   Dtos/SsomaPasoDtos.cs                 — todos los DTOs y requests
-  Services/IPasoService.cs              — interfaz 18 métodos
+  Services/IPasoService.cs              — interfaz 21 métodos
   Services/PasoService.cs               — implementación completa
-  PasoController.cs                     — 17 endpoints
+  PasoController.cs                     — 20 endpoints
 ```
 
 **Namespaces:** `Abril_Backend.Features.Ssoma.Paso.*`
 
 **Registro DI:** `SsomaModule.cs` → `services.AddScoped<IPasoService, PasoService>()`
 
-**AppDbContext:** DbSets `SsomaPasoCategorias`, `SsomaPasos`, `SsomaPasoActividades`, `SsomaPasoEjecuciones`. Relaciones en `OnModelCreating` (HasMany/WithOne/HasForeignKey).
+**AppDbContext:** DbSets `SsomaPasoCategorias`, `SsomaPasos`, `SsomaPasoActividades`, `SsomaPasoEjecuciones`, `SsomaPasoAuditorias`. Tabla `ssoma_paso_auditoria` mapeada en `ConfigurePostgreSQL` con `HasColumnName` explícito + jsonb para `valor_anterior`/`valor_nuevo`.
 
 **Helpers implementados en PasoService (private static):**
 - `CalcularSpi(plan, ejec)` → `plan==0 ? 1m : Round(ejec/plan, 2)`
@@ -183,37 +208,55 @@ Features/SsomaModule/PasoFeature/
 - `EsMesPlanificado(frec, mes, mesInicio)` → diff=mes-mesInicio; Mensual/Bimestral/Trimestral/Semestral/Anual/Unica
 - `AjustarMes(mesOrig, mesInicioPlantilla, mesInicioInstancia)` → offset circular mod 12
 
+**Lógica de ciclo (CRÍTICA):**
+- Cada PASO tiene `Anio` y `MesInicio`. Las actividades tienen `MesInicio`/`MesFin` en meses del CICLO (1-12), NO en meses calendario.
+- Mes 1 del ciclo = mes `MesInicio` del calendario. Ejemplo: PASO anio=2026, mes_inicio=12 → mes 1 ciclo = diciembre 2025.
+- Cálculo: `cicloStartYear = MesInicio > 6 ? Anio - 1 : Anio`
+- `mesCiclo = (anio*12 + mes - 1) - (cicloStartYear*12 + MesInicio - 1) + 1`
+- Si fecha solicitada está fuera del ciclo de 12 meses → retorna resumen vacío.
+
+**Soft delete actividades:**
+- `ssoma_paso_actividad` tiene `deleted_at`, `deleted_by`, `motivo_eliminacion`.
+- `DeleteActividadAsync(id, motivo, userId)` → setea `Activo=false` + `DeletedAt` + inserta en `ssoma_paso_auditoria`.
+- Todos los queries filtran `a.Activo && a.DeletedAt == null`.
+
 **Endpoints implementados (`api/v1/ssoma-paso`):**
 ```
-GET    /categorias                  → catálogo activo, order ambito/nombre
-GET    /dashboard?anio=             → KPIs consolidados, SPI, por proyecto
-GET    /alertas                     → Vencido OR (Programado con fecha <= hoy+7)
-GET    /cron/procesar               → [AllowAnonymous] + CronSecret. Marca vencidas + día 1 genera ejecuciones
-GET    /                            → lista paginada con filtros
-GET    /{id}                        → detalle con actividades ordenadas por ambito/orden + SPI
-POST   /                            → crear PASO/plantilla
-PUT    /{id}                        → editar (solo Borrador)
-PATCH  /{id}/aprobar                → plantilla→"Aprobado", instancia→"Activo"
-POST   /{id}/instanciar             → clona plantilla con AjustarMes para mes_inicio/mes_fin
-GET    /{id}/gantt                  → 12 meses por actividad, EsMesPlanificado + ejecución del mes
-GET    /{id}/spi                    → SPI general + por ambito (Seguridad/Salud/Ambiente/SSOMA)
-POST   /actividad                   → nueva actividad
-PUT    /actividad/{id}              → editar actividad
-DELETE /actividad/{id}              → soft delete (activo=false)
-POST   /ejecucion                   → upsert por (actividad_id, fecha_programada). FechaVerificacion=último día mes
-PATCH  /ejecucion/{id}/reprogramar  → 400 si ya Ejecutado
-PATCH  /ejecucion/{id}/evidencia    → nombre/url/sp_id
+GET    /categorias                      → catálogo activo, order ambito/nombre
+GET    /dashboard?anio=                 → KPIs consolidados, SPI, por proyecto
+GET    /alertas                         → Vencido OR (Programado con fecha <= hoy+7)
+GET    /cron/procesar                   → [AllowAnonymous] + CronSecret. Marca vencidas + día 1 genera ejecuciones
+GET    /                                → lista paginada con filtros
+GET    /{id}                            → detalle con actividades + SPI
+POST   /                                → crear PASO/plantilla
+PUT    /{id}                            → editar (solo Borrador)
+PATCH  /{id}/aprobar                    → plantilla→"Aprobado", instancia→"Activo"
+POST   /{id}/instanciar                 → clona plantilla con AjustarMes para mes_inicio/mes_fin
+GET    /{id}/gantt                      → 12 meses por actividad, EsMesPlanificado + ejecución del mes
+GET    /{id}/spi                        → SPI general + por ambito (Seguridad/Salud/Ambiente/SSOMA)
+GET    /{id}/resumen-mes?anio=&mes=     → resumen mensual con lógica de ciclo + actividades por estado
+POST   /actividad                       → nueva actividad
+PUT    /actividad/{id}                  → editar actividad
+DELETE /actividad/{id}                  → soft delete + motivo (body: EliminarActividadRequest) + auditoría
+GET    /actividad/{id}/auditoria        → historial de cambios de la actividad
+POST   /ejecucion                       → upsert por (actividad_id, fecha_programada). FechaVerificacion=último día mes
+PATCH  /ejecucion/{id}/reprogramar      → 400 si ya Ejecutado + auditoría
+PATCH  /ejecucion/{id}/evidencia        → nombre/url/sp_id
 ```
 
-**Tablas pendientes de crear manualmente en BD:**
+**Tablas pendientes de crear/alterar manualmente en BD:**
 ```sql
 -- Ver sección 3.4 para DDL completo
 CREATE TABLE ssoma_paso_categoria (...);
-CREATE TABLE ssoma_paso (...);          -- mes_inicio INT NOT NULL DEFAULT 1 (campo adicional al DDL original)
-CREATE TABLE ssoma_paso_actividad (...); -- alcance TEXT, responsable_texto VARCHAR, horas DECIMAL, recursos TEXT, indicador, meta
-CREATE TABLE ssoma_paso_ejecucion (...); -- fecha_verificacion DATE, fecha_reprogramada DATE, motivo_reprogramacion TEXT, evidencia_sp_id
+CREATE TABLE ssoma_paso (...);
+CREATE TABLE ssoma_paso_actividad (...);
+ALTER TABLE ssoma_paso_actividad ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+ALTER TABLE ssoma_paso_actividad ADD COLUMN IF NOT EXISTS deleted_by INT;
+ALTER TABLE ssoma_paso_actividad ADD COLUMN IF NOT EXISTS motivo_eliminacion TEXT;
+CREATE TABLE ssoma_paso_ejecucion (...);
+CREATE TABLE ssoma_paso_auditoria (...);  -- ver DDL en sección 3.4
 ```
-Nota: la migración EF NO se generó (restricción del blueprint). Crear tablas manualmente.
+Nota: la migración EF NO se generó (restricción del blueprint). Crear/alterar tablas manualmente.
 
 ---
 

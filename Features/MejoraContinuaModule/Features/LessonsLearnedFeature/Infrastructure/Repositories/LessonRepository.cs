@@ -1,6 +1,8 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Helpers;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -25,22 +27,25 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IFileStorageService _fileStorageService;
         private readonly IStorageContainerResolver _containerResolver;
+        private readonly ILessonJefeResolver _jefeResolver;
 
         public LessonRepository(
             IDbContextFactory<AppDbContext> factory,
             IFileStorageService fileStorageService,
-            IStorageContainerResolver containerResolver)
+            IStorageContainerResolver containerResolver,
+            ILessonJefeResolver jefeResolver)
         {
             _factory = factory;
             _fileStorageService = fileStorageService;
             _containerResolver = containerResolver;
+            _jefeResolver = jefeResolver;
         }
 
         // ──────────────────────────────────────────────────────────────────
         // SELECTORES
         // ──────────────────────────────────────────────────────────────────
 
-        public async Task<LessonDetailDTO?> GetByIdAsync(int id)
+        public async Task<LessonDetailDTO?> GetByIdAsync(int id, int currentUserId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -57,6 +62,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
                 join person in ctx.Person on user.UserId equals person.UserId into pe
                 from person in pe.DefaultIfEmpty()
+
+                join ruser in ctx.User on lesson.ReviewedByUserId equals ruser.UserId into rus
+                from ruser in rus.DefaultIfEmpty()
+                join rperson in ctx.Person on ruser.UserId equals rperson.UserId into rpe
+                from rperson in rpe.DefaultIfEmpty()
 
                 join state in ctx.State on lesson.StateId equals state.StateId
 
@@ -79,6 +89,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     CatalogItemId = lesson.CatalogItemId,
                     StateId = lesson.StateId,
                     StateDescription = state.StateDescription,
+                    ApprovalStatus = lesson.ApprovalStatus,
+                    RejectionComment = lesson.RejectionComment,
+                    ReviewedByFullName = rperson != null ? rperson.FullName : null,
                     CreatedDateTime = lesson.CreatedDateTime,
                     CreatedUserId = lesson.CreatedUserId,
                     CreatedUserFullName = person != null ? person.FullName : null,
@@ -89,6 +102,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             ).FirstOrDefaultAsync();
 
             if (registro == null) return null;
+
+            // CanReview: el usuario actual puede aprobar/rechazar si es el Jefe del
+            // autor y la lección está PENDIENTE.
+            if (registro.ApprovalStatus == "PENDIENTE" && registro.CreatedUserId != currentUserId)
+            {
+                var jefeUserId = await _jefeResolver.ResolveJefeUserIdAsync(registro.CreatedUserId);
+                registro.CanReview = jefeUserId.HasValue && jefeUserId.Value == currentUserId;
+            }
 
             registro.Images = await (
                 from img in ctx.LessonImages
@@ -127,7 +148,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? userId,
             int page,
             int pageSize)
-            => GetLessonsFilterPagedInternal(periodDate, stateId, projectId, areaId, userId, null, page, pageSize);
+            => GetLessonsFilterPagedInternal(periodDate, stateId, projectId, areaId, userId, null, null, false, 0, page, pageSize);
 
         private async Task<PagedResult<LessonListDTO>> GetLessonsFilterPagedInternal(
             DateTimeOffset? periodDate,
@@ -136,6 +157,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? areaId,
             int? userId,
             List<int>? catalogItemIds,
+            string? approvalStatus,
+            bool onlyMyPendingReview,
+            int currentUserId,
             int page,
             int pageSize)
         {
@@ -148,6 +172,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             if (projectId.HasValue) query = query.Where(x => x.ProjectId == projectId.Value);
             if (areaId.HasValue) query = query.Where(x => x.LessonAreaId == areaId.Value);
             if (userId.HasValue) query = query.Where(x => x.CreatedUserId == userId.Value);
+            if (!string.IsNullOrWhiteSpace(approvalStatus)) query = query.Where(x => x.ApprovalStatus == approvalStatus);
+
+            // "Pendientes de mi revisión": lecciones PENDIENTES de los subordinados
+            // (autores cuyo Jefe es el usuario actual).
+            if (onlyMyPendingReview)
+            {
+                var subordinateUserIds = await _jefeResolver.GetSubordinateUserIdsAsync(currentUserId);
+                if (subordinateUserIds.Count == 0)
+                    return new PagedResult<LessonListDTO> { Page = page, PageSize = pageSize, TotalRecords = 0, TotalPages = 0, Data = new List<LessonListDTO>() };
+                query = query.Where(x => x.ApprovalStatus == "PENDIENTE" && subordinateUserIds.Contains(x.CreatedUserId));
+            }
 
             // Filtro por catalog_item_ids: una lección matchea si TODOS los
             // catalog_item_ids seleccionados aparecen en el ancestor chain del
@@ -235,6 +270,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     CatalogItemId = lesson.CatalogItemId,
                     StateId = lesson.StateId,
                     StateDescription = state.StateDescription,
+                    ApprovalStatus = lesson.ApprovalStatus,
                     CreatedDateTime = lesson.CreatedDateTime,
                     CreatedUserId = lesson.CreatedUserId,
                     CreatedUserFullName = person != null ? person.FullName : null,
@@ -270,6 +306,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             var paged = await GetLessonsFilterPagedInternal(
                 filter.PeriodDate, filter.StateId, filter.ProjectId,
                 filter.AreaId, filter.UserId, filter.CatalogItemIds,
+                filter.ApprovalStatus, filter.OnlyMyPendingReview, filter.CurrentUserId,
                 filter.Page, pageSize);
 
             // ── Filters dropdowns ───────────────────────────────────────────
@@ -496,6 +533,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     CatalogItemId = lesson.CatalogItemId,
                     StateId = lesson.StateId,
                     StateDescription = state.StateDescription,
+                    ApprovalStatus = lesson.ApprovalStatus,
                     CreatedDateTime = lesson.CreatedDateTime,
                     CreatedUserId = lesson.CreatedUserId,
                     CreatedUserFullName = person != null ? person.FullName : null,
@@ -539,6 +577,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 CatalogItemId = catalogItemId,
                 LessonAreaId = dto.LessonAreaId,
                 StateId = 2,
+                ApprovalStatus = "PENDIENTE",
                 CreatedDateTime = now,
                 CreatedUserId = userId,
                 UpdatedDateTime = null,
@@ -580,6 +619,110 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 );
 
             await ctx.SaveChangesAsync();
+            return true;
+        }
+
+        public Task<LessonReviewResultDTO> ApproveAsync(int lessonId, int currentUserId)
+            => SetReviewAsync(lessonId, currentUserId, approved: true, comment: null);
+
+        public Task<LessonReviewResultDTO> RejectAsync(int lessonId, int currentUserId, string? comment)
+            => SetReviewAsync(lessonId, currentUserId, approved: false, comment: comment);
+
+        /// <summary>
+        /// Aprueba o rechaza una lección. Solo el Jefe del autor puede hacerlo y solo
+        /// mientras esté PENDIENTE. Devuelve el contacto del autor para notificarle.
+        /// </summary>
+        private async Task<LessonReviewResultDTO> SetReviewAsync(int lessonId, int currentUserId, bool approved, string? comment)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var lesson = await ctx.Lesson.FirstOrDefaultAsync(l => l.LessonId == lessonId && l.State);
+            if (lesson == null) throw new AbrilException("Lección no encontrada.", 404);
+            if (lesson.ApprovalStatus != "PENDIENTE")
+                throw new AbrilException("La lección ya fue revisada.", 400);
+
+            var jefeUserId = await _jefeResolver.ResolveJefeUserIdAsync(lesson.CreatedUserId);
+            if (!jefeUserId.HasValue || jefeUserId.Value != currentUserId)
+                throw new AbrilException("No tienes permiso para revisar esta lección.", 403);
+
+            lesson.ApprovalStatus = approved ? "APROBADA" : "RECHAZADA";
+            lesson.RejectionComment = approved ? null : comment;
+            lesson.ReviewedByUserId = currentUserId;
+            lesson.ReviewedAt = DateTimeOffset.UtcNow;
+            lesson.UpdatedDateTime = DateTimeOffset.UtcNow;
+            lesson.UpdatedUserId = currentUserId;
+            await ctx.SaveChangesAsync();
+
+            var contact = await (
+                from u in ctx.User
+                join p in ctx.Person on u.UserId equals p.UserId into pe
+                from p in pe.DefaultIfEmpty()
+                where u.UserId == lesson.CreatedUserId
+                select new { u.Email, FullName = p != null ? p.FullName : null }
+            ).FirstOrDefaultAsync();
+
+            return new LessonReviewResultDTO
+            {
+                LessonId = lesson.LessonId,
+                LessonCode = lesson.LessonCode,
+                CreatorEmail = contact?.Email,
+                CreatorFullName = contact?.FullName
+            };
+        }
+
+        /// <summary>
+        /// Edición de una lección (solo el autor). Al guardar, la lección vuelve a
+        /// PENDIENTE y se limpia la revisión previa.
+        /// </summary>
+        public async Task<bool> UpdateAsync(int lessonId, LessonUpdateDTO dto, int currentUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var lesson = await ctx.Lesson.FirstOrDefaultAsync(l => l.LessonId == lessonId && l.State);
+            if (lesson == null) throw new AbrilException("Lección no encontrada.", 404);
+            if (lesson.CreatedUserId != currentUserId)
+                throw new AbrilException("Solo el autor puede editar la lección.", 403);
+
+            int? catalogItemId = dto.CatalogItemId > 0 ? dto.CatalogItemId : null;
+            if (catalogItemId.HasValue)
+            {
+                var exists = await ctx.CatalogItem.AnyAsync(c => c.CatalogItemId == catalogItemId.Value && c.Active);
+                if (!exists) throw new AbrilException("Escoger una relación válida.", 400);
+            }
+
+            lesson.ProblemDescription = dto.ProblemDescription;
+            lesson.ReasonDescription = dto.ReasonDescription;
+            lesson.LessonDescription = dto.LessonDescription;
+            lesson.ImpactDescription = dto.ImpactDescription;
+            lesson.ProjectId = dto.ProjectId;
+            lesson.AreaId = dto.AreaId;
+            lesson.CatalogItemId = catalogItemId;
+            lesson.LessonAreaId = dto.LessonAreaId;
+            // Editar devuelve la lección a revisión.
+            lesson.ApprovalStatus = "PENDIENTE";
+            lesson.ReviewedByUserId = null;
+            lesson.ReviewedAt = null;
+            lesson.RejectionComment = null;
+            lesson.UpdatedDateTime = DateTimeOffset.UtcNow;
+            lesson.UpdatedUserId = currentUserId;
+            await ctx.SaveChangesAsync();
+
+            // Imágenes: quitar las marcadas y agregar las nuevas.
+            if (dto.RemovedImageIds != null && dto.RemovedImageIds.Count > 0)
+            {
+                await ctx.LessonImages
+                    .Where(x => x.LessonId == lessonId && x.State && dto.RemovedImageIds.Contains(x.LessonImageId))
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(x => x.State, false)
+                        .SetProperty(x => x.Active, false)
+                        .SetProperty(x => x.UpdatedDateTime, DateTime.UtcNow)
+                        .SetProperty(x => x.UpdatedUserId, currentUserId));
+            }
+            if (dto.OpportunityImages?.Any() == true)
+                await SaveImagesAsync(dto.OpportunityImages, lessonId, 1, ctx);
+            if (dto.ImprovementImages?.Any() == true)
+                await SaveImagesAsync(dto.ImprovementImages, lessonId, 2, ctx);
+
             return true;
         }
 

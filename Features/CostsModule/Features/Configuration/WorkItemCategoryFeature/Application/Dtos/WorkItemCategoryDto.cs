@@ -7,6 +7,20 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         public int    SortOrder               { get; set; }
     }
 
+    public class WorkItemCategoryAnexo3ClauseDto
+    {
+        public int    WorkItemCategoryAnexo3ClauseId { get; set; }
+        public string ClauseText                     { get; set; } = null!;
+        public int    SortOrder                      { get; set; }
+    }
+
+    public class WorkItemCategoryAnexo4ClauseDto
+    {
+        public int    WorkItemCategoryAnexo4ClauseId { get; set; }
+        public string ClauseText                     { get; set; } = null!;
+        public int    SortOrder                      { get; set; }
+    }
+
     public class WorkItemCategoryDto
     {
         public int WorkItemCategoryId { get; set; }
@@ -21,6 +35,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         public int? InstructivosSyncStatus { get; set; }
         public DateTime? InstructivosSyncedAt { get; set; }
         public List<WorkItemCategoryClauseDto> Clauses { get; set; } = [];
+        public List<WorkItemCategoryAnexo3ClauseDto> Anexo3Clauses { get; set; } = [];
+        public List<WorkItemCategoryAnexo4ClauseDto> Anexo4Clauses { get; set; } = [];
     }
 
     public class WorkItemCategorySyncResultDto

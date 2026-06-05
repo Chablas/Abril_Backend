@@ -43,7 +43,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public int? GuaranteeFundDays { get; set; }
         public int? GuaranteeValidityDays { get; set; }
 
-        /// <summary>Cláusulas especiales de la partida de control, ordenadas por SortOrder.</summary>
+        /// <summary>Cláusulas especiales de la partida de control (9.x / 7.x), ordenadas por SortOrder.</summary>
         public List<string> SpecialClauses { get; set; } = [];
+
+        /// <summary>Cláusulas de Anexo 3 (Suministro) de la partida de control, ordenadas por SortOrder.</summary>
+        public List<string> SpecialClausesAnexo3 { get; set; } = [];
+
+        /// <summary>Cláusulas de Anexo 4 (Suministro) de la partida de control, ordenadas por SortOrder.</summary>
+        public List<string> SpecialClausesAnexo4 { get; set; } = [];
     }
 }

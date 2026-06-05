@@ -30,6 +30,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
         public int StateId { get; set; }
         public string StateDescription { get; set; } = string.Empty;
+        /// <summary>PENDIENTE | APROBADA | RECHAZADA (flujo de aprobación por jefatura).</summary>
+        public string ApprovalStatus { get; set; } = "PENDIENTE";
         public List<LessonImageDTO>? Images { get; set; }
 
         public DateTimeOffset CreatedDateTime { get; set; }

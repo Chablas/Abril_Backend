@@ -1839,6 +1839,18 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     .OrderBy(c => c.SortOrder)
                     .Select(c => c.ClauseText)
                     .ToListAsync();
+
+                data.SpecialClausesAnexo3 = await ctx.WorkItemCategoryAnexo3Clause
+                    .Where(c => c.WorkItemCategoryId == wicId && c.State)
+                    .OrderBy(c => c.SortOrder)
+                    .Select(c => c.ClauseText)
+                    .ToListAsync();
+
+                data.SpecialClausesAnexo4 = await ctx.WorkItemCategoryAnexo4Clause
+                    .Where(c => c.WorkItemCategoryId == wicId && c.State)
+                    .OrderBy(c => c.SortOrder)
+                    .Select(c => c.ClauseText)
+                    .ToListAsync();
             }
 
             return data;

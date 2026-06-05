@@ -30,6 +30,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
         public int StateId { get; set; }
         public string StateDescription { get; set; } = string.Empty;
+
+        // ── Aprobación por jefatura ──────────────────────────────────────────
+        public string ApprovalStatus { get; set; } = "PENDIENTE";
+        public string? RejectionComment { get; set; }
+        public string? ReviewedByFullName { get; set; }
+        /// <summary>
+        /// True si el usuario que consulta es el Jefe del autor Y la lección está
+        /// PENDIENTE (es decir, puede Aprobar/Rechazar). Lo calcula el backend.
+        /// </summary>
+        public bool CanReview { get; set; }
+
         public List<LessonImageDTO>? Images { get; set; }
 
         public DateTimeOffset CreatedDateTime { get; set; }

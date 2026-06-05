@@ -98,76 +98,62 @@ namespace Abril_Backend.Application.Services
         {
             var today = DateTime.UtcNow.AddHours(-5);
             //var today = new DateTime(2026, 6, 26);
-            if (IsInFirstDayOfMonth(today))
-            {
-                Console.WriteLine("⏰ Recordatorio mensual a supervisores ejecutado");
-                await NotifySupervisorsAboutPendingLessonsAsync(today);
-                Console.WriteLine("📧 Recordatorios enviados correctamente");
-            }
-            else
-            {
-                Console.WriteLine("Hoy no corresponde enviar recordatorios de notificación a supervisores");
-            }
 
-            if (IsInLastFiveBusinessDays(today))
+            // Ventana de los últimos 5 días hábiles del mes:
+            //   • Días 1–3: recordatorio para subir lecciones.
+            //   • Día 4: reporte de quién NO subió su lección (antes salía el 1er día del mes).
+            //   • Días 4–5: ventana de revisión de la jefatura (Aprobar/Rechazar en la app;
+            //     no hay correo automático adicional — esos correos los dispara la acción del jefe).
+            var ordinal = LastFiveBusinessDayOrdinal(today);
+
+            if (ordinal >= 1 && ordinal <= 3)
             {
-                Console.WriteLine("⏰ Recordatorio mensual para subir lecciones aprendidas ejecutado");
+                Console.WriteLine($"⏰ Día {ordinal}/5 hábil final: recordatorio para subir lecciones aprendidas");
                 // Pasamos `today` (puede estar simulado) para que el período del filtro,
                 // el periodLabel del correo y el canal de staff sean consistentes.
                 await SendLessonsLearnedMonthlyRemindersAsync(today);
                 Console.WriteLine("📧 Recordatorios enviados correctamente");
-
-                // este deberia ejecutarse el ultimo dia laborable del mes
-                /*Console.WriteLine("⏰ Recordatorio mensual de cronograma de hitos ejecutado");
-                await SendMilestoneScheduleMonthlyReminderAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
-
-                /*Console.WriteLine("⏰ Recordatorio mensual para subir cronograma de hitos ejecutado");
-                await SendMilestoneScheduleHistoryMonthlyRemindersAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
+            }
+            else if (ordinal == 4)
+            {
+                Console.WriteLine("⏰ Día 4/5 hábil final: reporte de usuarios sin lección (mes actual)");
+                await NotifySupervisorsAboutPendingLessonsAsync(today);
+                Console.WriteLine("📧 Reporte enviado correctamente");
+            }
+            else if (ordinal == 5)
+            {
+                Console.WriteLine("⏰ Día 5/5 hábil final: ventana de revisión de jefatura (sin correo automático)");
             }
             else
             {
-                Console.WriteLine("Hoy no corresponde enviar recordatorios de lecciones ni cronogramas");
+                Console.WriteLine("Hoy no corresponde enviar recordatorios de lecciones");
             }
             return false;
         }
 
-        private bool IsInFirstDayOfMonth(DateTime date)
-        {
-            var firstDay = new DateTime(date.Year, date.Month, 1);
-
-            if (firstDay.DayOfWeek == DayOfWeek.Saturday)
-                firstDay = firstDay.AddDays(2);
-
-            else if (firstDay.DayOfWeek == DayOfWeek.Sunday)
-                firstDay = firstDay.AddDays(1);
-
-            return date.Date == firstDay.Date;
-        }
-
-        private bool IsInLastFiveBusinessDays(DateTime date)
+        /// <summary>
+        /// Ordinal de <paramref name="date"/> dentro de los últimos 5 días hábiles del
+        /// mes: 1 = el más temprano de los 5, 5 = el último día hábil. 0 si la fecha no
+        /// cae en esa ventana.
+        /// </summary>
+        private int LastFiveBusinessDayOrdinal(DateTime date)
         {
             var year = date.Year;
             var month = date.Month;
-
             var lastDay = new DateTime(year, month, DateTime.DaysInMonth(year, month));
 
+            // businessDays[0] = último hábil del mes; businessDays[4] = el más temprano de los 5.
             var businessDays = new List<DateTime>();
-
             for (var d = lastDay; d.Month == month; d = d.AddDays(-1))
             {
-                if (d.DayOfWeek != DayOfWeek.Saturday &&
-                    d.DayOfWeek != DayOfWeek.Sunday)
-                {
+                if (d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday)
                     businessDays.Add(d);
-                }
-
-                if (businessDays.Count == 5)
-                    break;
+                if (businessDays.Count == 5) break;
             }
 
-            return businessDays.Any(d => d.Date == date.Date);
+            var idx = businessDays.FindIndex(d => d.Date == date.Date);
+            if (idx < 0) return 0;
+            return businessDays.Count - idx; // idx 0 (último hábil) → 5 ; idx 4 → 1
         }
 
         public async Task SendLessonsLearnedMonthlyRemindersAsync(DateTime executionDate)
@@ -343,10 +329,11 @@ namespace Abril_Backend.Application.Services
 
         public async Task NotifySupervisorsAboutPendingLessonsAsync(DateTime executionDate)
         {
-            var previousMonthDate = executionDate.AddMonths(-1);
-            var periodLabel = previousMonthDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
+            // Se mueve del 1er día del mes al día 4 de los últimos 5 hábiles → reporta el MES ACTUAL.
+            var targetMonthDate = executionDate;
+            var periodLabel = targetMonthDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
 
-            var pendingUserProjects = await _lessonReminderRepository.GetUsersWithoutLessonsByPeriod(previousMonthDate);
+            var pendingUserProjects = await _lessonReminderRepository.GetUsersWithoutLessonsByPeriod(targetMonthDate);
 
             if (!pendingUserProjects.Any())
                 return;

@@ -16,6 +16,16 @@ namespace Abril_Backend.Infrastructure.Models {
         /// <summary>Rama seleccionada en lecciones (modelo nuevo). Nullable para no romper lecciones viejas.</summary>
         public int? LessonAreaId {get; set;}
         public int StateId {get; set;}
+
+        // ── Flujo de aprobación por jefatura ────────────────────────────────
+        /// <summary>PENDIENTE | APROBADA | RECHAZADA. Las lecciones nuevas nacen PENDIENTE.</summary>
+        public string ApprovalStatus {get; set;} = "PENDIENTE";
+        /// <summary>user_id del jefe que aprobó/rechazó (null si aún pendiente).</summary>
+        public int? ReviewedByUserId {get; set;}
+        public DateTimeOffset? ReviewedAt {get; set;}
+        /// <summary>Comentario del jefe al rechazar (opcional).</summary>
+        public string? RejectionComment {get; set;}
+
         public DateTimeOffset CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}
         public DateTimeOffset? UpdatedDateTime {get; set;}

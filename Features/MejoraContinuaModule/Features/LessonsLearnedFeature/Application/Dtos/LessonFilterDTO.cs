@@ -14,6 +14,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         /// aparecen en el ancestor chain (scope_item) de su catalog_item.
         /// </summary>
         public List<int>? CatalogItemIds { get; set; }
+        /// <summary>Filtro por estado de aprobación: PENDIENTE | APROBADA | RECHAZADA.</summary>
+        public string? ApprovalStatus { get; set; }
+        /// <summary>Si true, solo lecciones PENDIENTES cuyo autor tiene como Jefe al usuario actual.</summary>
+        public bool OnlyMyPendingReview { get; set; }
+        /// <summary>user_id del usuario que consulta (para "pendientes de mi revisión").</summary>
+        public int CurrentUserId { get; set; }
         public int Page { get; set; } = 1;
         public int PageSize { get; set; } = 10;
     }

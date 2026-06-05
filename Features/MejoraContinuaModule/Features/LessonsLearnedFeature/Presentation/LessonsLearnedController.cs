@@ -1,3 +1,4 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.ScopeFeature.Application.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
@@ -35,6 +36,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? areaId,
             [FromQuery] int? userId,
             [FromQuery] string? catalogItemIds,
+            [FromQuery] string? approvalStatus,
+            [FromQuery] bool onlyMyPendingReview,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
@@ -63,6 +66,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     AreaId = areaId,
                     UserId = userId,
                     CatalogItemIds = parsedCatalogIds,
+                    ApprovalStatus = approvalStatus,
+                    OnlyMyPendingReview = onlyMyPendingReview,
+                    CurrentUserId = int.Parse(userIdClaim.Value),
                     Page = page,
                     PageSize = pageSize
                 };
@@ -84,6 +90,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? areaId,
             [FromQuery] int? userId,
             [FromQuery] string? catalogItemIds,
+            [FromQuery] string? approvalStatus,
+            [FromQuery] bool onlyMyPendingReview,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
@@ -113,6 +121,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     AreaId = areaId,
                     UserId = userId,
                     CatalogItemIds = parsedCatalogIds,
+                    ApprovalStatus = approvalStatus,
+                    OnlyMyPendingReview = onlyMyPendingReview,
+                    CurrentUserId = int.Parse(userIdClaim.Value),
                     Page = page,
                     PageSize = pageSize
                 };
@@ -143,6 +154,76 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     return BadRequest(new { message = "Escoger una relación válida" });
 
                 return Ok(new { message = "Lección creada exitosamente" });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("{id}")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> Update(int id, [FromForm] LessonUpdateDTO dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _lessonService.UpdateAsync(id, dto, userId);
+                return Ok(new { message = "Lección actualizada exitosamente" });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("{id}/approve")]
+        public async Task<IActionResult> Approve(int id)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _lessonService.ApproveAsync(id, userId);
+                return Ok(new { message = "Lección aprobada exitosamente" });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("{id}/reject")]
+        public async Task<IActionResult> Reject(int id, [FromBody] LessonRejectDTO? body)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _lessonService.RejectAsync(id, userId, body?.Comment);
+                return Ok(new { message = "Lección rechazada exitosamente" });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -204,7 +285,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
                 if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
-                var data = await _lessonService.GetByIdAsync(id);
+                var currentUserId = int.Parse(userIdClaim.Value);
+                var data = await _lessonService.GetByIdAsync(id, currentUserId);
                 if (data == null) return NotFound(new { message = "Lección no encontrada" });
                 return Ok(data);
             }

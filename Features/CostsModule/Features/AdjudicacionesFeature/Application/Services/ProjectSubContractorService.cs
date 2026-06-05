@@ -1220,13 +1220,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (!string.IsNullOrEmpty(plazoPalabras))
                 plazoPalabras = char.ToUpper(plazoPalabras[0]) + plazoPalabras[1..];
 
-            // Tipo de documento de garantía: con adelanto (PaymentMethodId == 2) incluye el pagaré
-            // con sus placeholders ya resueltos; en cualquier otra forma de pago, solo la letra.
+            // Tipo de documento de garantía:
+            //   • Con adelanto (PaymentMethodId == 2) Y de Suministro (ContractModalityId == 2):
+            //     Pagaré + Letra de Garantía + Carta de Fianza.
+            //   • Solo con adelanto (otra modalidad): Pagaré + Letra de Garantía.
+            //   • Sin adelanto: "-".
             var numPagareStr = data.PromissoryNoteNumber.HasValue
                 ? data.PromissoryNoteNumber.Value.ToString("D3")
                 : "";
+            var pagareRef = $"PAGARÉ N°{numPagareStr}{abreviaturaProyecto}-{DateTime.UtcNow.Year}";
             var tipoDocumentoGarantia = data.PaymentMethodId == 2
-                ? $"PAGARÉ N°{numPagareStr}{abreviaturaProyecto}-{DateTime.UtcNow.Year} Y LETRA DE GARANTÍA"
+                ? (data.ContractModalityId == 2
+                    ? $"{pagareRef}, LETRA DE GARANTÍA Y CARTA DE FIANZA"
+                    : $"{pagareRef} Y LETRA DE GARANTÍA")
                 : "-";
 
             // Cláusulas del numeral 5.1.x según la forma de pago (PaymentMethodId).
@@ -1242,10 +1248,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     ? "quincenales"
                     : "semanales";
 
+            // Modalidad SUMINISTRO (id 2): en el flujo sin adelanto, la cláusula de valorización se traslada
+            // al cierre de la 5.1 vía {{CLAUSULA_MONTO_TOTAL}}, por lo que 5.1.1 desaparece (lista vacía).
+            // Para las demás modalidades (Suministro e Instalación / Instalación) se mantiene el comportamiento previo.
+            var esSuministro = data.ContractModalityId == 2;
+
             List<string> clausulasAdelanto;
             if (data.PaymentMethodId == 2)
             {
-                // Contrato con adelanto → 5.1.1 (adelanto) y 5.1.2 (saldo)
+                // Contrato con adelanto → 5.1.1 (adelanto) y 5.1.2 (saldo). Igual para todas las modalidades.
                 clausulasAdelanto = new List<string>
                 {
                     $"Un adelanto **equivalente al {advancePercentageStr} del monto contractual**, que se otorgará en el mes de julio, " +
@@ -1259,15 +1270,46 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     "con la respectiva retención del fondo de garantía. Las valorizaciones se determinan a partir del inicio de los trabajos de obra."
                 };
             }
+            else if (esSuministro)
+            {
+                // Suministro sin adelanto → 5.1.1 NO aplica (su texto vive ahora en el cierre de {{CLAUSULA_MONTO_TOTAL}}).
+                clausulasAdelanto = new List<string>();
+            }
             else
             {
-                // Sin adelanto (u otra forma de pago) → única cláusula 5.1.1 de pago por valorizaciones
+                // Otras modalidades sin adelanto (Suministro e Instalación / Instalación) → única cláusula 5.1.1 de valorización.
                 clausulasAdelanto = new List<string>
                 {
                     $"Pago mediante valorizaciones {frecuenciaValorizacion}, pagaderas a los 7 días hábiles siguientes de recepcionada la factura " +
                     "y/o valorización correspondiente, debidamente emitida, con la respectiva retención del fondo de garantía. " +
                     "Las valorizaciones se determinan a partir del inicio de los trabajos en obra."
                 };
+            }
+
+            // {{CLAUSULA_MONTO_TOTAL}} — texto completo de la cláusula 5.1 (solo SUMINISTRO).
+            // Se pasa como multiParagraphReplacements (1 párrafo) para que los marcadores **negrita** funcionen.
+            // Para otras modalidades, lista vacía (el placeholder no existe en esas plantillas → no-op).
+            List<string> clausulaMontoTotalParagraphs;
+            if (esSuministro)
+            {
+                var palabrasSinMoneda = $"{palabras} con {centavos:D2}/100";
+
+                var cierre = data.PaymentMethodId == 2
+                    ? "de la siguiente forma:"
+                    : "acorde a los despachos establecidos en el Cronograma, mediante valorizaciones previa entrega del suministro, " +
+                      "lo cual deberá ser cancelado a los siete (7) días hábiles siguientes de brindada la conformidad de " +
+                      "**EL SUMINISTRADO** del producto entregado, siempre que no hubiese observaciones sobre el suministro.";
+
+                clausulaMontoTotalParagraphs = new List<string>
+                {
+                    $"El monto total del **CONTRATO DE SUMINISTRO** por el concepto de **{data.WorkItemDescription} EN {monedaMayuscula}** " +
+                    $"es de **{currencySymbol} {data.Amount:N2} ({palabrasSinMoneda})** incluido el I.G.V. " +
+                    $"(en adelante, **EL PRECIO**) que será cancelado {cierre}"
+                };
+            }
+            else
+            {
+                clausulaMontoTotalParagraphs = new List<string>();
             }
 
             // ── Valores de adelanto para la hoja resumen del contrato ─────────────
@@ -1382,6 +1424,24 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 ? new List<string> { $"• {advancePercentageStr} de adelanto del monto total con la firma de este contra letra de garantía y pagaré." }
                 : new List<string>();
 
+            // Cláusula 10.2 "De la carta fianza" — SOLO en contratos con adelanto (PaymentMethodId == 2).
+            // El marcador {{CARTA_FIANZA}} solo existe en la plantilla de Suministro; en las demás se ignora.
+            // Subrayado con __…__, negrita con **…**. Si la lista está vacía, el helper elimina el párrafo.
+            var clausulaCartaFianza = data.PaymentMethodId == 2
+                ? new List<string>
+                {
+                    "__De la carta fianza:__\n" +
+                    "• A efectos de garantizar cualquier gasto adicional en el que tenga que incurrir " +
+                    "**EL SUMINISTRADO** a causa de daños a terceros que hayan sido originados por observaciones " +
+                    "de **EL SUMINISTRO**, dentro del periodo de vigencia de la garantía, pudiendo ser multas " +
+                    "ante INDECOPI, trabajos de cambio total o parcial de **EL SUMINISTRO**, entre otros; " +
+                    "**EL SUMINISTRANTE** extenderá una carta fianza por el 20% por ciento del valor total de " +
+                    "**EL SUMINISTRO** equivalente al monto del adelanto, a favor de **EL SUMINISTRADO**; la misma " +
+                    "que podrá ser ejecutada de manera inmediata, en caso de acreditarse cualquiera de los supuestos " +
+                    "previstos para ello en el presente contrato."
+                }
+                : new List<string>();
+
             byte[] docBytes;
             using (var templateStream = File.OpenRead(templatePath))
                 docBytes = WordTemplateHelper.FillTemplate(
@@ -1391,7 +1451,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     {
                         { "{{CLÁUSULAS}}", clauseParagraphs },
                         { "{{CLÁUSULAS_ADELANTO}}", clausulasAdelanto },
-                        { "{{CLÁUSULA_ANEXO_3_PAGARÉ}}", clausulaAnexo3Pagare }
+                        { "{{CLÁUSULA_ANEXO_3_PAGARÉ}}", clausulaAnexo3Pagare },
+                        { "{{CLAUSULA_MONTO_TOTAL}}", clausulaMontoTotalParagraphs },
+                        // Cláusulas de Anexo 3 y Anexo 4 (Suministro). Solo existen en la plantilla de
+                        // Suministro; en las demás el marcador no aparece y simplemente se ignora.
+                        { "{{CLÁUSULAS_ANEXO_3_SUMINISTRO}}", data.SpecialClausesAnexo3.ToList() },
+                        { "{{CLÁUSULAS_ANEXO_4_SUMINISTRO}}", data.SpecialClausesAnexo4.ToList() },
+                        { "{{CARTA_FIANZA}}", clausulaCartaFianza }
                     });
 
             var pathData = new AdjudicacionPathDataDto

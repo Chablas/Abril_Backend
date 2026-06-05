@@ -42,6 +42,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule
             // LessonsLearned
             services.AddScoped<ILessonRepository, LessonRepository>();
             services.AddScoped<ILessonService, LessonService>();
+            services.AddScoped<ILessonJefeResolver, LessonJefeResolver>();
 
             // LessonAreas (filtro de areas habilitadas para Lecciones Aprendidas)
             services.AddScoped<ILessonAreaRepository, LessonAreaRepository>();

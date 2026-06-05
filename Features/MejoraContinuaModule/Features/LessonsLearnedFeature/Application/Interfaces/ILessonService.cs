@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 {
     public interface ILessonService
     {
-        Task<LessonDetailDTO?> GetByIdAsync(int id);
+        Task<LessonDetailDTO?> GetByIdAsync(int id, int currentUserId);
 
         Task<PagedResult<LessonListDTO>> GetLessonsFilterPaged(
             DateTimeOffset? periodDate,
@@ -26,6 +26,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? userId);
 
         Task<object?> CreateAsync(LessonCreateDTO dto, int userId);
+        Task<bool> UpdateAsync(int lessonId, LessonUpdateDTO dto, int currentUserId);
         Task<bool> DeleteSoftAsync(int lessonId, int userId);
+
+        Task ApproveAsync(int lessonId, int currentUserId);
+        Task RejectAsync(int lessonId, int currentUserId, string? comment);
     }
 }

@@ -63,6 +63,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Currency> Currency { get; set; }
         public DbSet<WorkItemCategory> WorkItemCategory { get; set; }
         public DbSet<WorkItemCategoryClause> WorkItemCategoryClause { get; set; }
+        public DbSet<WorkItemCategoryAnexo3Clause> WorkItemCategoryAnexo3Clause { get; set; }
+        public DbSet<WorkItemCategoryAnexo4Clause> WorkItemCategoryAnexo4Clause { get; set; }
         public DbSet<WorkItem> WorkItem { get; set; }
         public DbSet<ProjectSubContractor> ProjectSubContractor { get; set; }
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
@@ -509,6 +511,31 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(c => c.WorkItemCategoryId)
                 .IsRequired();
+            modelBuilder.Entity<WorkItemCategoryAnexo3Clause>(entity =>
+            {
+                // Mismo caso que Anexo4: la convención snake_case produce "work_item_category_anexo3clause"
+                // (sin guion antes de "clause" por el dígito 3). Forzamos los nombres con guion.
+                entity.ToTable("work_item_category_anexo3_clause");
+                entity.Property(e => e.WorkItemCategoryAnexo3ClauseId)
+                      .HasColumnName("work_item_category_anexo3_clause_id");
+                entity.HasOne(c => c.WorkItemCategory)
+                      .WithMany()
+                      .HasForeignKey(c => c.WorkItemCategoryId)
+                      .IsRequired();
+            });
+            modelBuilder.Entity<WorkItemCategoryAnexo4Clause>(entity =>
+            {
+                // La convención snake_case produce "work_item_category_anexo4clause" (no inserta guion
+                // antes de "clause" por el dígito 4). Forzamos los nombres con guion para que coincidan
+                // con la tabla/columna realmente creadas en la BD.
+                entity.ToTable("work_item_category_anexo4_clause");
+                entity.Property(e => e.WorkItemCategoryAnexo4ClauseId)
+                      .HasColumnName("work_item_category_anexo4_clause_id");
+                entity.HasOne(c => c.WorkItemCategory)
+                      .WithMany()
+                      .HasForeignKey(c => c.WorkItemCategoryId)
+                      .IsRequired();
+            });
             modelBuilder.Entity<MilestoneSchedule>(entity =>
             {
                 entity.Property(e => e.Order).HasColumnName("milestone_schedule_order");

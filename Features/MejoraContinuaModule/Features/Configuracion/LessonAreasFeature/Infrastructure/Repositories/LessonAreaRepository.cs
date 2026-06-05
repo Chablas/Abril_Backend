@@ -48,6 +48,20 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             var lessonAreas = await ctx.LessonArea.ToListAsync();
             var laByScopeId = lessonAreas.ToDictionary(l => l.AreaScopeId);
 
+            // Nodos que tienen hijos (para habilitar "Agrupar subáreas").
+            var nodesWithChildren = scopeNodes
+                .Where(n => n.AreaScopeParentId.HasValue)
+                .Select(n => n.AreaScopeParentId!.Value)
+                .ToHashSet();
+
+            // lesson_area_ids con plantilla (scope_item activo) — para habilitar "En formulario".
+            var scopeLessonAreaIds = (await ctx.ScopeItem
+                .Where(si => si.Active)
+                .Select(si => si.LessonAreaId)
+                .Distinct()
+                .ToListAsync())
+                .ToHashSet();
+
             var result = new List<LessonAreaConfigItemDTO>();
             foreach (var node in scopeNodes)
             {
@@ -71,10 +85,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 laByScopeId.TryGetValue(node.AreaScopeId, out var la);
                 result.Add(new LessonAreaConfigItemDTO
                 {
-                    LessonAreaId = la?.LessonAreaId,
-                    AreaScopeId  = node.AreaScopeId,
-                    Path         = path,
-                    Active       = la != null && la.Active
+                    LessonAreaId       = la?.LessonAreaId,
+                    AreaScopeId        = node.AreaScopeId,
+                    Path               = path,
+                    Active             = la != null && la.Active,
+                    IncludeInForm      = la != null && la.IncludeInForm,
+                    IncludeDescendants = la != null && la.IncludeDescendants,
+                    HasScope           = la != null && scopeLessonAreaIds.Contains(la.LessonAreaId),
+                    HasChildren        = nodesWithChildren.Contains(node.AreaScopeId)
                 });
             }
 
@@ -85,9 +103,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         }
 
         /// <summary>
-        /// Igual que GetAllAsync pero filtrado: solo devuelve ramas que están ACTIVAS
-        /// (lesson_area.active=true) Y tienen al menos un scope_item configurado.
-        /// Esto se usa en el dropdown de "Área" al crear una lección.
+        /// Áreas que aparecen en el FORMULARIO de creación de lecciones: ACTIVAS
+        /// (lesson_area.active=true), marcadas para el formulario (include_in_form=true)
+        /// Y con al menos un scope_item configurado (plantilla). Esto se usa en el
+        /// dropdown de "Área" al crear una lección.
         /// </summary>
         public async Task<List<LessonAreaConfigItemDTO>> GetAllWithScopeAsync()
         {
@@ -101,7 +120,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 .ToListAsync();
 
             var activeLessonAreas = await ctx.LessonArea
-                .Where(la => la.Active && validLessonAreaIds.Contains(la.LessonAreaId))
+                .Where(la => la.Active && la.IncludeInForm && validLessonAreaIds.Contains(la.LessonAreaId))
                 .ToListAsync();
 
             if (activeLessonAreas.Count == 0)
@@ -189,6 +208,31 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             await ctx.SaveChangesAsync();
             return new ToggleLessonAreaResultDTO { LessonAreaId = row.LessonAreaId, Active = row.Active };
+        }
+
+        public Task<SetLessonAreaFlagResultDTO> SetIncludeInFormAsync(int areaScopeId, bool value)
+            => SetFlagAsync(areaScopeId, value, isForm: true);
+
+        public Task<SetLessonAreaFlagResultDTO> SetIncludeDescendantsAsync(int areaScopeId, bool value)
+            => SetFlagAsync(areaScopeId, value, isForm: false);
+
+        /// <summary>
+        /// Prende/apaga include_in_form o include_descendants. Solo válido sobre un área
+        /// que ya exista y esté ACTIVA (los flags no aplican si está inactiva).
+        /// </summary>
+        private async Task<SetLessonAreaFlagResultDTO> SetFlagAsync(int areaScopeId, bool value, bool isForm)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var row = await ctx.LessonArea.FirstOrDefaultAsync(la => la.AreaScopeId == areaScopeId);
+            if (row == null || !row.Active)
+                throw new AbrilException("Primero activa el área.", 400);
+
+            if (isForm) row.IncludeInForm = value;
+            else row.IncludeDescendants = value;
+
+            await ctx.SaveChangesAsync();
+            return new SetLessonAreaFlagResultDTO { LessonAreaId = row.LessonAreaId, Value = value };
         }
     }
 }

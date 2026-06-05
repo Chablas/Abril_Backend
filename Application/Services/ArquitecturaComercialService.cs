@@ -111,6 +111,9 @@ namespace Abril_Backend.Application.Services
             string tipoAlerta, DashboardFiltroDTO filtro)
             => await _repository.GetActividadesPorAlerta(tipoAlerta, filtro);
 
+        public async Task RecalcularTodosSpi()
+            => await _repository.RecalcularTodosSpi();
+
         public async Task EnviarAlertasActividades(EnviarAlertaRequestDTO request)
         {
             using var ctx = _factory.CreateDbContext();

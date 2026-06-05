@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-03 — EvaluacionesModule: 4 reglas GetResidentesEvaluablesAsync, EvAsignacionSupervisor (entidad + endpoints GET/PUT asignaciones + GET proyectos), GetEvaluadoresPendientesAsync reescrito con 3 queries por regla (R1 OC Proyectos, R2 UDP/BIM, R3 Staff), recordatorio /enviar sin CC. SsomaModule: PasoFeature construido (17 endpoints api/v1/ssoma-paso, SPI, Gantt, cron, instanciación plantillas). Fix agenda clínica: `ProgramacionEmoRepository.Create` resuelve `empresa_id` desde `WorkerVinculacion` activa cuando `dto.EmpresaId == null` (antes quedaba null y el filtro `x.em != null && x.em.EsAbril` excluía el registro del listado).
+> Última actualización: 2026-06-05 — SsomaModule/PasoFeature: soft delete auditado en actividades (deleted_at/deleted_by/motivo_eliminacion + tabla ssoma_paso_auditoria), auditoría de reprogramación, endpoint GET /actividad/{id}/auditoria, endpoint GET /{id}/resumen-mes con lógica de ciclo correcta (mesCiclo = mes calendario relativo al mes_inicio del PASO), fix bug actividades Únicas en vista mensual, fix resumen vacío para proyectos fuera de ciclo. Frontend: modal reprogramar en offcanvas de ejecuciones (PasoEjecucionService.reprogramar).
 
 ---
 

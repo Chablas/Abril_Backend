@@ -47,9 +47,27 @@ public class SsomaPasoActividad
     public string Meta { get; set; } = "100%";
     public int? Orden { get; set; }
     public bool Activo { get; set; } = true;
+    public DateTime? DeletedAt { get; set; }
+    public int? DeletedBy { get; set; }
+    public string? MotivoEliminacion { get; set; }
     public SsomaPaso Paso { get; set; } = null!;
     public SsomaPasoCategoria Categoria { get; set; } = null!;
     public List<SsomaPasoEjecucion> Ejecuciones { get; set; } = new();
+}
+
+public class SsomaPasoAuditoria
+{
+    public int Id { get; set; }
+    public string Tipo { get; set; } = "";
+    public string Entidad { get; set; } = "";
+    public int EntidadId { get; set; }
+    public int PasoId { get; set; }
+    public string? Descripcion { get; set; }
+    public string? Motivo { get; set; }
+    public string? ValorAnterior { get; set; }
+    public string? ValorNuevo { get; set; }
+    public int? UsuarioId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class SsomaPasoEjecucion

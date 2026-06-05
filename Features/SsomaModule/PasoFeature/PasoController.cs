@@ -130,6 +130,21 @@ public class PasoController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.GetSpi"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("actividad/{id:int}/auditoria")]
+    public async Task<IActionResult> GetAuditoria(int id)
+    {
+        try { return Ok(await _service.GetAuditoriaAsync(id)); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.GetAuditoria"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}/resumen-mes")]
+    public async Task<IActionResult> GetResumenMes(int id, [FromQuery] int anio, [FromQuery] int mes)
+    {
+        try { return Ok(await _service.GetResumenMesAsync(id, anio, mes)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.GetResumenMes"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPost("actividad")]
     public async Task<IActionResult> CrearActividad([FromBody] CrearActividadRequest req)
     {
@@ -147,9 +162,9 @@ public class PasoController : ControllerBase
     }
 
     [HttpDelete("actividad/{id:int}")]
-    public async Task<IActionResult> DeleteActividad(int id)
+    public async Task<IActionResult> DeleteActividad(int id, [FromBody] EliminarActividadRequest req)
     {
-        try { await _service.DeleteActividadAsync(id); return NoContent(); }
+        try { await _service.DeleteActividadAsync(id, req.Motivo, GetUserId()); return NoContent(); }
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.DeleteActividad"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }

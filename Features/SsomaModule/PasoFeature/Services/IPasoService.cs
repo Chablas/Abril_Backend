@@ -18,9 +18,11 @@ public interface IPasoService
     Task<List<PasoCategoriaDto>> GetCategoriasAsync();
     Task<PasoActividadDto> CrearActividadAsync(CrearActividadRequest req);
     Task<PasoActividadDto> EditarActividadAsync(int id, EditarActividadRequest req);
-    Task DeleteActividadAsync(int id);
+    Task DeleteActividadAsync(int id, string motivo, int userId);
     Task<PasoEjecucionDto> RegistrarEjecucionAsync(RegistrarEjecucionRequest req, int userId);
     Task<PasoEjecucionDto> ReprogramarEjecucionAsync(int id, ReprogramarEjecucionRequest req, int userId);
     Task<PasoEjecucionDto> SubirEvidenciaAsync(int ejecucionId, IFormFile file, int userId);
     Task ProcesarCronAsync();
+    Task<PasoResumenMesDto> GetResumenMesAsync(int id, int anio, int mes);
+    Task<List<PasoAuditoriaDto>> GetAuditoriaAsync(int actividadId);
 }

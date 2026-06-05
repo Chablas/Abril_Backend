@@ -181,6 +181,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaPaso> SsomaPasos { get; set; }
         public DbSet<SsomaPasoActividad> SsomaPasoActividades { get; set; }
         public DbSet<SsomaPasoEjecucion> SsomaPasoEjecuciones { get; set; }
+        public DbSet<SsomaPasoAuditoria> SsomaPasoAuditorias { get; set; }
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
 
@@ -520,6 +521,16 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.Property(e => e.DatosAnteriores).HasColumnType("jsonb");
                 entity.Property(e => e.DatosNuevos).HasColumnType("jsonb");
+            });
+            modelBuilder.Entity<SsomaPasoAuditoria>(entity =>
+            {
+                entity.ToTable("ssoma_paso_auditoria");
+                entity.Property(e => e.EntidadId).HasColumnName("entidad_id");
+                entity.Property(e => e.PasoId).HasColumnName("paso_id");
+                entity.Property(e => e.UsuarioId).HasColumnName("usuario_id");
+                entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+                entity.Property(e => e.ValorAnterior).HasColumnName("valor_anterior").HasColumnType("jsonb");
+                entity.Property(e => e.ValorNuevo).HasColumnName("valor_nuevo").HasColumnType("jsonb");
             });
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");

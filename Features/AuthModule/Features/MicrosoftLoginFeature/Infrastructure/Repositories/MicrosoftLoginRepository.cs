@@ -221,6 +221,15 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
             };
         }
 
+        public async Task<string?> GetWorkerAreaByPersonIdAsync(int personId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Worker
+                .Where(w => w.PersonId == personId && w.Estado == "Activo")
+                .Select(w => w.Area)
+                .FirstOrDefaultAsync();
+        }
+
         public async Task<UserDTO> CreateUserFromGraphAsync(MicrosoftProfileDto profile)
         {
             using var ctx = _factory.CreateDbContext();

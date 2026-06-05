@@ -67,6 +67,24 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
                         if (!user.Roles.Any(r => r.RoleId == rolAbril.RoleId))
                             user.Roles.Add(rolAbril);
                     }
+
+                    // Roles automáticos por área del worker asociado.
+                    var personId = user.Person?.PersonId ?? 0;
+                    if (personId > 0)
+                    {
+                        var area = await _repository.GetWorkerAreaByPersonIdAsync(personId);
+
+                        if (area?.Equals("Proyectos", StringComparison.OrdinalIgnoreCase) == true)
+                        {
+                            // 9=ADMINISTRADOR SSOMA, 49=SERVICIO DE VIGILANCIA, 57=EVALUADOR
+                            foreach (var roleId in new[] { 9, 49, 57 })
+                            {
+                                var rol = await _repository.AssignRoleAsync(user.UserId, roleId);
+                                if (rol is not null && !user.Roles!.Any(r => r.RoleId == rol.RoleId))
+                                    user.Roles!.Add(rol);
+                            }
+                        }
+                    }
                 }
             }
             else if (user.Person is null || user.Person.PersonId == 0)

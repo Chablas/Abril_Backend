@@ -20,6 +20,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public string? EstadoAnterior { get; set; }
         public int? AprobadoPorUserId { get; set; }
         public string? MotivoRechazo { get; set; }
+        public bool Enviado { get; set; } = true;
+        public DateTime? FechaEnvio { get; set; }
+        public ICollection<SsHabDocumentoArchivo> Archivos { get; set; } = [];
 
         [ForeignKey(nameof(HabTrabajadorId))]
         public SsHabTrabajador? HabTrabajador { get; set; }

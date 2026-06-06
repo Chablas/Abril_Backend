@@ -20,6 +20,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public string? ObsContratista { get; set; }
         public int? AprobadoPor { get; set; }
         public DateTime? FechaAprobacion { get; set; }
+        public string? MotivoRechazo { get; set; }
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
 

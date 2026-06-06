@@ -44,7 +44,13 @@ SELECT
     ht.archivo_url,
     ht.obs_contratista,
     i.responsable,
-    ht.updated_at as fecha_envio
+    ht.updated_at as fecha_envio,
+    NULL::int as item_id,
+    false as es_mensual,
+    NULL::int as empresa_id_raw,
+    NULL::int as mes,
+    NULL::int as anio,
+    0 as meses_pendientes
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
 JOIN workers w ON w.id = ht.worker_id
@@ -81,13 +87,32 @@ SELECT
     he.archivo_url,
     he.obs_contratista,
     i.responsable,
-    he.updated_at as fecha_envio
+    he.updated_at as fecha_envio,
+    i.id as item_id,
+    i.es_mensual as es_mensual,
+    he.empresa_id as empresa_id_raw,
+    he.mes as mes,
+    he.anio as anio,
+    (SELECT COUNT(*) FROM ss_hab_empresa sub
+     WHERE sub.empresa_id = he.empresa_id
+       AND sub.proyecto_id = he.proyecto_id
+       AND sub.item_id = he.item_id
+       AND sub.estado = 'Enviado') as meses_pendientes
 FROM ss_hab_empresa he
 JOIN ss_item_empresa i ON i.id = he.item_id
 JOIN contributor ec ON ec.contributor_id = he.empresa_id
 JOIN project p ON p.project_id = he.proyecto_id
 WHERE he.estado = 'Enviado'
   AND he.item_id NOT IN (15, 16)
+  AND (NOT i.es_mensual OR he.id = (
+      SELECT id FROM ss_hab_empresa sub2
+      WHERE sub2.empresa_id = he.empresa_id
+        AND sub2.proyecto_id = he.proyecto_id
+        AND sub2.item_id = he.item_id
+        AND sub2.estado = 'Enviado'
+      ORDER BY sub2.anio DESC, sub2.mes DESC
+      LIMIT 1
+  ))
   AND (@ProyectoId IS NULL OR he.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR he.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
@@ -108,7 +133,13 @@ SELECT
     heq.archivo_url,
     NULL as obs_contratista,
     'SSOMA' as responsable,
-    heq.updated_at as fecha_envio
+    heq.updated_at as fecha_envio,
+    NULL::int as item_id,
+    false as es_mensual,
+    NULL::int as empresa_id_raw,
+    NULL::int as mes,
+    NULL::int as anio,
+    0 as meses_pendientes
 FROM ss_hab_equipo heq
 JOIN ss_item_equipo i ON i.id = heq.item_id
 JOIN ss_equipo eq ON eq.id = heq.equipo_id
@@ -135,7 +166,13 @@ SELECT
     NULL as archivo_url,
     NULL as obs_contratista,
     'SSOMA' as responsable,
-    i.created_at as fecha_envio
+    i.created_at as fecha_envio,
+    NULL::int as item_id,
+    false as es_mensual,
+    NULL::int as empresa_id_raw,
+    NULL::int as mes,
+    NULL::int as anio,
+    0 as meses_pendientes
 FROM ss_induccion i
 JOIN workers w ON w.id = i.worker_id
 LEFT JOIN person per ON per.person_id = w.person_id
@@ -296,7 +333,7 @@ ORDER BY ec.contributor_name";
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = HabilitacionDateHelper.ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+            entity.Vigencia = HabilitacionDateHelper.ResolverVigenciaEmpresa(entity.ItemId, dto.Estado, dto.Vigencia);
             entity.AprobadoPor = userId;
             entity.FechaAprobacion = DateTime.UtcNow;
             entity.UpdatedAt = DateTime.UtcNow;

@@ -132,6 +132,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsHabBloqueoLog> SsHabBloqueoLog => Set<SsHabBloqueoLog>();
         public DbSet<AuditoriaCambio> AuditoriaCambios => Set<AuditoriaCambio>();
         public DbSet<SsHabDocumentoVersion> SsHabDocumentoVersion => Set<SsHabDocumentoVersion>();
+        public DbSet<SsHabDocumentoArchivo> SsHabDocumentoArchivo => Set<SsHabDocumentoArchivo>();
         public DbSet<SsResetToken> SsResetToken => Set<SsResetToken>();
         public DbSet<SsTareo> SsTareo => Set<SsTareo>();
         public DbSet<SsTareoPartida> SsTareoPartida => Set<SsTareoPartida>();

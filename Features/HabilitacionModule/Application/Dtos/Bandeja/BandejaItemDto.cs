@@ -15,5 +15,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja
         public string? ObsContratista { get; set; }
         public string Responsable { get; set; } = string.Empty;
         public DateTime? FechaEnvio { get; set; }
+        public int? ItemId { get; set; }
+        public bool EsMensual { get; set; }
+        public int? Mes { get; set; }
+        public int? Anio { get; set; }
+        public int MesesPendientes { get; set; }
     }
 }

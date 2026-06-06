@@ -30,7 +30,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             }
 
             var empresas = await ctx.SsHabEmpresa
-                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo") && h.Vigencia < hoy)
+                .Where(h => (h.Estado == "Aprobado" || h.Estado == "En plazo")
+                         && h.Vigencia < hoy
+                         && h.ItemId != 12 && h.ItemId != 13)
                 .ToListAsync();
 
             foreach (var h in empresas)

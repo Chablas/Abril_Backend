@@ -136,6 +136,37 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.DesactivarProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPatch("entregables/{entregableId:int}/mes")]
+        public async Task<IActionResult> AprobarMes(int empresaId, int entregableId, [FromBody] EmpresaEntregableUpdateDto dto)
+        {
+            try
+            {
+                var userId = ObtenerUserId();
+                var result = await _repo.UpdateEntregableEmpresaAsync(entregableId, dto, userId);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.AprobarMes"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpDelete("archivos/{archivoId:int}")]
+        public async Task<IActionResult> EliminarArchivo(int empresaId, int archivoId)
+        {
+            try
+            {
+                await _repo.EliminarArchivoVersionAsync(archivoId, empresaId);
+                return Ok(new { message = "Archivo eliminado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en HabEmpresaController.EliminarArchivo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        private int? ObtenerUserId()
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            return int.TryParse(claim, out var id) ? id : null;
+        }
+
         private bool EmpresaJwtCoinside(int empresaIdRuta)
         {
             var claim = User.FindFirst("empresaId")?.Value;

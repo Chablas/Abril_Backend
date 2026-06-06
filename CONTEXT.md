@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-05 — SsomaModule/PasoFeature: soft delete auditado en actividades (deleted_at/deleted_by/motivo_eliminacion + tabla ssoma_paso_auditoria), auditoría de reprogramación, endpoint GET /actividad/{id}/auditoria, endpoint GET /{id}/resumen-mes con lógica de ciclo correcta (mesCiclo = mes calendario relativo al mes_inicio del PASO), fix bug actividades Únicas en vista mensual, fix resumen vacío para proyectos fuera de ciclo. Frontend: modal reprogramar en offcanvas de ejecuciones (PasoEjecucionService.reprogramar).
+> Última actualización: 2026-06-06 — HabilitacionModule: flujo multi-archivo (SsHabDocumentoArchivo, POST /archivos/subir-multiple, POST /archivos/enviar), vigencia empresa por itemId (ResolverVigenciaEmpresa — sentinel 2040 para ids 12/13, día 27 mes siguiente para el resto), InicializarEntregablesEmpresaAsync — ids 12/13 arrancan Aprobados, entregables mensuales (SsItemEmpresa.EsMensual, GetEntregablesEmpresaAsync agrupa y calcula EstadoGlobal, CrearOActualizarEntregableMesAsync), SsHabEmpresa.MotivoRechazo, bandeja empresa con ItemId/EsMensual/Mes/Anio/MesesPendientes y dedup mensual, VigenciaRevisionService excluye ids 12/13 empresas, nuevos endpoints PATCH entregables/{id}/mes y DELETE archivos/{id}.
 
 ---
 
@@ -16,7 +16,7 @@
 | Email             | PowerAutomate / SendGrid / SMTP (selector `Email:EmailProvider`)                                               |
 | Storage           | Azure Blob / local `wwwroot/uploads` (selector `Storage:StorageProvider`)                                      |
 | Queries complejas | **Dapper** + conexión directa (`NpgsqlConnection` en `BandejaRepository`; `ctx.Database.GetDbConnection()` en `EvEvaluacionResidenteRepository`) |
-| Fechas UTC        | `HabilitacionDateHelper` — `AsUtc()` y `ResolverVigencia()`                                                    |
+| Fechas UTC        | `HabilitacionDateHelper` — `AsUtc()`, `ResolverVigencia()`, `ResolverVigenciaEmpresa(itemId, estado, vigencia)` |
 | Puerto dev        | 5236 http / 7298 https                                                                                         |
 | Swagger           | Solo en Development en `/swagger`                                                                              |
 
@@ -124,7 +124,10 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `SsTareoDetalleCasa`        | `ss_tareo_detalle_casa`        | `id`                  | Detalle de tareo para personal Casa. `tareo_id` → `ss_tareo.id`, `partida_id` → `ss_tareo_partida.id`, `cantidad_personas` (int). Tabla manual.                                                                                                                                                                                                 |
 | `SsTareoDetalleContratista` | `ss_tareo_detalle_contratista` | `id`                  | Detalle de tareo para personal contratista. `tareo_id` → `ss_tareo.id`, `empresa_id` → `contributor.contributor_id`, `cantidad_personas` (int). Tabla manual.                                                                                                                                                                                   |
 | `SsHabTrabajador`           | `ss_hab_trabajador`            | `id`                  | Entregables por worker.                                                                                                                                                                                                                                                                                                                         |
-| `SsHabEmpresa`              | `ss_hab_empresa`               | `id`                  | `proyecto_id` → `project.project_id`. `empresa_id` → `contributor.contributor_id`.                                                                                                                                                                                                                                                              |
+| `SsHabEmpresa`              | `ss_hab_empresa`               | `id`                  | `proyecto_id` → `project.project_id`. `empresa_id` → `contributor.contributor_id`. +`MotivoRechazo` (2026-06-06).                                                                                                                                                                                                                               |
+| `SsItemEmpresa`             | `ss_item_empresa`              | `id`                  | Catálogo de entregables empresa. +`EsMensual bool` (2026-06-06) — items mensuales generan un registro por mes.                                                                                                                                                                                                                                   |
+| `SsHabDocumentoVersion`     | `ss_hab_documento_version`     | `id`                  | Versiones de documentos. FK a SsHabTrabajador/SsHabEmpresa/SsHabEquipo. +`Enviado bool`, `FechaEnvio`, nav `Archivos` (2026-06-06).                                                                                                                                                                                                             |
+| `SsHabDocumentoArchivo`     | `ss_hab_documento_archivo`     | `id`                  | Archivos individuales de una versión (flujo multi-archivo). FK `VersionId → ss_hab_documento_version`. Props: `ArchivoUrl`, `NombreArchivo`, `EsZip`, `ZipContenido` (JSONB string), `Orden`. ⚠️ **Pendiente migración EF**.                                                                                                                     |
 | `SsEquipo`                  | `ss_equipo`                    | `id`                  | `proyecto_id` → `project.project_id`. `propietario_empresa_id` → `contributor.contributor_id` (nav property `Contributor? PropietarioEmpresa`).                                                                                                                                                                                                 |
 | `SsHabEquipo`               | `ss_hab_equipo`                | `id`                  | Entregables por equipo. Tiene `ObsContratista` (agregada directamente en BD). `archivo_url` es `text` (fue `varchar(1000)` — alterada manualmente).                                                                                                                                                                                             |
 | `SsItemTrabajador`          | `ss_item_trabajador`           | `id`                  | Catálogo de entregables con reglas.                                                                                                                                                                                                                                                                                                             |
@@ -184,6 +187,9 @@ Query Dapper con `NpgsqlConnection` directa. Cuatro segmentos:
 - `CAST(he.vigencia AS timestamp)`
 - `JOIN project p ON p.project_id = he.proyecto_id` + `p.project_description`
 - Empresa via `JOIN contributor ec ON ec.contributor_id = he.empresa_id` + `ec.contributor_name`
+- Columnas extra (2026-06-06): `item_id`, `es_mensual`, `empresa_id_raw`, `mes`, `anio`, `meses_pendientes` (subquery COUNT items `Enviado` mismo item/empresa/proyecto)
+- Dedup mensual: `AND (NOT i.es_mensual OR he.id = (SELECT id ... ORDER BY anio DESC, mes DESC LIMIT 1))` — solo muestra la fila más reciente por item mensual
+- Excluye `item_id IN (15, 16)` (sentinels excluidos de bandeja)
 
 **EQUIPO** (`ss_hab_equipo WHERE estado='Enviado'`):
 
@@ -216,9 +222,14 @@ EstadoCalc =
   : "Habilitado"
 ```
 
-### 5d. InicializarEntregablesAsync
+### 5d. InicializarEntregablesAsync / InicializarEntregablesEmpresaAsync
 
-Crea registros `Estado="Falta"` filtrando en orden: `AplicaA` → `AplicaCategoria` → `AplicaObraOficina` → `ExcluyeObraOficina` → `ExcluyeCategoriaContratista`. Caso especial: Casa+Practicante omite `ItemVidaLey`. No toca `ss_hab_worker_proyecto`.
+**Trabajadores** (`InicializarEntregablesAsync`): Crea registros `Estado="Falta"` filtrando en orden: `AplicaA` → `AplicaCategoria` → `AplicaObraOficina` → `ExcluyeObraOficina` → `ExcluyeCategoriaContratista`. Caso especial: Casa+Practicante omite `ItemVidaLey`. No toca `ss_hab_worker_proyecto`.
+
+**Empresas** (`InicializarEntregablesEmpresaAsync`, 2026-06-06):
+- IDs 12 y 13 (`itemsFalta`): arrancan `Estado="Falta"`, `Vigencia=null` — esperan que el contratista los envíe
+- Resto: arrancan `Estado="Aprobado"`, `Vigencia=día 27 del mes siguiente` (vigenciaInicial)
+- Solo inserta entregables que aún no existen para `(empresaId, proyectoId)`
 
 ### 5e. AprobarInduccionAsync (privado en InduccionRepository)
 
@@ -377,9 +388,15 @@ PUT   /api/v1/habilitacion/control-acceso/tareo/{id}  body: TareoCreateDto
       → actualiza cabecera, borra detalles anteriores e inserta los nuevos
 
 # Archivos
-POST  /api/v1/habilitacion/archivos/subir   → { path, url }  — guardar `path` (ruta relativa), NO `url` (URL firmada que expira)
-      ⚠️ En el frontend, SIEMPRE usar res.path al guardar el resultado del upload (empresa.ts, sctr-subir.ts, registro-empresa.ts corregidos 2026-05-19)
+POST  /api/v1/habilitacion/archivos/subir          → { path, url }  — flujo clásico (1 archivo + marca Enviado si HabTrabajadorId)
+      ⚠️ En el frontend, SIEMPRE usar res.path al guardar el resultado del upload
+POST  /api/v1/habilitacion/archivos/subir-multiple → { path, nombreArchivo, esZip, zipContenido? } — solo sube, NO marca Enviado
+POST  /api/v1/habilitacion/archivos/enviar         body: { habTrabajadorId?, habEmpresaId?, habEquipoId?, archivos:[{archivoUrl,nombreArchivo,esZip,zipContenido?}], vigencia?, obsContratista? }
+                                                   → { versionId, archivos: N } — crea versión + archivos hijos + marca entregable Enviado
 GET   /api/v1/habilitacion/archivos/url?path=
+# Empresas — endpoints adicionales (2026-06-06)
+PATCH  /api/v1/habilitacion/empresas/{id}/entregables/{entregableId}/mes   body: EmpresaEntregableUpdateDto — aprobar/rechazar mes específico
+DELETE /api/v1/habilitacion/empresas/{id}/archivos/{archivoId}             — eliminar archivo de versión (solo si estado != Aprobado/Rechazado)
 
 # Otros
 GET/POST/PUT/DELETE  /api/v1/habilitacion/reglas
@@ -4100,3 +4117,73 @@ foreach (var nodo in todas.OrderByDescending(a => a.HierarchyLevel))
 ```
 
 `RecalcularFechasPadresAsync` (y su versión interna) se llama en: `ImportarMppAsync`, `AplicarCascadaAsync`, `EditarActividadAsync`.
+
+---
+
+## Sesión 2026-06-06 — HabilitacionModule: multi-archivo, vigencia empresa, entregables mensuales
+
+### ResolverVigenciaEmpresa — HabilitacionDateHelper
+
+Nuevo método (no reemplaza `ResolverVigencia` — coexisten):
+
+```csharp
+ResolverVigenciaEmpresa(int itemId, string estado, DateTime? dtoVigencia)
+// IDs 12, 13 → sentinel 2040 (ItemsEmpresaSentinel)
+// No Aprobado → AsUtc(dtoVigencia)
+// Aprobado + fecha explícita → AsUtc(dtoVigencia)
+// Aprobado + sin fecha → día 27 del mes siguiente
+```
+
+Usado en: `UpdateEntregableEmpresaAsync`, `BandejaRepository.AprobarEmpresaAsync`, `CrearOActualizarEntregableMesAsync`.
+
+### InicializarEntregablesEmpresaAsync — nueva lógica de estado inicial
+
+- IDs `{12, 13}` → `Estado="Falta"`, `Vigencia=null`
+- Resto → `Estado="Aprobado"`, `Vigencia=día 27 del mes siguiente`
+
+### VigenciaRevisionService — excluye ids 12 y 13 empresas
+
+```csharp
+.Where(h => ... && h.ItemId != 12 && h.ItemId != 13)
+```
+Los items 12 y 13 tienen `Vigencia=2040` o `null` — no deben vencerse automáticamente.
+
+### Flujo multi-archivo (POST /subir-multiple + POST /enviar)
+
+1. **`POST /archivos/subir-multiple`** — sube 1 archivo a SharePoint, extrae índice ZIP si aplica. Retorna `{ path, nombreArchivo, esZip, zipContenido }`. **NO toca el entregable**.
+2. **`POST /archivos/enviar`** — recibe lista de archivos ya subidos + id del entregable. Crea `SsHabDocumentoVersion` (con `Enviado=true`, `FechaEnvio`) + N filas `SsHabDocumentoArchivo` + marca el entregable `Estado="Enviado"`.
+3. **`POST /archivos/subir`** original — sin cambios, sigue funcionando para flujo de 1 archivo.
+
+### Entregables mensuales (`SsItemEmpresa.EsMensual`)
+
+- `GetEntregablesEmpresaAsync`: items con `EsMensual=true` se agrupan en un solo `EmpresaEntregableDto` con `Meses: [EntregableMesDto]`. Estado global = peor estado (`Rechazado > Falta > Enviado > Aprobado`).
+- `CrearOActualizarEntregableMesAsync`: crea fila nueva si no existe `(empresaId, proyectoId, itemId, mes, anio)`, luego aplica update. Valida que contratista no modifique estado Aprobado/Rechazado.
+- `EliminarArchivoVersionAsync`: elimina fila de `SsHabDocumentoArchivo`; verifica empresa y que el entregable no esté Aprobado/Rechazado.
+
+### Migración EF pendiente
+
+```sql
+-- ss_item_empresa
+ALTER TABLE ss_item_empresa ADD COLUMN IF NOT EXISTS es_mensual boolean NOT NULL DEFAULT false;
+
+-- ss_hab_empresa
+ALTER TABLE ss_hab_empresa ADD COLUMN IF NOT EXISTS motivo_rechazo text;
+
+-- ss_hab_documento_version
+ALTER TABLE ss_hab_documento_version ADD COLUMN IF NOT EXISTS enviado boolean NOT NULL DEFAULT true;
+ALTER TABLE ss_hab_documento_version ADD COLUMN IF NOT EXISTS fecha_envio timestamptz;
+
+-- nueva tabla
+CREATE TABLE IF NOT EXISTS ss_hab_documento_archivo (
+    id serial PRIMARY KEY,
+    version_id int NOT NULL REFERENCES ss_hab_documento_version(id),
+    archivo_url text NOT NULL,
+    nombre_archivo text,
+    es_zip boolean NOT NULL DEFAULT false,
+    zip_contenido text,
+    orden int NOT NULL DEFAULT 0,
+    created_at timestamptz
+);
+```
+
+O generar con: `dotnet ef migrations add AddHabDocumentoArchivoAndMensuales --project Abril-Backend.csproj`

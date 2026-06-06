@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-06 — HabilitacionModule: flujo multi-archivo (SsHabDocumentoArchivo, POST /archivos/subir-multiple, POST /archivos/enviar), vigencia empresa por itemId (ResolverVigenciaEmpresa — sentinel 2040 para ids 12/13, día 27 mes siguiente para el resto), InicializarEntregablesEmpresaAsync — ids 12/13 arrancan Aprobados, entregables mensuales (SsItemEmpresa.EsMensual, GetEntregablesEmpresaAsync agrupa y calcula EstadoGlobal, CrearOActualizarEntregableMesAsync), SsHabEmpresa.MotivoRechazo, bandeja empresa con ItemId/EsMensual/Mes/Anio/MesesPendientes y dedup mensual, VigenciaRevisionService excluye ids 12/13 empresas, nuevos endpoints PATCH entregables/{id}/mes y DELETE archivos/{id}.
+> Última actualización: 2026-06-06 — HabilitacionModule: flujo multi-archivo (SsHabDocumentoArchivo, POST /archivos/subir-multiple, POST /archivos/enviar), vigencia empresa por itemId (ResolverVigenciaEmpresa), entregables mensuales con Archivos[] por mes (EntregableMesArchivoDto, fallback baseId para archivos legacy), CrearOActualizarEntregableMesAsync permite subir aunque estado=Aprobado/Rechazado, EnviarDocumentoRequest +Mes/Anio, ArchivoHabilitacionController inyecta IHabEmpresaRepository.
 
 ---
 
@@ -4157,8 +4157,11 @@ Los items 12 y 13 tienen `Vigencia=2040` o `null` — no deben vencerse automát
 ### Entregables mensuales (`SsItemEmpresa.EsMensual`)
 
 - `GetEntregablesEmpresaAsync`: items con `EsMensual=true` se agrupan en un solo `EmpresaEntregableDto` con `Meses: [EntregableMesDto]`. Estado global = peor estado (`Rechazado > Falta > Enviado > Aprobado`).
-- `CrearOActualizarEntregableMesAsync`: crea fila nueva si no existe `(empresaId, proyectoId, itemId, mes, anio)`, luego aplica update. Valida que contratista no modifique estado Aprobado/Rechazado.
+- Cada `EntregableMesDto` incluye `Archivos: [EntregableMesArchivoDto]` — batch query `SsHabDocumentoVersion.Include(Archivos)` para todos los entregables a la vez. Fallback: si el mes no tiene archivos propios, busca el registro base del item (`Mes==null && Anio==null`) y usa sus archivos (compatibilidad con archivos legacy subidos antes del flujo multi-archivo).
+- `CrearOActualizarEntregableMesAsync`: crea fila nueva si no existe `(empresaId, proyectoId, itemId, mes, anio)`, luego aplica update. **No bloquea** si estado == Aprobado/Rechazado — se puede subir nuevos archivos en cualquier estado. Solo `EliminarArchivoVersionAsync` bloquea en esos estados.
 - `EliminarArchivoVersionAsync`: elimina fila de `SsHabDocumentoArchivo`; verifica empresa y que el entregable no esté Aprobado/Rechazado.
+- `EnviarDocumentoRequest` incluye `Mes?` y `Anio?` para identificar el mes al que pertenece el envío.
+- `ArchivoHabilitacionController` inyecta `IHabEmpresaRepository` (campo `_habEmpresaRepo`).
 
 ### Migración EF pendiente
 

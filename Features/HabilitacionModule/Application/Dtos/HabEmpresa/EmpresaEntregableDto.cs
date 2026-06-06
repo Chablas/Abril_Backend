@@ -30,5 +30,15 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa
         public string? ObsAbril { get; set; }
         public string? ObsContratista { get; set; }
         public string? MotivoRechazo { get; set; }
+        public List<EntregableMesArchivoDto> Archivos { get; set; } = [];
+    }
+
+    public class EntregableMesArchivoDto
+    {
+        public int Id { get; set; }
+        public string NombreArchivo { get; set; } = "";
+        public string ArchivoUrl { get; set; } = "";
+        public bool EsZip { get; set; }
+        public int Orden { get; set; }
     }
 }

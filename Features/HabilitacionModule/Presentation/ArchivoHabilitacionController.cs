@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Archivos;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
@@ -21,17 +22,20 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     {
         private readonly ISharePointHabService _sharePoint;
         private readonly IHabTrabajadorRepository _habTrabajadorRepo;
+        private readonly IHabEmpresaRepository _habEmpresaRepo;
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly ILogger<ArchivoHabilitacionController> _logger;
 
         public ArchivoHabilitacionController(
             ISharePointHabService sharePoint,
             IHabTrabajadorRepository habTrabajadorRepo,
+            IHabEmpresaRepository habEmpresaRepo,
             IDbContextFactory<AppDbContext> factory,
             ILogger<ArchivoHabilitacionController> logger)
         {
             _sharePoint = sharePoint;
             _habTrabajadorRepo = habTrabajadorRepo;
+            _habEmpresaRepo = habEmpresaRepo;
             _factory = factory;
             _logger = logger;
         }
@@ -232,13 +236,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 int? habEmpresaId = request.HabEmpresaId;
                 int? habEquipoId = request.HabEquipoId;
 
+                var primerArchivo = request.Archivos[0];
+
                 int versionActual = await ctx.SsHabDocumentoVersion
                     .CountAsync(v =>
                         (habTrabajadorId.HasValue && v.HabTrabajadorId == habTrabajadorId) ||
-                        (habEmpresaId.HasValue && v.HabEmpresaId == habEmpresaId) ||
-                        (habEquipoId.HasValue && v.HabEquipoId == habEquipoId));
-
-                var primerArchivo = request.Archivos[0];
+                        (habEmpresaId.HasValue    && v.HabEmpresaId    == habEmpresaId) ||
+                        (habEquipoId.HasValue     && v.HabEquipoId     == habEquipoId));
 
                 var version = new SsHabDocumentoVersion
                 {
@@ -254,7 +258,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     FechaEnvio = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow
                 };
-
                 ctx.SsHabDocumentoVersion.Add(version);
                 await ctx.SaveChangesAsync();
 
@@ -287,9 +290,30 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 }
                 else if (habEmpresaId.HasValue)
                 {
-                    var ent = await ctx.SsHabEmpresa.FindAsync(habEmpresaId.Value);
-                    if (ent != null)
+                    var source = await ctx.SsHabEmpresa.FindAsync(habEmpresaId.Value)
+                        ?? throw new AbrilException("Entregable de empresa no encontrado.", 404);
+
+                    SsHabEmpresa ent;
+
+                    if (request.Mes.HasValue && request.Anio.HasValue)
                     {
+                        // Item mensual: buscar o crear el registro del mes correcto
+                        var updateDto = new EmpresaEntregableUpdateDto
+                        {
+                            Estado = "Enviado",
+                            ArchivoUrl = primerArchivo.ArchivoUrl,
+                            ObsContratista = request.ObsContratista,
+                            Vigencia = request.Vigencia
+                        };
+                        ent = await _habEmpresaRepo.CrearOActualizarEntregableMesAsync(
+                            source.EmpresaId, source.ProyectoId, source.ItemId,
+                            request.Mes.Value, request.Anio.Value,
+                            updateDto, userId, empresaIdClaim);
+                    }
+                    else
+                    {
+                        // Item no mensual: flujo original
+                        ent = source;
                         ent.Estado = "Enviado";
                         ent.ArchivoUrl = primerArchivo.ArchivoUrl;
                         if (!string.IsNullOrEmpty(request.ObsContratista))
@@ -298,6 +322,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                             ent.Vigencia = HabilitacionDateHelper.AsUtc(request.Vigencia);
                         ent.UpdatedAt = DateTime.UtcNow;
                     }
+
+                    // La versión apunta al registro real (puede diferir de habEmpresaId si es mensual nuevo)
+                    version.HabEmpresaId = ent.Id;
                 }
                 else if (habEquipoId.HasValue)
                 {

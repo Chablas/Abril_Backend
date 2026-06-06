@@ -7,6 +7,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Archivos
         public int? HabEquipoId { get; set; }
         public DateTime? Vigencia { get; set; }
         public string? ObsContratista { get; set; }
+        public int? Mes { get; set; }
+        public int? Anio { get; set; }
         public List<ArchivoSubidoDto> Archivos { get; set; } = [];
     }
 

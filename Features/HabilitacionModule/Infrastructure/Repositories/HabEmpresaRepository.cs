@@ -35,6 +35,35 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .OrderBy(i => i.Orden)
                 .ToListAsync();
 
+            // Batch: versión más reciente (Enviado=true) + sus archivos para todos los entregables
+            var habEmpresaIds = registros.Select(r => r.Id).ToList();
+            var versionesConArchivos = await ctx.SsHabDocumentoVersion
+                .Include(v => v.Archivos)
+                .Where(v => v.HabEmpresaId.HasValue
+                         && habEmpresaIds.Contains(v.HabEmpresaId.Value)
+                         && v.Enviado)
+                .ToListAsync();
+
+            var archivosPorEntregable = versionesConArchivos
+                .Where(v => v.HabEmpresaId.HasValue)
+                .GroupBy(v => v.HabEmpresaId!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.SelectMany(v => v.Archivos)
+                          .GroupBy(a => a.Id)
+                          .Select(grp => grp.First())
+                          .OrderBy(a => a.Orden)
+                          .Select(a => new EntregableMesArchivoDto
+                          {
+                              Id = a.Id,
+                              NombreArchivo = a.NombreArchivo ?? "",
+                              ArchivoUrl = a.ArchivoUrl,
+                              EsZip = a.EsZip,
+                              Orden = a.Orden
+                          })
+                          .ToList()
+                );
+
             var result = new List<EmpresaEntregableDto>();
 
             foreach (var item in items)
@@ -54,17 +83,30 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     var meses = regsItem
                         .OrderByDescending(r => r.Anio)
                         .ThenByDescending(r => r.Mes)
-                        .Select(r => new EntregableMesDto
+                        .Select(r =>
                         {
-                            Id = r.Id,
-                            Mes = r.Mes ?? 0,
-                            Anio = r.Anio ?? 0,
-                            Estado = r.Estado,
-                            Vigencia = r.Vigencia,
-                            ArchivoUrl = r.ArchivoUrl,
-                            ObsAbril = r.ObsAbril,
-                            ObsContratista = r.ObsContratista,
-                            MotivoRechazo = r.MotivoRechazo
+                            var baseId = registros
+                                .Where(s => s.ItemId == r.ItemId && s.Mes == null && s.Anio == null)
+                                .Select(s => (int?)s.Id)
+                                .FirstOrDefault();
+
+                            return new EntregableMesDto
+                            {
+                                Id = r.Id,
+                                Mes = r.Mes ?? 0,
+                                Anio = r.Anio ?? 0,
+                                Estado = r.Estado,
+                                Vigencia = r.Vigencia,
+                                ArchivoUrl = r.ArchivoUrl,
+                                ObsAbril = r.ObsAbril,
+                                ObsContratista = r.ObsContratista,
+                                MotivoRechazo = r.MotivoRechazo,
+                                Archivos = archivosPorEntregable.TryGetValue(r.Id, out var arch) && arch.Count > 0
+                                    ? arch
+                                    : (baseId.HasValue && archivosPorEntregable.TryGetValue(baseId.Value, out var baseArch)
+                                        ? baseArch
+                                        : [])
+                            };
                         })
                         .ToList();
 
@@ -385,10 +427,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ctx.SsHabEmpresa.Add(entregable);
                 await ctx.SaveChangesAsync();
             }
-
-            var esContratista = empresaContId.HasValue && !userId.HasValue;
-            if (esContratista && (entregable.Estado == "Aprobado" || entregable.Estado == "Rechazado"))
-                throw new AbrilException("No puedes modificar un entregable ya aprobado o rechazado.", 403);
 
             if (!string.IsNullOrEmpty(dto.Estado)) entregable.Estado = dto.Estado;
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;

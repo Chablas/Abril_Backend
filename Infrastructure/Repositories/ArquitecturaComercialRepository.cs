@@ -1372,18 +1372,49 @@ namespace Abril_Backend.Infrastructure.Repositories
                 };
             }).OrderByDescending(t => t.Total).ToList();
 
-            var supervisores = tareasPorArquitectoDetalle.Select(t => new SupervisorProgresoDTO
-            {
-                Nombre      = t.Nombre,
-                Progreso    = (double)t.AvancePct,
-                Completadas = actividades.Count(a =>
+            var supervisores = workerIds
+                .Select(uid =>
                 {
-                    var resp1 = a.UserId ??
-                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
-                    return (resp1 == t.UserId || a.UserId2 == t.UserId) && a.FinEfectivo != null;
-                }),
-                Total       = t.Total,
-            }).ToList();
+                    var tareas = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
+                    var total  = tareas.Count;
+                    if (total == 0) return null;
+
+                    var completadas = tareas.Count(a => a.FinEfectivo != null);
+
+                    // 1. SPI (35%)
+                    var spiValidos  = tareas.Where(a => a.Spi.HasValue && a.Spi.Value > 0 && a.Spi.Value <= 1.5m).ToList();
+                    var spiPromedio = spiValidos.Any() ? (double)spiValidos.Average(a => a.Spi!.Value) : 1.0;
+                    var compSpi     = Math.Min(spiPromedio / 1.5, 1.0) * 100;
+
+                    // 2. Tasa de cierre (35%)
+                    var compCierre = completadas / (double)total * 100;
+
+                    // 3. Puntualidad de inicio (20%)
+                    var conInicioEfectivo = tareas.Where(a => a.InicioEfectivo.HasValue).ToList();
+                    var puntuales         = conInicioEfectivo.Count(a => a.InicioEfectivo!.Value <= a.InicioProgramado!.Value);
+                    var compInicio        = conInicioEfectivo.Any()
+                        ? puntuales / (double)conInicioEfectivo.Count * 100
+                        : 50.0;
+
+                    // 4. Penalización mora (10%)
+                    var vencidas = tareas.Count(a => a.FinProgramado.HasValue && a.FinProgramado.Value < today && a.FinEfectivo == null);
+                    var compMora = (1 - vencidas / (double)total) * 100;
+
+                    var ies = Math.Round(compSpi * 0.35 + compCierre * 0.35 + compInicio * 0.20 + compMora * 0.10, 1);
+                    if (completadas == 0 && total > 0) ies = Math.Min(ies, 30.0);
+
+                    return new SupervisorProgresoDTO
+                    {
+                        Nombre      = workerNameMap.GetValueOrDefault(uid, $"Worker {uid}"),
+                        Progreso    = ies,
+                        Total       = total,
+                        Completadas = completadas,
+                    };
+                })
+                .Where(s => s != null)
+                .Cast<SupervisorProgresoDTO>()
+                .OrderByDescending(s => s.Progreso)
+                .ToList();
 
             var hitosBase = actividades
                 .Where(a => a.Tipo == "HITO" && a.Estado != EstadoCulminado &&

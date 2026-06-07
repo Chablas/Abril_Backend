@@ -25,13 +25,21 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public Task<ActividadesProyectoResponseDto> GetActividadesAsync(int proyectoId)
             => _repository.GetActividadesAsync(proyectoId);
 
-        public Task<ActividadDto> CrearActividadAsync(int proyectoId, CrearActividadRequest request, int userId)
-            => _repository.CrearActividadAsync(proyectoId, request, userId);
+        public async Task<CrearActividadResultDto> CrearActividadAsync(int proyectoId, CrearActividadRequest request, int userId)
+        {
+            var actividad = await _repository.CrearActividadAsync(proyectoId, request, userId);
+            var padres = await _scheduling.RecalcularFechasPadresAsync(proyectoId);
+            return new CrearActividadResultDto
+            {
+                Actividad = actividad,
+                PadresActualizados = padres.Count > 0 ? padres : null
+            };
+        }
 
         public async Task<EditarActividadResultDto> EditarActividadAsync(int projectActivityId, EditarActividadRequest request, int userId)
         {
             var actividad = await _repository.EditarActividadAsync(projectActivityId, request, userId);
-            await _scheduling.RecalcularFechasPadresAsync(actividad.ProjectId);
+            var padres = await _scheduling.RecalcularFechasPadresAsync(actividad.ProjectId);
 
             CascadaResultDto? cascada = null;
 
@@ -54,7 +62,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             return new EditarActividadResultDto
             {
                 Actividad = actividad,
-                Cascada = cascada
+                Cascada = cascada,
+                PadresActualizados = padres.Count > 0 ? padres : null
             };
         }
 

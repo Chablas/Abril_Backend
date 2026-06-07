@@ -4190,3 +4190,50 @@ CREATE TABLE IF NOT EXISTS ss_hab_documento_archivo (
 ```
 
 O generar con: `dotnet ef migrations add AddHabDocumentoArchivoAndMensuales --project Abril-Backend.csproj`
+
+---
+
+## Sesión 2026-06-07 — HabilitacionModule: bandeja archivos, sentinel empresa, archivos no mensuales
+
+### ItemsEmpresaSentinel — ampliado
+
+`HabilitacionDateHelper.ItemsEmpresaSentinel` actualizado:
+
+```csharp
+// Antes:
+private static readonly HashSet<int> ItemsEmpresaSentinel = new() { 12, 13 };
+// Ahora:
+private static readonly HashSet<int> ItemsEmpresaSentinel = new() { 12, 13, 14, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
+```
+
+Estos items reciben `Vigencia=2040-12-31` al aprobar (no requieren renovación periódica).
+
+### EmpresaEntregableDto — propiedad Archivos agregada
+
+`EmpresaEntregableDto` ahora incluye `List<EntregableMesArchivoDto> Archivos { get; set; } = []`.
+
+`MapToDto` (HabEmpresaRepository) recibe y asigna `archivos`. La llamada para `esMensual=false` pasa los archivos del registro base desde `archivosPorEntregable.TryGetValue(reg.Id, ...)`.
+
+### BandejaItemDto — propiedad Archivos agregada
+
+`BandejaItemDto` ahora incluye `List<EntregableMesArchivoDto> Archivos { get; set; } = []`.
+
+### BandejaRepository — EnrichWithArchivosAsync
+
+Método privado que se llama después de ambas queries Dapper (`GetPendientesAsync` y `GetPendientesCursorAsync`). Enriquece los items de tipo `EMPRESA` con sus archivos:
+
+1. Filtra `empresaIds` de items EMPRESA en la página.
+2. Carga `registrosBase` (los registros exactos de esos IDs).
+3. Expande a `todosRegistros` (todos los registros del mismo grupo `EmpresaId+ProyectoId+ItemId`) iterando por grupo con valores primitivos — evita el problema de EF con `.Any()` sobre lista en memoria.
+4. Query batch de `SsHabDocumentoVersion.Include(Archivos)` para `todosIds` con `Enviado=true`.
+5. Asigna archivos al item buscando en todos los IDs del grupo (base + mensuales).
+
+### BandejaRepository — filtro sub2.mes IS NOT NULL en segmento EMPRESA
+
+El subquery que selecciona el registro mensual más reciente en la cláusula WHERE del segmento EMPRESA ahora excluye el registro base:
+
+```sql
+AND sub2.estado = 'Enviado'
+AND sub2.mes IS NOT NULL      -- evita que el registro base (mes=null) gane el ORDER BY
+ORDER BY sub2.anio DESC, sub2.mes DESC
+```

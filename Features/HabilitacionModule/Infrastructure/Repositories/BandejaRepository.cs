@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -110,6 +111,7 @@ WHERE he.estado = 'Enviado'
         AND sub2.proyecto_id = he.proyecto_id
         AND sub2.item_id = he.item_id
         AND sub2.estado = 'Enviado'
+        AND sub2.mes IS NOT NULL
       ORDER BY sub2.anio DESC, sub2.mes DESC
       LIMIT 1
   ))
@@ -211,6 +213,8 @@ LIMIT @PageSize OFFSET @Offset";
             var items = (await conn.QueryAsync<BandejaItemDto>(dataSql, parametros)).ToList();
             var total = await conn.ExecuteScalarAsync<int>(countSql, parametros);
 
+            await EnrichWithArchivosAsync(items);
+
             return (items, total);
         }
 
@@ -272,6 +276,8 @@ LIMIT @PageSize";
             var hasMore = rows.Count > pageSize;
             var page = hasMore ? rows.Take(pageSize).ToList() : rows;
 
+            await EnrichWithArchivosAsync(page);
+
             string? nextCursor = null;
             if (hasMore && page.Count > 0)
             {
@@ -288,6 +294,96 @@ LIMIT @PageSize";
                 NextCursor = nextCursor,
                 HasMore = hasMore
             };
+        }
+
+        private async Task EnrichWithArchivosAsync(List<BandejaItemDto> items)
+        {
+            var empresaIds = items
+                .Where(i => i.Tipo == "EMPRESA")
+                .Select(i => i.Id)
+                .Distinct()
+                .ToList();
+
+            if (empresaIds.Count == 0) return;
+
+            Console.WriteLine($"empresaIds: {string.Join(",", empresaIds)}");
+
+            using var ctx = _factory.CreateDbContext();
+
+            var registrosBase = await ctx.SsHabEmpresa
+                .Where(e => empresaIds.Contains(e.Id))
+                .ToListAsync();
+
+            var grupos = registrosBase
+                .Select(r => new { r.EmpresaId, r.ProyectoId, r.ItemId })
+                .Distinct()
+                .ToList();
+
+            var todosRegistros = new List<SsHabEmpresa>();
+            foreach (var g in grupos)
+            {
+                var regs = await ctx.SsHabEmpresa
+                    .Where(e => e.EmpresaId == g.EmpresaId
+                             && e.ProyectoId == g.ProyectoId
+                             && e.ItemId == g.ItemId)
+                    .ToListAsync();
+                todosRegistros.AddRange(regs);
+            }
+
+            var todosIds = todosRegistros.Select(r => r.Id).ToList();
+
+            var versiones = await ctx.SsHabDocumentoVersion
+                .Include(v => v.Archivos)
+                .Where(v => v.HabEmpresaId.HasValue
+                         && todosIds.Contains(v.HabEmpresaId.Value)
+                         && v.Enviado)
+                .ToListAsync();
+
+            var archivosPorEntregable = versiones
+                .Where(v => v.HabEmpresaId.HasValue)
+                .GroupBy(v => v.HabEmpresaId!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.SelectMany(v => v.Archivos)
+                          .GroupBy(a => a.Id)
+                          .Select(grp => grp.First())
+                          .OrderBy(a => a.Orden)
+                          .Select(a => new EntregableMesArchivoDto
+                          {
+                              Id = a.Id,
+                              NombreArchivo = a.NombreArchivo ?? "",
+                              ArchivoUrl = a.ArchivoUrl,
+                              EsZip = a.EsZip,
+                              Orden = a.Orden
+                          })
+                          .ToList()
+                );
+
+            Console.WriteLine($"archivosPorEntregable keys: {string.Join(",", archivosPorEntregable.Keys)}");
+
+            foreach (var item in items.Where(i => i.Tipo == "EMPRESA"))
+            {
+                var idsDelGrupo = todosRegistros
+                    .Where(r => r.EmpresaId == registrosBase
+                        .FirstOrDefault(b => b.Id == item.Id)?.EmpresaId
+                        && r.ProyectoId == registrosBase
+                        .FirstOrDefault(b => b.Id == item.Id)?.ProyectoId
+                        && r.ItemId == registrosBase
+                        .FirstOrDefault(b => b.Id == item.Id)?.ItemId)
+                    .Select(r => r.Id)
+                    .ToList();
+
+                var archivosDelItem = idsDelGrupo
+                    .Where(id => archivosPorEntregable.ContainsKey(id))
+                    .SelectMany(id => archivosPorEntregable[id])
+                    .GroupBy(a => a.Id)
+                    .Select(g => g.First())
+                    .OrderBy(a => a.Orden)
+                    .ToList();
+
+                if (archivosDelItem.Any())
+                    item.Archivos = archivosDelItem;
+            }
         }
 
         public async Task<List<string>> GetEmpresasUnicasAsync()

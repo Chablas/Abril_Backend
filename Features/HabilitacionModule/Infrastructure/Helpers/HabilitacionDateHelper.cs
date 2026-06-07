@@ -19,7 +19,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Helpers
             return AsUtc(dtoVigencia);
         }
 
-        private static readonly HashSet<int> ItemsEmpresaSentinel = new() { 12, 13 };
+        private static readonly HashSet<int> ItemsEmpresaSentinel = new() { 12, 13, 14, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
 
         public static DateTime? ResolverVigenciaEmpresa(int itemId, string estado, DateTime? dtoVigencia)
         {

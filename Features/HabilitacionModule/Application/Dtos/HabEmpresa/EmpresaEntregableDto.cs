@@ -17,6 +17,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa
         public int? Mes { get; set; }
         public int? Anio { get; set; }
         public List<EntregableMesDto> Meses { get; set; } = [];
+        public List<EntregableMesArchivoDto> Archivos { get; set; } = [];
     }
 
     public class EntregableMesDto

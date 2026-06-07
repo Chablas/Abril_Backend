@@ -74,7 +74,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     var reg = regsItem.FirstOrDefault();
                     if (reg == null) continue;
-                    result.Add(MapToDto(reg, item, []));
+                    result.Add(MapToDto(reg, item, [],
+                        archivosPorEntregable.TryGetValue(reg.Id, out var arch) ? arch : []));
                 }
                 else
                 {
@@ -145,7 +146,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return "Falta";
         }
 
-        private static EmpresaEntregableDto MapToDto(SsHabEmpresa r, SsItemEmpresa item, List<EntregableMesDto> meses)
+        private static EmpresaEntregableDto MapToDto(SsHabEmpresa r, SsItemEmpresa item, List<EntregableMesDto> meses, List<EntregableMesArchivoDto> archivos)
             => new()
             {
                 Id = r.Id,
@@ -162,7 +163,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 Responsable = item.Responsable,
                 Mes = r.Mes,
                 Anio = r.Anio,
-                Meses = meses
+                Meses = meses,
+                Archivos = archivos
             };
 
         public async Task<SsHabEmpresa> UpdateEntregableEmpresaAsync(

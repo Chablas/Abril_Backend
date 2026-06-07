@@ -1,3 +1,5 @@
+using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
+
 namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja
 {
     public class BandejaItemDto
@@ -20,5 +22,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja
         public int? Mes { get; set; }
         public int? Anio { get; set; }
         public int MesesPendientes { get; set; }
+        public List<EntregableMesArchivoDto> Archivos { get; set; } = [];
     }
 }

@@ -75,8 +75,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             {
                 var file = request.File;
                 var contexto = request.Contexto;
-                _logger.LogInformation("Subir: FileName={FileName}, Length={Length}, ContentType={ContentType}, HabTrabajadorId={HabTrabajadorId}",
-                    file?.FileName, file?.Length, file?.ContentType, request.HabTrabajadorId);
+                _logger.LogInformation("Subir: FileName={FileName}, Length={Length}, ContentType={ContentType}",
+                    file?.FileName, file?.Length, file?.ContentType);
 
                 if (file is null || file.Length == 0)
                 {
@@ -100,46 +100,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 using var stream = file.OpenReadStream();
                 var path = await _sharePoint.SubirArchivoAsync(stream, file.FileName, contexto);
                 var realUrl = await _sharePoint.GetDownloadUrlAsync(path);
-
-                if (request.HabTrabajadorId is int habId)
-                {
-                    var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
-
-                    if (esContratista)
-                    {
-                        var itemId = await _habTrabajadorRepo.GetEntregableItemIdAsync(habId);
-                        if (itemId == HabItemIds.InduccionObra)
-                            return BadRequest(new { message = "La Inducción de Obra no puede ser enviada por el contratista. Debe ser aprobada presencialmente." });
-                    }
-
-                    var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                    int? userId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;
-
-                    int? empresaIdClaim = null;
-                    if (esContratista)
-                    {
-                        var ec = User.FindFirst("empresaId")?.Value;
-                        if (int.TryParse(ec, out var eid)) empresaIdClaim = eid;
-                        userId = null;
-                    }
-
-                    var updateDto = new WorkerEntregableUpdateDto
-                    {
-                        Estado = "Enviado",
-                        ArchivoUrl = path,
-                        ObsContratista = request.ObsContratista
-                    };
-
-                    var entregable = await _habTrabajadorRepo.UpdateEntregableAsync(habId, updateDto, userId, empresaIdClaim);
-
-                    return Ok(new
-                    {
-                        path,
-                        url = realUrl,
-                        habTrabajadorId = entregable.Id,
-                        estado = entregable.Estado
-                    });
-                }
 
                 return Ok(new { path, url = realUrl });
             }
@@ -231,6 +191,26 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 }
 
                 using var ctx = _factory.CreateDbContext();
+
+                if (request.HabTrabajadorId.HasValue)
+                {
+                    var requiereVigencia = await ctx.SsHabTrabajador
+                        .Where(h => h.Id == request.HabTrabajadorId.Value)
+                        .Select(h => h.Item != null ? h.Item.RequiereVigencia : false)
+                        .FirstOrDefaultAsync();
+                    if (requiereVigencia && !request.Vigencia.HasValue)
+                        return BadRequest(new { message = "Este documento requiere fecha de vigencia." });
+                }
+
+                if (request.HabEmpresaId.HasValue)
+                {
+                    var requiereVigencia = await ctx.SsHabEmpresa
+                        .Where(h => h.Id == request.HabEmpresaId.Value)
+                        .Select(h => h.Item != null ? h.Item.RequiereVigencia : false)
+                        .FirstOrDefaultAsync();
+                    if (requiereVigencia && !request.Vigencia.HasValue)
+                        return BadRequest(new { message = "Este documento requiere fecha de vigencia." });
+                }
 
                 int? habTrabajadorId = request.HabTrabajadorId;
                 int? habEmpresaId = request.HabEmpresaId;

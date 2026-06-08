@@ -1,5 +1,7 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Helpers;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
@@ -37,8 +39,25 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             string? period, int? stateId, int? projectId, int? areaId, int? userId)
             => _lessonRepository.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId);
 
-        public Task<object?> CreateAsync(LessonCreateDTO dto, int userId)
-            => _lessonRepository.CreateAsync(dto, userId);
+        public async Task<object?> CreateAsync(LessonCreateDTO dto, int userId)
+        {
+            // ── Fecha "hoy" en hora Lima (UTC-5) ─────────────────────────────
+            // Para PROBAR la ventana de revisión: comenta la línea de hoy y
+            // descomenta la de fecha fija con un 4.º/5.º día hábil final del mes.
+            var today = DateTime.UtcNow.AddHours(-5);
+            //var today = new DateTime(2026, 6, 29); // 4.º día hábil de jun-2026 → debe BLOQUEAR
+            // var today = new DateTime(2026, 6, 30); // 5.º día hábil de jun-2026 → debe BLOQUEAR
+
+            // Días 4–5 de los últimos 5 hábiles = ventana de revisión de la
+            // jefatura: nadie puede registrar nuevas lecciones aprendidas.
+            if (LessonUploadWindow.IsReviewWindow(today))
+                throw new AbrilException(
+                    "Estamos en la ventana de revisión de la jefatura (los últimos 2 días hábiles del mes). " +
+                    "Durante estos días no se pueden registrar nuevas lecciones aprendidas.",
+                    403);
+
+            return await _lessonRepository.CreateAsync(dto, userId);
+        }
 
         public Task<bool> UpdateAsync(int lessonId, LessonUpdateDTO dto, int currentUserId)
             => _lessonRepository.UpdateAsync(lessonId, dto, currentUserId);

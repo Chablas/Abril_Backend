@@ -427,6 +427,34 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             return await query.ToListAsync();
         }
 
+        public async Task<List<string>> GetAbrilWorkerEmailsWithUserAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // worker.email_personal guarda el correo corporativo @abril (la columna
+            // email_corporativo está siempre en NULL). Solo trabajadores con usuario
+            // registrado y activo: worker.person_id → person.person_id →
+            // person.user_id → app_user. Comparación lower() para que el match de
+            // "@abril" y la deduplicación sean case-insensitive.
+            var emails = await (
+                from w in ctx.Worker
+                where w.EmailPersonal != null
+                      && w.EmailPersonal.ToLower().Contains("@abril")
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                join u in ctx.User on p.UserId equals u.UserId
+                where u.State == true && u.Active == true
+                select w.EmailPersonal!
+            ).ToListAsync();
+
+            // Dedup case-insensitive conservando una sola variante por correo.
+            return emails
+                .Select(e => e.Trim())
+                .Where(e => e.Length > 0)
+                .GroupBy(e => e.ToLowerInvariant())
+                .Select(g => g.First())
+                .ToList();
+        }
+
         public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsByPeriod(DateTime periodDate)
         {
             using var ctx = _factory.CreateDbContext();

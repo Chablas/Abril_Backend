@@ -42,6 +42,19 @@ namespace Abril_Backend.Application.Services
             "cedro33_op@abril.pe",
             "granmanzano_op@abril.pe"*/
         };
+
+        // ── Aviso mensual de publicación de lecciones (1er día del mes) ─────────
+        // Buzón visible como destinatario/remitente del aviso masivo; también
+        // recibe cada lote como copia de auditoría. Cambiar por el correo
+        // institucional (ej. comunicaciones@abril.pe) cuando se defina.
+        private readonly List<string> _publicationAnnouncementTo = new List<string>
+        {
+            "calvarez@abril.pe"
+        };
+        // Tamaño de lote para el BCC: evita topes del proveedor (Outlook/365 ~500
+        // destinatarios por mensaje) y reduce el riesgo de marcas de spam.
+        private const int PublicationBatchSize = 90;
+
         public ReminderService(
             IEmailService emailService,
             IMilestoneScheduleRepository milestoneScheduleRepository,
@@ -99,6 +112,16 @@ namespace Abril_Backend.Application.Services
             var today = DateTime.UtcNow.AddHours(-5);
             //var today = new DateTime(2026, 6, 26);
 
+            // 1er día del mes (independiente de la ventana de fin de mes): aviso de
+            // publicación de las lecciones aprendidas del MES ANTERIOR — el que acaba
+            // de cerrar — dirigido a todos los trabajadores @abril con usuario.
+            if (today.Day == 1)
+            {
+                Console.WriteLine("⏰ Día 1 del mes: aviso de publicación de lecciones aprendidas");
+                await SendLessonsLearnedPublicationAsync(today);
+                Console.WriteLine("📧 Aviso de publicación enviado correctamente");
+            }
+
             // Ventana de los últimos 5 días hábiles del mes:
             //   • Días 1–3: recordatorio para subir lecciones.
             //   • Día 4: reporte de quién NO subió su lección (antes salía el 1er día del mes).
@@ -154,6 +177,86 @@ namespace Abril_Backend.Application.Services
             var idx = businessDays.FindIndex(d => d.Date == date.Date);
             if (idx < 0) return 0;
             return businessDays.Count - idx; // idx 0 (último hábil) → 5 ; idx 4 → 1
+        }
+
+        /// <summary>
+        /// Aviso mensual (1er día del mes) de que las lecciones aprendidas del mes
+        /// anterior ya están publicadas. Va a todos los trabajadores cuyo correo
+        /// corporativo @abril (worker.email_personal) tiene un usuario registrado.
+        /// Los destinatarios viajan en BCC por lotes para no exponer sus correos.
+        /// </summary>
+        public async Task SendLessonsLearnedPublicationAsync(DateTime executionDate)
+        {
+            // Mes anterior: al día 1 el mes recién cerrado ya tiene sus lecciones
+            // recolectadas (los recordatorios de subida corren a fin de mes).
+            var target = executionDate.AddMonths(-1);
+            var es = new CultureInfo("es-PE");
+            var periodLabel = target.ToString("MMMM yyyy", es);        // "marzo 2026"
+            var periodLabelTitle = es.TextInfo.ToTitleCase(periodLabel); // "Marzo 2026"
+
+            var recipients = await _lessonReminderRepository.GetAbrilWorkerEmailsWithUserAsync();
+            Console.WriteLine($"📊 [publicación lecciones] destinatarios @abril con usuario: {recipients.Count}");
+            if (recipients.Count == 0)
+            {
+                Console.WriteLine("   • Sin destinatarios; no se envía el aviso de publicación.");
+                return;
+            }
+
+            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+
+            var subject = $"📘 Publicación de Lecciones Aprendidas — {periodLabelTitle}";
+
+            var body = $@"
+            <p>Estimados,</p>
+
+            <p>
+                Les informamos que las lecciones aprendidas correspondientes al mes de
+                <strong>{periodLabel}</strong> ya se encuentran disponibles en la plataforma
+                corporativa para su revisión y consulta.
+            </p>
+
+            <p>
+                Este registro reúne las principales buenas prácticas, oportunidades de mejora
+                y experiencias identificadas en los distintos proyectos, promoviendo la gestión
+                del conocimiento y la mejora continua en la organización.
+            </p>
+
+            <p>
+                Invitamos a todos los equipos a revisar el contenido publicado y considerar su
+                aplicación en futuras etapas y proyectos, contribuyendo así a una ejecución más
+                eficiente, preventiva y estandarizada.
+            </p>
+
+            <p>
+                👉 <a href='{platformUrl}' target='_blank'>Acceder a la plataforma</a>
+            </p>
+
+            <p>
+                Agradecemos el compromiso de cada área en la generación y difusión de
+                conocimiento dentro de la organización.
+            </p>
+
+            <p style='font-size: 12px; color: #666;'>
+                Este mensaje se envía automáticamente el primer día de cada mes.
+            </p>
+            ";
+
+            // Envío masivo: trabajadores en BCC por lotes (no se exponen entre sí).
+            // El To lleva el buzón institucional, que también queda como auditoría.
+            var batches = 0;
+            foreach (var batch in recipients.Chunk(PublicationBatchSize))
+            {
+                await _emailService.SendAsync(
+                    to: _publicationAnnouncementTo,
+                    subject: subject,
+                    body: body,
+                    isHtml: true,
+                    bcc: batch.ToList()
+                );
+                batches++;
+            }
+
+            Console.WriteLine($"📧 Aviso de publicación enviado en {batches} lote(s) a {recipients.Count} destinatario(s).");
         }
 
         public async Task SendLessonsLearnedMonthlyRemindersAsync(DateTime executionDate)

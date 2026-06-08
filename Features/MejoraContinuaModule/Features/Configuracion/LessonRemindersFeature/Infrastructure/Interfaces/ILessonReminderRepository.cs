@@ -41,5 +41,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             int projectId,
             string period,
             IReadOnlyList<string> emails);
+
+        /// <summary>
+        /// Correos corporativos (@abril) de los trabajadores que además tienen un
+        /// usuario registrado en el sistema. El correo corporativo vive en
+        /// worker.email_personal (la columna email_corporativo está en NULL); el
+        /// enlace con usuario es worker.person_id → person.person_id → person.user_id
+        /// → app_user.user_id. Devuelve la lista deduplicada (case-insensitive).
+        /// Usado por el aviso mensual de publicación de lecciones aprendidas.
+        /// </summary>
+        Task<List<string>> GetAbrilWorkerEmailsWithUserAsync();
     }
 }

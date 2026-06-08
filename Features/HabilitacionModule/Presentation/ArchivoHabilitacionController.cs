@@ -263,6 +263,15 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     {
                         ent.Estado = "Enviado";
                         ent.ArchivoUrl = primerArchivo.ArchivoUrl;
+                        if (request.Vigencia.HasValue)
+                        {
+                            ent.Vigencia = DateTime.SpecifyKind(request.Vigencia.Value, DateTimeKind.Utc);
+                            _logger.LogInformation("[Enviar] Vigencia asignada: {Vigencia} para habTrabajadorId={Id}", ent.Vigencia, habTrabajadorId);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[Enviar] Vigencia NO recibida para habTrabajadorId={Id}", habTrabajadorId);
+                        }
                         if (!string.IsNullOrEmpty(request.ObsContratista))
                             ent.ObsContratista = request.ObsContratista;
                         ent.UpdatedAt = DateTime.UtcNow;

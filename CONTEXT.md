@@ -4285,3 +4285,27 @@ AND sub2.estado = 'Enviado'
 AND sub2.mes IS NOT NULL      -- evita que el registro base (mes=null) gane el ORDER BY
 ORDER BY sub2.anio DESC, sub2.mes DESC
 ```
+
+---
+
+## Fixes 2026-06-08
+
+### Vigencia en entregables trabajadores
+- `/archivos/enviar`: agrega `ent.Vigencia = DateTime.SpecifyKind(request.Vigencia.Value, DateTimeKind.Utc)` al bloque `habTrabajadorId`
+- `UpdateEntregableAsync` (HabTrabajadorRepository): no sobreescribe vigencia si `dto.Estado="Enviado"` + `dto.Vigencia=null` + vigencia actual ya existe
+- `HabTrabajadorController`: contratista ya no borra `dto.Vigencia` en `UpdateEntregable`
+- `guardarEntregable()`: si `!isContratista && archivosPendientes.length > 0` → delega a `enviarDocumento()`
+- `trabajadores.html`: botón GUARDAR en footer para admin/Casa cuando hay `archivosPendientes`
+
+### Permisos por responsable
+- `RolesAprobadoresSsoma` / `RolesAprobadoresAdmin` en `HabTrabajadorController` y `HabEmpresaController`
+- `GetResponsableItemTrabajadorAsync` / `GetResponsableItemEmpresaAsync` en repos
+- `puedeAprobarEntregableActual` getter en `empresa.ts`, `trabajadores.ts`, `bandeja.ts`
+- Bandeja: dropdown estado auto-guarda con `(ngModelChange)="guardarEstado()"`
+
+### Cambio de obra Casa
+- `ValidarExclusividadEmpresaAsync` solo ejecuta si `esContratista == true`
+
+### Flujo archivo limpio
+- `/archivos/subir`: ya no actualiza entregables (solo sube a SharePoint)
+- `/archivos/enviar`: valida archivos obligatorios + vigencia obligatoria si `requiereVigencia`

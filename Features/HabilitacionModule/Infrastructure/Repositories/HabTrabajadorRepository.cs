@@ -423,7 +423,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (!string.IsNullOrEmpty(dto.Estado))
                 entregable.Estado = dto.Estado;
             if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
-                entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
+            {
+                // No sobreescribir vigencia si viene null y el estado es Enviado
+                // (el contratista puede haber subido con vigencia desde /archivos/enviar)
+                var noSobreescribir = string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase)
+                    && !dto.Vigencia.HasValue
+                    && entregable.Vigencia.HasValue;
+                if (!noSobreescribir)
+                    entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(
+                        entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
+            }
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;

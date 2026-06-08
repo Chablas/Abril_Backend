@@ -141,7 +141,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                         return BadRequest(new { message = "La Inducción de Obra no puede ser enviada por el contratista. Debe ser aprobada presencialmente." });
 
                     dto.Estado = "Enviado";
-                    dto.Vigencia = null;
+                    // No borrar vigencia — el contratista puede enviarla cuando el item la requiere
                 }
 
                 var esAccionRestringida =

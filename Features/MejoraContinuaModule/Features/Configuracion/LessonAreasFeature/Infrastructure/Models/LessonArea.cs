@@ -26,6 +26,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         /// </summary>
         public bool IncludeDescendants { get; set; } = false;
 
+        /// <summary>
+        /// Si true (requiere Active e IncludeInForm), el área se muestra como opción INDEPENDIENTE
+        /// en el primer desplegable del formulario: aparece al tope, va directo a sus plantillas y
+        /// NO despliega a sus áreas hijas. Las hijas solo aparecen si también son independientes.
+        /// Default false.
+        /// </summary>
+        public bool IncludeAsIndependent { get; set; } = false;
+
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     }
 }

@@ -55,5 +55,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        /// <summary>Marca/desmarca el área como independiente en el formulario (requiere "En formulario").</summary>
+        [Authorize]
+        [HttpPut("include-as-independent/{areaScopeId}")]
+        public async Task<IActionResult> SetIncludeAsIndependent(int areaScopeId, [FromQuery] bool value)
+        {
+            try { return Ok(await _service.SetIncludeAsIndependentAsync(areaScopeId, value)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

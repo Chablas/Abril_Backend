@@ -88,11 +88,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                     LessonAreaId       = la?.LessonAreaId,
                     AreaScopeId        = node.AreaScopeId,
                     Path               = path,
-                    Active             = la != null && la.Active,
-                    IncludeInForm      = la != null && la.IncludeInForm,
-                    IncludeDescendants = la != null && la.IncludeDescendants,
-                    HasScope           = la != null && scopeLessonAreaIds.Contains(la.LessonAreaId),
-                    HasChildren        = nodesWithChildren.Contains(node.AreaScopeId)
+                    Active               = la != null && la.Active,
+                    IncludeInForm        = la != null && la.IncludeInForm,
+                    IncludeDescendants   = la != null && la.IncludeDescendants,
+                    IncludeAsIndependent = la != null && la.IncludeAsIndependent,
+                    HasScope             = la != null && scopeLessonAreaIds.Contains(la.LessonAreaId),
+                    HasChildren          = nodesWithChildren.Contains(node.AreaScopeId)
                 });
             }
 
@@ -164,10 +165,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
                 result.Add(new LessonAreaConfigItemDTO
                 {
-                    LessonAreaId = la.LessonAreaId,
-                    AreaScopeId  = la.AreaScopeId,
-                    Path         = path,
-                    Active       = la.Active
+                    LessonAreaId         = la.LessonAreaId,
+                    AreaScopeId          = la.AreaScopeId,
+                    Path                 = path,
+                    Active               = la.Active,
+                    IncludeInForm        = la.IncludeInForm,
+                    IncludeAsIndependent = la.IncludeAsIndependent
                 });
             }
 
@@ -219,6 +222,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         /// <summary>
         /// Prende/apaga include_in_form o include_descendants. Solo válido sobre un área
         /// que ya exista y esté ACTIVA (los flags no aplican si está inactiva).
+        /// Si se apaga include_in_form, también se apaga include_as_independent (no puede
+        /// ser independiente un área que no aparece en el formulario).
         /// </summary>
         private async Task<SetLessonAreaFlagResultDTO> SetFlagAsync(int areaScopeId, bool value, bool isForm)
         {
@@ -228,8 +233,34 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             if (row == null || !row.Active)
                 throw new AbrilException("Primero activa el área.", 400);
 
-            if (isForm) row.IncludeInForm = value;
+            if (isForm)
+            {
+                row.IncludeInForm = value;
+                if (!value) row.IncludeAsIndependent = false;
+            }
             else row.IncludeDescendants = value;
+
+            await ctx.SaveChangesAsync();
+            return new SetLessonAreaFlagResultDTO { LessonAreaId = row.LessonAreaId, Value = value };
+        }
+
+        /// <summary>
+        /// Prende/apaga include_as_independent. Requiere que el área esté ACTIVA y marcada
+        /// "En formulario" (include_in_form). Un área independiente se muestra como opción
+        /// de primer nivel en el formulario y no despliega a sus áreas hijas.
+        /// </summary>
+        public async Task<SetLessonAreaFlagResultDTO> SetIncludeAsIndependentAsync(int areaScopeId, bool value)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var row = await ctx.LessonArea.FirstOrDefaultAsync(la => la.AreaScopeId == areaScopeId);
+            if (row == null || !row.Active)
+                throw new AbrilException("Primero activa el área.", 400);
+
+            if (value && !row.IncludeInForm)
+                throw new AbrilException("El área debe estar marcada 'En formulario' antes de ser independiente.", 400);
+
+            row.IncludeAsIndependent = value;
 
             await ctx.SaveChangesAsync();
             return new SetLessonAreaFlagResultDTO { LessonAreaId = row.LessonAreaId, Value = value };

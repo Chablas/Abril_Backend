@@ -14,5 +14,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public Task<ToggleLessonAreaResultDTO> ToggleAsync(int areaScopeId) => _repo.ToggleAsync(areaScopeId);
         public Task<SetLessonAreaFlagResultDTO> SetIncludeInFormAsync(int areaScopeId, bool value) => _repo.SetIncludeInFormAsync(areaScopeId, value);
         public Task<SetLessonAreaFlagResultDTO> SetIncludeDescendantsAsync(int areaScopeId, bool value) => _repo.SetIncludeDescendantsAsync(areaScopeId, value);
+        public Task<SetLessonAreaFlagResultDTO> SetIncludeAsIndependentAsync(int areaScopeId, bool value) => _repo.SetIncludeAsIndependentAsync(areaScopeId, value);
     }
 }

@@ -17,6 +17,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         // Flags de personalización (solo aplican si Active).
         public bool IncludeInForm { get; set; }
         public bool IncludeDescendants { get; set; }
+        /// <summary>El área se muestra como opción independiente en el formulario (requiere IncludeInForm).</summary>
+        public bool IncludeAsIndependent { get; set; }
 
         // Ayudas para la UI (habilitar/deshabilitar toggles).
         /// <summary>El nodo tiene plantilla (scope_item). Requisito para "En formulario".</summary>

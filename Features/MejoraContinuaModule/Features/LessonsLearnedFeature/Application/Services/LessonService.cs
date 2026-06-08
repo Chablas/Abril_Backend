@@ -10,15 +10,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 {
     public class LessonService : ILessonService
     {
-        private const string PlatformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
-
         private readonly ILessonRepository _lessonRepository;
         private readonly IEmailService _emailService;
+        private readonly string _platformUrl;
 
-        public LessonService(ILessonRepository lessonRepository, IEmailService emailService)
+        public LessonService(ILessonRepository lessonRepository, IEmailService emailService, IConfiguration configuration)
         {
             _lessonRepository = lessonRepository;
             _emailService = emailService;
+            _platformUrl = $"{configuration["App:FrontendUrl"]?.TrimEnd('/')}/auth/login";
         }
 
         public Task<LessonDetailDTO?> GetByIdAsync(int id, int currentUserId)
@@ -97,7 +97,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 <p>{saludo}</p>
                 <p>Tu <strong>lección aprendida</strong> fue revisada y <strong>aprobada</strong> por tu jefatura.</p>
                 <p>No necesitas hacer nada más. ¡Gracias por tu aporte a la mejora continua!</p>
-                <p>👉 <a href='{PlatformUrl}' target='_blank'>Acceder a la plataforma</a></p>";
+                <p>👉 <a href='{_platformUrl}' target='_blank'>Acceder a la plataforma</a></p>";
             }
             else
             {
@@ -110,7 +110,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 <p>Tu <strong>lección aprendida</strong> fue <strong>rechazada</strong> por tu jefatura.</p>
                 {comentarioHtml}
                 <p>Por favor ingresa a la plataforma, <strong>edítala</strong> y vuelve a enviarla para una nueva revisión.</p>
-                <p>👉 <a href='{PlatformUrl}' target='_blank'>Acceder a la plataforma</a></p>";
+                <p>👉 <a href='{_platformUrl}' target='_blank'>Acceder a la plataforma</a></p>";
             }
 
             await _emailService.SendAsync(

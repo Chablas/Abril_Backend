@@ -8,16 +8,19 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
         private readonly IEvRecordatorioRepository _repo;
         private readonly IEmailService _email;
         private readonly ILogger<EvRecordatorioService> _logger;
+        private readonly string _evaluarUrl;
         private const string GerenteProyectosEmail = "coriundo@abril.pe";
 
         public EvRecordatorioService(
             IEvRecordatorioRepository repo,
             IEmailService email,
-            ILogger<EvRecordatorioService> logger)
+            ILogger<EvRecordatorioService> logger,
+            IConfiguration configuration)
         {
             _repo = repo;
             _email = email;
             _logger = logger;
+            _evaluarUrl = $"{configuration["App:FrontendUrl"]?.TrimEnd('/')}/evaluaciones/evaluar";
         }
 
         public async Task<object> ProcesarRecordatoriosAsync()
@@ -122,7 +125,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
             return new { mensaje = "OK", enviados, periodo = mesAnio };
         }
 
-        private static string BuildCuerpoRecordatorio(EvaluadorDto ev, string mesAnio, bool esPrimerDia)
+        private string BuildCuerpoRecordatorio(EvaluadorDto ev, string mesAnio, bool esPrimerDia)
         {
             var saludo = esPrimerDia
                 ? "Se inicia el período de evaluación de residentes."
@@ -139,7 +142,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
     <p>El período de evaluación corresponde a <strong>{mesAnio}</strong>.</p>
     <p>Por favor ingresa a la plataforma Abril y completa la evaluación de los residentes a tu cargo.</p>
     <div style='margin:24px 0;text-align:center'>
-      <a href='https://abril-frontend-m21l.onrender.com/evaluaciones/evaluar'
+      <a href='{_evaluarUrl}'
          style='background:#1E3A5F;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold'>
         Ir a Evaluaciones
       </a>

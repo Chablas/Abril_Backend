@@ -1742,6 +1742,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return reparados;
         }
 
+        public async Task<string?> GetResponsableItemTrabajadorAsync(int entregableId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsHabTrabajador
+                .Where(h => h.Id == entregableId)
+                .Select(h => h.Item != null ? h.Item.Responsable : null)
+                .FirstOrDefaultAsync();
+        }
+
         private static string BuildBodyNuevoProyecto(Worker worker, Project proyecto, DateOnly fechaInicio)
         {
             return $@"<p>Estimados,</p>

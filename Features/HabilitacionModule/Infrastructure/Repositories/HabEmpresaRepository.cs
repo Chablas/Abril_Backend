@@ -514,5 +514,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
         }
 
+        public async Task<string?> GetResponsableItemEmpresaAsync(int entregableId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsHabEmpresa
+                .Where(h => h.Id == entregableId)
+                .Select(h => h.Item != null ? h.Item.Responsable : null)
+                .FirstOrDefaultAsync();
+        }
+
     }
 }

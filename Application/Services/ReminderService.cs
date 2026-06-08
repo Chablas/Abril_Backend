@@ -109,8 +109,8 @@ namespace Abril_Backend.Application.Services
         }
         public async Task<bool> ExecuteReminders()
         {
-            //var today = DateTime.UtcNow.AddHours(-5);
-            var today = new DateTime(2026, 6, 29);
+            var today = DateTime.UtcNow.AddHours(-5);
+            //var today = new DateTime(2026, 6, 29);
 
             // 1er día del mes (independiente de la ventana de fin de mes): aviso de
             // publicación de las lecciones aprendidas del MES ANTERIOR — el que acaba

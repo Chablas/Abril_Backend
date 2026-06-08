@@ -592,7 +592,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 && dto.NuevaEmpresaId != currentEmpresaId
                 && !esContratista;
 
-            if (dto.NuevaEmpresaId.HasValue)
+            if (dto.NuevaEmpresaId.HasValue && esContratista)
                 await ValidarExclusividadEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId.Value);
 
             var itemsToReset = new HashSet<int>();

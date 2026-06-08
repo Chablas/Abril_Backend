@@ -1,5 +1,6 @@
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Proyectos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -406,6 +407,46 @@ LIMIT @PageSize";
                         .ToList();
                 }
             }
+        }
+
+        public async Task<List<ProyectoSimpleDto>> GetProyectosUnicosAsync()
+        {
+            const string sql = @"
+SELECT DISTINCT proyecto_id as Id, proyecto_nombre as Nombre
+FROM (
+    SELECT p.project_id as proyecto_id, p.project_description as proyecto_nombre
+    FROM ss_hab_trabajador ht
+    JOIN workers w ON w.id = ht.worker_id
+    LEFT JOIN LATERAL (
+        SELECT proyecto_id FROM worker_vinculaciones
+        WHERE worker_id = w.id AND fecha_fin IS NULL
+        ORDER BY created_at DESC, id DESC LIMIT 1
+    ) wv ON TRUE
+    LEFT JOIN project p ON p.project_id = wv.proyecto_id
+    WHERE ht.estado = 'Enviado'
+    UNION
+    SELECT p.project_id, p.project_description
+    FROM ss_hab_empresa he
+    JOIN project p ON p.project_id = he.proyecto_id
+    WHERE he.estado = 'Enviado'
+    UNION
+    SELECT p.project_id, p.project_description
+    FROM ss_hab_equipo heq
+    JOIN ss_equipo eq ON eq.id = heq.equipo_id
+    JOIN project p ON p.project_id = eq.proyecto_id
+    WHERE heq.estado = 'Enviado'
+    UNION
+    SELECT p.project_id, p.project_description
+    FROM ss_induccion i
+    JOIN project p ON p.project_id = i.proyecto_id
+    WHERE i.estado = 'PROGRAMADA'
+) t
+WHERE proyecto_nombre IS NOT NULL
+ORDER BY Nombre";
+
+            using var conn = CreateConnection();
+            var result = await conn.QueryAsync<ProyectoSimpleDto>(sql);
+            return result.ToList();
         }
 
         public async Task<List<string>> GetEmpresasUnicasAsync()

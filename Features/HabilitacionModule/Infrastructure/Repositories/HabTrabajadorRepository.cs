@@ -121,6 +121,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     baseQuery = baseQuery.Where(x => x.LatestVincActiva != null && x.LatestVincActiva.ProyectoId == proyectoId.Value);
             }
 
+            var countAntes = await baseQuery.CountAsync();
+            _logger.LogInformation("[HAB DEBUG] proyectoId={pId} count={c}", proyectoId, countAntes);
+
             if (!string.IsNullOrWhiteSpace(contratistaCasa))
             {
                 var cc = contratistaCasa.Trim();

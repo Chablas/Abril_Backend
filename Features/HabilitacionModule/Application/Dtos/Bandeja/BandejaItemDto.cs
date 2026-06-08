@@ -23,5 +23,16 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja
         public int? Anio { get; set; }
         public int MesesPendientes { get; set; }
         public List<EntregableMesArchivoDto> Archivos { get; set; } = [];
+        public List<BandejaMesDto> Meses { get; set; } = [];
+    }
+
+    public class BandejaMesDto
+    {
+        public int Id { get; set; }
+        public int Mes { get; set; }
+        public int Anio { get; set; }
+        public string Estado { get; set; } = string.Empty;
+        public DateTime? Vigencia { get; set; }
+        public List<EntregableMesArchivoDto> Archivos { get; set; } = [];
     }
 }

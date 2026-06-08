@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-06 — HabilitacionModule: flujo multi-archivo (SsHabDocumentoArchivo, POST /archivos/subir-multiple, POST /archivos/enviar), vigencia empresa por itemId (ResolverVigenciaEmpresa), entregables mensuales con Archivos[] por mes (EntregableMesArchivoDto, fallback baseId para archivos legacy), CrearOActualizarEntregableMesAsync permite subir aunque estado=Aprobado/Rechazado, EnviarDocumentoRequest +Mes/Anio, ArchivoHabilitacionController inyecta IHabEmpresaRepository.
+> Última actualización: 2026-06-08 — HabilitacionModule: lógica de vigencia empresa refactorizada (al enviar vs al aprobar/rechazar), CalcularEstadoGlobal corregida, Bandeja con Meses[] por item mensual.
 
 ---
 
@@ -1041,6 +1041,54 @@ var conn = ctx.Database.GetDbConnection();
 await conn.QueryAsync<T>(sql, params)
 ```
 `GetResidentesEvaluablesAsync` — Join: `workers → person → app_user → project ON contributor_id = w.contributor_id`. `ResidenteEvaluableDto`: UserId, NombreCompleto, ProjectId, ProjectNombre, Area, Subarea, PuedeVerTodos.
+
+---
+
+## 12. Sesión 2026-06-08 — Vigencia empresa refactorizada + Bandeja Meses[]
+
+### 12a. HabilitacionDateHelper — nueva lógica de vigencia empresa
+
+`HabilitacionDateHelper.cs` reemplazado completamente:
+
+| Símbolo | Cambio |
+|---|---|
+| `ItemsEmpresaSentinel` | Renombrado a `ItemsCentinela` — quita items 20 y 22: `{ 12, 13, 14, 17, 18, 19, 21, 23, 24, 25 }` |
+| `ItemsSctrVidaLey` | Nuevo: `{ 15, 16 }` — reservado a flujo SctrVidaLeyController, NO pasa por lógica empresa |
+| `ResolverVigenciaAlEnviar(itemId, esMensual, mes, anio, dtoVigencia)` | **Nuevo** — llamado por contratista al enviar. SCTR/VidaLey → `dtoVigencia`; centinela → 2040; mensual → día 27 del mes siguiente; resto → `dtoVigencia` |
+| `ResolverVigenciaAlAprobar(itemId, estado, dtoVigencia, vigenciaActual)` | **Nuevo** — llamado por admin al aprobar/rechazar. Rechazado → ayer UTC; Aprobado → `dtoVigencia` si viene, sino conserva `vigenciaActual` |
+| `ResolverVigenciaEmpresa(itemId, estado, dtoVigencia)` | Simplificado: Rechazado → ayer; centinela → 2040; hay fecha → esa fecha; sino → día 27 mes siguiente |
+
+### 12b. HabEmpresaRepository — UpdateEntregableEmpresaAsync
+
+Bloque de vigencia dividido por estado:
+
+```
+Enviado            → ResolverVigenciaAlEnviar(itemId, esMensual, mes, anio, dtoVigencia)
+Aprobado/Rechazado → ResolverVigenciaAlAprobar(...) + AprobadoPor, FechaAprobacion
+                     Rechazado también setea MotivoRechazo
+Otro con Vigencia  → AsUtc(dto.Vigencia)
+```
+
+### 12c. ArchivoHabilitacionController — método Enviar
+
+- **Mensual**: `vigenciaCalculada = ResolverVigenciaAlEnviar(itemId, true, mes, anio, request.Vigencia)` → entra en `updateDto.Vigencia`
+- **No mensual**: `ResolverVigenciaAlEnviar(ent.ItemId, false, null, null, request.Vigencia)` siempre (reemplaza `AsUtc` condicional)
+
+### 12d. HabEmpresaRepository — GetEntregablesEmpresaAsync
+
+- `meses` filtra `.Where(r => r.Mes.HasValue && r.Anio.HasValue)` — excluye registro base del cálculo de estado
+- `CalcularEstadoGlobal` nueva prioridad: `Count==0→Falta`; `Rechazado`; `Enviado`; `Falta`; `all Aprobado→Aprobado`
+- `archivosPorEntregable`: `.OrderByDescending(v => v.Version).First().Archivos` — solo versión más reciente
+
+### 12e. BandejaRepository — EnrichWithArchivosAsync
+
+- Archivos simplificados: solo `archivosPorEntregable[item.Id]` (registro de bandeja)
+- Diccionario también usa versión más reciente
+- **Nuevo**: `item.Meses` poblado con registros del mismo grupo `Estado=="Enviado"` con mes/anio, ordenados DESC, con archivos
+
+### 12f. BandejaItemDto — nuevo campo Meses[]
+
+`BandejaMesDto { Id, Mes, Anio, Estado, Vigencia, Archivos[] }` — permite aprobar mes a mes desde bandeja usando `PATCH /bandeja/empresa/{mesId}` con el Id del registro mensual específico.
 
 ---
 

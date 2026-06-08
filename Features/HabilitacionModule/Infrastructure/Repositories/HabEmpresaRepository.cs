@@ -49,7 +49,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .GroupBy(v => v.HabEmpresaId!.Value)
                 .ToDictionary(
                     g => g.Key,
-                    g => g.SelectMany(v => v.Archivos)
+                    g => g.OrderByDescending(v => v.Version)
+                          .First()
+                          .Archivos
                           .GroupBy(a => a.Id)
                           .Select(grp => grp.First())
                           .OrderBy(a => a.Orden)
@@ -82,6 +84,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     if (regsItem.Count == 0) continue;
 
                     var meses = regsItem
+                        .Where(r => r.Mes.HasValue && r.Anio.HasValue)
                         .OrderByDescending(r => r.Anio)
                         .ThenByDescending(r => r.Mes)
                         .Select(r =>
@@ -139,9 +142,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
         private static string CalcularEstadoGlobal(List<string> estados)
         {
+            if (estados.Count == 0) return "Falta";
             if (estados.Any(e => e == "Rechazado")) return "Rechazado";
-            if (estados.Any(e => e == "Falta")) return "Falta";
             if (estados.Any(e => e == "Enviado")) return "Enviado";
+            if (estados.Any(e => e == "Falta")) return "Falta";
             if (estados.All(e => e == "Aprobado")) return "Aprobado";
             return "Falta";
         }
@@ -198,20 +202,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrEmpty(dto.Estado))
                 entregable.Estado = dto.Estado;
-            if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
-                entregable.Vigencia = HabilitacionDateHelper.ResolverVigenciaEmpresa(entregable.ItemId, entregable.Estado, dto.Vigencia);
+
+            if (string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase))
+            {
+                entregable.Vigencia = HabilitacionDateHelper.ResolverVigenciaAlEnviar(
+                    entregable.ItemId,
+                    entregable.Item?.EsMensual ?? false,
+                    entregable.Mes,
+                    entregable.Anio,
+                    dto.Vigencia);
+            }
+            else if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase)
+                  || string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase))
+            {
+                entregable.Vigencia = HabilitacionDateHelper.ResolverVigenciaAlAprobar(
+                    entregable.ItemId, entregable.Estado, dto.Vigencia, entregable.Vigencia);
+                entregable.AprobadoPor = userId;
+                entregable.FechaAprobacion = DateTime.UtcNow;
+                if (string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase))
+                    entregable.MotivoRechazo = dto.MotivoRechazo;
+            }
+            else if (dto.Vigencia.HasValue)
+            {
+                entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
+            }
+
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;
             if (dto.Mes is not null) entregable.Mes = dto.Mes;
             if (dto.Anio is not null) entregable.Anio = dto.Anio;
             entregable.UpdatedAt = DateTime.UtcNow;
-
-            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
-            {
-                entregable.AprobadoPor = userId;
-                entregable.FechaAprobacion = DateTime.UtcNow;
-            }
 
             await ctx.SaveChangesAsync();
             return entregable;

@@ -298,16 +298,20 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     if (request.Mes.HasValue && request.Anio.HasValue)
                     {
                         // Item mensual: buscar o crear el registro del mes correcto
+                        var mesVal = request.Mes.Value;
+                        var anioVal = request.Anio.Value;
+                        var vigenciaCalculada = HabilitacionDateHelper.ResolverVigenciaAlEnviar(
+                            source.ItemId, true, mesVal, anioVal, request.Vigencia);
                         var updateDto = new EmpresaEntregableUpdateDto
                         {
                             Estado = "Enviado",
                             ArchivoUrl = primerArchivo.ArchivoUrl,
                             ObsContratista = request.ObsContratista,
-                            Vigencia = request.Vigencia
+                            Vigencia = vigenciaCalculada
                         };
                         ent = await _habEmpresaRepo.CrearOActualizarEntregableMesAsync(
                             source.EmpresaId, source.ProyectoId, source.ItemId,
-                            request.Mes.Value, request.Anio.Value,
+                            mesVal, anioVal,
                             updateDto, userId, empresaIdClaim);
                     }
                     else
@@ -318,8 +322,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                         ent.ArchivoUrl = primerArchivo.ArchivoUrl;
                         if (!string.IsNullOrEmpty(request.ObsContratista))
                             ent.ObsContratista = request.ObsContratista;
-                        if (request.Vigencia.HasValue)
-                            ent.Vigencia = HabilitacionDateHelper.AsUtc(request.Vigencia);
+                        ent.Vigencia = HabilitacionDateHelper.ResolverVigenciaAlEnviar(
+                            ent.ItemId, false, null, null, request.Vigencia);
                         ent.UpdatedAt = DateTime.UtcNow;
                     }
 

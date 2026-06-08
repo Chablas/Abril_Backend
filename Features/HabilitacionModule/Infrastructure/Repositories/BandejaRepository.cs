@@ -344,7 +344,9 @@ LIMIT @PageSize";
                 .GroupBy(v => v.HabEmpresaId!.Value)
                 .ToDictionary(
                     g => g.Key,
-                    g => g.SelectMany(v => v.Archivos)
+                    g => g.OrderByDescending(v => v.Version)
+                          .First()
+                          .Archivos
                           .GroupBy(a => a.Id)
                           .Select(grp => grp.First())
                           .OrderBy(a => a.Orden)
@@ -373,16 +375,36 @@ LIMIT @PageSize";
                     .Select(r => r.Id)
                     .ToList();
 
-                var archivosDelItem = idsDelGrupo
-                    .Where(id => archivosPorEntregable.ContainsKey(id))
-                    .SelectMany(id => archivosPorEntregable[id])
-                    .GroupBy(a => a.Id)
-                    .Select(g => g.First())
-                    .OrderBy(a => a.Orden)
-                    .ToList();
+                // Solo usar archivos del registro que aparece en bandeja (item.Id)
+                // que es el mensual más reciente con estado Enviado
+                var archivosDelItem = archivosPorEntregable.ContainsKey(item.Id)
+                    ? archivosPorEntregable[item.Id]
+                    : new List<EntregableMesArchivoDto>();
 
                 if (archivosDelItem.Any())
                     item.Archivos = archivosDelItem;
+
+                if (item.EsMensual)
+                {
+                    item.Meses = todosRegistros
+                        .Where(r => r.EmpresaId == registrosBase.FirstOrDefault(b => b.Id == item.Id)?.EmpresaId
+                                 && r.ProyectoId == registrosBase.FirstOrDefault(b => b.Id == item.Id)?.ProyectoId
+                                 && r.ItemId == registrosBase.FirstOrDefault(b => b.Id == item.Id)?.ItemId
+                                 && r.Mes.HasValue && r.Anio.HasValue
+                                 && r.Estado == "Enviado")
+                        .OrderByDescending(r => r.Anio)
+                        .ThenByDescending(r => r.Mes)
+                        .Select(r => new BandejaMesDto
+                        {
+                            Id = r.Id,
+                            Mes = r.Mes!.Value,
+                            Anio = r.Anio!.Value,
+                            Estado = r.Estado,
+                            Vigencia = r.Vigencia,
+                            Archivos = archivosPorEntregable.TryGetValue(r.Id, out var arch) ? arch : []
+                        })
+                        .ToList();
+                }
             }
         }
 

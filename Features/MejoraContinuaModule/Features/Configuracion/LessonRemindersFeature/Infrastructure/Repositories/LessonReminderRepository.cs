@@ -3,6 +3,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Dtos;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
@@ -12,10 +13,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
     public class LessonReminderRepository : ILessonReminderRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ILessonJefeResolver _jefeResolver;
 
-        public LessonReminderRepository(IDbContextFactory<AppDbContext> factory)
+        // Texto exacto de la categoría de jefatura (igual que LessonJefeResolver).
+        private const string CategoriaJefe = "Jefe";
+
+        public LessonReminderRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ILessonJefeResolver jefeResolver)
         {
             _factory = factory;
+            _jefeResolver = jefeResolver;
         }
 
         public async Task<object> GetPaged(int page, int pageSize, string? subarea = null)
@@ -453,6 +461,134 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 .GroupBy(e => e.ToLowerInvariant())
                 .Select(g => g.First())
                 .ToList();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Jefaturas (lesson_jefe_reminder) — recordatorio del 4.º día
+        // ─────────────────────────────────────────────────────────────────────
+
+        public async Task<List<JefeReminderConfigItemDTO>> GetAllJefesAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Todos los workers con categoria 'Jefe' (texto exacto, igual que LessonJefeResolver).
+            var jefes = await (
+                from w in ctx.Worker
+                where w.Categoria == CategoriaJefe
+                join p in ctx.Person on w.PersonId equals p.PersonId into pj
+                from p in pj.DefaultIfEmpty()
+                select new
+                {
+                    w.Id,
+                    w.EmailPersonal,
+                    FullName = p != null ? p.FullName : null
+                }
+            ).ToListAsync();
+
+            // Solo la fila viva (state=true) por worker.
+            var rows = await ctx.LessonJefeReminder.Where(r => r.State).ToListAsync();
+            var byWorker = rows.ToDictionary(r => r.WorkerId);
+
+            return jefes
+                .Select(j =>
+                {
+                    byWorker.TryGetValue(j.Id, out var row);
+                    return new JefeReminderConfigItemDTO
+                    {
+                        LessonJefeReminderId = row?.LessonJefeReminderId,
+                        WorkerId = j.Id,
+                        FullName = j.FullName,
+                        Email = j.EmailPersonal,
+                        Active = row != null && row.Active
+                    };
+                })
+                .OrderBy(x => x.FullName)
+                .ToList();
+        }
+
+        public async Task<ToggleJefeReminderResultDTO> ToggleJefeAsync(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var isJefe = await ctx.Worker.AnyAsync(w => w.Id == workerId && w.Categoria == CategoriaJefe);
+            if (!isJefe)
+                throw new AbrilException("El trabajador no existe o no tiene categoría 'Jefe'.", 404);
+
+            var row = await ctx.LessonJefeReminder.FirstOrDefaultAsync(r => r.WorkerId == workerId && r.State);
+            if (row == null)
+            {
+                // Primera activación: se crea el registro vivo en active=true.
+                row = new LessonJefeReminder
+                {
+                    WorkerId = workerId,
+                    Active = true,
+                    State = true,
+                    CreatedAt = DateTimeOffset.UtcNow
+                };
+                ctx.LessonJefeReminder.Add(row);
+            }
+            else
+            {
+                row.Active = !row.Active;
+                row.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
+            await ctx.SaveChangesAsync();
+            return new ToggleJefeReminderResultDTO
+            {
+                LessonJefeReminderId = row.LessonJefeReminderId,
+                Active = row.Active
+            };
+        }
+
+        public async Task<List<JefeReviewStatusDTO>> GetActiveJefesReviewStatusAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Jefaturas activas (con correo y usuario para resolver subordinados).
+            var jefes = await (
+                from r in ctx.LessonJefeReminder
+                join w in ctx.Worker on r.WorkerId equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where r.State
+                      && r.Active
+                      && w.Categoria == CategoriaJefe
+                      && w.EmailPersonal != null
+                      && w.EmailPersonal != ""
+                      && p.UserId != null
+                select new
+                {
+                    WorkerId = w.Id,
+                    Email = w.EmailPersonal!,
+                    p.FullName,
+                    UserId = p.UserId!.Value
+                }
+            ).ToListAsync();
+
+            var result = new List<JefeReviewStatusDTO>();
+            foreach (var j in jefes)
+            {
+                // Subordinados cuyo jefe más cercano (subiendo el árbol area_scope) es este jefe.
+                var subordinateUserIds = await _jefeResolver.GetSubordinateUserIdsAsync(j.UserId);
+
+                var pending = subordinateUserIds.Count == 0
+                    ? 0
+                    : await ctx.Lesson.CountAsync(l =>
+                        subordinateUserIds.Contains(l.CreatedUserId)
+                        && l.ApprovalStatus == "PENDIENTE"
+                        && l.State
+                        && l.Active);
+
+                result.Add(new JefeReviewStatusDTO
+                {
+                    WorkerId = j.WorkerId,
+                    FullName = j.FullName,
+                    Email = j.Email,
+                    PendingCount = pending
+                });
+            }
+
+            return result;
         }
 
         public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsByPeriod(DateTime periodDate)

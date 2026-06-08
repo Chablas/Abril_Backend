@@ -22,5 +22,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public Task<List<ProjectStaffReminderConfigItemDTO>> GetAllProjectStaffAsync() => _repository.GetAllProjectStaffAsync();
         public Task<ToggleProjectStaffReminderResultDTO> ToggleProjectStaffAsync(int projectId) => _repository.ToggleProjectStaffAsync(projectId);
         public Task<List<ActiveProjectStaffEmailDTO>> GetActiveStaffEmailsAsync() => _repository.GetActiveStaffEmailsAsync();
+
+        public Task<List<JefeReminderConfigItemDTO>> GetAllJefesAsync() => _repository.GetAllJefesAsync();
+        public Task<ToggleJefeReminderResultDTO> ToggleJefeAsync(int workerId) => _repository.ToggleJefeAsync(workerId);
+        public Task<List<JefeReviewStatusDTO>> GetActiveJefesReviewStatusAsync() => _repository.GetActiveJefesReviewStatusAsync();
     }
 }

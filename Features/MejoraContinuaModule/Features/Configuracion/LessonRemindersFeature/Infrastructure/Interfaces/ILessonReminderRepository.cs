@@ -51,5 +51,25 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         /// Usado por el aviso mensual de publicación de lecciones aprendidas.
         /// </summary>
         Task<List<string>> GetAbrilWorkerEmailsWithUserAsync();
+
+        // ── Jefaturas (lesson_jefe_reminder) — recordatorio del 4.º día ────────
+        /// <summary>
+        /// Todos los trabajadores con categoria='Jefe' + su fila viva (state=true)
+        /// si existe. active=false cuando no hay fila → la UI los muestra inactivos.
+        /// </summary>
+        Task<List<JefeReminderConfigItemDTO>> GetAllJefesAsync();
+
+        /// <summary>
+        /// Alterna el envío para un jefe. Si no existe fila viva la crea con
+        /// active=true (primera activación); si existe, invierte active.
+        /// </summary>
+        Task<ToggleJefeReminderResultDTO> ToggleJefeAsync(int workerId);
+
+        /// <summary>
+        /// Jefaturas con correo y active=true + cuántas lecciones de su equipo están
+        /// PENDIENTE de revisión (0 = no tiene nada que revisar). Usado por el cron
+        /// del 4.º día para decidir el contenido del correo.
+        /// </summary>
+        Task<List<JefeReviewStatusDTO>> GetActiveJefesReviewStatusAsync();
     }
 }

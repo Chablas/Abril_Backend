@@ -173,5 +173,43 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Jefaturas (lesson_jefe_reminder): lista + toggle del recordatorio del 4.º día
+        // ─────────────────────────────────────────────────────────────────────
+
+        [Authorize]
+        [HttpGet("jefe")]
+        public async Task<IActionResult> GetJefes()
+        {
+            try
+            {
+                var result = await _service.GetAllJefesAsync();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("jefe/toggle/{workerId}")]
+        public async Task<IActionResult> ToggleJefe(int workerId)
+        {
+            try
+            {
+                var result = await _service.ToggleJefeAsync(workerId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

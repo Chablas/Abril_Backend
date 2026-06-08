@@ -109,8 +109,8 @@ namespace Abril_Backend.Application.Services
         }
         public async Task<bool> ExecuteReminders()
         {
-            var today = DateTime.UtcNow.AddHours(-5);
-            //var today = new DateTime(2026, 6, 26);
+            //var today = DateTime.UtcNow.AddHours(-5);
+            var today = new DateTime(2026, 6, 29);
 
             // 1er día del mes (independiente de la ventana de fin de mes): aviso de
             // publicación de las lecciones aprendidas del MES ANTERIOR — el que acaba
@@ -139,9 +139,10 @@ namespace Abril_Backend.Application.Services
             }
             else if (ordinal == 4)
             {
-                Console.WriteLine("⏰ Día 4/5 hábil final: reporte de usuarios sin lección (mes actual)");
+                Console.WriteLine("⏰ Día 4/5 hábil final: reporte de pendientes + aviso de revisión a jefaturas");
                 await NotifySupervisorsAboutPendingLessonsAsync(today);
-                Console.WriteLine("📧 Reporte enviado correctamente");
+                await SendJefesReviewWindowReminderAsync(today);
+                Console.WriteLine("📧 Reporte y aviso de revisión enviados correctamente");
             }
             else if (ordinal == 5)
             {
@@ -486,7 +487,7 @@ namespace Abril_Backend.Application.Services
         </p>
 
         <p style='font-size: 12px; color: #666;'>
-            Este mensaje se envía automáticamente el primer día laboral de cada mes.
+            Este mensaje se envía automáticamente el 4.º día hábil final del mes.
         </p>
     ";
 
@@ -499,6 +500,100 @@ namespace Abril_Backend.Application.Services
                 //bcc: _systemAdminsEmails
                 bcc: new List<string> {"calvarez@abril.pe"}
             );
+        }
+
+        /// <summary>
+        /// Aviso del 4.º día hábil a las jefaturas ACTIVAS en la sección
+        /// "Jefaturas" (lesson_jefe_reminder.active=true): las lecciones del mes ya
+        /// están listas y se abre la ventana de revisión (Aprobar/Rechazar). Es
+        /// independiente del reporte de pendientes — sale aunque no haya pendientes.
+        /// </summary>
+        public async Task SendJefesReviewWindowReminderAsync(DateTime executionDate)
+        {
+            var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
+
+            var jefes = await _lessonReminderRepository.GetActiveJefesReviewStatusAsync();
+            Console.WriteLine($"📊 [jefaturas] activas para aviso de revisión: {jefes.Count}");
+            if (jefes.Count == 0)
+            {
+                Console.WriteLine("   • Sin jefaturas activas; no se envía el aviso de revisión.");
+                return;
+            }
+
+            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+
+            foreach (var jefe in jefes)
+            {
+                if (string.IsNullOrWhiteSpace(jefe.Email)) continue;
+
+                var saludo = !string.IsNullOrWhiteSpace(jefe.FullName)
+                    ? $"Estimado(a) <strong>{jefe.FullName}</strong>,"
+                    : "Estimado(a),";
+
+                var pieHtml = @"
+                <p style='font-size: 12px; color: #666;'>
+                    Este aviso se envía automáticamente el 4.º día hábil final del mes a las
+                    jefaturas habilitadas en la configuración de recordatorios.
+                </p>";
+
+                string subject;
+                string body;
+
+                if (jefe.PendingCount > 0)
+                {
+                    var sustantivo = jefe.PendingCount == 1 ? "lección pendiente" : "lecciones pendientes";
+                    subject = $"📋 Lecciones aprendidas listas para tu revisión — {periodLabel}";
+                    body = $@"
+                    <p>{saludo}</p>
+
+                    <p>
+                        Se ha abierto la <strong>ventana de revisión</strong> de Lecciones Aprendidas de
+                        <strong>{periodLabel}</strong>. Tu equipo tiene <strong>{jefe.PendingCount}</strong>
+                        {sustantivo} de tu revisión.
+                    </p>
+
+                    <p>
+                        Ingresa a la plataforma para <strong>aprobar o rechazar</strong> durante la ventana
+                        de revisión (los últimos 2 días hábiles del mes).
+                    </p>
+
+                    <p>
+                        👉 <a href='{platformUrl}' target='_blank'>Acceder a la plataforma</a>
+                    </p>
+                    {pieHtml}";
+                }
+                else
+                {
+                    subject = $"📋 Ventana de revisión de Lecciones Aprendidas — {periodLabel} (sin pendientes)";
+                    body = $@"
+                    <p>{saludo}</p>
+
+                    <p>
+                        Se ha detectado que hoy inicia la <strong>ventana de revisión</strong> de Lecciones
+                        Aprendidas de <strong>{periodLabel}</strong>, pero <strong>no tienes lecciones de tu
+                        equipo pendientes de revisar</strong> en este momento.
+                    </p>
+
+                    <p>
+                        No necesitas hacer nada. Si más adelante un integrante de tu equipo registra o
+                        edita una lección, te aparecerá pendiente en la plataforma.
+                    </p>
+
+                    <p>
+                        👉 <a href='{platformUrl}' target='_blank'>Acceder a la plataforma</a>
+                    </p>
+                    {pieHtml}";
+                }
+
+                await _emailService.SendAsync(
+                    to: new List<string> { jefe.Email },
+                    subject: subject,
+                    body: body,
+                    isHtml: true,
+                    bcc: new List<string> { "calvarez@abril.pe" });
+            }
+
+            Console.WriteLine($"📧 Aviso de revisión enviado a {jefes.Count} jefatura(s).");
         }
 
         public async Task SendMilestoneScheduleMonthlyReminderAsync(DateTime executionDate)

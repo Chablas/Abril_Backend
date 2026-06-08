@@ -1,0 +1,35 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [master]      # usa "main" si ese es tu branch por defecto
+  workflow_dispatch:        # permite lanzarlo a mano desde la pestaña Actions
+
+concurrency:                # evita que dos despliegues se pisen
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Subir código al VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "."
+          target: /opt/abril/backend
+          rm: true            # limpia el destino antes de copiar (quita archivos borrados)
+          overwrite: true
+
+      - name: Construir y reiniciar en el VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: bash /opt/abril/deploy-backend.sh

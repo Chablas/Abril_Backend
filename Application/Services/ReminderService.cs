@@ -16,6 +16,7 @@ namespace Abril_Backend.Application.Services
         private readonly IMilestoneScheduleHistoryRepository _milestoneScheduleHistoryRepository;
         private readonly ILessonReminderRepository _lessonReminderRepository;
         private readonly IEmailGroupResolver _emailGroupResolver;
+        private readonly string _frontendUrl;
         private readonly List<string> _systemAdminsEmails = new List<string>
         {
             "alvarezvillegaschristian@outlook.com",
@@ -60,7 +61,8 @@ namespace Abril_Backend.Application.Services
             IMilestoneScheduleRepository milestoneScheduleRepository,
             IMilestoneScheduleHistoryRepository milestoneScheduleHistoryRepository,
             ILessonReminderRepository lessonReminderRepository,
-            IEmailGroupResolver emailGroupResolver
+            IEmailGroupResolver emailGroupResolver,
+            IConfiguration configuration
         )
         {
             _emailService = emailService;
@@ -68,6 +70,7 @@ namespace Abril_Backend.Application.Services
             _milestoneScheduleHistoryRepository = milestoneScheduleHistoryRepository;
             _lessonReminderRepository = lessonReminderRepository;
             _emailGroupResolver = emailGroupResolver;
+            _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
         }
 
         /// <summary>
@@ -203,7 +206,7 @@ namespace Abril_Backend.Application.Services
                 return;
             }
 
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
 
             var subject = $"📘 Publicación de Lecciones Aprendidas — {periodLabelTitle}";
 
@@ -264,7 +267,7 @@ namespace Abril_Backend.Application.Services
         {
             var currentPeriod = executionDate.ToString("MM-yyyy");
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
 
             // ─────────────────────────────────────────────────────────────────
             // CANAL 1 — user_project: usuarios asignados a proyectos que no han
@@ -453,7 +456,7 @@ namespace Abril_Backend.Application.Services
             emailsTo.AddRange(_supervisorsEmails);
             emailsTo.AddRange(pendingEmails);
 
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
 
             var usersHtml = string.Join("",
                 pendingUserProjects.Select(u => $@"
@@ -520,7 +523,7 @@ namespace Abril_Backend.Application.Services
                 return;
             }
 
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
 
             foreach (var jefe in jefes)
             {
@@ -605,7 +608,7 @@ namespace Abril_Backend.Application.Services
             if (!changes.Any())
                 return;
 
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
 
             var projectsHtml = string.Join("",
                 changes.Select(x =>
@@ -665,7 +668,7 @@ namespace Abril_Backend.Application.Services
             var pendingUserProjects = await _milestoneScheduleHistoryRepository.GetUsersWithoutScheduleHistoryThisMonth();
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
             //var periodLabel = "Enero 2026";
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
             foreach (var item in pendingUserProjects)
             {
                 Console.WriteLine(item.Email);

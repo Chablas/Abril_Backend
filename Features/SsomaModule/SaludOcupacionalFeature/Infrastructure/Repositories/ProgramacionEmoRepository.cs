@@ -380,8 +380,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 var toRaw = new List<string?>();
 
-                var medOcupacional = _configuration["EmailsArea:MedicinaOcupacional"];
-                var gth = _configuration["EmailsArea:GTH"];
+                var medOcupacional     = _configuration["EmailsArea:MedicinaOcupacional"];
+                var gth                = _configuration["EmailsArea:GTH"];
+                var emailJefeArqCom    = _configuration["EmailsArea:JefeArqCom"];
+                var emailJefePostVenta = _configuration["EmailsArea:JefePostVenta"];
+                var emailPrevArqCom    = _configuration["EmailsArea:PrevenicionistaArqCom"];
+                var emailPrevPostVenta = _configuration["EmailsArea:PrevenicionistaPostVenta"];
 
                 var vinculacion = await ctx.WorkerVinculacion.AsNoTracking()
                     .Where(v => v.WorkerId == worker.Id && v.FechaFin == null)
@@ -415,6 +419,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     }
                     toRaw.Add(medOcupacional);
                     toRaw.Add(adminEmail);
+                    if (proyecto?.TieneArquitecturaComercial == true)
+                    {
+                        var extraEmails = new[] { emailJefeArqCom, emailJefePostVenta, emailPrevArqCom, emailPrevPostVenta };
+                        foreach (var e in extraEmails)
+                            if (!string.IsNullOrWhiteSpace(e)) toRaw.Add(e);
+                    }
                 }
                 else if (esStaff)
                 {
@@ -431,6 +441,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         toRaw.Add(projectEmails?.EmailCoordSsoma);
                     }
                     toRaw.Add(adminEmail);
+                    if (proyecto?.TieneArquitecturaComercial == true)
+                    {
+                        var extraEmails = new[] { emailJefeArqCom, emailJefePostVenta, emailPrevArqCom, emailPrevPostVenta };
+                        foreach (var e in extraEmails)
+                            if (!string.IsNullOrWhiteSpace(e)) toRaw.Add(e);
+                    }
                 }
                 else if (esOficinaCentral)
                 {
@@ -446,6 +462,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                             .Select(j => j.Email!)
                             .ToListAsync();
                         toRaw.AddRange(jefaturaEmails);
+                    }
+                    if (proyecto?.TieneArquitecturaComercial == true)
+                    {
+                        var extraEmails = new[] { emailJefeArqCom, emailJefePostVenta, emailPrevArqCom, emailPrevPostVenta };
+                        foreach (var e in extraEmails)
+                            if (!string.IsNullOrWhiteSpace(e)) toRaw.Add(e);
                     }
                 }
 

@@ -11,17 +11,8 @@ namespace Abril_Backend.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<DateTime>(
-                name: "updated_at",
-                table: "ev_asignacion_supervisor",
-                type: "timestamp with time zone",
-                nullable: true);
-
-            migrationBuilder.AddColumn<int>(
-                name: "updated_by_user_id",
-                table: "ev_asignacion_supervisor",
-                type: "integer",
-                nullable: true);
+            migrationBuilder.Sql("ALTER TABLE ev_asignacion_supervisor ADD COLUMN IF NOT EXISTS updated_at timestamptz");
+            migrationBuilder.Sql("ALTER TABLE ev_asignacion_supervisor ADD COLUMN IF NOT EXISTS updated_by_user_id integer");
         }
 
         /// <inheritdoc />

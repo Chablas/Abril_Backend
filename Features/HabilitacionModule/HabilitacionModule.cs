@@ -29,6 +29,7 @@ namespace Abril_Backend.Features.Habilitacion
             services.AddScoped<IContratistaUsuarioRepository, ContratistaUsuarioRepository>();
             services.AddScoped<IContratistaUsuarioService, ContratistaUsuarioService>();
             services.AddScoped<IVigenciaRevisionService, VigenciaRevisionService>();
+            services.AddScoped<IDashboardHabRepository, DashboardHabRepository>();
             return services;
         }
     }

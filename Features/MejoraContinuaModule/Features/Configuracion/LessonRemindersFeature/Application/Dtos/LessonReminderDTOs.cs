@@ -3,8 +3,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
     public class LessonReminderDTO
     {
         public int UserProjectId { get; set; }
-        public int UserId { get; set; }
-        public string? UserFullName { get; set; }
+        public int WorkerId { get; set; }
+        public string? WorkerFullName { get; set; }
+        public string? Email { get; set; } // worker.email_personal
         public int ProjectId { get; set; }
         public string? ProjectDescription { get; set; }
         public DateTime CreatedDateTime { get; set; }
@@ -16,7 +17,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
     public class LessonReminderCreateDTO
     {
-        public int UserId { get; set; }
+        public int WorkerId { get; set; }
         public int ProjectId { get; set; }
         public bool Active { get; set; }
     }
@@ -29,14 +30,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
     public class LessonReminderCreateDataDTO
     {
-        public List<LessonReminderUserDTO> Users { get; set; } = new();
+        public List<LessonReminderWorkerDTO> Workers { get; set; } = new();
         public List<LessonReminderProjectDTO> Projects { get; set; } = new();
     }
 
-    public class LessonReminderUserDTO
+    public class LessonReminderWorkerDTO
     {
-        public int UserId { get; set; }
+        public int WorkerId { get; set; }
         public string? FullName { get; set; }
+        public string? Email { get; set; } // worker.email_personal (@abril.pe)
     }
 
     public class LessonReminderProjectDTO
@@ -86,6 +88,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public int WorkerId { get; set; }
         public string? FullName { get; set; }
         public string? Email { get; set; }
+        public string? Categoria { get; set; } // Jefe | Coordinador | Residente
         public bool Active { get; set; }
     }
 

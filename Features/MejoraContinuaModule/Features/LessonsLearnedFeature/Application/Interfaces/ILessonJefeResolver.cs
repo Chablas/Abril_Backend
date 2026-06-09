@@ -20,5 +20,21 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         /// Usado por el filtro "Pendientes de mi revisión".
         /// </summary>
         Task<List<int>> GetSubordinateUserIdsAsync(int jefeUserId);
+
+        /// <summary>
+        /// Regla de alcance del REVISOR según su categoría:
+        ///   • Residente → SOLO puede revisar lecciones de los proyectos que tiene
+        ///     asignados en user_project (worker). Si <paramref name="projectId"/> no
+        ///     es uno de ellos → false.
+        ///   • Cualquier otra categoría → true (sin restricción de proyecto).
+        /// </summary>
+        Task<bool> CanReviewProjectAsync(int reviewerUserId, int? projectId);
+
+        /// <summary>
+        /// Si el revisor es Residente, devuelve los project_id que tiene asignados en
+        /// user_project (para acotar el listado "Pendientes de mi revisión"). Devuelve
+        /// null si NO es Residente (sin restricción de proyecto).
+        /// </summary>
+        Task<List<int>?> GetResidenteProjectScopeAsync(int reviewerUserId);
     }
 }

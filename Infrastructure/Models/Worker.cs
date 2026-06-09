@@ -40,6 +40,14 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("categoria")]
         public string? Categoria { get; set; }
 
+        /// <summary>
+        /// FK al catálogo <c>workers_category</c>. Usado SOLO por Lecciones Aprendidas
+        /// y Solicitud de Salidas (normaliza el texto de <see cref="Categoria"/>, que se
+        /// conserva para el resto de funcionalidades).
+        /// </summary>
+        [Column("worker_category_id")]
+        public int? WorkerCategoryId { get; set; }
+
         [Column("ocupacion")]
         public string? Ocupacion { get; set; }
 

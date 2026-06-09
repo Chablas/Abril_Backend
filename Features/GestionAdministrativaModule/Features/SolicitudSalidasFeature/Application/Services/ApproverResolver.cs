@@ -36,15 +36,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         public async Task<string?> ResolveApproverEmailAsync(Worker user)
         {
+            using var ctx = _factory.CreateDbContext();
+
+            // Categoría del solicitante leída del catálogo workers_category
+            // (FK worker_category_id), no del texto libre workers.categoria.
+            var userCategoria = user.WorkerCategoryId.HasValue
+                ? await ctx.WorkersCategory
+                    .Where(c => c.WorkersCategoryId == user.WorkerCategoryId.Value)
+                    .Select(c => c.Name)
+                    .FirstOrDefaultAsync()
+                : null;
+
             // Regla A: el Gerente no necesita aprobador
-            if (string.Equals(user.Categoria, "Gerente", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(userCategoria, "Gerente", StringComparison.OrdinalIgnoreCase))
                 return null;
 
             // Si el trabajador no tiene área en el árbol, no se puede resolver por jerarquía
             if (!user.AreaScopeId.HasValue)
                 return null;
-
-            using var ctx = _factory.CreateDbContext();
 
             // Cargamos la topología completa del árbol una sola vez (es una tabla
             // chica, decenas de filas) y caminamos en memoria.
@@ -57,8 +66,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var rootId    = ancestros[^1]; // último = raíz
 
             // Regla B: Jefe / Sub Gerente → salta directo al Gerente del macro-área
-            if (string.Equals(user.Categoria, "Jefe", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(user.Categoria, "Sub Gerente", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(userCategoria, "Jefe", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(userCategoria, "Sub Gerente", StringComparison.OrdinalIgnoreCase))
             {
                 return await FindGerenteByRootAsync(ctx, rootId, user.Id, parentByScope);
             }
@@ -66,15 +75,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             // Regla C: walk-up Jefe>SubGer>Coord por la cadena ancestral
             foreach (var scopeId in ancestros)
             {
-                var candidatos = await ctx.Worker
-                    .AsNoTracking()
-                    .Where(w => w.AreaScopeId == scopeId
-                             && w.Id != user.Id
-                             && CategoriasWalkUp.Contains(w.Categoria!)
-                             && w.EmailPersonal != null
-                             && w.EmailPersonal.EndsWith(EmailDomainCorp))
-                    .Select(w => new { w.Categoria, w.EmailPersonal })
-                    .ToListAsync();
+                var candidatos = await (
+                    from w in ctx.Worker.AsNoTracking()
+                    join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                    where w.AreaScopeId == scopeId
+                          && w.Id != user.Id
+                          && CategoriasWalkUp.Contains(c.Name)
+                          && w.EmailPersonal != null
+                          && w.EmailPersonal.EndsWith(EmailDomainCorp)
+                    select new { Categoria = c.Name, w.EmailPersonal }
+                ).ToListAsync();
 
                 if (candidatos.Count == 0) continue;
 
@@ -124,15 +134,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 .Where(scopeId => RootOf(scopeId, parentByScope) == rootId)
                 .ToHashSet();
 
-            var gerentes = await ctx.Worker
-                .AsNoTracking()
-                .Where(w => w.AreaScopeId.HasValue
-                         && w.Id != excludeWorkerId
-                         && w.Categoria == "Gerente"
-                         && w.EmailPersonal != null
-                         && w.EmailPersonal.EndsWith(EmailDomainCorp))
-                .Select(w => new { w.Id, w.AreaScopeId, w.EmailPersonal })
-                .ToListAsync();
+            var gerentes = await (
+                from w in ctx.Worker.AsNoTracking()
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                where w.AreaScopeId.HasValue
+                      && w.Id != excludeWorkerId
+                      && c.Name == "Gerente"
+                      && w.EmailPersonal != null
+                      && w.EmailPersonal.EndsWith(EmailDomainCorp)
+                select new { w.Id, w.AreaScopeId, w.EmailPersonal }
+            ).ToListAsync();
 
             var gerente = gerentes.FirstOrDefault(g => g.AreaScopeId.HasValue && scopesEnRaiz.Contains(g.AreaScopeId.Value));
             return gerente?.EmailPersonal?.Trim();

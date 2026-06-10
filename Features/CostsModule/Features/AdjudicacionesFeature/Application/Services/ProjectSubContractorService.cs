@@ -1209,6 +1209,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var fondoMeses = (int)Math.Round(fondoDias / 30.0);
             var fondoPorcPalabras  = ((long)fondoPorc).ToWords(esCulture);
             var fondoMesesPalabras = ((long)fondoMeses).ToWords(esCulture);
+            // {{HOJA_RESUMEN_FONDO_GARANTÍA_PORCENTAJE}}: "{x}% Fondo de Garantía"; si es 0 o null → "-".
+            var hasFondoGarantia = data.GuaranteeFundPercentage.HasValue && data.GuaranteeFundPercentage.Value > 0;
+            var hojaResumenFondoGarantiaPorcentaje = hasFondoGarantia
+                ? $"{data.GuaranteeFundPercentage}% Fondo de Garantía"
+                : "-";
             // Si el plazo es menor a un año, mostrar el plazo en días en lugar de "0 año".
             // 1 año → singular; 2 o más → "años".
             var fondoAniosTexto = fondoAnios >= 1
@@ -1379,6 +1384,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{DIFERENCIA_MONTO_EN_PALABRAS}}", diferenciaEnPalabras },
                 { "{{PERIODO_VALIDEZ_GARANTIA}}",      FormatGuaranteeValidity(data.GuaranteeValidityDays) },
                 { "{{FONDO_GARANTÍA_PORCENTAJE}}",     $"{fondoPorc}%" },
+                { "{{HOJA_RESUMEN_FONDO_GARANTÍA_PORCENTAJE}}", hojaResumenFondoGarantiaPorcentaje },
                 { "{{FONDO_GARANTÍA_EN_PALABRAS}}",    $"{fondoPorcPalabras} por ciento" },
                 { "{{FONDO_GARANTÍA_PLAZO_EN_DÍAS}}",  $"{fondoDias} días" },
                 { "{{FONDO_GARANTÍA_PLAZO_EN_AÑOS}}",  fondoAniosTexto },
@@ -1405,17 +1411,23 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var linkEspecialidades = projectLinks.FirstOrDefault(l => l.ProjectLinkTypeId == 1 && l.Active);
             var linkDetalles       = projectLinks.FirstOrDefault(l => l.ProjectLinkTypeId == 2 && l.Active);
 
-            var missingLinks = new List<string>();
-            if (linkEspecialidades == null) missingLinks.Add("Planos de Especialidades");
-            if (linkDetalles       == null) missingLinks.Add("Planos de Detalles");
+            // La modalidad Suministro (id 2) no incluye planos en su contrato, por lo que
+            // se omite la validación de links. Las demás modalidades (Suministro e Instalación /
+            // Instalación) sí los requieren.
+            if (!esSuministro)
+            {
+                var missingLinks = new List<string>();
+                if (linkEspecialidades == null) missingLinks.Add("Planos de Especialidades");
+                if (linkDetalles       == null) missingLinks.Add("Planos de Detalles");
 
-            if (missingLinks.Count > 0)
-                throw new AbrilException(
-                    $"Para generar el contrato falta registrar el link de: {string.Join(" y ", missingLinks)}.",
-                    400);
+                if (missingLinks.Count > 0)
+                    throw new AbrilException(
+                        $"Para generar el contrato falta registrar el link de: {string.Join(" y ", missingLinks)}.",
+                        400);
+            }
 
-            replacements["{{LINK1}}"] = linkEspecialidades!.LinkUrl;
-            replacements["{{LINK2}}"] = linkDetalles!.LinkUrl;
+            replacements["{{LINK1}}"] = linkEspecialidades?.LinkUrl ?? "";
+            replacements["{{LINK2}}"] = linkDetalles?.LinkUrl ?? "";
 
             // Cláusula del Anexo 3 (Pagaré) — solo aplica cuando hay adelanto (PaymentMethodId == 2).
             // Se pasa como multi-párrafo: si la lista está vacía, el helper elimina el párrafo entero
@@ -1425,13 +1437,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 : new List<string>();
 
             // Cláusula 10.2 "De la carta fianza" — SOLO en contratos con adelanto (PaymentMethodId == 2).
-            // El marcador {{CARTA_FIANZA}} solo existe en la plantilla de Suministro; en las demás se ignora.
+            // Se separa en dos marcadores para respetar el formato de la plantilla:
+            //   {{CARTA_FIANZA}}         → título "De la carta fianza:" (párrafo numerado 10.2, subrayado).
+            //   {{CARTA_FIANZA_DETALLE}} → contenido como VIÑETA real (mismo estilo de lista que la garantía).
+            // El detalle NO lleva "•" literal: la viñeta la pone Word desde el párrafo de la plantilla.
             // Subrayado con __…__, negrita con **…**. Si la lista está vacía, el helper elimina el párrafo.
             var clausulaCartaFianza = data.PaymentMethodId == 2
+                ? new List<string> { "__De la carta fianza:__" }
+                : new List<string>();
+
+            var clausulaCartaFianzaDetalle = data.PaymentMethodId == 2
                 ? new List<string>
                 {
-                    "__De la carta fianza:__\n" +
-                    "• A efectos de garantizar cualquier gasto adicional en el que tenga que incurrir " +
+                    "A efectos de garantizar cualquier gasto adicional en el que tenga que incurrir " +
                     "**EL SUMINISTRADO** a causa de daños a terceros que hayan sido originados por observaciones " +
                     "de **EL SUMINISTRO**, dentro del periodo de vigencia de la garantía, pudiendo ser multas " +
                     "ante INDECOPI, trabajos de cambio total o parcial de **EL SUMINISTRO**, entre otros; " +
@@ -1457,7 +1475,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                         // Suministro; en las demás el marcador no aparece y simplemente se ignora.
                         { "{{CLÁUSULAS_ANEXO_3_SUMINISTRO}}", data.SpecialClausesAnexo3.ToList() },
                         { "{{CLÁUSULAS_ANEXO_4_SUMINISTRO}}", data.SpecialClausesAnexo4.ToList() },
-                        { "{{CARTA_FIANZA}}", clausulaCartaFianza }
+                        { "{{CARTA_FIANZA}}", clausulaCartaFianza },
+                        { "{{CARTA_FIANZA_DETALLE}}", clausulaCartaFianzaDetalle }
                     });
 
             var pathData = new AdjudicacionPathDataDto

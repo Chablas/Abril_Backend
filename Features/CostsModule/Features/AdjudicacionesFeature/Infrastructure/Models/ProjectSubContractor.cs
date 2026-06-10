@@ -10,6 +10,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? ContractModalityId { get; set; }
         public int PaymentMethodId {get; set;}
         public int? PaymentFormId { get; set; }
+        // Suministro + contrato con adelanto: indica si el contrato incluye carta de fianza.
+        public bool IncludesCartaFianza { get; set; }
         public decimal AdvancePercentage {get;set;}
         public decimal? AdvanceAmount {get; set;}
         public decimal Amount {get; set;}

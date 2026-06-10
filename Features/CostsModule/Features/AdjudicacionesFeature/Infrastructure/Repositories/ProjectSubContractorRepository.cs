@@ -33,6 +33,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 ContractModalityId = dto.ContractModalityId,
                 PaymentMethodId = dto.PaymentMethodId,
                 PaymentFormId = dto.PaymentFormId,
+                IncludesCartaFianza = dto.IncludesCartaFianza,
                 AdvancePercentage = dto.AdvancePercentage,
                 AdvanceAmount = dto.AdvanceAmount,
                 Amount = dto.Amount,
@@ -52,6 +53,38 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             await ctx.SaveChangesAsync();
 
             return subContractor.ProjectSubContractorId;
+        }
+
+        public async Task UpdateInfo(int projectSubContractorId, ProjectSubContractorUpdateInfoDTO dto, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var psc = await ctx.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            // Editable solo mientras esté en pasos 1–4. Del paso 5 en adelante queda bloqueada.
+            if (psc.ProjectSubContractorStatusId >= 5)
+                throw new AbrilException("La información de la adjudicación ya no se puede editar a partir del paso 5.");
+
+            psc.ProjectId           = dto.ProjectId;
+            psc.ContractorId        = dto.ContractorId;
+            psc.ContractTypeId      = dto.ContractTypeId;
+            psc.ContractModalityId  = dto.ContractModalityId;
+            psc.PaymentMethodId     = dto.PaymentMethodId;
+            psc.PaymentFormId       = dto.PaymentFormId;
+            psc.IncludesCartaFianza = dto.IncludesCartaFianza;
+            psc.AdvancePercentage   = dto.AdvancePercentage;
+            psc.AdvanceAmount       = dto.AdvanceAmount;
+            psc.Amount              = dto.Amount;
+            psc.CurrencyId          = dto.CurrencyId;
+            psc.HasIgv              = dto.HasIgv;
+            psc.WorkItemId          = dto.WorkItemId;
+            psc.WorkItemCategoryId  = dto.WorkItemCategoryId;
+            psc.UpdatedDateTime     = DateTimeOffset.UtcNow;
+            psc.UpdatedUserId       = userId;
+
+            await ctx.SaveChangesAsync();
         }
 
         public async Task SaveInitialFilesAsync(
@@ -494,6 +527,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     PaymentMethodDescription = x.pm.PaymentMethodDescription,
                     PaymentFormId = x.psc.PaymentFormId,
                     PaymentFormDescription = x.pf != null ? x.pf.PaymentFormDescription : null,
+                    IncludesCartaFianza = x.psc.IncludesCartaFianza,
                     AdvancePercentage = x.psc.AdvancePercentage,
                     AdvanceAmount = x.psc.AdvanceAmount,
                     Amount = x.psc.Amount,
@@ -716,6 +750,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPaymentFormId = ctx.Col<PaymentForm>(nameof(PaymentForm.PaymentFormId));
             string cPaymentFormDesc = ctx.Col<PaymentForm>(nameof(PaymentForm.PaymentFormDescription));
             string cPscPaymentFormId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.PaymentFormId));
+            string cPscIncludesCartaFianza = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.IncludesCartaFianza));
 
             string tCurrency = ctx.Table<Currency>();
             string cCurrencyId = ctx.Col<Currency>(nameof(Currency.CurrencyId));
@@ -922,6 +957,7 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        pm.{cPaymentMethodDesc} AS ""PaymentMethodDescription"",
        psc.{cPscPaymentFormId} AS ""PaymentFormId"",
        pf.{cPaymentFormDesc} AS ""PaymentFormDescription"",
+       psc.{cPscIncludesCartaFianza} AS ""IncludesCartaFianza"",
        psc.{cPscAdvancePercentage} AS ""AdvancePercentage"",
        psc.{cPscAdvanceAmount} AS ""AdvanceAmount"",
        psc.{cPscAmount} AS ""Amount"",
@@ -1130,6 +1166,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     PaymentMethodDescription = raw.PaymentMethodDescription ?? "",
                     PaymentFormId = (int?)raw.PaymentFormId,
                     PaymentFormDescription = (string?)raw.PaymentFormDescription,
+                    IncludesCartaFianza = (bool)raw.IncludesCartaFianza,
                     AdvancePercentage = (decimal?)raw.AdvancePercentage,
                     AdvanceAmount = (decimal?)raw.AdvanceAmount,
                     Amount = (decimal?)raw.Amount ?? 0m,
@@ -1524,8 +1561,9 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             if (psc is null)
                 throw new AbrilException("La adjudicación no existe.");
 
-            if (psc.ProjectSubContractorStatusId != 2)
-                throw new AbrilException("La adjudicación no está en el paso de datos del contrato.");
+            // Editable mientras la adjudicación esté en pasos 1–4. Del paso 5 en adelante queda bloqueada.
+            if (psc.ProjectSubContractorStatusId >= 5)
+                throw new AbrilException("Los datos del contrato ya no se pueden editar a partir del paso 5.");
 
             if (dto.StartDate != default && dto.EndDate != default && dto.StartDate > dto.EndDate)
                 throw new AbrilException("La fecha de inicio no puede ser posterior a la fecha fin del contrato.");
@@ -1541,7 +1579,10 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             psc.TermDays = (dto.StartDate != default && dto.EndDate != default)
                 ? (int)(dto.EndDate.ToDateTime(TimeOnly.MinValue) - dto.StartDate.ToDateTime(TimeOnly.MinValue)).TotalDays
                 : null;
-            psc.ProjectSubContractorStatusId = 3;
+            // Solo avanza al paso 3 cuando viene desde el paso 2 (progresión normal).
+            // Si se está EDITANDO en pasos 3 o 4, se conserva el estado actual (no retrocede ni salta).
+            if (psc.ProjectSubContractorStatusId == 2)
+                psc.ProjectSubContractorStatusId = 3;
             psc.UpdatedDateTime = DateTimeOffset.UtcNow;
             psc.UpdatedUserId = userId;
 
@@ -1806,6 +1847,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     PaymentMethodId           = psc.PaymentMethodId,
                     PaymentMethodDescription  = pm.PaymentMethodDescription,
                     PaymentFormDescription    = pf != null ? pf.PaymentFormDescription : null,
+                    IncludesCartaFianza       = psc.IncludesCartaFianza,
                     CurrencyCode              = cur.CurrencyCode,
                     Amount                    = psc.Amount,
                     HasIgv                    = psc.HasIgv,

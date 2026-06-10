@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
     public interface IProjectSubContractorService
     {
         Task Create(ProjectSubContractorCreateDTO dto, int page);
+        Task UpdateInfo(int projectSubContractorId, ProjectSubContractorUpdateInfoDTO dto, int userId);
         Task<ProjectSubContractorFormDataDTO> GetFormData();
         Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter);
         Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFilters(ProjectSubContractorFilterDTO filter);

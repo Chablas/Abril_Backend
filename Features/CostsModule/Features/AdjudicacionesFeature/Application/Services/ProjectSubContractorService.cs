@@ -732,6 +732,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.SaveDates(projectSubContractorId, dto, userId);
         }
 
+        public async Task UpdateInfo(int projectSubContractorId, ProjectSubContractorUpdateInfoDTO dto, int userId)
+        {
+            await _projectSubContractorRepository.UpdateInfo(projectSubContractorId, dto, userId);
+        }
+
         public async Task UpdateDocumentStatusAsync(
             int projectSubContractorId,
             AdjudicacionDocumentType documentType,
@@ -1234,8 +1239,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 ? data.PromissoryNoteNumber.Value.ToString("D3")
                 : "";
             var pagareRef = $"PAGARÉ N°{numPagareStr}{abreviaturaProyecto}-{DateTime.UtcNow.Year}";
+            // La carta de fianza solo aplica en Suministro (ContractModalityId == 2) + contrato con adelanto
+            // (PaymentMethodId == 2) y únicamente cuando se marcó el toggle IncludesCartaFianza.
+            var includeCartaFianza = data.PaymentMethodId == 2 && data.ContractModalityId == 2 && data.IncludesCartaFianza;
             var tipoDocumentoGarantia = data.PaymentMethodId == 2
-                ? (data.ContractModalityId == 2
+                ? (includeCartaFianza
                     ? $"{pagareRef}, LETRA DE GARANTÍA Y CARTA DE FIANZA"
                     : $"{pagareRef} Y LETRA DE GARANTÍA")
                 : "-";
@@ -1442,11 +1450,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             //   {{CARTA_FIANZA_DETALLE}} → contenido como VIÑETA real (mismo estilo de lista que la garantía).
             // El detalle NO lleva "•" literal: la viñeta la pone Word desde el párrafo de la plantilla.
             // Subrayado con __…__, negrita con **…**. Si la lista está vacía, el helper elimina el párrafo.
-            var clausulaCartaFianza = data.PaymentMethodId == 2
+            var clausulaCartaFianza = includeCartaFianza
                 ? new List<string> { "__De la carta fianza:__" }
                 : new List<string>();
 
-            var clausulaCartaFianzaDetalle = data.PaymentMethodId == 2
+            var clausulaCartaFianzaDetalle = includeCartaFianza
                 ? new List<string>
                 {
                     "A efectos de garantizar cualquier gasto adicional en el que tenga que incurrir " +

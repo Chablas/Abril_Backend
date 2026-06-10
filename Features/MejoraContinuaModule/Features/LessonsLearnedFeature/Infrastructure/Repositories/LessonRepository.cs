@@ -103,12 +103,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
             if (registro == null) return null;
 
-            // CanReview: el usuario actual puede aprobar/rechazar si es el Jefe del
-            // autor y la lección está PENDIENTE.
+            // CanReview: el usuario actual puede aprobar/rechazar si es el revisor
+            // resuelto del autor, la lección está PENDIENTE y —si es Residente— la
+            // lección pertenece a uno de sus proyectos asignados (user_project).
             if (registro.ApprovalStatus == "PENDIENTE" && registro.CreatedUserId != currentUserId)
             {
                 var jefeUserId = await _jefeResolver.ResolveJefeUserIdAsync(registro.CreatedUserId);
-                registro.CanReview = jefeUserId.HasValue && jefeUserId.Value == currentUserId;
+                registro.CanReview = jefeUserId.HasValue
+                    && jefeUserId.Value == currentUserId
+                    && await _jefeResolver.CanReviewProjectAsync(currentUserId, registro.ProjectId);
             }
 
             registro.Images = await (
@@ -182,6 +185,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 if (subordinateUserIds.Count == 0)
                     return new PagedResult<LessonListDTO> { Page = page, PageSize = pageSize, TotalRecords = 0, TotalPages = 0, Data = new List<LessonListDTO>() };
                 query = query.Where(x => x.ApprovalStatus == "PENDIENTE" && subordinateUserIds.Contains(x.CreatedUserId));
+
+                // Si el revisor es Residente, acotar a sus proyectos asignados (user_project).
+                var residenteProjectScope = await _jefeResolver.GetResidenteProjectScopeAsync(currentUserId);
+                if (residenteProjectScope != null)
+                    query = query.Where(x => x.ProjectId.HasValue && residenteProjectScope.Contains(x.ProjectId.Value));
             }
 
             // Filtro por catalog_item_ids: una lección matchea si TODOS los
@@ -645,6 +653,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             if (!jefeUserId.HasValue || jefeUserId.Value != currentUserId)
                 throw new AbrilException("No tienes permiso para revisar esta lección.", 403);
 
+            // Si el revisor es Residente, solo puede revisar lecciones de los proyectos
+            // que tiene asignados en user_project.
+            if (!await _jefeResolver.CanReviewProjectAsync(currentUserId, lesson.ProjectId))
+                throw new AbrilException("Como Residente, solo puedes revisar lecciones de los proyectos que tienes asignados.", 403);
+
             lesson.ApprovalStatus = approved ? "APROBADA" : "RECHAZADA";
             lesson.RejectionComment = approved ? null : comment;
             lesson.ReviewedByUserId = currentUserId;
@@ -680,8 +693,18 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
             var lesson = await ctx.Lesson.FirstOrDefaultAsync(l => l.LessonId == lessonId && l.State);
             if (lesson == null) throw new AbrilException("Lección no encontrada.", 404);
+
+            // Puede editar: el AUTOR, o la jefatura ACTIVA resuelta del autor (la misma
+            // que puede aprobar/rechazar; si es Residente, acotada a sus proyectos).
             if (lesson.CreatedUserId != currentUserId)
-                throw new AbrilException("Solo el autor puede editar la lección.", 403);
+            {
+                var jefeUserId = await _jefeResolver.ResolveJefeUserIdAsync(lesson.CreatedUserId);
+                var esRevisorActivo = jefeUserId.HasValue
+                    && jefeUserId.Value == currentUserId
+                    && await _jefeResolver.CanReviewProjectAsync(currentUserId, lesson.ProjectId);
+                if (!esRevisorActivo)
+                    throw new AbrilException("Solo el autor o su jefatura activa asignada pueden editar la lección.", 403);
+            }
 
             int? catalogItemId = dto.CatalogItemId > 0 ? dto.CatalogItemId : null;
             if (catalogItemId.HasValue)

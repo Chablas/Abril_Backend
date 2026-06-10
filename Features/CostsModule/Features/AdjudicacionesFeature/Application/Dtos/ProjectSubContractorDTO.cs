@@ -24,6 +24,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public string PaymentMethodDescription { get; set; }
         public int? PaymentFormId { get; set; }
         public string? PaymentFormDescription { get; set; }
+        public bool IncludesCartaFianza { get; set; }
         public decimal? AdvancePercentage {get;set;}
         public decimal? AdvanceAmount {get;set;}
         public decimal Amount { get; set; }

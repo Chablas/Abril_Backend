@@ -1,5 +1,9 @@
 namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
-    public class ProjectSubContractorCreateDTO {
+    /// <summary>
+    /// Campos del paso 1 (información de la adjudicación) editables mientras la
+    /// adjudicación esté en pasos 1–4. Equivale a los datos de creación, sin archivos.
+    /// </summary>
+    public class ProjectSubContractorUpdateInfoDTO {
         public int ProjectId { get; set; }
         public int ContractorId { get; set; }
         public int ContractTypeId { get; set; }
@@ -14,7 +18,5 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public bool HasIgv { get; set; }
         public int WorkItemId { get; set; }
         public int WorkItemCategoryId { get; set; }
-        public List<IFormFile>? QuotationFiles { get; set; }
-        public List<IFormFile>? ComparativeFiles { get; set; }
     }
 }

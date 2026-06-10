@@ -295,11 +295,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State && up.Active
                       && !ctx.Lesson.Any(l =>
-                            l.CreatedUserId == up.UserId &&
+                            l.CreatedUserId == u.UserId &&
                             l.ProjectId == up.ProjectId &&
                             l.PeriodDate == target &&
                             l.State && l.Active)
-                select new { up.UserId, p.FullName, u.Email, pj.ProjectDescription }
+                select new { UserId = u.UserId, p.FullName, u.Email, pj.ProjectDescription }
             ).ToListAsync();
 
             var users = rows

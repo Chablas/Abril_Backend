@@ -15,8 +15,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly ILessonJefeResolver _jefeResolver;
 
-        // Texto exacto de la categoría de jefatura (igual que LessonJefeResolver).
-        private const string CategoriaJefe = "Jefe";
+        // Categorías consideradas "jefatura" para la sección de recordatorios y el
+        // aviso del 4.º día (texto exacto). OJO: es independiente de
+        // LessonJefeResolver, que solo usa "Jefe" para decidir quién PUEDE
+        // aprobar/rechazar lecciones (jerarquía de revisión). Aquí solo definimos
+        // quién aparece/puede activarse en la sección Jefaturas.
+        private static readonly string[] CategoriasJefatura = { "Jefe", "Coordinador", "Residente" };
 
         public LessonReminderRepository(
             IDbContextFactory<AppDbContext> factory,
@@ -33,21 +37,21 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             using var ctx = _factory.CreateDbContext();
 
+            // Asignaciones por TRABAJADOR (user_project.worker_id). Nombre/área desde
+            // person/worker; correo desde worker.email_personal. NO requiere usuario.
             var baseQuery =
                 from up in ctx.UserProject
-                join u in ctx.User on up.UserId equals u.UserId
-                join p in ctx.Person on u.UserId equals p.UserId
+                join w in ctx.Worker on up.WorkerId equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
-                select new { up, p, pj };
+                select new { up, w, p, pj };
 
-            // Filtro opcional por subárea: el usuario pertenece (vía person) a un
-            // worker cuya subarea coincide con la seleccionada.
+            // Filtro opcional por subárea del trabajador.
             if (!string.IsNullOrWhiteSpace(subarea))
             {
                 var sa = subarea.Trim();
-                baseQuery = baseQuery.Where(x =>
-                    ctx.Worker.Any(w => w.PersonId == x.p.PersonId && w.Subarea == sa));
+                baseQuery = baseQuery.Where(x => x.w.Subarea == sa);
             }
 
             var query = baseQuery
@@ -55,8 +59,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 .Select(x => new LessonReminderDTO
                 {
                     UserProjectId = x.up.UserProjectId,
-                    UserId = x.up.UserId,
-                    UserFullName = x.p.FullName,
+                    WorkerId = x.w.Id,
+                    WorkerFullName = x.p.FullName,
+                    Email = x.w.EmailPersonal,
                     ProjectId = x.up.ProjectId,
                     ProjectDescription = x.pj.ProjectDescription ?? string.Empty,
                     CreatedDateTime = x.up.CreatedDateTime,
@@ -87,19 +92,20 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             // DbContext no es thread-safe; lanzar ambas queries con Task.WhenAll sobre el
             // mismo ctx provoca "A second operation was started on this context instance"
             // (Npgsql/PostgreSQL no soporta operaciones concurrentes en la misma conexión).
-            var users = await (
-                from u in ctx.User
-                join p in ctx.Person on u.UserId equals p.UserId
-                where u.Active == true
-                      && u.State == true
-                      && p.Active == true
+            // Trabajadores (worker + person) con correo corporativo @abril. NO se exige
+            // usuario en app_user: pueden existir trabajadores nunca registrados en la app.
+            var workers = await (
+                from w in ctx.Worker
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where w.EmailPersonal != null
+                      && w.EmailPersonal.ToLower().Contains("@abril")
                       && p.State == true
-                      && u.EmailConfirmed == true
                 orderby p.FullName
-                select new LessonReminderUserDTO
+                select new LessonReminderWorkerDTO
                 {
-                    UserId = u.UserId,
-                    FullName = p.FullName
+                    WorkerId = w.Id,
+                    FullName = p.FullName,
+                    Email = w.EmailPersonal
                 }
             ).ToListAsync();
 
@@ -115,7 +121,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             return new LessonReminderCreateDataDTO
             {
-                Users = users,
+                Workers = workers,
                 Projects = projects
             };
         }
@@ -124,19 +130,31 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
+            // Validar trabajador (worker + person) y resolver su usuario si lo tiene
+            // (para compatibilidad: si existe app_user, se guarda user_id también).
+            var workerInfo = await (
+                from w in ctx.Worker
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where w.Id == dto.WorkerId
+                select new { w.Id, UserId = p.UserId }
+            ).FirstOrDefaultAsync();
+            if (workerInfo == null)
+                throw new AbrilException("El trabajador no existe.", 404);
+
             var existing = await ctx.UserProject
-                .FirstOrDefaultAsync(up => up.UserId == dto.UserId && up.ProjectId == dto.ProjectId);
+                .FirstOrDefaultAsync(up => up.WorkerId == dto.WorkerId && up.ProjectId == dto.ProjectId);
 
             if (existing != null && existing.State && existing.Active)
-                throw new AbrilException("El usuario ya está asignado a este proyecto");
+                throw new AbrilException("El trabajador ya está asignado a este proyecto");
 
             if (existing != null && existing.State && !existing.Active)
-                throw new AbrilException("El usuario ya está asignado a este proyecto, pero se encuentra inactivo. Reactívelo para continuar.");
+                throw new AbrilException("El trabajador ya está asignado a este proyecto, pero se encuentra inactivo. Reactívelo para continuar.");
 
             if (existing != null && !existing.State)
             {
                 existing.State = true;
                 existing.Active = dto.Active;
+                existing.UserId = workerInfo.UserId;
                 existing.UpdatedDateTime = DateTime.UtcNow;
                 existing.UpdatedUserId = userId;
                 await ctx.SaveChangesAsync();
@@ -145,7 +163,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             var userProject = new UserProject
             {
-                UserId = dto.UserId,
+                WorkerId = dto.WorkerId,
+                UserId = workerInfo.UserId, // null si el trabajador no tiene usuario
                 ProjectId = dto.ProjectId,
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
@@ -401,27 +420,32 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             var query =
                 from up in ctx.UserProject
-                join u in ctx.User on up.UserId equals u.UserId
-                join p in ctx.Person on u.UserId equals p.UserId
+                join w in ctx.Worker on up.WorkerId equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
                       && up.Active == true
+                      && w.EmailPersonal != null && w.EmailPersonal != ""
+                      // Pendiente si NO existe lección suya (por su usuario, si lo tiene)
+                      // en el período. Un trabajador sin usuario nunca tendrá lección → pendiente.
                       && !ctx.Lesson.Any(l =>
-                             l.CreatedUserId == up.UserId &&
+                             l.CreatedUserId == p.UserId &&
                              l.ProjectId == up.ProjectId &&
                              l.Period == currentPeriod &&
                              l.State == true &&
                              l.Active == true
                          )
-                group new { up, pj, u } by new
+                group new { up, pj } by new
                 {
-                    up.UserId,
+                    WorkerId = w.Id,
                     p.FullName,
-                    u.Email
+                    Email = w.EmailPersonal,
+                    UserId = p.UserId
                 }
                 into g
                 select new UserWithoutLessonsDTO
                 {
+                    WorkerId = g.Key.WorkerId,
                     UserId = g.Key.UserId,
                     UserFullName = g.Key.FullName,
                     Email = g.Key.Email,
@@ -474,13 +498,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             // Todos los workers con categoria 'Jefe' (texto exacto, igual que LessonJefeResolver).
             var jefes = await (
                 from w in ctx.Worker
-                where w.Categoria == CategoriaJefe
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                where CategoriasJefatura.Contains(c.Name)
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
                 select new
                 {
                     w.Id,
                     w.EmailPersonal,
+                    Categoria = c.Name,
                     FullName = p != null ? p.FullName : null
                 }
             ).ToListAsync();
@@ -499,6 +525,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                         WorkerId = j.Id,
                         FullName = j.FullName,
                         Email = j.EmailPersonal,
+                        Categoria = j.Categoria,
                         Active = row != null && row.Active
                     };
                 })
@@ -510,9 +537,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
-            var isJefe = await ctx.Worker.AnyAsync(w => w.Id == workerId && w.Categoria == CategoriaJefe);
+            var isJefe = await (
+                from w in ctx.Worker
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                where w.Id == workerId && CategoriasJefatura.Contains(c.Name)
+                select w.Id
+            ).AnyAsync();
             if (!isJefe)
-                throw new AbrilException("El trabajador no existe o no tiene categoría 'Jefe'.", 404);
+                throw new AbrilException("El trabajador no existe o no es una jefatura (Jefe/Coordinador/Residente).", 404);
 
             var row = await ctx.LessonJefeReminder.FirstOrDefaultAsync(r => r.WorkerId == workerId && r.State);
             if (row == null)
@@ -549,10 +581,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             var jefes = await (
                 from r in ctx.LessonJefeReminder
                 join w in ctx.Worker on r.WorkerId equals w.Id
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where r.State
                       && r.Active
-                      && w.Categoria == CategoriaJefe
+                      && CategoriasJefatura.Contains(c.Name)
                       && w.EmailPersonal != null
                       && w.EmailPersonal != ""
                       && p.UserId != null
@@ -599,27 +632,30 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             var query =
                 from up in ctx.UserProject
-                join u in ctx.User on up.UserId equals u.UserId
-                join p in ctx.Person on u.UserId equals p.UserId
+                join w in ctx.Worker on up.WorkerId equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
                       && up.Active == true
+                      && w.EmailPersonal != null && w.EmailPersonal != ""
                       && !ctx.Lesson.Any(l =>
-                             l.CreatedUserId == up.UserId &&
+                             l.CreatedUserId == p.UserId &&
                              l.ProjectId == up.ProjectId &&
                              l.PeriodDate == targetPeriod &&
                              l.State == true &&
                              l.Active == true
                          )
-                group new { up, pj, u } by new
+                group new { up, pj } by new
                 {
-                    up.UserId,
+                    WorkerId = w.Id,
                     p.FullName,
-                    u.Email
+                    Email = w.EmailPersonal,
+                    UserId = p.UserId
                 }
                 into g
                 select new UserWithoutLessonsDTO
                 {
+                    WorkerId = g.Key.WorkerId,
                     UserId = g.Key.UserId,
                     UserFullName = g.Key.FullName,
                     Email = g.Key.Email,

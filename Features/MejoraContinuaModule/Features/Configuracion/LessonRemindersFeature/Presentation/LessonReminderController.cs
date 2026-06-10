@@ -67,8 +67,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                if (dto.UserId <= 0)
-                    return BadRequest(new { message = "Debe seleccionar un usuario." });
+                if (dto.WorkerId <= 0)
+                    return BadRequest(new { message = "Debe seleccionar un trabajador." });
                 if (dto.ProjectId <= 0)
                     return BadRequest(new { message = "Debe seleccionar un proyecto." });
 

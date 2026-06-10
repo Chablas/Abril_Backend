@@ -97,6 +97,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcCategoria> AcCategoria { get; set; }
         public DbSet<AcEspecialidad> AcEspecialidad { get; set; }
         public DbSet<Worker> Worker { get; set; }
+        public DbSet<WorkersCategory> WorkersCategory => Set<WorkersCategory>();
         public DbSet<WorkerEmo> WorkerEmo { get; set; }
         public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }
         public DbSet<WorkerVinculacion> WorkerVinculacion { get; set; }

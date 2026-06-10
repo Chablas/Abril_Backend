@@ -153,6 +153,30 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         }
 
         [Authorize]
+        [HttpPatch("{id}/info")]
+        public async Task<IActionResult> UpdateInfo(int id, [FromBody] ProjectSubContractorUpdateInfoDTO dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.UpdateInfo(id, dto, userId);
+                return Ok(new { message = "Información actualizada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPatch("{id}/dates")]
         public async Task<IActionResult> SaveDates(int id, [FromBody] UpdateDatesDTO dto)
         {

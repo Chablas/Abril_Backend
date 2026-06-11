@@ -15,7 +15,7 @@ public class SsomaPaso
     public int? ProyectoId { get; set; }
     public int? PlantillaId { get; set; }
     public string Nombre { get; set; } = "";
-    public int Anio { get; set; }
+    public int? Anio { get; set; }
     public int MesInicio { get; set; } = 1;
     public bool EsPlantilla { get; set; } = false;
     public string Estado { get; set; } = "Borrador";

@@ -174,7 +174,9 @@ public class PasoService : IPasoService
         var query = ctx.SsomaPasos.AsQueryable();
 
         if (q.ProyectoId.HasValue) query = query.Where(p => p.ProyectoId == q.ProyectoId);
-        if (q.Anio.HasValue) query = query.Where(p => p.Anio == q.Anio);
+        // FIX-B7: when filtering by anio, exclude plantilla corporativa (anio=NULL)
+        // unless EsPlantilla is explicitly requested
+        if (q.Anio.HasValue) query = query.Where(p => !p.EsPlantilla && p.Anio == q.Anio);
         if (!string.IsNullOrEmpty(q.Estado)) query = query.Where(p => p.Estado == q.Estado);
         if (q.EsPlantilla.HasValue) query = query.Where(p => p.EsPlantilla == q.EsPlantilla);
 
@@ -365,6 +367,15 @@ public class PasoService : IPasoService
         if (plantilla.Estado != "Aprobado")
             throw new InvalidOperationException("Solo se pueden instanciar plantillas en estado Aprobado.");
 
+        // FIX-B8: prevent duplicate PASO for same project + year
+        var yaExiste = await ctx.SsomaPasos.AnyAsync(p =>
+            p.ProyectoId == req.ProyectoId &&
+            p.Anio == req.Anio &&
+            !p.EsPlantilla);
+        if (yaExiste)
+            throw new InvalidOperationException(
+                $"Ya existe un PASO {req.Anio} para este proyecto. Solo puede haber uno por proyecto por año.");
+
         var instancia = new SsomaPaso
         {
             ProyectoId = req.ProyectoId,
@@ -408,55 +419,23 @@ public class PasoService : IPasoService
         return BuildListItem(instancia, proyectos, new Dictionary<int, string>());
     }
 
-    // ── Gantt ─────────────────────────────────────────────────────────────────
+    // ── Histórico por proyecto ────────────────────────────────────────────────
 
-    public async Task<List<GanttItemDto>> GetGanttAsync(int id)
+    public async Task<List<PasoListItemDto>> GetHistoricoProyectoAsync(int proyectoId)
     {
         using var ctx = _factory.CreateDbContext();
-        var paso = await ctx.SsomaPasos
-            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
-                .ThenInclude(a => a.Categoria)
+        var pasos = await ctx.SsomaPasos
+            .Where(p => p.ProyectoId == proyectoId && !p.EsPlantilla)
             .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
-            .FirstOrDefaultAsync(p => p.Id == id)
-            ?? throw new KeyNotFoundException("PASO no encontrado.");
+            .OrderByDescending(p => p.Anio).ThenBy(p => p.MesInicio)
+            .ToListAsync();
 
-        var respIds = paso.Actividades.Where(a => a.ResponsableId.HasValue).Select(a => a.ResponsableId!.Value).Distinct().ToList();
-        var personas = await ctx.Person
-            .Where(p => p.UserId.HasValue && respIds.Contains(p.UserId.Value))
-            .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "");
+        var proyNombre = await ctx.Project
+            .Where(pr => pr.ProjectId == proyectoId)
+            .ToDictionaryAsync(pr => pr.ProjectId, pr => pr.ProjectDescription ?? "");
 
-        return paso.Actividades
-            .OrderBy(a => a.Categoria?.Ambito)
-            .ThenBy(a => a.Orden ?? 999)
-            .Select(act =>
-            {
-                var meses = Enumerable.Range(1, 12).Select(mes =>
-                {
-                    var enRango = mes >= act.MesInicio && mes <= act.MesFin;
-                    var planificado = enRango && EsMesPlanificado(act.Frecuencia, mes, act.MesInicio);
-                    var ej = act.Ejecuciones.FirstOrDefault(e => e.FechaProgramada.Year == paso.Anio && e.FechaProgramada.Month == mes);
-                    return new GanttMesDto
-                    {
-                        Mes = mes,
-                        Planificado = planificado,
-                        Estado = ej?.Estado ?? (planificado ? "Planificado" : ""),
-                        EjecucionId = ej?.Id
-                    };
-                }).ToList();
-
-                return new GanttItemDto
-                {
-                    Id = act.Id,
-                    Nombre = act.Nombre,
-                    Ambito = act.Categoria?.Ambito ?? "",
-                    Frecuencia = act.Frecuencia,
-                    MesInicio = act.MesInicio,
-                    MesFin = act.MesFin,
-                    ResponsableNombre = act.ResponsableId.HasValue ? personas.GetValueOrDefault(act.ResponsableId.Value) : null,
-                    Meses = meses
-                };
-            }).ToList();
+        return pasos.Select(p => BuildListItem(p, proyNombre, new Dictionary<int, string>())).ToList();
     }
 
     // ── SPI ───────────────────────────────────────────────────────────────────
@@ -709,8 +688,8 @@ public class PasoService : IPasoService
         act.Orden = req.Orden;
         await ctx.SaveChangesAsync();
 
-        if (act.CategoriaId != (act.Categoria?.Id ?? 0))
-            act.Categoria = await ctx.SsomaPasoCategorias.FindAsync(req.CategoriaId) ?? act.Categoria;
+        var cat = await ctx.SsomaPasoCategorias.FindAsync(req.CategoriaId);
+if (cat is not null) act.Categoria = cat;
 
         var personas = new Dictionary<int, string>();
         if (req.ResponsableId.HasValue)
@@ -852,11 +831,24 @@ public class PasoService : IPasoService
 
         var actividad = ejecucion.Actividad;
         var paso = actividad.Paso;
-        var carpetaPath = $"PASO/{paso.Anio}/{paso.ProyectoId}/{actividad.Id}";
+        // FIX-B5: null-safe anio for plantilla corporativa
+        int pasoAnio = paso.Anio ?? DateTime.Today.Year;
+        var carpetaPath = $"PASO/{pasoAnio}/{paso.ProyectoId}/{actividad.Id}";
 
         string evidenciaUrl;
-        using (var stream = file.OpenReadStream())
-            evidenciaUrl = await _sharePoint.SubirArchivoEnRutaAsync(stream, file.FileName, "paso-evidencias", carpetaPath);
+        try
+        {
+            // "paso-evidencias" → SharePoint:Sites:SSOMAApps:PasoEvidenciasLibraryId
+            // (resuelto en SharePointHabService.ResolverLibraryId via c.Contains("paso-evidencias"))
+            using var stream = file.OpenReadStream();
+            evidenciaUrl = await _sharePoint.SubirArchivoEnRutaAsync(
+                stream, file.FileName, "paso-evidencias", carpetaPath);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"No se pudo subir el archivo a SharePoint: {ex.Message}", ex);
+        }
 
         ejecucion.EvidenciaNombre = file.FileName;
         ejecucion.EvidenciaUrl = evidenciaUrl;
@@ -911,28 +903,33 @@ public class PasoService : IPasoService
         PasoResumenMesDto Vacio() => new() { Anio = anio, Mes = mes, NombreMes = NombreMes(),
             Seguridad = new(), Salud = new(), Ambiente = new(), Actividades = new() };
 
+        // FIX-B2: null-safe anio (plantilla corporativa tiene Anio=NULL en BD)
+        int pasoAnio = paso.Anio ?? DateTime.Today.Year;
+
         // ── Calcular mes del ciclo ────────────────────────────────────────────
-        // El ciclo comienza en paso.MesInicio del año:
-        //   - Si MesInicio > 6 (segunda mitad): el ciclo arranca en Anio-1
-        //   - Si MesInicio <= 6 (primera mitad): arranca en Anio
-        int cicloStartYear = paso.MesInicio > 6 ? paso.Anio - 1 : paso.Anio;
-        int cicloStartAbs  = cicloStartYear * 12 + paso.MesInicio - 1; // meses absolutos 0-base
+        int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+        int cicloStartAbs  = cicloStartYear * 12 + paso.MesInicio - 1;
         int cicloEndAbs    = cicloStartAbs + 11;
         int requestedAbs   = anio * 12 + mes - 1;
 
-        // PROBLEMA 3: fecha solicitada fuera del ciclo → resumen vacío
         if (requestedAbs < cicloStartAbs || requestedAbs > cicloEndAbs)
             return Vacio();
 
-        int mesCiclo = requestedAbs - cicloStartAbs + 1; // 1-based (1=primer mes del ciclo)
+        int mesCiclo = requestedAbs - cicloStartAbs + 1; // 1-based
 
-        // ── Filtrar actividades para este mes del ciclo ───────────────────────
-        // PROBLEMA 1+2: filtrar por mes del ciclo, no por mes calendario.
-        // Actividades "Unica" solo se incluyen si tienen ejecución real este mes.
+        // FIX-B1: actividades "Única" NO se incluyen por el mero hecho de
+        // "tener alguna ejecución" (bug original que mostraba datos migrados de
+        // SharePoint mezclados con el mes actual).
+        // Regla correcta: Única se planifica solo en el primer mes del ciclo
+        // (mesCiclo==1). Si ya tiene ejecución registrada en ESTE mes se muestra.
         var actividadesEnMes = paso.Actividades
-            .Where(act => act.Frecuencia == "Unica"
-                ? act.Ejecuciones.Any()
-                : act.MesInicio <= mesCiclo && act.MesFin >= mesCiclo)
+            .Where(act =>
+            {
+                if (act.Frecuencia == "Unica")
+                    return mesCiclo == 1 || act.Ejecuciones.Any();
+                return act.MesInicio <= mesCiclo && act.MesFin >= mesCiclo
+                       && EsMesPlanificado(act.Frecuencia, mesCiclo, act.MesInicio);
+            })
             .OrderBy(a => a.Categoria?.Ambito)
             .ThenBy(a => a.Orden ?? 999)
             .ToList();
@@ -991,6 +988,7 @@ public class PasoService : IPasoService
             Seguridad = CalcAmbito("Seguridad"),
             Salud = CalcAmbito("Salud"),
             Ambiente = CalcAmbito("Ambiente"),
+            Ssoma = CalcAmbito("SSOMA"),
             Actividades = items
         };
     }
@@ -1018,15 +1016,15 @@ public class PasoService : IPasoService
 
     private async Task GenerarEjecucionesMesAsync(AppDbContext ctx, int anio, int mes)
     {
+        // FIX-B3: fetch ALL active PASOs of the year, then calculate mesCiclo
+        // individually per PASO (each PASO can have a different MesInicio).
+        // Old code used calendario mes directly → wrong results for MesInicio != 1
         var actividades = await ctx.SsomaPasoActividades
             .Include(a => a.Paso)
             .Where(a => a.Activo && a.DeletedAt == null
                 && a.Paso.Estado == "Activo"
                 && !a.Paso.EsPlantilla
-                && a.Paso.Anio == anio
-                && a.Paso.MesInicio <= mes
-                && a.MesInicio <= mes
-                && a.MesFin >= mes)
+                && a.Paso.Anio == anio)
             .ToListAsync();
 
         var primer = new DateOnly(anio, mes, 1);
@@ -1034,19 +1032,36 @@ public class PasoService : IPasoService
 
         foreach (var act in actividades)
         {
-            if (!EsMesPlanificado(act.Frecuencia, mes, act.MesInicio)) continue;
+            var paso = act.Paso;
+            int pasoAnio = paso.Anio ?? anio;
+
+            // Calculate mesCiclo for this specific PASO
+            int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+            int cicloStartAbs  = cicloStartYear * 12 + paso.MesInicio - 1;
+            int requestedAbs   = anio * 12 + mes - 1;
+
+            // Skip if requested calendar month is outside this PASO's cycle
+            if (requestedAbs < cicloStartAbs || requestedAbs > cicloStartAbs + 11) continue;
+
+            int mesCiclo = requestedAbs - cicloStartAbs + 1;
+
+            // Check if activity covers this cycle month
+            if (act.MesInicio > mesCiclo || act.MesFin < mesCiclo) continue;
+            if (!EsMesPlanificado(act.Frecuencia, mesCiclo, act.MesInicio)) continue;
 
             var existe = await ctx.SsomaPasoEjecuciones
-                .AnyAsync(e => e.ActividadId == act.Id && e.FechaProgramada.Year == anio && e.FechaProgramada.Month == mes);
+                .AnyAsync(e => e.ActividadId == act.Id
+                    && e.FechaProgramada.Year == anio
+                    && e.FechaProgramada.Month == mes);
             if (existe) continue;
 
             ctx.SsomaPasoEjecuciones.Add(new SsomaPasoEjecucion
             {
-                ActividadId = act.Id,
-                FechaProgramada = primer,
+                ActividadId      = act.Id,
+                FechaProgramada  = primer,
                 FechaVerificacion = ultimo,
-                Estado = "Programado",
-                CreatedAt = DateTime.UtcNow
+                Estado           = "Programado",
+                CreatedAt        = DateTime.UtcNow
             });
         }
 

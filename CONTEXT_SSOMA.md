@@ -1,6 +1,6 @@
 # CONTEXT_SSOMA.md — SSOMA Intelligence Platform
 
-> Última actualización: 2026-06-05 — PASO en producción. 20 endpoints api/v1/ssoma-paso. Soft delete auditado + tabla ssoma_paso_auditoria. Resumen mensual con lógica de ciclo correcta. PasoFeature en Features/SsomaModule/PasoFeature/. Registrado en SsomaModule.cs como IPasoService.
+> Última actualización: 2026-06-11 — Endpoint Gantt eliminado; nuevo endpoint historico por proyecto. SsomaPaso.Anio y PasoListItemDto.Anio son ahora `int?`. PasoResumenMesDto y PasoSpiDto incluyen campo `Ssoma`. PasoService.cs renombrado a PasoService_FIXED.cs (90% rename git). 20 endpoints activos.
 > Pegar este archivo al inicio de cada chat nuevo cuando se trabaje en este módulo.
 
 ---
@@ -191,14 +191,14 @@ CREATE TABLE ssoma_paso_ejecucion (
 Features/SsomaModule/PasoFeature/
   Entities/SsomaPasoEntities.cs         — 5 entidades EF (+ SsomaPasoAuditoria)
   Dtos/SsomaPasoDtos.cs                 — todos los DTOs y requests
-  Services/IPasoService.cs              — interfaz 21 métodos
-  Services/PasoService.cs               — implementación completa
+  Services/IPasoService.cs              — interfaz 20 métodos
+  Services/PasoService_FIXED.cs         — implementación completa (reemplazó PasoService.cs — commit c0a41fc)
   PasoController.cs                     — 20 endpoints
 ```
 
 **Namespaces:** `Abril_Backend.Features.Ssoma.Paso.*`
 
-**Registro DI:** `SsomaModule.cs` → `services.AddScoped<IPasoService, PasoService>()`
+**Registro DI:** `SsomaModule.cs` → `services.AddScoped<IPasoService, PasoService_FIXED>()`
 
 **AppDbContext:** DbSets `SsomaPasoCategorias`, `SsomaPasos`, `SsomaPasoActividades`, `SsomaPasoEjecuciones`, `SsomaPasoAuditorias`. Tabla `ssoma_paso_auditoria` mapeada en `ConfigurePostgreSQL` con `HasColumnName` explícito + jsonb para `valor_anterior`/`valor_nuevo`.
 
@@ -215,6 +215,12 @@ Features/SsomaModule/PasoFeature/
 - `mesCiclo = (anio*12 + mes - 1) - (cicloStartYear*12 + MesInicio - 1) + 1`
 - Si fecha solicitada está fuera del ciclo de 12 meses → retorna resumen vacío.
 
+**Cambios de modelo (2026-06-11):**
+- `SsomaPaso.Anio` es `int?` — plantillas corporativas tienen `Anio = NULL` en BD.
+- `PasoListItemDto.Anio` es `int?` para consistencia con la entidad.
+- `PasoResumenMesDto` incluye `public PasoResumenMesAmbitoDto Ssoma { get; set; } = new();` (entre Ambiente y Actividades).
+- `PasoSpiDto` ya tenía `SpiPorAmbitoDto Ssoma` — confirmado activo en servicio (`CalcAmbito("SSOMA")`).
+
 **Soft delete actividades:**
 - `ssoma_paso_actividad` tiene `deleted_at`, `deleted_by`, `motivo_eliminacion`.
 - `DeleteActividadAsync(id, motivo, userId)` → setea `Activo=false` + `DeletedAt` + inserta en `ssoma_paso_auditoria`.
@@ -222,27 +228,28 @@ Features/SsomaModule/PasoFeature/
 
 **Endpoints implementados (`api/v1/ssoma-paso`):**
 ```
-GET    /categorias                      → catálogo activo, order ambito/nombre
-GET    /dashboard?anio=                 → KPIs consolidados, SPI, por proyecto
-GET    /alertas                         → Vencido OR (Programado con fecha <= hoy+7)
-GET    /cron/procesar                   → [AllowAnonymous] + CronSecret. Marca vencidas + día 1 genera ejecuciones
-GET    /                                → lista paginada con filtros
-GET    /{id}                            → detalle con actividades + SPI
-POST   /                                → crear PASO/plantilla
-PUT    /{id}                            → editar (solo Borrador)
-PATCH  /{id}/aprobar                    → plantilla→"Aprobado", instancia→"Activo"
-POST   /{id}/instanciar                 → clona plantilla con AjustarMes para mes_inicio/mes_fin
-GET    /{id}/gantt                      → 12 meses por actividad, EsMesPlanificado + ejecución del mes
-GET    /{id}/spi                        → SPI general + por ambito (Seguridad/Salud/Ambiente/SSOMA)
-GET    /{id}/resumen-mes?anio=&mes=     → resumen mensual con lógica de ciclo + actividades por estado
-POST   /actividad                       → nueva actividad
-PUT    /actividad/{id}                  → editar actividad
-DELETE /actividad/{id}                  → soft delete + motivo (body: EliminarActividadRequest) + auditoría
-GET    /actividad/{id}/auditoria        → historial de cambios de la actividad
-POST   /ejecucion                       → upsert por (actividad_id, fecha_programada). FechaVerificacion=último día mes
-PATCH  /ejecucion/{id}/reprogramar      → 400 si ya Ejecutado + auditoría
-PATCH  /ejecucion/{id}/evidencia        → nombre/url/sp_id
+GET    /categorias                           → catálogo activo, order ambito/nombre
+GET    /dashboard?anio=                      → KPIs consolidados, SPI, por proyecto
+GET    /alertas                              → Vencido OR (Programado con fecha <= hoy+7)
+GET    /cron/procesar                        → [AllowAnonymous] + CronSecret. Marca vencidas + día 1 genera ejecuciones
+GET    /                                     → lista paginada con filtros
+GET    /{id}                                 → detalle con actividades + SPI
+POST   /                                     → crear PASO/plantilla
+PUT    /{id}                                 → editar (solo Borrador)
+PATCH  /{id}/aprobar                         → plantilla→"Aprobado", instancia→"Activo"
+POST   /{id}/instanciar                      → clona plantilla con AjustarMes para mes_inicio/mes_fin
+GET    /proyecto/{proyectoId}/historico      → lista todos los PASOs del proyecto (no plantillas), ordenados anio DESC, mesInicio ASC
+GET    /{id}/spi                             → SPI general + por ambito (Seguridad/Salud/Ambiente/SSOMA)
+GET    /{id}/resumen-mes?anio=&mes=          → resumen mensual con lógica de ciclo + actividades por estado
+POST   /actividad                            → nueva actividad
+PUT    /actividad/{id}                       → editar actividad
+DELETE /actividad/{id}                       → soft delete + motivo (body: EliminarActividadRequest) + auditoría
+GET    /actividad/{id}/auditoria             → historial de cambios de la actividad
+POST   /ejecucion                            → upsert por (actividad_id, fecha_programada). FechaVerificacion=último día mes
+PATCH  /ejecucion/{id}/reprogramar           → 400 si ya Ejecutado + auditoría
+PATCH  /ejecucion/{id}/evidencia             → nombre/url/sp_id
 ```
+> ⚠️ `GET /{id}/gantt` fue eliminado (2026-06-11). Usar `/proyecto/{proyectoId}/historico` para listar PASOs del proyecto.
 
 **Tablas pendientes de crear/alterar manualmente en BD:**
 ```sql

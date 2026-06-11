@@ -114,12 +114,11 @@ public class PasoController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.Instanciar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
-    [HttpGet("{id:int}/gantt")]
-    public async Task<IActionResult> GetGantt(int id)
+    [HttpGet("proyecto/{proyectoId:int}/historico")]
+    public async Task<IActionResult> GetHistoricoProyecto(int proyectoId)
     {
-        try { return Ok(await _service.GetGanttAsync(id)); }
-        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
-        catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.GetGantt"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        try { return Ok(await _service.GetHistoricoProyectoAsync(proyectoId)); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.GetHistoricoProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     [HttpGet("{id:int}/spi")]

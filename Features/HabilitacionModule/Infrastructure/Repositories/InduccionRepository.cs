@@ -45,7 +45,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         $"El trabajador {w.Person?.FullName} está restringido. Comuníquese con el área de Administración o SSOMA.", 400);
             }
 
-            var fecha = DateTime.SpecifyKind(dto.FechaProgramada, DateTimeKind.Utc);
+            var limaZone = TimeZoneInfo.FindSystemTimeZoneById("America/Lima");
+            var fechaLima = DateTime.SpecifyKind(dto.FechaProgramada, DateTimeKind.Unspecified);
+            var fecha = TimeZoneInfo.ConvertTimeToUtc(fechaLima, limaZone);
 
             // IDs de workers que ya tienen una inducción PROGRAMADA en este proyecto
             var yaExisten = await ctx.SsInduccion
@@ -305,22 +307,27 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var ahora = DateTime.UtcNow;
             var limaZone = TimeZoneInfo.FindSystemTimeZoneById("America/Lima");
             var hoyLima = TimeZoneInfo.ConvertTimeFromUtc(ahora, limaZone).Date;
-            var limiteUtc = TimeZoneInfo.ConvertTimeToUtc(hoyLima.AddDays(1), limaZone);
 
-            var inducciones = await ctx.SsInduccion
-                .Where(i => i.Estado == "PROGRAMADA"
-                    && !i.IngresoConfirmado
-                    && i.FechaProgramada < limiteUtc)
+            var candidatas = await ctx.SsInduccion
+                .Where(i => i.Estado == "PROGRAMADA" && !i.IngresoConfirmado)
                 .ToListAsync();
 
-            foreach (var ind in inducciones)
+            var aMarcar = candidatas.Where(i =>
+            {
+                var fechaLima = TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.SpecifyKind(i.FechaProgramada, DateTimeKind.Utc),
+                    limaZone).Date;
+                return fechaLima < hoyLima;
+            }).ToList();
+
+            foreach (var ind in aMarcar)
             {
                 ind.Estado = "FALTA";
                 ind.UpdatedAt = ahora;
             }
 
             await ctx.SaveChangesAsync();
-            return inducciones.Count;
+            return aMarcar.Count;
         }
 
         private async Task AprobarInduccionAsync(AppDbContext ctx, SsInduccion induccion)

@@ -31,9 +31,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                /*var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
                 if (authHeader != $"Bearer {_configuration["CronSecret"]}")
-                    return Unauthorized();*/
+                    return Unauthorized();
 
                 var result = await _vigenciaService.RevisarVigencias();
                 return Ok(new

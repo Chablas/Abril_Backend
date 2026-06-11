@@ -140,6 +140,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         if (habVigente != null)
                         {
                             habVigente.Estado = "En revision";
+                            habVigente.Vigencia = dto.Vigencia.HasValue
+                                ? DateTime.SpecifyKind(dto.Vigencia.Value, DateTimeKind.Utc)
+                                : habVigente.Vigencia;
                             habVigente.ArchivoUrl = dto.ArchivoUrl;
                             habVigente.UpdatedAt = DateTime.UtcNow;
                             estadosResultantes.Add("En revision");
@@ -163,15 +166,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             UpdatedAt = DateTime.UtcNow
                         };
                         ctx.SsHabTrabajador.Add(hab);
+                        estadosResultantes.Add(estadoHab);
                     }
                     else
                     {
-                        hab.Estado = estadoHab;
-                        hab.Vigencia = vigenciaHab;
-                        hab.ArchivoUrl = dto.ArchivoUrl;
-                        hab.UpdatedAt = DateTime.UtcNow;
+                        // Solo sobreescribir si el estado actual es inferior
+                        // Nunca degradar "Aprobado", "En revision", "En plazo"
+                        if (hab.Estado == "Falta" || string.IsNullOrEmpty(hab.Estado))
+                        {
+                            hab.Estado = estadoHab;
+                            hab.Vigencia = vigenciaHab;
+                            hab.ArchivoUrl = dto.ArchivoUrl;
+                            hab.UpdatedAt = DateTime.UtcNow;
+                        }
+                        estadosResultantes.Add(hab.Estado);
                     }
-                    estadosResultantes.Add(estadoHab);
                 }
 
                 if (!esAbril)
@@ -332,9 +341,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     }
                     else
                     {
-                        hab.Estado = estadoNuevoWorker;
-                        hab.ArchivoUrl = dto.ArchivoUrl;
-                        hab.UpdatedAt = DateTime.UtcNow;
+                        // Solo sobreescribir si el estado actual es inferior
+                        // Nunca degradar "Aprobado", "En revision", "En plazo"
+                        if (hab.Estado == "Falta" || string.IsNullOrEmpty(hab.Estado))
+                        {
+                            hab.Estado = estadoNuevoWorker;
+                            hab.ArchivoUrl = dto.ArchivoUrl;
+                            hab.UpdatedAt = DateTime.UtcNow;
+                        }
                     }
                 }
 

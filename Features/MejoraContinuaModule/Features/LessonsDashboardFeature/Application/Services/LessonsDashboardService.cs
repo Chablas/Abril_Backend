@@ -19,8 +19,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             _emailService = emailService;
         }
 
-        public Task<LessonsDashboardDataDTO> GetData(DateTimeOffset? periodDate, int? userId, int? lessonAreaId, List<int>? projectIds)
-            => _repository.GetDataAsync(periodDate, userId, lessonAreaId, projectIds);
+        public Task<LessonsDashboardDataDTO> GetData(DateTimeOffset? periodDate, int? userId, List<int>? lessonAreaIds, List<int>? projectIds)
+            => _repository.GetDataAsync(periodDate, userId, lessonAreaIds, projectIds);
 
         public Task<LessonsDashboardFiltersDTO> GetFilters() => _repository.GetFiltersAsync();
 

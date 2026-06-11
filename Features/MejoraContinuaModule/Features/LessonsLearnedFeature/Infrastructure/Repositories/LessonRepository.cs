@@ -151,13 +151,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? userId,
             int page,
             int pageSize)
-            => GetLessonsFilterPagedInternal(periodDate, stateId, projectId, areaId, userId, null, null, false, 0, page, pageSize);
+            => GetLessonsFilterPagedInternal(periodDate, stateId, projectId, areaId, null, userId, null, null, false, 0, page, pageSize);
 
         private async Task<PagedResult<LessonListDTO>> GetLessonsFilterPagedInternal(
             DateTimeOffset? periodDate,
             int? stateId,
             int? projectId,
             int? areaId,
+            List<int>? lessonAreaIds,
             int? userId,
             List<int>? catalogItemIds,
             string? approvalStatus,
@@ -173,7 +174,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             if (periodDate.HasValue) query = query.Where(x => x.PeriodDate == periodDate);
             if (stateId.HasValue) query = query.Where(x => x.StateId == stateId.Value);
             if (projectId.HasValue) query = query.Where(x => x.ProjectId == projectId.Value);
-            if (areaId.HasValue) query = query.Where(x => x.LessonAreaId == areaId.Value);
+            // Filtro de área: el conjunto (cascada del listado) tiene prioridad sobre el simple.
+            if (lessonAreaIds != null && lessonAreaIds.Count > 0)
+                query = query.Where(x => x.LessonAreaId != null && lessonAreaIds.Contains(x.LessonAreaId.Value));
+            else if (areaId.HasValue)
+                query = query.Where(x => x.LessonAreaId == areaId.Value);
             if (userId.HasValue) query = query.Where(x => x.CreatedUserId == userId.Value);
             if (!string.IsNullOrWhiteSpace(approvalStatus)) query = query.Where(x => x.ApprovalStatus == approvalStatus);
 
@@ -313,7 +318,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             // Lecciones paginadas + enriched (incluye filtro por catalog_item_ids)
             var paged = await GetLessonsFilterPagedInternal(
                 filter.PeriodDate, filter.StateId, filter.ProjectId,
-                filter.AreaId, filter.UserId, filter.CatalogItemIds,
+                filter.AreaId, filter.LessonAreaIds, filter.UserId, filter.CatalogItemIds,
                 filter.ApprovalStatus, filter.OnlyMyPendingReview, filter.CurrentUserId,
                 filter.Page, pageSize);
 
@@ -500,7 +505,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? stateId,
             int? projectId,
             int? areaId,
-            int? userId)
+            int? userId,
+            List<int>? lessonAreaIds = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -509,7 +515,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             if (!string.IsNullOrWhiteSpace(period)) query = query.Where(x => x.Period == period);
             if (stateId.HasValue) query = query.Where(x => x.StateId == stateId.Value);
             if (projectId.HasValue) query = query.Where(x => x.ProjectId == projectId.Value);
-            if (areaId.HasValue) query = query.Where(x => x.LessonAreaId == areaId.Value);
+            if (lessonAreaIds != null && lessonAreaIds.Count > 0)
+                query = query.Where(x => x.LessonAreaId != null && lessonAreaIds.Contains(x.LessonAreaId.Value));
+            else if (areaId.HasValue)
+                query = query.Where(x => x.LessonAreaId == areaId.Value);
             if (userId.HasValue) query = query.Where(x => x.CreatedUserId == userId.Value);
 
             var registros = await (

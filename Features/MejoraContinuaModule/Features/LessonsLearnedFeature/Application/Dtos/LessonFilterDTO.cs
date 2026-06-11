@@ -5,8 +5,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         public DateTimeOffset? PeriodDate { get; set; }
         public int? StateId { get; set; }
         public int? ProjectId { get; set; }
-        /// <summary>lesson_area_id (modelo nuevo, ramas activas).</summary>
+        /// <summary>lesson_area_id (modelo nuevo, ramas activas). Filtro simple (legacy).</summary>
         public int? AreaId { get; set; }
+        /// <summary>
+        /// Conjunto de lesson_area_id a incluir (selector de área en cascada del listado).
+        /// El front manda el subárbol del nodo donde se detuvo: si se queda en un nodo
+        /// padre, incluye todas sus subáreas; si baja a una hoja, solo esa. Tiene
+        /// prioridad sobre AreaId.
+        /// </summary>
+        public List<int>? LessonAreaIds { get; set; }
         public int? UserId { get; set; }
         /// <summary>
         /// IDs de catalog_item seleccionados en los filtros por categoría

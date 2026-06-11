@@ -29,6 +29,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>Áreas para el filtro del listado (incluye contenedores include_descendants).</summary>
+        [Authorize]
+        [HttpGet("for-filter")]
+        public async Task<IActionResult> GetAllForFilter()
+        {
+            try { return Ok(await _service.GetAllForFilterAsync()); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [Authorize]
         [HttpPut("toggle/{areaScopeId}")]
         public async Task<IActionResult> Toggle(int areaScopeId)

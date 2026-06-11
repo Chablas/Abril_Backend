@@ -23,7 +23,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? stateId,
             int? projectId,
             int? areaId,
-            int? userId);
+            int? userId,
+            List<int>? lessonAreaIds = null);
 
         Task<object?> CreateAsync(LessonCreateDTO dto, int userId);
         Task<bool> UpdateAsync(int lessonId, LessonUpdateDTO dto, int currentUserId);

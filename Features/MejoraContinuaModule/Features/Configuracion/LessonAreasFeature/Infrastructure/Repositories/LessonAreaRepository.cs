@@ -180,6 +180,67 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         }
 
         /// <summary>
+        /// Áreas para el FILTRO del listado de lecciones: activas y marcadas para el
+        /// formulario (include_in_form) O como contenedor de filtro (include_descendants).
+        /// A diferencia de GetAllWithScopeAsync, INCLUYE contenedores aunque no estén en el
+        /// formulario, para poder filtrar por un área padre que agrupa lecciones (p. ej.
+        /// "Unidad de Proyectos" con include_in_form=false pero con lecciones propias).
+        /// </summary>
+        public async Task<List<LessonAreaConfigItemDTO>> GetAllForFilterAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var areas = await ctx.LessonArea
+                .Where(la => la.Active && (la.IncludeInForm || la.IncludeDescendants))
+                .ToListAsync();
+            if (areas.Count == 0)
+                return new List<LessonAreaConfigItemDTO>();
+
+            var allScopeNodes = await (
+                from s in ctx.AreaScope
+                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
+                join at in ctx.AreaType on ai.AreaTypeId equals at.AreaTypeId
+                where s.State && ai.State && at.State
+                select new
+                {
+                    s.AreaScopeId,
+                    s.AreaScopeParentId,
+                    AreaItemName = ai.AreaItemName,
+                    AreaTypeName = at.AreaTypeName
+                }
+            ).ToListAsync();
+            var byId = allScopeNodes.ToDictionary(n => n.AreaScopeId);
+
+            var result = new List<LessonAreaConfigItemDTO>();
+            foreach (var la in areas)
+            {
+                var path = new List<LessonAreaSegmentDTO>();
+                int? cur = la.AreaScopeId;
+                int safety = 50;
+                while (cur.HasValue && safety-- > 0 && byId.TryGetValue(cur.Value, out var n))
+                {
+                    path.Insert(0, new LessonAreaSegmentDTO { AreaItemName = n.AreaItemName, AreaTypeName = n.AreaTypeName });
+                    cur = n.AreaScopeParentId;
+                }
+                if (path.Count == 0) continue;
+
+                result.Add(new LessonAreaConfigItemDTO
+                {
+                    LessonAreaId         = la.LessonAreaId,
+                    AreaScopeId          = la.AreaScopeId,
+                    Path                 = path,
+                    Active               = la.Active,
+                    IncludeInForm        = la.IncludeInForm,
+                    IncludeAsIndependent = la.IncludeAsIndependent
+                });
+            }
+
+            return result
+                .OrderBy(r => string.Join(" > ", r.Path.Select(p => p.AreaItemName)))
+                .ToList();
+        }
+
+        /// <summary>
         /// Toggle del flag activo para un area_scope.
         /// Si no existe fila en lesson_area, la crea con active=true.
         /// Si ya existe, invierte el flag.

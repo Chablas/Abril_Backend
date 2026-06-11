@@ -25,9 +25,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             _factory = factory;
         }
 
-        public async Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, int? lessonAreaId, List<int>? projectIds)
+        public async Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, List<int>? lessonAreaIds, List<int>? projectIds)
         {
             using var ctx = _factory.CreateDbContext();
+
+            // Misma lógica que el filtro de Lecciones Aprendidas: el front (cascada de
+            // área→subárea) ya envía TODOS los lesson_area_id del subárbol donde el
+            // usuario se detuvo. Aquí solo filtramos LessonAreaId IN (lista).
+            var effectiveAreaIds = (lessonAreaIds != null && lessonAreaIds.Count > 0) ? lessonAreaIds : null;
+            // Para el detalle de fases por área: solo cuando se eligió UNA área específica
+            // (hoja); si es un padre con varias subáreas, se usa el comportamiento agregado.
+            int? singleAreaId = (lessonAreaIds != null && lessonAreaIds.Count == 1) ? lessonAreaIds[0] : (int?)null;
 
             // 1. Lecciones filtradas (modelo nuevo)
             var q = ctx.Lesson.Where(l => l.Active && l.State);
@@ -41,9 +49,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             if (userId.HasValue)
                 q = q.Where(l => l.CreatedUserId == userId.Value);
 
-            // Filtro de área con rollup opcional: si el área seleccionada tiene
-            // include_descendants=true, se incluyen también sus áreas descendientes.
-            var effectiveAreaIds = await ComputeEffectiveAreaIdsAsync(ctx, lessonAreaId);
             if (effectiveAreaIds != null)
                 q = q.Where(l => l.LessonAreaId != null && effectiveAreaIds.Contains(l.LessonAreaId.Value));
 
@@ -220,12 +225,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
 
             List<PhaseStageChartDTO> phaseStageCharts;
 
-            if (lessonAreaId.HasValue)
+            if (singleAreaId.HasValue)
             {
-                // Con área seleccionada: TODAS las fases del scope de esa área, en su orden
-                // (DisplayOrder), incluyendo las que no tienen lecciones (stages vacíos).
+                // Con UNA área específica seleccionada: TODAS las fases del scope de esa área,
+                // en su orden (DisplayOrder), incluyendo las que no tienen lecciones (vacías).
                 phaseStageCharts = scope
-                    .Where(s => s.LessonAreaId == lessonAreaId.Value
+                    .Where(s => s.LessonAreaId == singleAreaId.Value
                                 && string.Equals(s.CatalogTypeName, TypeFase, StringComparison.OrdinalIgnoreCase))
                     .GroupBy(s => s.CatalogItemId)
                     .Select(g => g.OrderBy(s => s.DisplayOrder).First())
@@ -286,7 +291,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
         {
             var basis = periodDate ?? DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(-5));
             var target = new DateTimeOffset(basis.Year, basis.Month, 1, 0, 0, 0, TimeSpan.Zero);
-            var label = target.ToString("MM-yyyy");
+            var label = MonthYearLabel(target.Year, target.Month);
 
             var rows = await (
                 from up in ctx.UserProject
@@ -321,48 +326,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             return (label, users);
         }
 
-        /// <summary>
-        /// Calcula el conjunto efectivo de lesson_area_ids para el filtro de área.
-        /// Si no hay área seleccionada → null (sin filtro). Si el área tiene
-        /// include_descendants=true → el área + todas sus descendientes (rollup);
-        /// si no → solo el área seleccionada.
-        /// </summary>
-        private async Task<List<int>?> ComputeEffectiveAreaIdsAsync(AppDbContext ctx, int? lessonAreaId)
-        {
-            if (!lessonAreaId.HasValue) return null;
-
-            var la = await ctx.LessonArea.FirstOrDefaultAsync(x => x.LessonAreaId == lessonAreaId.Value);
-            if (la == null || !la.IncludeDescendants)
-                return new List<int> { lessonAreaId.Value };
-
-            // Rollup: nodo del área + descendientes en area_scope → sus lesson_areas activas.
-            var nodes = await ctx.AreaScope
-                .Where(s => s.State)
-                .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
-                .ToListAsync();
-            var childrenByParent = nodes
-                .Where(s => s.AreaScopeParentId.HasValue)
-                .GroupBy(s => s.AreaScopeParentId!.Value)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.AreaScopeId).ToList());
-
-            var descendantScopeIds = new HashSet<int> { la.AreaScopeId };
-            var queue = new Queue<int>();
-            queue.Enqueue(la.AreaScopeId);
-            while (queue.Count > 0)
-            {
-                var curr = queue.Dequeue();
-                if (childrenByParent.TryGetValue(curr, out var kids))
-                    foreach (var k in kids)
-                        if (descendantScopeIds.Add(k)) queue.Enqueue(k);
-            }
-
-            var ids = await ctx.LessonArea
-                .Where(x => x.Active && descendantScopeIds.Contains(x.AreaScopeId))
-                .Select(x => x.LessonAreaId)
-                .ToListAsync();
-            if (!ids.Contains(lessonAreaId.Value)) ids.Add(lessonAreaId.Value);
-            return ids;
-        }
 
         /// <summary>
         /// Tendencia mensual: lecciones agrupadas por mes (period_date), en orden cronológico.
@@ -387,7 +350,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 .Select(m => new ChartItemDTO
                 {
                     Id = m.Period!.Value.Year * 100 + m.Period.Value.Month,
-                    Label = m.Period.Value.ToString("MM-yyyy"),
+                    Label = MonthYearLabel(m.Period.Value.Year, m.Period.Value.Month),
                     Value = m.Count
                 })
                 .ToList();
@@ -493,5 +456,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             dict.Select(kv => new ChartItemDTO { Id = kv.Key, Label = kv.Value.Label, Value = kv.Value.Count })
                 .OrderByDescending(c => c.Value)
                 .ToList();
+
+        // Etiqueta de período "Mes Año" en español, ej. "Abril 2026" (igual que el
+        // pipe periodLabel del front). Se construye por mes/año para evitar problemas
+        // de cultura/zona horaria.
+        private static readonly string[] MesesEs =
+        {
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+        };
+
+        private static string MonthYearLabel(int year, int month) =>
+            (month >= 1 && month <= 12) ? $"{MesesEs[month - 1]} {year}" : $"{month:00}-{year}";
     }
 }

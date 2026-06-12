@@ -18,6 +18,22 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             _projectSubContractorService = projectSubContractorService;
         }
 
+        private const string RolAdministrador  = "ADMINISTRADOR DE COSTOS Y PRESUPUESTOS";
+        private const string RolOficinaCentral = "USUARIO DE COSTOS Y PRESUPUESTOS DE OFICINA CENTRAL";
+        private const string RolOficinaTecnica = "USUARIO DE COSTOS Y PRESUPUESTOS DE OFICINA TÉCNICA";
+
+        /// <summary>
+        /// Oficina Técnica (sin Admin ni Of. Central) solo ve adjudicaciones de sus proyectos
+        /// (aquellos donde su correo está registrado en staff_project_email).
+        /// </summary>
+        private bool RestrictToOwnProjects()
+        {
+            var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+            return roles.Contains(RolOficinaTecnica)
+                && !roles.Contains(RolAdministrador)
+                && !roles.Contains(RolOficinaCentral);
+        }
+
         [Authorize]
         [HttpGet("paged")]
         public async Task<IActionResult> GetPaged(
@@ -49,7 +65,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     Page = page
                 };
 
-                var result = await _projectSubContractorService.GetPaged(filter);
+                var userId = int.Parse(userIdClaim.Value);
+                var result = await _projectSubContractorService.GetPaged(filter, userId, RestrictToOwnProjects());
                 return Ok(result);
             }
             catch (Exception)
@@ -77,7 +94,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -104,7 +122,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -143,7 +162,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     Page = page
                 };
 
-                var result = await _projectSubContractorService.GetPagedWithFilters(filter);
+                var userId = int.Parse(userIdClaim.Value);
+                var result = await _projectSubContractorService.GetPagedWithFilters(filter, userId, RestrictToOwnProjects());
                 return Ok(result);
             }
             catch (Exception ex)
@@ -168,7 +188,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -192,7 +213,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -221,7 +243,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -249,7 +272,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -355,7 +379,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -379,7 +404,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -403,7 +429,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -427,7 +454,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -452,7 +480,81 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPatch("{id}/step6-checks")]
+        public async Task<IActionResult> UpdateStep6Checks(int id, [FromBody] UpdateStep6ChecksDTO dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.UpdateStep6ChecksAsync(id, dto, userId);
+                return Ok(new { message = "Firmas actualizadas exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/send-step5-observations-email")]
+        public async Task<IActionResult> SendStep5ObservationsEmail(int id, [FromBody] SendStep5ObservationsEmailDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.SendStep5ObservationsEmailAsync(id, dto, userId);
+                return Ok(new { message = "Correo de observaciones enviado a Oficina Técnica exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("{id}/send-step5-levantamiento-email")]
+        public async Task<IActionResult> SendStep5LevantamientoEmail(int id, [FromBody] SendStep5LevantamientoEmailDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _projectSubContractorService.SendStep5LevantamientoEmailAsync(id, dto, userId);
+                return Ok(new { message = "Correo de levantamiento de observaciones enviado a Oficina Central exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -476,7 +578,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -500,7 +603,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -527,7 +631,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -557,7 +662,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -584,7 +690,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = falta configurar correos del proyecto).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

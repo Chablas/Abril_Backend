@@ -80,17 +80,30 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
         }
 
-        public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
+        /// <summary>
+        /// Oficina Técnica solo ve adjudicaciones de sus proyectos: aquellos donde su
+        /// correo está registrado en Configuración → Correo de staff por proyecto
+        /// (misma lógica que en Links de proyecto).
+        /// </summary>
+        private async Task ApplyOwnProjectsRestrictionAsync(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects)
+        {
+            if (!restrictToOwnProjects) return;
+            filter.AllowedProjectIds = await _projectLinkRepository.GetUserProjectIdsAsync(userId);
+        }
+
+        public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects)
         {
             if (filter.Page < 1) filter.Page = 1;
+            await ApplyOwnProjectsRestrictionAsync(filter, userId, restrictToOwnProjects);
             return await _projectSubContractorRepository.GetPaged(filter);
         }
 
-        public async Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFilters(ProjectSubContractorFilterDTO filter)
+        public async Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFilters(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects)
         {
             // Combina GetPaged + GetFormDataAsync en una sola llamada al repositorio.
             // Las operaciones se ejecutan en paralelo aprovechando el connection pooling.
             if (filter.Page < 1) filter.Page = 1;
+            await ApplyOwnProjectsRestrictionAsync(filter, userId, restrictToOwnProjects);
             return await _projectSubContractorRepository.GetPagedWithFiltersAsync(filter);
         }
 
@@ -151,9 +164,22 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return results;
         }
 
+        /// <summary>
+        /// 422 — el proyecto no tiene asociado el tipo de correo requerido en
+        /// Configuración → Correo de staff por proyecto. El frontend muestra este
+        /// código como advertencia de configuración, no como error del sistema.
+        /// </summary>
+        private static AbrilException MissingStaffEmailConfig(string emailType) =>
+            new(
+                $"Falta asociar un correo de tipo \"{emailType}\" al proyecto de esta adjudicación. " +
+                "Regístrelo en Configuración → Correo de staff por proyecto y vuelva a intentarlo.", 422);
+
         public async Task SendNotification(SendAdjudicacionNotificationDto dto, int userId)
         {
             var data = await _projectSubContractorRepository.GetNotificationData(dto.ProjectSubContractorId);
+
+            if (data.StaffEmails.Count == 0)
+                throw MissingStaffEmailConfig("Staff de obra");
 
             // Expandir grupos: staff de obra (van a la matriz) y oficina central (solo CC).
             var staffProfiles          = await _graphUserService.GetResolvedProfilesAsync(data.StaffEmails);
@@ -228,6 +254,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
 
+            if (data.StaffObraEmails.Count == 0)
+                throw MissingStaffEmailConfig("Staff de obra");
+
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 4, userId);
 
             if (data.StaffObraEmails.Count > 0)
@@ -265,6 +294,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data     = await _projectSubContractorRepository.GetScNotificationDataAsync(projectSubContractorId);
             var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
+
+            if (data.StaffObraEmails.Count == 0)
+                throw MissingStaffEmailConfig("Staff de obra");
 
             byte[] fileBytes;
             string fileName;
@@ -339,6 +371,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, string? arrivalObservation, string graphAccessToken, int userId)
         {
+            // Validar antes de cambiar el estado: el correo del paso 6 requiere Staff de obra.
+            var staffCheck = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
+            if (staffCheck.StaffObraEmails.Count == 0)
+                throw MissingStaffEmailConfig("Staff de obra");
+
             await _projectSubContractorRepository.ConfirmStep5Async(projectSubContractorId, arrivedWithObservations, arrivalObservation, userId);
 
             var data = await _projectSubContractorRepository.GetStep6NotificationDataAsync(projectSubContractorId);
@@ -371,6 +408,117 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 7, userId);
         }
 
+        public async Task UpdateStep6ChecksAsync(int projectSubContractorId, UpdateStep6ChecksDTO dto, int userId)
+        {
+            await _projectSubContractorRepository.UpdateStep6ChecksAsync(
+                projectSubContractorId,
+                dto.SignedCostos,
+                dto.SignedGerenteInmobiliario,
+                dto.SignedGerenteGeneral,
+                userId);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // Paso 5 — Correos de observaciones (Of. Central → Of. Técnica) y
+        //          levantamiento (Of. Técnica → Of. Central)
+        // ─────────────────────────────────────────────────────────────────────────
+
+        public async Task SendStep5ObservationsEmailAsync(int projectSubContractorId, SendStep5ObservationsEmailDto dto, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Observation))
+                throw new AbrilException("Debe registrar una observación antes de enviar el correo.", 400);
+
+            // Persistir la observación para que Of. Técnica la vea al abrir el detalle.
+            await _projectSubContractorRepository.SaveArrivalObservationAsync(projectSubContractorId, dto.Observation, userId);
+
+            var data = await _projectSubContractorRepository.GetStep5EmailDataAsync(projectSubContractorId);
+
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
+
+            var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
+            var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature      = BuildEmailSignature(senderProfile);
+            var subject        = $"OBSERVACIONES EN LLEGADA DE EXPEDIENTE / {data.ProjectDescription} / {data.ContributorName}";
+            var body           = BuildStep5ObservationsEmailBody(data, dto.Observation) + signature;
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: dto.GraphAccessToken,
+                to:               data.OficinaTecnicaEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                cc:               costosEmailsCc,
+                attachments:      WithSignatureAttachment());
+        }
+
+        public async Task SendStep5LevantamientoEmailAsync(int projectSubContractorId, SendStep5LevantamientoEmailDto dto, int userId)
+        {
+            var data = await _projectSubContractorRepository.GetStep5EmailDataAsync(projectSubContractorId);
+
+            if (data.OficinaCentralEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina central");
+
+            var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
+            var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature      = BuildEmailSignature(senderProfile);
+            var subject        = $"LEVANTAMIENTO DE OBSERVACIONES / {data.ProjectDescription} / {data.ContributorName}";
+            var body           = BuildStep5LevantamientoEmailBody(data, dto.Message) + signature;
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: dto.GraphAccessToken,
+                to:               data.OficinaCentralEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                cc:               costosEmailsCc,
+                attachments:      WithSignatureAttachment());
+        }
+
+        private static string BuildStep5ObservationsEmailBody(Step5EmailDataDto data, string observation)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Estimado equipo de Oficina Técnica,</p>");
+            sb.AppendLine("<p>Se les informa que el expediente físico del siguiente contrato llegó a Oficina Central con observaciones:</p>");
+            sb.AppendLine("<ul>");
+            sb.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
+            sb.AppendLine($"  <li><strong>Contratista:</strong> {data.ContributorName}</li>");
+            sb.AppendLine($"  <li><strong>Partida:</strong> {data.WorkItemDescription}</li>");
+            sb.AppendLine("</ul>");
+            sb.AppendLine("<p><strong>Observaciones:</strong></p>");
+            sb.AppendLine($"<p style=\"background:#FFF7ED; border:1px solid #FDBA74; border-radius:6px; padding:10px; white-space:pre-line;\">{System.Net.WebUtility.HtmlEncode(observation)}</p>");
+            sb.AppendLine("<p>Por favor, gestionen el levantamiento de las observaciones indicadas.</p>");
+            sb.AppendLine("</div>");
+            return sb.ToString();
+        }
+
+        private static string BuildStep5LevantamientoEmailBody(Step5EmailDataDto data, string? message)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Estimado equipo de Oficina Central,</p>");
+            sb.AppendLine("<p>Se les informa que las observaciones registradas en la llegada del expediente del siguiente contrato han sido levantadas:</p>");
+            sb.AppendLine("<ul>");
+            sb.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
+            sb.AppendLine($"  <li><strong>Contratista:</strong> {data.ContributorName}</li>");
+            sb.AppendLine($"  <li><strong>Partida:</strong> {data.WorkItemDescription}</li>");
+            sb.AppendLine("</ul>");
+            if (!string.IsNullOrWhiteSpace(data.ArrivalObservation))
+            {
+                sb.AppendLine("<p><strong>Observaciones originales:</strong></p>");
+                sb.AppendLine($"<p style=\"background:#FFF7ED; border:1px solid #FDBA74; border-radius:6px; padding:10px; white-space:pre-line;\">{System.Net.WebUtility.HtmlEncode(data.ArrivalObservation)}</p>");
+            }
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                sb.AppendLine("<p><strong>Mensaje de Oficina Técnica:</strong></p>");
+                sb.AppendLine($"<p style=\"background:#F0FAE5; border:1px solid #A3D977; border-radius:6px; padding:10px; white-space:pre-line;\">{System.Net.WebUtility.HtmlEncode(message)}</p>");
+            }
+            sb.AppendLine("<p>Por favor, verifiquen y continúen con el proceso de la adjudicación.</p>");
+            sb.AppendLine("</div>");
+            return sb.ToString();
+        }
+
         private static string BuildStep6EmailBody(Step6NotificationDataDto data)
         {
             var sb = new StringBuilder();
@@ -400,7 +548,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 .ToList();
 
             if (toEmails.Count == 0)
-                throw new AbrilException("No hay correos de Staff de Obra configurados para este proyecto.");
+                throw MissingStaffEmailConfig("Staff de obra");
 
             var attachments    = await DownloadAttachmentsAsync(data.ScannedDocs);
             var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
@@ -455,9 +603,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 .ToList();
 
             if (toEmails.Count == 0)
-                throw new AbrilException(
-                    "No hay destinatarios configurados para enviar el correo. " +
-                    "Verifique que existan correos de Staff de Obra registrados para este proyecto.", 400);
+                throw MissingStaffEmailConfig("Staff de obra");
 
             var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
             var signature     = BuildEmailSignature(senderProfile);
@@ -497,9 +643,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 .ToList();
 
             if (toEmails.Count == 0)
-                throw new AbrilException(
-                    "No hay destinatarios configurados para enviar el correo. " +
-                    "Verifique que existan correos de Staff de Obra registrados para este proyecto.", 400);
+                throw MissingStaffEmailConfig("Staff de obra");
 
             var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
             var signature     = BuildEmailSignature(senderProfile);

@@ -32,6 +32,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task<List<DocumentObservationDto>> GetStep3DocumentObservationsAsync(int projectSubContractorId);
         Task<List<DocumentObservationDto>> GetLevantamientoDocumentsAsync(int projectSubContractorId);
         Task<Step6NotificationDataDto> GetStep6NotificationDataAsync(int projectSubContractorId);
+        Task UpdateStep6ChecksAsync(int projectSubContractorId, bool signedCostos, bool signedGerenteInmobiliario, bool signedGerenteGeneral, int userId);
+        Task<Step5EmailDataDto> GetStep5EmailDataAsync(int projectSubContractorId);
+        Task SaveArrivalObservationAsync(int projectSubContractorId, string? arrivalObservation, int userId);
         Task<Step8NotificationDataDto> GetStep8NotificationDataAsync(int projectSubContractorId);
         Task<ContractPackageUrlsDto> GetContractPackageUrlsAsync(int projectSubContractorId);
         Task<(string FileUrl, string OriginalFileName)?> GetPackageFileInfoAsync(int projectSubContractorId);

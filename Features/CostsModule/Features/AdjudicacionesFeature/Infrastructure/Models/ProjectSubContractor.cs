@@ -42,6 +42,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public bool? ArrivedWithObservations { get; set; }
         public string? ArrivalObservation { get; set; }
 
+        // Procesos de firma (paso 6) — estado persistido de cada checkbox
+        public bool Step6SignedCostos { get; set; }
+        public bool Step6SignedGerenteInmobiliario { get; set; }
+        public bool Step6SignedGerenteGeneral { get; set; }
+
         // Document FKs (nullable — populated as the expediente progresses)
         public int? ProjectSubContractorContractId { get; set; }
         public int? ProjectSubContractorSummarySheetId { get; set; }

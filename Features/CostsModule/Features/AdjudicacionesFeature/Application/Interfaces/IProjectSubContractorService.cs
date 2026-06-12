@@ -8,8 +8,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         Task Create(ProjectSubContractorCreateDTO dto, int page);
         Task UpdateInfo(int projectSubContractorId, ProjectSubContractorUpdateInfoDTO dto, int userId);
         Task<ProjectSubContractorFormDataDTO> GetFormData();
-        Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter);
-        Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFilters(ProjectSubContractorFilterDTO filter);
+        // restrictToOwnProjects = true (Oficina Técnica): solo adjudicaciones de los proyectos
+        // donde el correo del usuario está registrado en staff_project_email.
+        Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects);
+        Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFilters(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects);
         Task SendNotification(SendAdjudicacionNotificationDto dto, int userId);
         Task SaveDates(int projectSubContractorId, UpdateDatesDTO dto, int userId);
         Task<DocumentUploadResponseDto> UploadDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, IFormFile file, int userId);
@@ -22,6 +24,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         Task SetArrivalOptionAsync(int projectSubContractorId, bool arrivedWithObservations, int userId);
         Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, string? arrivalObservation, string graphAccessToken, int userId);
         Task SendStep6NotificationAsync(int projectSubContractorId, int userId);
+        Task UpdateStep6ChecksAsync(int projectSubContractorId, UpdateStep6ChecksDTO dto, int userId);
+        Task SendStep5ObservationsEmailAsync(int projectSubContractorId, SendStep5ObservationsEmailDto dto, int userId);
+        Task SendStep5LevantamientoEmailAsync(int projectSubContractorId, SendStep5LevantamientoEmailDto dto, int userId);
         Task SendStep8NotificationAsync(int projectSubContractorId, string graphAccessToken, int userId);
         Task<(byte[] Bytes, string FileUrl, string OriginalFileName)> GenerateContractPackageAsync(int projectSubContractorId, int userId);
         Task SendObservationEmailAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, SendObservationEmailDto dto, int userId);

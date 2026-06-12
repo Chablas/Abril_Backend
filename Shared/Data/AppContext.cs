@@ -544,6 +544,19 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.ToTable("app_user");
             });
 
+            modelBuilder.Entity<ProjectSubContractor>(entity =>
+            {
+                // La convención snake_case produce "step6signed_*" (no inserta guion después
+                // del dígito 6). Forzamos los nombres con guion para que coincidan con las
+                // columnas realmente creadas en la BD.
+                entity.Property(e => e.Step6SignedCostos)
+                      .HasColumnName("step6_signed_costos");
+                entity.Property(e => e.Step6SignedGerenteInmobiliario)
+                      .HasColumnName("step6_signed_gerente_inmobiliario");
+                entity.Property(e => e.Step6SignedGerenteGeneral)
+                      .HasColumnName("step6_signed_gerente_general");
+            });
+
             modelBuilder.Entity<WorkItemCategoryClause>()
                 .HasOne(c => c.WorkItemCategory)
                 .WithMany()

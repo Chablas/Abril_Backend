@@ -483,6 +483,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 where psc.State
                 select new { psc, p, contractor, c, ct, cm, pm, pf, cur, wi, pscs, wic, contractDoc, summarySheetDoc, budgetDoc, scheduleDoc, attachedQuotationDoc, serviceOrderDoc, promissoryNoteDoc, packageDoc, instructivoDoc, nonConformingDoc, toleranceChartDoc, fichaTecnicaDoc, anexoDoc, personCreator };
 
+            if (filter.AllowedProjectIds != null)
+                query = query.Where(x => filter.AllowedProjectIds.Contains(x.psc.ProjectId));
+
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.psc.ProjectId == filter.ProjectId.Value);
 
@@ -551,6 +554,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     GuaranteeValidityDays    = x.psc.GuaranteeValidityDays,
                     ArrivedWithObservations  = x.psc.ArrivedWithObservations,
                     ArrivalObservation       = x.psc.ArrivalObservation,
+                    Step6SignedCostos              = x.psc.Step6SignedCostos,
+                    Step6SignedGerenteInmobiliario = x.psc.Step6SignedGerenteInmobiliario,
+                    Step6SignedGerenteGeneral      = x.psc.Step6SignedGerenteGeneral,
                     CreatedDateTime          = x.psc.CreatedDateTime,
                     CreatedUserFullName      = x.personCreator != null ? x.personCreator.FullName : null,
                     Contract          = x.contractDoc == null          ? null : new ProjectSubContractorFileDto { FileUrl = x.contractDoc.FileUrl!,          OriginalFileName = x.contractDoc.OriginalFileName,          StatusId = x.contractDoc.ProjectSubContractorFileStatusId,          StatusDescription = x.contractDoc.FileStatus == null          ? null : x.contractDoc.FileStatus.ProjectSubContractorFileStatusDescription,          Observation = x.contractDoc.Observation },
@@ -691,6 +697,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscGuaranteeValidityDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeValidityDays));
             string cPscArrivedWithObservations = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivedWithObservations));
             string cPscArrivalObservation = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivalObservation));
+            string cPscStep6SignedCostos = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.Step6SignedCostos));
+            string cPscStep6SignedGerenteInmobiliario = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.Step6SignedGerenteInmobiliario));
+            string cPscStep6SignedGerenteGeneral = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.Step6SignedGerenteGeneral));
             string cPscNonConformingStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.NonConformingOutputStatusId));
             string cPscToleranceStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ToleranceChartStatusId));
             string cPscFinishProtectionStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.FinishProtectionStatusId));
@@ -892,6 +901,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
 
             var whereConditions = new List<string> { $"psc.{cPscState} = TRUE" };
 
+            if (filter.AllowedProjectIds != null)
+            {
+                // Restricción de Oficina Técnica: solo sus proyectos.
+                whereConditions.Add($"psc.{cPscProjectId} = ANY(@AllowedProjectIds)");
+                parameters.Add("@AllowedProjectIds", filter.AllowedProjectIds.ToArray());
+            }
+
             if (filter.ProjectId.HasValue)
             {
                 whereConditions.Add($"psc.{cPscProjectId} = @ProjectId");
@@ -983,6 +999,9 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscGuaranteeValidityDays} AS ""GuaranteeValidityDays"",
        psc.{cPscArrivedWithObservations} AS ""ArrivedWithObservations"",
        psc.{cPscArrivalObservation} AS ""ArrivalObservation"",
+       psc.{cPscStep6SignedCostos} AS ""Step6SignedCostos"",
+       psc.{cPscStep6SignedGerenteInmobiliario} AS ""Step6SignedGerenteInmobiliario"",
+       psc.{cPscStep6SignedGerenteGeneral} AS ""Step6SignedGerenteGeneral"",
        psc.{cPscNonConformingStatusId} AS ""NonConformingOutputStatusId"",
        psc.{cPscToleranceStatusId} AS ""ToleranceChartStatusId"",
        psc.{cPscFinishProtectionStatusId} AS ""FinishProtectionStatusId"",
@@ -1093,7 +1112,7 @@ ORDER BY psc.{cPscId} DESC
 LIMIT @PageSize OFFSET @PageOffset;
 
 -- 3-12. Form data queries (10 simple selects con aliases PascalCase para mapeo a DTOs)
-SELECT {cProjectId} AS ""ProjectId"", {cProjectDesc} AS ""ProjectDescription"" FROM {tProject} WHERE {cProjectActive} = TRUE ORDER BY {cProjectDesc};
+SELECT {cProjectId} AS ""ProjectId"", {cProjectDesc} AS ""ProjectDescription"" FROM {tProject} WHERE {cProjectActive} = TRUE{(filter.AllowedProjectIds != null ? $" AND {cProjectId} = ANY(@AllowedProjectIds)" : string.Empty)} ORDER BY {cProjectDesc};
 SELECT {cContractTypeId} AS ""ContractTypeId"", {cContractTypeDesc} AS ""ContractTypeDescription"" FROM {tContractType} WHERE {cContractTypeActive} = TRUE ORDER BY {cContractTypeDesc};
 SELECT {cContractModalityIdDapper} AS ""ContractModalityId"", {cContractModalityDescDapper} AS ""ContractModalityDescription"" FROM {tContractModalityDapper} WHERE {cContractModalityStateDapper} = TRUE ORDER BY {cContractModalityIdDapper};
 SELECT {cPaymentMethodId} AS ""PaymentMethodId"", {cPaymentMethodDesc} AS ""PaymentMethodDescription"" FROM {tPaymentMethod} WHERE {cPaymentMethodActive} = TRUE ORDER BY {cPaymentMethodDesc};
@@ -1193,6 +1212,9 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     GuaranteeValidityDays = (int?)raw.GuaranteeValidityDays,
                     ArrivedWithObservations = (bool?)raw.ArrivedWithObservations,
                     ArrivalObservation = (string?)raw.ArrivalObservation,
+                    Step6SignedCostos = (bool)raw.Step6SignedCostos,
+                    Step6SignedGerenteInmobiliario = (bool)raw.Step6SignedGerenteInmobiliario,
+                    Step6SignedGerenteGeneral = (bool)raw.Step6SignedGerenteGeneral,
                     CreatedDateTime = new DateTimeOffset((DateTime)raw.CreatedDateTime, TimeSpan.Zero),
                     CreatedUserFullName = (string?)raw.CreatedUserFullName,
                     Contract = raw.contract_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.contract_file_url, OriginalFileName = raw.contract_file_name, StatusId = (int?)raw.contract_status_id, StatusDescription = raw.contract_status_desc, Observation = raw.contract_observation } : null,
@@ -1511,6 +1533,77 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ContractNumber      = psc.ContractNumber,
                 StaffObraEmails     = staffObraEmails
             };
+        }
+
+        public async Task UpdateStep6ChecksAsync(int projectSubContractorId, bool signedCostos, bool signedGerenteInmobiliario, bool signedGerenteGeneral, int userId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            if (psc.ProjectSubContractorStatusId != 6)
+                throw new AbrilException("La adjudicación no está en el paso de procesos de firma.");
+
+            psc.Step6SignedCostos              = signedCostos;
+            psc.Step6SignedGerenteInmobiliario = signedGerenteInmobiliario;
+            psc.Step6SignedGerenteGeneral      = signedGerenteGeneral;
+            psc.UpdatedDateTime                = DateTimeOffset.UtcNow;
+            psc.UpdatedUserId                  = userId;
+
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<Step5EmailDataDto> GetStep5EmailDataAsync(int projectSubContractorId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            var projectDescription = await _context.Project
+                .Where(p => p.ProjectId == psc.ProjectId)
+                .Select(p => p.ProjectDescription)
+                .FirstOrDefaultAsync() ?? string.Empty;
+
+            // Proyección solo del nombre — evita SELECT de columnas opcionales del Contributor.
+            var contributorName = await (
+                from ct in _context.Contractor
+                join contrib in _context.Contributor on ct.ContributorId equals contrib.ContributorId
+                where ct.ContractorId == psc.ContractorId
+                select contrib.ContributorName
+            ).FirstOrDefaultAsync();
+
+            var workItem = await _context.WorkItem
+                .FirstOrDefaultAsync(w => w.WorkItemId == psc.WorkItemId);
+
+            var emails = await _context.StaffProjectEmail
+                .Where(s => s.ProjectId == psc.ProjectId
+                    && (s.StaffProjectEmailTypeId == 2 || s.StaffProjectEmailTypeId == 3)
+                    && s.State && s.Active)
+                .Select(s => new { s.Email, s.StaffProjectEmailTypeId })
+                .ToListAsync();
+
+            return new Step5EmailDataDto
+            {
+                ProjectDescription   = projectDescription,
+                ContributorName      = contributorName ?? string.Empty,
+                WorkItemDescription  = workItem?.WorkItemDescription ?? string.Empty,
+                ArrivalObservation   = psc.ArrivalObservation,
+                OficinaCentralEmails = emails.Where(e => e.StaffProjectEmailTypeId == 2).Select(e => e.Email).ToList(),
+                OficinaTecnicaEmails = emails.Where(e => e.StaffProjectEmailTypeId == 3).Select(e => e.Email).ToList(),
+            };
+        }
+
+        public async Task SaveArrivalObservationAsync(int projectSubContractorId, string? arrivalObservation, int userId)
+        {
+            var psc = await _context.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            psc.ArrivalObservation = string.IsNullOrWhiteSpace(arrivalObservation) ? null : arrivalObservation.Trim();
+            psc.UpdatedDateTime    = DateTimeOffset.UtcNow;
+            psc.UpdatedUserId      = userId;
+
+            await _context.SaveChangesAsync();
         }
 
         public async Task<Step8NotificationDataDto> GetStep8NotificationDataAsync(int projectSubContractorId)

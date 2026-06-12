@@ -49,6 +49,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int?   GuaranteeValidityDays     { get; set; }
         public bool?  ArrivedWithObservations   { get; set; }
         public string? ArrivalObservation       { get; set; }
+        // Procesos de firma (paso 6)
+        public bool Step6SignedCostos { get; set; }
+        public bool Step6SignedGerenteInmobiliario { get; set; }
+        public bool Step6SignedGerenteGeneral { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public string? CreatedUserFullName { get; set; }
         public List<ProjectSubContractorFileDto> QuotationFiles { get; set; } = new();

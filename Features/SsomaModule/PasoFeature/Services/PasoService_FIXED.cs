@@ -421,21 +421,53 @@ public class PasoService : IPasoService
 
     // ── Histórico por proyecto ────────────────────────────────────────────────
 
-    public async Task<List<PasoListItemDto>> GetHistoricoProyectoAsync(int proyectoId)
+    public async Task<List<PasoHistoricoAnioDto>> GetHistoricoProyectoAsync(int proyectoId)
     {
         using var ctx = _factory.CreateDbContext();
         var pasos = await ctx.SsomaPasos
-            .Where(p => p.ProyectoId == proyectoId && !p.EsPlantilla)
+            .Where(p => p.ProyectoId == proyectoId && !p.EsPlantilla && p.Anio != null)
             .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
-            .OrderByDescending(p => p.Anio).ThenBy(p => p.MesInicio)
+            .OrderByDescending(p => p.Anio)
             .ToListAsync();
 
-        var proyNombre = await ctx.Project
-            .Where(pr => pr.ProjectId == proyectoId)
-            .ToDictionaryAsync(pr => pr.ProjectId, pr => pr.ProjectDescription ?? "");
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var result = new List<PasoHistoricoAnioDto>();
 
-        return pasos.Select(p => BuildListItem(p, proyNombre, new Dictionary<int, string>())).ToList();
+        foreach (var paso in pasos)
+        {
+            var cicloStartYear = paso.MesInicio > 6 ? paso.Anio!.Value - 1 : paso.Anio!.Value;
+            var cicloStart = new DateOnly(cicloStartYear, paso.MesInicio, 1);
+            var cicloEnd = cicloStart.AddMonths(12).AddDays(-1);
+
+            var allEj = paso.Actividades
+                .SelectMany(a => a.Ejecuciones)
+                .Where(e => e.FechaProgramada >= cicloStart && e.FechaProgramada <= cicloEnd)
+                .ToList();
+
+            var totalProg = allEj.Count;
+            var totalEj   = allEj.Count(e => e.Estado == "Ejecutado");
+            var totalVenc = allEj.Count(e =>
+                e.Estado != "Ejecutado" &&
+                new DateOnly(e.FechaProgramada.Year, e.FechaProgramada.Month,
+                    DateTime.DaysInMonth(e.FechaProgramada.Year, e.FechaProgramada.Month)) < hoy
+            );
+            var spi    = totalProg == 0 ? 1m : Math.Round((decimal)totalEj / totalProg, 2);
+            var avance = totalProg == 0 ? 0m : Math.Round((decimal)totalEj / totalProg * 100, 1);
+            var color  = spi >= 0.95m ? "verde" : spi >= 0.80m ? "amarillo" : "rojo";
+
+            result.Add(new PasoHistoricoAnioDto
+            {
+                Anio             = paso.Anio!.Value,
+                TotalProgramadas = totalProg,
+                TotalEjecutadas  = totalEj,
+                TotalVencidas    = totalVenc,
+                SpiGeneral       = spi,
+                SpiColor         = color,
+                PorcentajeAvance = avance,
+            });
+        }
+        return result;
     }
 
     // ── SPI ───────────────────────────────────────────────────────────────────
@@ -452,12 +484,22 @@ public class PasoService : IPasoService
             ?? throw new KeyNotFoundException("PASO no encontrado.");
 
         var hoy = DateOnly.FromDateTime(DateTime.Today);
-        var allEj = paso.Actividades.SelectMany(a => a.Ejecuciones).ToList();
+        var cicloStartYear = paso.MesInicio > 6 ? paso.Anio!.Value - 1 : paso.Anio!.Value;
+        var cicloStart = new DateOnly(cicloStartYear, paso.MesInicio, 1);
+        var cicloEnd = cicloStart.AddMonths(12).AddDays(-1);
+
+        var allEj = paso.Actividades.SelectMany(a => a.Ejecuciones)
+            .Where(e => e.FechaProgramada >= cicloStart && e.FechaProgramada <= cicloEnd)
+            .ToList();
         var planHoy = allEj.Count(e => e.FechaProgramada <= hoy);
         var ejHoy = allEj.Count(e => e.Estado == "Ejecutado" && e.FechaProgramada <= hoy);
         var totalProg = allEj.Count;
         var totalEj = allEj.Count(e => e.Estado == "Ejecutado");
-        var totalVenc = allEj.Count(e => e.Estado == "Vencido");
+        var totalVenc = allEj.Count(e =>
+            e.Estado != "Ejecutado" &&
+            new DateOnly(e.FechaProgramada.Year, e.FechaProgramada.Month,
+                DateTime.DaysInMonth(e.FechaProgramada.Year, e.FechaProgramada.Month)) < hoy
+        );
         var proxVencer = allEj.Count(e => e.Estado == "Programado" && e.FechaProgramada > hoy && e.FechaProgramada <= hoy.AddDays(7));
         var spiG = CalcularSpi(planHoy, ejHoy);
 
@@ -465,7 +507,9 @@ public class PasoService : IPasoService
         {
             var ejs = paso.Actividades
                 .Where(a => string.Equals(a.Categoria?.Ambito, ambito, StringComparison.OrdinalIgnoreCase))
-                .SelectMany(a => a.Ejecuciones).ToList();
+                .SelectMany(a => a.Ejecuciones)
+                .Where(e => e.FechaProgramada >= cicloStart && e.FechaProgramada <= cicloEnd)
+                .ToList();
             var ph = ejs.Count(e => e.FechaProgramada <= hoy);
             var eh = ejs.Count(e => e.Estado == "Ejecutado" && e.FechaProgramada <= hoy);
             var spi = CalcularSpi(ph, eh);

@@ -1,6 +1,6 @@
 # CONTEXT_SSOMA.md — SSOMA Intelligence Platform
 
-> Última actualización: 2026-06-11 — Endpoint Gantt eliminado; nuevo endpoint historico por proyecto. SsomaPaso.Anio y PasoListItemDto.Anio son ahora `int?`. PasoResumenMesDto y PasoSpiDto incluyen campo `Ssoma`. PasoService.cs renombrado a PasoService_FIXED.cs (90% rename git). 20 endpoints activos.
+> Última actualización: 2026-06-11 — PasoHistoricoAnioDto creado; GetHistoricoProyectoAsync devuelve ese DTO con filtro de ciclo y lógica de vencidas por fin de mes. GetSpiAsync también filtra por ciclo [cicloStart,cicloEnd] y usa misma lógica de vencidas. 20 endpoints activos.
 > Pegar este archivo al inicio de cada chat nuevo cuando se trabaje en este módulo.
 
 ---
@@ -220,6 +220,12 @@ Features/SsomaModule/PasoFeature/
 - `PasoListItemDto.Anio` es `int?` para consistencia con la entidad.
 - `PasoResumenMesDto` incluye `public PasoResumenMesAmbitoDto Ssoma { get; set; } = new();` (entre Ambiente y Actividades).
 - `PasoSpiDto` ya tenía `SpiPorAmbitoDto Ssoma` — confirmado activo en servicio (`CalcAmbito("SSOMA")`).
+- `PasoHistoricoAnioDto` agregado: `{ Anio, TotalProgramadas, TotalEjecutadas, TotalVencidas, SpiGeneral, SpiColor, PorcentajeAvance }` — nombres exactos que consume el frontend.
+
+**Lógica de ciclo en GetSpiAsync y GetHistoricoProyectoAsync (2026-06-11):**
+- Ambos métodos calculan `cicloStart`/`cicloEnd` y filtran ejecuciones al rango `[cicloStart, cicloEnd]` antes de cualquier conteo. Evita contar ejecuciones migradas fuera del ciclo (ej: Cedro 33, `anio=2026, mes_inicio=5` → `cicloStart=2026-05-01`).
+- Lógica de vencidas: `Estado != "Ejecutado" && fin_de_mes(FechaProgramada) < hoy` — usa `DateTime.DaysInMonth` para el último día del mes, no el campo `Estado == "Vencido"` (que depende del cron).
+- `GetHistoricoProyectoAsync` devuelve `List<PasoHistoricoAnioDto>` (ya no `List<PasoListItemDto>`). IPasoService actualizado en consecuencia.
 
 **Soft delete actividades:**
 - `ssoma_paso_actividad` tiene `deleted_at`, `deleted_by`, `motivo_eliminacion`.

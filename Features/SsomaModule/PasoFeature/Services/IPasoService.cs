@@ -11,7 +11,7 @@ public interface IPasoService
     Task<PasoListItemDto> EditarAsync(int id, EditarPasoRequest req);
     Task<PasoListItemDto> AprobarAsync(int id, int userId);
     Task<PasoListItemDto> InstanciarAsync(int plantillaId, InstanciarPasoRequest req, int userId);
-    Task<List<PasoListItemDto>> GetHistoricoProyectoAsync(int proyectoId);
+    Task<List<PasoHistoricoAnioDto>> GetHistoricoProyectoAsync(int proyectoId);
     Task<PasoSpiDto> GetSpiAsync(int id);
     Task<PasoDashboardDto> GetDashboardAsync(int? anio);
     Task<List<PasoAlertaDto>> GetAlertasAsync();

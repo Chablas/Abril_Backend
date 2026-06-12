@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-12 — HabilitacionModule/catalogos: CRUD completo para cat_categoria y cat_ocupacion (GET admin, POST, PUT, PATCH toggle).
+> Última actualización: 2026-06-12 — HabilitacionModule/catalogos: CRUD completo para cat_categoria y cat_ocupacion. Todos los endpoints de escritura (POST/PUT/PATCH toggle) marcados [AllowAnonymous].
 
 ---
 
@@ -299,14 +299,14 @@ GET    /api/v1/habilitacion/catalogos/areas                   (público)
 GET    /api/v1/habilitacion/catalogos/subareas                (público, ?area= opcional)
 GET    /api/v1/habilitacion/catalogos/categorias              (público, solo activos)
 GET    /api/v1/habilitacion/catalogos/categorias/admin        (público, todos — incluye Orden y Activo)
-POST   /api/v1/habilitacion/catalogos/categorias              body: { nombre }
-PUT    /api/v1/habilitacion/catalogos/categorias/{id}         body: { nombre }
-PATCH  /api/v1/habilitacion/catalogos/categorias/{id}/toggle  body: { activo }
+POST   /api/v1/habilitacion/catalogos/categorias              body: { nombre }  [AllowAnonymous]
+PUT    /api/v1/habilitacion/catalogos/categorias/{id}         body: { nombre }  [AllowAnonymous]
+PATCH  /api/v1/habilitacion/catalogos/categorias/{id}/toggle  body: { activo }  [AllowAnonymous]
 GET    /api/v1/habilitacion/catalogos/ocupaciones             (público, solo activos)
 GET    /api/v1/habilitacion/catalogos/ocupaciones/admin       (público, todos — incluye Orden y Activo)
-POST   /api/v1/habilitacion/catalogos/ocupaciones             body: { nombre }
-PUT    /api/v1/habilitacion/catalogos/ocupaciones/{id}        body: { nombre }
-PATCH  /api/v1/habilitacion/catalogos/ocupaciones/{id}/toggle body: { activo }
+POST   /api/v1/habilitacion/catalogos/ocupaciones             body: { nombre }  [AllowAnonymous]
+PUT    /api/v1/habilitacion/catalogos/ocupaciones/{id}        body: { nombre }  [AllowAnonymous]
+PATCH  /api/v1/habilitacion/catalogos/ocupaciones/{id}/toggle body: { activo }  [AllowAnonymous]
 GET    /api/v1/habilitacion/proyectos                         (lista activos desde Project legacy)
 
 # Trabajadores restringidos

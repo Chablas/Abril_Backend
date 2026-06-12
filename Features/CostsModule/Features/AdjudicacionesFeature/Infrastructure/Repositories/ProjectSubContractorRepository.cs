@@ -1980,18 +1980,13 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
 
             if (wicId > 0)
             {
-                // Cláusulas 9.x/7.x filtradas por modalidad de contrato:
-                // 1 = Suministro e Instalación, 2 = Suministro, 3 = Instalación. Sin modalidad → todas.
+                // Cláusulas 9.x/7.x de la modalidad de contrato de la adjudicación
+                // (1 = Suministro e Instalación, 2 = Suministro, 3 = Instalación). Sin modalidad → todas.
                 var clauseQuery = ctx.WorkItemCategoryClause
                     .Where(c => c.WorkItemCategoryId == wicId && c.State);
 
-                clauseQuery = data.ContractModalityId switch
-                {
-                    1 => clauseQuery.Where(c => c.AppliesSuministroInstalacion),
-                    2 => clauseQuery.Where(c => c.AppliesSuministro),
-                    3 => clauseQuery.Where(c => c.AppliesInstalacion),
-                    _ => clauseQuery,
-                };
+                if (data.ContractModalityId.HasValue)
+                    clauseQuery = clauseQuery.Where(c => c.ContractModalityId == data.ContractModalityId.Value);
 
                 data.SpecialClauses = await clauseQuery
                     .OrderBy(c => c.SortOrder)

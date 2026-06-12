@@ -57,9 +57,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                             WorkItemCategoryClauseId = c.WorkItemCategoryClauseId,
                             ClauseText = c.ClauseText,
                             SortOrder  = c.SortOrder,
-                            AppliesSuministro            = c.AppliesSuministro,
-                            AppliesInstalacion           = c.AppliesInstalacion,
-                            AppliesSuministroInstalacion = c.AppliesSuministroInstalacion,
+                            ContractModalityId = c.ContractModalityId,
                         })
                         .ToList(),
                     Anexo3Clauses = _context.WorkItemCategoryAnexo3Clause
@@ -168,9 +166,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                     {
                         existing.ClauseText       = clauseDto.ClauseText.Trim();
                         existing.SortOrder        = clauseDto.SortOrder;
-                        existing.AppliesSuministro            = clauseDto.AppliesSuministro;
-                        existing.AppliesInstalacion           = clauseDto.AppliesInstalacion;
-                        existing.AppliesSuministroInstalacion = clauseDto.AppliesSuministroInstalacion;
+                        existing.ContractModalityId = clauseDto.ContractModalityId;
                         existing.UpdatedDatetime  = now;
                         existing.UpdatedUserId    = userId;
                     }
@@ -182,9 +178,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                         WorkItemCategoryId = dto.WorkItemCategoryId,
                         ClauseText         = clauseDto.ClauseText.Trim(),
                         SortOrder          = clauseDto.SortOrder,
-                        AppliesSuministro            = clauseDto.AppliesSuministro,
-                        AppliesInstalacion           = clauseDto.AppliesInstalacion,
-                        AppliesSuministroInstalacion = clauseDto.AppliesSuministroInstalacion,
+                        ContractModalityId = clauseDto.ContractModalityId,
                         State              = true,
                         CreatedDatetime    = now,
                         CreatedUserId      = userId,

@@ -5,9 +5,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         public int?   WorkItemCategoryClauseId { get; set; }
         public string ClauseText              { get; set; } = null!;
         public int    SortOrder               { get; set; }
-        public bool   AppliesSuministro            { get; set; } = true;
-        public bool   AppliesInstalacion           { get; set; } = true;
-        public bool   AppliesSuministroInstalacion { get; set; } = true;
+        public int    ContractModalityId      { get; set; }
     }
 
     public class WorkItemCategoryAnexo3ClauseUpsertDto

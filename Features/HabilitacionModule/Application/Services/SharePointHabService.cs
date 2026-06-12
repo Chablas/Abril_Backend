@@ -30,7 +30,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             _logger = logger;
         }
 
-        public async Task<string?> GetDownloadUrlAsync(string archivoUrl)
+        public async Task<string?> GetDownloadUrlAsync(string archivoUrl, string? libraryContexto = null)
         {
             var trimmed = archivoUrl?.Trim() ?? string.Empty;
             if (trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
@@ -40,13 +40,13 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 return trimmed;
             }
 
-            var siteId = ResolverSiteId(archivoUrl ?? string.Empty);
+            var siteId = ResolverSiteId(libraryContexto ?? archivoUrl ?? string.Empty);
             if (string.IsNullOrWhiteSpace(siteId)) return null;
 
             var token = await GetAccessTokenAsync();
             if (string.IsNullOrWhiteSpace(token)) return null;
 
-            var libraryId = ResolverLibraryId(archivoUrl ?? string.Empty);
+            var libraryId = ResolverLibraryId(libraryContexto ?? archivoUrl ?? string.Empty);
             var driveId = await GetDriveIdAsync(siteId, token, libraryId);
             if (string.IsNullOrWhiteSpace(driveId)) return null;
 

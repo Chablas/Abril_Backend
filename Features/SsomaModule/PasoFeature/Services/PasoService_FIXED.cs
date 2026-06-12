@@ -6,6 +6,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Abril_Backend.Features.Ssoma.Paso.Services;
 
@@ -13,11 +14,13 @@ public class PasoService : IPasoService
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly ISharePointHabService _sharePoint;
+    private readonly ILogger<PasoService> _logger;
 
-    public PasoService(IDbContextFactory<AppDbContext> factory, ISharePointHabService sharePoint)
+    public PasoService(IDbContextFactory<AppDbContext> factory, ISharePointHabService sharePoint, ILogger<PasoService> logger)
     {
         _factory = factory;
         _sharePoint = sharePoint;
+        _logger = logger;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -400,8 +403,8 @@ public class PasoService : IPasoService
                 Frecuencia = act.Frecuencia,
                 ResponsableId = act.ResponsableId,
                 ResponsableTexto = act.ResponsableTexto,
-                MesInicio = AjustarMes(act.MesInicio, plantilla.MesInicio, req.MesInicio),
-                MesFin = AjustarMes(act.MesFin, plantilla.MesInicio, req.MesInicio),
+                MesInicio = act.MesInicio,
+                MesFin    = act.MesFin,
                 CantidadPlanificada = act.CantidadPlanificada,
                 Horas = act.Horas,
                 Recursos = act.Recursos,
@@ -411,6 +414,16 @@ public class PasoService : IPasoService
                 Activo = true
             });
         }
+
+        _logger.LogInformation(
+            "InstanciarAsync: plantilla.MesInicio={PlantillaMes}, req.MesInicio={ReqMes}",
+            plantilla.MesInicio, req.MesInicio);
+
+        if (plantilla.Actividades.Any())
+            _logger.LogInformation(
+                "Primera actividad: orig.MesInicio={Orig}, ajustado={Ajustado}",
+                plantilla.Actividades.First().MesInicio,
+                AjustarMes(plantilla.Actividades.First().MesInicio, plantilla.MesInicio, req.MesInicio));
 
         ctx.SsomaPasos.Add(instancia);
         await ctx.SaveChangesAsync();
@@ -482,6 +495,17 @@ public class PasoService : IPasoService
                 .ThenInclude(a => a.Ejecuciones)
             .FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new KeyNotFoundException("PASO no encontrado.");
+
+        if (!paso.Anio.HasValue)
+            return new PasoSpiDto { SpiGeneral = 1m, SpiColor = "verde",
+                PorcentajeAvance = 0, TotalProgramadas = 0, TotalEjecutadas = 0,
+                TotalVencidas = 0, PlanificadasAHoy = 0, EjecutadasAHoy = 0,
+                ProximasAVencer = 0,
+                Seguridad = new SpiPorAmbitoDto { Spi = 1m, Color = "verde" },
+                Salud     = new SpiPorAmbitoDto { Spi = 1m, Color = "verde" },
+                Ambiente  = new SpiPorAmbitoDto { Spi = 1m, Color = "verde" },
+                Ssoma     = new SpiPorAmbitoDto { Spi = 1m, Color = "verde" }
+            };
 
         var hoy = DateOnly.FromDateTime(DateTime.Today);
         var cicloStartYear = paso.MesInicio > 6 ? paso.Anio!.Value - 1 : paso.Anio!.Value;
@@ -970,7 +994,9 @@ if (cat is not null) act.Categoria = cat;
             .Where(act =>
             {
                 if (act.Frecuencia == "Unica")
-                    return mesCiclo == 1 || act.Ejecuciones.Any();
+                    return act.MesInicio == mesCiclo || act.Ejecuciones.Any(e =>
+                        e.FechaProgramada.Month == mes &&
+                        e.FechaProgramada.Year  == anio);
                 return act.MesInicio <= mesCiclo && act.MesFin >= mesCiclo
                        && EsMesPlanificado(act.Frecuencia, mesCiclo, act.MesInicio);
             })

@@ -49,7 +49,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     return BadRequest(new { message = "Parámetro 'url' requerido." });
 
                 var path = Uri.UnescapeDataString(url);
-                var downloadUrl = await _sharePoint.GetDownloadUrlAsync(path);
+                var libraryCtx = path.StartsWith("PASO/", StringComparison.OrdinalIgnoreCase) ? "paso-evidencias" : null;
+                var downloadUrl = await _sharePoint.GetDownloadUrlAsync(path, libraryCtx);
                 if (string.IsNullOrWhiteSpace(downloadUrl))
                     return NotFound(new { message = "Archivo no encontrado." });
 
@@ -115,7 +116,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 if (string.IsNullOrWhiteSpace(path))
                     return BadRequest(new { message = "Parámetro 'path' requerido." });
 
-                var downloadUrl = await _sharePoint.GetDownloadUrlAsync(Uri.UnescapeDataString(path));
+                var decodedPath = Uri.UnescapeDataString(path);
+                var libraryCtxUrl = decodedPath.StartsWith("PASO/", StringComparison.OrdinalIgnoreCase) ? "paso-evidencias" : null;
+                var downloadUrl = await _sharePoint.GetDownloadUrlAsync(decodedPath, libraryCtxUrl);
                 if (string.IsNullOrWhiteSpace(downloadUrl))
                     return NotFound(new { message = "Archivo no encontrado." });
 
@@ -350,7 +353,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     return BadRequest(new { message = "Parámetro 'url' requerido." });
 
                 var path = Uri.UnescapeDataString(url);
-                var downloadUrl = await _sharePoint.GetDownloadUrlAsync(path);
+                var libraryCtxDl = path.StartsWith("PASO/", StringComparison.OrdinalIgnoreCase) ? "paso-evidencias" : null;
+                var downloadUrl = await _sharePoint.GetDownloadUrlAsync(path, libraryCtxDl);
                 if (string.IsNullOrWhiteSpace(downloadUrl))
                     return NotFound(new { message = "Archivo no encontrado." });
 

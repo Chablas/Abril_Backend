@@ -22,6 +22,10 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuest
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Services;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Application.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Application.Services;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
@@ -62,6 +66,10 @@ namespace Abril_Backend.Features.Costs
             // CostosPresupuestosEmail
             services.AddScoped<ICostosPresupuestosEmailRepository, CostosPresupuestosEmailRepository>();
             services.AddScoped<ICostosPresupuestosEmailService, CostosPresupuestosEmailService>();
+
+            // Cronograma de adjudicaciones
+            services.AddScoped<ICostosCronogramaRepository, CostosCronogramaRepository>();
+            services.AddScoped<ICostosCronogramaService, CostosCronogramaService>();
 
             return services;
         }

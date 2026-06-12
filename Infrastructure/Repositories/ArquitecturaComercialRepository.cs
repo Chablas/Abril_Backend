@@ -1127,6 +1127,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Nombre = p.Nombre,
                 Tipo = p.Tipo,
                 EtapaId = p.EtapaId,
+                CategoriaId = p.CategoriaId,
+                EspecialidadId = p.EspecialidadId,
                 Orden = p.Orden,
                 Activo = false,
             }).ToList();

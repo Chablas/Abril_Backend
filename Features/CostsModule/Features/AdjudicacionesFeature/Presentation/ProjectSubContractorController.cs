@@ -422,7 +422,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var userId = int.Parse(userIdClaim.Value);
-                await _projectSubContractorService.ConfirmStep5Async(id, dto.ArrivedWithObservations, dto.GraphAccessToken, userId);
+                await _projectSubContractorService.ConfirmStep5Async(id, dto.ArrivedWithObservations, dto.ArrivalObservation, dto.GraphAccessToken, userId);
                 return Ok(new { message = "Recepción confirmada exitosamente." });
             }
             catch (AbrilException ex)

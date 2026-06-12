@@ -621,6 +621,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 .FirstOrDefaultAsync(u => u.LessonId == lessonId && u.State == true);
             if (lesson == null) return false;
 
+            // Solo el autor puede eliminar su lección (el jefe solo aprueba/rechaza/edita).
+            if (lesson.CreatedUserId != userId)
+                throw new AbrilException("Solo el autor puede eliminar la lección.", 403);
+
             lesson.State = false;
             lesson.Active = false;
             lesson.UpdatedDateTime = DateTime.UtcNow;

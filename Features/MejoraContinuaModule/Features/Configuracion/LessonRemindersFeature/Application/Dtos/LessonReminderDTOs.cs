@@ -111,6 +111,37 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public int PendingCount { get; set; }
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Revisor de Trabajadores (workers.worker_lesson_jefe_id)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Una fila por trabajador con email_personal @abril.pe, junto a su jefe
+    /// directo (workers.worker_lesson_jefe_id) encargado de revisar sus lecciones.
+    /// </summary>
+    public class WorkerRevisorItemDTO
+    {
+        public int WorkerId { get; set; }
+        public string? FullName { get; set; }
+        public string? Email { get; set; }
+        public int? JefeWorkerId { get; set; }
+        public string? JefeFullName { get; set; }
+        public string? JefeEmail { get; set; }
+    }
+
+    /// <summary>Opción del selector de jefe: cualquier worker.</summary>
+    public class WorkerRevisorOptionDTO
+    {
+        public int WorkerId { get; set; }
+        public string? FullName { get; set; }
+        public string? Email { get; set; }
+    }
+
+    public class WorkerRevisorUpdateDTO
+    {
+        public int? JefeWorkerId { get; set; }
+    }
+
     /// <summary>
     /// Miembro de un grupo de correos (staff_email expandido) que está pendiente
     /// de subir su lección aprendida del mes para un proyecto específico.

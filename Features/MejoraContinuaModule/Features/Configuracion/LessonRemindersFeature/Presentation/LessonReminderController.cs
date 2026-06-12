@@ -193,6 +193,59 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             }
         }
 
+        // ─────────────────────────────────────────────────────────────────────
+        // Revisor de Trabajadores (workers.worker_lesson_jefe_id)
+        // ─────────────────────────────────────────────────────────────────────
+
+        [Authorize]
+        [HttpGet("worker-revisor")]
+        public async Task<IActionResult> GetWorkerRevisores()
+        {
+            try
+            {
+                var result = await _service.GetWorkerRevisoresAsync();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("worker-revisor/options")]
+        public async Task<IActionResult> GetWorkerRevisorOptions()
+        {
+            try
+            {
+                var result = await _service.GetWorkerRevisorOptionsAsync();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("worker-revisor/{workerId}")]
+        public async Task<IActionResult> UpdateWorkerRevisor(int workerId, [FromBody] WorkerRevisorUpdateDTO dto)
+        {
+            try
+            {
+                await _service.UpdateWorkerRevisorAsync(workerId, dto.JefeWorkerId);
+                return Ok(new { message = "Jefe actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [Authorize]
         [HttpPut("jefe/toggle/{workerId}")]
         public async Task<IActionResult> ToggleJefe(int workerId)

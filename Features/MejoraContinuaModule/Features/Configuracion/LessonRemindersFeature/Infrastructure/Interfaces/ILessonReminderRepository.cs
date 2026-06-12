@@ -71,5 +71,18 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         /// del 4.º día para decidir el contenido del correo.
         /// </summary>
         Task<List<JefeReviewStatusDTO>> GetActiveJefesReviewStatusAsync();
+
+        // ── Revisor de Trabajadores (workers.worker_lesson_jefe_id) ────────────
+        /// <summary>
+        /// Trabajadores con email_personal @abril.pe + su jefe directo asignado
+        /// (workers.worker_lesson_jefe_id), si lo tiene.
+        /// </summary>
+        Task<List<WorkerRevisorItemDTO>> GetWorkerRevisoresAsync();
+
+        /// <summary>Todos los workers (con persona) como opciones del selector de jefe.</summary>
+        Task<List<WorkerRevisorOptionDTO>> GetWorkerRevisorOptionsAsync();
+
+        /// <summary>Asigna (o quita, con null) el jefe directo de un trabajador.</summary>
+        Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId);
     }
 }

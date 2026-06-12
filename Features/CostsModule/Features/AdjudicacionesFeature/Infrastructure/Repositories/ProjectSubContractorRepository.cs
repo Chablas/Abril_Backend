@@ -550,6 +550,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     GuaranteeFundDays        = x.psc.GuaranteeFundDays,
                     GuaranteeValidityDays    = x.psc.GuaranteeValidityDays,
                     ArrivedWithObservations  = x.psc.ArrivedWithObservations,
+                    ArrivalObservation       = x.psc.ArrivalObservation,
                     CreatedDateTime          = x.psc.CreatedDateTime,
                     CreatedUserFullName      = x.personCreator != null ? x.personCreator.FullName : null,
                     Contract          = x.contractDoc == null          ? null : new ProjectSubContractorFileDto { FileUrl = x.contractDoc.FileUrl!,          OriginalFileName = x.contractDoc.OriginalFileName,          StatusId = x.contractDoc.ProjectSubContractorFileStatusId,          StatusDescription = x.contractDoc.FileStatus == null          ? null : x.contractDoc.FileStatus.ProjectSubContractorFileStatusDescription,          Observation = x.contractDoc.Observation },
@@ -689,6 +690,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscGuaranteeFundDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeFundDays));
             string cPscGuaranteeValidityDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeValidityDays));
             string cPscArrivedWithObservations = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivedWithObservations));
+            string cPscArrivalObservation = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivalObservation));
             string cPscNonConformingStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.NonConformingOutputStatusId));
             string cPscToleranceStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ToleranceChartStatusId));
             string cPscFinishProtectionStatusId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.FinishProtectionStatusId));
@@ -980,6 +982,7 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscGuaranteeFundDays} AS ""GuaranteeFundDays"",
        psc.{cPscGuaranteeValidityDays} AS ""GuaranteeValidityDays"",
        psc.{cPscArrivedWithObservations} AS ""ArrivedWithObservations"",
+       psc.{cPscArrivalObservation} AS ""ArrivalObservation"",
        psc.{cPscNonConformingStatusId} AS ""NonConformingOutputStatusId"",
        psc.{cPscToleranceStatusId} AS ""ToleranceChartStatusId"",
        psc.{cPscFinishProtectionStatusId} AS ""FinishProtectionStatusId"",
@@ -1189,6 +1192,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     GuaranteeFundDays = (int?)raw.GuaranteeFundDays,
                     GuaranteeValidityDays = (int?)raw.GuaranteeValidityDays,
                     ArrivedWithObservations = (bool?)raw.ArrivedWithObservations,
+                    ArrivalObservation = (string?)raw.ArrivalObservation,
                     CreatedDateTime = new DateTimeOffset((DateTime)raw.CreatedDateTime, TimeSpan.Zero),
                     CreatedUserFullName = (string?)raw.CreatedUserFullName,
                     Contract = raw.contract_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.contract_file_url, OriginalFileName = raw.contract_file_name, StatusId = (int?)raw.contract_status_id, StatusDescription = raw.contract_status_desc, Observation = raw.contract_observation } : null,
@@ -1353,7 +1357,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             await _context.SaveChangesAsync();
         }
 
-        public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, int userId)
+        public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, string? arrivalObservation, int userId)
         {
             var psc = await _context.ProjectSubContractor
                 .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
@@ -1363,6 +1367,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 throw new AbrilException("La adjudicación no está en el paso de llegada a oficina central.");
 
             psc.ArrivedWithObservations    = arrivedWithObservations;
+            psc.ArrivalObservation         = string.IsNullOrWhiteSpace(arrivalObservation) ? null : arrivalObservation.Trim();
             psc.ProjectSubContractorStatusId = 6;
             psc.UpdatedDateTime            = DateTimeOffset.UtcNow;
             psc.UpdatedUserId              = userId;

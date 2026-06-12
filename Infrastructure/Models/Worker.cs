@@ -94,6 +94,13 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("puntos_infraccion")]
         public int? PuntosInfraccion { get; set; }
 
+        /// <summary>
+        /// Jefe directo (worker) encargado de revisar las lecciones aprendidas de este
+        /// trabajador. Autoreferencia a <c>workers.id</c>; null si aún no se asigna.
+        /// </summary>
+        [Column("worker_lesson_jefe_id")]
+        public int? WorkerLessonJefeId { get; set; }
+
         [Column("created_at")]
         public DateTimeOffset? CreatedAt { get; set; }
 

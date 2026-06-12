@@ -26,5 +26,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public Task<List<JefeReminderConfigItemDTO>> GetAllJefesAsync() => _repository.GetAllJefesAsync();
         public Task<ToggleJefeReminderResultDTO> ToggleJefeAsync(int workerId) => _repository.ToggleJefeAsync(workerId);
         public Task<List<JefeReviewStatusDTO>> GetActiveJefesReviewStatusAsync() => _repository.GetActiveJefesReviewStatusAsync();
+
+        public Task<List<WorkerRevisorItemDTO>> GetWorkerRevisoresAsync() => _repository.GetWorkerRevisoresAsync();
+        public Task<List<WorkerRevisorOptionDTO>> GetWorkerRevisorOptionsAsync() => _repository.GetWorkerRevisorOptionsAsync();
+        public Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId) => _repository.UpdateWorkerRevisorAsync(workerId, jefeWorkerId);
     }
 }

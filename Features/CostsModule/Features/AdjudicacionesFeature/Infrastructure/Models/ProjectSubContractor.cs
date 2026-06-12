@@ -40,6 +40,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
 
         // Llegada a Of. Central (paso 5)
         public bool? ArrivedWithObservations { get; set; }
+        public string? ArrivalObservation { get; set; }
 
         // Document FKs (nullable — populated as the expediente progresses)
         public int? ProjectSubContractorContractId { get; set; }

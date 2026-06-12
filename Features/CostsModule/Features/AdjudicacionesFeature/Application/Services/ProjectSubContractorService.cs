@@ -337,9 +337,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.SetArrivalOptionAsync(projectSubContractorId, arrivedWithObservations, userId);
         }
 
-        public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, string graphAccessToken, int userId)
+        public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, string? arrivalObservation, string graphAccessToken, int userId)
         {
-            await _projectSubContractorRepository.ConfirmStep5Async(projectSubContractorId, arrivedWithObservations, userId);
+            await _projectSubContractorRepository.ConfirmStep5Async(projectSubContractorId, arrivedWithObservations, arrivalObservation, userId);
 
             var data = await _projectSubContractorRepository.GetStep6NotificationDataAsync(projectSubContractorId);
 
@@ -2024,7 +2024,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             SetHeader("D12:D12", "FECHA DE\nCONTRATO");
             SetHeader("E12:E12", "MONTO CONTRATADO\n(inc IGV)");
             SetHeader("F12:F12", "N° DOC");
-            SetHeader("G12:G12", "CHEQUE / RECIBO");
+            // La carta de fianza solo aplica en Suministro (ContractModalityId == 2) + contrato con
+            // adelanto (PaymentMethodId == 2) y únicamente cuando se marcó el toggle IncludesCartaFianza.
+            var conCartaFianza = data.PaymentMethodId == 2 && data.ContractModalityId == 2 && data.IncludesCartaFianza;
+            SetHeader("G12:G12", conCartaFianza
+                ? "PAGARÉ, LETRA DE GARANTÍA\nY CARTA DE FIANZA"
+                : "PAGARÉ Y LETRA DE GARANTÍA");
             SetHeader("H12:H12", "% ADELANTO");
             SetHeader("I12:I12", $"IMPORTE ADELANTO\n{currencySymbol}");
             SetHeader("J12:J12", "SALDO");
@@ -2064,15 +2069,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("F13").Style.Alignment.WrapText   = true;
             ws.Range("F13:F14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // G – Cheque / Recibo: solo en contratos CON adelanto (PaymentMethodId == 2) se indica el
-            // documento de garantía: "PAGARÉ N°{N°}{ABREV}-{AÑO} Y LETRA DE GARANTÍA" (igual que el contrato).
+            // G – Documentos de garantía: solo en contratos CON adelanto (PaymentMethodId == 2) se indica
+            // "PAGARÉ N°{N°}{ABREV}-{AÑO} Y LETRA DE GARANTÍA", añadiendo la carta de fianza si aplica
+            // (igual que el contrato).
             ws.Range("G13:G14").Merge();
             if (data.PaymentMethodId == 2)
             {
                 var numPagare = data.PromissoryNoteNumber.HasValue
                     ? data.PromissoryNoteNumber.Value.ToString("D3")
                     : "";
-                ws.Cell("G13").Value = $"PAGARÉ N°{numPagare}{abrevProyecto}-{DateTime.UtcNow.Year} Y LETRA DE GARANTÍA";
+                var pagareRef = $"PAGARÉ N°{numPagare}{abrevProyecto}-{DateTime.UtcNow.Year}";
+                ws.Cell("G13").Value = conCartaFianza
+                    ? $"{pagareRef}, LETRA DE GARANTÍA Y CARTA DE FIANZA"
+                    : $"{pagareRef} Y LETRA DE GARANTÍA";
             }
             ws.Cell("G13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("G13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;

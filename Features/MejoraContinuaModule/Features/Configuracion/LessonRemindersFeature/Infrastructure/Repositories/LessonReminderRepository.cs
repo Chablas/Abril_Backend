@@ -624,6 +624,81 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             return result;
         }
 
+        // ─────────────────────────────────────────────────────────────────────
+        // Revisor de Trabajadores (workers.worker_lesson_jefe_id)
+        // ─────────────────────────────────────────────────────────────────────
+
+        public async Task<List<WorkerRevisorItemDTO>> GetWorkerRevisoresAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Trabajadores con correo corporativo @abril.pe (vive en email_personal)
+            // + su jefe directo si lo tiene. Left join doble: persona del trabajador
+            // y worker/persona del jefe pueden faltar.
+            return await (
+                from w in ctx.Worker
+                where w.EmailPersonal != null && w.EmailPersonal.ToLower().Contains("@abril.pe")
+                join p in ctx.Person on w.PersonId equals p.PersonId into pj
+                from p in pj.DefaultIfEmpty()
+                join j in ctx.Worker on w.WorkerLessonJefeId equals j.Id into jj
+                from j in jj.DefaultIfEmpty()
+                join jp in ctx.Person on j.PersonId equals jp.PersonId into jpj
+                from jp in jpj.DefaultIfEmpty()
+                orderby p != null ? p.FullName : ""
+                select new WorkerRevisorItemDTO
+                {
+                    WorkerId = w.Id,
+                    FullName = p != null ? p.FullName : null,
+                    Email = w.EmailPersonal,
+                    JefeWorkerId = w.WorkerLessonJefeId,
+                    JefeFullName = jp != null ? jp.FullName : null,
+                    JefeEmail = j != null ? j.EmailPersonal : null
+                }
+            ).ToListAsync();
+        }
+
+        public async Task<List<WorkerRevisorOptionDTO>> GetWorkerRevisorOptionsAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Cualquier worker con persona asociada puede ser jefe.
+            return await (
+                from w in ctx.Worker
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where p.State == true
+                orderby p.FullName
+                select new WorkerRevisorOptionDTO
+                {
+                    WorkerId = w.Id,
+                    FullName = p.FullName,
+                    Email = w.EmailPersonal
+                }
+            ).ToListAsync();
+        }
+
+        public async Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId);
+            if (worker == null)
+                throw new AbrilException("El trabajador no existe.", 404);
+
+            if (jefeWorkerId.HasValue)
+            {
+                if (jefeWorkerId.Value == workerId)
+                    throw new AbrilException("Un trabajador no puede ser su propio jefe.", 400);
+
+                var jefeExists = await ctx.Worker.AnyAsync(w => w.Id == jefeWorkerId.Value);
+                if (!jefeExists)
+                    throw new AbrilException("El jefe seleccionado no existe.", 404);
+            }
+
+            worker.WorkerLessonJefeId = jefeWorkerId;
+            worker.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsByPeriod(DateTime periodDate)
         {
             using var ctx = _factory.CreateDbContext();

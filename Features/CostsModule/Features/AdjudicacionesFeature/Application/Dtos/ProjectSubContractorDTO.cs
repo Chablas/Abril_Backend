@@ -48,6 +48,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int?   GuaranteeFundDays         { get; set; }
         public int?   GuaranteeValidityDays     { get; set; }
         public bool?  ArrivedWithObservations   { get; set; }
+        public string? ArrivalObservation       { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public string? CreatedUserFullName { get; set; }
         public List<ProjectSubContractorFileDto> QuotationFiles { get; set; } = new();

@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-08 — HabilitacionModule: lógica de vigencia empresa refactorizada (al enviar vs al aprobar/rechazar), CalcularEstadoGlobal corregida, Bandeja con Meses[] por item mensual.
+> Última actualización: 2026-06-12 — HabilitacionModule/catalogos: CRUD completo para cat_categoria y cat_ocupacion. Todos los endpoints de escritura (POST/PUT/PATCH toggle) marcados [AllowAnonymous].
 
 ---
 
@@ -294,12 +294,20 @@ POST          /api/v1/habilitacion/empresas/{id}/activar-proyecto
 DELETE        /api/v1/habilitacion/empresas/{id}/desactivar-proyecto
 
 # Catálogos
-GET  /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
-GET  /api/v1/habilitacion/catalogos/areas        (público)
-GET  /api/v1/habilitacion/catalogos/subareas     (público, ?area= opcional)
-GET  /api/v1/habilitacion/catalogos/categorias   (público)
-GET  /api/v1/habilitacion/catalogos/ocupaciones  (público)
-GET  /api/v1/habilitacion/proyectos              (lista activos desde Project legacy)
+GET    /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
+GET    /api/v1/habilitacion/catalogos/areas                   (público)
+GET    /api/v1/habilitacion/catalogos/subareas                (público, ?area= opcional)
+GET    /api/v1/habilitacion/catalogos/categorias              (público, solo activos)
+GET    /api/v1/habilitacion/catalogos/categorias/admin        (público, todos — incluye Orden y Activo)
+POST   /api/v1/habilitacion/catalogos/categorias              body: { nombre }  [AllowAnonymous]
+PUT    /api/v1/habilitacion/catalogos/categorias/{id}         body: { nombre }  [AllowAnonymous]
+PATCH  /api/v1/habilitacion/catalogos/categorias/{id}/toggle  body: { activo }  [AllowAnonymous]
+GET    /api/v1/habilitacion/catalogos/ocupaciones             (público, solo activos)
+GET    /api/v1/habilitacion/catalogos/ocupaciones/admin       (público, todos — incluye Orden y Activo)
+POST   /api/v1/habilitacion/catalogos/ocupaciones             body: { nombre }  [AllowAnonymous]
+PUT    /api/v1/habilitacion/catalogos/ocupaciones/{id}        body: { nombre }  [AllowAnonymous]
+PATCH  /api/v1/habilitacion/catalogos/ocupaciones/{id}/toggle body: { activo }  [AllowAnonymous]
+GET    /api/v1/habilitacion/proyectos                         (lista activos desde Project legacy)
 
 # Trabajadores restringidos
 GET    /api/v1/habilitacion/restringidos?soloActivos=&dni=   (cualquier usuario autenticado)

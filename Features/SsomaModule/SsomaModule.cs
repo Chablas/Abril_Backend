@@ -3,6 +3,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories;
 using Abril_Backend.Features.Ssoma.Paso.Services;
+using Abril_Backend.Features.Ssoma.Rac.Services;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -52,6 +53,10 @@ namespace Abril_Backend.Features.Ssoma
 
             // PASO — Programa Anual de Seguridad
             services.AddScoped<IPasoService, PasoService>();
+
+            // RAC — Reporte de Actos y Condiciones Subestándar
+            services.AddScoped<IRacService, RacService>();
+            services.AddScoped<IPenalidadService, PenalidadService>();
 
             return services;
         }

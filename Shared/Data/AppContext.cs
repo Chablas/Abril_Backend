@@ -11,6 +11,7 @@ using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Mode
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
+using Abril_Backend.Features.Ssoma.Rac.Entities;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -188,6 +189,13 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaPasoActividad> SsomaPasoActividades { get; set; }
         public DbSet<SsomaPasoEjecucion> SsomaPasoEjecuciones { get; set; }
         public DbSet<SsomaPasoAuditoria> SsomaPasoAuditorias { get; set; }
+        // ── RAC — Reporte de Actos y Condiciones Subestándar ─────────────────
+        public DbSet<SsomaRacCategoria> SsomaRacCategorias { get; set; }
+        public DbSet<SsomaRacInfraccion> SsomaRacInfracciones { get; set; }
+        public DbSet<SsomaUitAnio> SsomaUitAnios { get; set; }
+        public DbSet<SsomaRac> SsomaRacs { get; set; }
+        public DbSet<SsomaRacFoto> SsomaRacFotos { get; set; }
+        public DbSet<SsomaRacPenalidad> SsomaRacPenalidades { get; set; }
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
 
@@ -497,6 +505,32 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(x => x.Categoria).WithMany().HasForeignKey(x => x.CategoriaId);
             modelBuilder.Entity<SsomaPasoActividad>()
                 .HasMany(x => x.Ejecuciones).WithOne(x => x.Actividad).HasForeignKey(x => x.ActividadId);
+
+            // ── RAC — tablas, relaciones y defaults ──────────────────────────
+            modelBuilder.Entity<SsomaRacCategoria>().ToTable("ssoma_rac_categoria");
+            modelBuilder.Entity<SsomaRacInfraccion>().ToTable("ssoma_rac_infraccion");
+            modelBuilder.Entity<SsomaUitAnio>().ToTable("ssoma_uit_anio");
+            modelBuilder.Entity<SsomaRac>().ToTable("ssoma_rac");
+            modelBuilder.Entity<SsomaRacFoto>().ToTable("ssoma_rac_foto");
+            modelBuilder.Entity<SsomaRacPenalidad>().ToTable("ssoma_rac_penalidad");
+
+            modelBuilder.Entity<SsomaRac>()
+                .HasOne(x => x.Categoria).WithMany().HasForeignKey(x => x.CategoriaId).IsRequired();
+            modelBuilder.Entity<SsomaRacFoto>()
+                .HasOne(x => x.Rac).WithMany(x => x.Fotos).HasForeignKey(x => x.RacId);
+            modelBuilder.Entity<SsomaRacPenalidad>()
+                .HasOne(x => x.Rac).WithOne(x => x.Penalidad).HasForeignKey<SsomaRacPenalidad>(x => x.RacId);
+            modelBuilder.Entity<SsomaRacPenalidad>()
+                .HasOne(x => x.Infraccion).WithMany().HasForeignKey(x => x.InfraccionId).IsRequired(false);
+
+            modelBuilder.Entity<SsomaRac>()
+                .Property(x => x.Estado).HasDefaultValue("Abierto");
+            modelBuilder.Entity<SsomaRacPenalidad>()
+                .Property(x => x.Estado).HasDefaultValue("EnEvaluacion");
+            modelBuilder.Entity<SsomaRacFoto>()
+                .Property(x => x.Tipo).HasDefaultValue("Hallazgo");
+            modelBuilder.Entity<SsomaRacFoto>()
+                .Property(x => x.Orden).HasDefaultValue(1);
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)
@@ -616,6 +650,25 @@ namespace Abril_Backend.Infrastructure.Data
                     .WithMany()
                     .HasForeignKey(e => e.PredecessorId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── RAC — HasColumnName para prefijos conflictivos en snake_case ──
+            // "Sp" (SharePoint ID) y "Uit" (Unidad Impositiva Tributaria) pueden
+            // producir nombres incorrectos dependiendo de la versión de Humanizer.
+            modelBuilder.Entity<SsomaRacFoto>(entity =>
+            {
+                entity.Property(e => e.SpId).HasColumnName("sp_id");
+            });
+            modelBuilder.Entity<SsomaRac>(entity =>
+            {
+                entity.Property(e => e.PdfSpId).HasColumnName("pdf_sp_id");
+                entity.Property(e => e.FirmaReportanteSpId).HasColumnName("firma_reportante_sp_id");
+                entity.Property(e => e.PdfUrl).HasColumnName("pdf_url");
+            });
+            modelBuilder.Entity<SsomaRacPenalidad>(entity =>
+            {
+                entity.Property(e => e.UitReferencia).HasColumnName("uit_referencia");
+                entity.Property(e => e.PdfResolucionUrl).HasColumnName("pdf_resolucion_url");
             });
         }
     }

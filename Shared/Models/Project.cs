@@ -57,6 +57,7 @@ namespace Abril_Backend.Shared.Models {
         public int ContadorIncidentes {get; set;}
         public int ContadorAccidentes {get; set;}
         public int ContadorRac {get; set;}
+        public int ContadorPenalidad {get; set;}
 
         // Flags
         public bool TieneArquitecturaComercial {get; set;}

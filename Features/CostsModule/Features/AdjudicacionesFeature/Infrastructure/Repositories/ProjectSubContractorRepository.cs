@@ -552,6 +552,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     GuaranteeFundPercentage  = x.psc.GuaranteeFundPercentage,
                     GuaranteeFundDays        = x.psc.GuaranteeFundDays,
                     GuaranteeValidityDays    = x.psc.GuaranteeValidityDays,
+                    PaymentDays              = x.psc.PaymentDays,
                     ArrivedWithObservations  = x.psc.ArrivedWithObservations,
                     ArrivalObservation       = x.psc.ArrivalObservation,
                     Step6SignedCostos              = x.psc.Step6SignedCostos,
@@ -695,6 +696,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cPscGuaranteeFundPercentage = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeFundPercentage));
             string cPscGuaranteeFundDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeFundDays));
             string cPscGuaranteeValidityDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.GuaranteeValidityDays));
+            string cPscPaymentDays = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.PaymentDays));
             string cPscArrivedWithObservations = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivedWithObservations));
             string cPscArrivalObservation = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ArrivalObservation));
             string cPscStep6SignedCostos = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.Step6SignedCostos));
@@ -997,6 +999,7 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscGuaranteeFundPercentage} AS ""GuaranteeFundPercentage"",
        psc.{cPscGuaranteeFundDays} AS ""GuaranteeFundDays"",
        psc.{cPscGuaranteeValidityDays} AS ""GuaranteeValidityDays"",
+       psc.{cPscPaymentDays} AS ""PaymentDays"",
        psc.{cPscArrivedWithObservations} AS ""ArrivedWithObservations"",
        psc.{cPscArrivalObservation} AS ""ArrivalObservation"",
        psc.{cPscStep6SignedCostos} AS ""Step6SignedCostos"",
@@ -1210,6 +1213,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     GuaranteeFundPercentage = (int?)raw.GuaranteeFundPercentage,
                     GuaranteeFundDays = (int?)raw.GuaranteeFundDays,
                     GuaranteeValidityDays = (int?)raw.GuaranteeValidityDays,
+                    PaymentDays = (int)raw.PaymentDays,
                     ArrivedWithObservations = (bool?)raw.ArrivedWithObservations,
                     ArrivalObservation = (string?)raw.ArrivalObservation,
                     Step6SignedCostos = (bool)raw.Step6SignedCostos,
@@ -1674,6 +1678,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             psc.GuaranteeFundPercentage = dto.GuaranteeFundPercentage;
             psc.GuaranteeFundDays       = dto.GuaranteeFundDays;
             psc.GuaranteeValidityDays   = dto.GuaranteeValidityDays;
+            psc.PaymentDays             = dto.PaymentDays ?? 7;
             psc.TermDays = (dto.StartDate != default && dto.EndDate != default)
                 ? (int)(dto.EndDate.ToDateTime(TimeOnly.MinValue) - dto.StartDate.ToDateTime(TimeOnly.MinValue)).TotalDays
                 : null;
@@ -1960,6 +1965,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     GuaranteeFundPercentage   = psc.GuaranteeFundPercentage,
                     GuaranteeFundDays         = psc.GuaranteeFundDays,
                     GuaranteeValidityDays     = psc.GuaranteeValidityDays,
+                    PaymentDays               = psc.PaymentDays,
                 }
             ).FirstOrDefaultAsync();
 
@@ -1974,8 +1980,20 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
 
             if (wicId > 0)
             {
-                data.SpecialClauses = await ctx.WorkItemCategoryClause
-                    .Where(c => c.WorkItemCategoryId == wicId && c.State)
+                // Cláusulas 9.x/7.x filtradas por modalidad de contrato:
+                // 1 = Suministro e Instalación, 2 = Suministro, 3 = Instalación. Sin modalidad → todas.
+                var clauseQuery = ctx.WorkItemCategoryClause
+                    .Where(c => c.WorkItemCategoryId == wicId && c.State);
+
+                clauseQuery = data.ContractModalityId switch
+                {
+                    1 => clauseQuery.Where(c => c.AppliesSuministroInstalacion),
+                    2 => clauseQuery.Where(c => c.AppliesSuministro),
+                    3 => clauseQuery.Where(c => c.AppliesInstalacion),
+                    _ => clauseQuery,
+                };
+
+                data.SpecialClauses = await clauseQuery
                     .OrderBy(c => c.SortOrder)
                     .Select(c => c.ClauseText)
                     .ToListAsync();

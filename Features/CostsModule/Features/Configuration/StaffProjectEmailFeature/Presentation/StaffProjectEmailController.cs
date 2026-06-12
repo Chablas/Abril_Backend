@@ -23,6 +23,7 @@ namespace Abril_Backend.Features.CostsModule.Configuration.StaffProjectEmailFeat
         public async Task<IActionResult> GetPaged(
             [FromQuery] int? projectId,
             [FromQuery] string? email,
+            [FromQuery] int? staffProjectEmailTypeId,
             [FromQuery] int page = 1)
         {
             try
@@ -35,6 +36,7 @@ namespace Abril_Backend.Features.CostsModule.Configuration.StaffProjectEmailFeat
                 {
                     ProjectId = projectId,
                     Email = email,
+                    StaffProjectEmailTypeId = staffProjectEmailTypeId,
                     Page = page
                 };
 

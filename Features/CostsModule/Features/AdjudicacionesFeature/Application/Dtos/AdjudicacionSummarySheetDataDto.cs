@@ -43,6 +43,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public int? GuaranteeFundPercentage { get; set; }
         public int? GuaranteeFundDays { get; set; }
         public int? GuaranteeValidityDays { get; set; }
+        /// <summary>Forma de pago en días hábiles (paso 2) — "pago a x días hábiles".</summary>
+        public int PaymentDays { get; set; }
 
         /// <summary>Cláusulas especiales de la partida de control (9.x / 7.x), ordenadas por SortOrder.</summary>
         public List<string> SpecialClauses { get; set; } = [];

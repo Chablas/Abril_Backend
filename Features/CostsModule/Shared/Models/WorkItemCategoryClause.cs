@@ -8,6 +8,11 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models
         public int    SortOrder               { get; set; }
         public bool   State                   { get; set; }
 
+        // Tipos de contrato a los que aplica la cláusula (no se triplica el texto: una fila, 3 flags)
+        public bool   AppliesSuministro             { get; set; } = true;
+        public bool   AppliesInstalacion            { get; set; } = true;
+        public bool   AppliesSuministroInstalacion  { get; set; } = true;
+
         public DateTimeOffset  CreatedDatetime  { get; set; }
         public int             CreatedUserId    { get; set; }
         public DateTimeOffset? UpdatedDatetime  { get; set; }

@@ -8,5 +8,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int? GuaranteeFundPercentage { get; set; }
         public int? GuaranteeFundDays { get; set; }
         public int? GuaranteeValidityDays { get; set; }
+        public int? PaymentDays { get; set; }
     }
 }

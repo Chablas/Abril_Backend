@@ -1477,11 +1477,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 ? $"{currencySymbol} {advanceAmount:N2} {(data.HasIgv ? "Inc. IGV" : "No Inc. IGV")}"
                 : "-";
 
-            // {{HOJA_RESUMEN_FORMA_DE_PAGO}}: con adelanto incluye descripción + % + saldo;
-            //                                sin adelanto solo "7 días hábiles".
+            // {{HOJA_RESUMEN_FORMA_DE_PAGO}}: con adelanto → descripción + % + monto del adelanto;
+            //                                sin adelanto/adenda → solo la descripción ("Contrato sin adelanto" / "Adenda").
+            //                                En ambos casos se añade la valorización (semanal/quincenal) con pago a los
+            //                                días hábiles configurados en el paso 2 (PaymentDays, default 7).
+            var pagoDiasHabiles = data.PaymentDays > 0 ? data.PaymentDays : 7;
+            var valorizacionTexto = !string.IsNullOrWhiteSpace(data.PaymentFormDescription)
+                ? $"valorización {data.PaymentFormDescription.Trim().ToLower(esCulture)} con pago a {pagoDiasHabiles} días hábiles"
+                : $"valorizaciones con pago a {pagoDiasHabiles} días hábiles";
             var hojaResumenFormaDePago = data.PaymentMethodId == 2
-                ? $"{data.PaymentMethodDescription} {advancePercentageDisplay}, saldo valorizaciones a 7 días hábiles"
-                : "7 días hábiles";
+                ? $"{data.PaymentMethodDescription} {advancePercentageDisplay} ({advanceAmountDisplay}), {valorizacionTexto}"
+                : $"{data.PaymentMethodDescription}, {valorizacionTexto}";
 
             // {{HOJA_RESUMEN_ADELANTO_MONTO}}: con adelanto → "% - monto"; sin adelanto → única "-".
             var hojaResumenAdelantoMonto = data.PaymentMethodId == 2

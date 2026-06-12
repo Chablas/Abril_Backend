@@ -37,6 +37,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? GuaranteeFundDays { get; set; }
         // Periodo de validez de garantía en días (paso 2)
         public int? GuaranteeValidityDays { get; set; }
+        // Forma de pago en días hábiles (paso 2) — usado en "pago a x días hábiles" de la hoja resumen
+        public int PaymentDays { get; set; } = 7;
 
         // Llegada a Of. Central (paso 5)
         public bool? ArrivedWithObservations { get; set; }

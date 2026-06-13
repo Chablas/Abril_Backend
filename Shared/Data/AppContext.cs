@@ -678,6 +678,10 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.FirmaReportanteSpId).HasColumnName("firma_reportante_sp_id");
                 entity.Property(e => e.PdfUrl).HasColumnName("pdf_url");
             });
+            modelBuilder.Entity<SsomaRacInfraccion>(entity =>
+            {
+                entity.Property(e => e.FactorUit).HasColumnName("factor_uit");
+            });
             modelBuilder.Entity<SsomaRacPenalidad>(entity =>
             {
                 entity.Property(e => e.UitReferencia).HasColumnName("uit_referencia");

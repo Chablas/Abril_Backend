@@ -550,12 +550,18 @@ public class RacService : IRacService
     public async Task<List<RacInfraccionDto>> GetInfraccionesAsync()
     {
         using var ctx = _factory.CreateDbContext();
-        var resultado = await ctx.Database
-            .SqlQueryRaw<RacInfraccionDto>(
-                "SELECT id AS \"Id\", nombre AS \"Nombre\" FROM ssoma_rac_infraccion WHERE activo = true ORDER BY nombre"
-            )
+        var lista = await ctx.SsomaRacInfracciones
+            .Where(x => x.Activo == true)
+            .OrderBy(x => x.Nombre)
             .ToListAsync();
-        return resultado;
+
+        return lista.Select(x => new RacInfraccionDto
+        {
+            Id       = x.Id,
+            Nombre   = x.Nombre,
+            FactorUit = x.FactorUit,
+            MontoFijo = x.MontoFijo
+        }).ToList();
     }
 
     public async Task<List<string>> GetNivelesProyectoAsync(int projectId)

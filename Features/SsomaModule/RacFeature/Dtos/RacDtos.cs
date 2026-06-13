@@ -182,6 +182,8 @@ public class RacInfraccionDto
 {
     public int Id { get; set; }
     public string Nombre { get; set; } = "";
+    public decimal? MontoFijo { get; set; }
+    public decimal? FactorUit { get; set; }
 }
 
 public class RacCreadoDto

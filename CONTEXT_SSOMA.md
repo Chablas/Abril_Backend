@@ -1,6 +1,6 @@
 # CONTEXT_SSOMA.md — SSOMA Intelligence Platform
 
-> Última actualización: 2026-06-11 — PasoHistoricoAnioDto creado; GetHistoricoProyectoAsync devuelve ese DTO con filtro de ciclo y lógica de vencidas por fin de mes. GetSpiAsync también filtra por ciclo [cicloStart,cicloEnd] y usa misma lógica de vencidas. 20 endpoints activos.
+> Última actualización: 2026-06-12 — RAC frontend PASOS 12-13 completados: módulo base (`features/ssoma/gestion/rac/`) con DTOs, `RacService`, rutas lazy, 6 páginas stub y `RacDashboard` (TS + HTML + CSS) implementación completa siguiendo el patrón paso-dashboard. Backend RAC pendiente de construcción.
 > Pegar este archivo al inicio de cada chat nuevo cuando se trabaje en este módulo.
 
 ---
@@ -23,7 +23,7 @@
 |---|---|---|
 | 1 | Gestión de Inspecciones | Por iniciar |
 | 2 | Incidentes & No Conformidades | Por iniciar |
-| 3 | RAC — Actos & Condiciones Subestándar | Por iniciar |
+| 3 | RAC — Actos & Condiciones Subestándar | En construcción (Frontend P12-13 ✓) |
 | 4 | OPT — Observación Planeada de Tarea | Por iniciar |
 | 5 | ATS — Análisis de Trabajo Seguro | Por iniciar |
 

@@ -305,8 +305,10 @@ public class RacService : IRacService
                     Longitud            = req.Longitud,
                     Descripcion         = req.Descripcion,
                     PlanAccion          = req.PlanAccion,
-                    FechaReporte        = req.FechaReporte,
-                    PlazoLevantamiento  = req.PlazoLevantamiento,
+                    FechaReporte        = DateTime.SpecifyKind(req.FechaReporte, DateTimeKind.Utc),
+                    PlazoLevantamiento  = req.PlazoLevantamiento.HasValue
+                                          ? DateTime.SpecifyKind(req.PlazoLevantamiento.Value, DateTimeKind.Utc)
+                                          : (DateTime?)null,
                     AplicaPenalidad     = req.AplicaPenalidad,
                     CreatedBy           = userId,
                     CreatedAt           = DateTime.UtcNow
@@ -395,6 +397,9 @@ public class RacService : IRacService
     {
         using var ctx = _factory.CreateDbContext();
 
+        if (string.IsNullOrWhiteSpace(req.FotoCierreUrl))
+            throw new AbrilException("Debe adjuntar una foto de evidencia del levantamiento.", 400);
+
         var rac = await ctx.SsomaRacs.FindAsync(id)
             ?? throw new AbrilException("RAC no encontrado.", 404);
 
@@ -406,6 +411,17 @@ public class RacService : IRacService
         rac.CierreDescripcion = req.CierreDescripcion;
         rac.CerradoPorId      = userId;
         rac.UpdatedAt         = DateTime.UtcNow;
+
+        ctx.SsomaRacFotos.Add(new SsomaRacFoto
+        {
+            RacId         = rac.Id,
+            Url           = req.FotoCierreUrl,
+            Tipo          = "Cierre",
+            NombreArchivo = "foto-cierre",
+            Orden         = 0,
+            SubidoPor     = userId,
+            CreatedAt     = DateTime.UtcNow
+        });
 
         await ctx.SaveChangesAsync();
 

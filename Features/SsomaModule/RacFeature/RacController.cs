@@ -102,6 +102,21 @@ public class RacController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.SubirFoto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("{id:int}/reporte")]
+    public async Task<IActionResult> GetReporte(int id)
+    {
+        try
+        {
+            var rac = await _service.GetDetalleAsync(id);
+            if (rac is null) return NotFound(new { message = "RAC no encontrado." });
+            if (string.IsNullOrWhiteSpace(rac.PdfUrl)) return NotFound(new { message = "PDF no disponible." });
+            var url = "https://abrilinmob.sharepoint.com/sites/SSOMA-Powerapps/RacPDF2026/" + rac.PdfUrl;
+            return Ok(new { url });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetReporte"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpGet("{id:int}/pdf")]
     public async Task<IActionResult> GetPdf(int id)
     {

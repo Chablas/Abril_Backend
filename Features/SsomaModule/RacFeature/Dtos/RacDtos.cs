@@ -53,6 +53,7 @@ public class RacCreateRequest
 public class RacCerrarRequest
 {
     public string CierreDescripcion { get; set; } = "";
+    public string? FotoCierreUrl { get; set; }
 }
 
 public class RacFotoDto

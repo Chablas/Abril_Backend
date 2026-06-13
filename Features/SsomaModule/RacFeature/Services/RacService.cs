@@ -263,97 +263,101 @@ public class RacService : IRacService
         }
 
         // ── Transacción ───────────────────────────────────────────────────────
-        await using var tx = await ctx.Database.BeginTransactionAsync();
-        RacCreadoDto resultado;
-        int racId;
-        string racCodigo;
+        var strategy  = ctx.Database.CreateExecutionStrategy();
+        RacCreadoDto resultado = default!;
+        int racId    = 0;
+        string racCodigo = "";
 
-        try
+        await strategy.ExecuteAsync(async () =>
         {
-            var project = await ctx.Project
-                .Where(p => p.ProjectId == req.ProyectoId)
-                .FirstOrDefaultAsync()
-                ?? throw new AbrilException("Proyecto no encontrado.", 404);
-
-            var abbrev = project.Abbreviation ?? req.ProyectoId.ToString();
-            var year   = DateTime.UtcNow.Year;
-
-            var nuevoContadorRac = project.ContadorRac + 1;
-            var codigoRac        = $"RAC-{year}-{abbrev}-{nuevoContadorRac:D3}";
-
-            var rac = new SsomaRac
+            await using var tx = await ctx.Database.BeginTransactionAsync();
+            try
             {
-                Codigo              = codigoRac,
-                ProyectoId          = req.ProyectoId,
-                Tipo                = req.Tipo,
-                CategoriaId         = req.CategoriaId,
-                Severidad           = req.Severidad,
-                EsAnonimoReportante = req.EsAnonimoReportante,
-                ReportanteId        = userId > 0 ? userId : req.ReportanteId,
-                ReportanteNombre    = reportanteNombre,
-                ReportanteCargo     = reportanteCargo,
-                EmpresaReportanteId = req.EmpresaReportanteId,
-                EsAnonimoObservado  = req.EsAnonimoObservado,
-                ObservadoWorkerId   = req.ObservadoWorkerId,
-                EmpresaReportadaId  = req.EmpresaReportadaId,
-                ProyectoPiso        = req.ProyectoPiso,
-                LugarDescripcion    = req.LugarDescripcion,
-                Latitud             = req.Latitud,
-                Longitud            = req.Longitud,
-                Descripcion         = req.Descripcion,
-                PlanAccion          = req.PlanAccion,
-                FechaReporte        = req.FechaReporte,
-                PlazoLevantamiento  = req.PlazoLevantamiento,
-                AplicaPenalidad     = req.AplicaPenalidad,
-                CreatedBy           = userId,
-                CreatedAt           = DateTime.UtcNow
-            };
+                var project = await ctx.Project
+                    .Where(p => p.ProjectId == req.ProyectoId)
+                    .FirstOrDefaultAsync()
+                    ?? throw new AbrilException("Proyecto no encontrado.", 404);
 
-            ctx.SsomaRacs.Add(rac);
-            project.ContadorRac = nuevoContadorRac;
+                var abbrev = project.Abbreviation ?? req.ProyectoId.ToString();
+                var year   = DateTime.UtcNow.Year;
 
-            SsomaRacPenalidad? penalidad = null;
-            if (req.AplicaPenalidad)
-            {
-                var nuevoContadorPen = project.ContadorPenalidad + 1;
-                var codigoPen        = $"PEN-{year}-{abbrev}-{nuevoContadorPen:D3}";
+                var nuevoContadorRac = project.ContadorRac + 1;
+                var codigoRac        = $"RAC-{year}-{abbrev}-{nuevoContadorRac:D3}";
 
-                penalidad = new SsomaRacPenalidad
+                var rac = new SsomaRac
                 {
-                    Codigo              = codigoPen,
-                    Rac                 = rac,
-                    EmpresaId           = req.EmpresaReportadaId,
+                    Codigo              = codigoRac,
                     ProyectoId          = req.ProyectoId,
-                    InfraccionId        = req.InfraccionId,
-                    MontoCalculado      = 0m,
-                    UitReferencia       = 0m,
-                    DescripcionOcurrido = req.DescripcionOcurrido,
+                    Tipo                = req.Tipo,
+                    CategoriaId         = req.CategoriaId,
+                    Severidad           = req.Severidad,
+                    EsAnonimoReportante = req.EsAnonimoReportante,
+                    ReportanteId        = userId > 0 ? userId : req.ReportanteId,
+                    ReportanteNombre    = reportanteNombre,
+                    ReportanteCargo     = reportanteCargo,
+                    EmpresaReportanteId = req.EmpresaReportanteId,
+                    EsAnonimoObservado  = req.EsAnonimoObservado,
+                    ObservadoWorkerId   = req.ObservadoWorkerId,
+                    EmpresaReportadaId  = req.EmpresaReportadaId,
+                    ProyectoPiso        = req.ProyectoPiso,
+                    LugarDescripcion    = req.LugarDescripcion,
+                    Latitud             = req.Latitud,
+                    Longitud            = req.Longitud,
+                    Descripcion         = req.Descripcion,
+                    PlanAccion          = req.PlanAccion,
+                    FechaReporte        = req.FechaReporte,
+                    PlazoLevantamiento  = req.PlazoLevantamiento,
+                    AplicaPenalidad     = req.AplicaPenalidad,
                     CreatedBy           = userId,
                     CreatedAt           = DateTime.UtcNow
                 };
 
-                ctx.SsomaRacPenalidades.Add(penalidad);
-                project.ContadorPenalidad = nuevoContadorPen;
+                ctx.SsomaRacs.Add(rac);
+                project.ContadorRac = nuevoContadorRac;
+
+                SsomaRacPenalidad? penalidad = null;
+                if (req.AplicaPenalidad)
+                {
+                    var nuevoContadorPen = project.ContadorPenalidad + 1;
+                    var codigoPen        = $"PEN-{year}-{abbrev}-{nuevoContadorPen:D3}";
+
+                    penalidad = new SsomaRacPenalidad
+                    {
+                        Codigo              = codigoPen,
+                        Rac                 = rac,
+                        EmpresaId           = req.EmpresaReportadaId,
+                        ProyectoId          = req.ProyectoId,
+                        InfraccionId        = req.InfraccionId,
+                        MontoCalculado      = 0m,
+                        UitReferencia       = 0m,
+                        DescripcionOcurrido = req.DescripcionOcurrido,
+                        CreatedBy           = userId,
+                        CreatedAt           = DateTime.UtcNow
+                    };
+
+                    ctx.SsomaRacPenalidades.Add(penalidad);
+                    project.ContadorPenalidad = nuevoContadorPen;
+                }
+
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                racId     = rac.Id;
+                racCodigo = rac.Codigo;
+                resultado = new RacCreadoDto
+                {
+                    Id              = rac.Id,
+                    Codigo          = rac.Codigo,
+                    PenalidadId     = penalidad?.Id,
+                    PenalidadCodigo = penalidad?.Codigo
+                };
             }
-
-            await ctx.SaveChangesAsync();
-            await tx.CommitAsync();
-
-            racId     = rac.Id;
-            racCodigo = rac.Codigo;
-            resultado = new RacCreadoDto
+            catch
             {
-                Id              = rac.Id,
-                Codigo          = rac.Codigo,
-                PenalidadId     = penalidad?.Id,
-                PenalidadCodigo = penalidad?.Codigo
-            };
-        }
-        catch
-        {
-            await tx.RollbackAsync();
-            throw;
-        }
+                await tx.RollbackAsync();
+                throw;
+            }
+        });
 
         // ── PDF + SharePoint + Email (best-effort) ────────────────────────────
         try
@@ -546,15 +550,12 @@ public class RacService : IRacService
     public async Task<List<RacInfraccionDto>> GetInfraccionesAsync()
     {
         using var ctx = _factory.CreateDbContext();
-        return await ctx.SsomaRacInfracciones
-            .Where(x => x.Activo == true)
-            .OrderBy(x => x.Nombre)
-            .Select(x => new RacInfraccionDto
-            {
-                Id     = x.Id,
-                Nombre = x.Nombre
-            })
+        var resultado = await ctx.Database
+            .SqlQueryRaw<RacInfraccionDto>(
+                "SELECT id AS \"Id\", nombre AS \"Nombre\" FROM ssoma_rac_infraccion WHERE activo = true ORDER BY nombre"
+            )
             .ToListAsync();
+        return resultado;
     }
 
     public async Task<List<string>> GetNivelesProyectoAsync(int projectId)

@@ -547,15 +547,12 @@ public class RacService : IRacService
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsomaRacInfracciones
-            .OrderBy(i => i.Orden)
-            .ThenBy(i => i.Nombre)
-            .Select(i => new RacInfraccionDto
+            .Where(x => x.Activo == true)
+            .OrderBy(x => x.Nombre)
+            .Select(x => new RacInfraccionDto
             {
-                Id     = i.Id,
-                Nombre = i.Nombre,
-                Tipo   = i.Tipo,
-                Ambito = i.Ambito,
-                Orden  = i.Orden
+                Id     = x.Id,
+                Nombre = x.Nombre
             })
             .ToListAsync();
     }

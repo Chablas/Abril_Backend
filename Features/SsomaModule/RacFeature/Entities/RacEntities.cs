@@ -10,6 +10,7 @@ public class SsomaRacCategoria
     public int Id { get; set; }
     public string Nombre { get; set; } = "";
     public string Tipo { get; set; } = "";   // ACTO | CONDICION
+    public string? Ambito { get; set; }
     public bool Activo { get; set; } = true;
     public int Orden { get; set; }
 }

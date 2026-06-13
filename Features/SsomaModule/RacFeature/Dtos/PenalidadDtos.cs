@@ -43,6 +43,7 @@ public class PenalidadDetalleDto
     public string? DescripcionOcurrido { get; set; }
     public string Estado { get; set; } = "";
     public string? DescargoTexto { get; set; }
+    public string? DocumentoUrl { get; set; }
     public DateTime? DescargoFecha { get; set; }
     public string? ResolucionTexto { get; set; }
     public string? ResolucionTipo { get; set; }
@@ -54,6 +55,7 @@ public class PenalidadDetalleDto
 public class PenalidadDescargaRequest
 {
     public string DescargoTexto { get; set; } = "";
+    public string DocumentoUrl { get; set; } = "";
 }
 
 public class PenalidadResolverRequest

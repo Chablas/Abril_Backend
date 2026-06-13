@@ -145,6 +145,7 @@ public class SsomaRacPenalidad
 
     // Descargo
     public string? DescargoTexto { get; set; }
+    public string? DocumentoUrl { get; set; }
     public DateTime? DescargoFecha { get; set; }
     public int? DescargoUsuarioId { get; set; }        // FK app_user (user_id)
 

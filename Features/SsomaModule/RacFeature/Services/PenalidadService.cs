@@ -122,6 +122,7 @@ public class PenalidadService : IPenalidadService
             DescripcionOcurrido = pen.DescripcionOcurrido,
             Estado              = pen.Estado,
             DescargoTexto       = pen.DescargoTexto,
+            DocumentoUrl        = pen.DocumentoUrl,
             DescargoFecha       = pen.DescargoFecha,
             ResolucionTexto     = pen.ResolucionTexto,
             ResolucionTipo      = pen.ResolucionTipo,
@@ -141,8 +142,12 @@ public class PenalidadService : IPenalidadService
         if (pen.Estado != "EnEvaluacion")
             throw new AbrilException("Solo se puede presentar descargo en estado EnEvaluacion.", 400);
 
+        if (string.IsNullOrWhiteSpace(req.DocumentoUrl))
+            throw new AbrilException("El documento de sustento es obligatorio.", 400);
+
         pen.Estado            = "DescargoPresentado";
         pen.DescargoTexto     = req.DescargoTexto;
+        pen.DocumentoUrl      = req.DocumentoUrl;
         pen.DescargoFecha     = DateTime.UtcNow;
         pen.DescargoUsuarioId = userId;
         pen.UpdatedAt         = DateTime.UtcNow;

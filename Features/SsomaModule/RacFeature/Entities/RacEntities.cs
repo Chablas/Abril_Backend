@@ -20,10 +20,10 @@ public class SsomaRacInfraccion
 {
     public int Id { get; set; }
     public string Nombre { get; set; } = "";
-    public decimal? FactorUit { get; set; }
-    public decimal? MontoFijo { get; set; }
-    public string? Descripcion { get; set; }
+    public string? Tipo { get; set; }     // ACTO | CONDICION
+    public string? Ambito { get; set; }
     public bool Activo { get; set; } = true;
+    public int Orden { get; set; }
 }
 
 /// <summary>ssoma_uit_anio</summary>

@@ -14,4 +14,5 @@ public interface IRacService
     Task<RacDashboardDto> GetDashboardAsync();
     Task<List<RacCategoriaDto>> GetCategoriasAsync();
     Task<List<RacInfraccionDto>> GetInfraccionesAsync();
+    Task<List<string>> GetNivelesProyectoAsync(int projectId);
 }

@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.Ssoma.Rac;
 
 [ApiController]
 [Route("api/v1/ssoma-rac")]
-[Authorize]
+[AllowAnonymous]
 public class RacController : ControllerBase
 {
     private readonly IRacService _service;
@@ -54,6 +54,14 @@ public class RacController : ControllerBase
         try { return Ok(await _service.GetInfraccionesAsync()); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetInfracciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("proyecto/{projectId:int}/niveles")]
+    public async Task<IActionResult> GetNiveles(int projectId)
+    {
+        try { return Ok(await _service.GetNivelesProyectoAsync(projectId)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetNiveles"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     [HttpPost]

@@ -182,11 +182,9 @@ public class RacInfraccionDto
 {
     public int Id { get; set; }
     public string Nombre { get; set; } = "";
-    public decimal? FactorUit { get; set; }
-    public decimal? MontoFijo { get; set; }
-    public string? Descripcion { get; set; }
-    public decimal MontoCalculado { get; set; }
-    public decimal UitReferencia { get; set; }
+    public string? Tipo { get; set; }     // ACTO | CONDICION
+    public string? Ambito { get; set; }
+    public int Orden { get; set; }
 }
 
 public class RacCreadoDto

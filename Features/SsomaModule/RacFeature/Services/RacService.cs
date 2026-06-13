@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.Rac.Dtos;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
@@ -179,11 +180,11 @@ public class RacService : IRacService
             CategoriaAmbito         = rac.Categoria.Ambito ?? "",
             Severidad               = rac.Severidad,
             EsAnonimoReportante     = rac.EsAnonimoReportante,
-            ReportanteId            = rac.ReportanteId,
-            ReportanteNombre        = reportanteNombre,
-            ReportanteCargo         = rac.ReportanteCargo,
-            EmpresaReportanteId     = rac.EmpresaReportanteId,
-            EmpresaReportanteNombre = empReportanteNombre,
+            ReportanteId            = rac.EsAnonimoReportante ? null : rac.ReportanteId,
+            ReportanteNombre        = rac.EsAnonimoReportante ? "Reporte anónimo" : reportanteNombre,
+            ReportanteCargo         = rac.EsAnonimoReportante ? null : rac.ReportanteCargo,
+            EmpresaReportanteId     = rac.EsAnonimoReportante ? null : rac.EmpresaReportanteId,
+            EmpresaReportanteNombre = rac.EsAnonimoReportante ? null : empReportanteNombre,
             EsAnonimoObservado      = rac.EsAnonimoObservado,
             ObservadoWorkerId       = rac.ObservadoWorkerId,
             ObservadoNombre         = observadoNombre,
@@ -224,9 +225,6 @@ public class RacService : IRacService
     public async Task<RacCreadoDto> CrearAsync(RacCreateRequest req, int userId)
     {
         // ── Validaciones ──────────────────────────────────────────────────────
-        if (!req.EsAnonimoReportante && req.ReportanteId is null)
-            throw new AbrilException("El id del reportante es requerido cuando no es anónimo.", 400);
-
         if (req.AplicaPenalidad && req.InfraccionId is null)
             throw new AbrilException("El campo InfraccionId es requerido cuando aplica penalidad.", 400);
 
@@ -242,20 +240,19 @@ public class RacService : IRacService
                 throw new AbrilException("La empresa Abril Ingeniería no puede ser objeto de penalidad.", 422);
         }
 
-        // ── Snapshot reportante ───────────────────────────────────────────────
-        string? reportanteNombre = req.ReportanteNombre;
-        string? reportanteCargo  = req.ReportanteCargo;
-        if (!req.EsAnonimoReportante && req.ReportanteId.HasValue)
+        // ── Snapshot reportante — siempre desde JWT ───────────────────────────
+        // El autor se obtiene del userId (JWT), independientemente de EsAnonimoReportante
+        string? reportanteNombre = null;
+        string? reportanteCargo  = null;
+        if (userId > 0)
         {
             var persona = await ctx.Person
-                .Where(p => p.UserId == req.ReportanteId.Value)
+                .Where(p => p.UserId == userId)
                 .Select(p => new { p.FullName, p.PersonId })
                 .FirstOrDefaultAsync();
             if (persona is not null)
             {
-                if (!string.IsNullOrEmpty(persona.FullName))
-                    reportanteNombre = persona.FullName;
-
+                reportanteNombre = persona.FullName;
                 var worker = await ctx.Worker
                     .Where(w => w.PersonId == persona.PersonId)
                     .Select(w => new { w.Ocupacion })
@@ -263,22 +260,6 @@ public class RacService : IRacService
                 if (!string.IsNullOrEmpty(worker?.Ocupacion))
                     reportanteCargo = worker.Ocupacion;
             }
-        }
-
-        // ── UIT e infracción para penalidad (snapshot) ────────────────────────
-        decimal uitValor = 0m;
-        SsomaRacInfraccion? infraccion = null;
-        if (req.AplicaPenalidad)
-        {
-            uitValor = await ctx.SsomaUitAnios
-                .Where(u => u.Activo)
-                .Select(u => u.Valor)
-                .FirstOrDefaultAsync();
-
-            if (req.InfraccionId.HasValue)
-                infraccion = await ctx.SsomaRacInfracciones
-                    .Where(i => i.Id == req.InfraccionId.Value)
-                    .FirstOrDefaultAsync();
         }
 
         // ── Transacción ───────────────────────────────────────────────────────
@@ -308,7 +289,7 @@ public class RacService : IRacService
                 CategoriaId         = req.CategoriaId,
                 Severidad           = req.Severidad,
                 EsAnonimoReportante = req.EsAnonimoReportante,
-                ReportanteId        = req.ReportanteId,
+                ReportanteId        = userId > 0 ? userId : req.ReportanteId,
                 ReportanteNombre    = reportanteNombre,
                 ReportanteCargo     = reportanteCargo,
                 EmpresaReportanteId = req.EmpresaReportanteId,
@@ -337,14 +318,6 @@ public class RacService : IRacService
                 var nuevoContadorPen = project.ContadorPenalidad + 1;
                 var codigoPen        = $"PEN-{year}-{abbrev}-{nuevoContadorPen:D3}";
 
-                decimal monto = infraccion is not null
-                    ? infraccion.MontoFijo.HasValue
-                        ? infraccion.MontoFijo.Value
-                        : infraccion.FactorUit.HasValue
-                            ? Math.Round(infraccion.FactorUit.Value * uitValor, 2)
-                            : 0m
-                    : 0m;
-
                 penalidad = new SsomaRacPenalidad
                 {
                     Codigo              = codigoPen,
@@ -352,8 +325,8 @@ public class RacService : IRacService
                     EmpresaId           = req.EmpresaReportadaId,
                     ProyectoId          = req.ProyectoId,
                     InfraccionId        = req.InfraccionId,
-                    MontoCalculado      = monto,
-                    UitReferencia       = uitValor,
+                    MontoCalculado      = 0m,
+                    UitReferencia       = 0m,
                     DescripcionOcurrido = req.DescripcionOcurrido,
                     CreatedBy           = userId,
                     CreatedAt           = DateTime.UtcNow
@@ -573,30 +546,63 @@ public class RacService : IRacService
     public async Task<List<RacInfraccionDto>> GetInfraccionesAsync()
     {
         using var ctx = _factory.CreateDbContext();
-
-        var uit = await ctx.SsomaUitAnios
-            .Where(u => u.Activo)
-            .Select(u => u.Valor)
-            .FirstOrDefaultAsync();
-
-        var infracciones = await ctx.SsomaRacInfracciones
-            .Where(i => i.Activo)
-            .OrderBy(i => i.Nombre)
+        return await ctx.SsomaRacInfracciones
+            .OrderBy(i => i.Orden)
+            .ThenBy(i => i.Nombre)
+            .Select(i => new RacInfraccionDto
+            {
+                Id     = i.Id,
+                Nombre = i.Nombre,
+                Tipo   = i.Tipo,
+                Ambito = i.Ambito,
+                Orden  = i.Orden
+            })
             .ToListAsync();
+    }
 
-        return infracciones.Select(i => new RacInfraccionDto
+    public async Task<List<string>> GetNivelesProyectoAsync(int projectId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var proj = await ctx.Project
+            .Where(p => p.ProjectId == projectId)
+            .Select(p => new { p.LevelDescription, p.NumNiveles, p.NumSotanos })
+            .FirstOrDefaultAsync();
+        if (proj is null) return new List<string>();
+        return ParseNiveles(proj.LevelDescription, proj.NumNiveles, proj.NumSotanos);
+    }
+
+    private static List<string> ParseNiveles(string? levelDesc, string? numNiveles, string? numSotanos)
+    {
+        int pisos   = 0;
+        int sotanos = 0;
+        bool azotea = false;
+
+        if (!string.IsNullOrWhiteSpace(levelDesc))
         {
-            Id             = i.Id,
-            Nombre         = i.Nombre,
-            FactorUit      = i.FactorUit,
-            MontoFijo      = i.MontoFijo,
-            Descripcion    = i.Descripcion,
-            UitReferencia  = uit,
-            MontoCalculado = i.MontoFijo.HasValue
-                ? i.MontoFijo.Value
-                : i.FactorUit.HasValue
-                    ? Math.Round(i.FactorUit.Value * uit, 2)
-                    : 0m
-        }).ToList();
+            var d = levelDesc.ToUpperInvariant();
+            azotea = d.Contains("AZOTEA");
+
+            var mP = Regex.Match(d, @"(\d+)\s*PISO");
+            if (mP.Success) pisos = int.Parse(mP.Groups[1].Value);
+
+            var mS = Regex.Match(d, @"(\d+)\s*S[OÓ]TANO");
+            if (mS.Success) sotanos = int.Parse(mS.Groups[1].Value);
+
+            // Fallback: plain number like "8.0"
+            if (pisos == 0)
+            {
+                var mN = Regex.Match(d, @"^\s*(\d+)");
+                if (mN.Success && int.TryParse(mN.Groups[1].Value, out var n)) pisos = n;
+            }
+        }
+
+        if (pisos   == 0 && int.TryParse(numNiveles, out var nv)) pisos   = nv;
+        if (sotanos == 0 && int.TryParse(numSotanos, out var ns)) sotanos = ns;
+
+        var lista = new List<string>();
+        for (int i = sotanos; i >= 1; i--) lista.Add($"Sótano {i}");
+        for (int i = 1; i <= pisos; i++)   lista.Add($"Piso {i}");
+        if (azotea) lista.Add("Azotea");
+        return lista;
     }
 }

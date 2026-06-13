@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.Ssoma.Rac;
 
 [ApiController]
 [Route("api/v1/ssoma-rac-penalidad")]
-[Authorize]
+[AllowAnonymous]
 public class PenalidadController : ControllerBase
 {
     private readonly IPenalidadService _service;

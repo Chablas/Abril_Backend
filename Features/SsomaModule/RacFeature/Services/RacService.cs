@@ -542,7 +542,7 @@ public class RacService : IRacService
         }).ToList();
 
         // ── Tendencia — últimos 6 meses ───────────────────────────────────────
-        var fechaCorte = new DateTime(ahora.Year, ahora.Month, 1).AddMonths(-5);
+        var fechaCorte = DateTime.SpecifyKind(new DateTime(ahora.Year, ahora.Month, 1).AddMonths(-5), DateTimeKind.Utc);
         var tendencia  = await ctx.SsomaRacs
             .Where(r => r.FechaReporte >= fechaCorte)
             .GroupBy(r => new { r.FechaReporte.Year, r.FechaReporte.Month })

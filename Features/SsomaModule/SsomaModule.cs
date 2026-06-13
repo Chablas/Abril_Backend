@@ -57,6 +57,8 @@ namespace Abril_Backend.Features.Ssoma
             // RAC — Reporte de Actos y Condiciones Subestándar
             services.AddScoped<IRacService, RacService>();
             services.AddScoped<IPenalidadService, PenalidadService>();
+            services.AddScoped<IRacSharePointService, NullRacSharePointService>();
+            services.AddScoped<IRacNotificationService, NullRacNotificationService>();
 
             return services;
         }

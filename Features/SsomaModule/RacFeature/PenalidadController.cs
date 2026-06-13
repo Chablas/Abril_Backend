@@ -69,8 +69,8 @@ public class PenalidadController : ControllerBase
     {
         try
         {
-            var bytes = await _service.GetPdfResolucionAsync(id);
-            return File(bytes, "application/pdf", $"PEN-{id}.pdf");
+            var url = await _service.GetPdfResolucionAsync(id);
+            return Redirect(url);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PenalidadController.GetPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

@@ -10,10 +10,20 @@ namespace Abril_Backend.Features.Ssoma.Rac.Services;
 public class RacService : IRacService
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
+    private readonly IRacSharePointService _spService;
+    private readonly IRacNotificationService _notifService;
+    private readonly ILogger<RacService> _logger;
 
-    public RacService(IDbContextFactory<AppDbContext> factory)
+    public RacService(
+        IDbContextFactory<AppDbContext> factory,
+        IRacSharePointService spService,
+        IRacNotificationService notifService,
+        ILogger<RacService> logger)
     {
-        _factory = factory;
+        _factory      = factory;
+        _spService    = spService;
+        _notifService = notifService;
+        _logger       = logger;
     }
 
     public async Task<List<RacCategoriaDto>> GetCategoriasAsync()
@@ -97,6 +107,10 @@ public class RacService : IRacService
 
         // ── Transacción ───────────────────────────────────────────────────────
         await using var tx = await ctx.Database.BeginTransactionAsync();
+        RacCreadoDto resultado;
+        int racId;
+        string racCodigo;
+
         try
         {
             var project = await ctx.Project
@@ -176,7 +190,9 @@ public class RacService : IRacService
             await ctx.SaveChangesAsync();
             await tx.CommitAsync();
 
-            return new RacCreadoDto
+            racId     = rac.Id;
+            racCodigo = rac.Codigo;
+            resultado = new RacCreadoDto
             {
                 Id              = rac.Id,
                 Codigo          = rac.Codigo,
@@ -189,10 +205,49 @@ public class RacService : IRacService
             await tx.RollbackAsync();
             throw;
         }
+
+        // ── PDF + SharePoint + Email (best-effort) ────────────────────────────
+        try
+        {
+            var detalle = await GetDetalleAsync(racId);
+            if (detalle != null)
+            {
+                var pdfBytes = RacPdfService.GenerarPdf(detalle);
+                using var pdfStream = new MemoryStream(pdfBytes);
+                var pdfPath = await _spService.SubirPdfAsync(pdfStream, $"{racCodigo}.pdf", racId);
+
+                using var ctx2 = _factory.CreateDbContext();
+                var racRow = await ctx2.SsomaRacs.FindAsync(racId);
+                if (racRow != null)
+                {
+                    racRow.PdfUrl = pdfPath;
+                    await ctx2.SaveChangesAsync();
+                }
+
+                _ = Task.Run(async () =>
+                {
+                    try { await _notifService.NotificarRacCreadoAsync(detalle); }
+                    catch { /* silencioso */ }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error post-creación RAC {Codigo}: PDF/SP/email no procesado", racCodigo);
+        }
+
+        return resultado;
     }
     public Task<RacDetalleDto> CerrarAsync(int id, RacCerrarRequest req, int userId)   => throw new NotImplementedException();
     public Task<RacFotoUploadResult> SubirFotoAsync(int racId, IFormFile file, string tipo, int userId) => throw new NotImplementedException();
-    public Task<byte[]> GetPdfAsync(int id)                                            => throw new NotImplementedException();
+    public byte[] GenerarPdf(RacDetalleDto rac) => RacPdfService.GenerarPdf(rac);
+
+    public async Task<byte[]> GetPdfAsync(int id)
+    {
+        var rac = await GetDetalleAsync(id)
+            ?? throw new AbrilException("RAC no encontrado.", 404);
+        return RacPdfService.GenerarPdf(rac);
+    }
     public Task<RacDashboardDto> GetDashboardAsync()                                   => throw new NotImplementedException();
     public async Task<List<RacInfraccionDto>> GetInfraccionesAsync()
     {

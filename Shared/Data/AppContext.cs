@@ -12,6 +12,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
+using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -196,6 +197,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaRac> SsomaRacs { get; set; }
         public DbSet<SsomaRacFoto> SsomaRacFotos { get; set; }
         public DbSet<SsomaRacPenalidad> SsomaRacPenalidades { get; set; }
+        public DbSet<SsomaOpt> SsomaOpt { get; set; }
+        public DbSet<SsomaOptTrabajador> SsomaOptTrabajador { get; set; }
+        public DbSet<SsomaPet> SsomaPet { get; set; }
+        public DbSet<SsomaOptCriterioVerificacion> SsomaOptCriterioVerificacion { get; set; }
+        public DbSet<SsomaOptVerificacion> SsomaOptVerificacion { get; set; }
+        public DbSet<SsomaOptPaso> SsomaOptPaso { get; set; }
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
 
@@ -531,6 +538,17 @@ namespace Abril_Backend.Infrastructure.Data
                 .Property(x => x.Tipo).HasDefaultValue("Hallazgo");
             modelBuilder.Entity<SsomaRacFoto>()
                 .Property(x => x.Orden).HasDefaultValue(1);
+
+            // ── OPT — tablas y nombres explícitos ────────────────────────────
+            modelBuilder.Entity<SsomaOpt>().ToTable("ssoma_opt");
+            modelBuilder.Entity<SsomaOptTrabajador>().ToTable("ssoma_opt_trabajador");
+            modelBuilder.Entity<SsomaPet>().ToTable("ssoma_pet");
+            modelBuilder.Entity<SsomaOptCriterioVerificacion>().ToTable("ssoma_opt_criterio_verificacion");
+            modelBuilder.Entity<SsomaOptVerificacion>().ToTable("ssoma_opt_verificacion");
+            modelBuilder.Entity<SsomaOptPaso>().ToTable("ssoma_opt_paso");
+
+            modelBuilder.Entity<SsomaOpt>()
+                .Property(x => x.Estado).HasDefaultValue("Completado");
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

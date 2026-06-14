@@ -4,6 +4,9 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories;
 using Abril_Backend.Features.Ssoma.Paso.Services;
 using Abril_Backend.Features.Ssoma.Rac.Services;
+using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.OptFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -59,6 +62,11 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IPenalidadService, PenalidadService>();
             services.AddScoped<IRacSharePointService, RacSharePointService>();
             services.AddScoped<IRacNotificationService, RacNotificationService>();
+
+            // OPT — Observación Planeada de Tarea
+            services.AddScoped<IOptRepository, OptRepository>();
+            services.AddScoped<IOptSharePointService, OptSharePointService>();
+            services.AddScoped<IOptService, OptService>();
 
             return services;
         }

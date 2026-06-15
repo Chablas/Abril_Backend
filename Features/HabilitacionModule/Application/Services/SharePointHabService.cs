@@ -305,11 +305,11 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("interconsulta")) return _configuration["SharePoint:Sites:SSOMAApps:EmoInterconsultasLibraryId"];
             if (c.Contains("lectura-emo"))      return _configuration["SharePoint:Sites:SSOMAApps:LecturaEmosLibraryId"];
             if (c.Contains("paso-evidencias")) return _configuration["SharePoint:Sites:SSOMAApps:PasoEvidenciasLibraryId"];
-            if (c.Contains("rac-pdf"))         return _configuration["SharePoint:Sites:SSOMAApps:RacPdfLibraryId"];
-            if (c.Contains("rac-fotos"))       return _configuration["SharePoint:Sites:SSOMAApps:RacFotosLibraryId"];
-            if (c.Contains("rac-firmas"))      return _configuration["SharePoint:Sites:SSOMAApps:RacFirmasLibraryId"];
-            if (c.Contains("opt-firmas"))         return _configuration["SharePoint:Sites:SSOMAApps:OptFirmasLibraryId"];
-            if (c.Contains("inspeccion-fotos")) return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"];
+            if (c.Contains("rac-pdf"))           return _configuration["SharePoint:Sites:SSOMAApps:RacPdfLibraryId"];
+            if (c.Contains("rac-fotos"))         return _configuration["SharePoint:Sites:SSOMAApps:RacFotosLibraryId"];
+            if (c.Contains("rac-firmas"))        return _configuration["SharePoint:Sites:SSOMAApps:RacFirmasLibraryId"];
+            if (c.Contains("opt-firmas"))        return _configuration["SharePoint:Sites:SSOMAApps:OptFirmasLibraryId"];
+            if (c.Contains("inspeccion-fotos"))  return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"];
             if (c.Contains("inspeccion-firmas")) return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"];
             if (c.Contains("penalidad-pdf"))   return _configuration["SharePoint:Sites:SSOMAApps:PenalidadPdfLibraryId"];
             return null;

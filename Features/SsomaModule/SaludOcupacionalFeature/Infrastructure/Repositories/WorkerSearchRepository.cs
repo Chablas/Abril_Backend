@@ -40,6 +40,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ApellidoNombre = w.Person != null ? w.Person.FullName : null,
                     Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     w.Ocupacion,
+                    w.Categoria,
                     w.Estado
                 })
                 .ToListAsync();
@@ -58,6 +59,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     v.WorkerId,
                     v.EmpresaId,
                     EmpresaNombre = em != null ? em.ContributorName : null,
+                    v.Puesto,
                     v.FechaInicio
                 }).ToListAsync();
 
@@ -74,6 +76,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ApellidoNombre = b.ApellidoNombre,
                     Dni = b.Dni,
                     Ocupacion = b.Ocupacion,
+                    Categoria = b.Categoria,
+                    Cargo = vin?.Puesto,
                     EmpresaActualId = vin?.EmpresaId,
                     EmpresaActual = vin?.EmpresaNombre,
                     Activo = !string.IsNullOrWhiteSpace(b.Estado)

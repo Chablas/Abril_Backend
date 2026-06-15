@@ -7,6 +7,9 @@ using Abril_Backend.Features.Ssoma.Rac.Services;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -67,6 +70,11 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IOptRepository, OptRepository>();
             services.AddScoped<IOptSharePointService, OptSharePointService>();
             services.AddScoped<IOptService, OptService>();
+
+            // Inspecciones
+            services.AddScoped<IInspeccionSharePointService, InspeccionSharePointService>();
+            services.AddScoped<IInspeccionRepository, InspeccionRepository>();
+            services.AddScoped<IInspeccionService, InspeccionService>();
 
             return services;
         }

@@ -13,6 +13,7 @@ using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -205,6 +206,13 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaOptPaso> SsomaOptPaso { get; set; }
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
+        // ── Inspecciones ───────────────────────────────────────────────────────
+        public DbSet<SsomaInspeccionTipo> SsomaInspeccionTipo => Set<SsomaInspeccionTipo>();
+        public DbSet<SsomaInspeccionChecklistItem> SsomaInspeccionChecklistItem => Set<SsomaInspeccionChecklistItem>();
+        public DbSet<SsomaInspeccion> SsomaInspeccion => Set<SsomaInspeccion>();
+        public DbSet<SsomaInspeccionRespuesta> SsomaInspeccionRespuesta => Set<SsomaInspeccionRespuesta>();
+        public DbSet<SsomaInspeccionHallazgo> SsomaInspeccionHallazgo => Set<SsomaInspeccionHallazgo>();
+        public DbSet<SsomaInspeccionHallazgoFoto> SsomaInspeccionHallazgoFoto => Set<SsomaInspeccionHallazgoFoto>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -549,6 +557,14 @@ namespace Abril_Backend.Infrastructure.Data
 
             modelBuilder.Entity<SsomaOpt>()
                 .Property(x => x.Estado).HasDefaultValue("Completado");
+
+            // ── Inspecciones — tablas y nombres explícitos ────────────────────
+            modelBuilder.Entity<SsomaInspeccionTipo>().ToTable("ssoma_inspeccion_tipo");
+            modelBuilder.Entity<SsomaInspeccionChecklistItem>().ToTable("ssoma_inspeccion_checklist_item");
+            modelBuilder.Entity<SsomaInspeccion>().ToTable("ssoma_inspeccion");
+            modelBuilder.Entity<SsomaInspeccionRespuesta>().ToTable("ssoma_inspeccion_respuesta");
+            modelBuilder.Entity<SsomaInspeccionHallazgo>().ToTable("ssoma_inspeccion_hallazgo");
+            modelBuilder.Entity<SsomaInspeccionHallazgoFoto>().ToTable("ssoma_inspeccion_hallazgo_foto");
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

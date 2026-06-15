@@ -1,0 +1,97 @@
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Dtos;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Presentation;
+
+[ApiController]
+[Route("api/v1/ssoma-inspeccion")]
+[Authorize]
+public class InspeccionController : ControllerBase
+{
+    private readonly IInspeccionService _service;
+    private readonly ILogger<InspeccionController> _logger;
+
+    public InspeccionController(IInspeccionService service, ILogger<InspeccionController> logger)
+    {
+        _service = service;
+        _logger = logger;
+    }
+
+    [HttpGet("catalogos")]
+    public async Task<IActionResult> GetCatalogos()
+    {
+        try { return Ok(await _service.GetCatalogosAsync()); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error catalogos inspeccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("checklist/{tipoId:int}")]
+    public async Task<IActionResult> GetChecklist(int tipoId)
+    {
+        try { return Ok(await _service.GetChecklistAsync(tipoId)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error checklist inspeccion {TipoId}", tipoId); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetList(
+        [FromQuery] int? proyectoId, [FromQuery] int? tipoId,
+        [FromQuery] string? estado,
+        [FromQuery] DateTime? fechaDesde, [FromQuery] DateTime? fechaHasta,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        try { return Ok(await _service.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, page, pageSize)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error lista inspecciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("dashboard")]
+    public async Task<IActionResult> GetDashboard(
+        [FromQuery] int? proyectoId, [FromQuery] int? anio)
+    {
+        try { return Ok(await _service.GetDashboardAsync(proyectoId, anio)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error dashboard inspecciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}")]
+    public async Task<IActionResult> GetDetalle(int id)
+    {
+        try { return Ok(await _service.GetDetalleAsync(id)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error detalle inspeccion {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> Crear([FromBody] CrearInspeccionRequest request)
+    {
+        try
+        {
+            if (request.TipoId <= 0)
+                return BadRequest(new { message = "El tipo de inspección es requerido." });
+            if (request.ProyectoId <= 0)
+                return BadRequest(new { message = "El proyecto es requerido." });
+            var id = await _service.CrearInspeccionAsync(request);
+            return Ok(new { id, message = "Inspección registrada correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error crear inspeccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPatch("~/api/v1/ssoma-inspeccion-hallazgo/{id:int}/cerrar")]
+    public async Task<IActionResult> CerrarHallazgo(int id, [FromBody] CerrarHallazgoRequest request)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(request.AccionCorrectiva))
+                return BadRequest(new { message = "La acción correctiva es requerida." });
+            await _service.CerrarHallazgoAsync(id, request);
+            return Ok(new { message = "Hallazgo cerrado correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error cerrar hallazgo {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+}

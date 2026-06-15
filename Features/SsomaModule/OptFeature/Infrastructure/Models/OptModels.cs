@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -19,6 +20,7 @@ public class SsomaOpt
     public bool SeFelicito { get; set; }
     public bool SeRecibieronComentarios { get; set; }
     public bool SeRetroalimento { get; set; }
+    [Column("se_obtuvo_compromiso")]
     public bool SeObtuvoCCompromiso { get; set; }
     public string? AccionRequerida { get; set; }
     public string? AccionObservacion { get; set; }

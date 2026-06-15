@@ -47,10 +47,35 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (string.IsNullOrWhiteSpace(token)) return null;
 
             var libraryId = ResolverLibraryId(libraryContexto ?? archivoUrl ?? string.Empty);
-            var driveId = await GetDriveIdAsync(siteId, token, libraryId);
-            if (string.IsNullOrWhiteSpace(driveId)) return null;
+            string? driveId;
+            string path;
 
-            var path = NormalizarPath(archivoUrl!);
+            if (libraryId != null)
+            {
+                driveId = await GetDriveIdAsync(siteId, token, libraryId);
+                path = NormalizarPath(archivoUrl!);
+            }
+            else
+            {
+                // Extraer primer segmento como nombre de librería (ej: "PETSAbril2026/archivo.docx" → "PETSAbril2026")
+                var normalizado = (archivoUrl ?? string.Empty).Trim().TrimStart('/');
+                var slashIdx = normalizado.IndexOf('/');
+                var libraryName = slashIdx > 0 ? normalizado[..slashIdx] : normalizado;
+                var pathDentro   = slashIdx > 0 ? normalizado[(slashIdx + 1)..] : string.Empty;
+
+                if (string.IsNullOrWhiteSpace(libraryName))
+                {
+                    _logger.LogWarning("GetDownloadUrlAsync: no se pudo extraer nombre de librería de '{Path}'", archivoUrl);
+                    return null;
+                }
+
+                driveId = await GetDriveIdByNameAsync(siteId, token, libraryName);
+                path = pathDentro;
+            }
+
+            if (string.IsNullOrWhiteSpace(driveId)) return null;
+            if (string.IsNullOrWhiteSpace(path)) return null;
+
             var encoded = Uri.EscapeDataString(path).Replace("%2F", "/");
             var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
 
@@ -159,6 +184,48 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return path;
         }
 
+        private async Task<string?> GetDriveIdByNameAsync(string siteId, string token, string libraryName)
+        {
+            if (string.IsNullOrWhiteSpace(libraryName)) return null;
+
+            var cacheKey = $"name:{libraryName}";
+            if (_driveIdCache.TryGetValue(cacheKey, out var cached)) return cached;
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
+
+            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives";
+            var response = await client.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Drives list GET falló ({Status}) para sitio {Site}", response.StatusCode, siteId);
+                return null;
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync();
+            using var doc = await JsonDocument.ParseAsync(stream);
+
+            if (!doc.RootElement.TryGetProperty("value", out var drives)) return null;
+
+            foreach (var drive in drives.EnumerateArray())
+            {
+                var name = drive.TryGetProperty("name", out var n) ? n.GetString() : null;
+                if (string.Equals(name, libraryName, StringComparison.OrdinalIgnoreCase))
+                {
+                    var driveId = drive.GetProperty("id").GetString()!;
+                    _driveIdCache[cacheKey] = driveId;
+                    _logger.LogInformation(
+                        "SharePoint drive por nombre '{Name}' resuelto — id: {DriveId}",
+                        libraryName, driveId);
+                    return driveId;
+                }
+            }
+
+            _logger.LogWarning("No se encontró drive con nombre '{Name}' en sitio {Site}", libraryName, siteId);
+            return null;
+        }
+
         private static string NormalizarPath(string rawPath)
         {
             var path = rawPath.Trim().TrimStart('/');
@@ -238,6 +305,13 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("interconsulta")) return _configuration["SharePoint:Sites:SSOMAApps:EmoInterconsultasLibraryId"];
             if (c.Contains("lectura-emo"))      return _configuration["SharePoint:Sites:SSOMAApps:LecturaEmosLibraryId"];
             if (c.Contains("paso-evidencias")) return _configuration["SharePoint:Sites:SSOMAApps:PasoEvidenciasLibraryId"];
+            if (c.Contains("rac-pdf"))         return _configuration["SharePoint:Sites:SSOMAApps:RacPdfLibraryId"];
+            if (c.Contains("rac-fotos"))       return _configuration["SharePoint:Sites:SSOMAApps:RacFotosLibraryId"];
+            if (c.Contains("rac-firmas"))      return _configuration["SharePoint:Sites:SSOMAApps:RacFirmasLibraryId"];
+            if (c.Contains("opt-firmas"))         return _configuration["SharePoint:Sites:SSOMAApps:OptFirmasLibraryId"];
+            if (c.Contains("inspeccion-fotos")) return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"];
+            if (c.Contains("inspeccion-firmas")) return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"];
+            if (c.Contains("penalidad-pdf"))   return _configuration["SharePoint:Sites:SSOMAApps:PenalidadPdfLibraryId"];
             return null;
         }
 

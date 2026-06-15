@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.Ssoma.Rac;
 
 [ApiController]
 [Route("api/v1/ssoma-rac")]
-[Authorize]
+[AllowAnonymous]
 public class RacController : ControllerBase
 {
     private readonly IRacService _service;
@@ -56,6 +56,14 @@ public class RacController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetInfracciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("proyecto/{projectId:int}/niveles")]
+    public async Task<IActionResult> GetNiveles(int projectId)
+    {
+        try { return Ok(await _service.GetNivelesProyectoAsync(projectId)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetNiveles"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPost]
     public async Task<IActionResult> Crear([FromBody] RacCreateRequest req)
     {
@@ -92,6 +100,21 @@ public class RacController : ControllerBase
         try { return StatusCode(201, await _service.SubirFotoAsync(id, file, tipo, GetUserId())); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.SubirFoto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}/reporte")]
+    public async Task<IActionResult> GetReporte(int id)
+    {
+        try
+        {
+            var rac = await _service.GetDetalleAsync(id);
+            if (rac is null) return NotFound(new { message = "RAC no encontrado." });
+            if (string.IsNullOrWhiteSpace(rac.PdfUrl)) return NotFound(new { message = "PDF no disponible." });
+            var url = "https://abrilinmob.sharepoint.com/sites/SSOMA-Powerapps/RacPDF2026/" + rac.PdfUrl;
+            return Ok(new { url });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetReporte"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     [HttpGet("{id:int}/pdf")]

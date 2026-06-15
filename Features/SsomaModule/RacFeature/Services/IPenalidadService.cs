@@ -8,5 +8,5 @@ public interface IPenalidadService
     Task<PenalidadDetalleDto?> GetDetalleAsync(int id);
     Task PresentarDescargaAsync(int id, PenalidadDescargaRequest req, int userId);
     Task<PenalidadDetalleDto> ResolverAsync(int id, PenalidadResolverRequest req, int userId);
-    Task<byte[]> GetPdfResolucionAsync(int id);
+    Task<string> GetPdfResolucionAsync(int id);
 }

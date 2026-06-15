@@ -53,6 +53,7 @@ public class RacCreateRequest
 public class RacCerrarRequest
 {
     public string CierreDescripcion { get; set; } = "";
+    public string? FotoCierreUrl { get; set; }
 }
 
 public class RacFotoDto
@@ -182,11 +183,8 @@ public class RacInfraccionDto
 {
     public int Id { get; set; }
     public string Nombre { get; set; } = "";
-    public decimal? FactorUit { get; set; }
     public decimal? MontoFijo { get; set; }
-    public string? Descripcion { get; set; }
-    public decimal MontoCalculado { get; set; }
-    public decimal UitReferencia { get; set; }
+    public decimal? FactorUit { get; set; }
 }
 
 public class RacCreadoDto

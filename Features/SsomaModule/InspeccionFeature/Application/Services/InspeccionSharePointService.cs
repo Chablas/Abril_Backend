@@ -1,0 +1,19 @@
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
+
+namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
+
+public class InspeccionSharePointService : IInspeccionSharePointService
+{
+    private readonly ISharePointHabService _sp;
+
+    public InspeccionSharePointService(ISharePointHabService sp) => _sp = sp;
+
+    public Task<string> SubirFotoHallazgoAsync(Stream stream, string filename, int inspeccionId, int hallazgoId)
+        => _sp.SubirArchivoEnRutaAsync(stream, filename, "inspeccion-fotos", $"Inspecciones/{inspeccionId}/hallazgos/{hallazgoId}");
+
+    public Task<string> SubirFirmaInspectorAsync(Stream stream, string filename, int inspeccionId)
+        => _sp.SubirArchivoEnRutaAsync(stream, filename, "inspeccion-firmas", $"Inspecciones/{inspeccionId}/firmas");
+
+    public Task<string> SubirFirmaRepresentanteAsync(Stream stream, string filename, int inspeccionId)
+        => _sp.SubirArchivoEnRutaAsync(stream, filename, "inspeccion-firmas", $"Inspecciones/{inspeccionId}/firmas");
+}

@@ -10,6 +10,7 @@ public class SsomaRacCategoria
     public int Id { get; set; }
     public string Nombre { get; set; } = "";
     public string Tipo { get; set; } = "";   // ACTO | CONDICION
+    public string? Ambito { get; set; }
     public bool Activo { get; set; } = true;
     public int Orden { get; set; }
 }
@@ -144,6 +145,7 @@ public class SsomaRacPenalidad
 
     // Descargo
     public string? DescargoTexto { get; set; }
+    public string? DocumentoUrl { get; set; }
     public DateTime? DescargoFecha { get; set; }
     public int? DescargoUsuarioId { get; set; }        // FK app_user (user_id)
 

@@ -6,6 +6,7 @@ using Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Extensions;
 using Dapper;
@@ -42,6 +43,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 ContractorEmail = string.Empty,
                 WorkItemId = dto.WorkItemId,
                 WorkItemCategoryId = dto.WorkItemCategoryId,
+                WorkSpecialtyId = dto.WorkSpecialtyId,
                 ProjectSubContractorStatusId = 1,
                 CreatedDateTime = DateTimeOffset.UtcNow,
                 CreatedUserId = userId,
@@ -81,6 +83,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             psc.HasIgv              = dto.HasIgv;
             psc.WorkItemId          = dto.WorkItemId;
             psc.WorkItemCategoryId  = dto.WorkItemCategoryId;
+            psc.WorkSpecialtyId     = dto.WorkSpecialtyId;
             psc.UpdatedDateTime     = DateTimeOffset.UtcNow;
             psc.UpdatedUserId       = userId;
 
@@ -308,6 +311,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cWorkItemCategoryActive      = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
             string cWorkItemCategorySyncStatus  = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.InstructivosSyncStatus));
 
+            // WorkSpecialty
+            string tWorkSpecialty       = ctx.Table<WorkSpecialty>();
+            string cWorkSpecialtyId     = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.WorkSpecialtyId));
+            string cWorkSpecialtyDesc   = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.WorkSpecialtyDescription));
+            string cWorkSpecialtyActive = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.Active));
+            string cWorkSpecialtyState  = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.State));
+
             // Contractor + Contributor
             string tContractor          = ctx.Table<Contractor>();
             string cContractorId        = ctx.Col<Contractor>(nameof(Contractor.ContractorId));
@@ -372,6 +382,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cWorkItemCategoryActive} = TRUE
                  ORDER BY {cWorkItemCategoryDesc};
 
+                SELECT {cWorkSpecialtyId}, {cWorkSpecialtyDesc}
+                  FROM {tWorkSpecialty}
+                 WHERE {cWorkSpecialtyActive} = TRUE AND {cWorkSpecialtyState} = TRUE
+                 ORDER BY {cWorkSpecialtyDesc};
+
                 SELECT ct.{cContractorId} AS contractor_id,
                        contrib.{cContributorId} AS contributor_id,
                        contrib.{cContributorName} AS contributor_name,
@@ -405,6 +420,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var currencies         = (await multi.ReadAsync<CurrencySimpleDTO>()).ToList();
             var workItems          = (await multi.ReadAsync<WorkItemSimpleDTO>()).ToList();
             var workItemCategories = (await multi.ReadAsync<WorkItemCategorySimpleDTO>()).ToList();
+            var workSpecialties    = (await multi.ReadAsync<WorkSpecialtySimpleDTO>()).ToList();
             var contractors        = (await multi.ReadAsync<ContributorFactoryDTO>()).ToList();
             var emails             = (await multi.ReadAsync<(int ContractorId, string Email)>()).ToList();
 
@@ -427,6 +443,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 Currencies         = currencies,
                 WorkItems          = workItems,
                 WorkItemCategories = workItemCategories,
+                WorkSpecialties    = workSpecialties,
                 Contributors       = contractors,
             };
         }
@@ -541,6 +558,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     WorkItemDescription = x.wi.WorkItemDescription,
                     WorkItemCategoryId = x.psc.WorkItemCategoryId,
                     WorkItemCategoryDescription = x.wic.WorkItemCategoryDescription,
+                    WorkSpecialtyId = x.psc.WorkSpecialtyId,
+                    WorkSpecialtyDescription = ctx.WorkSpecialty
+                        .Where(s => s.WorkSpecialtyId == x.psc.WorkSpecialtyId)
+                        .Select(s => s.WorkSpecialtyDescription)
+                        .FirstOrDefault(),
                     ProjectSubContractorStatusId = x.pscs.ProjectSubContractorStatusId,
                     ProjectSubContractorStatusDescription = x.pscs.ProjectSubContractorStatusDescription,
                     SigningDate = x.psc.SigningDate,
@@ -782,6 +804,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cWorkItemCategoryDesc = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryDescription));
             string cWorkItemCategoryActive = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
 
+            string cPscWorkSpecialtyId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.WorkSpecialtyId));
+            string tWorkSpecialtyDapper = ctx.Table<WorkSpecialty>();
+            string cWorkSpecialtyIdDapper = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.WorkSpecialtyId));
+            string cWorkSpecialtyDescDapper = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.WorkSpecialtyDescription));
+
             string tStatus = ctx.Table<ProjectSubContractorStatus>();
             string cStatusId = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusId));
             string cStatusDesc = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusDescription));
@@ -988,6 +1015,8 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        wi.{cWorkItemDesc} AS ""WorkItemDescription"",
        psc.{cPscWorkItemCategoryId} AS ""WorkItemCategoryId"",
        wic.{cWorkItemCategoryDesc} AS ""WorkItemCategoryDescription"",
+       psc.{cPscWorkSpecialtyId} AS ""WorkSpecialtyId"",
+       ws.{cWorkSpecialtyDescDapper} AS work_specialty_description,
        psc.{cPscStatusId} AS ""ProjectSubContractorStatusId"",
        pscs.{cStatusDesc} AS ""ProjectSubContractorStatusDescription"",
        psc.{cPscSigningDate} AS ""SigningDate"",
@@ -1084,6 +1113,7 @@ JOIN {tCurrency} cur ON psc.{cPscCurrencyId} = cur.{cCurrencyId}
 JOIN {tWorkItem} wi ON psc.{cPscWorkItemId} = wi.{cWorkItemId}
 JOIN {tStatus} pscs ON psc.{cPscStatusId} = pscs.{cStatusId}
 JOIN {tWorkItemCategory} wic ON psc.{cPscWorkItemCategoryId} = wic.{cWorkItemCategoryId}
+LEFT JOIN {tWorkSpecialtyDapper} ws ON psc.{cPscWorkSpecialtyId} = ws.{cWorkSpecialtyIdDapper}
 LEFT JOIN {tContractDoc} contractDoc ON psc.{cPscContractDocId} = contractDoc.{cContractDocId}
 LEFT JOIN {tFileStatus} fs_contract ON contractDoc.{cContractDocStatusId} = fs_contract.{cFileStatusId}
 LEFT JOIN {tSummaryDoc} summaryDoc ON psc.{cPscSummarySheetDocId} = summaryDoc.{cSummaryDocId}
@@ -1202,6 +1232,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     WorkItemDescription = raw.WorkItemDescription ?? "",
                     WorkItemCategoryId = (int)raw.WorkItemCategoryId,
                     WorkItemCategoryDescription = raw.WorkItemCategoryDescription ?? "",
+                    WorkSpecialtyId = (int?)raw.WorkSpecialtyId,
+                    WorkSpecialtyDescription = (string?)raw.work_specialty_description,
                     ProjectSubContractorStatusId = (int)raw.ProjectSubContractorStatusId,
                     ProjectSubContractorStatusDescription = raw.ProjectSubContractorStatusDescription ?? "",
                     SigningDate = ToDateOnly(raw.SigningDate),

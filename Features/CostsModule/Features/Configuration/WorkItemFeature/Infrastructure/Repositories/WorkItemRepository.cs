@@ -39,6 +39,11 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                 {
                     WorkItemId = x.WorkItemId,
                     WorkItemDescription = x.WorkItemDescription,
+                    WorkSpecialtyId = x.WorkSpecialtyId,
+                    WorkSpecialtyDescription = _context.WorkSpecialty
+                        .Where(s => s.WorkSpecialtyId == x.WorkSpecialtyId)
+                        .Select(s => s.WorkSpecialtyDescription)
+                        .FirstOrDefault(),
                     CreatedDateTime = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                     CreatedUserId = x.CreatedUserId,
                     UpdatedDateTime = x.UpdatedDateTime.HasValue
@@ -71,6 +76,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             var record = new WorkItem
             {
                 WorkItemDescription = dto.WorkItemDescription.Trim(),
+                WorkSpecialtyId = dto.WorkSpecialtyId,
                 Active = true,
                 State = true,
                 CreatedDateTime = DateTimeOffset.UtcNow,
@@ -98,6 +104,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                 throw new AbrilException("Ya existe una partida con esa descripción.");
 
             record.WorkItemDescription = dto.WorkItemDescription.Trim();
+            record.WorkSpecialtyId = dto.WorkSpecialtyId;
             record.Active = dto.Active;
             record.UpdatedDateTime = DateTimeOffset.UtcNow;
             record.UpdatedUserId = userId;
@@ -120,6 +127,114 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
 
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        public async Task<List<WorkSpecialtyOptionDto>> GetActiveSpecialties()
+        {
+            return await _context.WorkSpecialty
+                .Where(x => x.State && x.Active)
+                .OrderBy(x => x.WorkSpecialtyDescription)
+                .Select(x => new WorkSpecialtyOptionDto
+                {
+                    WorkSpecialtyId = x.WorkSpecialtyId,
+                    WorkSpecialtyDescription = x.WorkSpecialtyDescription
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<AdjudicacionFolderRootDto>> GetActiveAdjudicacionFolderRoots()
+        {
+            return await (
+                from f in _context.ProjectAdjudicacionFolder
+                join p in _context.Project on f.ProjectId equals p.ProjectId
+                where f.State && f.Active
+                select new AdjudicacionFolderRootDto
+                {
+                    ProjectId = f.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    DriveId = f.DriveId,
+                    FolderId = f.FolderId
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<ExistingWorkItemDto>> GetActivePartidas()
+        {
+            // Solo activas: el índice único parcial (WHERE state) permite N soft-deleted con el mismo nombre.
+            return await _context.WorkItem
+                .Where(x => x.State)
+                .Select(x => new ExistingWorkItemDto
+                {
+                    WorkItemId = x.WorkItemId,
+                    WorkItemDescription = x.WorkItemDescription,
+                    WorkSpecialtyId = x.WorkSpecialtyId
+                })
+                .ToListAsync();
+        }
+
+        public async Task<int> AssignSpecialties(IEnumerable<(int WorkItemId, int WorkSpecialtyId)> assignments, int userId)
+        {
+            var byId = assignments
+                .GroupBy(a => a.WorkItemId)
+                .ToDictionary(g => g.Key, g => g.First().WorkSpecialtyId);
+
+            if (byId.Count == 0) return 0;
+
+            var ids = byId.Keys.ToList();
+            var rows = await _context.WorkItem
+                .Where(x => ids.Contains(x.WorkItemId) && x.State)
+                .ToListAsync();
+
+            var now = DateTimeOffset.UtcNow;
+            var updated = 0;
+            foreach (var row in rows)
+            {
+                if (byId.TryGetValue(row.WorkItemId, out var sid) && row.WorkSpecialtyId != sid)
+                {
+                    row.WorkSpecialtyId = sid;
+                    row.UpdatedDateTime = now;
+                    row.UpdatedUserId = userId;
+                    updated++;
+                }
+            }
+
+            if (updated > 0) await _context.SaveChangesAsync();
+            return updated;
+        }
+
+        public async Task<List<string>> BulkCreate(IEnumerable<(string Description, int? WorkSpecialtyId)> items, int userId)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var created = new List<string>();
+
+            // Inserción defensiva: cada partida en su propio SaveChanges; si choca con el índice
+            // único (duplicado que se haya colado), se descarta esa fila y se continúa con el resto.
+            foreach (var (description, workSpecialtyId) in items)
+            {
+                var record = new WorkItem
+                {
+                    WorkItemDescription = description.Trim(),
+                    WorkSpecialtyId = workSpecialtyId,
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId
+                };
+
+                _context.WorkItem.Add(record);
+                try
+                {
+                    await _context.SaveChangesAsync();
+                    created.Add(record.WorkItemDescription);
+                }
+                catch (DbUpdateException)
+                {
+                    // Quitar la entidad fallida del tracker para no arrastrar el error a la siguiente.
+                    _context.Entry(record).State = EntityState.Detached;
+                }
+            }
+
+            return created;
         }
     }
 }

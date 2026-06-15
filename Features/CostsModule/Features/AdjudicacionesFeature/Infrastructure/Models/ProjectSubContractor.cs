@@ -20,6 +20,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public string ContractorEmail {get; set;}
         public int WorkItemId {get; set;}
         public int WorkItemCategoryId {get; set;}
+        // Especialidad de la partida (opcional). FK a work_specialty.
+        public int? WorkSpecialtyId {get; set;}
         public int ProjectSubContractorStatusId {get;set;}
 
         // Expediente dates (step 2)

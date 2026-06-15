@@ -4,6 +4,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
     {
         public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; } = null!;
+        public int? WorkSpecialtyId { get; set; }
+        public string? WorkSpecialtyDescription { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

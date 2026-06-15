@@ -14,6 +14,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public bool HasIgv { get; set; }
         public int WorkItemId { get; set; }
         public int WorkItemCategoryId { get; set; }
+        public int? WorkSpecialtyId { get; set; }
         public List<IFormFile>? QuotationFiles { get; set; }
         public List<IFormFile>? ComparativeFiles { get; set; }
     }

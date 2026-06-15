@@ -480,7 +480,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var sb = new StringBuilder();
             sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
             sb.AppendLine("<p>Estimado equipo de Oficina Técnica,</p>");
-            sb.AppendLine("<p>Se les informa que el expediente físico del siguiente contrato llegó a Oficina Central con observaciones:</p>");
+            sb.AppendLine("<p>Se les informa que el contrato llegó a Oficina Central con observaciones:</p>");
             sb.AppendLine("<ul>");
             sb.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
             sb.AppendLine($"  <li><strong>Contratista:</strong> {data.ContributorName}</li>");

@@ -1748,15 +1748,26 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 join ct     in ctx.Contractor   on psc.ContractorId equals ct.ContractorId
                 join contrib in ctx.Contributor on ct.ContributorId equals contrib.ContributorId
                 join wi     in ctx.WorkItem     on psc.WorkItemId   equals wi.WorkItemId
+                join wsj    in ctx.WorkSpecialty on psc.WorkSpecialtyId equals wsj.WorkSpecialtyId into wsg
+                from ws in wsg.DefaultIfEmpty()
+                join paf in ctx.ProjectAdjudicacionFolder.Where(f => f.Active && f.State)
+                    on psc.ProjectId equals paf.ProjectId into pafg
+                from folder in pafg.DefaultIfEmpty()
                 where psc.ProjectSubContractorId == projectSubContractorId && psc.State
                 select new AdjudicacionPathDataDto
                 {
-                    ProjectSubContractorId = psc.ProjectSubContractorId,
-                    ProjectDescription     = p.ProjectDescription,
-                    Abbreviation           = p.Abbreviation,
-                    ContributorRuc         = contrib.ContributorRuc,
-                    ContributorName        = contrib.ContributorName,
-                    WorkItemDescription    = wi.WorkItemDescription,
+                    ProjectSubContractorId   = psc.ProjectSubContractorId,
+                    ProjectId                = psc.ProjectId,
+                    ProjectDescription       = p.ProjectDescription,
+                    Abbreviation             = p.Abbreviation,
+                    ContributorRuc           = contrib.ContributorRuc,
+                    ContributorName          = contrib.ContributorName,
+                    WorkItemDescription      = wi.WorkItemDescription,
+                    WorkSpecialtyDescription = ws != null ? ws.WorkSpecialtyDescription : null,
+                    DriveId                  = folder != null ? folder.DriveId : null,
+                    ProjectFolderId          = folder != null ? folder.FolderId : null,
+                    ProjectFolderName        = folder != null ? folder.FolderName : null,
+                    AdjudicacionFolderName   = psc.AdjudicacionFolderName,
                 }
             ).FirstOrDefaultAsync();
 
@@ -1764,6 +1775,26 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 throw new AbrilException("La adjudicación no existe.");
 
             return data;
+        }
+
+        public async Task SetAdjudicacionFolderNameAsync(int projectSubContractorId, string folderName)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var psc = await ctx.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                ?? throw new AbrilException("La adjudicación no existe.");
+
+            psc.AdjudicacionFolderName = folderName;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<string?> GetAdjudicacionFolderNameAsync(int projectSubContractorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.ProjectSubContractor
+                .Where(x => x.ProjectSubContractorId == projectSubContractorId && x.State)
+                .Select(x => x.AdjudicacionFolderName)
+                .FirstOrDefaultAsync();
         }
 
         public async Task SaveDocumentAsync(

@@ -24,6 +24,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? WorkSpecialtyId {get; set;}
         public int ProjectSubContractorStatusId {get;set;}
 
+        // Nombre de la carpeta de la adjudicación en OneDrive ("ADJUDICACIÓN N° X"), autoincremental
+        // dentro de la carpeta del contratista (especialidad+partida+contratista). Se asigna la primera
+        // vez que se guarda un documento y se reutiliza para que todos los documentos vayan a la misma carpeta.
+        public string? AdjudicacionFolderName { get; set; }
+
         // Expediente dates (step 2)
         public DateOnly? SigningDate { get; set; }
         public DateOnly? StartDate { get; set; }

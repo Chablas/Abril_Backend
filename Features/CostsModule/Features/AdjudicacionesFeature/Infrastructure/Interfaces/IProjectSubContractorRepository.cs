@@ -22,6 +22,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task UpdateStatus(int projectSubContractorId, int statusId, int userId);
         Task SaveDates(int projectSubContractorId, UpdateDatesDTO dto, int userId);
         Task<AdjudicacionPathDataDto> GetPathDataAsync(int projectSubContractorId);
+        /// <summary>Persiste el nombre asignado a la carpeta de la adjudicación en OneDrive ("ADJUDICACIÓN N° X").</summary>
+        Task SetAdjudicacionFolderNameAsync(int projectSubContractorId, string folderName);
+        /// <summary>Lee el nombre asignado a la carpeta de la adjudicación (null si aún no tiene).</summary>
+        Task<string?> GetAdjudicacionFolderNameAsync(int projectSubContractorId);
         Task SaveDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, string fileUrl, string originalFileName, int userId, string? sharepointItemId = null);
         Task UpdateDocumentStatusAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int? statusId, string? observation, int userId);
         Task<AdjudicacionSummarySheetDataDto> GetSummarySheetDataAsync(int projectSubContractorId);

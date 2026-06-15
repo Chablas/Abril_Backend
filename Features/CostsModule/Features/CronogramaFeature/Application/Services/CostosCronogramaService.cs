@@ -1,12 +1,11 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos;
+using Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Application.Dtos;
 using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Application.Helpers;
 using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastructure.Interfaces;
-using Abril_Backend.Shared.Services.SharePoint.Interfaces;
-using Abril_Backend.Shared.Services.SharePoint.Options;
 using ClosedXML.Excel;
 
 namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Application.Services
@@ -15,21 +14,18 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Applicat
     {
         private readonly ICostosCronogramaRepository _repository;
         private readonly IProjectSubContractorRepository _adjudicacionRepository;
-        private readonly IGraphSharePointService _sharePointService;
-        private readonly SharePointSiteRef _site;
+        private readonly IAdjudicacionOneDriveStorage _oneDriveStorage;
 
         private const string XlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
         public CostosCronogramaService(
             ICostosCronogramaRepository repository,
             IProjectSubContractorRepository adjudicacionRepository,
-            IGraphSharePointService sharePointService,
-            IConfiguration configuration)
+            IAdjudicacionOneDriveStorage oneDriveStorage)
         {
             _repository = repository;
             _adjudicacionRepository = adjudicacionRepository;
-            _sharePointService = sharePointService;
-            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
+            _oneDriveStorage = oneDriveStorage;
         }
 
         public async Task<CronogramaFormDataDto> GetFormData(int projectSubContractorId)
@@ -75,7 +71,6 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Applicat
             ms.Position = 0;
 
             var pathData = await _adjudicacionRepository.GetPathDataAsync(projectSubContractorId);
-            var folderPath = BuildCronogramaFolderPath(pathData);
 
             var abrev = !string.IsNullOrWhiteSpace(header.Abbreviation)
                 ? header.Abbreviation
@@ -86,17 +81,11 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Applicat
 
             // autoRenameOnLock: si ya existe un cronograma con el mismo nombre abierto/en uso
             // (HTTP 423), se sube con un nombre alterno ("… (2).xlsx") en lugar de fallar.
-            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                site:             _site,
-                libraryName:      "Adjudicaciones",
-                folderPath:       folderPath,
-                fileName:         fileName,
-                fileStream:       ms,
-                contentType:      XlsxMime,
-                autoRenameOnLock: true)
-                ?? throw new AbrilException("No se pudo subir el cronograma a SharePoint.");
+            var spResult = await _oneDriveStorage.UploadAsync(
+                pathData, AdjudicacionDocumentType.Schedule, fileName, ms, XlsxMime,
+                autoRenameOnLock: true);
 
-            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del cronograma generado.");
+            var fileUrl = spResult.WebUrl!;
             var finalFileName = spResult.FileName ?? fileName; // puede diferir si hubo renombrado por conflicto
 
             // Registrar como documento "Cronograma" (aparece el enlace en el paso 3)
@@ -104,22 +93,6 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Applicat
             await _adjudicacionRepository.SaveDocumentAsync(
                 projectSubContractorId, AdjudicacionDocumentType.Schedule, fileUrl, finalFileName, userId, spResult.ItemId);
             await _repository.SaveFileInfoAsync(projectSubContractorId, fileUrl, finalFileName, userId);
-        }
-
-        /// <summary>Ruta {proyecto}/{empresa}/{partida}/Cronograma en la biblioteca de Adjudicaciones.</summary>
-        private static string BuildCronogramaFolderPath(AdjudicacionPathDataDto data)
-        {
-            var project  = Sanitize(data.ProjectDescription);
-            var company  = Sanitize($"{data.ContributorRuc} - {data.ContributorName}");
-            var workItem = Sanitize($"{data.ProjectSubContractorId} - {data.WorkItemDescription}");
-            return $"{project}/{company}/{workItem}/Cronograma";
-        }
-
-        private static string Sanitize(string name)
-        {
-            var invalid = new HashSet<char> { '\\', '/', ':', '*', '?', '"', '<', '>', '|', '#', '%' };
-            var result = string.Concat(name.Select(c => invalid.Contains(c) ? '-' : c)).Trim();
-            return result.Length > 60 ? result[..60].TrimEnd() : result;
         }
     }
 }

@@ -84,20 +84,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             {
                 result.ProjectsScanned++;
 
-                var topLevel = await _graphSharePoint.GetChildFoldersByItemIdAsync(root.DriveId, root.FolderId);
-
-                // Carpeta de "Contratos" (el nombre varía: "1.Contratos", "1. Contratos",
-                // "4. Contratos de Amaranta", "3. Contrato", …) → empieza por "CONTRATO".
-                var contratosFolder = topLevel.FirstOrDefault(f =>
-                    NormalizeKey(f.Name).StartsWith("CONTRATO", StringComparison.Ordinal));
-
-                if (contratosFolder is null)
-                {
-                    result.ProjectsWithoutContratosFolder.Add(root.ProjectDescription);
-                    continue;
-                }
-
-                var specialtyFolders = await _graphSharePoint.GetChildFoldersByItemIdAsync(root.DriveId, contratosFolder.ItemId);
+                // La carpeta configurada en Configuración → Carpeta de adjudicaciones ES directamente
+                // la carpeta de "Contratos" del proyecto: sus hijos son las carpetas de especialidad.
+                var specialtyFolders = await _graphSharePoint.GetChildFoldersByItemIdAsync(root.DriveId, root.FolderId);
 
                 foreach (var specialtyFolder in specialtyFolders)
                 {

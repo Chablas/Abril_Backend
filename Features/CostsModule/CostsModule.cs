@@ -54,6 +54,7 @@ namespace Abril_Backend.Features.Costs
             // Adjudicaciones
             services.AddScoped<IProjectSubContractorRepository, ProjectSubContractorRepository>();
             services.AddScoped<IProjectSubContractorService, ProjectSubContractorService>();
+            services.AddScoped<IAdjudicacionOneDriveStorage, AdjudicacionOneDriveStorage>();
 
             // StaffProjectEmail
             services.AddScoped<IStaffProjectEmailRepository, StaffProjectEmailRepository>();

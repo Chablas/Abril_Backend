@@ -301,6 +301,122 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
                 ?? throw new InvalidOperationException("No se pudo obtener el token de aplicación.");
         }
 
+        public async Task<ShareLinkResolveDto?> ResolveShareLinkAsync(string link)
+        {
+            if (string.IsNullOrWhiteSpace(link)) return null;
+
+            var token = await GetAppTokenAsync();
+
+            // Codificar el link a "shareId" (base64url con prefijo u!) según la Graph Shares API.
+            var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(link.Trim()))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+            var shareId = $"u!{b64}";
+
+            var client = _httpClientFactory.CreateClient();
+            var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"https://graph.microsoft.com/v1.0/shares/{shareId}/driveItem?$select=id,name,webUrl,folder,parentReference");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await client.SendAsync(request);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var itemId = root.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            string? driveId = null;
+            if (root.TryGetProperty("parentReference", out var pr) && pr.TryGetProperty("driveId", out var drvEl))
+                driveId = drvEl.GetString();
+
+            if (string.IsNullOrWhiteSpace(itemId) || string.IsNullOrWhiteSpace(driveId))
+                return null;
+
+            return new ShareLinkResolveDto
+            {
+                DriveId  = driveId!,
+                ItemId   = itemId!,
+                Name     = root.TryGetProperty("name", out var nEl) ? nEl.GetString() : null,
+                WebUrl   = root.TryGetProperty("webUrl", out var wEl) ? wEl.GetString() : null,
+                IsFolder = root.TryGetProperty("folder", out _),
+            };
+        }
+
+        public async Task<List<ShareLinkResolveDto>> GetChildFoldersByItemIdAsync(string driveId, string itemId)
+        {
+            var token = await GetAppTokenAsync();
+            var client = _httpClientFactory.CreateClient();
+
+            var result = new List<ShareLinkResolveDto>();
+            var url = $"https://graph.microsoft.com/v1.0/drives/{driveId}/items/{itemId}/children?$select=id,name,webUrl,folder&$top=200";
+
+            // Paginar por si hay muchas carpetas.
+            while (!string.IsNullOrEmpty(url))
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                var response = await client.SendAsync(request);
+                if (!response.IsSuccessStatusCode) break;
+
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("value", out var arr))
+                {
+                    foreach (var el in arr.EnumerateArray())
+                    {
+                        if (!el.TryGetProperty("folder", out _)) continue; // solo carpetas
+                        result.Add(new ShareLinkResolveDto
+                        {
+                            DriveId  = driveId,
+                            ItemId   = el.GetProperty("id").GetString()!,
+                            Name     = el.TryGetProperty("name", out var n) ? n.GetString() : null,
+                            WebUrl   = el.TryGetProperty("webUrl", out var w) ? w.GetString() : null,
+                            IsFolder = true,
+                        });
+                    }
+                }
+
+                url = root.TryGetProperty("@odata.nextLink", out var next) ? next.GetString() : null;
+            }
+
+            return result.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        public async Task<ShareLinkResolveDto?> GetDriveItemAsync(string driveId, string itemId)
+        {
+            var token = await GetAppTokenAsync();
+            var client = _httpClientFactory.CreateClient();
+
+            var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"https://graph.microsoft.com/v1.0/drives/{driveId}/items/{itemId}?$select=id,name,webUrl,folder");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await client.SendAsync(request);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var id = root.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            if (string.IsNullOrWhiteSpace(id)) return null;
+
+            return new ShareLinkResolveDto
+            {
+                DriveId  = driveId,
+                ItemId   = id!,
+                Name     = root.TryGetProperty("name", out var n) ? n.GetString() : null,
+                WebUrl   = root.TryGetProperty("webUrl", out var w) ? w.GetString() : null,
+                IsFolder = root.TryGetProperty("folder", out _),
+            };
+        }
+
         public async Task<byte[]> DownloadFromSharePointAsync(SharePointSiteRef site, string webUrl)
         {
             var token  = await GetAppTokenAsync();

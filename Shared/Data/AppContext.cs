@@ -3,6 +3,9 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Models;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastructure.Models;
+using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Infrastructure.Models;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
@@ -70,6 +73,11 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<WorkItemCategoryAnexo4Clause> WorkItemCategoryAnexo4Clause { get; set; }
         public DbSet<WorkItem> WorkItem { get; set; }
         public DbSet<ProjectSubContractor> ProjectSubContractor { get; set; }
+        public DbSet<CostosCronograma> CostosCronograma { get; set; }
+        public DbSet<CostosCronogramaActividad> CostosCronogramaActividad { get; set; }
+        public DbSet<CostosCronogramaActividadNodo> CostosCronogramaActividadNodo { get; set; }
+        public DbSet<ProjectAdjudicacionFolder> ProjectAdjudicacionFolder { get; set; }
+        public DbSet<WorkSpecialty> WorkSpecialty { get; set; }
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
         public DbSet<ProjectSubContractorStatus> ProjectSubContractorStatus { get; set; }

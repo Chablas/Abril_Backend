@@ -46,6 +46,19 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
             bool autoRenameOnLock = false);
 
         /// <summary>
+        /// Resuelve un link de SharePoint/OneDrive (cualquier formato) a su ubicación estable
+        /// (driveId + itemId) usando la Graph Shares API con permisos de aplicación. Devuelve
+        /// null si no se puede resolver (no existe, sin acceso o link inválido).
+        /// </summary>
+        Task<ShareLinkResolveDto?> ResolveShareLinkAsync(string link);
+
+        /// <summary>Lista las subcarpetas directas (id + nombre) de un item por su driveId+itemId.</summary>
+        Task<List<ShareLinkResolveDto>> GetChildFoldersByItemIdAsync(string driveId, string itemId);
+
+        /// <summary>Obtiene un driveItem por driveId+itemId (para validar/leer la carpeta elegida). Null si no existe.</summary>
+        Task<ShareLinkResolveDto?> GetDriveItemAsync(string driveId, string itemId);
+
+        /// <summary>
         /// Descarga el contenido de un archivo del sitio indicado por <paramref name="site"/>
         /// a partir de su webUrl, usando permisos de aplicación (Files.Read.All). La webUrl
         /// debe pertenecer al sitio o se lanza una excepción.

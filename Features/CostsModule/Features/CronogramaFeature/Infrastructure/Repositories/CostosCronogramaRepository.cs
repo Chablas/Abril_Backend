@@ -89,6 +89,55 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastr
                 .ToList();
         }
 
+        public async Task<List<CronogramaNodoDetalleDto>> GetNodosDetalleAsync(int projectSubContractorId)
+        {
+            var cronogramaId = await _context.CostosCronograma
+                .Where(c => c.ProjectSubContractorId == projectSubContractorId && c.State)
+                .Select(c => (int?)c.CostosCronogramaId)
+                .FirstOrDefaultAsync();
+
+            if (cronogramaId == null) return new List<CronogramaNodoDetalleDto>();
+
+            var nodos = await _context.CostosCronogramaActividadNodo
+                .Where(n => n.CostosCronogramaId == cronogramaId)
+                .ToListAsync();
+
+            var actividadIds = nodos.Select(n => n.CostosCronogramaActividadId).Distinct().ToList();
+            var nombres = await _context.CostosCronogramaActividad
+                .Where(a => actividadIds.Contains(a.CostosCronogramaActividadId))
+                .ToDictionaryAsync(a => a.CostosCronogramaActividadId, a => a.Nombre);
+
+            var actividadPorNodo = nodos.ToDictionary(n => n.CostosCronogramaActividadNodoId, n => n.CostosCronogramaActividadId);
+
+            return nodos
+                .OrderBy(n => n.CostosCronogramaNodoOrden)
+                .Select(n => new CronogramaNodoDetalleDto
+                {
+                    ActividadId = n.CostosCronogramaActividadId,
+                    ParentActividadId = n.CostosCronogramaActividadNodoPadreId == null
+                        ? null
+                        : actividadPorNodo.GetValueOrDefault(n.CostosCronogramaActividadNodoPadreId.Value),
+                    Orden = n.CostosCronogramaNodoOrden,
+                    Nombre = nombres.GetValueOrDefault(n.CostosCronogramaActividadId, string.Empty),
+                    FechaInicio = n.FechaInicio,
+                    FechaFin = n.FechaFin,
+                })
+                .ToList();
+        }
+
+        public async Task SaveFileInfoAsync(int projectSubContractorId, string fileUrl, string originalFileName, int userId)
+        {
+            var cronograma = await _context.CostosCronograma
+                .FirstOrDefaultAsync(c => c.ProjectSubContractorId == projectSubContractorId && c.State)
+                ?? throw new AbrilException("No existe un cronograma para esta adjudicación.");
+
+            cronograma.FileUrl = fileUrl;
+            cronograma.OriginalFileName = originalFileName;
+            cronograma.UpdatedDateTime = DateTimeOffset.UtcNow;
+            cronograma.UpdatedUserId = userId;
+            await _context.SaveChangesAsync();
+        }
+
         public async Task SaveAsync(int projectSubContractorId, List<CronogramaNodoDto> nodos, int userId)
         {
             var pscExists = await _context.ProjectSubContractor

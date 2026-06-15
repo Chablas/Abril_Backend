@@ -1462,7 +1462,13 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                   FROM {tSpe} spe
                   JOIN {tPsc} psc ON psc.{cPscProj} = spe.{cSpeProjId}
                  WHERE psc.{cPscId} = @Id AND psc.{cPscState} = TRUE
-                   AND spe.{cSpeTypeId} = 1 AND spe.{cSpeState} = TRUE AND spe.{cSpeActive} = TRUE;";
+                   AND spe.{cSpeTypeId} = 1 AND spe.{cSpeState} = TRUE AND spe.{cSpeActive} = TRUE;
+
+                SELECT spe.{cSpeEmail}
+                  FROM {tSpe} spe
+                  JOIN {tPsc} psc ON psc.{cPscProj} = spe.{cSpeProjId}
+                 WHERE psc.{cPscId} = @Id AND psc.{cPscState} = TRUE
+                   AND spe.{cSpeTypeId} = 3 AND spe.{cSpeState} = TRUE AND spe.{cSpeActive} = TRUE;";
 
             // ----- Ejecutar y leer los 3 result sets -----
 
@@ -1478,15 +1484,17 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             if (head.StatusId != 4)
                 throw new AbrilException("La adjudicación no está en estado 'Por enviar al SC'.");
 
-            var contractorEmails = (await multi.ReadAsync<string>()).ToList();
-            var staffObraEmails  = (await multi.ReadAsync<string>()).ToList();
+            var contractorEmails     = (await multi.ReadAsync<string>()).ToList();
+            var staffObraEmails      = (await multi.ReadAsync<string>()).ToList();
+            var oficinaTecnicaEmails = (await multi.ReadAsync<string>()).ToList();
 
             return new ScNotificationDataDto
             {
-                ProjectDescription  = head.ProjectDescription,
-                WorkItemDescription = head.WorkItemDescription,
-                ContractorEmails    = contractorEmails,
-                StaffObraEmails     = staffObraEmails
+                ProjectDescription   = head.ProjectDescription,
+                WorkItemDescription  = head.WorkItemDescription,
+                ContractorEmails     = contractorEmails,
+                StaffObraEmails      = staffObraEmails,
+                OficinaTecnicaEmails = oficinaTecnicaEmails
             };
         }
 
@@ -1524,9 +1532,11 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             var workItem = await _context.WorkItem
                 .FirstOrDefaultAsync(w => w.WorkItemId == psc.WorkItemId);
 
-            var staffObraEmails = await _context.StaffProjectEmail
-                .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 1 && s.State && s.Active)
-                .Select(s => s.Email)
+            var emails = await _context.StaffProjectEmail
+                .Where(s => s.ProjectId == psc.ProjectId
+                    && (s.StaffProjectEmailTypeId == 1 || s.StaffProjectEmailTypeId == 3)
+                    && s.State && s.Active)
+                .Select(s => new { s.Email, s.StaffProjectEmailTypeId })
                 .ToListAsync();
 
             return new Step6NotificationDataDto
@@ -1535,7 +1545,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ContributorName     = contributorName ?? string.Empty,
                 WorkItemDescription = workItem?.WorkItemDescription  ?? string.Empty,
                 ContractNumber      = psc.ContractNumber,
-                StaffObraEmails     = staffObraEmails
+                StaffObraEmails      = emails.Where(e => e.StaffProjectEmailTypeId == 1).Select(e => e.Email).ToList(),
+                OficinaTecnicaEmails = emails.Where(e => e.StaffProjectEmailTypeId == 3).Select(e => e.Email).ToList()
             };
         }
 
@@ -1634,10 +1645,12 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 select contrib.ContributorName
             ).FirstOrDefaultAsync();
 
-            // Staff de Obra absorbe el rol que tenía Oficina Técnica (tipo 3 eliminado del catálogo).
-            var staffObraEmails = await _context.StaffProjectEmail
-                .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 1 && s.State && s.Active)
-                .Select(s => s.Email)
+            // Paso 8: destinatario = Staff de obra (tipo 1); copia = Oficina Técnica (tipo 3).
+            var emails = await _context.StaffProjectEmail
+                .Where(s => s.ProjectId == psc.ProjectId
+                    && (s.StaffProjectEmailTypeId == 1 || s.StaffProjectEmailTypeId == 3)
+                    && s.State && s.Active)
+                .Select(s => new { s.Email, s.StaffProjectEmailTypeId })
                 .ToListAsync();
 
             var scannedDocs = await _context.ProjectSubContractorScannedDoc
@@ -1650,7 +1663,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             {
                 ProjectDescription  = projectDescription,
                 ContributorName     = contributorName ?? string.Empty,
-                StaffObraEmails     = staffObraEmails,
+                StaffObraEmails      = emails.Where(e => e.StaffProjectEmailTypeId == 1).Select(e => e.Email).ToList(),
+                OficinaTecnicaEmails = emails.Where(e => e.StaffProjectEmailTypeId == 3).Select(e => e.Email).ToList(),
                 ScannedDocs         = scannedDocs
             };
         }
@@ -2139,11 +2153,11 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 select contrib.ContributorName
             ).FirstOrDefaultAsync() ?? string.Empty;
 
-            // Staff de Obra ahora cumple el rol que antes tenía Oficina Técnica.
-            // El tipo 3 (Oficina Técnica) fue eliminado del catálogo; se consolida en el tipo 1.
-            var staffObraEmails = await _context.StaffProjectEmail
-                .Where(s => s.ProjectId == psc.ProjectId && s.StaffProjectEmailTypeId == 1 && s.State && s.Active)
-                .Select(s => s.Email)
+            var emails = await _context.StaffProjectEmail
+                .Where(s => s.ProjectId == psc.ProjectId
+                    && (s.StaffProjectEmailTypeId == 1 || s.StaffProjectEmailTypeId == 3)
+                    && s.State && s.Active)
+                .Select(s => new { s.Email, s.StaffProjectEmailTypeId })
                 .ToListAsync();
 
             return new Step3ApprovalDataDto
@@ -2151,7 +2165,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 ProjectDescription  = projectDescription,
                 ContributorName     = contributorName,
                 WorkItemDescription = workItemDescription,
-                StaffObraEmails     = staffObraEmails,
+                StaffObraEmails      = emails.Where(e => e.StaffProjectEmailTypeId == 1).Select(e => e.Email).ToList(),
+                OficinaTecnicaEmails = emails.Where(e => e.StaffProjectEmailTypeId == 3).Select(e => e.Email).ToList(),
             };
         }
 

@@ -254,12 +254,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
 
-            if (data.StaffObraEmails.Count == 0)
-                throw MissingStaffEmailConfig("Staff de obra");
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 4, userId);
 
-            if (data.StaffObraEmails.Count > 0)
+            if (data.OficinaTecnicaEmails.Count > 0)
             {
                 var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
                 var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
@@ -267,7 +267,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
                 var body = new StringBuilder();
                 body.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
-                body.AppendLine("<p>Estimado equipo de Staff de Obra,</p>");
+                body.AppendLine("<p>Estimado equipo de Oficina Técnica,</p>");
                 body.AppendLine("<p>Se le informa que los documentos han sido revisados, aprobados y la adjudicación avanza a la siguiente etapa. A continuación se detallan los datos:</p>");
                 body.AppendLine("<ul>");
                 body.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
@@ -281,7 +281,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 // no a través de un proveedor externo.
                 await _delegatedMailService.SendAsync(
                     graphAccessToken: graphAccessToken,
-                    to:               data.StaffObraEmails,
+                    to:               data.OficinaTecnicaEmails,
                     subject:          $"Adjudicación aprobada - {data.ProjectDescription} / {data.ContributorName}",
                     body:             body.ToString() + signature,
                     isHtml:           true,
@@ -295,8 +295,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var data     = await _projectSubContractorRepository.GetScNotificationDataAsync(projectSubContractorId);
             var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
 
-            if (data.StaffObraEmails.Count == 0)
-                throw MissingStaffEmailConfig("Staff de obra");
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             byte[] fileBytes;
             string fileName;
@@ -346,7 +346,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
 
             var costosEmailsSc = await _costosPresupuestosEmailService.GetActiveEmails();
-            var ccEmails = data.StaffObraEmails
+            var ccEmails = data.OficinaTecnicaEmails
                 .Concat(costosEmailsSc)
                 .Distinct()
                 .ToList();
@@ -371,17 +371,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, string? arrivalObservation, string graphAccessToken, int userId)
         {
-            // Validar antes de cambiar el estado: el correo del paso 6 requiere Staff de obra.
-            var staffCheck = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
-            if (staffCheck.StaffObraEmails.Count == 0)
-                throw MissingStaffEmailConfig("Staff de obra");
+            // Validar antes de cambiar el estado: el correo del paso 6 va a Oficina Técnica.
+            var emailCheck = await _projectSubContractorRepository.GetStep5EmailDataAsync(projectSubContractorId);
+            if (emailCheck.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             await _projectSubContractorRepository.ConfirmStep5Async(projectSubContractorId, arrivedWithObservations, arrivalObservation, userId);
 
             var data = await _projectSubContractorRepository.GetStep6NotificationDataAsync(projectSubContractorId);
 
             var costosEmailsStep5 = await _costosPresupuestosEmailService.GetActiveEmails();
-            var toEmails = data.StaffObraEmails
+            var toEmails = data.OficinaTecnicaEmails
                 .Concat(costosEmailsStep5)
                 .Distinct()
                 .ToList();
@@ -542,13 +542,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (data.ScannedDocs.Count == 0)
                 throw new AbrilException("No hay documentos escaneados adjuntos para enviar.");
 
-            var toEmails = data.StaffObraEmails
+            var toEmails = data.OficinaTecnicaEmails
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .ToList();
 
             if (toEmails.Count == 0)
-                throw MissingStaffEmailConfig("Staff de obra");
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             var attachments    = await DownloadAttachmentsAsync(data.ScannedDocs);
             var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
@@ -594,16 +594,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
 
-            // Destinatarios: Costos y Presupuestos + Staff de Obra del proyecto
+            // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
             var costosEmailsObs = await _costosPresupuestosEmailService.GetActiveEmails();
             var toEmails = costosEmailsObs
-                .Concat(data.StaffObraEmails)
+                .Concat(data.OficinaTecnicaEmails)
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .ToList();
 
-            if (toEmails.Count == 0)
-                throw MissingStaffEmailConfig("Staff de obra");
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
             var signature     = BuildEmailSignature(senderProfile);
@@ -634,16 +634,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     "No hay documentos con observaciones registradas en este momento. " +
                     "Marque al menos un documento como 'Con observaciones' antes de enviar el correo.", 400);
 
-            // Destinatarios: Costos y Presupuestos + Staff de Obra del proyecto
+            // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
             var costosEmailsObs = await _costosPresupuestosEmailService.GetActiveEmails();
             var toEmails = costosEmailsObs
-                .Concat(data.StaffObraEmails)
+                .Concat(data.OficinaTecnicaEmails)
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .ToList();
 
-            if (toEmails.Count == 0)
-                throw MissingStaffEmailConfig("Staff de obra");
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
             var signature     = BuildEmailSignature(senderProfile);

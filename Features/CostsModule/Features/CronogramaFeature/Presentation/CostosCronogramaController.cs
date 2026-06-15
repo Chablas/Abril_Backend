@@ -81,8 +81,9 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Presenta
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.Error.WriteLine($"[CronogramaSave] {ex}");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

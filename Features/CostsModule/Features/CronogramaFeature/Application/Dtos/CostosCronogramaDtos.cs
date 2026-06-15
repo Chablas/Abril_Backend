@@ -35,4 +35,15 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Applicat
         /// <summary>Nodos del cronograma existente de la adjudicación (vacío si aún no hay).</summary>
         public List<CronogramaNodoDto> Nodos { get; set; } = new();
     }
+
+    /// <summary>Nodo con el nombre de la actividad — usado para generar el Excel del cronograma.</summary>
+    public class CronogramaNodoDetalleDto
+    {
+        public int ActividadId { get; set; }
+        public int? ParentActividadId { get; set; }
+        public int Orden { get; set; }
+        public string Nombre { get; set; } = null!;
+        public DateOnly? FechaInicio { get; set; }
+        public DateOnly? FechaFin { get; set; }
+    }
 }

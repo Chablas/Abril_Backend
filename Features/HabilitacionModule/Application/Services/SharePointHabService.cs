@@ -222,8 +222,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 }
             }
 
-            _logger.LogWarning("No se encontró drive con nombre '{Name}' en sitio {Site}", libraryName, siteId);
-            return null;
+            _logger.LogWarning("No se encontró drive con nombre '{Name}', usando drive default", libraryName);
+            return await GetDriveIdAsync(siteId, token, null);
         }
 
         private static string NormalizarPath(string rawPath)

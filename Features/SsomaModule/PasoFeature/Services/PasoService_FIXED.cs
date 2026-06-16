@@ -1036,6 +1036,8 @@ if (cat is not null) act.Categoria = cat;
                 .ThenInclude(a => a.Categoria)
             .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones.Where(e => e.FechaProgramada >= fechaInicio && e.FechaProgramada <= fechaFin))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
+                .ThenInclude(a => a.Ejecuciones.Where(e => e.FechaProgramada >= fechaInicio && e.FechaProgramada <= fechaFin))
                     .ThenInclude(e => e.Archivos)
             .FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new KeyNotFoundException("PASO no encontrado.");

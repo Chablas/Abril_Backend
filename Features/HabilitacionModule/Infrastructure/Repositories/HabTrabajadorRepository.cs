@@ -262,7 +262,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     DiasRestantesEmo = emoVenc.HasValue
                         ? (int?)(emoVenc.Value.DayNumber - today.DayNumber)
                         : null,
-                    EstadoProgramacionEmo = estadoProg
+                    EstadoProgramacionEmo = estadoProg,
+                    AniosExperiencia = r.Worker.AniosExperiencia,
+                    FechaIngreso = r.Worker.FechaIngreso.HasValue ? r.Worker.FechaIngreso.Value.ToString("yyyy-MM-dd") : null
                 };
             }).ToList();
 

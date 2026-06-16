@@ -18,5 +18,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public bool TieneEmo { get; set; }
         public int? DiasRestantesEmo { get; set; }
         public string? EstadoProgramacionEmo { get; set; }
+        public int? AniosExperiencia { get; set; }
+        public string? FechaIngreso { get; set; }
     }
 }

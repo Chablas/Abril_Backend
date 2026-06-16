@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-12 — HabilitacionModule/catalogos: CRUD completo para cat_categoria y cat_ocupacion. Todos los endpoints de escritura (POST/PUT/PATCH toggle) marcados [AllowAnonymous].
+> Última actualización: 2026-06-16 — PASO reprogramación, LecturaEmo excluido del cálculo de habilitación y control de acceso, validación vigencia flexible cuando estado=Falta.
 
 ---
 
@@ -4347,3 +4347,44 @@ Las firmas de OPT se guardan en SharePoint bajo un path que empieza con `OPT/`, 
 ### Frontend (Abril-Frontend) — opt-detalle: firmas removidas del detalle
 
 En `opt-detalle.html` se quitaron ambas secciones que renderizaban `<app-document-viewer>` para firmas (firma observador y firma por trabajador en `trab-block`). Las firmas ya no se muestran en el detalle — solo se usarán al generar el PDF.
+
+---
+
+## Sesión 2026-06-16 (segunda parte) — PASO reprogramación y LecturaEmo
+
+### PasoFeature — endpoint ProgramarEjecucion (SinProgramar → Programado)
+
+Nuevo flujo para crear una ejecución con estado `Programado` en actividades que aún no tienen ejecución en el mes:
+
+- `ProgramarEjecucionRequest { ActividadId, FechaProgramada }` agregado a `SsomaPasoDtos.cs`
+- `IPasoService.ProgramarEjecucionAsync(req)` — firma en interfaz
+- `PasoService.ProgramarEjecucionAsync`: valida unicidad `(ActividadId, FechaProgramada)`, crea `SsomaPasoEjecucion` con `Estado="Programado"` y `FechaVerificacion = UltimoDiaMes(...)`
+- `POST api/v1/ssoma-paso/ejecucion/programar` en `PasoController`
+
+### PasoFeature — GetResumenMesAsync: filtro de actividades unificado
+
+El bloque `actividadesEnMes` reemplaza la lógica anterior con reglas en orden de prioridad:
+
+1. Inactivas (`!act.Activo`) → excluir
+2. Tiene ejecución `Programado` en **este** mes → incluir siempre (reprogramadas hacia aquí)
+3. Tiene ejecución `Programado` en **otro** mes → excluir (fue reprogramada fuera de este mes)
+4. Lógica normal de frecuencia/ciclo (Mensual, Bimestral, Única, etc.)
+
+### HabilitacionModule — LecturaEmo (ItemId=25) excluido del cálculo de habilitación
+
+`LecturaEmo` no debe bloquear la habilitación del trabajador. Excluido en tres puntos:
+
+1. **`HabTrabajadorRepository.cs` líneas 84 y 91** (`EstadoCalc`): `h.ItemId != HabItemIds.LecturaEmo` en ambas ramas (No Autorizado y Autorizado Temporalmente). Commit anterior.
+2. **`ControlAccesoRepository.cs` líneas 462 y 467** (`hasPendientes` y `faltantes`): misma exclusión para el endpoint de control de acceso. Requirió agregar `using Abril_Backend.Shared.Constants;` que faltaba.
+
+### HabilitacionModule — validación vigencia flexible (WorkerEntregableUpdateValidator)
+
+Regla anterior rechazaba cualquier `Vigencia ≤ DateTime.Today`. Nueva regla:
+
+```csharp
+RuleFor(x => x.Vigencia)
+    .Must((dto, vigencia) => vigencia == null || dto.Estado == "Falta" || vigencia.Value > DateTime.Today)
+    .WithMessage("La vigencia debe ser una fecha futura.");
+```
+
+Cuando `Estado == "Falta"`, la vigencia puede ser cualquier fecha (o null) — útil para registrar documentos históricos o vencidos sin bloquear el flujo.

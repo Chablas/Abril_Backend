@@ -41,7 +41,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     w.Ocupacion,
                     w.Categoria,
-                    w.Estado
+                    w.Estado,
+                    w.AniosExperiencia,
+                    w.FechaIngreso
                 })
                 .ToListAsync();
 
@@ -81,7 +83,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     EmpresaActualId = vin?.EmpresaId,
                     EmpresaActual = vin?.EmpresaNombre,
                     Activo = !string.IsNullOrWhiteSpace(b.Estado)
-                             && b.Estado.Trim().Equals("ACTIVO", StringComparison.OrdinalIgnoreCase)
+                             && b.Estado.Trim().Equals("ACTIVO", StringComparison.OrdinalIgnoreCase),
+                    AniosExperiencia = b.AniosExperiencia,
+                    FechaIngreso = b.FechaIngreso
                 };
             }).ToList();
         }

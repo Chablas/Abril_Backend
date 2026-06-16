@@ -22,6 +22,8 @@ public interface IPasoService
     Task<PasoEjecucionDto> RegistrarEjecucionAsync(RegistrarEjecucionRequest req, int userId);
     Task<PasoEjecucionDto> ReprogramarEjecucionAsync(int id, ReprogramarEjecucionRequest req, int userId);
     Task<PasoEjecucionDto> SubirEvidenciaAsync(int ejecucionId, IFormFile file, int userId);
+    Task<PasoEjecucionArchivoDto> AgregarArchivoEjecucionAsync(int ejecucionId, IFormFile file, int userId);
+    Task EliminarArchivoEjecucionAsync(int archivoId);
     Task ProcesarCronAsync();
     Task<PasoResumenMesDto> GetResumenMesAsync(int id, int anio, int mes);
     Task<List<PasoAuditoriaDto>> GetAuditoriaAsync(int actividadId);

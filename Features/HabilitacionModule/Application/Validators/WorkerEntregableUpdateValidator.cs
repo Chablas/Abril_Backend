@@ -14,8 +14,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Validators
                 .When(x => !string.IsNullOrEmpty(x.Estado))
                 .WithMessage("Estado inválido.");
 
-            RuleFor(x => x.Vigencia).GreaterThan(DateTime.Today)
-                .When(x => x.Vigencia.HasValue)
+            RuleFor(x => x.Vigencia)
+                .Must((dto, vigencia) => vigencia == null || dto.Estado == "Falta" || vigencia.Value > DateTime.Today)
                 .WithMessage("La vigencia debe ser una fecha futura.");
         }
     }

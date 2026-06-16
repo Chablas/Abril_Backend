@@ -861,6 +861,25 @@ if (cat is not null) act.Categoria = cat;
         return MapEjecucion(ejecucion, personas);
     }
 
+    public async Task<PasoEjecucionDto> ProgramarEjecucionAsync(ProgramarEjecucionRequest req)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var yaExiste = await ctx.SsomaPasoEjecuciones
+            .AnyAsync(e => e.ActividadId == req.ActividadId && e.FechaProgramada == req.FechaProgramada);
+        if (yaExiste) throw new InvalidOperationException("Ya existe una ejecución en esa fecha.");
+        var ejecucion = new SsomaPasoEjecucion
+        {
+            ActividadId       = req.ActividadId,
+            FechaProgramada   = req.FechaProgramada,
+            FechaVerificacion = UltimoDiaMes(req.FechaProgramada.Year, req.FechaProgramada.Month),
+            Estado            = "Programado",
+            CreatedAt         = DateTime.UtcNow
+        };
+        ctx.SsomaPasoEjecuciones.Add(ejecucion);
+        await ctx.SaveChangesAsync();
+        return MapEjecucion(ejecucion, new Dictionary<int, string>());
+    }
+
     public async Task<PasoEjecucionDto> ReprogramarEjecucionAsync(int id, ReprogramarEjecucionRequest req, int userId)
     {
         using var ctx = _factory.CreateDbContext();
@@ -875,11 +894,24 @@ if (cat is not null) act.Categoria = cat;
         var fechaAnterior = ejecucion.FechaProgramada;
         var estadoAnterior = ejecucion.Estado;
 
+        // Marcar ejecución original como Reprogramado
         ejecucion.FechaReprogramada = req.NuevaFecha;
         ejecucion.MotivoReprogramacion = req.Motivo;
         ejecucion.Estado = "Reprogramado";
         ejecucion.RegistradoPor = userId;
         ejecucion.UpdatedAt = DateTime.UtcNow;
+
+        // Crear nueva ejecución en la nueva fecha
+        var nuevaEjecucion = new SsomaPasoEjecucion
+        {
+            ActividadId       = ejecucion.ActividadId,
+            FechaProgramada   = req.NuevaFecha,
+            FechaVerificacion = UltimoDiaMes(req.NuevaFecha.Year, req.NuevaFecha.Month),
+            Estado            = "Programado",
+            CreatedAt         = DateTime.UtcNow
+        };
+        ctx.SsomaPasoEjecuciones.Add(nuevaEjecucion);
+
         await ctx.SaveChangesAsync();
 
         ctx.SsomaPasoAuditorias.Add(new SsomaPasoAuditoria
@@ -891,7 +923,7 @@ if (cat is not null) act.Categoria = cat;
             Descripcion = ejecucion.Actividad.Nombre,
             Motivo = req.Motivo,
             ValorAnterior = JsonSerializer.Serialize(new { FechaProgramada = fechaAnterior, Estado = estadoAnterior }),
-            ValorNuevo = JsonSerializer.Serialize(new { ejecucion.FechaReprogramada, ejecucion.Estado }),
+            ValorNuevo = JsonSerializer.Serialize(new { ejecucion.FechaReprogramada, ejecucion.Estado, NuevaEjecucionFecha = req.NuevaFecha }),
             UsuarioId = userId,
             CreatedAt = DateTime.UtcNow
         });
@@ -1062,18 +1094,30 @@ if (cat is not null) act.Categoria = cat;
 
         int mesCiclo = requestedAbs - cicloStartAbs + 1; // 1-based
 
-        // FIX-B1: actividades "Única" NO se incluyen por el mero hecho de
-        // "tener alguna ejecución" (bug original que mostraba datos migrados de
-        // SharePoint mezclados con el mes actual).
-        // Regla correcta: Única se planifica solo en el primer mes del ciclo
-        // (mesCiclo==1). Si ya tiene ejecución registrada en ESTE mes se muestra.
         var actividadesEnMes = paso.Actividades
             .Where(act =>
             {
+                if (!act.Activo) return false;
+
+                // Si tiene ejecución Programado en otro mes, excluir de este mes
+                var tieneReprogramadaEnOtroMes = act.Ejecuciones.Any(e =>
+                    e.Estado == "Programado" &&
+                    !(e.FechaProgramada.Month == mes && e.FechaProgramada.Year == anio));
+
+                // Si tiene ejecución Programado en ESTE mes, incluir siempre
+                var tieneEjecucionEsteMes = act.Ejecuciones.Any(e =>
+                    e.Estado == "Programado" &&
+                    e.FechaProgramada.Month == mes &&
+                    e.FechaProgramada.Year == anio);
+
+                if (tieneEjecucionEsteMes) return true;
+                if (tieneReprogramadaEnOtroMes) return false;
+
                 if (act.Frecuencia == "Unica")
                     return act.MesInicio == mesCiclo || act.Ejecuciones.Any(e =>
                         e.FechaProgramada.Month == mes &&
-                        e.FechaProgramada.Year  == anio);
+                        e.FechaProgramada.Year == anio);
+
                 return act.MesInicio <= mesCiclo && act.MesFin >= mesCiclo
                        && EsMesPlanificado(act.Frecuencia, mesCiclo, act.MesInicio);
             })
@@ -1083,7 +1127,8 @@ if (cat is not null) act.Categoria = cat;
 
         var items = actividadesEnMes.Select(act =>
         {
-            var ej = act.Ejecuciones.FirstOrDefault();
+            var ej = act.Ejecuciones
+                .FirstOrDefault(e => e.FechaProgramada.Month == mes && e.FechaProgramada.Year == anio);
             return new PasoResumenMesActividadDto
             {
                 ActividadId = act.Id,

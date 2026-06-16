@@ -20,6 +20,7 @@ public interface IPasoService
     Task<PasoActividadDto> EditarActividadAsync(int id, EditarActividadRequest req);
     Task DeleteActividadAsync(int id, string motivo, int userId);
     Task<PasoEjecucionDto> RegistrarEjecucionAsync(RegistrarEjecucionRequest req, int userId);
+    Task<PasoEjecucionDto> ProgramarEjecucionAsync(ProgramarEjecucionRequest req);
     Task<PasoEjecucionDto> ReprogramarEjecucionAsync(int id, ReprogramarEjecucionRequest req, int userId);
     Task<PasoEjecucionDto> SubirEvidenciaAsync(int ejecucionId, IFormFile file, int userId);
     Task<PasoEjecucionArchivoDto> AgregarArchivoEjecucionAsync(int ejecucionId, IFormFile file, int userId);

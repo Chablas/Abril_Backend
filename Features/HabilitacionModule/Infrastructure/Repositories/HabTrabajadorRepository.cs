@@ -1687,6 +1687,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             asignacion.FechaInduccion = DateOnly.FromDateTime(DateTime.UtcNow);
             asignacion.UpdatedAt = DateTimeOffset.UtcNow;
 
+            var now = DateTime.UtcNow;
+            var sentinel = HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null);
+
+            var habInduccion = await ctx.SsHabTrabajador
+                .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra);
+
+            if (habInduccion is not null)
+            {
+                habInduccion.Estado = "Aprobado";
+                habInduccion.Vigencia = sentinel;
+                habInduccion.UpdatedAt = now;
+            }
+            else
+            {
+                ctx.SsHabTrabajador.Add(new SsHabTrabajador
+                {
+                    WorkerId = workerId,
+                    ItemId = HabItemIds.InduccionObra,
+                    Estado = "Aprobado",
+                    Vigencia = sentinel,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+
             await ctx.SaveChangesAsync();
         }
 

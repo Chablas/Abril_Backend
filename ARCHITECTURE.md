@@ -1,10 +1,15 @@
-# Arquitectura del proyecto — Backend
+# Lineamientos generales — Backend
 
-## Estructura general
+## Información del proyecto general
 
-El proyecto usa **arquitectura por features**. Cada funcionalidad es un módulo
-independiente. Las carpetas raíz `Controllers/`, `Application/` e `Infrastructure/`
-están **deprecadas** y no deben usarse para código nuevo.
+Este proyecto busca acelear los procesos internos que se dan dentro de la empresa Abril Grupo Inmobiliario, como automatizar la generación de contratos, acelerar el registro de trabajadores mediante el uso de consultas a APIs tercerizadas de RENIEC, acelerar el registro de subcontratistas mediante el uso de consultas a APIs tercerizadas de SUNAT, entre otras cosas
+El proyecto cuenta con un frontend en Angular 21, un backend .NET 10, una base de datos PostgreSQL 17, entre otros servicios como el uso de https://cron-job.org/ para recordatorios automatizados.
+Tanto el frontend, backend y base de datos están hosteados en una VPS y se cuenta con un deploy.yml para subir los cambios.
+
+## Estructura del backend
+
+El proyecto usa **arquitectura por features**. Cada funcionalidad es independiente y vive en su propia carpeta. Las carpetas raíz `Controllers/`, `Application/` e `Infrastructure/`
+están **deprecadas** y no deben usarse para código nuevo bajo ningún motivo.
 
 ## Organización de carpetas
 
@@ -40,7 +45,7 @@ Abril-Backend/
 
 ## ¿Qué es una feature?
 Una feature corresponde a una funcionalidad específica que aparece como ítem
-en el sidebar de la aplicación frontend. Cada entrada del menú lateral
+en el sidebar lateral (o en el sidebar del header en algunos casos) de la aplicación frontend. Cada entrada del sidebar
 corresponde exactamente a una feature y tiene su propia carpeta dentro del
 módulo al que pertenece.
 Ejemplos:
@@ -59,7 +64,7 @@ helpers o modelos secundarios): esos viven dentro de la carpeta de su feature.
   - Namespace: `Abril_Backend.Features.CostsModule.Features.AdjudicacionesFeature.Application.Services`
 - Cada módulo se registra en su propio archivo `{Modulo}Module.cs`
 - Dentro de cada feature hay **estructura libre**, aunque se recomienda
-  mantener la separación `Application / Infrastructure / Presentation`
+  mantener y poner casi siempre las subcarpetas `Application / Infrastructure / Presentation` dentro de dicha feature
 ### ❌ No hacer
 - No agregar controllers, servicios ni repositorios en las carpetas raíz
   `Controllers/`, `Application/` o `Infrastructure/` — están deprecadas
@@ -82,7 +87,7 @@ Para archivos compartidos **solo dentro de un módulo**, usar
 `Features/{Modulo}/Shared/` en vez del Shared global.
 ## Registro de dependencias
 Cada módulo expone un método de extensión y se registra en `Program.cs`:
-```csharp
+
 // Features/CostsModule/CostsModule.cs
 public static IServiceCollection AddCostsModule(this IServiceCollection services)
 {
@@ -93,3 +98,19 @@ return services;
 // Program.cs
 builder.Services.AddCostsModule();
 builder.Services.AddContractorsModule();
+
+## Consideraciones sobre la base de datos
+Puedes conectarte a la base de datos de desarrollo siempre que quieras y ejecutar las sentencias que quieras libremente.
+Para el caso de la base de datos de producción solo deberás ejecutar sentencias select y no otro tipo de sentencia sql y siempre después de terminar una funcionalidad deberás de escribirme las sentencias sql necesarias para yo ejecutarlas en producción. Para saber las credenciales puedes revisar sin problema en los archivos del backend appsettings.Development.json (que contiene las credenciales de dev), appsettings.Local.json (que contiene las credenciales de producción, no asumas que porque se llama Local tendrá las credenciales de dev) y appsettings.Production.json (que también contiene las credenciales de producción).
+Los nombres de los modelos en su mayoría se mapean automáticamente a su version snake_case, a menos que se especifique otro mapeo para casos específicos (como User => app_user).
+El campo state se usa para soft delete. Ningún campo puede ser eliminado de la base de datos para futura auditoría. En caso en la tabla no puedan haber duplicados (ya sea por nombre en la mayoría de casos o alguna otra condición), tiene que haber un index/validación en la base de datos para que puedan haber múltiples registros con state en false, pero solo 1 registro con state en true.
+El campo active se usa para que dicho registro no aparezca en filtros/desplegables.
+Para conectarse a la base de datos, como dicha bd esta en la VPS como localhost, tengo que abrir siempre un túnel con ssh -L. Lo digo porque ese túnel a veces se cierra solo por inactividad así que en caso hubieras requerido hacer un select pero no pudiste puede que haya sido por esto que te digo. Avísame en esos casos para reabrir el túnel.
+
+## Consideraciones sobre la creación de querys a la base de datos
+Se debe de priorizar el uso óptimo de conexiones que brinda la base de datos. Por tal motivo en el caso del backend, se deberán hacer la menor cantidad posible de roundtrips a la base de datos. Si por ejemplo al entrar a una funcionalidad se tienen que cargar los datos de los filtros y los datos de una tabla, pues se deberá hacer un solo endpoint que devuelva esos datos. Al entrar a ver un detalle de algo se deberá hacer otro endpoint que devuelva de una vez todos los detalles y no hacer endpoints  innecesarios. Al entrar a un dashboard se deberán devolver todos los datos de todos los gráficos en una sola petición HTTP. Solo se pueden hacer excepciones si es que la funcionalidad lo requiere o en funcionalidades muy especiales/específicas.
+Cada acción de la página que necesite de datos debe de pedir los datos justos y necesarios. Por ejemplo al cargar un componente/página, el backend debe de devolver en un solo endpoint todos los datos (como los datos de filtros y los datos de una tabla), pero si el usuario va a usar los filtros pues se debe de crear otro endpoint que solo devuelva los datos de la tabla filtrados (puesto que ya no es necesario traer los datos de los filtros de nuevo).
+Nunca usar Task.WhenAll con la base de datos puesto que usa más conexiones innecesarias. Solo usar Task.WhenAll en 'servicios más grandes' como lo es Microsoft Graph Api.
+Evitar el problema N+1.
+Para evitar los roundtrips a la base de datos puedes usar Dapper.
+```

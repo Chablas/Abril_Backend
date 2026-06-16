@@ -1,6 +1,7 @@
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Interfaces;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructure.Interfaces;
+using Abril_Backend.Features.ContractorsModule.Shared;
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
@@ -45,6 +46,9 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 
         public async Task Create(ContributorCreateDto dto, int? userId, string? accessToken = null)
         {
+            // 0. Validar formato de los correos (solo letras, números, '@' y '.').
+            ContractorEmailValidator.ValidateOrThrow(dto.ContributorEmails);
+
             // 1. Validar elegibilidad ANTES de subir archivos y obtener el número de intento.
             //    Lanza AbrilException si el contratista está en espera (1) o ya aprobado (2).
             int attemptNumber = await _repository.ValidateAndGetAttemptNumberAsync(dto.ContributorRuc);

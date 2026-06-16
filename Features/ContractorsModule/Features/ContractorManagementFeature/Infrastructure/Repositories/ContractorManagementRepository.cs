@@ -1,4 +1,6 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Contractors.ContractorManagement.Application;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Features.Contractors.ContractorManagement.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure.Interfaces;
@@ -90,15 +92,28 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
             var emails = await ctx.ContractorEmail
                 .Where(e => ids.Contains(e.ContractorId) && e.State)
-                .Select(e => new { e.ContractorId, e.Email })
+                .Select(e => new { e.ContractorId, e.ContractorEmailId, e.Email, e.Active })
                 .ToListAsync();
 
             var emailsByContractor = emails
                 .GroupBy(e => e.ContractorId)
-                .ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
+                .ToDictionary(g => g.Key, g => g.ToList());
 
             foreach (var item in items)
-                item.Emails = emailsByContractor.GetValueOrDefault(item.ContractorId, new());
+            {
+                var contractorEmails = emailsByContractor.GetValueOrDefault(item.ContractorId);
+                if (contractorEmails is null) continue;
+
+                item.Emails = contractorEmails.Select(e => e.Email).ToList();
+                item.EmailDetails = contractorEmails
+                    .Select(e => new ContractorEmailItemDto
+                    {
+                        ContractorEmailId = e.ContractorEmailId,
+                        Email = e.Email,
+                        Active = e.Active
+                    })
+                    .ToList();
+            }
 
             var users = await (
                 from cu in ctx.ContractorUser
@@ -174,8 +189,10 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
             if (result == null) return null;
 
+            // Solo correos vigentes y activos: un correo desactivado (active=false) no debe
+            // recibir credenciales ni notificaciones.
             result.Emails = await ctx.ContractorEmail
-                .Where(e => e.ContractorId == contractorId && e.State)
+                .Where(e => e.ContractorId == contractorId && e.State && e.Active)
                 .Select(e => e.Email)
                 .ToListAsync();
 
@@ -201,7 +218,24 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                 .FirstOrDefaultAsync(c => c.ContributorId == contractor.ContributorId)
                 ?? throw new Exception("Contribuyente no encontrado.");
 
+            // ── Validar RUC duplicado ─────────────────────────────────────────────
+            // Si el RUC cambia, no debe coincidir con el de otro contribuyente vigente
+            // (evita romper el índice único y devuelve un mensaje claro).
+            var newRuc = dto.ContributorRuc?.Trim();
+            if (!string.IsNullOrWhiteSpace(newRuc) && !string.Equals(newRuc, contributor.ContributorRuc, StringComparison.Ordinal))
+            {
+                var rucEnUso = await ctx.Contributor.AnyAsync(c =>
+                    c.ContributorId != contributor.ContributorId &&
+                    c.State &&
+                    c.ContributorRuc == newRuc);
+
+                if (rucEnUso)
+                    throw new AbrilException($"Ya existe otro contribuyente registrado con el RUC {newRuc}.", 409);
+            }
+
             // ── Campos texto del Contributor ─────────────────────────────────────
+            if (!string.IsNullOrWhiteSpace(dto.ContributorRuc))
+                contributor.ContributorRuc                      = dto.ContributorRuc.Trim();
             contributor.ContributorName                         = dto.ContributorName.Trim();
             contributor.ContributorAddress                      = dto.ContributorAddress.Trim();
             contributor.ContributorEconomicActivityDescription  = dto.ContributorEconomicActivityDescription.Trim();
@@ -272,51 +306,57 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
             // ── Sincronizar correos ───────────────────────────────────────────────
             // 'State' es el flag de soft-delete: ningún registro se elimina físicamente.
-            //   - Quitar un correo  → State = false (queda en BD para auditoría).
-            //   - Volver a agregarlo → se INSERTA un registro nuevo (no se reactiva el viejo).
-            // Solo los registros vigentes (State == true) cuentan como "la lista actual".
+            // 'Active' indica si el correo está habilitado (aparece en filtros/desplegables y
+            // recibe correos). Ahora los correos existentes son editables: se puede cambiar su
+            // texto y activarlos/desactivarlos sin borrarlos.
+            //   - Correo con id existente que llega en la lista → se actualiza Email y Active.
+            //   - Correo con id existente que NO llega en la lista → State = false (soft-delete).
+            //   - Correo sin id (nuevo) → se INSERTA con su flag Active.
             // Existe un índice único parcial (contractor_id, correo) WHERE state = true que
             // garantiza un único registro vigente por correo EXACTO, permitiendo múltiples
-            // históricos con State = false.
-            // La comparación es sensible a mayúsculas (Ordinal): 'Correo@x.pe' y 'correo@x.pe'
-            // se tratan como correos distintos.
-            var activeEmails = await ctx.ContractorEmail
+            // históricos con State = false. La comparación es sensible a mayúsculas.
+            var incomingEmails = ContractorEmailParser.Parse(dto.EmailsJson);
+
+            var currentEmails = await ctx.ContractorEmail
                 .Where(e => e.ContractorId == contractorId && e.State)
                 .ToListAsync();
 
-            var activeSet = activeEmails
-                .Select(e => e.Email.Trim())
-                .ToHashSet(StringComparer.Ordinal);
+            var incomingById = incomingEmails
+                .Where(e => e.ContractorEmailId is > 0)
+                .ToDictionary(e => e.ContractorEmailId!.Value);
 
-            var newSet = dto.Emails
-                .Select(e => e.Trim())
-                .Where(e => !string.IsNullOrEmpty(e))
-                .ToList();
-
-            var newSetExact = newSet.ToHashSet(StringComparer.Ordinal);
-
-            // Soft-delete: los vigentes que ya no están en la nueva lista → State = false
-            foreach (var email in activeEmails.Where(e => !newSetExact.Contains(e.Email.Trim())))
+            // Actualizar / soft-delete de los correos existentes
+            foreach (var existing in currentEmails)
             {
-                email.State            = false;
-                email.Active           = false;
-                email.UpdatedDateTime  = DateTimeOffset.UtcNow;
-                email.UpdatedUserId    = userId;
+                if (incomingById.TryGetValue(existing.ContractorEmailId, out var match))
+                {
+                    existing.Email           = match.Email.Trim();
+                    existing.Active          = match.Active;
+                    existing.UpdatedDateTime = DateTimeOffset.UtcNow;
+                    existing.UpdatedUserId   = userId;
+                }
+                else
+                {
+                    existing.State           = false;
+                    existing.Active          = false;
+                    existing.UpdatedDateTime = DateTimeOffset.UtcNow;
+                    existing.UpdatedUserId   = userId;
+                }
             }
 
-            // Insertar los nuevos (nunca reactivar un registro soft-deleted)
-            foreach (var newEmail in newSet)
+            // Insertar los nuevos (sin id)
+            foreach (var newEmail in incomingEmails.Where(e => e.ContractorEmailId is null or 0))
             {
-                if (activeSet.Contains(newEmail))
-                    continue;   // ya existe vigente exacto → sin cambios
+                var email = newEmail.Email.Trim();
+                if (string.IsNullOrEmpty(email)) continue;
 
                 ctx.ContractorEmail.Add(new Abril_Backend.Features.CostsModule.Shared.Models.ContractorEmail
                 {
                     ContractorId    = contractorId,
-                    Email           = newEmail,
+                    Email           = email,
                     CreatedDateTime = DateTimeOffset.UtcNow,
                     CreatedUserId   = userId,
-                    Active          = true,
+                    Active          = newEmail.Active,
                     State           = true
                 });
             }

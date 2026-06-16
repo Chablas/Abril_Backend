@@ -91,6 +91,9 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("notas")]
         public string? Notas { get; set; }
 
+        [Column("anios_experiencia")]
+        public int? AniosExperiencia { get; set; }
+
         [Column("puntos_infraccion")]
         public int? PuntosInfraccion { get; set; }
 

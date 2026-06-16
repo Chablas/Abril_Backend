@@ -199,6 +199,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaPasoActividad> SsomaPasoActividades { get; set; }
         public DbSet<SsomaPasoEjecucion> SsomaPasoEjecuciones { get; set; }
         public DbSet<SsomaPasoAuditoria> SsomaPasoAuditorias { get; set; }
+        public DbSet<SsomaPasoEjecucionArchivo> SsomaPasoEjecucionArchivos { get; set; }
         // ── RAC — Reporte de Actos y Condiciones Subestándar ─────────────────
         public DbSet<SsomaRacCategoria> SsomaRacCategorias { get; set; }
         public DbSet<SsomaRacInfraccion> SsomaRacInfracciones { get; set; }
@@ -528,6 +529,9 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(x => x.Categoria).WithMany().HasForeignKey(x => x.CategoriaId);
             modelBuilder.Entity<SsomaPasoActividad>()
                 .HasMany(x => x.Ejecuciones).WithOne(x => x.Actividad).HasForeignKey(x => x.ActividadId);
+            modelBuilder.Entity<SsomaPasoEjecucionArchivo>().ToTable("ssoma_paso_ejecucion_archivo");
+            modelBuilder.Entity<SsomaPasoEjecucion>()
+                .HasMany(x => x.Archivos).WithOne(x => x.Ejecucion).HasForeignKey(x => x.EjecucionId);
 
             // ── RAC — tablas, relaciones y defaults ──────────────────────────
             modelBuilder.Entity<SsomaRacCategoria>().ToTable("ssoma_rac_categoria");

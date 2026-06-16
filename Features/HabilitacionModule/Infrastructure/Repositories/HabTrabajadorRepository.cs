@@ -262,7 +262,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     DiasRestantesEmo = emoVenc.HasValue
                         ? (int?)(emoVenc.Value.DayNumber - today.DayNumber)
                         : null,
-                    EstadoProgramacionEmo = estadoProg
+                    EstadoProgramacionEmo = estadoProg,
+                    AniosExperiencia = r.Worker.AniosExperiencia,
+                    FechaIngreso = r.Worker.FechaIngreso.HasValue ? r.Worker.FechaIngreso.Value.ToString("yyyy-MM-dd") : null
                 };
             }).ToList();
 
@@ -1230,6 +1232,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.Procedencia is not null) w.Procedencia = dto.Procedencia;
             if (dto.Notas is not null) w.Notas = dto.Notas;
             if (dto.PuntosInfraccion.HasValue) w.PuntosInfraccion = dto.PuntosInfraccion;
+            if (dto.AniosExperiencia.HasValue) w.AniosExperiencia = dto.AniosExperiencia;
 
             w.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -1364,7 +1367,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             CondicionMedica = w.CondicionMedica,
             Procedencia = w.Procedencia,
             Notas = w.Notas,
-            PuntosInfraccion = w.PuntosInfraccion
+            PuntosInfraccion = w.PuntosInfraccion,
+            AniosExperiencia = w.AniosExperiencia
         };
 
         public async Task BajaAsync(int workerId, DateOnly fechaRetiro)
@@ -1684,6 +1688,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             asignacion.InduccionCompletada = true;
             asignacion.FechaInduccion = DateOnly.FromDateTime(DateTime.UtcNow);
             asignacion.UpdatedAt = DateTimeOffset.UtcNow;
+
+            var now = DateTime.UtcNow;
+            var sentinel = HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null);
+
+            var habInduccion = await ctx.SsHabTrabajador
+                .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra);
+
+            if (habInduccion is not null)
+            {
+                habInduccion.Estado = "Aprobado";
+                habInduccion.Vigencia = sentinel;
+                habInduccion.UpdatedAt = now;
+            }
+            else
+            {
+                ctx.SsHabTrabajador.Add(new SsHabTrabajador
+                {
+                    WorkerId = workerId,
+                    ItemId = HabItemIds.InduccionObra,
+                    Estado = "Aprobado",
+                    Vigencia = sentinel,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
 
             await ctx.SaveChangesAsync();
         }

@@ -89,4 +89,17 @@ public class SsomaPasoEjecucion
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     public SsomaPasoActividad Actividad { get; set; } = null!;
+    public List<SsomaPasoEjecucionArchivo> Archivos { get; set; } = new();
+}
+
+public class SsomaPasoEjecucionArchivo
+{
+    public int Id { get; set; }
+    public int EjecucionId { get; set; }
+    public string ArchivoUrl { get; set; } = "";
+    public string ArchivoNombre { get; set; } = "";
+    public string? ArchivoSpId { get; set; }
+    public int Orden { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public SsomaPasoEjecucion Ejecucion { get; set; } = null!;
 }

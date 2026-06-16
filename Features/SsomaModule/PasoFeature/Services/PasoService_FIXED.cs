@@ -111,7 +111,17 @@ public class PasoService : IPasoService
             EvidenciaUrl = e.EvidenciaUrl,
             EvidenciaSpId = e.EvidenciaSpId,
             RegistradoPorNombre = e.RegistradoPor.HasValue ? personas.GetValueOrDefault(e.RegistradoPor.Value) : null,
-            CreatedAt = e.CreatedAt
+            CreatedAt = e.CreatedAt,
+            Archivos = e.Archivos.OrderBy(a => a.Orden).Select(a => new PasoEjecucionArchivoDto
+            {
+                Id = a.Id,
+                EjecucionId = a.EjecucionId,
+                ArchivoUrl = a.ArchivoUrl,
+                ArchivoNombre = a.ArchivoNombre,
+                ArchivoSpId = a.ArchivoSpId,
+                Orden = a.Orden,
+                CreatedAt = a.CreatedAt
+            }).ToList()
         };
 
     private static PasoActividadDto MapActividad(
@@ -221,6 +231,7 @@ public class PasoService : IPasoService
                 .ThenInclude(a => a.Categoria)
             .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones)
+                    .ThenInclude(e => e.Archivos)
             .FirstOrDefaultAsync(p => p.Id == id);
 
         if (paso is null) return null;
@@ -928,6 +939,69 @@ if (cat is not null) act.Categoria = cat;
         return MapEjecucion(ejecucion, new Dictionary<int, string>());
     }
 
+    // ── Archivos múltiples por ejecución ─────────────────────────────────────
+
+    public async Task<PasoEjecucionArchivoDto> AgregarArchivoEjecucionAsync(int ejecucionId, IFormFile file, int userId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var ejecucion = await ctx.SsomaPasoEjecuciones
+            .Include(e => e.Actividad).ThenInclude(a => a.Paso)
+            .Include(e => e.Archivos)
+            .FirstOrDefaultAsync(e => e.Id == ejecucionId)
+            ?? throw new KeyNotFoundException("Ejecución no encontrada.");
+
+        var actividad = ejecucion.Actividad;
+        var paso = actividad.Paso;
+        int pasoAnio = paso.Anio ?? DateTime.Today.Year;
+        var carpetaPath = $"PASO/{pasoAnio}/{paso.ProyectoId}/{actividad.Id}";
+
+        string archivoUrl;
+        try
+        {
+            using var stream = file.OpenReadStream();
+            archivoUrl = await _sharePoint.SubirArchivoEnRutaAsync(
+                stream, file.FileName, "paso-evidencias", carpetaPath);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"No se pudo subir el archivo a SharePoint: {ex.Message}", ex);
+        }
+
+        var orden = ejecucion.Archivos.Count > 0 ? ejecucion.Archivos.Max(a => a.Orden) + 1 : 1;
+        var archivo = new SsomaPasoEjecucionArchivo
+        {
+            EjecucionId = ejecucionId,
+            ArchivoUrl = archivoUrl,
+            ArchivoNombre = file.FileName,
+            ArchivoSpId = null,
+            Orden = orden,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.SsomaPasoEjecucionArchivos.Add(archivo);
+        await ctx.SaveChangesAsync();
+
+        return new PasoEjecucionArchivoDto
+        {
+            Id = archivo.Id,
+            EjecucionId = archivo.EjecucionId,
+            ArchivoUrl = archivo.ArchivoUrl,
+            ArchivoNombre = archivo.ArchivoNombre,
+            ArchivoSpId = archivo.ArchivoSpId,
+            Orden = archivo.Orden,
+            CreatedAt = archivo.CreatedAt
+        };
+    }
+
+    public async Task EliminarArchivoEjecucionAsync(int archivoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var archivo = await ctx.SsomaPasoEjecucionArchivos.FindAsync(archivoId)
+            ?? throw new KeyNotFoundException("Archivo no encontrado.");
+        ctx.SsomaPasoEjecucionArchivos.Remove(archivo);
+        await ctx.SaveChangesAsync();
+    }
+
     // ── Auditoría ─────────────────────────────────────────────────────────────
 
     public async Task<List<PasoAuditoriaDto>> GetAuditoriaAsync(int actividadId)
@@ -962,6 +1036,9 @@ if (cat is not null) act.Categoria = cat;
                 .ThenInclude(a => a.Categoria)
             .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
                 .ThenInclude(a => a.Ejecuciones.Where(e => e.FechaProgramada >= fechaInicio && e.FechaProgramada <= fechaFin))
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
+                .ThenInclude(a => a.Ejecuciones.Where(e => e.FechaProgramada >= fechaInicio && e.FechaProgramada <= fechaFin))
+                    .ThenInclude(e => e.Archivos)
             .FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new KeyNotFoundException("PASO no encontrado.");
 
@@ -1020,7 +1097,17 @@ if (cat is not null) act.Categoria = cat;
                 FechaEjecutada = ej?.FechaEjecutada,
                 Observaciones = ej?.Observaciones,
                 EvidenciaNombre = ej?.EvidenciaNombre,
-                EvidenciaUrl = ej?.EvidenciaUrl
+                EvidenciaUrl = ej?.EvidenciaUrl,
+                Archivos = ej is null ? new() : ej.Archivos.OrderBy(a => a.Orden).Select(a => new PasoEjecucionArchivoDto
+                {
+                    Id = a.Id,
+                    EjecucionId = a.EjecucionId,
+                    ArchivoUrl = a.ArchivoUrl,
+                    ArchivoNombre = a.ArchivoNombre,
+                    ArchivoSpId = a.ArchivoSpId,
+                    Orden = a.Orden,
+                    CreatedAt = a.CreatedAt
+                }).ToList()
             };
         }).ToList();
 

@@ -4317,3 +4317,33 @@ ORDER BY sub2.anio DESC, sub2.mes DESC
 ### Flujo archivo limpio
 - `/archivos/subir`: ya no actualiza entregables (solo sube a SharePoint)
 - `/archivos/enviar`: valida archivos obligatorios + vigencia obligatoria si `requiereVigencia`
+
+---
+
+## Sesión 2026-06-16 — HabilitacionModule (Inducción/listado), OPT fechas UTC, SharePointHabService drive OPT
+
+### HabTrabajadorRepository — MarcarInduccionAsync sincroniza item InduccionObra
+
+Al marcar inducción completada en `WorkerProyecto`, ahora también upsertea el ítem `HabItemIds.InduccionObra` (12) en `SsHabTrabajador` a `Estado="Aprobado"` con `Vigencia` sentinel (`HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null)` → 2040-12-31 UTC), igual que `InduccionRepository`. Antes solo quedaba reflejado en `WorkerProyecto`, no en el checklist de habilitación.
+
+### WorkerHabilitacionListDto — AniosExperiencia y FechaIngreso
+
+Agregados `AniosExperiencia` (`int?`) y `FechaIngreso` (`string?`, formateado `yyyy-MM-dd`) al DTO de listado de trabajadores. Mapeados en `HabTrabajadorRepository` desde `Worker.AniosExperiencia` / `Worker.FechaIngreso` (ya existían en el modelo, columnas `anios_experiencia` / `fecha_ingreso`). Usado en frontend para auto-calcular `tiempoEnObra` en OPT.
+
+### OptRepository — fechas con Kind=Unspecified rompían Npgsql
+
+Error: `Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with time zone'`. Causa: `Fecha = request.Fecha.Date` en `CrearOptAsync` llega del JSON con `Kind=Unspecified`, y `ssoma_opt.fecha` es `timestamptz` sin override. Fix (mismo patrón que `SctrVidaLeyRepository`/`RacService`):
+- `CrearOptAsync`: `Fecha = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc)`
+- `GetListAsync` / `GetListCountAsync`: filtros `fechaDesde`/`fechaHasta` envueltos en `DateTime.SpecifyKind(..., DateTimeKind.Utc)`
+- `GetDashboardAsync`: `DateTime.Now.Year/.Month` → `DateTime.UtcNow.Year/.Month` (consistencia)
+
+### SharePointHabService — GetDownloadUrlAsync no resolvía paths "OPT/..."
+
+Las firmas de OPT se guardan en SharePoint bajo un path que empieza con `OPT/`, pero `OPT` no es el nombre de ninguna librería/drive del sitio — es una carpeta dentro de un drive específico. Dos fixes encadenados:
+
+1. `GetDriveIdByNameAsync`: si no encuentra drive por nombre, en vez de `return null` cae al drive default del sitio vía `GetDriveIdAsync(siteId, token, null)`.
+2. `GetDownloadUrlAsync`: agregado un caso especial **antes** de la extracción de `libraryName` — si `archivoUrl` empieza con `"OPT/"`, usa el `driveId` hardcodeado de la librería real que contiene la carpeta `OPT` (`b!Bmji2TXVU0OWEBlZeOIDkC8Dt6ceUVNLiodQihkLPHxZH7QqINghTq0UWOH5DOFR`) y construye la URL de `/content` con el **path completo** (incluyendo el prefijo `OPT/`, a diferencia del flujo normal que lo descarta) porque ahí `OPT` es carpeta, no librería.
+
+### Frontend (Abril-Frontend) — opt-detalle: firmas removidas del detalle
+
+En `opt-detalle.html` se quitaron ambas secciones que renderizaban `<app-document-viewer>` para firmas (firma observador y firma por trabajador en `trab-block`). Las firmas ya no se muestran en el detalle — solo se usarán al generar el PDF.

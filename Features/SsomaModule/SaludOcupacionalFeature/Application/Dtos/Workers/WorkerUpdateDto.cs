@@ -23,5 +23,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public bool HabilitadoObra { get; set; } = false;
         public int? EmpresaId { get; set; }
         public int? ProyectoId { get; set; }
+        public int? AniosExperiencia { get; set; }
     }
 }

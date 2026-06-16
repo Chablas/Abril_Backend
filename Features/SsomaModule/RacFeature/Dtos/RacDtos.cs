@@ -90,6 +90,7 @@ public class RacListItemDto
     public bool AplicaPenalidad { get; set; }
     public string? EmpresaReportadaNombre { get; set; }
     public string? ReportanteNombre { get; set; }
+    public string Descripcion { get; set; } = "";
 }
 
 public class RacDetalleDto

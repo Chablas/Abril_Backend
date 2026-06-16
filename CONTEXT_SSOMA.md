@@ -253,7 +253,9 @@ DELETE /actividad/{id}                       → soft delete + motivo (body: Eli
 GET    /actividad/{id}/auditoria             → historial de cambios de la actividad
 POST   /ejecucion                            → upsert por (actividad_id, fecha_programada). FechaVerificacion=último día mes
 PATCH  /ejecucion/{id}/reprogramar           → 400 si ya Ejecutado + auditoría
-PATCH  /ejecucion/{id}/evidencia             → nombre/url/sp_id
+PATCH  /ejecucion/{id}/evidencia             → nombre/url/sp_id (evidencia única — legado)
+POST   /ejecucion/{id}/archivos              → multipart/form-data campo "file". Sube a SP PasoEvidencias y guarda en ssoma_paso_ejecucion_archivo. Retorna PasoEjecucionArchivoDto (201)
+DELETE /ejecucion/archivos/{archivoId}       → elimina registro de ssoma_paso_ejecucion_archivo (204)
 ```
 > ⚠️ `GET /{id}/gantt` fue eliminado (2026-06-11). Usar `/proyecto/{proyectoId}/historico` para listar PASOs del proyecto.
 
@@ -268,6 +270,17 @@ ALTER TABLE ssoma_paso_actividad ADD COLUMN IF NOT EXISTS deleted_by INT;
 ALTER TABLE ssoma_paso_actividad ADD COLUMN IF NOT EXISTS motivo_eliminacion TEXT;
 CREATE TABLE ssoma_paso_ejecucion (...);
 CREATE TABLE ssoma_paso_auditoria (...);  -- ver DDL en sección 3.4
+
+-- Nueva tabla para múltiples evidencias por ejecución (2026-06-15)
+CREATE TABLE ssoma_paso_ejecucion_archivo (
+    id              SERIAL PRIMARY KEY,
+    ejecucion_id    INT NOT NULL REFERENCES ssoma_paso_ejecucion(id) ON DELETE CASCADE,
+    archivo_url     TEXT NOT NULL,
+    archivo_nombre  VARCHAR(300) NOT NULL,
+    archivo_sp_id   VARCHAR(200),
+    orden           INT NOT NULL DEFAULT 1,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 ```
 Nota: la migración EF NO se generó (restricción del blueprint). Crear/alterar tablas manualmente.
 

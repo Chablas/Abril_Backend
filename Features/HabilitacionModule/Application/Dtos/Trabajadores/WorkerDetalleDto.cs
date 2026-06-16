@@ -27,5 +27,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Procedencia { get; set; }
         public string? Notas { get; set; }
         public int? PuntosInfraccion { get; set; }
+        public int? AniosExperiencia { get; set; }
     }
 }

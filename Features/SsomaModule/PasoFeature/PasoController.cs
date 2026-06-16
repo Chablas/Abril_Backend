@@ -193,4 +193,22 @@ public class PasoController : ControllerBase
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.SubirEvidencia"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
+
+    [HttpPost("ejecucion/{id:int}/archivos")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> AgregarArchivoEjecucion(int id, [FromForm] IFormFile file)
+    {
+        try { return StatusCode(201, await _service.AgregarArchivoEjecucionAsync(id, file, GetUserId())); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.AgregarArchivoEjecucion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpDelete("ejecucion/archivos/{archivoId:int}")]
+    public async Task<IActionResult> EliminarArchivoEjecucion(int archivoId)
+    {
+        try { await _service.EliminarArchivoEjecucionAsync(archivoId); return NoContent(); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.EliminarArchivoEjecucion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
 }

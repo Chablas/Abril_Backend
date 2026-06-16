@@ -65,7 +65,7 @@ public class OptRepository : IOptRepository
         {
             ProyectoId            = request.ProyectoId,
             PetId                 = request.PetId,
-            Fecha                 = request.Fecha.Date,
+            Fecha                 = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc),
             TipoObservacion       = request.TipoObservacion,
             CuentaConPet          = request.CuentaConPet,
             Area                  = request.Area,
@@ -222,8 +222,8 @@ public class OptRepository : IOptRepository
         if (proyectoId.HasValue)            q = q.Where(o => o.ProyectoId == proyectoId.Value);
         if (petId.HasValue)                 q = q.Where(o => o.PetId == petId.Value);
         if (!string.IsNullOrEmpty(tipoObservacion)) q = q.Where(o => o.TipoObservacion == tipoObservacion);
-        if (fechaDesde.HasValue)            q = q.Where(o => o.Fecha >= fechaDesde.Value.Date);
-        if (fechaHasta.HasValue)            q = q.Where(o => o.Fecha <= fechaHasta.Value.Date);
+        if (fechaDesde.HasValue)            q = q.Where(o => o.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
+        if (fechaHasta.HasValue)            q = q.Where(o => o.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
         if (trabajadorId.HasValue)          q = q.Where(o => o.Trabajadores.Any(t => t.TrabajadorId == trabajadorId.Value));
 
         return await q
@@ -263,8 +263,8 @@ public class OptRepository : IOptRepository
         if (proyectoId.HasValue)            q = q.Where(o => o.ProyectoId == proyectoId.Value);
         if (petId.HasValue)                 q = q.Where(o => o.PetId == petId.Value);
         if (!string.IsNullOrEmpty(tipoObservacion)) q = q.Where(o => o.TipoObservacion == tipoObservacion);
-        if (fechaDesde.HasValue)            q = q.Where(o => o.Fecha >= fechaDesde.Value.Date);
-        if (fechaHasta.HasValue)            q = q.Where(o => o.Fecha <= fechaHasta.Value.Date);
+        if (fechaDesde.HasValue)            q = q.Where(o => o.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
+        if (fechaHasta.HasValue)            q = q.Where(o => o.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
         if (trabajadorId.HasValue)          q = q.Where(o => o.Trabajadores.Any(t => t.TrabajadorId == trabajadorId.Value));
         return await q.CountAsync();
     }
@@ -295,8 +295,8 @@ public class OptRepository : IOptRepository
     public async Task<OptDashboardDto> GetDashboardAsync(int? proyectoId, int? anio)
     {
         using var ctx = _factory.CreateDbContext();
-        var anioFiltro = anio ?? DateTime.Now.Year;
-        var mesActual  = DateTime.Now.Month;
+        var anioFiltro = anio ?? DateTime.UtcNow.Year;
+        var mesActual  = DateTime.UtcNow.Month;
 
         var q = ctx.SsomaOpt.AsQueryable();
         if (proyectoId.HasValue) q = q.Where(o => o.ProyectoId == proyectoId.Value);

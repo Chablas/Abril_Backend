@@ -150,6 +150,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 Notas = dto.Notas,
                 Sctr = dto.Sctr,
                 HabilitadoObra = dto.HabilitadoObra,
+                AniosExperiencia = dto.AniosExperiencia,
                 Estado = "ACTIVO",
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -202,6 +203,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.Notas = dto.Notas;
             worker.Sctr = dto.Sctr;
             worker.HabilitadoObra = dto.HabilitadoObra;
+            if (dto.AniosExperiencia.HasValue) worker.AniosExperiencia = dto.AniosExperiencia;
             worker.UpdatedAt = DateTimeOffset.UtcNow;
 
             if (dto.EmpresaId.HasValue || dto.ProyectoId.HasValue)

@@ -29,5 +29,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         /// Si no se envía, se infiere del formato: 8 dígitos = DNI, resto = CE.
         /// </summary>
         public string? TipoDocumento { get; set; }
+        public int? AniosExperiencia { get; set; }
     }
 }

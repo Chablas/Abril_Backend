@@ -1230,6 +1230,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.Procedencia is not null) w.Procedencia = dto.Procedencia;
             if (dto.Notas is not null) w.Notas = dto.Notas;
             if (dto.PuntosInfraccion.HasValue) w.PuntosInfraccion = dto.PuntosInfraccion;
+            if (dto.AniosExperiencia.HasValue) w.AniosExperiencia = dto.AniosExperiencia;
 
             w.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -1364,7 +1365,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             CondicionMedica = w.CondicionMedica,
             Procedencia = w.Procedencia,
             Notas = w.Notas,
-            PuntosInfraccion = w.PuntosInfraccion
+            PuntosInfraccion = w.PuntosInfraccion,
+            AniosExperiencia = w.AniosExperiencia
         };
 
         public async Task BajaAsync(int workerId, DateOnly fechaRetiro)

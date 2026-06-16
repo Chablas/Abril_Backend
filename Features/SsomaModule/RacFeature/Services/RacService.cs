@@ -368,7 +368,7 @@ public class RacService : IRacService
             var detalle = await GetDetalleAsync(racId);
             if (detalle != null)
             {
-                var pdfBytes = await RacPdfService.GenerarPdfAsync(detalle);
+                var pdfBytes = await RacPdfService.GenerarPdfAsync(detalle, new List<(string Tipo, byte[] Bytes)>());
                 using var pdfStream = new MemoryStream(pdfBytes);
                 var pdfPath = await _spService.SubirPdfAsync(pdfStream, $"{racCodigo}.pdf", racId);
 
@@ -465,13 +465,26 @@ public class RacService : IRacService
             NombreArchivo = foto.NombreArchivo ?? file.FileName
         };
     }
-    public Task<byte[]> GenerarPdf(RacDetalleDto rac) => RacPdfService.GenerarPdfAsync(rac);
+    public Task<byte[]> GenerarPdf(RacDetalleDto rac) => RacPdfService.GenerarPdfAsync(rac, new List<(string Tipo, byte[] Bytes)>());
 
     public async Task<byte[]> GetPdfAsync(int id)
     {
         var rac = await GetDetalleAsync(id)
             ?? throw new AbrilException("RAC no encontrado.", 404);
-        return await RacPdfService.GenerarPdfAsync(rac);
+
+        var fotoBytes = new List<(string Tipo, byte[] Bytes)>();
+        foreach (var foto in rac.Fotos)
+        {
+            try
+            {
+                var bytes = await _spService.DescargarFotoAsync(foto.Url);
+                if (bytes != null && bytes.Length > 0)
+                    fotoBytes.Add((foto.Tipo, bytes));
+            }
+            catch { /* ignorar fotos que fallen */ }
+        }
+
+        return await RacPdfService.GenerarPdfAsync(rac, fotoBytes);
     }
     public async Task<RacDashboardDto> GetDashboardAsync()
     {

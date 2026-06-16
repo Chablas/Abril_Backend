@@ -7,22 +7,8 @@ namespace Abril_Backend.Features.Ssoma.Rac.Services;
 
 public static class RacPdfService
 {
-    public static async Task<byte[]> GenerarPdfAsync(RacDetalleDto rac)
+    public static Task<byte[]> GenerarPdfAsync(RacDetalleDto rac, List<(string Tipo, byte[] Bytes)> fotoBytes)
     {
-        using var httpClient = new HttpClient();
-        var fotoBytes = new List<(string Tipo, byte[] Bytes)>();
-        foreach (var foto in rac.Fotos)
-        {
-            try
-            {
-                var url = foto.Url.StartsWith("http") ? foto.Url
-                    : $"https://abrilinmob.sharepoint.com/sites/SSOMA-Powerapps/RacFotos2026/{foto.Url}";
-                var bytes = await httpClient.GetByteArrayAsync(url);
-                fotoBytes.Add((foto.Tipo, bytes));
-            }
-            catch { /* si falla una foto, ignorar */ }
-        }
-
         var doc = Document.Create(container =>
         {
             container.Page(page =>
@@ -138,6 +124,6 @@ public static class RacPdfService
             });
         });
 
-        return doc.GeneratePdf();
+        return Task.FromResult(doc.GeneratePdf());
     }
 }

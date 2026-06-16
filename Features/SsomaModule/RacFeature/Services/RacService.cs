@@ -102,6 +102,7 @@ public class RacService : IRacService
                         .FirstOrDefault()
                     : null,
                 ReportanteNombre      = r.ReportanteNombre,
+                Descripcion           = r.Descripcion,
             })
             .ToListAsync();
 
@@ -367,7 +368,7 @@ public class RacService : IRacService
             var detalle = await GetDetalleAsync(racId);
             if (detalle != null)
             {
-                var pdfBytes = RacPdfService.GenerarPdf(detalle);
+                var pdfBytes = await RacPdfService.GenerarPdfAsync(detalle);
                 using var pdfStream = new MemoryStream(pdfBytes);
                 var pdfPath = await _spService.SubirPdfAsync(pdfStream, $"{racCodigo}.pdf", racId);
 
@@ -464,13 +465,13 @@ public class RacService : IRacService
             NombreArchivo = foto.NombreArchivo ?? file.FileName
         };
     }
-    public byte[] GenerarPdf(RacDetalleDto rac) => RacPdfService.GenerarPdf(rac);
+    public Task<byte[]> GenerarPdf(RacDetalleDto rac) => RacPdfService.GenerarPdfAsync(rac);
 
     public async Task<byte[]> GetPdfAsync(int id)
     {
         var rac = await GetDetalleAsync(id)
             ?? throw new AbrilException("RAC no encontrado.", 404);
-        return RacPdfService.GenerarPdf(rac);
+        return await RacPdfService.GenerarPdfAsync(rac);
     }
     public async Task<RacDashboardDto> GetDashboardAsync()
     {

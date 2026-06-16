@@ -7,8 +7,22 @@ namespace Abril_Backend.Features.Ssoma.Rac.Services;
 
 public static class RacPdfService
 {
-    public static byte[] GenerarPdf(RacDetalleDto rac)
+    public static async Task<byte[]> GenerarPdfAsync(RacDetalleDto rac)
     {
+        using var httpClient = new HttpClient();
+        var fotoBytes = new List<(string Tipo, byte[] Bytes)>();
+        foreach (var foto in rac.Fotos)
+        {
+            try
+            {
+                var url = foto.Url.StartsWith("http") ? foto.Url
+                    : $"https://abrilinmob.sharepoint.com/sites/SSOMA-Powerapps/RacFotos2026/{foto.Url}";
+                var bytes = await httpClient.GetByteArrayAsync(url);
+                fotoBytes.Add((foto.Tipo, bytes));
+            }
+            catch { /* si falla una foto, ignorar */ }
+        }
+
         var doc = Document.Create(container =>
         {
             container.Page(page =>
@@ -90,10 +104,28 @@ public static class RacPdfService
                         });
                     }
 
-                    if (rac.Fotos.Count > 0)
+                    if (fotoBytes.Count > 0)
                     {
-                        col.Item().PaddingTop(8)
-                            .Text($"Fotos adjuntas: {rac.Fotos.Count}").FontSize(9).FontColor(Colors.Grey.Darken2);
+                        col.Item().PaddingTop(10).Column(inner =>
+                        {
+                            inner.Item().Background(Colors.Grey.Lighten3).Padding(4)
+                                .Text($"Fotos ({fotoBytes.Count})").Bold().FontSize(9);
+
+                            inner.Item().PaddingTop(6).Grid(grid =>
+                            {
+                                grid.Columns(2);
+                                grid.Spacing(6);
+                                foreach (var (tipo, bytes) in fotoBytes)
+                                {
+                                    grid.Item().Column(c =>
+                                    {
+                                        c.Item().Image(bytes).FitWidth();
+                                        c.Item().AlignCenter().Text(tipo).FontSize(8)
+                                            .FontColor(Colors.Grey.Darken1);
+                                    });
+                                }
+                            });
+                        });
                     }
                 });
 

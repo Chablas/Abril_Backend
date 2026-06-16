@@ -110,6 +110,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return await _projectSubContractorRepository.GetPagedWithFiltersAsync(filter);
         }
 
+        public async Task<AdjudicacionDashboardDto> GetDashboard(int userId, bool restrictToOwnProjects)
+        {
+            List<int>? allowedProjectIds = restrictToOwnProjects
+                ? await _projectLinkRepository.GetUserProjectIdsAsync(userId)
+                : null;
+            return await _projectSubContractorRepository.GetDashboardAsync(allowedProjectIds);
+        }
+
         public async Task Create(ProjectSubContractorCreateDTO dto, int userId)
         {
             // Phase 1: persist the record and get the new ID (needed for the folder path).

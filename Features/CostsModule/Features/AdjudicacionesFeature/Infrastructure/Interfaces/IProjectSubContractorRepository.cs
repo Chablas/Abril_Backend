@@ -17,6 +17,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
         Task<ProjectSubContractorFormDataDTO> GetFormDataAsync();
         Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter);
         Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFiltersAsync(ProjectSubContractorFilterDTO filter);
+        Task<AdjudicacionDashboardDto> GetDashboardAsync(List<int>? allowedProjectIds);
         Task<AdjudicacionNotificationDataDto> GetNotificationData(int projectSubContractorId);
         Task UpdateStatusToSent(int projectSubContractorId, int userId);
         Task UpdateStatus(int projectSubContractorId, int statusId, int userId);

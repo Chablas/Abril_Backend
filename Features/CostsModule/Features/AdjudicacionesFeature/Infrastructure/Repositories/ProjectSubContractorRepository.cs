@@ -682,6 +682,234 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             return null;
         }
 
+        public async Task<AdjudicacionDashboardDto> GetDashboardAsync(List<int>? allowedProjectIds)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var baseQ = ctx.ProjectSubContractor.Where(x => x.State && x.Active);
+            if (allowedProjectIds != null)
+                baseQ = baseQ.Where(x => allowedProjectIds.Contains(x.ProjectId));
+
+            // ── Resumen ────────────────────────────────────────────────────────
+            var total = await baseQ.CountAsync();
+            var completadas = await baseQ.CountAsync(x => x.ProjectSubContractorStatusId == 9);
+            var totalProyectos = await baseQ.Select(x => x.ProjectId).Distinct().CountAsync();
+            // Plazo promedio en días (solo adjudicaciones con ambas fechas).
+            var plazoPromedio = await baseQ
+                .Where(x => x.StartDate != null && x.EndDate != null)
+                .Select(x => (double)(x.EndDate!.Value.DayNumber - x.StartDate!.Value.DayNumber))
+                .DefaultIfEmpty()
+                .AverageAsync();
+
+            // ── Por estado (los 9 pasos, incluso en 0) ──────────────────────────
+            var estados = await ctx.ProjectSubContractorStatus
+                .OrderBy(e => e.ProjectSubContractorStatusId)
+                .Select(e => new { e.ProjectSubContractorStatusId, e.ProjectSubContractorStatusDescription })
+                .ToListAsync();
+            var countByEstado = await baseQ
+                .GroupBy(x => x.ProjectSubContractorStatusId)
+                .Select(g => new { EstadoId = g.Key, Count = g.Count() })
+                .ToListAsync();
+            var porEstado = estados.Select(e => new AdjudicacionChartItemDto
+            {
+                Id = e.ProjectSubContractorStatusId,
+                Label = e.ProjectSubContractorStatusDescription,
+                Value = countByEstado.FirstOrDefault(c => c.EstadoId == e.ProjectSubContractorStatusId)?.Count ?? 0
+            }).ToList();
+
+            // ── Por proyecto (conteo) ───────────────────────────────────────────
+            var porProyecto = await (
+                from x in baseQ
+                join p in ctx.Project on x.ProjectId equals p.ProjectId
+                group x by new { x.ProjectId, p.ProjectDescription } into g
+                orderby g.Count() descending
+                select new AdjudicacionChartItemDto
+                {
+                    Id = g.Key.ProjectId,
+                    Label = g.Key.ProjectDescription,
+                    Value = g.Count()
+                }
+            ).ToListAsync();
+
+            // ── Por tipo de contrato ────────────────────────────────────────────
+            var porTipoContrato = await (
+                from x in baseQ
+                join ct in ctx.ContractType on x.ContractTypeId equals ct.ContractTypeId
+                group x by new { x.ContractTypeId, ct.ContractTypeDescription } into g
+                orderby g.Count() descending
+                select new AdjudicacionChartItemDto
+                {
+                    Id = g.Key.ContractTypeId,
+                    Label = g.Key.ContractTypeDescription,
+                    Value = g.Count()
+                }
+            ).ToListAsync();
+
+            // ── Por categoría de partida ────────────────────────────────────────
+            var porCategoria = await (
+                from x in baseQ
+                join wic in ctx.WorkItemCategory on x.WorkItemCategoryId equals wic.WorkItemCategoryId
+                group x by new { x.WorkItemCategoryId, wic.WorkItemCategoryDescription } into g
+                orderby g.Count() descending
+                select new AdjudicacionChartItemDto
+                {
+                    Id = g.Key.WorkItemCategoryId,
+                    Label = g.Key.WorkItemCategoryDescription,
+                    Value = g.Count()
+                }
+            ).ToListAsync();
+
+            // ── Por modalidad de contrato (excluye los que no tienen modalidad) ─
+            var porModalidad = await (
+                from x in baseQ.Where(e => e.ContractModalityId != null)
+                join cm in ctx.ContractModality on x.ContractModalityId equals (int?)cm.ContractModalityId
+                group x by new { x.ContractModalityId, cm.ContractModalityDescription } into g
+                orderby g.Count() descending
+                select new AdjudicacionChartItemDto
+                {
+                    Id = g.Key.ContractModalityId!.Value,
+                    Label = g.Key.ContractModalityDescription,
+                    Value = g.Count()
+                }
+            ).ToListAsync();
+
+            // ── Por modalidad de pago ───────────────────────────────────────────
+            var porModalidadPago = await (
+                from x in baseQ
+                join pm in ctx.PaymentMethod on x.PaymentMethodId equals pm.PaymentMethodId
+                group x by new { x.PaymentMethodId, pm.PaymentMethodDescription } into g
+                orderby g.Count() descending
+                select new AdjudicacionChartItemDto
+                {
+                    Id = g.Key.PaymentMethodId,
+                    Label = g.Key.PaymentMethodDescription,
+                    Value = g.Count()
+                }
+            ).ToListAsync();
+
+            // ── Llegada a Of. Central con/sin observaciones (paso 5) ────────────
+            var conObservaciones = await baseQ.CountAsync(x => x.ArrivedWithObservations == true);
+            var sinObservaciones = await baseQ.CountAsync(x => x.ArrivedWithObservations == false);
+            var llegadaObservaciones = new List<AdjudicacionChartItemDto>
+            {
+                new() { Id = 1, Label = "Con observaciones", Value = conObservaciones },
+                new() { Id = 0, Label = "Sin observaciones", Value = sinObservaciones }
+            };
+
+            // ── Monto por moneda ────────────────────────────────────────────────
+            var montoPorMoneda = await (
+                from x in baseQ
+                join cur in ctx.Currency on x.CurrencyId equals cur.CurrencyId
+                group x by new { cur.CurrencyCode, cur.CurrencySymbol } into g
+                select new AdjudicacionMoneyByCurrencyDto
+                {
+                    Code = g.Key.CurrencyCode,
+                    Symbol = g.Key.CurrencySymbol,
+                    Total = g.Sum(e => e.Amount)
+                }
+            ).ToListAsync();
+
+            // ── Top subcontratistas por monto (PEN y USD) ───────────────────────
+            const int TopN = 10;
+
+            var topSubcontratistasPen = await (
+                from x in baseQ
+                join cur in ctx.Currency on x.CurrencyId equals cur.CurrencyId
+                where cur.CurrencyCode == "PEN"
+                join contractor in ctx.Contractor on x.ContractorId equals contractor.ContractorId
+                join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
+                group x by new { c.ContributorId, c.ContributorName } into g
+                orderby g.Sum(e => e.Amount) descending
+                select new AdjudicacionChartItemDto
+                {
+                    Id = g.Key.ContributorId,
+                    Label = g.Key.ContributorName,
+                    Value = g.Sum(e => e.Amount)
+                }
+            ).Take(TopN).ToListAsync();
+
+            var topSubcontratistasUsd = await (
+                from x in baseQ
+                join cur in ctx.Currency on x.CurrencyId equals cur.CurrencyId
+                where cur.CurrencyCode == "USD"
+                join contractor in ctx.Contractor on x.ContractorId equals contractor.ContractorId
+                join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
+                group x by new { c.ContributorId, c.ContributorName } into g
+                orderby g.Sum(e => e.Amount) descending
+                select new AdjudicacionChartItemDto
+                {
+                    Id = g.Key.ContributorId,
+                    Label = g.Key.ContributorName,
+                    Value = g.Sum(e => e.Amount)
+                }
+            ).Take(TopN).ToListAsync();
+
+            // ── Top subcontratistas por cantidad de adjudicaciones ──────────────
+            var topContratistas = await (
+                from x in baseQ
+                join contractor in ctx.Contractor on x.ContractorId equals contractor.ContractorId
+                join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
+                group x by new { c.ContributorId, c.ContributorName } into g
+                orderby g.Count() descending
+                select new AdjudicacionChartItemDto
+                {
+                    Id = g.Key.ContributorId,
+                    Label = g.Key.ContributorName,
+                    Value = g.Count()
+                }
+            ).Take(TopN).ToListAsync();
+
+            // ── Por mes (desde el primer mes con registros hasta el mes actual) ─
+            var creaciones = await baseQ
+                .Select(x => x.CreatedDateTime)
+                .ToListAsync();
+            var porMes = new List<AdjudicacionChartItemDto>();
+            var meses = new[] { "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Set", "Oct", "Nov", "Dic" };
+            if (creaciones.Count > 0)
+            {
+                var primera = creaciones.Min();
+                var inicio = new DateTime(primera.Year, primera.Month, 1);
+                var hoy = DateTime.UtcNow;
+                var fin = new DateTime(hoy.Year, hoy.Month, 1);
+                for (var mes = inicio; mes <= fin; mes = mes.AddMonths(1))
+                {
+                    var count = creaciones.Count(d => d.Year == mes.Year && d.Month == mes.Month);
+                    porMes.Add(new AdjudicacionChartItemDto
+                    {
+                        Id = mes.Year * 100 + mes.Month,
+                        Label = $"{meses[mes.Month - 1]} {mes:yy}",
+                        Value = count
+                    });
+                }
+            }
+
+            return new AdjudicacionDashboardDto
+            {
+                Summary = new AdjudicacionDashboardSummaryDto
+                {
+                    Total = total,
+                    Completadas = completadas,
+                    EnProceso = total - completadas,
+                    TotalProyectos = totalProyectos,
+                    MontoPenTotal = montoPorMoneda.FirstOrDefault(m => m.Code == "PEN")?.Total ?? 0,
+                    MontoUsdTotal = montoPorMoneda.FirstOrDefault(m => m.Code == "USD")?.Total ?? 0,
+                    PlazoPromedioDias = (int)Math.Round(plazoPromedio)
+                },
+                PorEstado = porEstado,
+                PorProyecto = porProyecto,
+                PorTipoContrato = porTipoContrato,
+                PorCategoria = porCategoria,
+                PorModalidad = porModalidad,
+                PorModalidadPago = porModalidadPago,
+                LlegadaObservaciones = llegadaObservaciones,
+                PorMes = porMes,
+                MontoPorMoneda = montoPorMoneda,
+                TopSubcontratistasPen = topSubcontratistasPen,
+                TopSubcontratistasUsd = topSubcontratistasUsd,
+                TopContratistas = topContratistas
+            };
+        }
+
         public async Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFiltersAsync(ProjectSubContractorFilterDTO filter)
         {
             if (filter.Page < 1) filter.Page = 1;

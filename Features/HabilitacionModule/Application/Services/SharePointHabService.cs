@@ -46,6 +46,33 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var token = await GetAccessTokenAsync();
             if (string.IsNullOrWhiteSpace(token)) return null;
 
+            if ((archivoUrl ?? string.Empty).StartsWith("OPT/", StringComparison.OrdinalIgnoreCase))
+            {
+                const string driveIdOpt = "b!Bmji2TXVU0OWEBlZeOIDkC8Dt6ceUVNLiodQihkLPHxZH7QqINghTq0UWOH5DOFR";
+                var encodedOpt = Uri.EscapeDataString(archivoUrl!).Replace("%2F", "/");
+                var urlOpt = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveIdOpt}/root:/{encodedOpt}:/content";
+
+                var clientOpt = _noRedirectClient.Value;
+                clientOpt.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+
+                var responseOpt = await clientOpt.GetAsync(urlOpt);
+
+                if (responseOpt.StatusCode == System.Net.HttpStatusCode.Found ||
+                    responseOpt.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
+                {
+                    var locationOpt = responseOpt.Headers.Location?.ToString();
+                    if (!string.IsNullOrWhiteSpace(locationOpt))
+                        return locationOpt;
+
+                    _logger.LogWarning("SharePoint /content devolvió redirect sin Location para {Path}", archivoUrl);
+                    return null;
+                }
+
+                _logger.LogWarning("SharePoint /content GET falló ({Status}) para {Path}", responseOpt.StatusCode, archivoUrl);
+                return null;
+            }
+
             var libraryId = ResolverLibraryId(libraryContexto ?? archivoUrl ?? string.Empty);
             string? driveId;
             string path;

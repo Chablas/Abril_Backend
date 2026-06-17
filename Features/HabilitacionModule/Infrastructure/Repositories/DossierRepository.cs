@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Dossier;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
@@ -45,6 +46,7 @@ public class DossierRepository : IDossierRepository
         using var ctx = _factory.CreateDbContext();
         var s = await ctx.SsDossierSemana
             .Include(s => s.Documentos)
+            .ThenInclude(d => d.Archivos)
             .FirstOrDefaultAsync(s => s.Id == id);
         if (s == null) return null;
 
@@ -53,7 +55,10 @@ public class DossierRepository : IDossierRepository
             .Select(d => new DossierDocumentoDto(
                 d.Id, d.DossierId, d.TipoDoc,
                 d.NombreArchivo, d.ArchivoPath,
-                d.Estado, d.CreatedAt, d.UpdatedAt))
+                d.Estado, d.CreatedAt, d.UpdatedAt,
+                d.Archivos.OrderBy(a => a.CreatedAt)
+                    .Select(a => new DossierArchivoDto(a.Id, a.NombreArchivo, a.ArchivoPath, a.CreatedAt))
+                    .ToList()))
             .ToList();
 
         return new DossierSemanaDetalleDto(
@@ -116,8 +121,12 @@ public class DossierRepository : IDossierRepository
             .FirstOrDefaultAsync(d => d.DossierId == dossierId && d.TipoDoc == tipoDoc)
             ?? throw new AbrilException("Documento no encontrado.", 404);
 
-        doc.NombreArchivo = nombreArchivo;
-        doc.ArchivoPath = archivoPath;
+        ctx.SsDossierDocumentoArchivo.Add(new SsDossierDocumentoArchivo {
+            DocumentoId = doc.Id,
+            NombreArchivo = nombreArchivo,
+            ArchivoPath = archivoPath,
+            CreatedAt = DateTime.UtcNow
+        });
         doc.Estado = "Subido";
         doc.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
@@ -156,12 +165,65 @@ public class DossierRepository : IDossierRepository
         await ctx.SaveChangesAsync();
     }
 
+    public async Task MarcarSemanaNoAplicaAsync(int dossierId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var semana = await ctx.SsDossierSemana.FindAsync(dossierId)
+            ?? throw new AbrilException("Dossier no encontrado.", 404);
+        semana.Estado = semana.Estado == "NoAplica" ? "Borrador" : "NoAplica";
+        semana.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task<string?> GetArchivoPathAsync(int docId)
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsDossierDocumento
             .Where(d => d.Id == docId)
             .Select(d => d.ArchivoPath)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task EliminarArchivoAsync(int archivoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var archivo = await ctx.SsDossierDocumentoArchivo
+            .Include(a => a.Documento)
+            .ThenInclude(d => d.Dossier)
+            .FirstOrDefaultAsync(a => a.Id == archivoId)
+            ?? throw new AbrilException("Archivo no encontrado.", 404);
+
+        if (archivo.Documento.Dossier!.Estado == "Aprobado")
+            throw new AbrilException("No se puede eliminar archivos de un dossier aprobado.", 400);
+
+        ctx.SsDossierDocumentoArchivo.Remove(archivo);
+
+        var quedan = await ctx.SsDossierDocumentoArchivo
+            .CountAsync(a => a.DocumentoId == archivo.DocumentoId && a.Id != archivoId);
+        if (quedan == 0)
+        {
+            archivo.Documento.Estado = "Pendiente";
+            archivo.Documento.UpdatedAt = DateTime.UtcNow;
+        }
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task RevertirABorradorAsync(int dossierId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var semana = await ctx.SsDossierSemana.FindAsync(dossierId)
+            ?? throw new AbrilException("Dossier no encontrado.", 404);
+        semana.Estado = "Borrador";
+        semana.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<string?> GetArchivoPathByIdAsync(int archivoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsDossierDocumentoArchivo
+            .Where(a => a.Id == archivoId)
+            .Select(a => a.ArchivoPath)
             .FirstOrDefaultAsync();
     }
 }

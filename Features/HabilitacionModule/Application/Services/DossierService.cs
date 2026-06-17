@@ -52,9 +52,27 @@ public class DossierService : IDossierService
         var path = await _sharePoint.SubirArchivoEnRutaAsync(stream, fileName, "dossier-semanal", carpetaPath);
 
         await _repo.SubirDocumentoAsync(dossierId, tipoDoc, file.FileName, path);
+
+        var detalle = await _repo.GetDetalleAsync(dossierId);
+        if (detalle?.Estado == "Aprobado")
+            await _repo.RevertirABorradorAsync(dossierId);
     }
 
     public Task MarcarNaAsync(int docId) => _repo.MarcarNaAsync(docId);
+
+    public Task MarcarSemanaNoAplicaAsync(int dossierId) => _repo.MarcarSemanaNoAplicaAsync(dossierId);
+
+    public Task EliminarArchivoAsync(int archivoId) => _repo.EliminarArchivoAsync(archivoId);
+
+    public async Task<string> GetArchivoUrlAsync(int archivoId)
+    {
+        var path = await _repo.GetArchivoPathByIdAsync(archivoId)
+            ?? throw new AbrilException("Archivo no encontrado.", 404);
+        var url = await _sharePoint.GetDownloadUrlAsync(path, "dossier-semanal");
+        if (string.IsNullOrWhiteSpace(url))
+            throw new AbrilException("No se pudo obtener la URL del archivo.", 502);
+        return url;
+    }
 
     public async Task EnviarAsync(int dossierId)
     {

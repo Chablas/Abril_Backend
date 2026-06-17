@@ -13,4 +13,8 @@ public interface IDossierRepository
     Task RevisarAsync(int dossierId, RevisarDossierRequest req);
     Task<string?> GetArchivoPathAsync(int docId);
     Task<(int ContributorId, int ProyectoId, int NumeroSemana, DateTime FechaInicio)?> GetDossierContextoAsync(int dossierId);
+    Task MarcarSemanaNoAplicaAsync(int dossierId);
+    Task EliminarArchivoAsync(int archivoId);
+    Task RevertirABorradorAsync(int dossierId);
+    Task<string?> GetArchivoPathByIdAsync(int archivoId);
 }

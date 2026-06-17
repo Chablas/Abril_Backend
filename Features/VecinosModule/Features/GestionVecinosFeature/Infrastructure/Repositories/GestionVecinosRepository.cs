@@ -490,5 +490,124 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
 
             return new VecinosDashboardDto { Resumen = resumen, Proyectos = proyectos };
         }
+
+        // ── Requisitos ───────────────────────────────────────────────────────
+        public async Task<VecinoRequisitosResponseDto> GetRequisitos(int vecinoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var tipos = await ctx.VecinoRequisitoTipo
+                .Where(t => t.State && t.Active)
+                .OrderBy(t => t.Orden)
+                .ToListAsync();
+
+            var estados = await ctx.VecinoRequisitoEstado
+                .Where(e => e.State && e.Active)
+                .OrderBy(e => e.VecinoRequisitoEstadoId)
+                .ToListAsync();
+
+            var rows = await ctx.VecinoRequisito
+                .Where(r => r.VecinoId == vecinoId && r.State)
+                .ToListAsync();
+
+            var estadoDesc = estados.ToDictionary(e => e.VecinoRequisitoEstadoId, e => e.Descripcion);
+            int noSubidoId = estados.FirstOrDefault(e => e.Descripcion == "No subido")?.VecinoRequisitoEstadoId ?? 0;
+
+            var items = tipos.Select(t =>
+            {
+                var row = rows.FirstOrDefault(r => r.VecinoRequisitoTipoId == t.VecinoRequisitoTipoId);
+                return new VecinoRequisitoItemDto
+                {
+                    VecinoRequisitoId = row?.VecinoRequisitoId,
+                    VecinoRequisitoTipoId = t.VecinoRequisitoTipoId,
+                    TipoDescripcion = t.Descripcion,
+                    Orden = t.Orden,
+                    VecinoRequisitoEstadoId = row?.VecinoRequisitoEstadoId ?? noSubidoId,
+                    EstadoDescripcion = row != null ? estadoDesc[row.VecinoRequisitoEstadoId] : "No subido",
+                    ArchivoUrl = row?.ArchivoUrl,
+                    OriginalFileName = row?.OriginalFileName,
+                };
+            }).ToList();
+
+            return new VecinoRequisitosResponseDto
+            {
+                Requisitos = items,
+                Estados = estados.Select(e => new CatalogOptionDto { Id = e.VecinoRequisitoEstadoId, Descripcion = e.Descripcion }).ToList(),
+            };
+        }
+
+        public async Task<bool> TipoRequisitoExists(int tipoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.VecinoRequisitoTipo.AnyAsync(t => t.VecinoRequisitoTipoId == tipoId && t.State && t.Active);
+        }
+
+        /// <summary>Obtiene la fila activa del requisito (vecino + tipo) o crea una nueva en el contexto.</summary>
+        private static async Task<VecinoRequisito> GetOrCreateRow(AppDbContext ctx, int vecinoId, int tipoId, int userId)
+        {
+            var row = await ctx.VecinoRequisito
+                .FirstOrDefaultAsync(r => r.VecinoId == vecinoId && r.VecinoRequisitoTipoId == tipoId && r.State);
+
+            if (row == null)
+            {
+                row = new VecinoRequisito
+                {
+                    VecinoId = vecinoId,
+                    VecinoRequisitoTipoId = tipoId,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true,
+                };
+                ctx.VecinoRequisito.Add(row);
+            }
+            else
+            {
+                row.UpdatedDateTime = DateTime.UtcNow;
+                row.UpdatedUserId = userId;
+            }
+            return row;
+        }
+
+        public async Task UploadRequisito(int vecinoId, int tipoId, string archivoUrl, string? originalFileName, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var subidoId = await ctx.VecinoRequisitoEstado
+                .Where(e => e.Descripcion == "Subido" && e.State)
+                .Select(e => e.VecinoRequisitoEstadoId)
+                .FirstOrDefaultAsync();
+
+            var row = await GetOrCreateRow(ctx, vecinoId, tipoId, userId);
+            row.ArchivoUrl = archivoUrl;
+            row.OriginalFileName = originalFileName;
+            row.VecinoRequisitoEstadoId = subidoId; // subir archivo ⇒ Subido (sobrescribe "No aplica").
+
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Marca/desmarca "No aplica". Al desmarcar, el estado vuelve a derivarse automáticamente
+        /// según haya o no archivo (Subido / No subido). El usuario nunca fija Subido/No subido a mano.
+        /// </summary>
+        public async Task SetRequisitoNoAplica(int vecinoId, int tipoId, bool noAplica, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var estados = await ctx.VecinoRequisitoEstado
+                .Where(e => e.State)
+                .Select(e => new { e.VecinoRequisitoEstadoId, e.Descripcion })
+                .ToListAsync();
+            int noAplicaId = estados.First(e => e.Descripcion == "No aplica").VecinoRequisitoEstadoId;
+            int subidoId = estados.First(e => e.Descripcion == "Subido").VecinoRequisitoEstadoId;
+            int noSubidoId = estados.First(e => e.Descripcion == "No subido").VecinoRequisitoEstadoId;
+
+            var row = await GetOrCreateRow(ctx, vecinoId, tipoId, userId);
+            row.VecinoRequisitoEstadoId = noAplica
+                ? noAplicaId
+                : (string.IsNullOrEmpty(row.ArchivoUrl) ? noSubidoId : subidoId);
+
+            await ctx.SaveChangesAsync();
+        }
     }
 }

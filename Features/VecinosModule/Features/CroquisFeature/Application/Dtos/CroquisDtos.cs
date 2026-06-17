@@ -46,6 +46,22 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Applicati
         public string ProjectDescription { get; set; } = null!;
         public int ProjectCroquisId { get; set; }
         public string ImageUrl { get; set; } = null!;
+        /// <summary>Total de solicitudes de todos los vecinos del proyecto.</summary>
+        public int SolicitudesCount { get; set; }
+        /// <summary>Total de compromisos de todos los vecinos del proyecto.</summary>
+        public int CompromisosCount { get; set; }
+        /// <summary>Solicitudes aprobadas (Aceptada) de todos los vecinos del proyecto.</summary>
+        public int SolicitudesAprobadas { get; set; }
+        /// <summary>Solicitudes evaluables del proyecto (Aceptada + Por responder, sin Denegada).</summary>
+        public int SolicitudesEvaluables { get; set; }
+        /// <summary>Entregables aprobados de todos los vecinos del proyecto.</summary>
+        public int EntregablesAprobados { get; set; }
+        /// <summary>Entregables evaluables (Falta + Enviado + Aprobado, sin "No aplica").</summary>
+        public int EntregablesEvaluables { get; set; }
+        /// <summary>Requisitos subidos de todos los vecinos del proyecto.</summary>
+        public int RequisitosSubidos { get; set; }
+        /// <summary>Requisitos evaluables del proyecto (Subido + No subido, sin "No aplica").</summary>
+        public int RequisitosEvaluables { get; set; }
         public List<CroquisGestionLoteDto> Lotes { get; set; } = new();
         public List<VecinoListItemDto> Vecinos { get; set; } = new();
     }

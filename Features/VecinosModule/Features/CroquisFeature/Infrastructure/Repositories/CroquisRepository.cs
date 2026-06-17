@@ -212,12 +212,119 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 select new { v, p, col, tc }
             ).ToListAsync();
 
+            // Conteo de solicitudes por vecino.
+            var vecinoIds = vecinos.Select(x => x.v.VecinoId).ToList();
+
+            // Ids de los estados de solicitud relevantes para el % de aprobadas.
+            var solicitudEstados = await ctx.VecinoSolicitudEstado
+                .Where(e => e.State)
+                .Select(e => new { e.VecinoSolicitudEstadoId, e.Descripcion })
+                .ToListAsync();
+            int solAceptadaId = solicitudEstados.FirstOrDefault(e => e.Descripcion == "Aceptada")?.VecinoSolicitudEstadoId ?? -1;
+            int solDenegadaId = solicitudEstados.FirstOrDefault(e => e.Descripcion == "Denegada")?.VecinoSolicitudEstadoId ?? -1;
+
+            // Solicitudes por vecino: total, aprobadas (Aceptada) y evaluables (Aceptada + Por responder, sin Denegada).
+            var solicitudesPorVecino = await (
+                from s in ctx.VecinoSolicitud.Where(s => s.State && s.Active && vecinoIds.Contains(s.VecinoId))
+                group s by s.VecinoId into g
+                select new
+                {
+                    VecinoId = g.Key,
+                    Count = g.Count(),
+                    Aprobadas = g.Count(x => x.VecinoSolicitudEstadoId == solAceptadaId),
+                    Evaluables = g.Count(x => x.VecinoSolicitudEstadoId != solDenegadaId),
+                }
+            ).ToDictionaryAsync(x => x.VecinoId, x => new { x.Count, x.Aprobadas, x.Evaluables });
+
+            // Conteo de compromisos por vecino (compromiso → solicitud → vecino).
+            var compromisosPorVecino = await (
+                from c in ctx.VecinoCompromiso.Where(c => c.State && c.Active)
+                join s in ctx.VecinoSolicitud.Where(s => s.State && s.Active) on c.VecinoSolicitudId equals s.VecinoSolicitudId
+                where vecinoIds.Contains(s.VecinoId)
+                group c by s.VecinoId into g
+                select new { VecinoId = g.Key, Count = g.Count() }
+            ).ToDictionaryAsync(x => x.VecinoId, x => x.Count);
+
+            // Ids de los estados de entregable relevantes para el % de aprobados.
+            var entregableEstados = await ctx.VecinoEntregableEstado
+                .Where(e => e.State)
+                .Select(e => new { e.VecinoEntregableEstadoId, e.Descripcion })
+                .ToListAsync();
+            int noAplicaId = entregableEstados.FirstOrDefault(e => e.Descripcion == "No aplica")?.VecinoEntregableEstadoId ?? -1;
+            int aprobadoId = entregableEstados.FirstOrDefault(e => e.Descripcion == "Aprobado")?.VecinoEntregableEstadoId ?? -1;
+
+            // Entregables por vecino (entregable → compromiso → solicitud → vecino),
+            // excluyendo los "No aplica" del cálculo del porcentaje de aprobados.
+            var entregablesPorVecino = await (
+                from e in ctx.VecinoCompromisoEntregable.Where(e => e.State && e.Active && e.VecinoEntregableEstadoId != noAplicaId)
+                join cm in ctx.VecinoCompromiso.Where(c => c.State && c.Active) on e.VecinoCompromisoId equals cm.VecinoCompromisoId
+                join s in ctx.VecinoSolicitud.Where(s => s.State && s.Active) on cm.VecinoSolicitudId equals s.VecinoSolicitudId
+                where vecinoIds.Contains(s.VecinoId)
+                group e by s.VecinoId into g
+                select new
+                {
+                    VecinoId = g.Key,
+                    Aprobados = g.Count(x => x.VecinoEntregableEstadoId == aprobadoId),
+                    Evaluables = g.Count(),
+                }
+            ).ToDictionaryAsync(x => x.VecinoId, x => new { x.Aprobados, x.Evaluables });
+
+            // Requisitos por vecino: subidos y "no aplica" (el resto se cuenta como "no subido").
+            int totalTiposRequisito = await ctx.VecinoRequisitoTipo.CountAsync(t => t.State && t.Active);
+            var reqEstados = await ctx.VecinoRequisitoEstado
+                .Where(e => e.State)
+                .Select(e => new { e.VecinoRequisitoEstadoId, e.Descripcion })
+                .ToListAsync();
+            int reqSubidoId = reqEstados.FirstOrDefault(e => e.Descripcion == "Subido")?.VecinoRequisitoEstadoId ?? -1;
+            int reqNoAplicaId = reqEstados.FirstOrDefault(e => e.Descripcion == "No aplica")?.VecinoRequisitoEstadoId ?? -1;
+
+            var requisitosPorVecino = await (
+                from r in ctx.VecinoRequisito.Where(r => r.State && vecinoIds.Contains(r.VecinoId))
+                group r by r.VecinoId into g
+                select new
+                {
+                    VecinoId = g.Key,
+                    Subidos = g.Count(x => x.VecinoRequisitoEstadoId == reqSubidoId),
+                    NoAplica = g.Count(x => x.VecinoRequisitoEstadoId == reqNoAplicaId),
+                }
+            ).ToDictionaryAsync(x => x.VecinoId, x => new { x.Subidos, x.NoAplica });
+
+            // Evaluables de un vecino = total de tipos - los marcados "No aplica".
+            int reqEvaluablesDe(int vid) =>
+                totalTiposRequisito - (requisitosPorVecino.GetValueOrDefault(vid)?.NoAplica ?? 0);
+            int reqSubidosDe(int vid) =>
+                requisitosPorVecino.GetValueOrDefault(vid)?.Subidos ?? 0;
+
             response.Croquis = croquis.Select(c => new CroquisGestionDto
             {
                 ProjectId = c.ProjectId,
                 ProjectDescription = c.ProjectDescription,
                 ProjectCroquisId = c.ProjectCroquisId,
                 ImageUrl = c.ImageUrl,
+                SolicitudesCount = vecinos
+                    .Where(x => x.v.ProjectId == c.ProjectId)
+                    .Sum(x => solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Count ?? 0),
+                SolicitudesAprobadas = vecinos
+                    .Where(x => x.v.ProjectId == c.ProjectId)
+                    .Sum(x => solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobadas ?? 0),
+                SolicitudesEvaluables = vecinos
+                    .Where(x => x.v.ProjectId == c.ProjectId)
+                    .Sum(x => solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0),
+                CompromisosCount = vecinos
+                    .Where(x => x.v.ProjectId == c.ProjectId)
+                    .Sum(x => compromisosPorVecino.GetValueOrDefault(x.v.VecinoId)),
+                EntregablesAprobados = vecinos
+                    .Where(x => x.v.ProjectId == c.ProjectId)
+                    .Sum(x => entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobados ?? 0),
+                EntregablesEvaluables = vecinos
+                    .Where(x => x.v.ProjectId == c.ProjectId)
+                    .Sum(x => entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0),
+                RequisitosSubidos = vecinos
+                    .Where(x => x.v.ProjectId == c.ProjectId)
+                    .Sum(x => reqSubidosDe(x.v.VecinoId)),
+                RequisitosEvaluables = vecinos
+                    .Where(x => x.v.ProjectId == c.ProjectId)
+                    .Sum(x => reqEvaluablesDe(x.v.VecinoId)),
                 Lotes = lotes
                     .Where(l => l.ProjectCroquisId == c.ProjectCroquisId)
                     .Select(l => new CroquisGestionLoteDto
@@ -247,6 +354,14 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                         VecinoTipoConstruccionId = x.v.VecinoTipoConstruccionId,
                         TipoConstruccionDescripcion = x.tc.Descripcion,
                         CreatedDateTime = x.v.CreatedDateTime,
+                        SolicitudesCount = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Count ?? 0,
+                        CompromisosCount = compromisosPorVecino.GetValueOrDefault(x.v.VecinoId),
+                        SolicitudesAprobadas = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobadas ?? 0,
+                        SolicitudesEvaluables = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0,
+                        EntregablesAprobados = entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobados ?? 0,
+                        EntregablesEvaluables = entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0,
+                        RequisitosSubidos = reqSubidosDe(x.v.VecinoId),
+                        RequisitosEvaluables = reqEvaluablesDe(x.v.VecinoId),
                     })
                     .ToList(),
             }).ToList();

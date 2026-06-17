@@ -17,6 +17,7 @@ namespace Abril_Backend.Infrastructure.Services
         public string ProjectSubContractor { get; set; }
         public string ProjectFotosContainer { get; set; } = "project-fotos";
         public string ProjectCroquisContainer { get; set; } = "project-croquis";
+        public string VecinoRequisitosContainer { get; set; } = "vecino-requisitos";
     }
 
     public class LocalStorageOptions
@@ -28,5 +29,6 @@ namespace Abril_Backend.Infrastructure.Services
         public string ProjectSubContractor { get; set; }
         public string ProjectFotosContainer { get; set; } = "project-fotos";
         public string ProjectCroquisContainer { get; set; } = "project-croquis";
+        public string VecinoRequisitosContainer { get; set; } = "vecino-requisitos";
     }
 }

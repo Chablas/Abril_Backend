@@ -350,7 +350,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .FirstOrDefaultAsync();
 
                 var vigente = ultimoEmo != null
-                    && (ultimoEmo.Estado == "Vigente" || ultimoEmo.Estado == "Convalidado");
+                    && (ultimoEmo.Estado == "Vigente" || ultimoEmo.Estado == "Convalidado")
+                    && !(ultimoEmo.RequiereInterconsulta == true && ultimoEmo.InterconsultaResuelta == false);
 
                 DateTime? vigenciaEmo = null;
                 if (vigente)

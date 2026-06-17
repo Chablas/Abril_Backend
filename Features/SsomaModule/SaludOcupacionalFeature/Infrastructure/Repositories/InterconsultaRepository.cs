@@ -128,8 +128,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.RequiereSeguimiento.HasValue) ent.RequiereSeguimiento = dto.RequiereSeguimiento.Value;
             ent.UpdatedAt = DateTimeOffset.UtcNow;
 
-            if (dto.Estado == "Completado")
+            if (dto.Estado == "Atendida" || dto.Estado == "Completado")
             {
+                var emo = await ctx.WorkerEmo
+                    .FirstOrDefaultAsync(e => e.Id == ent.EmoId);
+                if (emo != null)
+                {
+                    emo.InterconsultaResuelta = true;
+                    emo.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+
                 var lecturaEmo = await ctx.SsHabTrabajador
                     .FirstOrDefaultAsync(h => h.WorkerId == ent.WorkerId && h.ItemId == 25);
                 if (lecturaEmo != null)
@@ -148,7 +156,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     .FirstOrDefaultAsync();
                 if (prog != null)
                 {
-                    prog.Estado = "En Atención";
+                    prog.Estado = "Completado";
                     prog.UpdatedAt = DateTimeOffset.UtcNow;
                 }
             }

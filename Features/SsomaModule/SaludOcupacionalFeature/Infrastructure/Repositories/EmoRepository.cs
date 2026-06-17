@@ -548,9 +548,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .FirstOrDefaultAsync();
             if (progActiva != null)
             {
-                progActiva.Estado = "Completado";
                 progActiva.EmoResultadoId = emo.Id;
                 progActiva.UpdatedAt = DateTimeOffset.UtcNow;
+                if (emo.RequiereInterconsulta != true)
+                {
+                    progActiva.Estado = "Completado";
+                }
             }
 
             if (dto.FechaLectura.HasValue)

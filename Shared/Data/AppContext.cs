@@ -215,6 +215,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaOptPaso> SsomaOptPaso { get; set; }
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
+        // ── Dossier Semanal ────────────────────────────────────────────────────
+        public DbSet<SsDossierSemana> SsDossierSemana => Set<SsDossierSemana>();
+        public DbSet<SsDossierDocumento> SsDossierDocumento => Set<SsDossierDocumento>();
         // ── Inspecciones ───────────────────────────────────────────────────────
         public DbSet<SsomaInspeccionTipo> SsomaInspeccionTipo => Set<SsomaInspeccionTipo>();
         public DbSet<SsomaInspeccionChecklistItem> SsomaInspeccionChecklistItem => Set<SsomaInspeccionChecklistItem>();
@@ -752,6 +755,21 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.Property(e => e.UitReferencia).HasColumnName("uit_referencia");
                 entity.Property(e => e.PdfResolucionUrl).HasColumnName("pdf_resolucion_url");
+            });
+
+            // ── Dossier Semanal ──────────────────────────────────────────────
+            modelBuilder.Entity<SsDossierSemana>(entity =>
+            {
+                entity.HasIndex(e => new { e.ContributorId, e.ProyectoId, e.Anio, e.NumeroSemana })
+                      .IsUnique();
+                entity.HasMany(e => e.Documentos)
+                      .WithOne(d => d.Dossier)
+                      .HasForeignKey(d => d.DossierId)
+                      .OnDelete(DeleteBehavior.Cascade);
+            });
+            modelBuilder.Entity<SsDossierDocumento>(entity =>
+            {
+                entity.HasIndex(e => new { e.DossierId, e.TipoDoc }).IsUnique();
             });
         }
     }

@@ -75,6 +75,7 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IInspeccionSharePointService, InspeccionSharePointService>();
             services.AddScoped<IInspeccionRepository, InspeccionRepository>();
             services.AddScoped<IInspeccionService, InspeccionService>();
+            services.AddScoped<InspeccionPdfService>();
 
             return services;
         }

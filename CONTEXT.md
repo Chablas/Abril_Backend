@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-12 — HabilitacionModule/catalogos: CRUD completo para cat_categoria y cat_ocupacion. Todos los endpoints de escritura (POST/PUT/PATCH toggle) marcados [AllowAnonymous].
+> Última actualización: 2026-06-17 — DossierSemanal: módulo completo (entidades, repo, service, controller, 8 endpoints en api/v1/habilitacion/dossier, ON CONFLICT DO NOTHING, upload via SharePoint 'dossier-semanal'). InspeccionFeature: PDF RM 050-2013-TR con QuestPDF + tab hallazgos centralizado.
 
 ---
 
@@ -405,6 +405,20 @@ GET   /api/v1/habilitacion/archivos/url?path=
 # Empresas — endpoints adicionales (2026-06-06)
 PATCH  /api/v1/habilitacion/empresas/{id}/entregables/{entregableId}/mes   body: EmpresaEntregableUpdateDto — aprobar/rechazar mes específico
 DELETE /api/v1/habilitacion/empresas/{id}/archivos/{archivoId}             — eliminar archivo de versión (solo si estado != Aprobado/Rechazado)
+
+# Dossier Semanal (2026-06-17)
+GET    /api/v1/habilitacion/dossier?contributorId=&proyectoId=&anio=  → lista de semanas con contadores
+GET    /api/v1/habilitacion/dossier/{id}                              → detalle con documentos
+POST   /api/v1/habilitacion/dossier/semana                            body: { contributorId, proyectoId, numeroSemana, anio } → { id, fechaInicio, fechaFin }
+POST   /api/v1/habilitacion/dossier/{dossierId}/documento             [FromForm] { File, TipoDoc } → sube a SharePoint 'dossier-semanal', guarda path
+PATCH  /api/v1/habilitacion/dossier/documento/{docId}/marcar-na       → toggle NA/Pendiente, limpia path
+POST   /api/v1/habilitacion/dossier/{dossierId}/enviar                → Borrador/Rechazado → Enviado
+POST   /api/v1/habilitacion/dossier/{dossierId}/revisar               body: { estado: 'Aprobado'|'Rechazado', obsRevisor? } → Enviado → Aprobado/Rechazado
+GET    /api/v1/habilitacion/dossier/documento/{docId}/url             → downloadUrl de SharePoint
+
+⚠️ EnsureSemana usa ON CONFLICT DO NOTHING en PG + crea 7 tipos de doc automáticamente
+⚠️ Tipos de doc: Accidente, EPP, Estadisticas, Capacitaciones, PETAR, ATS, Charlas
+⚠️ Upload: path carpeta = "{contributorId}/{proyectoId}/Sem{N}_{fechaInicio:yyyyMMdd}", NUNCA guardar url
 
 # Otros
 GET/POST/PUT/DELETE  /api/v1/habilitacion/reglas
@@ -4347,3 +4361,141 @@ Las firmas de OPT se guardan en SharePoint bajo un path que empieza con `OPT/`, 
 ### Frontend (Abril-Frontend) — opt-detalle: firmas removidas del detalle
 
 En `opt-detalle.html` se quitaron ambas secciones que renderizaban `<app-document-viewer>` para firmas (firma observador y firma por trabajador en `trab-block`). Las firmas ya no se muestran en el detalle — solo se usarán al generar el PDF.
+
+---
+
+## Sesión 2026-06-16 (segunda parte) — PASO reprogramación y LecturaEmo
+
+### PasoFeature — endpoint ProgramarEjecucion (SinProgramar → Programado)
+
+Nuevo flujo para crear una ejecución con estado `Programado` en actividades que aún no tienen ejecución en el mes:
+
+- `ProgramarEjecucionRequest { ActividadId, FechaProgramada }` agregado a `SsomaPasoDtos.cs`
+- `IPasoService.ProgramarEjecucionAsync(req)` — firma en interfaz
+- `PasoService.ProgramarEjecucionAsync`: valida unicidad `(ActividadId, FechaProgramada)`, crea `SsomaPasoEjecucion` con `Estado="Programado"` y `FechaVerificacion = UltimoDiaMes(...)`
+- `POST api/v1/ssoma-paso/ejecucion/programar` en `PasoController`
+
+### PasoFeature — GetResumenMesAsync: filtro de actividades unificado
+
+El bloque `actividadesEnMes` reemplaza la lógica anterior con reglas en orden de prioridad:
+
+1. Inactivas (`!act.Activo`) → excluir
+2. Tiene ejecución `Programado` en **este** mes → incluir siempre (reprogramadas hacia aquí)
+3. Tiene ejecución `Programado` en **otro** mes → excluir (fue reprogramada fuera de este mes)
+4. Lógica normal de frecuencia/ciclo (Mensual, Bimestral, Única, etc.)
+
+### HabilitacionModule — LecturaEmo (ItemId=25) excluido del cálculo de habilitación
+
+`LecturaEmo` no debe bloquear la habilitación del trabajador. Excluido en tres puntos:
+
+1. **`HabTrabajadorRepository.cs` líneas 84 y 91** (`EstadoCalc`): `h.ItemId != HabItemIds.LecturaEmo` en ambas ramas (No Autorizado y Autorizado Temporalmente). Commit anterior.
+2. **`ControlAccesoRepository.cs` líneas 462 y 467** (`hasPendientes` y `faltantes`): misma exclusión para el endpoint de control de acceso. Requirió agregar `using Abril_Backend.Shared.Constants;` que faltaba.
+
+### HabilitacionModule — validación vigencia flexible (WorkerEntregableUpdateValidator)
+
+Regla anterior rechazaba cualquier `Vigencia ≤ DateTime.Today`. Nueva regla:
+
+```csharp
+RuleFor(x => x.Vigencia)
+    .Must((dto, vigencia) => vigencia == null || dto.Estado == "Falta" || vigencia.Value > DateTime.Today)
+    .WithMessage("La vigencia debe ser una fecha futura.");
+```
+
+Cuando `Estado == "Falta"`, la vigencia puede ser cualquier fecha (o null) — útil para registrar documentos históricos o vencidos sin bloquear el flujo.
+
+---
+
+## Sesión 2026-06-16 (tercera parte) — InspeccionFeature: flujo 3-pasos y URLs SharePoint
+
+### InspeccionFeature — flujo de creación en 3 pasos
+
+Problema original: firmas y fotos de hallazgos se subían a `Inspecciones/0/firmas` porque `inspeccionId=0` al momento del upload.
+
+Nuevo flujo en `InspeccionService.CrearInspeccionAsync`:
+
+1. **Paso 1** — Crear inspección en BD sin firmas ni fotos → obtiene `id` real
+2. **Paso 2** — Subir firmas (`inspeccion-firmas`) y fotos de hallazgos (`inspeccion-fotos`) a SharePoint con el `id` real → rutas correctas `Inspecciones/{id}/firmas` y `Inspecciones/{id}/hallazgos/{hallazgoIdx}`
+3. **Paso 3** — `ActualizarFirmasYFotosAsync`: si hay algo que actualizar, hace UPDATE de `FirmaInspectorUrl`/`FirmaRepresentanteUrl` en la inspección e inserta registros `SsomaInspeccionHallazgoFoto` (mapeando índice de hallazgo por `OrderBy(h.Id)`)
+
+### InspeccionFeature — nuevo método ActualizarFirmasYFotosAsync
+
+Agregado a `IInspeccionRepository` e implementado en `InspeccionRepository`:
+
+```csharp
+Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl, Dictionary<int, List<string>> fotosHallazgoUrls);
+```
+
+### SharePointHabService — SubirArchivoYObtenerUrlAsync
+
+Nuevo método que sube el archivo y luego hace GET para obtener `@microsoft.graph.downloadUrl`:
+
+```
+GET /sites/{siteId}/drives/{driveId}/root:/{encoded}?$select=id,%40microsoft.graph.downloadUrl
+```
+
+Devuelve la URL pre-autenticada de Graph (expira ~1 hora). Fallback a ruta relativa si el GET falla (con warning en log). Agregado a `ISharePointHabService` y llamado desde `InspeccionSharePointService` en los 3 métodos (firma inspector, firma representante, foto hallazgo).
+
+> **Nota:** `@microsoft.graph.downloadUrl` es temporal. Si el frontend muestra estas URLs días después de crearlas, habrá que refrescarlas con `GetDownloadUrlAsync`.
+
+### SharePointHabService — fix clave config InspeccionesLibraryId
+
+`ResolverLibraryId` usaba `"SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"` pero la clave real en `appsettings.Local.json` es `"InspeccionesAbril2026LibraryId"`. Corregido en las dos líneas (`inspeccion-fotos` e `inspeccion-firmas`).
+
+### InspeccionRepository — DateTime.SpecifyKind para campos del request
+
+- `Fecha = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc)` (antes sin Kind)
+- `FechaLimite = h.FechaLimite.HasValue ? DateTime.SpecifyKind(h.FechaLimite.Value, DateTimeKind.Utc) : null` (antes sin Kind)
+
+---
+
+## Sesión 2026-06-17 — InspeccionFeature: PDF + Tab Hallazgos
+
+### TAREA 1 — PDF RM 050-2013-TR
+
+**Archivo nuevo:** `Features/SsomaModule/InspeccionFeature/Application/Services/InspeccionPdfService.cs`
+
+Inyecta `IHttpClientFactory`. Método público `GenerarPdfAsync(InspeccionDetalleDto)` → `byte[]`.
+
+Flujo:
+1. Descarga en paralelo firmas (`FirmaInspectorUrl`, `FirmaRepresentanteUrl`) y fotos de hallazgos via `DescargarImagenAsync(url)` — falla silenciosamente (return null) si la URL no responde.
+2. Agrupa `Respuestas` por `Categoria ?? "General"` para el checklist.
+3. Genera PDF A4 con QuestPDF: colores `#1B3A6B` (primario) / `#2D5AA0` (subheader) / `#E8EEF7` (header grupo).
+
+**Secciones del PDF:**
+- Header sticky: "REGISTRO DE INSPECCIONES — RM 050-2013-TR", código `REG-SSOMA-INS-{id:D4}`, paginación
+- Datos generales: tabla 4 columnas (label/valor/label/valor)
+- Resumen numérico: Total Items / Cumple / No Cumple / NA / Tasa
+- Checklist: tabla con header grupal por `Categoria`, columnas N°/Descripción/Cumple(✓)/NoCumple(✗)/NA(—)/Observaciones
+- Hallazgos: tabla con color de celda Estado (verde=Cerrado, naranja=Abierto, rojo=vencido no cerrado)
+- Registro fotográfico: grid 2 columnas con caption = descripción del hallazgo (si hay fotos descargables)
+- Conclusiones/Causas: `DescripcionCausas` + `Conclusiones`
+- Firmas: 2 columnas con imagen descargada o línea punteada si null
+
+**Endpoint:** `GET /api/v1/ssoma-inspeccion/{id}/pdf` → `File(bytes, "application/pdf", ...)`
+
+**DI:** `services.AddScoped<InspeccionPdfService>()` en `SsomaModule.cs`
+
+> QuestPDF ya estaba instalado (`2024.12.3`) y configurado en Program.cs (`LicenseType.Community`).
+
+### TAREA 2 — Tab Hallazgos centralizado
+
+**DTOs nuevos** en `InspeccionDtos.cs`:
+- `HallazgoListItemDto`: `Id`, `InspeccionId`, `Proyecto`, `FechaInspeccion`, `Descripcion`, `Tipo`, `Area`, `ResponsableNombre`, `ResponsableCargo`, `FechaLimite`, `AccionCorrectiva`, `Estado`, `FechaCierre`, `FotosUrls` (`List<string>`)
+- `LevantarHallazgoDto`: `Estado` ("En proceso" | "Cerrado"), `EvidenciaUrl`, `EvidenciaNombre`
+
+**Endpoints nuevos:**
+```
+GET   /api/v1/ssoma-inspeccion/hallazgos
+      ?estado=&proyecto=&area=&responsableId=&fechaLimiteHasta=
+      → List<HallazgoListItemDto> — todos los hallazgos de todas las inspecciones
+
+PATCH /api/v1/ssoma-inspeccion/hallazgos/{hallazgoId}/levantar
+      body: LevantarHallazgoDto
+      → actualiza Estado, FechaCierre (si Cerrado), EvidenciaCierreUrl
+```
+
+**Ordenamiento GetHallazgos** (en memoria tras query EF): vencidos-abiertos (0) → abiertos (1) → en proceso (2) → cerrados (3), luego por `FechaLimite ASC`.
+
+**Estados en BD:** "Abierto" (inicial) | "En proceso" (vía LevantarHallazgo) | "Cerrado" (vía LevantarHallazgo o CerrarHallazgo).
+
+> La tabla `ssoma_inspeccion_hallazgo_evidencia_cierre` y la columna `cerrado_por_id` del SQL de la tarea son DDL pendientes de ejecutar manualmente en PostgreSQL — no incluidas en código porque el modelo actual ya tiene `EvidenciaCierreUrl` y `FechaCierre`.

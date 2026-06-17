@@ -176,6 +176,14 @@ public class PasoController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.RegistrarEjecucion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpPost("ejecucion/programar")]
+    public async Task<IActionResult> ProgramarEjecucion([FromBody] ProgramarEjecucionRequest req)
+    {
+        try { return Ok(await _service.ProgramarEjecucionAsync(req)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.ProgramarEjecucion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpPatch("ejecucion/{id:int}/reprogramar")]
     public async Task<IActionResult> ReprogramarEjecucion(int id, [FromBody] ReprogramarEjecucionRequest req)
     {

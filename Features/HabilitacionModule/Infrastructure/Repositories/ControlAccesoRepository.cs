@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.ControlAcceso;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -459,12 +460,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 else
                 {
                     hasPendientes = items.Any(h =>
-                        h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
-                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora));
+                        h.ItemId != HabItemIds.LecturaEmo &&
+                        (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
+                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)));
 
                     faltantes = items
-                        .Where(h => h.Estado == "Falta" || h.Estado == "Rechazado" ||
-                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora))
+                        .Where(h => h.ItemId != HabItemIds.LecturaEmo &&
+                                    (h.Estado == "Falta" || h.Estado == "Rechazado" ||
+                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)))
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)
                         .ToList();

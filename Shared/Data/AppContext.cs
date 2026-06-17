@@ -66,6 +66,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ContractorPersonType> ContractorPersonType { get; set; }
         public DbSet<ContractorState> ContractorState { get; set; }
         public DbSet<ContractorUser> ContractorUser { get; set; }
+        public DbSet<ContractorUpdateState> ContractorUpdateState { get; set; }
+        public DbSet<ContractorUpdateRequest> ContractorUpdateRequest { get; set; }
+        public DbSet<ContractorUpdateRequestEmail> ContractorUpdateRequestEmail { get; set; }
         public DbSet<Currency> Currency { get; set; }
         public DbSet<WorkItemCategory> WorkItemCategory { get; set; }
         public DbSet<WorkItemCategoryClause> WorkItemCategoryClause { get; set; }
@@ -329,6 +332,13 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(cu => cu.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // ── Solicitud de actualización de datos de contratista ──────────
+            modelBuilder.Entity<ContractorUpdateRequest>()
+                .HasMany(r => r.Emails)
+                .WithOne()
+                .HasForeignKey(e => e.ContractorUpdateRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<ProjectSubContractorQuotationFile>()
                 .HasOne(f => f.ProjectSubContractor)

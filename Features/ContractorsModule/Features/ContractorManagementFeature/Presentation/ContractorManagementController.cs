@@ -63,6 +63,44 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Presentation
             }
         }
 
+        [HttpPatch("{contractorId}/update-request/approve")]
+        public async Task<IActionResult> ApproveUpdate(int contractorId)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+                await _service.ApproveUpdate(contractorId, userId);
+                return Ok(new { message = "Actualización de datos aprobada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("{contractorId}/update-request/reject")]
+        public async Task<IActionResult> RejectUpdate(int contractorId)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+                await _service.RejectUpdate(contractorId, userId);
+                return Ok(new { message = "Actualización de datos rechazada. Se conservan los datos anteriores." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPut("{contractorId}")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> Update(int contractorId, [FromForm] ContractorUpdateDto dto)

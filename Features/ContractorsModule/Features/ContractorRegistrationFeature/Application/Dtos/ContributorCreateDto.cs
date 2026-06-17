@@ -19,5 +19,10 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
         /// <summary>Clasificaciones paralelas a ContributorEmails (mismo orden). Valor vacío = sin clasificación.</summary>
         public List<string?> ContributorEmailPersonTypeIds { get; set; } = [];
         public string? GraphAccessToken { get; set; }
+        /// <summary>
+        /// true cuando el usuario, tras ser advertido de que el RUC ya existe, confirma que
+        /// desea enviar una solicitud de actualización de datos del contratista existente.
+        /// </summary>
+        public bool IsUpdateRequest { get; set; }
     }
 }

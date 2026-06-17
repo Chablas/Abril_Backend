@@ -93,8 +93,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var scope = usuarioContratista?.Scope ?? "TODOS";
             var proyectoIds = usuarioContratista?.Proyectos?
                 .Select(p => p.ProyectoId).ToList() ?? new List<int>();
+            var modulos = usuarioContratista?.Modulos ?? "AMBOS";
 
-            return GenerarTokenDto(user, contractor, contributor, allowedFeatures, systemRoleIds, scope, proyectoIds);
+            return GenerarTokenDto(user, contractor, contributor, allowedFeatures, systemRoleIds, scope, proyectoIds, modulos);
         }
 
         public async Task<List<EmpresaSimpleDto>> GetEmpresasParaLoginAsync()
@@ -234,11 +235,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var scopeActivar = usuarioContratistaActivar?.Scope ?? "TODOS";
             var proyectoIdsActivar = usuarioContratistaActivar?.Proyectos?
                 .Select(p => p.ProyectoId).ToList() ?? new List<int>();
+            var modulosActivar = usuarioContratistaActivar?.Modulos ?? "AMBOS";
 
             var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
             var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
 
-            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures, systemRoleIds, scopeActivar, proyectoIdsActivar);
+            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures, systemRoleIds, scopeActivar, proyectoIdsActivar, modulosActivar);
         }
 
         public async Task SolicitarResetPasswordAsync(SolicitarResetDto dto)
@@ -511,7 +513,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 .Select(ur => ur.RoleId)
                 .ToListAsync();
 
-        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor, List<string> allowedFeatures, List<int> systemRoleIds, string scope, List<int> proyectoIds)
+        private ContratistaTokenDto GenerarTokenDto(User user, Contractor contractor, Contributor contributor, List<string> allowedFeatures, List<int> systemRoleIds, string scope, List<int> proyectoIds, string modulos)
         {
             var claims = new List<Claim>
             {
@@ -523,6 +525,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 new Claim("systemRoles", string.Join(",", systemRoleIds)),
                 new Claim("scope", scope),
                 new Claim("proyectoIds", string.Join(",", proyectoIds)),
+                new Claim("modulos", modulos),
             };
 
             var key = new SymmetricSecurityKey(
@@ -544,7 +547,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 Tipo = "CONTRATISTA",
                 AllowedFeatures = allowedFeatures,
                 Scope = scope,
-                ProyectoIds = proyectoIds
+                ProyectoIds = proyectoIds,
+                Modulos = modulos
             };
         }
     }

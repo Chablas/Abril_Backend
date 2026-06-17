@@ -9,5 +9,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Auth
         public List<string> AllowedFeatures { get; set; } = [];
         public string Scope { get; set; } = "TODOS";
         public List<int> ProyectoIds { get; set; } = [];
+        public string Modulos { get; set; } = "AMBOS";
     }
 }

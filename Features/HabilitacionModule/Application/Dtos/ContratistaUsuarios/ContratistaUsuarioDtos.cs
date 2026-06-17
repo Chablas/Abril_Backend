@@ -10,6 +10,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.ContratistaUsuari
         public string Scope { get; set; } = "TODOS";
         public bool Activo { get; set; }
         public List<int> ProyectoIds { get; set; } = new();
+        public string? Modulos { get; set; }
     }
 
     public class ContratistaUsuarioCreateDto
@@ -19,6 +20,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.ContratistaUsuari
         public int SystemRoleId { get; set; }
         public string Scope { get; set; } = "TODOS";
         public List<int>? ProyectoIds { get; set; }
+        public string? Modulos { get; set; }
     }
 
     public class ContratistaUsuarioUpdateDto
@@ -27,5 +29,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.ContratistaUsuari
         public string? Scope { get; set; }
         public bool? Activo { get; set; }
         public List<int>? ProyectoIds { get; set; }
+        public string? Modulos { get; set; }
     }
 }

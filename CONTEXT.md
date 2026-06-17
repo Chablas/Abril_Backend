@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-16 — PASO reprogramación, LecturaEmo excluido del cálculo de habilitación y control de acceso, validación vigencia flexible cuando estado=Falta. InspeccionFeature: flujo 3-pasos creación + downloadUrl SharePoint.
+> Última actualización: 2026-06-17 — InspeccionFeature: PDF RM 050-2013-TR con QuestPDF + tab hallazgos centralizado (GetHallazgos/LevantarHallazgo).
 
 ---
 
@@ -4431,3 +4431,57 @@ Devuelve la URL pre-autenticada de Graph (expira ~1 hora). Fallback a ruta relat
 
 - `Fecha = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc)` (antes sin Kind)
 - `FechaLimite = h.FechaLimite.HasValue ? DateTime.SpecifyKind(h.FechaLimite.Value, DateTimeKind.Utc) : null` (antes sin Kind)
+
+---
+
+## Sesión 2026-06-17 — InspeccionFeature: PDF + Tab Hallazgos
+
+### TAREA 1 — PDF RM 050-2013-TR
+
+**Archivo nuevo:** `Features/SsomaModule/InspeccionFeature/Application/Services/InspeccionPdfService.cs`
+
+Inyecta `IHttpClientFactory`. Método público `GenerarPdfAsync(InspeccionDetalleDto)` → `byte[]`.
+
+Flujo:
+1. Descarga en paralelo firmas (`FirmaInspectorUrl`, `FirmaRepresentanteUrl`) y fotos de hallazgos via `DescargarImagenAsync(url)` — falla silenciosamente (return null) si la URL no responde.
+2. Agrupa `Respuestas` por `Categoria ?? "General"` para el checklist.
+3. Genera PDF A4 con QuestPDF: colores `#1B3A6B` (primario) / `#2D5AA0` (subheader) / `#E8EEF7` (header grupo).
+
+**Secciones del PDF:**
+- Header sticky: "REGISTRO DE INSPECCIONES — RM 050-2013-TR", código `REG-SSOMA-INS-{id:D4}`, paginación
+- Datos generales: tabla 4 columnas (label/valor/label/valor)
+- Resumen numérico: Total Items / Cumple / No Cumple / NA / Tasa
+- Checklist: tabla con header grupal por `Categoria`, columnas N°/Descripción/Cumple(✓)/NoCumple(✗)/NA(—)/Observaciones
+- Hallazgos: tabla con color de celda Estado (verde=Cerrado, naranja=Abierto, rojo=vencido no cerrado)
+- Registro fotográfico: grid 2 columnas con caption = descripción del hallazgo (si hay fotos descargables)
+- Conclusiones/Causas: `DescripcionCausas` + `Conclusiones`
+- Firmas: 2 columnas con imagen descargada o línea punteada si null
+
+**Endpoint:** `GET /api/v1/ssoma-inspeccion/{id}/pdf` → `File(bytes, "application/pdf", ...)`
+
+**DI:** `services.AddScoped<InspeccionPdfService>()` en `SsomaModule.cs`
+
+> QuestPDF ya estaba instalado (`2024.12.3`) y configurado en Program.cs (`LicenseType.Community`).
+
+### TAREA 2 — Tab Hallazgos centralizado
+
+**DTOs nuevos** en `InspeccionDtos.cs`:
+- `HallazgoListItemDto`: `Id`, `InspeccionId`, `Proyecto`, `FechaInspeccion`, `Descripcion`, `Tipo`, `Area`, `ResponsableNombre`, `ResponsableCargo`, `FechaLimite`, `AccionCorrectiva`, `Estado`, `FechaCierre`, `FotosUrls` (`List<string>`)
+- `LevantarHallazgoDto`: `Estado` ("En proceso" | "Cerrado"), `EvidenciaUrl`, `EvidenciaNombre`
+
+**Endpoints nuevos:**
+```
+GET   /api/v1/ssoma-inspeccion/hallazgos
+      ?estado=&proyecto=&area=&responsableId=&fechaLimiteHasta=
+      → List<HallazgoListItemDto> — todos los hallazgos de todas las inspecciones
+
+PATCH /api/v1/ssoma-inspeccion/hallazgos/{hallazgoId}/levantar
+      body: LevantarHallazgoDto
+      → actualiza Estado, FechaCierre (si Cerrado), EvidenciaCierreUrl
+```
+
+**Ordenamiento GetHallazgos** (en memoria tras query EF): vencidos-abiertos (0) → abiertos (1) → en proceso (2) → cerrados (3), luego por `FechaLimite ASC`.
+
+**Estados en BD:** "Abierto" (inicial) | "En proceso" (vía LevantarHallazgo) | "Cerrado" (vía LevantarHallazgo o CerrarHallazgo).
+
+> La tabla `ssoma_inspeccion_hallazgo_evidencia_cierre` y la columna `cerrado_por_id` del SQL de la tarea son DDL pendientes de ejecutar manualmente en PostgreSQL — no incluidas en código porque el modelo actual ya tiene `EvidenciaCierreUrl` y `FechaCierre`.

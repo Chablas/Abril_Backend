@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,11 +13,13 @@ namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Presentation;
 public class InspeccionController : ControllerBase
 {
     private readonly IInspeccionService _service;
+    private readonly InspeccionPdfService _pdfService;
     private readonly ILogger<InspeccionController> _logger;
 
-    public InspeccionController(IInspeccionService service, ILogger<InspeccionController> logger)
+    public InspeccionController(IInspeccionService service, InspeccionPdfService pdfService, ILogger<InspeccionController> logger)
     {
         _service = service;
+        _pdfService = pdfService;
         _logger = logger;
     }
 
@@ -93,5 +96,43 @@ public class InspeccionController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error cerrar hallazgo {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}/pdf")]
+    public async Task<IActionResult> GenerarPdf(int id)
+    {
+        try
+        {
+            var detalle = await _service.GetDetalleAsync(id);
+            var pdf = await _pdfService.GenerarPdfAsync(detalle);
+            return File(pdf, "application/pdf", $"Inspeccion_{id}_{DateTime.Now:yyyyMMdd}.pdf");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error PDF inspeccion {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("hallazgos")]
+    public async Task<IActionResult> GetHallazgos(
+        [FromQuery] string? estado,
+        [FromQuery] string? proyecto,
+        [FromQuery] string? area,
+        [FromQuery] int? responsableId,
+        [FromQuery] DateTime? fechaLimiteHasta)
+    {
+        try { return Ok(await _service.GetHallazgosAsync(estado, proyecto, area, fechaLimiteHasta)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error listar hallazgos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPatch("hallazgos/{hallazgoId:int}/levantar")]
+    public async Task<IActionResult> LevantarHallazgo(int hallazgoId, [FromBody] LevantarHallazgoDto dto)
+    {
+        try
+        {
+            await _service.LevantarHallazgoAsync(hallazgoId, dto);
+            return Ok(new { message = "Hallazgo actualizado correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error levantar hallazgo {Id}", hallazgoId); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 }

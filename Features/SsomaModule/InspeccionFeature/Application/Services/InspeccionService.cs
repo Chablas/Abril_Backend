@@ -99,6 +99,18 @@ public class InspeccionService : IInspeccionService
         return id;
     }
 
+    public Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta)
+        => _repo.GetHallazgosAsync(estado, proyecto, area, fechaLimiteHasta);
+
+    public async Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto)
+    {
+        if (string.IsNullOrEmpty(dto.Estado))
+            throw new AbrilException("El estado es requerido.", 400);
+        if (dto.Estado != "En proceso" && dto.Estado != "Cerrado")
+            throw new AbrilException("Estado inválido. Use 'En proceso' o 'Cerrado'.", 400);
+        await _repo.LevantarHallazgoAsync(hallazgoId, dto);
+    }
+
     public async Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request)
     {
         string? evidenciaUrl = null;

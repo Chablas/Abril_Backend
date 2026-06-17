@@ -433,4 +433,69 @@ public class InspeccionRepository : IInspeccionRepository
             HallazgosRecurrentes = recurrentes
         };
     }
+
+    public async Task<List<HallazgoListItemDto>> GetHallazgosAsync(
+        string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var query = ctx.SsomaInspeccionHallazgo
+            .Include(h => h.Inspeccion!).ThenInclude(i => i.Proyecto)
+            .Include(h => h.Fotos)
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrEmpty(estado))
+            query = query.Where(h => h.Estado == estado);
+        if (!string.IsNullOrEmpty(area))
+            query = query.Where(h => h.Area != null && h.Area.ToLower().Contains(area.ToLower()));
+        if (fechaLimiteHasta.HasValue)
+            query = query.Where(h => h.FechaLimite <= fechaLimiteHasta.Value);
+        if (!string.IsNullOrEmpty(proyecto))
+            query = query.Where(h => h.Inspeccion!.Proyecto != null &&
+                h.Inspeccion!.Proyecto!.ProjectDescription.ToLower().Contains(proyecto.ToLower()));
+
+        var lista = await query
+            .Select(h => new HallazgoListItemDto
+            {
+                Id = h.Id,
+                InspeccionId = h.InspeccionId,
+                Proyecto = h.Inspeccion!.Proyecto != null ? h.Inspeccion.Proyecto.ProjectDescription : null,
+                FechaInspeccion = h.Inspeccion!.Fecha,
+                Descripcion = h.Descripcion,
+                Tipo = h.Tipo,
+                Area = h.Area,
+                ResponsableNombre = h.ResponsableNombre,
+                ResponsableCargo = h.ResponsableCargo,
+                FechaLimite = h.FechaLimite,
+                AccionCorrectiva = h.AccionCorrectiva,
+                Estado = h.Estado,
+                FechaCierre = h.FechaCierre,
+                FotosUrls = h.Fotos.OrderBy(f => f.Orden).Select(f => f.Url).ToList()
+            })
+            .ToListAsync();
+
+        var ahora = DateTime.UtcNow;
+        return lista
+            .OrderBy(h => h.Estado == "Abierto" && h.FechaLimite < ahora ? 0 :
+                          h.Estado == "Abierto" ? 1 :
+                          h.Estado == "En proceso" ? 2 : 3)
+            .ThenBy(h => h.FechaLimite)
+            .ToList();
+    }
+
+    public async Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var hallazgo = await ctx.SsomaInspeccionHallazgo.FindAsync(hallazgoId)
+            ?? throw new AbrilException("Hallazgo no encontrado.", 404);
+
+        hallazgo.Estado = dto.Estado;
+        if (dto.Estado == "Cerrado")
+            hallazgo.FechaCierre = DateTime.UtcNow;
+        if (!string.IsNullOrEmpty(dto.EvidenciaUrl))
+            hallazgo.EvidenciaCierreUrl = dto.EvidenciaUrl;
+
+        await ctx.SaveChangesAsync();
+    }
 }

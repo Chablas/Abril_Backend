@@ -203,3 +203,28 @@ public class InspeccionHallazgoRecurrenteDto
     public int Ocurrencias { get; set; }
     public string UltimoTipo { get; set; } = string.Empty;
 }
+
+public class HallazgoListItemDto
+{
+    public int Id { get; set; }
+    public int InspeccionId { get; set; }
+    public string? Proyecto { get; set; }
+    public DateTime? FechaInspeccion { get; set; }
+    public string Descripcion { get; set; } = string.Empty;
+    public string? Tipo { get; set; }
+    public string? Area { get; set; }
+    public string? ResponsableNombre { get; set; }
+    public string? ResponsableCargo { get; set; }
+    public DateTime? FechaLimite { get; set; }
+    public string? AccionCorrectiva { get; set; }
+    public string Estado { get; set; } = string.Empty;
+    public DateTime? FechaCierre { get; set; }
+    public List<string> FotosUrls { get; set; } = [];
+}
+
+public class LevantarHallazgoDto
+{
+    public string Estado { get; set; } = string.Empty;
+    public string? EvidenciaUrl { get; set; }
+    public string? EvidenciaNombre { get; set; }
+}

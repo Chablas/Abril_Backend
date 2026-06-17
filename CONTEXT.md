@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-17 — InspeccionFeature: PDF RM 050-2013-TR con QuestPDF + tab hallazgos centralizado (GetHallazgos/LevantarHallazgo).
+> Última actualización: 2026-06-17 — DossierSemanal: módulo completo (entidades, repo, service, controller, 8 endpoints en api/v1/habilitacion/dossier, ON CONFLICT DO NOTHING, upload via SharePoint 'dossier-semanal'). InspeccionFeature: PDF RM 050-2013-TR con QuestPDF + tab hallazgos centralizado.
 
 ---
 
@@ -405,6 +405,20 @@ GET   /api/v1/habilitacion/archivos/url?path=
 # Empresas — endpoints adicionales (2026-06-06)
 PATCH  /api/v1/habilitacion/empresas/{id}/entregables/{entregableId}/mes   body: EmpresaEntregableUpdateDto — aprobar/rechazar mes específico
 DELETE /api/v1/habilitacion/empresas/{id}/archivos/{archivoId}             — eliminar archivo de versión (solo si estado != Aprobado/Rechazado)
+
+# Dossier Semanal (2026-06-17)
+GET    /api/v1/habilitacion/dossier?contributorId=&proyectoId=&anio=  → lista de semanas con contadores
+GET    /api/v1/habilitacion/dossier/{id}                              → detalle con documentos
+POST   /api/v1/habilitacion/dossier/semana                            body: { contributorId, proyectoId, numeroSemana, anio } → { id, fechaInicio, fechaFin }
+POST   /api/v1/habilitacion/dossier/{dossierId}/documento             [FromForm] { File, TipoDoc } → sube a SharePoint 'dossier-semanal', guarda path
+PATCH  /api/v1/habilitacion/dossier/documento/{docId}/marcar-na       → toggle NA/Pendiente, limpia path
+POST   /api/v1/habilitacion/dossier/{dossierId}/enviar                → Borrador/Rechazado → Enviado
+POST   /api/v1/habilitacion/dossier/{dossierId}/revisar               body: { estado: 'Aprobado'|'Rechazado', obsRevisor? } → Enviado → Aprobado/Rechazado
+GET    /api/v1/habilitacion/dossier/documento/{docId}/url             → downloadUrl de SharePoint
+
+⚠️ EnsureSemana usa ON CONFLICT DO NOTHING en PG + crea 7 tipos de doc automáticamente
+⚠️ Tipos de doc: Accidente, EPP, Estadisticas, Capacitaciones, PETAR, ATS, Charlas
+⚠️ Upload: path carpeta = "{contributorId}/{proyectoId}/Sem{N}_{fechaInicio:yyyyMMdd}", NUNCA guardar url
 
 # Otros
 GET/POST/PUT/DELETE  /api/v1/habilitacion/reglas

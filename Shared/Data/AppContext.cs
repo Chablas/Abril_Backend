@@ -219,6 +219,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaOptPaso> SsomaOptPaso { get; set; }
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
+        public DbSet<SsHabAuditoria> SsHabAuditorias { get; set; }
         // ── Dossier Semanal ────────────────────────────────────────────────────
         public DbSet<SsDossierSemana> SsDossierSemana => Set<SsDossierSemana>();
         public DbSet<SsDossierDocumento> SsDossierDocumento => Set<SsDossierDocumento>();

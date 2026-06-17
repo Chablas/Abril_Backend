@@ -21,5 +21,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
         Task<bool> UpdateEntregableEstado(int entregableId, int estadoId, int userId);
 
         Task<VecinosDashboardDto> GetDashboard();
+
+        Task<VecinoRequisitosResponseDto> GetRequisitos(int vecinoId);
+        Task<bool> TipoRequisitoExists(int tipoId);
+        Task UploadRequisito(int vecinoId, int tipoId, string archivoUrl, string? originalFileName, int userId);
+        Task SetRequisitoNoAplica(int vecinoId, int tipoId, bool noAplica, int userId);
     }
 }

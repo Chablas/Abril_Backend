@@ -241,6 +241,71 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             }
         }
 
+        // ── Requisitos ───────────────────────────────────────────────────────
+        [HttpGet("{vecinoId:int}/requisitos")]
+        public async Task<IActionResult> GetRequisitos(int vecinoId)
+        {
+            try
+            {
+                var result = await _service.GetRequisitos(vecinoId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS REQUISITOS GET: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost("{vecinoId:int}/requisitos/{tipoId:int}/upload")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadRequisito(int vecinoId, int tipoId, IFormFile file)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                var archivoUrl = await _service.UploadRequisito(vecinoId, tipoId, file, userId);
+                return Ok(new { archivoUrl, message = "Requisito subido exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS REQUISITO UPLOAD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("{vecinoId:int}/requisitos/{tipoId:int}/no-aplica")]
+        public async Task<IActionResult> SetRequisitoNoAplica(int vecinoId, int tipoId, [FromBody] VecinoRequisitoNoAplicaDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                await _service.SetRequisitoNoAplica(vecinoId, tipoId, dto.NoAplica, userId);
+                return Ok(new { message = "Estado actualizado." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS REQUISITO NO APLICA: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPatch("compromisos/entregables/{entregableId:int}/estado")]
         public async Task<IActionResult> UpdateEntregableEstado(int entregableId, [FromBody] VecinoEntregableEstadoUpdateDto dto)
         {

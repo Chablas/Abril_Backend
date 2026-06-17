@@ -40,6 +40,20 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public int VecinoTipoConstruccionId { get; set; }
         public string TipoConstruccionDescripcion { get; set; } = null!;
         public DateTime CreatedDateTime { get; set; }
+        public int SolicitudesCount { get; set; }
+        public int CompromisosCount { get; set; }
+        /// <summary>Solicitudes aprobadas (Aceptada) del vecino.</summary>
+        public int SolicitudesAprobadas { get; set; }
+        /// <summary>Solicitudes evaluables del vecino (Aceptada + Por responder, sin Denegada).</summary>
+        public int SolicitudesEvaluables { get; set; }
+        /// <summary>Entregables aprobados del vecino.</summary>
+        public int EntregablesAprobados { get; set; }
+        /// <summary>Entregables evaluables del vecino (Falta + Enviado + Aprobado, sin "No aplica").</summary>
+        public int EntregablesEvaluables { get; set; }
+        /// <summary>Requisitos subidos del vecino.</summary>
+        public int RequisitosSubidos { get; set; }
+        /// <summary>Requisitos evaluables del vecino (Subido + No subido, sin "No aplica").</summary>
+        public int RequisitosEvaluables { get; set; }
     }
 
     /// <summary>Respuesta del load inicial: opciones de filtros/formulario + primera página.</summary>
@@ -144,6 +158,37 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
     public class VecinoEntregableEstadoUpdateDto
     {
         public int VecinoEntregableEstadoId { get; set; }
+    }
+
+    // ── Requisitos (Gestión de requisitos) ────────────────────────────────────
+    /// <summary>Un requisito del vecino: tipo, estado y archivo (si tiene).</summary>
+    public class VecinoRequisitoItemDto
+    {
+        /// <summary>Id del registro (null si aún no existe fila para ese tipo).</summary>
+        public int? VecinoRequisitoId { get; set; }
+        public int VecinoRequisitoTipoId { get; set; }
+        public string TipoDescripcion { get; set; } = null!;
+        public int Orden { get; set; }
+        public int VecinoRequisitoEstadoId { get; set; }
+        public string EstadoDescripcion { get; set; } = null!;
+        public string? ArchivoUrl { get; set; }
+        public string? OriginalFileName { get; set; }
+    }
+
+    public class VecinoRequisitosResponseDto
+    {
+        public List<VecinoRequisitoItemDto> Requisitos { get; set; } = new();
+        public List<CatalogOptionDto> Estados { get; set; } = new();
+    }
+
+    public class VecinoRequisitoEstadoUpdateDto
+    {
+        public int VecinoRequisitoEstadoId { get; set; }
+    }
+
+    public class VecinoRequisitoNoAplicaDto
+    {
+        public bool NoAplica { get; set; }
     }
 
     // ── Dashboard ─────────────────────────────────────────────────────────────

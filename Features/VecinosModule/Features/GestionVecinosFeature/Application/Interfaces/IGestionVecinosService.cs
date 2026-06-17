@@ -1,5 +1,6 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Application.Dtos;
+using Microsoft.AspNetCore.Http;
 
 namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Application.Interfaces
 {
@@ -19,5 +20,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         Task UpdateEntregableEstado(int entregableId, int estadoId, int userId);
 
         Task<VecinosDashboardDto> GetDashboard();
+
+        Task<VecinoRequisitosResponseDto> GetRequisitos(int vecinoId);
+        Task<string> UploadRequisito(int vecinoId, int tipoId, IFormFile file, int userId);
+        Task SetRequisitoNoAplica(int vecinoId, int tipoId, bool noAplica, int userId);
     }
 }

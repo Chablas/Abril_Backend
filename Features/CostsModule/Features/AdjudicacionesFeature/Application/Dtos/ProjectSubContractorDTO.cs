@@ -34,6 +34,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public List<string> ContractorEmails { get; set; } = new();
         public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; }
+        public bool IsSubcontract { get; set; }
+        public bool IsLabor { get; set; }
+        public string? ContractWorkItemName { get; set; }
         public int WorkItemCategoryId { get; set; }
         public string WorkItemCategoryDescription { get; set; }
         public int? WorkSpecialtyId { get; set; }

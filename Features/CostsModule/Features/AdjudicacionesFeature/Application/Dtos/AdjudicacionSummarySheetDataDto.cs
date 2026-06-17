@@ -22,7 +22,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         /// <summary>N° de niveles: project.level_description, con fallback a project.num_niveles.</summary>
         public string? Niveles { get; set; }
         public string? ProjectLegalEntityRegistryNumber { get; set; }
+        public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; } = null!;
+        /// <summary>Nombre final de la partida para el contrato ({{PARTIDA}}). Null = usar WorkItemDescription.</summary>
+        public string? ContractWorkItemName { get; set; }
         public string ContractTypeDescription { get; set; } = null!;
         public int? ContractModalityId { get; set; }
         public int PaymentMethodId { get; set; }
@@ -54,5 +57,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
 
         /// <summary>Cláusulas de Anexo 4 (Suministro) de la partida de control, ordenadas por SortOrder.</summary>
         public List<string> SpecialClausesAnexo4 { get; set; } = [];
+
+        /// <summary>
+        /// Formas de valorización (cláusula 5.1) de la partida, ordenadas por SortOrder.
+        /// Si la partida tiene formas registradas, reemplazan la oración por defecto
+        /// "Las valorizaciones se determinan a partir del inicio de los trabajos…".
+        /// </summary>
+        public List<(decimal Percentage, string Concept)> ValorizationForms { get; set; } = [];
     }
 }

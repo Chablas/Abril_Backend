@@ -762,6 +762,28 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Construye la oración de valorización (numeral 5.1.x) a partir de las "Formas de
+        /// valorización" de la partida. Ej.: "Las valorizaciones serán de acuerdo con los
+        /// siguientes porcentajes de valorización: 60% por instalación, 30% por acabado y
+        /// 10% por levantamiento de observaciones." Devuelve null si la partida no tiene
+        /// formas registradas (en ese caso el contrato usa el texto por defecto).
+        /// </summary>
+        private static string? BuildValorizationFormsSentence(List<(decimal Percentage, string Concept)> forms)
+        {
+            if (forms is null || forms.Count == 0) return null;
+
+            var partes = forms
+                .Select(f => $"{f.Percentage.ToString("0.##", CultureInfo.InvariantCulture)}% {f.Concept.Trim()}")
+                .ToList();
+
+            var listado = partes.Count == 1
+                ? partes[0]
+                : string.Join(", ", partes.Take(partes.Count - 1)) + " y " + partes[^1];
+
+            return $"Las valorizaciones serán de acuerdo con los siguientes porcentajes de valorización: {listado}.";
+        }
+
         private static string BuildInternalEmailBody(AdjudicacionNotificationDataDto data)
         {
             var sb = new StringBuilder();
@@ -1380,6 +1402,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // Para las demás modalidades (Suministro e Instalación / Instalación) se mantiene el comportamiento previo.
             var esSuministro = data.ContractModalityId == 2;
 
+            // Oración de cierre de la valorización (numeral 5.1.x). Si la partida tiene
+            // "Formas de valorización" registradas (Configuración → Partidas), se reemplaza el
+            // texto por defecto "Las valorizaciones se determinan a partir del inicio de los
+            // trabajos…" por el desglose de porcentajes de la partida (ej.: "Las valorizaciones
+            // serán de acuerdo con los siguientes porcentajes de valorización: 60% por
+            // instalación, 30% por acabado y 10% por levantamiento de observaciones.").
+            var formasValorizacionSentence = BuildValorizationFormsSentence(data.ValorizationForms);
+            var cierreSaldoValorizacion = formasValorizacionSentence
+                ?? "Las valorizaciones se determinan a partir del inicio de los trabajos de obra.";
+            var cierreValorizacion = formasValorizacionSentence
+                ?? "Las valorizaciones se determinan a partir del inicio de los trabajos en obra.";
+
             List<string> clausulasAdelanto;
             if (data.PaymentMethodId == 2)
             {
@@ -1394,7 +1428,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
                     $"El **saldo** equivalente a la suma de **{diferenciaFormato} ({diferenciaEnPalabras})** será cancelado mediante valorizaciones semanales, " +
                     "pagaderas a los 7 días hábiles siguientes de recepcionada la factura y/o valorización correspondiente, debidamente emitida, " +
-                    "con la respectiva retención del fondo de garantía. Las valorizaciones se determinan a partir del inicio de los trabajos de obra."
+                    "con la respectiva retención del fondo de garantía. " + cierreSaldoValorizacion
                 };
             }
             else if (esSuministro)
@@ -1409,7 +1443,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 {
                     $"Pago mediante valorizaciones {frecuenciaValorizacion}, pagaderas a los 7 días hábiles siguientes de recepcionada la factura " +
                     "y/o valorización correspondiente, debidamente emitida, con la respectiva retención del fondo de garantía. " +
-                    "Las valorizaciones se determinan a partir del inicio de los trabajos en obra."
+                    cierreValorizacion
                 };
             }
 
@@ -1519,7 +1553,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{FONDO_GARANTÍA_PLAZO_NUM_PALABRA}}", $"{fondoMeses} ({fondoMesesPalabras})" },
                 { "{{TIPO_CONTRATO}}",                 data.ContractTypeDescription },
                 { "{{TIPO_CONTRATO_MAYÚSCULA}}",       (data.ContractTypeDescription ?? "").ToUpper() },
-                { "{{PARTIDA}}",                       data.WorkItemDescription },
+                { "{{PARTIDA}}",                       string.IsNullOrWhiteSpace(data.ContractWorkItemName) ? data.WorkItemDescription : data.ContractWorkItemName },
                 { "{{AÑO_ACTUAL}}",                    DateTime.UtcNow.Year.ToString() },
                 { "{{NUM_CONTRATO}}",                  data.ContractNumber.HasValue ? data.ContractNumber.Value.ToString("D3") : "" },
                 { "{{NUM_PAGARE}}",                    data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },
@@ -1699,7 +1733,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{ADVANCE_AMOUNT_EN_PALABRAS}}",       advanceAmountEnPalabras },
                 { "{{ADVANCE_FECHA_FIN}}",                advanceFechaFin },
                 { "{{MONEDA}}",                           moneda.ToUpperInvariant() },
-                { "{{PARTIDA}}",                          data.WorkItemDescription },
+                { "{{PARTIDA}}",                          string.IsNullOrWhiteSpace(data.ContractWorkItemName) ? data.WorkItemDescription : data.ContractWorkItemName },
                 { "{{FECHA_ACTUAL}}",                     fechaActual },
                 { "{{CONTRATISTA_RAZON_SOCIAL}}",         data.ContributorName },
                 { "{{CONTRATISTA_RUC}}",                  data.ContributorRuc },

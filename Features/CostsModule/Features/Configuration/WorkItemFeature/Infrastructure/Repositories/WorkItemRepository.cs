@@ -50,7 +50,18 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                         ? x.UpdatedDateTime.Value.ToOffset(TimeSpan.FromHours(-5)).DateTime
                         : null,
                     UpdatedUserId = x.UpdatedUserId,
-                    Active = x.Active
+                    Active = x.Active,
+                    ValorizationForms = _context.WorkItemValorizationForm
+                        .Where(f => f.WorkItemId == x.WorkItemId && f.State)
+                        .OrderBy(f => f.SortOrder)
+                        .Select(f => new WorkItemValorizationFormDto
+                        {
+                            WorkItemValorizationFormId = f.WorkItemValorizationFormId,
+                            Concept    = f.Concept,
+                            Percentage = f.Percentage,
+                            SortOrder  = f.SortOrder,
+                        })
+                        .ToList()
                 })
                 .ToListAsync();
 
@@ -108,6 +119,55 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             record.Active = dto.Active;
             record.UpdatedDateTime = DateTimeOffset.UtcNow;
             record.UpdatedUserId = userId;
+
+            // ── Formas de valorización (cláusula 5.1): upsert completo + soft-delete ──
+            var now = DateTimeOffset.UtcNow;
+            var incomingIds = dto.ValorizationForms
+                .Where(f => f.WorkItemValorizationFormId.HasValue)
+                .Select(f => f.WorkItemValorizationFormId!.Value)
+                .ToHashSet();
+
+            var toDelete = await _context.WorkItemValorizationForm
+                .Where(f => f.WorkItemId == dto.WorkItemId
+                         && f.State
+                         && !incomingIds.Contains(f.WorkItemValorizationFormId))
+                .ToListAsync();
+            foreach (var f in toDelete)
+            {
+                f.State           = false;
+                f.UpdatedDatetime = now;
+                f.UpdatedUserId   = userId;
+            }
+
+            foreach (var formDto in dto.ValorizationForms)
+            {
+                if (formDto.WorkItemValorizationFormId.HasValue)
+                {
+                    var existing = await _context.WorkItemValorizationForm
+                        .FirstOrDefaultAsync(f => f.WorkItemValorizationFormId == formDto.WorkItemValorizationFormId.Value);
+                    if (existing is not null)
+                    {
+                        existing.Concept         = formDto.Concept.Trim();
+                        existing.Percentage      = formDto.Percentage;
+                        existing.SortOrder       = formDto.SortOrder;
+                        existing.UpdatedDatetime = now;
+                        existing.UpdatedUserId   = userId;
+                    }
+                }
+                else
+                {
+                    _context.WorkItemValorizationForm.Add(new WorkItemValorizationForm
+                    {
+                        WorkItemId      = dto.WorkItemId,
+                        Concept         = formDto.Concept.Trim(),
+                        Percentage      = formDto.Percentage,
+                        SortOrder       = formDto.SortOrder,
+                        State           = true,
+                        CreatedDatetime = now,
+                        CreatedUserId   = userId,
+                    });
+                }
+            }
 
             await _context.SaveChangesAsync();
         }

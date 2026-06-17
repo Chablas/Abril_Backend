@@ -218,6 +218,7 @@ namespace Abril_Backend.Infrastructure.Data
         // ── Dossier Semanal ────────────────────────────────────────────────────
         public DbSet<SsDossierSemana> SsDossierSemana => Set<SsDossierSemana>();
         public DbSet<SsDossierDocumento> SsDossierDocumento => Set<SsDossierDocumento>();
+        public DbSet<SsDossierDocumentoArchivo> SsDossierDocumentoArchivo => Set<SsDossierDocumentoArchivo>();
         // ── Inspecciones ───────────────────────────────────────────────────────
         public DbSet<SsomaInspeccionTipo> SsomaInspeccionTipo => Set<SsomaInspeccionTipo>();
         public DbSet<SsomaInspeccionChecklistItem> SsomaInspeccionChecklistItem => Set<SsomaInspeccionChecklistItem>();
@@ -762,6 +763,16 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsDossierDocumento>(entity =>
             {
                 entity.HasIndex(e => new { e.DossierId, e.TipoDoc }).IsUnique();
+            });
+            modelBuilder.Entity<SsDossierDocumentoArchivo>(e =>
+            {
+                e.ToTable("ss_dossier_documento_archivo");
+                e.Property(x => x.Id).HasColumnName("id");
+                e.Property(x => x.DocumentoId).HasColumnName("documento_id");
+                e.Property(x => x.NombreArchivo).HasColumnName("nombre_archivo");
+                e.Property(x => x.ArchivoPath).HasColumnName("archivo_path");
+                e.Property(x => x.CreatedAt).HasColumnName("created_at");
+                e.HasOne(x => x.Documento).WithMany(d => d.Archivos).HasForeignKey(x => x.DocumentoId);
             });
         }
     }

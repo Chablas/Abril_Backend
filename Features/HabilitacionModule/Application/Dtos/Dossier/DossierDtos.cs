@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Http;
 
 namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Dossier;
 
+public record DossierArchivoDto(int Id, string NombreArchivo, string ArchivoPath, DateTime CreatedAt);
+
 public record DossierDocumentoDto(
     int Id,
     int DossierId,
@@ -10,7 +12,8 @@ public record DossierDocumentoDto(
     string? ArchivoPath,
     string Estado,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    List<DossierArchivoDto> Archivos);
 
 public record DossierSemanaDto(
     int Id,

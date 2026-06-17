@@ -11,4 +11,5 @@ public class SsDossierDocumento
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public SsDossierSemana? Dossier { get; set; }
+    public ICollection<SsDossierDocumentoArchivo> Archivos { get; set; } = [];
 }

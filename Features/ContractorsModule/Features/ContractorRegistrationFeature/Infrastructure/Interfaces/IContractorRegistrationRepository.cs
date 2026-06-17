@@ -5,12 +5,17 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
     public interface IContractorRegistrationRepository
     {
         Task<List<ContractorPersonTypeDto>> GetPersonTypes();
-        /// <summary>
-        /// Verifica si el RUC puede enviar una nueva solicitud y devuelve el número de intento
-        /// (1 para primer registro, 2+ para re-intentos tras rechazo).
-        /// Lanza AbrilException si el contratista ya tiene una solicitud en espera o aprobada.
-        /// </summary>
-        Task<int> ValidateAndGetAttemptNumberAsync(string ruc);
-        Task Create(ContributorCreateDto dto, int? userId, string? logoUrl, string? brochureUrl, string? fichaRucUrl, string? referencesUrl);
+
+        /// <summary>Estado del RUC frente al registro (existencia, contratista activo y conteos).</summary>
+        Task<ContractorRucStatusDto> GetRucStatusAsync(string ruc);
+
+        /// <summary>Registro nuevo: crea contributor + contractor en espera. Usar solo si el RUC no existe.</summary>
+        Task CreateNew(ContributorCreateDto dto, int? userId, string? logoUrl, string? brochureUrl, string? fichaRucUrl, string? referencesUrl);
+
+        /// <summary>Solicitud de actualización sobre un contratista APROBADO: guarda staging y pasa el contratista a estado 4.</summary>
+        Task CreateUpdateRequest(int contractorId, ContributorCreateDto dto, int? userId, string? logoUrl, string? brochureUrl, string? fichaRucUrl, string? referencesUrl);
+
+        /// <summary>Sobrescribe en sitio los datos (contratista pendiente/rechazado o sin activo) dejándolo en espera.</summary>
+        Task OverwriteOrCreateDirect(int contributorId, int? existingContractorId, ContributorCreateDto dto, int? userId, string? logoUrl, string? brochureUrl, string? fichaRucUrl, string? referencesUrl);
     }
 }

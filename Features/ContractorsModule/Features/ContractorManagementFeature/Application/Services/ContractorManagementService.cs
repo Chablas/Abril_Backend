@@ -57,6 +57,16 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
             await _repository.Reject(contractorId, userId);
         }
 
+        public async Task ApproveUpdate(int contractorId, int userId)
+        {
+            await _repository.ApproveUpdate(contractorId, userId);
+        }
+
+        public async Task RejectUpdate(int contractorId, int userId)
+        {
+            await _repository.RejectUpdate(contractorId, userId);
+        }
+
         public async Task SendCredentials(int contractorId, int adminUserId)
         {
             var contractor = await _repository.GetWithEmails(contractorId);

@@ -1,3 +1,4 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Application.Interfaces;
 using Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructure.Interfaces;
@@ -14,6 +15,9 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 {
     public class ContractorRegistrationService : IContractorRegistrationService
     {
+        private const int ApprovedContractorStateId      = 2;
+        private const int PendingUpdateContractorStateId  = 4;
+
         private readonly IContractorRegistrationRepository _repository;
         private readonly ISunatService _sunatService;
         private readonly IGraphSharePointService _sharePointService;
@@ -44,18 +48,59 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             return await _repository.GetPersonTypes();
         }
 
+        public Task<ContractorRucStatusDto> GetRucStatus(string ruc) => _repository.GetRucStatusAsync(ruc);
+
         public async Task Create(ContributorCreateDto dto, int? userId, string? accessToken = null)
         {
             // 0. Validar formato de los correos (solo letras, números, '@' y '.').
             ContractorEmailValidator.ValidateOrThrow(dto.ContributorEmails);
 
-            // 1. Validar elegibilidad ANTES de subir archivos y obtener el número de intento.
-            //    Lanza AbrilException si el contratista está en espera (1) o ya aprobado (2).
-            int attemptNumber = await _repository.ValidateAndGetAttemptNumberAsync(dto.ContributorRuc);
+            // 1. Determinar el estado del RUC para decidir la rama del flujo.
+            var status = await _repository.GetRucStatusAsync(dto.ContributorRuc);
 
-            // 2. Subir archivos a SharePoint en la subcarpeta del intento correspondiente.
-            //    Esto ocurre solo después de confirmar que el envío está permitido,
-            //    evitando carpetas huérfanas en caso de rechazo.
+            // ── Caso A: RUC nuevo → registro normal ──────────────────────────────
+            if (!status.Exists)
+            {
+                var (logo, bro, ficha, refs) = await UploadFiles(dto, "Solicitud 1");
+                await _repository.CreateNew(dto, userId, logo, bro, ficha, refs);
+                await SendNewContractorNotificationAsync(dto, isUpdate: false);
+                return;
+            }
+
+            // ── El RUC ya existe: solo se permite avanzar como solicitud de actualización ──
+            if (!dto.IsUpdateRequest)
+                throw new AbrilException(
+                    "Ya existe un contratista registrado con este RUC. Si deseas actualizar sus datos, " +
+                    "confirma el envío de una solicitud de actualización.", 409);
+
+            var stateId = status.ActiveContractorStateId;
+
+            // ── Caso B: contratista APROBADO → staging (no se tocan los datos vigentes) ──
+            if (stateId == ApprovedContractorStateId)
+            {
+                var (logo, bro, ficha, refs) = await UploadFiles(dto, $"Actualización {status.UpdateRequestCount + 1}");
+                await _repository.CreateUpdateRequest(status.ActiveContractorId!.Value, dto, userId, logo, bro, ficha, refs);
+                await SendNewContractorNotificationAsync(dto, isUpdate: true);
+                return;
+            }
+
+            // ── Ya hay una actualización pendiente de revisión ───────────────────
+            if (stateId == PendingUpdateContractorStateId)
+                throw new AbrilException(
+                    "Ya existe una solicitud de actualización pendiente de revisión para este contratista. " +
+                    "Por favor espera a que el área de costos la procese.", 409);
+
+            // ── Caso C: PENDIENTE (1) o solo RECHAZADOS → sobrescritura directa ──
+            {
+                var (logo, bro, ficha, refs) = await UploadFiles(dto, $"Solicitud {status.ContractorCount + 1}");
+                await _repository.OverwriteOrCreateDirect(status.ContributorId!.Value, status.ActiveContractorId, dto, userId, logo, bro, ficha, refs);
+                await SendNewContractorNotificationAsync(dto, isUpdate: true);
+            }
+        }
+
+        /// <summary>Sube los archivos presentes en el dto a la subcarpeta indicada y devuelve sus URLs.</summary>
+        private async Task<(string? logo, string? brochure, string? fichaRuc, string? references)> UploadFiles(ContributorCreateDto dto, string subfolder)
+        {
             string? logoUrl       = null;
             string? brochureUrl   = null;
             string? fichaRucUrl   = null;
@@ -78,7 +123,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
                     await _sharePointService.RenameFolderInLibraryAsync(_site, listId, existing.Value.Id, desiredFolder);
                 }
 
-                var folderPath = $"{desiredFolder}/Solicitud {attemptNumber}";
+                var folderPath = $"{desiredFolder}/{subfolder}";
 
                 if (dto.LogoFile is not null)
                     logoUrl = await UploadFile(listId, folderPath, "logo", dto.LogoFile);
@@ -93,20 +138,20 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
                     referencesUrl = await UploadFile(listId, folderPath, "lista_referencias", dto.ReferencesListFile);
             }
 
-            // 3. Crear el registro en base de datos (nuevo Contractor por cada intento).
-            await _repository.Create(dto, userId, logoUrl, brochureUrl, fichaRucUrl, referencesUrl);
-
-            // 4. Notificar al equipo interno.
-            await SendNewContractorNotificationAsync(dto);
+            return (logoUrl, brochureUrl, fichaRucUrl, referencesUrl);
         }
 
-        private async Task SendNewContractorNotificationAsync(ContributorCreateDto dto)
+        private async Task SendNewContractorNotificationAsync(ContributorCreateDto dto, bool isUpdate)
         {
-            var subject = $"Nuevo contratista registrado para revisión: {dto.ContributorName}";
+            var subject = isUpdate
+                ? $"Solicitud de actualización de datos de contratista: {dto.ContributorName}"
+                : $"Nuevo contratista registrado para revisión: {dto.ContributorName}";
 
             var body = new StringBuilder();
             body.AppendLine("<p>Estimado equipo de Costos y Presupuestos,</p>");
-            body.AppendLine("<p>Se ha registrado un nuevo contratista en el sistema y se encuentra pendiente de revisión. A continuación se detallan los datos registrados:</p>");
+            body.AppendLine(isUpdate
+                ? "<p>Un contratista ya registrado ha enviado una <strong>solicitud de actualización de datos</strong> que requiere revisión. A continuación se detallan los datos propuestos:</p>"
+                : "<p>Se ha registrado un nuevo contratista en el sistema y se encuentra pendiente de revisión. A continuación se detallan los datos registrados:</p>");
             body.AppendLine("<ul>");
             body.AppendLine($"  <li><strong>Razón social:</strong> {dto.ContributorName}</li>");
             body.AppendLine($"  <li><strong>RUC:</strong> {dto.ContributorRuc}</li>");

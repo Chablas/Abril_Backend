@@ -74,6 +74,25 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Presentation
             }
         }
 
+        [HttpGet("ruc-exists/{ruc}")]
+        public async Task<IActionResult> RucExists(string ruc)
+        {
+            try
+            {
+                var status = await _service.GetRucStatus(ruc);
+                return Ok(new
+                {
+                    exists                  = status.Exists,
+                    contributorName         = status.ContributorName,
+                    activeContractorStateId = status.ActiveContractorStateId,
+                });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPost]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> Create([FromForm] ContributorCreateDto dto)

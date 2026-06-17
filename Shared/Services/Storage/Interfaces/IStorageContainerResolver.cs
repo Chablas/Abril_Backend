@@ -8,5 +8,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         string GetResidentIncidentContainerName();
         string GetProjectSubContractorContainerName();
         string GetProjectFotosContainerName();
+        string GetProjectCroquisContainerName();
     }
 }

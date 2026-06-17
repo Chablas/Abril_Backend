@@ -2,6 +2,10 @@ using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Applic
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Application.Services;
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Application.Interfaces;
+using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Application.Services;
+using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.VecinosModule
 {
@@ -11,6 +15,8 @@ namespace Abril_Backend.Features.VecinosModule
         {
             services.AddScoped<IGestionVecinosRepository, GestionVecinosRepository>();
             services.AddScoped<IGestionVecinosService, GestionVecinosService>();
+            services.AddScoped<ICroquisRepository, CroquisRepository>();
+            services.AddScoped<ICroquisService, CroquisService>();
             return services;
         }
     }

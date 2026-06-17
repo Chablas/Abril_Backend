@@ -234,6 +234,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromisoEstado> VecinoCompromisoEstado => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromisoEstado>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoEntregableTipo> VecinoEntregableTipo => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoEntregableTipo>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoEntregableEstado> VecinoEntregableEstado => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoEntregableEstado>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis> ProjectCroquis => Set<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquisLote> ProjectCroquisLote => Set<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquisLote>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -614,6 +616,12 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.Step6SignedGerenteGeneral)
                       .HasColumnName("step6_signed_gerente_general");
             });
+
+            // Un solo croquis activo por proyecto: índice único parcial sobre los registros con state = true.
+            modelBuilder.Entity<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis>()
+                .HasIndex(c => c.ProjectId)
+                .IsUnique()
+                .HasFilter("state = true");
 
             modelBuilder.Entity<WorkItemCategoryClause>()
                 .HasOne(c => c.WorkItemCategory)

@@ -22,6 +22,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int WorkItemCategoryId {get; set;}
         // Especialidad de la partida (opcional). FK a work_specialty.
         public int? WorkSpecialtyId {get; set;}
+        // Flags que normalizan cómo se nombra la partida en el contrato.
+        // Subcontrato (SC) y mano de obra (M.O.) — afectan el nombre final ({{PARTIDA}}).
+        public bool IsSubcontract { get; set; }
+        public bool IsLabor { get; set; }
+        // Nombre final de la partida tal como debe figurar en el contrato ({{PARTIDA}}).
+        // Se genera dinámicamente en el formulario pero es editable; null = usar WorkItem.WorkItemDescription.
+        public string? ContractWorkItemName { get; set; }
         public int ProjectSubContractorStatusId {get;set;}
 
         // Nombre de la carpeta de la adjudicación en OneDrive ("ADJUDICACIÓN N° X"), autoincremental

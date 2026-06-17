@@ -75,6 +75,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<WorkItemCategoryAnexo3Clause> WorkItemCategoryAnexo3Clause { get; set; }
         public DbSet<WorkItemCategoryAnexo4Clause> WorkItemCategoryAnexo4Clause { get; set; }
         public DbSet<WorkItem> WorkItem { get; set; }
+        public DbSet<WorkItemValorizationForm> WorkItemValorizationForm { get; set; }
         public DbSet<ProjectSubContractor> ProjectSubContractor { get; set; }
         public DbSet<CostosCronograma> CostosCronograma { get; set; }
         public DbSet<CostosCronogramaActividad> CostosCronogramaActividad { get; set; }
@@ -650,6 +651,11 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(c => c.WorkItemCategory)
                 .WithMany()
                 .HasForeignKey(c => c.WorkItemCategoryId)
+                .IsRequired();
+            modelBuilder.Entity<WorkItemValorizationForm>()
+                .HasOne(f => f.WorkItem)
+                .WithMany()
+                .HasForeignKey(f => f.WorkItemId)
                 .IsRequired();
             modelBuilder.Entity<WorkItemCategoryAnexo3Clause>(entity =>
             {

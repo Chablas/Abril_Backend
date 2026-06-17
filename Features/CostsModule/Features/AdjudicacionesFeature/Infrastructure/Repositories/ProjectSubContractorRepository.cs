@@ -44,6 +44,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 WorkItemId = dto.WorkItemId,
                 WorkItemCategoryId = dto.WorkItemCategoryId,
                 WorkSpecialtyId = dto.WorkSpecialtyId,
+                IsSubcontract = dto.IsSubcontract,
+                IsLabor = dto.IsLabor,
+                ContractWorkItemName = string.IsNullOrWhiteSpace(dto.ContractWorkItemName) ? null : dto.ContractWorkItemName.Trim(),
                 ProjectSubContractorStatusId = 1,
                 CreatedDateTime = DateTimeOffset.UtcNow,
                 CreatedUserId = userId,
@@ -84,6 +87,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             psc.WorkItemId          = dto.WorkItemId;
             psc.WorkItemCategoryId  = dto.WorkItemCategoryId;
             psc.WorkSpecialtyId     = dto.WorkSpecialtyId;
+            psc.IsSubcontract       = dto.IsSubcontract;
+            psc.IsLabor             = dto.IsLabor;
+            psc.ContractWorkItemName = string.IsNullOrWhiteSpace(dto.ContractWorkItemName) ? null : dto.ContractWorkItemName.Trim();
             psc.UpdatedDateTime     = DateTimeOffset.UtcNow;
             psc.UpdatedUserId       = userId;
 
@@ -556,6 +562,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     AmountHasIgv = x.psc.HasIgv,
                     WorkItemId = x.psc.WorkItemId,
                     WorkItemDescription = x.wi.WorkItemDescription,
+                    IsSubcontract = x.psc.IsSubcontract,
+                    IsLabor = x.psc.IsLabor,
+                    ContractWorkItemName = x.psc.ContractWorkItemName,
                     WorkItemCategoryId = x.psc.WorkItemCategoryId,
                     WorkItemCategoryDescription = x.wic.WorkItemCategoryDescription,
                     WorkSpecialtyId = x.psc.WorkSpecialtyId,
@@ -1033,6 +1042,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cWorkItemCategoryActive = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
 
             string cPscWorkSpecialtyId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.WorkSpecialtyId));
+            string cPscIsSubcontract = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.IsSubcontract));
+            string cPscIsLabor = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.IsLabor));
+            string cPscContractWorkItemName = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.ContractWorkItemName));
             string tWorkSpecialtyDapper = ctx.Table<WorkSpecialty>();
             string cWorkSpecialtyIdDapper = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.WorkSpecialtyId));
             string cWorkSpecialtyDescDapper = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.WorkSpecialtyDescription));
@@ -1241,6 +1253,9 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscHasIgv} AS ""HasIgv"",
        psc.{cPscWorkItemId} AS ""WorkItemId"",
        wi.{cWorkItemDesc} AS ""WorkItemDescription"",
+       psc.{cPscIsSubcontract} AS ""IsSubcontract"",
+       psc.{cPscIsLabor} AS ""IsLabor"",
+       psc.{cPscContractWorkItemName} AS ""ContractWorkItemName"",
        psc.{cPscWorkItemCategoryId} AS ""WorkItemCategoryId"",
        wic.{cWorkItemCategoryDesc} AS ""WorkItemCategoryDescription"",
        psc.{cPscWorkSpecialtyId} AS ""WorkSpecialtyId"",
@@ -1458,6 +1473,9 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     AmountHasIgv = (bool)raw.HasIgv,
                     WorkItemId = (int)raw.WorkItemId,
                     WorkItemDescription = raw.WorkItemDescription ?? "",
+                    IsSubcontract = (bool)raw.IsSubcontract,
+                    IsLabor = (bool)raw.IsLabor,
+                    ContractWorkItemName = (string?)raw.ContractWorkItemName,
                     WorkItemCategoryId = (int)raw.WorkItemCategoryId,
                     WorkItemCategoryDescription = raw.WorkItemCategoryDescription ?? "",
                     WorkSpecialtyId = (int?)raw.WorkSpecialtyId,
@@ -2249,7 +2267,9 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     LegalRepresentativeFullName = legalRep != null ? legalRep.FullName : null,
                     LegalRepresentativeDni    = legalRep != null ? legalRep.DocumentIdentityCode : null,
                     LegalEntityRegistryNumber = contrib.LegalEntityRegistryNumber,
+                    WorkItemId                = psc.WorkItemId,
                     WorkItemDescription       = wi.WorkItemDescription,
+                    ContractWorkItemName      = psc.ContractWorkItemName,
                     ContractTypeDescription   = ctype.ContractTypeDescription,
                     ContractModalityId        = psc.ContractModalityId,
                     PaymentMethodId           = psc.PaymentMethodId,
@@ -2310,6 +2330,14 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     .Select(c => c.ClauseText)
                     .ToListAsync();
             }
+
+            // Formas de valorización (cláusula 5.1) asociadas a la PARTIDA (no a la categoría).
+            var forms = await ctx.WorkItemValorizationForm
+                .Where(f => f.WorkItemId == data.WorkItemId && f.State)
+                .OrderBy(f => f.SortOrder)
+                .Select(f => new { f.Percentage, f.Concept })
+                .ToListAsync();
+            data.ValorizationForms = forms.Select(f => (f.Percentage, f.Concept)).ToList();
 
             return data;
         }

@@ -156,6 +156,16 @@ public class DossierRepository : IDossierRepository
         await ctx.SaveChangesAsync();
     }
 
+    public async Task MarcarSemanaNoAplicaAsync(int dossierId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var semana = await ctx.SsDossierSemana.FindAsync(dossierId)
+            ?? throw new AbrilException("Dossier no encontrado.", 404);
+        semana.Estado = semana.Estado == "NoAplica" ? "Borrador" : "NoAplica";
+        semana.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task<string?> GetArchivoPathAsync(int docId)
     {
         using var ctx = _factory.CreateDbContext();

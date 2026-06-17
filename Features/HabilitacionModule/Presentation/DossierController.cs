@@ -98,6 +98,18 @@ public class DossierController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error Revisar dossier {DossierId}", dossierId); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpPatch("{dossierId:int}/no-aplica")]
+    public async Task<IActionResult> MarcarNoAplica(int dossierId)
+    {
+        try
+        {
+            await _service.MarcarSemanaNoAplicaAsync(dossierId);
+            return Ok(new { message = "Semana marcada como No Aplica." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error MarcarNoAplica dossier {Id}", dossierId); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
     [HttpGet("documento/{docId:int}/url")]
     public async Task<IActionResult> GetDocumentoUrl(int docId)
     {

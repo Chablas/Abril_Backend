@@ -56,6 +56,8 @@ public class DossierService : IDossierService
 
     public Task MarcarNaAsync(int docId) => _repo.MarcarNaAsync(docId);
 
+    public Task MarcarSemanaNoAplicaAsync(int dossierId) => _repo.MarcarSemanaNoAplicaAsync(dossierId);
+
     public async Task EnviarAsync(int dossierId)
     {
         var detalle = await _repo.GetDetalleAsync(dossierId)

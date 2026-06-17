@@ -15,5 +15,6 @@ public interface IInspeccionRepository
         string? firmaInspectorUrl, string? firmaRepresentanteUrl,
         Dictionary<int, List<string>> fotosHallazgoUrls);
     Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request, string? evidenciaUrl);
+    Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl, Dictionary<int, List<string>> fotosHallazgoUrls);
     Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio);
 }

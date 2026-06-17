@@ -47,6 +47,11 @@ public class InspeccionService : IInspeccionService
         if (request.TipoId <= 0)
             throw new AbrilException("El tipo de inspección es requerido.", 400);
 
+        // PASO 1: Crear inspección sin firmas para obtener el ID
+        var fotosHallazgoUrls = new Dictionary<int, List<string>>();
+        var id = await _repo.CrearInspeccionAsync(request, null, null, fotosHallazgoUrls);
+
+        // PASO 2: Subir firmas y fotos con el ID real
         string? firmaInspectorUrl = null;
         if (!string.IsNullOrEmpty(request.FirmaInspectorBase64))
         {
@@ -56,7 +61,7 @@ public class InspeccionService : IInspeccionService
                     : request.FirmaInspectorBase64);
             using var stream = new MemoryStream(bytes);
             firmaInspectorUrl = await _sp.SubirFirmaInspectorAsync(
-                stream, $"inspector_{DateTime.UtcNow:yyyyMMddHHmmss}.png", 0);
+                stream, $"inspector_{DateTime.UtcNow:yyyyMMddHHmmss}.png", id);
         }
 
         string? firmaRepresentanteUrl = null;
@@ -68,10 +73,9 @@ public class InspeccionService : IInspeccionService
                     : request.FirmaRepresentanteBase64);
             using var stream = new MemoryStream(bytes);
             firmaRepresentanteUrl = await _sp.SubirFirmaRepresentanteAsync(
-                stream, $"representante_{DateTime.UtcNow:yyyyMMddHHmmss}.png", 0);
+                stream, $"representante_{DateTime.UtcNow:yyyyMMddHHmmss}.png", id);
         }
 
-        var fotosHallazgoUrls = new Dictionary<int, List<string>>();
         for (int i = 0; i < request.Hallazgos.Count; i++)
         {
             var urls = new List<string>();
@@ -82,14 +86,17 @@ public class InspeccionService : IInspeccionService
                 var bytes = Convert.FromBase64String(data);
                 using var stream = new MemoryStream(bytes);
                 var url = await _sp.SubirFotoHallazgoAsync(
-                    stream, $"foto_{i}_{j}_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg", 0, i);
+                    stream, $"foto_{i}_{j}_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg", id, i);
                 urls.Add(url);
             }
             if (urls.Any()) fotosHallazgoUrls[i] = urls;
         }
 
-        return await _repo.CrearInspeccionAsync(request, firmaInspectorUrl,
-            firmaRepresentanteUrl, fotosHallazgoUrls);
+        // PASO 3: Actualizar con firmas y fotos
+        if (firmaInspectorUrl != null || firmaRepresentanteUrl != null || fotosHallazgoUrls.Any())
+            await _repo.ActualizarFirmasYFotosAsync(id, firmaInspectorUrl, firmaRepresentanteUrl, fotosHallazgoUrls);
+
+        return id;
     }
 
     public async Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request)

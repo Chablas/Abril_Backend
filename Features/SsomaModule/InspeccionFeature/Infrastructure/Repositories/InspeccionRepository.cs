@@ -72,7 +72,7 @@ public class InspeccionRepository : IInspeccionRepository
             TipoId = request.TipoId,
             EmpresaId = request.EmpresaId,
             EsPlanificada = request.EsPlanificada,
-            Fecha = request.Fecha.Date,
+            Fecha = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc),
             HoraInicio = horaInicio,
             HoraFin = horaFin,
             Area = request.Area,
@@ -120,7 +120,7 @@ public class InspeccionRepository : IInspeccionRepository
                 Area = h.Area,
                 ResponsableNombre = h.ResponsableNombre,
                 ResponsableCargo = h.ResponsableCargo,
-                FechaLimite = h.FechaLimite,
+                FechaLimite = h.FechaLimite.HasValue ? DateTime.SpecifyKind(h.FechaLimite.Value, DateTimeKind.Utc) : null,
                 AccionCorrectiva = h.AccionCorrectiva,
                 Latitud = h.Latitud,
                 Longitud = h.Longitud,
@@ -159,6 +159,44 @@ public class InspeccionRepository : IInspeccionRepository
         hallazgo.EvidenciaCierreUrl = evidenciaUrl;
         hallazgo.FechaCierre = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
+    }
+
+    public async Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl, Dictionary<int, List<string>> fotosHallazgoUrls)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        if (firmaInspectorUrl != null || firmaRepresentanteUrl != null)
+        {
+            var inspeccion = await ctx.SsomaInspeccion.FindAsync(id)
+                ?? throw new AbrilException("Inspección no encontrada.", 404);
+            if (firmaInspectorUrl != null) inspeccion.FirmaInspectorUrl = firmaInspectorUrl;
+            if (firmaRepresentanteUrl != null) inspeccion.FirmaRepresentanteUrl = firmaRepresentanteUrl;
+            await ctx.SaveChangesAsync();
+        }
+
+        if (fotosHallazgoUrls.Any())
+        {
+            var hallazgos = await ctx.SsomaInspeccionHallazgo
+                .Where(h => h.InspeccionId == id)
+                .OrderBy(h => h.Id)
+                .ToListAsync();
+
+            foreach (var (i, urls) in fotosHallazgoUrls)
+            {
+                if (i >= hallazgos.Count) continue;
+                for (int j = 0; j < urls.Count; j++)
+                {
+                    ctx.SsomaInspeccionHallazgoFoto.Add(new SsomaInspeccionHallazgoFoto
+                    {
+                        HallazgoId = hallazgos[i].Id,
+                        Url = urls[j],
+                        Orden = j,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+            await ctx.SaveChangesAsync();
+        }
     }
 
     public async Task<InspeccionDetalleDto?> GetDetalleAsync(int id)

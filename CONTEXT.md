@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-16 — PASO reprogramación, LecturaEmo excluido del cálculo de habilitación y control de acceso, validación vigencia flexible cuando estado=Falta.
+> Última actualización: 2026-06-16 — PASO reprogramación, LecturaEmo excluido del cálculo de habilitación y control de acceso, validación vigencia flexible cuando estado=Falta. InspeccionFeature: flujo 3-pasos creación + downloadUrl SharePoint.
 
 ---
 
@@ -4388,3 +4388,46 @@ RuleFor(x => x.Vigencia)
 ```
 
 Cuando `Estado == "Falta"`, la vigencia puede ser cualquier fecha (o null) — útil para registrar documentos históricos o vencidos sin bloquear el flujo.
+
+---
+
+## Sesión 2026-06-16 (tercera parte) — InspeccionFeature: flujo 3-pasos y URLs SharePoint
+
+### InspeccionFeature — flujo de creación en 3 pasos
+
+Problema original: firmas y fotos de hallazgos se subían a `Inspecciones/0/firmas` porque `inspeccionId=0` al momento del upload.
+
+Nuevo flujo en `InspeccionService.CrearInspeccionAsync`:
+
+1. **Paso 1** — Crear inspección en BD sin firmas ni fotos → obtiene `id` real
+2. **Paso 2** — Subir firmas (`inspeccion-firmas`) y fotos de hallazgos (`inspeccion-fotos`) a SharePoint con el `id` real → rutas correctas `Inspecciones/{id}/firmas` y `Inspecciones/{id}/hallazgos/{hallazgoIdx}`
+3. **Paso 3** — `ActualizarFirmasYFotosAsync`: si hay algo que actualizar, hace UPDATE de `FirmaInspectorUrl`/`FirmaRepresentanteUrl` en la inspección e inserta registros `SsomaInspeccionHallazgoFoto` (mapeando índice de hallazgo por `OrderBy(h.Id)`)
+
+### InspeccionFeature — nuevo método ActualizarFirmasYFotosAsync
+
+Agregado a `IInspeccionRepository` e implementado en `InspeccionRepository`:
+
+```csharp
+Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl, Dictionary<int, List<string>> fotosHallazgoUrls);
+```
+
+### SharePointHabService — SubirArchivoYObtenerUrlAsync
+
+Nuevo método que sube el archivo y luego hace GET para obtener `@microsoft.graph.downloadUrl`:
+
+```
+GET /sites/{siteId}/drives/{driveId}/root:/{encoded}?$select=id,%40microsoft.graph.downloadUrl
+```
+
+Devuelve la URL pre-autenticada de Graph (expira ~1 hora). Fallback a ruta relativa si el GET falla (con warning en log). Agregado a `ISharePointHabService` y llamado desde `InspeccionSharePointService` en los 3 métodos (firma inspector, firma representante, foto hallazgo).
+
+> **Nota:** `@microsoft.graph.downloadUrl` es temporal. Si el frontend muestra estas URLs días después de crearlas, habrá que refrescarlas con `GetDownloadUrlAsync`.
+
+### SharePointHabService — fix clave config InspeccionesLibraryId
+
+`ResolverLibraryId` usaba `"SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"` pero la clave real en `appsettings.Local.json` es `"InspeccionesAbril2026LibraryId"`. Corregido en las dos líneas (`inspeccion-fotos` e `inspeccion-firmas`).
+
+### InspeccionRepository — DateTime.SpecifyKind para campos del request
+
+- `Fecha = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc)` (antes sin Kind)
+- `FechaLimite = h.FechaLimite.HasValue ? DateTime.SpecifyKind(h.FechaLimite.Value, DateTimeKind.Utc) : null` (antes sin Kind)

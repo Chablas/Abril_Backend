@@ -9,11 +9,11 @@ public class InspeccionSharePointService : IInspeccionSharePointService
     public InspeccionSharePointService(ISharePointHabService sp) => _sp = sp;
 
     public Task<string> SubirFotoHallazgoAsync(Stream stream, string filename, int inspeccionId, int hallazgoId)
-        => _sp.SubirArchivoEnRutaAsync(stream, filename, "inspeccion-fotos", $"Inspecciones/{inspeccionId}/hallazgos/{hallazgoId}");
+        => _sp.SubirArchivoYObtenerUrlAsync(stream, filename, "inspeccion-fotos", $"Inspecciones/{inspeccionId}/hallazgos/{hallazgoId}");
 
     public Task<string> SubirFirmaInspectorAsync(Stream stream, string filename, int inspeccionId)
-        => _sp.SubirArchivoEnRutaAsync(stream, filename, "inspeccion-firmas", $"Inspecciones/{inspeccionId}/firmas");
+        => _sp.SubirArchivoYObtenerUrlAsync(stream, filename, "inspeccion-firmas", $"Inspecciones/{inspeccionId}/firmas");
 
     public Task<string> SubirFirmaRepresentanteAsync(Stream stream, string filename, int inspeccionId)
-        => _sp.SubirArchivoEnRutaAsync(stream, filename, "inspeccion-firmas", $"Inspecciones/{inspeccionId}/firmas");
+        => _sp.SubirArchivoYObtenerUrlAsync(stream, filename, "inspeccion-firmas", $"Inspecciones/{inspeccionId}/firmas");
 }

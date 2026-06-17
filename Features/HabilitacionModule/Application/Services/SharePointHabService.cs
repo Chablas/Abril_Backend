@@ -211,6 +211,57 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return path;
         }
 
+        public async Task<string> SubirArchivoYObtenerUrlAsync(Stream fileStream, string fileName, string libraryContexto, string carpetaPath)
+        {
+            var siteId = ResolverSiteId(libraryContexto);
+            if (string.IsNullOrWhiteSpace(siteId))
+                throw new AbrilException("SharePoint no está configurado.", 500);
+
+            var token = await GetAccessTokenAsync()
+                ?? throw new AbrilException("No se pudo obtener token de Microsoft Graph.", 500);
+
+            var libraryId = ResolverLibraryId(libraryContexto);
+            var driveId = await GetDriveIdAsync(siteId, token, libraryId)
+                ?? throw new AbrilException("No se pudo resolver el drive de SharePoint.", 500);
+
+            var fechaPrefix = DateTime.UtcNow.ToString("yyyyMMdd");
+            var fileNameLimpio = SanitizarNombreArchivo(fileName);
+            var path = $"{carpetaPath.Trim('/')}/{fechaPrefix}_{fileNameLimpio}";
+
+            var encoded = Uri.EscapeDataString(path).Replace("%2F", "/");
+            var uploadUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var content = new StreamContent(fileStream);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var response = await client.PutAsync(uploadUrl, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("SharePoint upload falló ({Status}) para {Path}: {Body}",
+                    response.StatusCode, path, body);
+                throw new AbrilException($"Error al subir archivo a SharePoint ({(int)response.StatusCode}).", 502);
+            }
+
+            var getUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}?$select=id,%40microsoft.graph.downloadUrl";
+            var getClient = _httpClientFactory.CreateClient();
+            getClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var getResponse = await getClient.GetAsync(getUrl);
+            if (getResponse.IsSuccessStatusCode)
+            {
+                var json = await getResponse.Content.ReadAsStringAsync();
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("@microsoft.graph.downloadUrl", out var dlUrl))
+                    return dlUrl.GetString()!;
+            }
+
+            _logger.LogWarning("No se pudo obtener downloadUrl para {Path}, se devuelve ruta relativa.", path);
+            return path;
+        }
+
         private async Task<string?> GetDriveIdByNameAsync(string siteId, string token, string libraryName)
         {
             if (string.IsNullOrWhiteSpace(libraryName)) return null;
@@ -336,8 +387,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("rac-fotos"))         return _configuration["SharePoint:Sites:SSOMAApps:RacFotosLibraryId"];
             if (c.Contains("rac-firmas"))        return _configuration["SharePoint:Sites:SSOMAApps:RacFirmasLibraryId"];
             if (c.Contains("opt-firmas"))        return _configuration["SharePoint:Sites:SSOMAApps:OptFirmasLibraryId"];
-            if (c.Contains("inspeccion-fotos"))  return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"];
-            if (c.Contains("inspeccion-firmas")) return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"];
+            if (c.Contains("inspeccion-fotos"))  return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesAbril2026LibraryId"];
+            if (c.Contains("inspeccion-firmas")) return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesAbril2026LibraryId"];
             if (c.Contains("penalidad-pdf"))   return _configuration["SharePoint:Sites:SSOMAApps:PenalidadPdfLibraryId"];
             return null;
         }

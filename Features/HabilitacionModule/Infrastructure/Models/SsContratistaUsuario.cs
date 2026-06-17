@@ -37,6 +37,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         [Column("modulos")]
         public string Modulos { get; set; } = "AMBOS";
 
+        [Column("worker_id")]
+        public int? WorkerId { get; set; }
+
         [ForeignKey(nameof(RolId))]
         public SsContratistaRol? Rol { get; set; }
 

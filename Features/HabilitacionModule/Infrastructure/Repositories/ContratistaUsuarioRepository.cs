@@ -52,7 +52,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Scope = u.Scope,
                     Activo = u.Activo,
                     ProyectoIds = u.Proyectos.Select(p => p.ProyectoId).ToList(),
-                    Modulos = u.Modulos
+                    Modulos = u.Modulos,
+                    WorkerId = u.WorkerId
                 };
             }).ToList();
         }

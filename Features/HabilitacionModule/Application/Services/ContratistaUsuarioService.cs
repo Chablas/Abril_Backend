@@ -54,6 +54,14 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             var email = dto.Email.Trim().ToLower();
 
+            if (dto.EsWorker && dto.WorkerId.HasValue)
+            {
+                var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == dto.WorkerId.Value)
+                    ?? throw new AbrilException("Trabajador no encontrado.", 404);
+                if (!string.IsNullOrWhiteSpace(worker.EmailPersonal))
+                    email = worker.EmailPersonal.Trim().ToLower();
+            }
+
             var rol = await ctx.SsContratistaRoles.FirstOrDefaultAsync(r => r.Nombre == rolNombre)
                 ?? throw new AbrilException("Rol no encontrado en el sistema.", 500);
 
@@ -132,7 +140,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 Activo = true,
                 CreadoEn = DateTime.UtcNow,
                 CreadoPor = creadoPor,
-                Modulos = dto.Modulos?.Trim().ToUpper() ?? "AMBOS"
+                Modulos = dto.Modulos?.Trim().ToUpper() ?? "AMBOS",
+                WorkerId = dto.EsWorker ? dto.WorkerId : null
             };
 
             await _repo.InvitarUsuarioAsync(entity, scope == "POR_PROYECTO" ? dto.ProyectoIds : null);

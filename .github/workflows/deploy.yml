@@ -59,6 +59,7 @@ jobs:
             docker rm   abril-backend 2>/dev/null || true
             docker run -d --name abril-backend --restart unless-stopped \
               --network host \
+              --log-opt max-size=10m --log-opt max-file=5 \
               -e ASPNETCORE_ENVIRONMENT=Production \
               -e ASPNETCORE_URLS=http://127.0.0.1:8080 \
               -e ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \

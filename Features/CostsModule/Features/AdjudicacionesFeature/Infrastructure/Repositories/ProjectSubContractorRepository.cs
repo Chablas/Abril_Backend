@@ -310,12 +310,21 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cWorkItemDesc   = ctx.Col<WorkItem>(nameof(WorkItem.WorkItemDescription));
             string cWorkItemActive = ctx.Col<WorkItem>(nameof(WorkItem.Active));
 
+            // WorkItemValorizationForm (formas de valorización de la partida)
+            string tWorkItemValForm            = ctx.Table<WorkItemValorizationForm>();
+            string cWorkItemValFormWorkItemId  = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.WorkItemId));
+            string cWorkItemValFormConcept     = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.Concept));
+            string cWorkItemValFormPercentage  = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.Percentage));
+            string cWorkItemValFormSortOrder   = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.SortOrder));
+            string cWorkItemValFormState       = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.State));
+
             // WorkItemCategory
             string tWorkItemCategory            = ctx.Table<WorkItemCategory>();
             string cWorkItemCategoryId          = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryId));
             string cWorkItemCategoryDesc        = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryDescription));
             string cWorkItemCategoryActive      = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
             string cWorkItemCategorySyncStatus  = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.InstructivosSyncStatus));
+            string cWorkItemCategoryFolderName  = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.InstructivosFolderName));
 
             // WorkSpecialty
             string tWorkSpecialty       = ctx.Table<WorkSpecialty>();
@@ -383,7 +392,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cWorkItemActive} = TRUE
                  ORDER BY {cWorkItemDesc};
 
-                SELECT {cWorkItemCategoryId}, {cWorkItemCategoryDesc}, {cWorkItemCategorySyncStatus}
+                SELECT {cWorkItemValFormWorkItemId} AS work_item_id,
+                       {cWorkItemValFormConcept} AS concept,
+                       {cWorkItemValFormPercentage} AS percentage,
+                       {cWorkItemValFormSortOrder} AS sort_order
+                  FROM {tWorkItemValForm}
+                 WHERE {cWorkItemValFormState} = TRUE
+                 ORDER BY {cWorkItemValFormWorkItemId}, {cWorkItemValFormSortOrder};
+
+                SELECT {cWorkItemCategoryId}, {cWorkItemCategoryDesc}, {cWorkItemCategorySyncStatus}, {cWorkItemCategoryFolderName}
                   FROM {tWorkItemCategory}
                  WHERE {cWorkItemCategoryActive} = TRUE
                  ORDER BY {cWorkItemCategoryDesc};
@@ -410,7 +427,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cContractorEmailActive} = TRUE;
             ";
 
-            // ----- Ejecutar y leer los 11 result sets -----
+            // ----- Ejecutar y leer los 12 result sets -----
 
             var connection = ctx.Database.GetDbConnection();
             if (connection.State != ConnectionState.Open)
@@ -425,6 +442,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var paymentForms       = (await multi.ReadAsync<PaymentFormSimpleDTO>()).ToList();
             var currencies         = (await multi.ReadAsync<CurrencySimpleDTO>()).ToList();
             var workItems          = (await multi.ReadAsync<WorkItemSimpleDTO>()).ToList();
+            var valorizationForms  = (await multi.ReadAsync<WorkItemValorizationFormSimpleDTO>()).ToList();
             var workItemCategories = (await multi.ReadAsync<WorkItemCategorySimpleDTO>()).ToList();
             var workSpecialties    = (await multi.ReadAsync<WorkSpecialtySimpleDTO>()).ToList();
             var contractors        = (await multi.ReadAsync<ContributorFactoryDTO>()).ToList();
@@ -438,6 +456,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
 
             foreach (var contractor in contractors)
                 contractor.Emails = emailsByContractor.GetValueOrDefault(contractor.ContractorId, new());
+
+            // ----- Asociar formas de valorización a cada partida -----
+
+            var formsByWorkItem = valorizationForms
+                .GroupBy(f => f.WorkItemId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(f => f.SortOrder).ToList());
+
+            foreach (var workItem in workItems)
+                workItem.ValorizationForms = formsByWorkItem.GetValueOrDefault(workItem.WorkItemId, new());
 
             return new ProjectSubContractorFormDataDTO
             {

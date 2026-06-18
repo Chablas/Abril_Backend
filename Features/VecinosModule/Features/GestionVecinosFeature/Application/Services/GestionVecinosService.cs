@@ -75,6 +75,56 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
             return _repository.Create(dto, userId);
         }
 
+        public async Task<VecinoListItemDto> GetById(int vecinoId)
+        {
+            var item = await _repository.GetById(vecinoId);
+            if (item is null)
+                throw new AbrilException("La propiedad no existe.", 404);
+            return item;
+        }
+
+        public async Task Update(int vecinoId, VecinoUpdateDto dto, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Direccion))
+                throw new AbrilException("La dirección es obligatoria.", 400);
+            if (string.IsNullOrWhiteSpace(dto.InteriorDepartamento))
+                throw new AbrilException("El interior / departamento es obligatorio.", 400);
+            if (dto.VecinoUsoId <= 0)
+                throw new AbrilException("Debe seleccionar el uso.", 400);
+            if (dto.VecinoColindanciaId <= 0)
+                throw new AbrilException("Debe seleccionar si es colindante o no colindante.", 400);
+            if (dto.VecinoTipoConstruccionId <= 0)
+                throw new AbrilException("Debe seleccionar el tipo de construcción.", 400);
+
+            if (dto.Personas is null || dto.Personas.Count == 0)
+                throw new AbrilException("Debe quedar al menos una persona.", 400);
+
+            foreach (var per in dto.Personas)
+            {
+                if (string.IsNullOrWhiteSpace(per.Nombre))
+                    throw new AbrilException("El nombre de cada persona es obligatorio.", 400);
+                if (string.IsNullOrWhiteSpace(per.Celular))
+                    throw new AbrilException("El celular de cada persona es obligatorio.", 400);
+                if (per.VecinoRelacionTipoId <= 0)
+                    throw new AbrilException("Debe seleccionar la relación (propietario, inquilino u otro) de cada persona.", 400);
+
+                var dni = per.Dni?.Trim();
+                if (!string.IsNullOrEmpty(dni) && (dni.Length != 8 || !dni.All(char.IsDigit)))
+                    throw new AbrilException("El DNI debe tener 8 dígitos.", 400);
+            }
+
+            var ok = await _repository.Update(vecinoId, dto, userId);
+            if (!ok)
+                throw new AbrilException("La propiedad no existe.", 404);
+        }
+
+        public async Task DeleteImagen(int imagenId, int userId)
+        {
+            var ok = await _repository.DeleteImagen(imagenId, userId);
+            if (!ok)
+                throw new AbrilException("La imagen no existe.", 404);
+        }
+
         public async Task<List<VecinoImagenDto>> UploadImagenes(int vecinoId, IFormFileCollection files, int userId)
         {
             if (!await _repository.VecinoExists(vecinoId))
@@ -114,11 +164,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
                     .Select((url, i) => (ArchivoUrl: url, OriginalFileName: (string?)files[i].FileName))
                     .ToList();
 
-                await _repository.AddImagenes(vecinoId, imagenes, userId);
-
-                return imagenes
-                    .Select(im => new VecinoImagenDto { ArchivoUrl = im.ArchivoUrl, OriginalFileName = im.OriginalFileName })
-                    .ToList();
+                return await _repository.AddImagenes(vecinoId, imagenes, userId);
             }
             finally
             {

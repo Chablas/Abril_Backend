@@ -97,6 +97,72 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             }
         }
 
+        /// <summary>Devuelve una casa/propiedad con sus personas e imágenes (para refrescar el detalle).</summary>
+        [HttpGet("{vecinoId:int}")]
+        public async Task<IActionResult> GetById(int vecinoId)
+        {
+            try
+            {
+                var result = await _service.GetById(vecinoId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS GET BY ID: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Edita los datos de la casa/propiedad (sección Detalle) y reconcilia sus personas.</summary>
+        [HttpPut("{vecinoId:int}")]
+        public async Task<IActionResult> Update(int vecinoId, [FromBody] VecinoUpdateDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                await _service.Update(vecinoId, dto, userId);
+                return Ok(new { message = "Propiedad actualizada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS UPDATE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Elimina (soft delete) una imagen del estado de la propiedad.</summary>
+        [HttpDelete("imagenes/{imagenId:int}")]
+        public async Task<IActionResult> DeleteImagen(int imagenId)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                await _service.DeleteImagen(imagenId, userId);
+                return Ok(new { message = "Imagen eliminada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS IMAGEN DELETE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Sube una o varias imágenes del estado de la propiedad de una casa/lote.</summary>
         [HttpPost("{vecinoId:int}/imagenes")]
         [Consumes("multipart/form-data")]

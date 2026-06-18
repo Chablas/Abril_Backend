@@ -111,6 +111,28 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public int VecinoRelacionTipoId { get; set; }
     }
 
+    /// <summary>Persona dentro del formulario de edición (id presente = existente; null = nueva).</summary>
+    public class VecinoPersonaUpsertDto
+    {
+        public int? VecinoPersonaId { get; set; }
+        public string Nombre { get; set; } = null!;
+        public string? Dni { get; set; }
+        public string? Celular { get; set; }
+        public int VecinoRelacionTipoId { get; set; }
+    }
+
+    /// <summary>Edición de los datos de la casa/propiedad (sección Detalle) + sus personas.</summary>
+    public class VecinoUpdateDto
+    {
+        public int VecinoUsoId { get; set; }
+        public string Direccion { get; set; } = null!;
+        public string? InteriorDepartamento { get; set; }
+        public int VecinoColindanciaId { get; set; }
+        public int VecinoTipoConstruccionId { get; set; }
+        public string? Observaciones { get; set; }
+        public List<VecinoPersonaUpsertDto> Personas { get; set; } = new();
+    }
+
     public class VecinoCreateDto
     {
         public int ProjectId { get; set; }

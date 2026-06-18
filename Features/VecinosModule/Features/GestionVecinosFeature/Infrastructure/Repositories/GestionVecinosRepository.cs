@@ -116,26 +116,115 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
         }
 
-        public async Task AddImagenes(int vecinoId, List<(string ArchivoUrl, string? OriginalFileName)> imagenes, int userId)
+        public async Task<List<VecinoImagenDto>> AddImagenes(int vecinoId, List<(string ArchivoUrl, string? OriginalFileName)> imagenes, int userId)
         {
-            if (imagenes.Count == 0) return;
+            if (imagenes.Count == 0) return new();
             using var ctx = _factory.CreateDbContext();
 
             var now = DateTime.UtcNow;
-            foreach (var img in imagenes)
+            var entities = imagenes.Select(img => new VecinoImagen
             {
-                ctx.VecinoImagen.Add(new VecinoImagen
-                {
-                    VecinoId = vecinoId,
-                    ArchivoUrl = img.ArchivoUrl,
-                    OriginalFileName = img.OriginalFileName,
-                    CreatedDateTime = now,
-                    CreatedUserId = userId,
-                    Active = true,
-                    State = true
-                });
-            }
+                VecinoId = vecinoId,
+                ArchivoUrl = img.ArchivoUrl,
+                OriginalFileName = img.OriginalFileName,
+                CreatedDateTime = now,
+                CreatedUserId = userId,
+                Active = true,
+                State = true
+            }).ToList();
+
+            ctx.VecinoImagen.AddRange(entities);
             await ctx.SaveChangesAsync();
+
+            return entities.Select(e => new VecinoImagenDto
+            {
+                VecinoImagenId = e.VecinoImagenId,
+                ArchivoUrl = e.ArchivoUrl,
+                OriginalFileName = e.OriginalFileName
+            }).ToList();
+        }
+
+        public async Task<bool> DeleteImagen(int imagenId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var img = await ctx.VecinoImagen.FirstOrDefaultAsync(i => i.VecinoImagenId == imagenId && i.State);
+            if (img is null) return false;
+
+            img.State = false;
+            img.UpdatedDateTime = DateTime.UtcNow;
+            img.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> Update(int vecinoId, VecinoUpdateDto dto, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var vecino = await ctx.Vecino.FirstOrDefaultAsync(v => v.VecinoId == vecinoId && v.Active && v.State);
+            if (vecino is null) return false;
+
+            var now = DateTime.UtcNow;
+
+            vecino.VecinoUsoId = dto.VecinoUsoId;
+            vecino.Direccion = dto.Direccion.Trim();
+            vecino.InteriorDepartamento = dto.InteriorDepartamento?.Trim();
+            vecino.VecinoColindanciaId = dto.VecinoColindanciaId;
+            vecino.VecinoTipoConstruccionId = dto.VecinoTipoConstruccionId;
+            vecino.Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim();
+            vecino.UpdatedDateTime = now;
+            vecino.UpdatedUserId = userId;
+
+            // Reconciliar personas: actualizar existentes, insertar nuevas, soft-delete las removidas.
+            var existentes = await ctx.VecinoPersona
+                .Where(p => p.VecinoId == vecinoId && p.Active && p.State)
+                .ToListAsync();
+
+            var idsEnviados = dto.Personas.Where(p => p.VecinoPersonaId.HasValue).Select(p => p.VecinoPersonaId!.Value).ToHashSet();
+
+            foreach (var ex in existentes.Where(e => !idsEnviados.Contains(e.VecinoPersonaId)))
+            {
+                ex.State = false;
+                ex.UpdatedDateTime = now;
+                ex.UpdatedUserId = userId;
+            }
+
+            foreach (var per in dto.Personas)
+            {
+                var nombre = per.Nombre.Trim();
+                var pdni = string.IsNullOrWhiteSpace(per.Dni) ? null : per.Dni.Trim();
+                var celular = string.IsNullOrWhiteSpace(per.Celular) ? null : per.Celular.Trim();
+
+                if (per.VecinoPersonaId.HasValue)
+                {
+                    var row = existentes.FirstOrDefault(e => e.VecinoPersonaId == per.VecinoPersonaId.Value);
+                    if (row is null) continue;
+                    row.Nombre = nombre;
+                    row.Dni = pdni;
+                    row.Celular = celular;
+                    row.VecinoRelacionTipoId = per.VecinoRelacionTipoId;
+                    row.UpdatedDateTime = now;
+                    row.UpdatedUserId = userId;
+                }
+                else
+                {
+                    ctx.VecinoPersona.Add(new VecinoPersona
+                    {
+                        VecinoId = vecinoId,
+                        Nombre = nombre,
+                        Dni = pdni,
+                        Celular = celular,
+                        VecinoRelacionTipoId = per.VecinoRelacionTipoId,
+                        CreatedDateTime = now,
+                        CreatedUserId = userId,
+                        Active = true,
+                        State = true
+                    });
+                }
+            }
+
+            await ctx.SaveChangesAsync();
+            return true;
         }
 
         public async Task<PagedResult<VecinoListItemDto>> GetPaged(VecinoFilterDto filter)
@@ -214,6 +303,50 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 TotalPages = (int)Math.Ceiling(totalRecords / (double)PageSize),
                 Data = items
             };
+        }
+
+        public async Task<VecinoListItemDto?> GetById(int vecinoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var item = await (
+                from v in ctx.Vecino
+                join p in ctx.Project on v.ProjectId equals p.ProjectId
+                join col in ctx.VecinoColindancia on v.VecinoColindanciaId equals col.VecinoColindanciaId
+                join tc in ctx.VecinoTipoConstruccion on v.VecinoTipoConstruccionId equals tc.VecinoTipoConstruccionId
+                join u in ctx.VecinoUso on v.VecinoUsoId equals u.VecinoUsoId into uj
+                from u in uj.DefaultIfEmpty()
+                where v.VecinoId == vecinoId && v.Active && v.State
+                select new VecinoListItemDto
+                {
+                    VecinoId = v.VecinoId,
+                    ProjectId = v.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    Predio = v.Predio,
+                    VecinoUsoId = v.VecinoUsoId,
+                    UsoDescripcion = u != null ? u.Descripcion : null,
+                    Direccion = v.Direccion,
+                    InteriorDepartamento = v.InteriorDepartamento,
+                    VecinoColindanciaId = v.VecinoColindanciaId,
+                    ColindanciaDescripcion = col.Descripcion,
+                    VecinoTipoConstruccionId = v.VecinoTipoConstruccionId,
+                    TipoConstruccionDescripcion = tc.Descripcion,
+                    Observaciones = v.Observaciones,
+                    CreatedDateTime = v.CreatedDateTime
+                }
+            ).FirstOrDefaultAsync();
+
+            if (item is null) return null;
+
+            var personas = await LoadPersonas(ctx, new List<int> { vecinoId });
+            var imagenes = await LoadImagenes(ctx, new List<int> { vecinoId });
+            item.Personas = personas.GetValueOrDefault(vecinoId, new());
+            item.Imagenes = imagenes.GetValueOrDefault(vecinoId, new());
+            var principal = item.Personas.FirstOrDefault();
+            item.NombrePropietario = principal?.Nombre;
+            item.Dni = principal?.Dni;
+            item.Celular = principal?.Celular;
+            return item;
         }
 
         public async Task<int> Create(VecinoCreateDto dto, int userId)

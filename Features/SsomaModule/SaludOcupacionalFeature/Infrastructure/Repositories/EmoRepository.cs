@@ -391,14 +391,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ? (DateOnly?)dto.FechaEmo.AddMonths(tipo.VigenciaMeses.Value)
                 : null;
 
+            var esApto = !string.Equals(dto.Aptitud, "Observado", StringComparison.OrdinalIgnoreCase)
+                      && !string.Equals(dto.Aptitud, "No Apto", StringComparison.OrdinalIgnoreCase);
+
             var emo = new WorkerEmo
             {
                 WorkerId = dto.WorkerId,
                 EmpresaOrigenId = dto.EmpresaOrigenId,
                 TipoEmoId = dto.TipoEmoId,
                 FechaEmo = dto.FechaEmo,
-                FechaVencimiento = fechaVencCalc,
-                FechaVencimientoCalculada = fechaVencCalc,
+                FechaVencimiento = esApto ? fechaVencCalc : null,
+                FechaVencimientoCalculada = esApto ? fechaVencCalc : null,
                 ClinicaId = dto.ClinicaId,
                 MedicoId = dto.MedicoId,
                 Aptitud = dto.Aptitud,
@@ -407,7 +410,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 FechaLectura = dto.FechaLectura,
                 UrlResultado = dto.UrlResultado,
                 Notas = dto.Notas,
-                Estado = "Vigente",
+                Estado = esApto ? "Vigente" : "Observado",
                 Activo = true,
                 RegistradoPorId = userId,
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -554,6 +557,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     progActiva.Estado = "Completado";
                 }
+                // Si requiere interconsulta, se queda en "En Atención"
+                // hasta que la interconsulta sea resuelta
             }
 
             if (dto.FechaLectura.HasValue)
@@ -661,9 +666,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
         private static async Task SincronizarEntregableEmoAsync(AppDbContext ctx, WorkerEmo emo, Worker worker)
         {
-            if (!string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase))
-                return;
-
             var hab = await ctx.SsHabTrabajador
                 .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.CertAptitud);
 

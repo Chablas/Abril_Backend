@@ -130,12 +130,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             if (dto.Estado == "Atendida" || dto.Estado == "Completado")
             {
-                var emo = await ctx.WorkerEmo
-                    .FirstOrDefaultAsync(e => e.Id == ent.EmoId);
-                if (emo != null)
+                if (ent.EmoId.HasValue)
                 {
-                    emo.InterconsultaResuelta = true;
-                    emo.UpdatedAt = DateTimeOffset.UtcNow;
+                    var emo = await ctx.WorkerEmo.FirstOrDefaultAsync(e => e.Id == ent.EmoId.Value);
+                    if (emo != null)
+                    {
+                        emo.InterconsultaResuelta = true;
+                        emo.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
                 }
 
                 var lecturaEmo = await ctx.SsHabTrabajador

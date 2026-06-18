@@ -79,6 +79,9 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("updated_at")]
         public DateTimeOffset? UpdatedAt { get; set; }
 
+        [Column("interconsulta_resuelta")]
+        public bool InterconsultaResuelta { get; set; }
+
         [ForeignKey(nameof(WorkerId))]
         public Worker? Worker { get; set; }
 

@@ -10,5 +10,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         string GetProjectFotosContainerName();
         string GetProjectCroquisContainerName();
         string GetVecinoRequisitosContainerName();
+        string GetVecinoPropiedadImagenesContainerName();
     }
 }

@@ -39,11 +39,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                 {
                     WorkItemId = x.WorkItemId,
                     WorkItemDescription = x.WorkItemDescription,
-                    WorkSpecialtyId = x.WorkSpecialtyId,
-                    WorkSpecialtyDescription = _context.WorkSpecialty
-                        .Where(s => s.WorkSpecialtyId == x.WorkSpecialtyId)
-                        .Select(s => s.WorkSpecialtyDescription)
-                        .FirstOrDefault(),
                     CreatedDateTime = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                     CreatedUserId = x.CreatedUserId,
                     UpdatedDateTime = x.UpdatedDateTime.HasValue
@@ -87,7 +82,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             var record = new WorkItem
             {
                 WorkItemDescription = dto.WorkItemDescription.Trim(),
-                WorkSpecialtyId = dto.WorkSpecialtyId,
                 Active = true,
                 State = true,
                 CreatedDateTime = DateTimeOffset.UtcNow,
@@ -115,7 +109,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                 throw new AbrilException("Ya existe una partida con esa descripción.");
 
             record.WorkItemDescription = dto.WorkItemDescription.Trim();
-            record.WorkSpecialtyId = dto.WorkSpecialtyId;
             record.Active = dto.Active;
             record.UpdatedDateTime = DateTimeOffset.UtcNow;
             record.UpdatedUserId = userId;
@@ -189,19 +182,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             return true;
         }
 
-        public async Task<List<WorkSpecialtyOptionDto>> GetActiveSpecialties()
-        {
-            return await _context.WorkSpecialty
-                .Where(x => x.State && x.Active)
-                .OrderBy(x => x.WorkSpecialtyDescription)
-                .Select(x => new WorkSpecialtyOptionDto
-                {
-                    WorkSpecialtyId = x.WorkSpecialtyId,
-                    WorkSpecialtyDescription = x.WorkSpecialtyDescription
-                })
-                .ToListAsync();
-        }
-
         public async Task<List<AdjudicacionFolderRootDto>> GetActiveAdjudicacionFolderRoots()
         {
             return await (
@@ -226,55 +206,23 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                 .Select(x => new ExistingWorkItemDto
                 {
                     WorkItemId = x.WorkItemId,
-                    WorkItemDescription = x.WorkItemDescription,
-                    WorkSpecialtyId = x.WorkSpecialtyId
+                    WorkItemDescription = x.WorkItemDescription
                 })
                 .ToListAsync();
         }
 
-        public async Task<int> AssignSpecialties(IEnumerable<(int WorkItemId, int WorkSpecialtyId)> assignments, int userId)
-        {
-            var byId = assignments
-                .GroupBy(a => a.WorkItemId)
-                .ToDictionary(g => g.Key, g => g.First().WorkSpecialtyId);
-
-            if (byId.Count == 0) return 0;
-
-            var ids = byId.Keys.ToList();
-            var rows = await _context.WorkItem
-                .Where(x => ids.Contains(x.WorkItemId) && x.State)
-                .ToListAsync();
-
-            var now = DateTimeOffset.UtcNow;
-            var updated = 0;
-            foreach (var row in rows)
-            {
-                if (byId.TryGetValue(row.WorkItemId, out var sid) && row.WorkSpecialtyId != sid)
-                {
-                    row.WorkSpecialtyId = sid;
-                    row.UpdatedDateTime = now;
-                    row.UpdatedUserId = userId;
-                    updated++;
-                }
-            }
-
-            if (updated > 0) await _context.SaveChangesAsync();
-            return updated;
-        }
-
-        public async Task<List<string>> BulkCreate(IEnumerable<(string Description, int? WorkSpecialtyId)> items, int userId)
+        public async Task<List<string>> BulkCreate(IEnumerable<string> descriptions, int userId)
         {
             var now = DateTimeOffset.UtcNow;
             var created = new List<string>();
 
             // Inserción defensiva: cada partida en su propio SaveChanges; si choca con el índice
             // único (duplicado que se haya colado), se descarta esa fila y se continúa con el resto.
-            foreach (var (description, workSpecialtyId) in items)
+            foreach (var description in descriptions)
             {
                 var record = new WorkItem
                 {
                     WorkItemDescription = description.Trim(),
-                    WorkSpecialtyId = workSpecialtyId,
                     Active = true,
                     State = true,
                     CreatedDateTime = now,

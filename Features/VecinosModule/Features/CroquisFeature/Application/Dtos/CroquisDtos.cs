@@ -37,6 +37,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Applicati
         public List<ProjectOptionDto> Projects { get; set; } = new();
         public List<CatalogOptionDto> Colindancias { get; set; } = new();
         public List<CatalogOptionDto> TiposConstruccion { get; set; } = new();
+        public List<CatalogOptionDto> Usos { get; set; } = new();
+        public List<CatalogOptionDto> RelacionTipos { get; set; } = new();
     }
 
     /// <summary>Un croquis registrado con sus lotes y los vecinos del proyecto (para asignar).</summary>

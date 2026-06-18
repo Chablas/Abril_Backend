@@ -160,6 +160,18 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 .Select(t => new CatalogOptionDto { Id = t.VecinoTipoConstruccionId, Descripcion = t.Descripcion })
                 .ToListAsync();
 
+            var usos = await ctx.VecinoUso
+                .Where(u => u.State && u.Active)
+                .OrderBy(u => u.VecinoUsoId)
+                .Select(u => new CatalogOptionDto { Id = u.VecinoUsoId, Descripcion = u.Descripcion })
+                .ToListAsync();
+
+            var relacionTipos = await ctx.VecinoRelacionTipo
+                .Where(r => r.State && r.Active)
+                .OrderBy(r => r.VecinoRelacionTipoId)
+                .Select(r => new CatalogOptionDto { Id = r.VecinoRelacionTipoId, Descripcion = r.Descripcion })
+                .ToListAsync();
+
             var projects = await ctx.Project
                 .Where(p => p.State && p.Active)
                 .OrderBy(p => p.ProjectDescription)
@@ -171,6 +183,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 Projects = projects,
                 Colindancias = colindancias,
                 TiposConstruccion = tipos,
+                Usos = usos,
+                RelacionTipos = relacionTipos,
             };
 
             // Croquis registrados (uno activo por proyecto).
@@ -186,11 +200,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
             var croquisIds = croquis.Select(c => c.ProjectCroquisId).ToList();
             var projectIds = croquis.Select(c => c.ProjectId).ToList();
 
-            // Lotes de esos croquis con el nombre del vecino asignado (si tiene).
+            // Lotes de esos croquis (el nombre del vecino asignado se completa más abajo con la persona principal).
             var lotes = await (
                 from l in ctx.ProjectCroquisLote.Where(l => l.State && croquisIds.Contains(l.ProjectCroquisId))
-                join v in ctx.Vecino on l.VecinoId equals v.VecinoId into vg
-                from v in vg.DefaultIfEmpty()
                 select new
                 {
                     l.ProjectCroquisLoteId,
@@ -198,22 +210,59 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                     l.NumeroLote,
                     l.Poligono,
                     l.VecinoId,
-                    VecinoNombre = v != null ? v.NombrePropietario : null,
                 }
             ).ToListAsync();
 
-            // Vecinos de esos proyectos (para los desplegables de asignación).
+            // Vecinos (casas) de esos proyectos (para los desplegables de asignación).
             var vecinos = await (
                 from v in ctx.Vecino.Where(v => v.State && v.Active && projectIds.Contains(v.ProjectId))
                 join p in ctx.Project on v.ProjectId equals p.ProjectId
                 join col in ctx.VecinoColindancia on v.VecinoColindanciaId equals col.VecinoColindanciaId
                 join tc in ctx.VecinoTipoConstruccion on v.VecinoTipoConstruccionId equals tc.VecinoTipoConstruccionId
-                orderby v.NombrePropietario
-                select new { v, p, col, tc }
+                join u in ctx.VecinoUso on v.VecinoUsoId equals u.VecinoUsoId into uj
+                from u in uj.DefaultIfEmpty()
+                orderby v.Direccion
+                select new { v, p, col, tc, u }
             ).ToListAsync();
 
             // Conteo de solicitudes por vecino.
             var vecinoIds = vecinos.Select(x => x.v.VecinoId).ToList();
+
+            // Personas de cada casa (una sola consulta), con propietario primero. Sirve para el
+            // nombre principal mostrado en la tabla, las tarjetas y el nombre del vecino en cada lote.
+            var personasRows = await (
+                from per in ctx.VecinoPersona
+                join rt in ctx.VecinoRelacionTipo on per.VecinoRelacionTipoId equals rt.VecinoRelacionTipoId
+                where vecinoIds.Contains(per.VecinoId) && per.Active && per.State
+                orderby per.VecinoRelacionTipoId, per.VecinoPersonaId
+                select new { per.VecinoId, Dto = new VecinoPersonaDto
+                {
+                    VecinoPersonaId = per.VecinoPersonaId,
+                    Nombre = per.Nombre,
+                    Dni = per.Dni,
+                    Celular = per.Celular,
+                    VecinoRelacionTipoId = per.VecinoRelacionTipoId,
+                    RelacionDescripcion = rt.Descripcion
+                }}
+            ).ToListAsync();
+
+            var personasByVecino = personasRows
+                .GroupBy(x => x.VecinoId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
+
+            // Imágenes (estado de la propiedad) de cada casa, en una sola consulta.
+            var imagenesByVecino = (await ctx.VecinoImagen
+                .Where(im => vecinoIds.Contains(im.VecinoId) && im.Active && im.State)
+                .OrderBy(im => im.VecinoImagenId)
+                .Select(im => new { im.VecinoId, Dto = new VecinoImagenDto
+                {
+                    VecinoImagenId = im.VecinoImagenId,
+                    ArchivoUrl = im.ArchivoUrl,
+                    OriginalFileName = im.OriginalFileName
+                }})
+                .ToListAsync())
+                .GroupBy(x => x.VecinoId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
 
             // Ids de los estados de solicitud relevantes para el % de aprobadas.
             var solicitudEstados = await ctx.VecinoSolicitudEstado
@@ -333,7 +382,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                         NumeroLote = l.NumeroLote,
                         Puntos = DeserializePuntos(l.Poligono),
                         VecinoId = l.VecinoId,
-                        VecinoNombre = l.VecinoNombre,
+                        VecinoNombre = l.VecinoId.HasValue
+                            ? personasByVecino.GetValueOrDefault(l.VecinoId.Value)?.FirstOrDefault()?.Nombre
+                            : null,
                     })
                     .ToList(),
                 Vecinos = vecinos
@@ -344,15 +395,20 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                         ProjectId = x.v.ProjectId,
                         ProjectDescription = x.p.ProjectDescription,
                         Predio = x.v.Predio,
+                        VecinoUsoId = x.v.VecinoUsoId,
+                        UsoDescripcion = x.u != null ? x.u.Descripcion : null,
                         Direccion = x.v.Direccion,
                         InteriorDepartamento = x.v.InteriorDepartamento,
-                        NombrePropietario = x.v.NombrePropietario,
-                        Dni = x.v.Dni,
-                        Celular = x.v.Celular,
+                        NombrePropietario = personasByVecino.GetValueOrDefault(x.v.VecinoId)?.FirstOrDefault()?.Nombre,
+                        Dni = personasByVecino.GetValueOrDefault(x.v.VecinoId)?.FirstOrDefault()?.Dni,
+                        Celular = personasByVecino.GetValueOrDefault(x.v.VecinoId)?.FirstOrDefault()?.Celular,
+                        Personas = personasByVecino.GetValueOrDefault(x.v.VecinoId, new()),
+                        Imagenes = imagenesByVecino.GetValueOrDefault(x.v.VecinoId, new()),
                         VecinoColindanciaId = x.v.VecinoColindanciaId,
                         ColindanciaDescripcion = x.col.Descripcion,
                         VecinoTipoConstruccionId = x.v.VecinoTipoConstruccionId,
                         TipoConstruccionDescripcion = x.tc.Descripcion,
+                        Observaciones = x.v.Observaciones,
                         CreatedDateTime = x.v.CreatedDateTime,
                         SolicitudesCount = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Count ?? 0,
                         CompromisosCount = compromisosPorVecino.GetValueOrDefault(x.v.VecinoId),

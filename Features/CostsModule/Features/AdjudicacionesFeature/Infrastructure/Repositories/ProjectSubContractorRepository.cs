@@ -594,6 +594,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     ContractWorkItemName = x.psc.ContractWorkItemName,
                     WorkItemCategoryId = x.psc.WorkItemCategoryId,
                     WorkItemCategoryDescription = x.wic.WorkItemCategoryDescription,
+                    WorkItemCategoryInstructivosSyncStatus = x.wic.InstructivosSyncStatus,
+                    WorkItemCategoryInstructivosFolderName = x.wic.InstructivosFolderName,
                     WorkSpecialtyId = x.psc.WorkSpecialtyId,
                     WorkSpecialtyDescription = ctx.WorkSpecialty
                         .Where(s => s.WorkSpecialtyId == x.psc.WorkSpecialtyId)
@@ -681,11 +683,29 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 .GroupBy(f => f.ProjectSubContractorId)
                 .ToDictionary(g => g.Key, g => g.ToDictionary(f => f.Slot));
 
+            // Formas de valorización (cláusula 5.1) de las partidas presentes en esta página.
+            var workItemIds = items.Select(x => x.WorkItemId).Distinct().ToList();
+            var valorizationForms = await ctx.WorkItemValorizationForm
+                .Where(f => workItemIds.Contains(f.WorkItemId) && f.State)
+                .OrderBy(f => f.WorkItemId).ThenBy(f => f.SortOrder)
+                .Select(f => new WorkItemValorizationFormSimpleDTO
+                {
+                    WorkItemId = f.WorkItemId,
+                    Concept    = f.Concept,
+                    Percentage = f.Percentage,
+                    SortOrder  = f.SortOrder
+                })
+                .ToListAsync();
+            var formsByWorkItem = valorizationForms
+                .GroupBy(f => f.WorkItemId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
             foreach (var item in items)
             {
                 item.ContractorEmails = emailsByContractorId.GetValueOrDefault(item.ContractorId, new());
                 item.QuotationFiles   = quotationByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
                 item.ComparativeFiles = comparativeByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
+                item.WorkItemValorizationForms = formsByWorkItem.GetValueOrDefault(item.WorkItemId, new());
 
                 if (scannedByPsc.TryGetValue(item.ProjectSubContractorId, out var slots))
                 {
@@ -1067,6 +1087,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cWorkItemCategoryId = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryId));
             string cWorkItemCategoryDesc = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryDescription));
             string cWorkItemCategoryActive = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
+            string cWorkItemCategorySyncStatus = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.InstructivosSyncStatus));
+            string cWorkItemCategoryFolderName = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.InstructivosFolderName));
+
+            // WorkItemValorizationForm (formas de valorización de la partida)
+            string tWorkItemValForm = ctx.Table<WorkItemValorizationForm>();
+            string cWorkItemValFormWorkItemId = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.WorkItemId));
+            string cWorkItemValFormConcept = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.Concept));
+            string cWorkItemValFormPercentage = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.Percentage));
+            string cWorkItemValFormSortOrder = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.SortOrder));
+            string cWorkItemValFormState = ctx.Col<WorkItemValorizationForm>(nameof(WorkItemValorizationForm.State));
 
             string cPscWorkSpecialtyId = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.WorkSpecialtyId));
             string cPscIsSubcontract = ctx.Col<ProjectSubContractor>(nameof(ProjectSubContractor.IsSubcontract));
@@ -1285,6 +1315,8 @@ SELECT psc.{cPscId} AS ""ProjectSubContractorId"",
        psc.{cPscContractWorkItemName} AS ""ContractWorkItemName"",
        psc.{cPscWorkItemCategoryId} AS ""WorkItemCategoryId"",
        wic.{cWorkItemCategoryDesc} AS ""WorkItemCategoryDescription"",
+       wic.{cWorkItemCategorySyncStatus} AS work_item_category_instructivos_sync_status,
+       wic.{cWorkItemCategoryFolderName} AS work_item_category_instructivos_folder_name,
        psc.{cPscWorkSpecialtyId} AS ""WorkSpecialtyId"",
        ws.{cWorkSpecialtyDescDapper} AS work_specialty_description,
        psc.{cPscStatusId} AS ""ProjectSubContractorStatusId"",
@@ -1432,6 +1464,7 @@ ORDER BY contrib.{cContributorName};
 SELECT {cCEContractorId} AS ""ContractorId"", {cCEEmail} AS ""Email"" FROM {tContractorEmail} WHERE {cCEActive} = TRUE;
 SELECT {cQFPscId} AS ""ProjectSubContractorId"", {cQFFileUrl} AS ""FileUrl"", {cQFFileName} AS ""OriginalFileName"" FROM {tQuotFile} WHERE {cQFState} = TRUE;
 SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {cCFFileName} AS ""OriginalFileName"" FROM {tCompFile} WHERE {cCFState} = TRUE;
+SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} AS concept, {cWorkItemValFormPercentage} AS percentage, {cWorkItemValFormSortOrder} AS sort_order FROM {tWorkItemValForm} WHERE {cWorkItemValFormState} = TRUE ORDER BY {cWorkItemValFormWorkItemId}, {cWorkItemValFormSortOrder};
             ";
 
             using var multi = await connection.QueryMultipleAsync(sql, parameters);
@@ -1457,6 +1490,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             var emailsRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var quotationFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var comparativeFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
+            var valorizationForms = (await multi.ReadAsync<WorkItemValorizationFormSimpleDTO>()).ToList();
 
             var emails = emailsRaw.Select(e => new { ContractorId = (int)e.ContractorId, Email = (string)e.Email }).ToList();
             var quotationFiles = quotationFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
@@ -1466,6 +1500,7 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
             var emailsByContractor = emails.GroupBy(e => e.ContractorId).ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
             var quotationByPsc = quotationFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
             var comparativeByPsc = comparativeFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
+            var formsByWorkItem = valorizationForms.GroupBy(f => f.WorkItemId).ToDictionary(g => g.Key, g => g.OrderBy(f => f.SortOrder).ToList());
 
             // Map contractors with emails (for form data / create dropdown)
             foreach (var contractor in contractors)
@@ -1505,6 +1540,8 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                     ContractWorkItemName = (string?)raw.ContractWorkItemName,
                     WorkItemCategoryId = (int)raw.WorkItemCategoryId,
                     WorkItemCategoryDescription = raw.WorkItemCategoryDescription ?? "",
+                    WorkItemCategoryInstructivosSyncStatus = (int?)raw.work_item_category_instructivos_sync_status,
+                    WorkItemCategoryInstructivosFolderName = (string?)raw.work_item_category_instructivos_folder_name,
                     WorkSpecialtyId = (int?)raw.WorkSpecialtyId,
                     WorkSpecialtyDescription = (string?)raw.work_specialty_description,
                     ProjectSubContractorStatusId = (int)raw.ProjectSubContractorStatusId,
@@ -1543,9 +1580,12 @@ SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {c
                 });
             }
 
-            // Map contractor emails onto each paged item
+            // Map contractor emails + formas de valorización onto each paged item
             foreach (var item in items)
+            {
                 item.ContractorEmails = emailsByContractor.GetValueOrDefault(item.ContractorId, new());
+                item.WorkItemValorizationForms = formsByWorkItem.GetValueOrDefault(item.WorkItemId, new());
+            }
 
             var formDataDto = new ProjectSubContractorFormDataDTO
             {

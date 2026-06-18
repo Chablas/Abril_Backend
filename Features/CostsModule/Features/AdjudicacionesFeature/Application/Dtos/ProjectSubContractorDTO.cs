@@ -39,6 +39,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public string? ContractWorkItemName { get; set; }
         public int WorkItemCategoryId { get; set; }
         public string WorkItemCategoryDescription { get; set; }
+        /// <summary>Estado del instructivo de la partida de control (1=automático, 2=manual, 3=sin instructivo).</summary>
+        public int? WorkItemCategoryInstructivosSyncStatus { get; set; }
+        /// <summary>Nombre del instructivo asociado a la partida de control, si existe.</summary>
+        public string? WorkItemCategoryInstructivosFolderName { get; set; }
+        /// <summary>Formas de valorización (cláusula 5.1) de la partida, ordenadas por SortOrder.</summary>
+        public List<WorkItemValorizationFormSimpleDTO> WorkItemValorizationForms { get; set; } = new();
         public int? WorkSpecialtyId { get; set; }
         public string? WorkSpecialtyDescription { get; set; }
         public int ProjectSubContractorStatusId { get; set; }

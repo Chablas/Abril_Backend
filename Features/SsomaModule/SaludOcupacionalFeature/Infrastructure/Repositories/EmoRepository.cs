@@ -677,7 +677,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 case "Apto con Restricciones":
                     hab.Estado = "Aprobado";
                     var fv = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
-                    hab.Vigencia = fv.HasValue ? DateTime.SpecifyKind(fv.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc) : null;
+                    if (fv.HasValue)
+                        hab.Vigencia = DateTime.SpecifyKind(fv.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
                     break;
                 case "No Apto":
                     hab.Estado = "Rechazado";
@@ -700,9 +701,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     habLectura.Estado = "Aprobado";
                     var fvLectura = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
-                    habLectura.Vigencia = fvLectura.HasValue
-                        ? DateTime.SpecifyKind(fvLectura.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)
-                        : null;
+                    if (fvLectura.HasValue)
+                        habLectura.Vigencia = DateTime.SpecifyKind(fvLectura.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
                     habLectura.ArchivoUrl = emo.UrlResultado;
                     habLectura.UpdatedAt = DateTime.UtcNow;
                 }

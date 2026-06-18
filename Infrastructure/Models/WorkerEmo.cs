@@ -52,9 +52,6 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("requiere_interconsulta")]
         public bool RequiereInterconsulta { get; set; }
 
-        [Column("interconsulta_resuelta")]
-        public bool InterconsultaResuelta { get; set; }
-
         [Column("url_resultado")]
         public string? UrlResultado { get; set; }
 

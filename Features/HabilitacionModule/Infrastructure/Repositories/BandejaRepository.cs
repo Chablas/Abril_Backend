@@ -1,3 +1,4 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Proyectos;
@@ -473,7 +474,18 @@ ORDER BY ec.contributor_name";
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = HabilitacionDateHelper.ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+
+            var requiereVigencia = entity.Item?.RequiereVigencia ?? true;
+            DateTime? nuevaVigencia;
+            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase) && !dto.Vigencia.HasValue)
+                nuevaVigencia = entity.Vigencia; // preservar vigencia existente al aprobar sin fecha
+            else
+                nuevaVigencia = HabilitacionDateHelper.ResolverVigencia(requiereVigencia, dto.Estado, dto.Vigencia);
+            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase)
+                && requiereVigencia && !nuevaVigencia.HasValue)
+                throw new AbrilException("Este documento requiere fecha de vigencia para ser aprobado.", 400);
+
+            entity.Vigencia = nuevaVigencia;
             entity.AprobadoPor = userId;
             entity.FechaAprobacion = DateTime.UtcNow;
             entity.UpdatedAt = DateTime.UtcNow;

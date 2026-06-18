@@ -253,11 +253,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                             .OrderByDescending(e => e.FechaVencimiento)
                             .FirstOrDefaultAsync();
 
-                        habCert.Estado = emoActivo == null
-                            ? "Falta"
-                            : emoActivo.FechaVencimiento < hoyNoAsistio
-                                ? "Vencido"
-                                : "Aprobado";
+                        if (emoActivo == null)
+                        {
+                            habCert.Estado = "Falta";
+                        }
+                        else if (emoActivo.FechaVencimiento < hoyNoAsistio)
+                        {
+                            habCert.Estado = "Vencido";
+                        }
+                        else
+                        {
+                            habCert.Estado = "Aprobado";
+                            var venc = emoActivo.FechaVencimientoCalculada ?? emoActivo.FechaVencimiento;
+                            if (venc.HasValue)
+                                habCert.Vigencia = DateTime.SpecifyKind(venc.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+                        }
                         habCert.UpdatedAt = DateTime.UtcNow;
                     }
 

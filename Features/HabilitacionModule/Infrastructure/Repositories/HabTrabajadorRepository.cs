@@ -433,14 +433,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 entregable.Estado = dto.Estado;
             if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
             {
-                // No sobreescribir vigencia si viene null y el estado es Enviado
-                // (el contratista puede haber subido con vigencia desde /archivos/enviar)
-                var noSobreescribir = string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase)
+                var requiereV = entregable.Item?.RequiereVigencia ?? true;
+                // Preservar vigencia existente cuando el estado nuevo es Enviado o Aprobado y no viene fecha
+                var preservar = (string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
                     && !dto.Vigencia.HasValue
                     && entregable.Vigencia.HasValue;
-                if (!noSobreescribir)
-                    entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(
-                        entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
+                if (!preservar)
+                    entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(requiereV, entregable.Estado, dto.Vigencia);
+
+                // Rechazar si el item requiere vigencia y quedaría en null tras la operación
+                if (requiereV
+                    && (string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+                    && !entregable.Vigencia.HasValue)
+                    throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
             }
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;

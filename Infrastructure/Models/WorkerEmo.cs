@@ -52,9 +52,6 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("requiere_interconsulta")]
         public bool RequiereInterconsulta { get; set; }
 
-        [Column("interconsulta_resuelta")]
-        public bool InterconsultaResuelta { get; set; }
-
         [Column("url_resultado")]
         public string? UrlResultado { get; set; }
 
@@ -78,6 +75,9 @@ namespace Abril_Backend.Infrastructure.Models
 
         [Column("updated_at")]
         public DateTimeOffset? UpdatedAt { get; set; }
+
+        [Column("interconsulta_resuelta")]
+        public bool InterconsultaResuelta { get; set; }
 
         [ForeignKey(nameof(WorkerId))]
         public Worker? Worker { get; set; }

@@ -45,24 +45,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             }
         }
 
-        [HttpGet("form-data")]
-        public async Task<IActionResult> GetFormData()
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });
-
-                var result = await _service.GetFormData();
-                return Ok(result);
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
         [HttpPost("sync")]
         public async Task<IActionResult> Sync()
         {

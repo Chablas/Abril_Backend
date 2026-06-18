@@ -20,6 +20,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private static readonly Regex _folderPrefixRegex =
             new(@"^\s*\d+(?:\s*[.)\-–:]\s*\d+)*\s*[.)\-–:]?\s*", RegexOptions.Compiled);
 
+        // Alias de carpetas de especialidad: una especialidad canónica (la que queda en BD) acepta
+        // también carpetas históricas con otro nombre que significan lo mismo. Se priorizan los alias
+        // (carpetas ya existentes) antes de crear la carpeta canónica. Claves/valores se comparan con NormalizeKey.
+        private static readonly Dictionary<string, string[]> _especialidadFolderAliases = new()
+        {
+            // "OBRAS PRELIMINARES Y PROVISIONALES" reconoce también la carpeta antigua "OBRAS PROVISIONALES".
+            ["OBRAS PRELIMINARES Y PROVISIONALES"] = new[] { "OBRAS PROVISIONALES" },
+        };
+
         public AdjudicacionOneDriveStorage(
             IGraphSharePointService graph,
             IProjectSubContractorRepository repository)
@@ -92,7 +101,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     "La adjudicación no tiene una especialidad asignada. Asigne una especialidad en el paso 1 " +
                     "antes de guardar documentos.", 400);
 
-            var especialidadId = await FindOrCreateByNormalizedKeyAsync(
+            var especialidadId = await FindOrCreateEspecialidadFolderAsync(
                 driveId, contratosFolderId, data.WorkSpecialtyDescription);
 
             // 3) Partida (NO 'partida de control') — coincide con la descripción del work item.
@@ -169,6 +178,34 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             data.AdjudicacionFolderName = folderName;
 
             return await _graph.EnsureChildFolderAsync(driveId, contratistaId, folderName);
+        }
+
+        /// <summary>
+        /// Resuelve la carpeta de especialidad reconociendo nombres alias (carpetas históricas equivalentes).
+        /// Prioridad: 1) carpeta con nombre alias si existe; 2) carpeta canónica existente; 3) crear la canónica.
+        /// </summary>
+        private async Task<string> FindOrCreateEspecialidadFolderAsync(string driveId, string parentId, string name)
+        {
+            var canonicalKey = NormalizeKey(name);
+            var aliasKeys = _especialidadFolderAliases.TryGetValue(canonicalKey, out var aliases)
+                ? aliases.Select(NormalizeKey).ToHashSet()
+                : new HashSet<string>();
+
+            var children = await _graph.GetChildFoldersByItemIdAsync(driveId, parentId);
+
+            // 1) Preferir una carpeta con nombre alias histórico (p. ej. "OBRAS PROVISIONALES") si existe.
+            if (aliasKeys.Count > 0)
+            {
+                var aliasMatch = children.FirstOrDefault(f => aliasKeys.Contains(NormalizeKey(f.Name ?? "")));
+                if (aliasMatch is not null) return aliasMatch.ItemId;
+            }
+
+            // 2) Si no, usar la carpeta canónica existente.
+            var canonicalMatch = children.FirstOrDefault(f => NormalizeKey(f.Name ?? "") == canonicalKey);
+            if (canonicalMatch is not null) return canonicalMatch.ItemId;
+
+            // 3) Si no existe ninguna, crear la canónica.
+            return await _graph.EnsureChildFolderAsync(driveId, parentId, Sanitize(name));
         }
 
         /// <summary>Busca una subcarpeta cuya clave normalizada coincida; si no existe, la crea con el nombre dado.</summary>

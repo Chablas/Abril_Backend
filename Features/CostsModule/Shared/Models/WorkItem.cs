@@ -4,8 +4,6 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models
     {
         public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; } = null!;
-        /// <summary>Especialidad a la que pertenece la partida (opcional). FK a work_specialty.</summary>
-        public int? WorkSpecialtyId { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTimeOffset? UpdatedDateTime { get; set; }

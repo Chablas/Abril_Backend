@@ -33,11 +33,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             return await _repository.GetPaged(filter);
         }
 
-        public async Task<WorkItemFormDataDto> GetFormData()
-        {
-            return new WorkItemFormDataDto { Specialties = await _repository.GetActiveSpecialties() };
-        }
-
         public async Task Create(WorkItemCreateDto dto, int userId)
         {
             await _repository.Create(dto, userId);
@@ -59,26 +54,15 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
 
             var roots = await _repository.GetActiveAdjudicacionFolderRoots();
 
-            // Especialidades registradas → clave normalizada (sin prefijo, sin tildes, mayúsculas).
-            var specialties = await _repository.GetActiveSpecialties();
-            var specialtyByKey = new Dictionary<string, int>();
-            foreach (var s in specialties)
-                specialtyByKey[NormalizeKey(s.WorkSpecialtyDescription)] = s.WorkSpecialtyId;
-
-            // Partidas activas ya registradas → mapa por clave normalizada (las soft-deleted no
-            // cuentan: el índice único parcial permite recrear ese nombre). Sirve para no duplicar
-            // y para rellenar la especialidad de las que la tengan en null.
-            var existingByKey = new Dictionary<string, ExistingWorkItemDto>();
+            // Partidas activas ya registradas → claves normalizadas (las soft-deleted no
+            // cuentan: el índice único parcial permite recrear ese nombre). Sirve para no duplicar.
+            var existingKeys = new HashSet<string>();
             foreach (var p in await _repository.GetActivePartidas())
-                existingByKey[NormalizeKey(p.WorkItemDescription)] = p;
+                existingKeys.Add(NormalizeKey(p.WorkItemDescription));
 
             // Partidas descubiertas en este recorrido (dedup entre proyectos):
-            // clave normalizada → (descripción a guardar, especialidad). Se prioriza una
-            // especialidad concreta sobre null si la misma partida aparece en varias carpetas.
-            var discovered = new Dictionary<string, (string Description, int? WorkSpecialtyId)>();
-
-            // Partidas existentes a las que se les completará la especialidad faltante: id → especialidad.
-            var specialtyToFill = new Dictionary<int, int>();
+            // clave normalizada → descripción a guardar.
+            var discovered = new Dictionary<string, string>();
 
             foreach (var root in roots)
             {
@@ -90,9 +74,6 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
 
                 foreach (var specialtyFolder in specialtyFolders)
                 {
-                    var specialtyKey = NormalizeKey(specialtyFolder.Name);
-                    int? specialtyId = specialtyByKey.TryGetValue(specialtyKey, out var sid) ? sid : null;
-
                     var partidaFolders = await _graphSharePoint.GetChildFoldersByItemIdAsync(root.DriveId, specialtyFolder.ItemId);
 
                     foreach (var partidaFolder in partidaFolders)
@@ -101,44 +82,23 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                         if (string.IsNullOrWhiteSpace(description)) continue;
 
                         var key = NormalizeKey(partidaFolder.Name);
-                        if (existingByKey.TryGetValue(key, out var existing))
+                        if (existingKeys.Contains(key))
                         {
                             result.Existing++;
-                            // Rellenar especialidad si la partida existente no la tiene y la carpeta sí matchea una.
-                            if (existing.WorkSpecialtyId is null && specialtyId is not null
-                                && !specialtyToFill.ContainsKey(existing.WorkItemId))
-                                specialtyToFill[existing.WorkItemId] = specialtyId.Value;
                             continue;
                         }
 
-                        if (discovered.TryGetValue(key, out var current))
-                        {
-                            // Completar la especialidad si la primera aparición no tenía y esta sí.
-                            if (current.WorkSpecialtyId is null && specialtyId is not null)
-                                discovered[key] = (current.Description, specialtyId);
-                        }
-                        else
-                        {
-                            discovered[key] = (description, specialtyId);
-                        }
+                        if (!discovered.ContainsKey(key))
+                            discovered[key] = description;
                     }
                 }
             }
 
             if (discovered.Count > 0)
             {
-                var created = await _repository.BulkCreate(
-                    discovered.Values.Select(v => (v.Description, v.WorkSpecialtyId)),
-                    userId);
+                var created = await _repository.BulkCreate(discovered.Values, userId);
                 result.Created = created.Count;
                 result.CreatedDescriptions = created.OrderBy(d => d).ToList();
-            }
-
-            if (specialtyToFill.Count > 0)
-            {
-                result.SpecialtyFilled = await _repository.AssignSpecialties(
-                    specialtyToFill.Select(kv => (kv.Key, kv.Value)),
-                    userId);
             }
 
             return result;

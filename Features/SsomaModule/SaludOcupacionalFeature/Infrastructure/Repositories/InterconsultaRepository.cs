@@ -156,7 +156,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     .FirstOrDefaultAsync();
                 if (prog != null)
                 {
-                    prog.Estado = "Completado";
+                    prog.Estado = "En Atención";
                     prog.UpdatedAt = DateTimeOffset.UtcNow;
                 }
             }

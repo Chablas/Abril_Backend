@@ -97,6 +97,30 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             }
         }
 
+        /// <summary>Sube una o varias imágenes del estado de la propiedad de una casa/lote.</summary>
+        [HttpPost("{vecinoId:int}/imagenes")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadImagenes(int vecinoId, [FromForm] IFormFileCollection files)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                var imagenes = await _service.UploadImagenes(vecinoId, files, userId);
+                return Ok(new { imagenes, message = "Imágenes subidas exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS IMAGENES UPLOAD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Dashboard: resumen general + métricas por proyecto (vecinos, solicitudes, compromisos).</summary>
         [HttpGet("dashboard")]
         public async Task<IActionResult> GetDashboard()

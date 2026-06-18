@@ -21,6 +21,27 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public List<ProjectOptionDto> Projects { get; set; } = new();
         public List<CatalogOptionDto> Colindancias { get; set; } = new();
         public List<CatalogOptionDto> TiposConstruccion { get; set; } = new();
+        public List<CatalogOptionDto> Usos { get; set; } = new();
+        public List<CatalogOptionDto> RelacionTipos { get; set; } = new();
+    }
+
+    /// <summary>Una imagen del estado de la propiedad.</summary>
+    public class VecinoImagenDto
+    {
+        public int VecinoImagenId { get; set; }
+        public string ArchivoUrl { get; set; } = null!;
+        public string? OriginalFileName { get; set; }
+    }
+
+    /// <summary>Una persona asociada a una casa/lote.</summary>
+    public class VecinoPersonaDto
+    {
+        public int VecinoPersonaId { get; set; }
+        public string Nombre { get; set; } = null!;
+        public string? Dni { get; set; }
+        public string? Celular { get; set; }
+        public int VecinoRelacionTipoId { get; set; }
+        public string RelacionDescripcion { get; set; } = null!;
     }
 
     /// <summary>Fila de la lista/tarjeta de vecinos (contiene todo lo necesario para el detalle).</summary>
@@ -30,15 +51,25 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = null!;
         public string? Predio { get; set; }
+        public int? VecinoUsoId { get; set; }
+        public string? UsoDescripcion { get; set; }
         public string Direccion { get; set; } = null!;
         public string? InteriorDepartamento { get; set; }
-        public string NombrePropietario { get; set; } = null!;
-        public string Dni { get; set; } = null!;
+        /// <summary>Nombre de la persona principal (propietario) de la casa, para mostrar en la tabla/tarjeta.</summary>
+        public string? NombrePropietario { get; set; }
+        /// <summary>DNI de la persona principal (propietario), si tiene.</summary>
+        public string? Dni { get; set; }
+        /// <summary>Celular de la persona principal (propietario), si tiene.</summary>
         public string? Celular { get; set; }
+        /// <summary>Todas las personas asociadas a la casa.</summary>
+        public List<VecinoPersonaDto> Personas { get; set; } = new();
         public int VecinoColindanciaId { get; set; }
         public string ColindanciaDescripcion { get; set; } = null!;
         public int VecinoTipoConstruccionId { get; set; }
         public string TipoConstruccionDescripcion { get; set; } = null!;
+        public string? Observaciones { get; set; }
+        /// <summary>Imágenes del estado de la propiedad.</summary>
+        public List<VecinoImagenDto> Imagenes { get; set; } = new();
         public DateTime CreatedDateTime { get; set; }
         public int SolicitudesCount { get; set; }
         public int CompromisosCount { get; set; }
@@ -71,17 +102,26 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public string? Search { get; set; }
     }
 
+    /// <summary>Una persona del formulario de alta de vecino (DNI opcional).</summary>
+    public class VecinoPersonaCreateDto
+    {
+        public string Nombre { get; set; } = null!;
+        public string? Dni { get; set; }
+        public string? Celular { get; set; }
+        public int VecinoRelacionTipoId { get; set; }
+    }
+
     public class VecinoCreateDto
     {
         public int ProjectId { get; set; }
-        public string? Predio { get; set; }
+        public int VecinoUsoId { get; set; }
         public string Direccion { get; set; } = null!;
         public string? InteriorDepartamento { get; set; }
-        public string NombrePropietario { get; set; } = null!;
-        public string Dni { get; set; } = null!;
-        public string? Celular { get; set; }
         public int VecinoColindanciaId { get; set; }
         public int VecinoTipoConstruccionId { get; set; }
+        public string? Observaciones { get; set; }
+        /// <summary>Personas asociadas a la casa/lote (al menos una).</summary>
+        public List<VecinoPersonaCreateDto> Personas { get; set; } = new();
     }
 
     // ── Solicitudes ─────────────────────────────────────────────────────────

@@ -44,12 +44,98 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 .Select(t => new CatalogOptionDto { Id = t.VecinoTipoConstruccionId, Descripcion = t.Descripcion })
                 .ToListAsync();
 
+            var usos = await ctx.VecinoUso
+                .Where(u => u.State && u.Active)
+                .OrderBy(u => u.VecinoUsoId)
+                .Select(u => new CatalogOptionDto { Id = u.VecinoUsoId, Descripcion = u.Descripcion })
+                .ToListAsync();
+
+            var relacionTipos = await ctx.VecinoRelacionTipo
+                .Where(r => r.State && r.Active)
+                .OrderBy(r => r.VecinoRelacionTipoId)
+                .Select(r => new CatalogOptionDto { Id = r.VecinoRelacionTipoId, Descripcion = r.Descripcion })
+                .ToListAsync();
+
             return new VecinoFormOptionsDto
             {
                 Projects = projects,
                 Colindancias = colindancias,
-                TiposConstruccion = tipos
+                TiposConstruccion = tipos,
+                Usos = usos,
+                RelacionTipos = relacionTipos
             };
+        }
+
+        /// <summary>
+        /// Carga las personas de un conjunto de casas (vecinos) en una sola consulta para evitar N+1.
+        /// Devuelve un diccionario vecinoId → lista de personas (propietario primero).
+        /// </summary>
+        private static async Task<Dictionary<int, List<VecinoPersonaDto>>> LoadPersonas(AppDbContext ctx, List<int> vecinoIds)
+        {
+            if (vecinoIds.Count == 0) return new();
+
+            var personas = await (
+                from per in ctx.VecinoPersona
+                join rt in ctx.VecinoRelacionTipo on per.VecinoRelacionTipoId equals rt.VecinoRelacionTipoId
+                where vecinoIds.Contains(per.VecinoId) && per.Active && per.State
+                orderby per.VecinoRelacionTipoId, per.VecinoPersonaId
+                select new { per.VecinoId, Dto = new VecinoPersonaDto
+                {
+                    VecinoPersonaId = per.VecinoPersonaId,
+                    Nombre = per.Nombre,
+                    Dni = per.Dni,
+                    Celular = per.Celular,
+                    VecinoRelacionTipoId = per.VecinoRelacionTipoId,
+                    RelacionDescripcion = rt.Descripcion
+                }}
+            ).ToListAsync();
+
+            return personas
+                .GroupBy(x => x.VecinoId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
+        }
+
+        /// <summary>Carga las imágenes (estado de la propiedad) de un conjunto de casas en una sola consulta.</summary>
+        private static async Task<Dictionary<int, List<VecinoImagenDto>>> LoadImagenes(AppDbContext ctx, List<int> vecinoIds)
+        {
+            if (vecinoIds.Count == 0) return new();
+
+            var imagenes = await ctx.VecinoImagen
+                .Where(im => vecinoIds.Contains(im.VecinoId) && im.Active && im.State)
+                .OrderBy(im => im.VecinoImagenId)
+                .Select(im => new { im.VecinoId, Dto = new VecinoImagenDto
+                {
+                    VecinoImagenId = im.VecinoImagenId,
+                    ArchivoUrl = im.ArchivoUrl,
+                    OriginalFileName = im.OriginalFileName
+                }})
+                .ToListAsync();
+
+            return imagenes
+                .GroupBy(x => x.VecinoId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
+        }
+
+        public async Task AddImagenes(int vecinoId, List<(string ArchivoUrl, string? OriginalFileName)> imagenes, int userId)
+        {
+            if (imagenes.Count == 0) return;
+            using var ctx = _factory.CreateDbContext();
+
+            var now = DateTime.UtcNow;
+            foreach (var img in imagenes)
+            {
+                ctx.VecinoImagen.Add(new VecinoImagen
+                {
+                    VecinoId = vecinoId,
+                    ArchivoUrl = img.ArchivoUrl,
+                    OriginalFileName = img.OriginalFileName,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true
+                });
+            }
+            await ctx.SaveChangesAsync();
         }
 
         public async Task<PagedResult<VecinoListItemDto>> GetPaged(VecinoFilterDto filter)
@@ -61,8 +147,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 join p in ctx.Project on v.ProjectId equals p.ProjectId
                 join col in ctx.VecinoColindancia on v.VecinoColindanciaId equals col.VecinoColindanciaId
                 join tc in ctx.VecinoTipoConstruccion on v.VecinoTipoConstruccionId equals tc.VecinoTipoConstruccionId
+                join u in ctx.VecinoUso on v.VecinoUsoId equals u.VecinoUsoId into uj
+                from u in uj.DefaultIfEmpty()
                 where v.Active && v.State
-                select new { v, p, col, tc };
+                select new { v, p, col, tc, u };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.v.ProjectId == filter.ProjectId.Value);
@@ -74,10 +162,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             {
                 var s = filter.Search.ToLower();
                 query = query.Where(x =>
-                    x.v.NombrePropietario.ToLower().Contains(s) ||
                     x.v.Direccion.ToLower().Contains(s) ||
-                    x.v.Dni.Contains(s) ||
-                    (x.v.Predio != null && x.v.Predio.ToLower().Contains(s)));
+                    ctx.VecinoPersona.Any(per => per.VecinoId == x.v.VecinoId && per.Active && per.State &&
+                        (per.Nombre.ToLower().Contains(s) || (per.Dni != null && per.Dni.Contains(s)))));
             }
 
             var totalRecords = await query.CountAsync();
@@ -92,18 +179,32 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                     ProjectId = x.v.ProjectId,
                     ProjectDescription = x.p.ProjectDescription,
                     Predio = x.v.Predio,
+                    VecinoUsoId = x.v.VecinoUsoId,
+                    UsoDescripcion = x.u != null ? x.u.Descripcion : null,
                     Direccion = x.v.Direccion,
                     InteriorDepartamento = x.v.InteriorDepartamento,
-                    NombrePropietario = x.v.NombrePropietario,
-                    Dni = x.v.Dni,
-                    Celular = x.v.Celular,
                     VecinoColindanciaId = x.v.VecinoColindanciaId,
                     ColindanciaDescripcion = x.col.Descripcion,
                     VecinoTipoConstruccionId = x.v.VecinoTipoConstruccionId,
                     TipoConstruccionDescripcion = x.tc.Descripcion,
+                    Observaciones = x.v.Observaciones,
                     CreatedDateTime = x.v.CreatedDateTime
                 })
                 .ToListAsync();
+
+            // Personas e imágenes de las casas de esta página (una sola consulta cada una).
+            var pageIds = items.Select(i => i.VecinoId).ToList();
+            var personasByVecino = await LoadPersonas(ctx, pageIds);
+            var imagenesByVecino = await LoadImagenes(ctx, pageIds);
+            foreach (var item in items)
+            {
+                item.Personas = personasByVecino.GetValueOrDefault(item.VecinoId, new());
+                item.Imagenes = imagenesByVecino.GetValueOrDefault(item.VecinoId, new());
+                var principal = item.Personas.FirstOrDefault();
+                item.NombrePropietario = principal?.Nombre;
+                item.Dni = principal?.Dni;
+                item.Celular = principal?.Celular;
+            }
 
             return new PagedResult<VecinoListItemDto>
             {
@@ -119,21 +220,32 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
         {
             using var ctx = _factory.CreateDbContext();
 
+            var now = DateTime.UtcNow;
+
             var vecino = new Vecino
             {
                 ProjectId = dto.ProjectId,
-                Predio = dto.Predio?.Trim(),
+                VecinoUsoId = dto.VecinoUsoId,
                 Direccion = dto.Direccion.Trim(),
                 InteriorDepartamento = dto.InteriorDepartamento?.Trim(),
-                NombrePropietario = dto.NombrePropietario.Trim(),
-                Dni = dto.Dni.Trim(),
-                Celular = dto.Celular?.Trim(),
                 VecinoColindanciaId = dto.VecinoColindanciaId,
                 VecinoTipoConstruccionId = dto.VecinoTipoConstruccionId,
-                CreatedDateTime = DateTime.UtcNow,
+                Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim(),
+                CreatedDateTime = now,
                 CreatedUserId = userId,
                 Active = true,
-                State = true
+                State = true,
+                Personas = dto.Personas.Select(per => new VecinoPersona
+                {
+                    Nombre = per.Nombre.Trim(),
+                    Dni = string.IsNullOrWhiteSpace(per.Dni) ? null : per.Dni.Trim(),
+                    Celular = string.IsNullOrWhiteSpace(per.Celular) ? null : per.Celular.Trim(),
+                    VecinoRelacionTipoId = per.VecinoRelacionTipoId,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true
+                }).ToList()
             };
 
             ctx.Vecino.Add(vecino);

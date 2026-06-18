@@ -13,6 +13,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         private const long MaxBytes = 15 * 1024 * 1024;
         private static readonly string[] AllowedExtensions =
             { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".webp" };
+        private static readonly string[] AllowedImageExtensions = { ".png", ".jpg", ".jpeg", ".webp" };
 
         private readonly IGestionVecinosRepository _repository;
         private readonly IFileStorageService _fileStorageService;
@@ -44,19 +45,85 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
                 throw new AbrilException("Debe seleccionar un proyecto.", 400);
             if (string.IsNullOrWhiteSpace(dto.Direccion))
                 throw new AbrilException("La dirección es obligatoria.", 400);
-            if (string.IsNullOrWhiteSpace(dto.NombrePropietario))
-                throw new AbrilException("El nombre del propietario o representante es obligatorio.", 400);
-
-            var dni = dto.Dni?.Trim() ?? string.Empty;
-            if (dni.Length != 8 || !dni.All(char.IsDigit))
-                throw new AbrilException("El DNI debe tener 8 dígitos.", 400);
-
+            if (string.IsNullOrWhiteSpace(dto.InteriorDepartamento))
+                throw new AbrilException("El interior / departamento es obligatorio.", 400);
+            if (dto.VecinoUsoId <= 0)
+                throw new AbrilException("Debe seleccionar el uso.", 400);
             if (dto.VecinoColindanciaId <= 0)
                 throw new AbrilException("Debe seleccionar si es colindante o no colindante.", 400);
             if (dto.VecinoTipoConstruccionId <= 0)
                 throw new AbrilException("Debe seleccionar el tipo de construcción.", 400);
 
+            if (dto.Personas is null || dto.Personas.Count == 0)
+                throw new AbrilException("Debe agregar al menos una persona.", 400);
+
+            foreach (var per in dto.Personas)
+            {
+                if (string.IsNullOrWhiteSpace(per.Nombre))
+                    throw new AbrilException("El nombre de cada persona es obligatorio.", 400);
+                if (string.IsNullOrWhiteSpace(per.Celular))
+                    throw new AbrilException("El celular de cada persona es obligatorio.", 400);
+                if (per.VecinoRelacionTipoId <= 0)
+                    throw new AbrilException("Debe seleccionar la relación (propietario, inquilino u otro) de cada persona.", 400);
+
+                // El DNI es opcional, pero si se ingresa debe tener 8 dígitos.
+                var dni = per.Dni?.Trim();
+                if (!string.IsNullOrEmpty(dni) && (dni.Length != 8 || !dni.All(char.IsDigit)))
+                    throw new AbrilException("El DNI debe tener 8 dígitos.", 400);
+            }
+
             return _repository.Create(dto, userId);
+        }
+
+        public async Task<List<VecinoImagenDto>> UploadImagenes(int vecinoId, IFormFileCollection files, int userId)
+        {
+            if (!await _repository.VecinoExists(vecinoId))
+                throw new AbrilException("La propiedad no existe.", 404);
+            if (files == null || files.Count == 0)
+                throw new AbrilException("No se adjuntó ninguna imagen.", 400);
+
+            foreach (var file in files)
+            {
+                if (file.Length == 0)
+                    throw new AbrilException("Una de las imágenes está vacía.", 400);
+                if (file.Length > MaxBytes)
+                    throw new AbrilException("Cada imagen supera el tamaño máximo permitido (15 MB).", 400);
+
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (!AllowedImageExtensions.Contains(extension))
+                    throw new AbrilException("Formato no válido. Use PNG, JPG o WEBP.", 400);
+            }
+
+            var container = _containerResolver.GetVecinoPropiedadImagenesContainerName();
+
+            var toUpload = new List<(Stream, string)>();
+            var streams = new List<Stream>();
+            try
+            {
+                foreach (var file in files)
+                {
+                    var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                    var stream = file.OpenReadStream();
+                    streams.Add(stream);
+                    toUpload.Add((stream, $"{Guid.NewGuid()}{extension}"));
+                }
+
+                var urls = (await _fileStorageService.UploadFilesAsync(toUpload, container)).ToList();
+
+                var imagenes = urls
+                    .Select((url, i) => (ArchivoUrl: url, OriginalFileName: (string?)files[i].FileName))
+                    .ToList();
+
+                await _repository.AddImagenes(vecinoId, imagenes, userId);
+
+                return imagenes
+                    .Select(im => new VecinoImagenDto { ArchivoUrl = im.ArchivoUrl, OriginalFileName = im.OriginalFileName })
+                    .ToList();
+            }
+            finally
+            {
+                foreach (var s in streams) s.Dispose();
+            }
         }
 
         // ── Solicitudes ─────────────────────────────────────────────────────

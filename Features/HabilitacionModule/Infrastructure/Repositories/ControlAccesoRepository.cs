@@ -46,7 +46,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 query = query.Where(w => ids.Contains(w.Id));
             }
 
-            var oficinaId = _configuration.GetValue<int>("OficinaCentral:ProjectId");
+            var oficinaId = _configuration.GetValue<int>("OficinaCentral:ProjectId", 36);
             var esOficinaCentral = proyectoId.HasValue && proyectoId.Value == oficinaId;
 
             var workers = await query.Take(100).ToListAsync();

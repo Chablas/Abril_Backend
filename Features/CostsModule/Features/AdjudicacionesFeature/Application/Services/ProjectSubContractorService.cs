@@ -1153,7 +1153,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     if (!data.EndDate.HasValue)              missing.Add("Fecha de fin del contrato");
                     if (!data.ContractNumber.HasValue)       missing.Add("Número de contrato");
                     if (!data.PromissoryNoteNumber.HasValue) missing.Add("Número de pagaré");
-                    if (!data.AdvancePercentage.HasValue && !data.AdvanceAmount.HasValue)
+                    // El adelanto es obligatorio solo en "Contrato con adelanto" (2). En "Pago a cuenta" (4)
+                    // el % / monto del pagaré es opcional.
+                    if (data.PaymentMethodId == 2 && !data.AdvancePercentage.HasValue && !data.AdvanceAmount.HasValue)
                         missing.Add("Adelanto");
                     break;
 

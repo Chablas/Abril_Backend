@@ -1580,11 +1580,13 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 });
             }
 
-            // Map contractor emails + formas de valorización onto each paged item
+            // Map contractor emails + formas de valorización + archivos de cotización/comparativo onto each paged item
             foreach (var item in items)
             {
                 item.ContractorEmails = emailsByContractor.GetValueOrDefault(item.ContractorId, new());
                 item.WorkItemValorizationForms = formsByWorkItem.GetValueOrDefault(item.WorkItemId, new());
+                item.QuotationFiles   = quotationByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
+                item.ComparativeFiles = comparativeByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
             }
 
             var formDataDto = new ProjectSubContractorFormDataDTO

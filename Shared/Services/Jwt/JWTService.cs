@@ -42,7 +42,7 @@ namespace Abril_Backend.Infrastructure.Services
                 issuer: _config["Jwt:Issuer"],
                 audience: _config["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(1440),
+                expires: DateTime.UtcNow.AddMinutes(2),
                 signingCredentials: creds
             );
 

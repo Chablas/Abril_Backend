@@ -57,6 +57,29 @@ namespace Abril_Backend.Application.Services
             };
         }
 
+        public async Task<RefreshResponseDTO> Refresh(string sessionToken)
+        {
+            if (string.IsNullOrWhiteSpace(sessionToken))
+                throw new AbrilException("Sesión inválida.", 401);
+
+            var userId = await _authRepository.GetUserIdByValidSessionAsync(sessionToken);
+            if (userId == null)
+                throw new AbrilException("Sesión inválida o expirada.", 401);
+
+            var user = await _authRepository.GetUserForTokenAsync(userId.Value);
+            if (user == null)
+                throw new AbrilException("Sesión inválida o expirada.", 401);
+
+            var accessToken     = _jwtService.GenerateToken(user);
+            var allowedFeatures = await _authRepository.GetAllowedFeaturesAsync(userId.Value);
+
+            return new RefreshResponseDTO
+            {
+                AccessToken     = accessToken,
+                AllowedFeatures = allowedFeatures
+            };
+        }
+
         public async Task SetPassword(SetPasswordDTO dto)
         {
             if (dto.Password != dto.ConfirmPassword)

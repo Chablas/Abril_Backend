@@ -23,6 +23,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
         Task<int> CreateCompromiso(int solicitudId, VecinoCompromisoCreateDto dto, int userId);
         Task<bool> UpdateCompromisoEstado(int compromisoId, int estadoId, int userId);
         Task<bool> UpdateEntregableEstado(int entregableId, int estadoId, int userId);
+        Task<bool> UploadEntregable(int entregableId, string archivoUrl, string? originalFileName, int userId);
 
         Task<VecinosDashboardDto> GetDashboard();
 

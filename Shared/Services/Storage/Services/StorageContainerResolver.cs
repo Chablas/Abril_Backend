@@ -91,6 +91,16 @@ namespace Abril_Backend.Infrastructure.Services
             };
         }
 
+        public string GetVecinoEntregablesContainerName()
+        {
+            return _options.StorageProvider.ToLower() switch
+            {
+                "azure" => _options.AzureStorage.VecinoEntregablesContainer,
+                "local" => _options.LocalStorage.VecinoEntregablesContainer,
+                _ => throw new InvalidOperationException("Proveedor de storage no válido")
+            };
+        }
+
         public string GetVecinoPropiedadImagenesContainerName()
         {
             return _options.StorageProvider.ToLower() switch

@@ -9,6 +9,8 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<UserSession> CreateSessionAsync(int userId);
         Task<(int UserId, string Email)?> GetUserByEmailAsync(string email);
         Task<(int UserId, string Email)?> GetUserByIdAsync(int userId);
+        Task<int?> GetUserIdByValidSessionAsync(string sessionToken);
+        Task<UserDTO?> GetUserForTokenAsync(int userId);
         Task<List<string>> GetAllowedFeaturesAsync(int userId);
     }
 }

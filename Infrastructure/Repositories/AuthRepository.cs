@@ -122,6 +122,51 @@ namespace Abril_Backend.Infrastructure.Repositories
             return (result.UserId, result.Email);
         }
 
+        public async Task<int?> GetUserIdByValidSessionAsync(string sessionToken)
+        {
+            var now = DateTime.UtcNow;
+            return await _context.UserSession
+                .Where(s => s.Token == sessionToken && !s.Revoked && s.ExpiresAt > now)
+                .Select(s => (int?)s.UserId)
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<UserDTO?> GetUserForTokenAsync(int userId)
+        {
+            // Mismo armado que ValidateUserAsync pero por userId: trae el email y los
+            // roles ACTUALES para regenerar el JWT con datos frescos en cada refresh.
+            var query =
+                from u in _context.User
+                join ur in _context.UserRole on u.UserId equals ur.UserId into urGroup
+                from ur in urGroup.DefaultIfEmpty()
+                join r in _context.Role on ur.RoleId equals r.RoleId into rGroup
+                from r in rGroup.DefaultIfEmpty()
+                where u.UserId == userId && u.Active && u.State
+                group new { u, r } by new { u.UserId, u.Email } into g
+                select new
+                {
+                    g.Key,
+                    Roles = g.Where(x => x.r != null)
+                              .Select(x => new RoleSimpleDTO
+                              {
+                                  RoleId = x.r.RoleId,
+                                  RoleDescription = x.r.RoleDescription
+                              }).ToList()
+                };
+
+            var result = await query.FirstOrDefaultAsync();
+            if (result == null)
+                return null;
+
+            return new UserDTO
+            {
+                UserId = result.Key.UserId,
+                Active = true,
+                Person = new PersonDTO { Email = result.Key.Email },
+                Roles = result.Roles
+            };
+        }
+
         public async Task<List<string>> GetAllowedFeaturesAsync(int userId)
         {
             try

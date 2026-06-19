@@ -331,6 +331,29 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             }
         }
 
+        [HttpPost("compromisos/entregables/{entregableId:int}/upload")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadEntregable(int entregableId, IFormFile file)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                var archivoUrl = await _service.UploadEntregable(entregableId, file, userId);
+                return Ok(new { archivoUrl, message = "Entregable subido exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS ENTREGABLE UPLOAD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         // ── Requisitos ───────────────────────────────────────────────────────
         [HttpGet("{vecinoId:int}/requisitos")]
         public async Task<IActionResult> GetRequisitos(int vecinoId)

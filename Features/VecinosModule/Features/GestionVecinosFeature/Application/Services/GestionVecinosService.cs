@@ -242,6 +242,35 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
                 throw new AbrilException("No se pudo actualizar el estado del entregable.", 404);
         }
 
+        public async Task<string> UploadEntregable(int entregableId, IFormFile file, int userId)
+        {
+            if (file == null || file.Length == 0)
+                throw new AbrilException("No se adjuntó ningún archivo.", 400);
+            if (file.Length > MaxBytes)
+                throw new AbrilException("El archivo supera el tamaño máximo permitido (15 MB).", 400);
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!AllowedExtensions.Contains(extension))
+                throw new AbrilException("Formato no válido. Use PDF, Word, Excel o imagen.", 400);
+
+            var container = _containerResolver.GetVecinoEntregablesContainerName();
+
+            string archivoUrl;
+            using (var stream = file.OpenReadStream())
+            {
+                var uploaded = await _fileStorageService.UploadFilesAsync(
+                    new[] { (stream, $"{Guid.NewGuid()}{extension}") },
+                    container);
+                archivoUrl = uploaded.First();
+            }
+
+            var ok = await _repository.UploadEntregable(entregableId, archivoUrl, file.FileName, userId);
+            if (!ok)
+                throw new AbrilException("El entregable no existe.", 404);
+
+            return archivoUrl;
+        }
+
         // ── Dashboard ────────────────────────────────────────────────────────
         public Task<VecinosDashboardDto> GetDashboard() => _repository.GetDashboard();
 

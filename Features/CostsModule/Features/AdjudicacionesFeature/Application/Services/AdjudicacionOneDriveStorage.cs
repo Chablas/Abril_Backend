@@ -130,7 +130,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (string.IsNullOrWhiteSpace(data.DriveId) || string.IsNullOrWhiteSpace(data.ProjectFolderId))
                 throw new AbrilException(
                     $"El proyecto '{data.ProjectDescription}' no tiene configurada una carpeta de adjudicaciones. " +
-                    "Configúrela en Configuración → Carpeta de adjudicaciones y vuelva a intentarlo.", 400);
+                    "Configúrela en Configuración → Carpeta de adjudicaciones y vuelva a intentarlo.", 422);
 
             return (data.DriveId!, data.ProjectFolderId!);
         }

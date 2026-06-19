@@ -111,33 +111,57 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
 
             var now = DateTime.UtcNow;
 
-            // Soft-delete de los lotes activos anteriores.
-            var existing = await ctx.ProjectCroquisLote
-                .Where(l => l.ProjectCroquisId == projectCroquisId && l.State)
-                .ToListAsync();
-
-            foreach (var old in existing)
-            {
-                old.State = false;
-                old.UpdatedDateTime = now;
-                old.UpdatedUserId = userId;
-            }
-
+            // Validación previa: ningún lote puede tener menos de 3 puntos.
             foreach (var lote in lotes)
             {
                 if (lote.Puntos == null || lote.Puntos.Count < 3)
                     throw new AbrilException($"El lote '{lote.NumeroLote}' debe tener al menos 3 puntos.", 422);
+            }
 
-                ctx.ProjectCroquisLote.Add(new ProjectCroquisLote
+            var existing = await ctx.ProjectCroquisLote
+                .Where(l => l.ProjectCroquisId == projectCroquisId && l.State)
+                .ToListAsync();
+            var existingById = existing.ToDictionary(l => l.ProjectCroquisLoteId);
+
+            // Diff por id: se actualizan los lotes conservados (preservando su VecinoId
+            // asignado en Gestión), se insertan los nuevos y se da de baja a los quitados.
+            var keptIds = new HashSet<int>();
+
+            foreach (var lote in lotes)
+            {
+                if (lote.ProjectCroquisLoteId.HasValue
+                    && existingById.TryGetValue(lote.ProjectCroquisLoteId.Value, out var current))
                 {
-                    ProjectCroquisId = projectCroquisId,
-                    NumeroLote = lote.NumeroLote,
-                    Poligono = JsonSerializer.Serialize(lote.Puntos),
-                    CreatedDateTime = now,
-                    CreatedUserId = userId,
-                    Active = true,
-                    State = true,
-                });
+                    // Lote conservado: actualizar geometría/etiqueta sin tocar el VecinoId.
+                    current.NumeroLote = lote.NumeroLote;
+                    current.Poligono = JsonSerializer.Serialize(lote.Puntos);
+                    current.UpdatedDateTime = now;
+                    current.UpdatedUserId = userId;
+                    keptIds.Add(current.ProjectCroquisLoteId);
+                }
+                else
+                {
+                    // Lote nuevo: aún sin vecino asignado.
+                    ctx.ProjectCroquisLote.Add(new ProjectCroquisLote
+                    {
+                        ProjectCroquisId = projectCroquisId,
+                        NumeroLote = lote.NumeroLote,
+                        Poligono = JsonSerializer.Serialize(lote.Puntos),
+                        CreatedDateTime = now,
+                        CreatedUserId = userId,
+                        Active = true,
+                        State = true,
+                    });
+                }
+            }
+
+            // Soft-delete de los lotes que el usuario quitó del croquis.
+            foreach (var old in existing)
+            {
+                if (keptIds.Contains(old.ProjectCroquisLoteId)) continue;
+                old.State = false;
+                old.UpdatedDateTime = now;
+                old.UpdatedUserId = userId;
             }
 
             await ctx.SaveChangesAsync();

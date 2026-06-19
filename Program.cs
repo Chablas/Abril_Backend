@@ -1,4 +1,5 @@
 using Microsoft.OpenApi;
+using Abril_Backend.Shared.Realtime;
 using Abril_Backend.Shared.Services.Email.Interfaces;
 using Abril_Backend.Shared.Services.Email.Services;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
@@ -227,6 +228,8 @@ builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
+builder.Services.AddScoped<IRealtimeNotifier, RealtimeNotifier>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular",
@@ -269,7 +272,27 @@ builder.Services.AddAuthentication("Bearer")
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])
             ),
 
-            NameClaimType = ClaimTypes.NameIdentifier
+            NameClaimType = ClaimTypes.NameIdentifier,
+
+            // El JWT vive 2 min y se refresca contra user_session; sin esto, el
+            // ClockSkew por defecto (5 min) lo mantendría válido ~7 min reales.
+            ClockSkew = TimeSpan.Zero
+        };
+
+        // El cliente de SignalR (WebSocket) no puede mandar el header Authorization,
+        // así que envía el JWT por query string; lo leemos solo para las rutas /hubs.
+        options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
         };
     })
     .AddJwtBearer("AzureAd", options =>
@@ -318,6 +341,7 @@ app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<NotificationsHub>("/hubs/notifications");
 app.MapGet("/", () => "API funcionando");
 
 app.Run();

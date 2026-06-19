@@ -39,6 +39,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
         public int VecinoEntregableEstadoId { get; set; }
         public VecinoEntregableEstado? Estado { get; set; }
 
+        /// <summary>Archivo adjunto del entregable (opcional).</summary>
+        public string? ArchivoUrl { get; set; }
+        public string? OriginalFileName { get; set; }
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

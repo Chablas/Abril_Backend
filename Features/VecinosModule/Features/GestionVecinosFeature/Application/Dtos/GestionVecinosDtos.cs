@@ -187,6 +187,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public int Orden { get; set; }
         public int VecinoEntregableEstadoId { get; set; }
         public string EstadoDescripcion { get; set; } = null!;
+        public string? ArchivoUrl { get; set; }
+        public string? OriginalFileName { get; set; }
     }
 
     public class VecinoCompromisoItemDto

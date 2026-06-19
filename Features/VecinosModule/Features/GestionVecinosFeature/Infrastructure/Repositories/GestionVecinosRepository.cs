@@ -1,4 +1,5 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Application.Dtos;
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models;
@@ -537,7 +538,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                         TipoDescripcion = t.Descripcion,
                         Orden = t.Orden,
                         VecinoEntregableEstadoId = en.VecinoEntregableEstadoId,
-                        EstadoDescripcion = es.Descripcion
+                        EstadoDescripcion = es.Descripcion,
+                        ArchivoUrl = en.ArchivoUrl,
+                        OriginalFileName = en.OriginalFileName
                     }
                 }
             ).ToListAsync();
@@ -634,10 +637,38 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 .FirstOrDefaultAsync(e => e.VecinoCompromisoEntregableId == entregableId && e.Active && e.State);
             if (entregable is null) return false;
 
-            var valido = await ctx.VecinoEntregableEstado.AnyAsync(e => e.VecinoEntregableEstadoId == estadoId && e.State);
-            if (!valido) return false;
+            var nuevoEstado = await ctx.VecinoEntregableEstado
+                .FirstOrDefaultAsync(e => e.VecinoEntregableEstadoId == estadoId && e.State);
+            if (nuevoEstado is null) return false;
+
+            // "Acta de Compromiso" es obligatoria: no se le puede asignar el estado "No aplica".
+            if (nuevoEstado.Descripcion == "No aplica")
+            {
+                var tipoDescripcion = await ctx.VecinoEntregableTipo
+                    .Where(t => t.VecinoEntregableTipoId == entregable.VecinoEntregableTipoId)
+                    .Select(t => t.Descripcion)
+                    .FirstOrDefaultAsync();
+                if (tipoDescripcion == "Acta de Compromiso")
+                    throw new AbrilException("El entregable 'Acta de Compromiso' es obligatorio y no puede marcarse como 'No aplica'.", 422);
+            }
 
             entregable.VecinoEntregableEstadoId = estadoId;
+            entregable.UpdatedDateTime = DateTime.UtcNow;
+            entregable.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> UploadEntregable(int entregableId, string archivoUrl, string? originalFileName, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entregable = await ctx.VecinoCompromisoEntregable
+                .FirstOrDefaultAsync(e => e.VecinoCompromisoEntregableId == entregableId && e.Active && e.State);
+            if (entregable is null) return false;
+
+            entregable.ArchivoUrl = archivoUrl;
+            entregable.OriginalFileName = originalFileName;
             entregable.UpdatedDateTime = DateTime.UtcNow;
             entregable.UpdatedUserId = userId;
             await ctx.SaveChangesAsync();

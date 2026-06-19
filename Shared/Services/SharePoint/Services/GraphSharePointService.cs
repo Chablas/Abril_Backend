@@ -13,16 +13,21 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
+        private readonly ILogger<GraphSharePointService> _logger;
 
         // Cache por sitio (siteId) y por (siteId|libraryName). Los IDs no cambian en vida de la app.
         private static readonly ConcurrentDictionary<string, string> _siteIdCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, string> _driveIdCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly SemaphoreSlim _lock = new(1, 1);
 
-        public GraphSharePointService(IHttpClientFactory httpClientFactory, IConfiguration configuration)
+        public GraphSharePointService(
+            IHttpClientFactory httpClientFactory,
+            IConfiguration configuration,
+            ILogger<GraphSharePointService> logger)
         {
             _httpClientFactory = httpClientFactory;
             _configuration = configuration;
+            _logger = logger;
         }
 
         // ── OneDrive personal (delegado) ─────────────────────────────────────
@@ -422,6 +427,17 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             }
 
             var error = await response.Content.ReadAsStringAsync();
+
+            // Log explícito para diagnosticar el 400 intermitente al crear carpetas en la cadena
+            // de adjudicaciones. Incluye todo lo necesario para reproducir el caso del usuario:
+            // carpeta padre, nombre exacto que se intentó crear, status y cuerpo crudo de Graph.
+            _logger.LogError(
+                "[OneDrive][EnsureChildFolder] FALLO al crear carpeta. " +
+                "Status={Status} DriveId={DriveId} ParentItemId={ParentItemId} " +
+                "FolderName='{FolderName}' (len={Len}) Payload={Payload} GraphBody={GraphBody}",
+                (int)response.StatusCode, driveId, parentItemId,
+                folderName, folderName?.Length ?? 0, payload, error);
+
             throw new InvalidOperationException(
                 $"No se pudo crear la carpeta '{folderName}' en OneDrive [{(int)response.StatusCode}]: {error}");
         }

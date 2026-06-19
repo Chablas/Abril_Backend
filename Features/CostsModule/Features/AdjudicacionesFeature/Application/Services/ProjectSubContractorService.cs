@@ -1519,6 +1519,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PROYECTO_UBICACION_OBRA}}",       data.ProjectLocation ?? "" },
                 { "{{PROYECTO_PARTIDA_REGISTRAL}}",    data.ProjectLegalEntityRegistryNumber ?? "" },
                 // Contrato
+                { "{{PAGO_A_CUENTA}}",                 data.PaymentMethodId == 4 ? "mediante Pago a cuenta, " : "" },
                 { "{{FORMA_DE_PAGO}}",                 data.PaymentMethodDescription },
                 { "{{FORMA_DE_VALORIZACIÓN}}",         data.PaymentFormDescription ?? "" },
                 { "{{MONTO}}",                         $"{currencySymbol} {data.Amount:N2}" },

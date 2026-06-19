@@ -141,6 +141,106 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
             };
         }
 
+        public async Task<List<AbrilWorkerOptionDto>> GetAbrilWorkersWithoutUser()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Trabajadores de Abril = existen en workers con email_personal @abril.pe.
+            // "Sin usuario" = la person vinculada no tiene un app_user activo (user_id NULL
+            // o el user apuntado está dado de baja). Un mismo person puede tener varias filas
+            // en workers, por eso se agrupa por person_id.
+            return await ctx.Worker
+                .Where(w => w.PersonId != null
+                         && w.EmailPersonal != null
+                         && w.EmailPersonal.ToLower().EndsWith("@abril.pe")
+                         && w.Person != null
+                         && w.Person.State
+                         && !ctx.User.Any(u => u.UserId == w.Person!.UserId && u.State))
+                .GroupBy(w => new
+                {
+                    w.PersonId,
+                    w.Person!.FullName,
+                    w.Person.DocumentIdentityCode
+                })
+                .Select(g => new AbrilWorkerOptionDto
+                {
+                    PersonId = g.Key.PersonId!.Value,
+                    FullName = g.Key.FullName ?? string.Empty,
+                    DocumentIdentityCode = g.Key.DocumentIdentityCode,
+                    EmailPersonal = g.Min(w => w.EmailPersonal)!
+                })
+                .OrderBy(o => o.FullName)
+                .ToListAsync();
+        }
+
+        public async Task CreateAbrilWorkerUser(AbrilWorkerUserCreateDto dto, int createdUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var strategy = ctx.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                using var transaction = await ctx.Database.BeginTransactionAsync();
+                try
+                {
+                    var person = await ctx.Person.FirstOrDefaultAsync(p => p.PersonId == dto.PersonId && p.State)
+                        ?? throw new AbrilException("Persona no encontrada.", 404);
+
+                    // El correo corporativo @abril.pe vive en workers.email_personal.
+                    var worker = await ctx.Worker
+                        .FirstOrDefaultAsync(w => w.PersonId == dto.PersonId
+                                               && w.EmailPersonal != null
+                                               && w.EmailPersonal.ToLower().EndsWith("@abril.pe"))
+                        ?? throw new AbrilException("El trabajador de Abril no tiene un correo @abril.pe registrado.", 400);
+
+                    var userExists = await ctx.User.AnyAsync(u => u.UserId == person.UserId && u.State);
+                    if (userExists)
+                        throw new AbrilException("El trabajador ya tiene un usuario registrado.");
+
+                    // Los trabajadores de Abril ingresan vía Microsoft SSO: el usuario nace
+                    // activo y con el correo confirmado, sin contraseña (igual que el alta por login).
+                    var user = new UserModel
+                    {
+                        Email = worker.EmailPersonal!,
+                        Password = null,
+                        Active = true,
+                        State = true,
+                        EmailConfirmed = true,
+                        CreatedDateTime = DateTime.UtcNow,
+                        CreatedUserId = createdUserId
+                    };
+                    ctx.User.Add(user);
+                    await ctx.SaveChangesAsync();
+
+                    person.UserId = user.UserId;
+                    person.UpdatedDateTime = DateTime.UtcNow;
+                    person.UpdatedUserId = createdUserId;
+                    await ctx.SaveChangesAsync();
+
+                    foreach (var roleId in dto.RoleIds.Distinct())
+                    {
+                        ctx.UserRole.Add(new UserRole
+                        {
+                            UserId = user.UserId,
+                            RoleId = roleId,
+                            Active = true,
+                            State = true,
+                            CreatedDateTime = DateTime.UtcNow,
+                            CreatedUserId = createdUserId
+                        });
+                    }
+                    await ctx.SaveChangesAsync();
+
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+        }
+
         public async Task<UserModel> Create(UserFeatureCreateDto dto)
         {
             using var ctx = _factory.CreateDbContext();

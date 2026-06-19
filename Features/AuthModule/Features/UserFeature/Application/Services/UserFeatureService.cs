@@ -30,6 +30,12 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
         public Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null) =>
             _repo.GetPaged(page, pageSize, search);
 
+        public Task<List<AbrilWorkerOptionDto>> GetAbrilWorkersWithoutUser() =>
+            _repo.GetAbrilWorkersWithoutUser();
+
+        public Task CreateAbrilWorkerUser(AbrilWorkerUserCreateDto dto, int createdUserId) =>
+            _repo.CreateAbrilWorkerUser(dto, createdUserId);
+
         public async Task Create(UserFeatureCreateDto dto)
         {
             var user = await _repo.Create(dto);

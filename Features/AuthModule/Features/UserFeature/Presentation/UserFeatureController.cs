@@ -40,6 +40,46 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Presentation
         }
 
         [Authorize]
+        [HttpGet("abril-workers/without-user")]
+        public async Task<IActionResult> GetAbrilWorkersWithoutUser()
+        {
+            try
+            {
+                if (User.FindFirst(ClaimTypes.NameIdentifier) == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var result = await _service.GetAbrilWorkersWithoutUser();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("abril-worker")]
+        public async Task<IActionResult> CreateAbrilWorkerUser([FromBody] AbrilWorkerUserCreateDto dto)
+        {
+            try
+            {
+                var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (claim == null) return Unauthorized(new { message = "Inicie sesión" });
+
+                await _service.CreateAbrilWorkerUser(dto, int.Parse(claim.Value));
+                return Ok(new { message = "Usuario del trabajador de Abril creado correctamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] UserFeatureCreateDto dto)
         {

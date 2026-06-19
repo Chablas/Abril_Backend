@@ -301,7 +301,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var invalid = new HashSet<char> { '\\', '/', ':', '*', '?', '"', '<', '>', '|', '#', '%' };
             var result = string.Concat(name.Select(c => invalid.Contains(c) ? '-' : c)).Trim();
-            return result.Length > 60 ? result[..60].TrimEnd() : result;
+            if (result.Length > 60) result = result[..60];
+            // OneDrive/SharePoint rechaza nombres que terminan en punto o espacio (p. ej. "... S.A.C.").
+            return result.TrimEnd(' ', '.');
         }
     }
 }

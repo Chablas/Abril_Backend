@@ -143,7 +143,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public List<ActividadDto> Actividades { get; set; } = new();
     }
 
-    // ─────────────────────────── Editar actividad response ───────────────────────────
+    // ─────────────────────────── Crear / Editar actividad response ───────────────────────────
+
+    /// <summary>Respuesta del POST /{proyectoId}/actividades.</summary>
+    public class CrearActividadResultDto
+    {
+        public ActividadDto Actividad { get; set; } = new();
+        /// <summary>Padres cuyas fechas (MIN/MAX) cambiaron al insertar la actividad. Null si ninguno cambió.</summary>
+        public List<ActividadDto>? PadresActualizados { get; set; }
+    }
 
     /// <summary>Respuesta del PUT /actividades/{id}.</summary>
     public class EditarActividadResultDto
@@ -151,6 +159,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public ActividadDto Actividad { get; set; } = new();
         /// <summary>Resultado de la cascada aplicada. Null si no se enviaron PredecessorIds y las fechas no dispararon cascada.</summary>
         public CascadaResultDto? Cascada { get; set; }
+        /// <summary>Padres cuyas fechas (MIN/MAX) cambiaron al editar la actividad. Null si ninguno cambió.</summary>
+        public List<ActividadDto>? PadresActualizados { get; set; }
     }
 
     // ─────────────────────────── Cascada ───────────────────────────

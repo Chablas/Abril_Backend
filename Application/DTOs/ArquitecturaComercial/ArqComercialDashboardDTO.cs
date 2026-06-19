@@ -57,6 +57,18 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public string Estado        { get; set; } = string.Empty;
     }
 
+    public class CategoriaDashboardItemDTO
+    {
+        public int    Id         { get; set; }
+        public string Nombre     { get; set; } = string.Empty;
+        public int    Total      { get; set; }
+        public int    Culminadas { get; set; }
+        public int    EnProceso  { get; set; }
+        public int    Vencidas   { get; set; }
+        public int    Pendientes { get; set; }
+        public double Progreso   { get; set; }
+    }
+
     public class ArqComercialDashboardDTO
     {
         public ArqComercialKpiDTO Kpis { get; set; } = new();
@@ -67,10 +79,11 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public List<EficienciaSemanalDTO> TendenciaEficiencia { get; set; } = new();
         public List<SupervisorProgresoDTO> Supervisores { get; set; } = new();
         public List<HitoCriticoDTO> HitosCriticos { get; set; } = new();
-        public TareasPorArquitectoDTO[] TareasPorArquitectoDetalle { get; set; } = [];
-        public AvanceSemanalDTO[]       AvanceSemanal              { get; set; } = [];
-        public EficienciaSpiDTO[]       EficienciaSpi              { get; set; } = [];
-        public CategoriaItemDTO[]       Categorias                 { get; set; } = [];
+        public TareasPorArquitectoDTO[]       TareasPorArquitectoDetalle  { get; set; } = [];
+        public AvanceSemanalDTO[]             AvanceSemanal               { get; set; } = [];
+        public EficienciaSpiDTO[]             EficienciaSpi               { get; set; } = [];
+        public CategoriaItemDTO[]             Categorias                  { get; set; } = [];
+        public List<CategoriaDashboardItemDTO> DistribucionPorCategoria   { get; set; } = [];
     }
 
     public class ArqComercialFilterOptionDTO

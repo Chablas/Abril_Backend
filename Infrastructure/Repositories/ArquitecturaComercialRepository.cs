@@ -1419,8 +1419,10 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .ToList();
 
             var hitosBase = actividades
-                .Where(a => a.Tipo == "HITO" && a.Estado != EstadoCulminado &&
-                       a.FinProgramado.HasValue && a.FinProgramado.Value <= today.AddDays(30))
+                .Where(a => a.Tipo == "HITO"
+                    && a.FinEfectivo == null
+                    && a.FinProgramado.HasValue
+                    && a.FinProgramado.Value <= today.AddDays(30))
                 .OrderBy(a => a.FinProgramado).Take(50).ToList();
 
             var hitosProjectIds = hitosBase.Select(a => a.ProjectId).Distinct().ToList();
@@ -1434,7 +1436,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Id            = a.Id,
                 Nombre        = a.Nombre,
                 Proyecto      = hitosProjects.GetValueOrDefault(a.ProjectId, ""),
-                Estado        = a.Estado ?? "",
+                Estado        = ComputeEstado(a.InicioProgramado, a.FinProgramado, a.InicioEfectivo, a.FinEfectivo, today),
                 FechaLimite   = a.FinProgramado?.ToString("dd/MM/yyyy") ?? "",
                 DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
             }).ToList();
@@ -1454,9 +1456,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Programado = Math.Round(s.Real * 0.9m, 2),
             }).ToList();
 
-            var hace3Semanas = today.AddDays(-21);
             var spiRaw = await ctx.AcAvanceSemanal
-                .Where(s => s.Semana >= hace3Semanas)
+                .Where(s => s.Semana >= hace8Semanas)
                 .GroupBy(s => s.Semana)
                 .Select(g => new { Semana = g.Key, Spi = g.Average(x => x.Spi) })
                 .OrderBy(s => s.Semana)
@@ -1468,9 +1469,41 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Spi    = s.Spi,
             }).ToList();
 
-            var categorias = await ctx.AcCategoria
-                .Select(c => new CategoriaItemDTO { Id = c.Id, Nombre = c.Nombre })
+            var categoriasRaw = await ctx.AcCategoria
+                .Select(c => new { c.Id, c.Nombre })
                 .ToListAsync();
+
+            var categorias = categoriasRaw
+                .Select(c => new CategoriaItemDTO { Id = c.Id, Nombre = c.Nombre })
+                .ToArray();
+
+            static CategoriaDashboardItemDTO BuildCategoriaItem(int id, string nombre, List<AcActividad> acts, DateOnly today)
+            {
+                var t   = acts.Count;
+                var cul = acts.Count(a => a.FinEfectivo != null);
+                var ep  = acts.Count(a => a.InicioEfectivo != null && a.FinEfectivo == null);
+                var ven = acts.Count(a => a.FinProgramado.HasValue && a.FinProgramado.Value < today && a.FinEfectivo == null);
+                var pen = acts.Count(a => a.InicioProgramado.HasValue && a.InicioProgramado.Value > today && a.InicioEfectivo == null);
+                return new CategoriaDashboardItemDTO
+                {
+                    Id         = id,
+                    Nombre     = nombre,
+                    Total      = t,
+                    Culminadas = cul,
+                    EnProceso  = ep,
+                    Vencidas   = ven,
+                    Pendientes = pen,
+                    Progreso   = t > 0 ? Math.Round((double)cul / t * 100, 1) : 0,
+                };
+            }
+
+            var distribucionPorCategoria = categoriasRaw
+                .Select(c => BuildCategoriaItem(c.Id, c.Nombre, actividades.Where(a => a.CategoriaId == c.Id).ToList(), today))
+                .ToList();
+
+            var sinCat = actividades.Where(a => a.CategoriaId == null).ToList();
+            if (sinCat.Count > 0)
+                distribucionPorCategoria.Add(BuildCategoriaItem(0, "Sin categoría", sinCat, today));
 
             return new ArqComercialDashboardDTO
             {
@@ -1513,7 +1546,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 TareasPorArquitectoDetalle = [.. tareasPorArquitectoDetalle],
                 AvanceSemanal              = [.. semanas],
                 EficienciaSpi              = [.. eficienciaSpi],
-                Categorias                 = [.. categorias],
+                Categorias                 = categorias,
+                DistribucionPorCategoria   = distribucionPorCategoria,
             };
         }
 

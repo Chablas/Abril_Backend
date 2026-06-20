@@ -10,6 +10,14 @@ using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -76,6 +84,27 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IInspeccionRepository, InspeccionRepository>();
             services.AddScoped<IInspeccionService, InspeccionService>();
             services.AddScoped<InspeccionPdfService>();
+
+            // Tópico Médico
+            services.AddScoped<ITopicoRepository, TopicoRepository>();
+            services.AddScoped<ITopicoService, TopicoService>();
+
+            // Accidentes de Trabajo
+            services.AddScoped<IAccidenteTrabajoRepository, AccidenteTrabajoRepository>();
+            services.AddScoped<IAccidenteTrabajoService, AccidenteTrabajoService>();
+
+            // Descansos Médicos
+            services.AddScoped<IDescansoMedicoRepository, DescansoMedicoRepository>();
+            services.AddScoped<IDescansoMedicoService, DescansoMedicoService>();
+
+            // Mi Salud (self-service staff)
+            services.AddScoped<IMiSaludRepository, MiSaludRepository>();
+            services.AddScoped<IMiSaludService, MiSaludService>();
+
+            // Asistente Social — Casos Sociales
+            services.AddScoped<ICasoSocialRepository, CasoSocialRepository>();
+            services.AddScoped<ISeguimientoRepository, SeguimientoRepository>();
+            services.AddScoped<ICasoSocialService, CasoSocialService>();
 
             return services;
         }

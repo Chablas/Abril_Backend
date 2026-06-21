@@ -1,0 +1,6 @@
+namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
+{
+    public interface IDescansoMedicoService
+    {
+    }
+}

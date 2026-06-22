@@ -20,6 +20,9 @@ using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -110,6 +113,10 @@ namespace Abril_Backend.Features.Ssoma
 
             // Charlas y Capacitaciones
             services.AddScoped<ICharlaService, CharlaService>();
+
+            // Accidentes e Incidentes
+            services.AddScoped<IAccidenteIncidenteRepository, AccidenteIncidenteRepository>();
+            services.AddScoped<IAccidenteIncidenteService, AccidenteIncidenteService>();
 
             return services;
         }

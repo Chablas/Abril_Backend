@@ -7,6 +7,7 @@ using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastructu
 using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
@@ -225,6 +226,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsDossierSemana> SsDossierSemana => Set<SsDossierSemana>();
         public DbSet<SsDossierDocumento> SsDossierDocumento => Set<SsDossierDocumento>();
         public DbSet<SsDossierDocumentoArchivo> SsDossierDocumentoArchivo => Set<SsDossierDocumentoArchivo>();
+        // ── Accidentes e Incidentes ────────────────────────────────────────────
+        public DbSet<SsomaAccidenteIncidente> SsomaAccidenteIncidente => Set<SsomaAccidenteIncidente>();
+        public DbSet<SsomaAccidenteDocumento> SsomaAccidenteDocumento => Set<SsomaAccidenteDocumento>();
         // ── Inspecciones ───────────────────────────────────────────────────────
         public DbSet<SsomaInspeccionTipo> SsomaInspeccionTipo => Set<SsomaInspeccionTipo>();
         public DbSet<SsomaInspeccionChecklistItem> SsomaInspeccionChecklistItem => Set<SsomaInspeccionChecklistItem>();
@@ -621,6 +625,10 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaOpt>()
                 .Property(x => x.Estado).HasDefaultValue("Completado");
 
+            // ── Accidentes e Incidentes ───────────────────────────────────────
+            modelBuilder.Entity<SsomaAccidenteIncidente>().ToTable("ss_accidente_incidente");
+            modelBuilder.Entity<SsomaAccidenteDocumento>().ToTable("ss_accidente_documento")
+                .Property(d => d.TamanioBytes).HasColumnName("tamanio_bytes");
             // ── Inspecciones — tablas y nombres explícitos ────────────────────
             modelBuilder.Entity<SsomaInspeccionTipo>().ToTable("ssoma_inspeccion_tipo");
             modelBuilder.Entity<SsomaInspeccionChecklistItem>().ToTable("ssoma_inspeccion_checklist_item");

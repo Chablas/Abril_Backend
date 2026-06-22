@@ -1,4 +1,8 @@
+using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.AccidenteTrabajo;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -6,11 +10,270 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 {
     public class AccidenteTrabajoRepository : IAccidenteTrabajoRepository
     {
+        private const int PageSize = 20;
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public AccidenteTrabajoRepository(IDbContextFactory<AppDbContext> factory)
         {
             _factory = factory;
+        }
+
+        public async Task<PagedResult<AccidenteTrabajoListItemDto>> ListPaged(AccidenteFilterDto filter)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var q =
+                from a in ctx.SsAccidenteTrabajo
+                join w in ctx.Worker on a.WorkerId equals w.Id
+                join em in ctx.Contributor on a.EmpresaId equals em.ContributorId into emj
+                from em in emj.DefaultIfEmpty()
+                join p in ctx.Project on a.ProyectoId equals p.ProjectId into pj
+                from p in pj.DefaultIfEmpty()
+                select new { a, w, em, p };
+
+            if (filter.WorkerId.HasValue)
+                q = q.Where(x => x.a.WorkerId == filter.WorkerId.Value);
+            if (!string.IsNullOrWhiteSpace(filter.Estado))
+                q = q.Where(x => x.a.Estado == filter.Estado);
+            if (!string.IsNullOrWhiteSpace(filter.TipoAccidente))
+                q = q.Where(x => x.a.TipoAccidente == filter.TipoAccidente);
+            if (filter.EmpresaId.HasValue)
+                q = q.Where(x => x.a.EmpresaId == filter.EmpresaId.Value);
+            if (filter.ProyectoId.HasValue)
+                q = q.Where(x => x.a.ProyectoId == filter.ProyectoId.Value);
+            if (filter.FechaDesde.HasValue)
+                q = q.Where(x => x.a.FechaAccidente >= filter.FechaDesde.Value);
+            if (filter.FechaHasta.HasValue)
+                q = q.Where(x => x.a.FechaAccidente <= filter.FechaHasta.Value);
+
+            var total = await q.CountAsync();
+            var page = filter.Page < 1 ? 1 : filter.Page;
+
+            var items = await q
+                .OrderByDescending(x => x.a.FechaAccidente)
+                .ThenByDescending(x => x.a.CreatedAt)
+                .Skip((page - 1) * PageSize)
+                .Take(PageSize)
+                .Select(x => new AccidenteTrabajoListItemDto
+                {
+                    Id = x.a.Id,
+                    WorkerId = x.a.WorkerId,
+                    WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
+                    WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
+                    EmpresaNombre = x.em != null ? x.em.ContributorName : null,
+                    ProyectoNombre = x.p != null ? x.p.ProjectDescription : null,
+                    FechaAccidente = x.a.FechaAccidente,
+                    TipoAccidente = x.a.TipoAccidente,
+                    LugarAccidente = x.a.LugarAccidente,
+                    Estado = x.a.Estado,
+                    NotificadoSunafil = x.a.NotificadoSunafil,
+                    TotalSeguimientos = ctx.SsAccidenteSeguimiento.Count(s => s.AccidenteId == x.a.Id),
+                    CreatedAt = x.a.CreatedAt
+                })
+                .ToListAsync();
+
+            return new PagedResult<AccidenteTrabajoListItemDto>
+            {
+                Page = page,
+                PageSize = PageSize,
+                TotalRecords = total,
+                TotalPages = (int)Math.Ceiling(total / (double)PageSize),
+                Data = items
+            };
+        }
+
+        public async Task<AccidenteTrabajoDetalleDto> GetById(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var row = await (
+                from a in ctx.SsAccidenteTrabajo
+                where a.Id == id
+                join w in ctx.Worker on a.WorkerId equals w.Id
+                join em in ctx.Contributor on a.EmpresaId equals em.ContributorId into emj
+                from em in emj.DefaultIfEmpty()
+                join p in ctx.Project on a.ProyectoId equals p.ProjectId into pj
+                from p in pj.DefaultIfEmpty()
+                select new { a, w, em, p }
+            ).FirstOrDefaultAsync()
+              ?? throw new AbrilException("Accidente de trabajo no encontrado.", 404);
+
+            var seguimientos = await ctx.SsAccidenteSeguimiento
+                .Where(s => s.AccidenteId == id)
+                .OrderByDescending(s => s.Fecha)
+                .Select(s => new AccidenteSeguimientoDto
+                {
+                    Id = s.Id,
+                    AccidenteId = s.AccidenteId,
+                    Fecha = s.Fecha,
+                    Tipo = s.Tipo,
+                    Descripcion = s.Descripcion,
+                    ProximaCita = s.ProximaCita,
+                    RegistradoPorId = s.RegistradoPorId,
+                    CreatedAt = s.CreatedAt
+                })
+                .ToListAsync();
+
+            return new AccidenteTrabajoDetalleDto
+            {
+                Id = row.a.Id,
+                WorkerId = row.a.WorkerId,
+                WorkerNombre = row.w.Person != null ? row.w.Person.FullName : null,
+                WorkerDni = row.w.Person != null ? row.w.Person.DocumentIdentityCode : null,
+                ProyectoId = row.a.ProyectoId,
+                ProyectoNombre = row.p != null ? row.p.ProjectDescription : null,
+                EmpresaId = row.a.EmpresaId,
+                EmpresaNombre = row.em != null ? row.em.ContributorName : null,
+                FechaAccidente = row.a.FechaAccidente,
+                HoraAccidente = row.a.HoraAccidente,
+                LugarAccidente = row.a.LugarAccidente,
+                TipoAccidente = row.a.TipoAccidente,
+                Mecanismo = row.a.Mecanismo,
+                ParteCuerpoAfectada = row.a.ParteCuerpoAfectada,
+                Descripcion = row.a.Descripcion,
+                DescripcionLesion = row.a.DescripcionLesion,
+                RequiereHospitalizacion = row.a.RequiereHospitalizacion,
+                HospitalNombre = row.a.HospitalNombre,
+                AtencionTopicoId = row.a.AtencionTopicoId,
+                DiasDescansoEstimados = row.a.DiasDescansoEstimados,
+                DiasDescansoReales = row.a.DiasDescansoReales,
+                Estado = row.a.Estado,
+                FechaAlta = row.a.FechaAlta,
+                RestriccionesReintegro = row.a.RestriccionesReintegro,
+                NotificadoSunafil = row.a.NotificadoSunafil,
+                FechaNotificacionSunafil = row.a.FechaNotificacionSunafil,
+                NumeroNotificacionSunafil = row.a.NumeroNotificacionSunafil,
+                UrlInforme = row.a.UrlInforme,
+                RegistradoPorId = row.a.RegistradoPorId,
+                CerradoPorId = row.a.CerradoPorId,
+                FechaCierre = row.a.FechaCierre,
+                CreatedAt = row.a.CreatedAt,
+                Seguimientos = seguimientos
+            };
+        }
+
+        public async Task<int> Create(AccidenteTrabajoCreateDto dto, int registradoPorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entity = new SsAccidenteTrabajo
+            {
+                WorkerId = dto.WorkerId,
+                FechaAccidente = dto.FechaAccidente,
+                HoraAccidente = dto.HoraAccidente,
+                ProyectoId = dto.ProyectoId,
+                EmpresaId = dto.EmpresaId,
+                LugarAccidente = dto.LugarAccidente,
+                TipoAccidente = dto.TipoAccidente,
+                Mecanismo = dto.Mecanismo,
+                ParteCuerpoAfectada = dto.ParteCuerpoAfectada,
+                Descripcion = dto.Descripcion,
+                DescripcionLesion = dto.DescripcionLesion,
+                RequiereHospitalizacion = dto.RequiereHospitalizacion,
+                HospitalNombre = dto.HospitalNombre,
+                DiasDescansoEstimados = dto.DiasDescansoEstimados,
+                Estado = "Registrado",
+                RegistradoPorId = registradoPorId,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+
+            ctx.SsAccidenteTrabajo.Add(entity);
+            await ctx.SaveChangesAsync();
+            return entity.Id;
+        }
+
+        public async Task Update(int id, AccidenteTrabajoUpdateDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entity = await ctx.SsAccidenteTrabajo.FirstOrDefaultAsync(a => a.Id == id)
+                ?? throw new AbrilException("Accidente de trabajo no encontrado.", 404);
+
+            entity.LugarAccidente = dto.LugarAccidente;
+            entity.TipoAccidente = dto.TipoAccidente;
+            entity.Mecanismo = dto.Mecanismo;
+            entity.ParteCuerpoAfectada = dto.ParteCuerpoAfectada;
+            entity.Descripcion = dto.Descripcion;
+            entity.DescripcionLesion = dto.DescripcionLesion;
+            entity.RequiereHospitalizacion = dto.RequiereHospitalizacion;
+            entity.HospitalNombre = dto.HospitalNombre;
+            entity.DiasDescansoEstimados = dto.DiasDescansoEstimados;
+            entity.DiasDescansoReales = dto.DiasDescansoReales;
+            entity.NotificadoSunafil = dto.NotificadoSunafil;
+            entity.FechaNotificacionSunafil = dto.FechaNotificacionSunafil;
+            entity.NumeroNotificacionSunafil = dto.NumeroNotificacionSunafil;
+            entity.RestriccionesReintegro = dto.RestriccionesReintegro;
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task Cerrar(int id, AccidenteCerrarDto dto, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entity = await ctx.SsAccidenteTrabajo.FirstOrDefaultAsync(a => a.Id == id)
+                ?? throw new AbrilException("Accidente de trabajo no encontrado.", 404);
+
+            if (entity.Estado == "Cerrado")
+                throw new AbrilException("El accidente ya está cerrado.", 400);
+
+            entity.Estado = "Dado de Alta";
+            entity.FechaAlta = dto.FechaAlta;
+            entity.RestriccionesReintegro = dto.RestriccionesReintegro;
+            entity.DiasDescansoReales = dto.DiasDescansoReales;
+            entity.CerradoPorId = userId;
+            entity.FechaCierre = DateTimeOffset.UtcNow;
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task Delete(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entity = await ctx.SsAccidenteTrabajo.FirstOrDefaultAsync(a => a.Id == id)
+                ?? throw new AbrilException("Accidente de trabajo no encontrado.", 404);
+
+            ctx.SsAccidenteTrabajo.Remove(entity);
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<int> CreateSeguimiento(int accidenteId, AccidenteSeguimientoCreateDto dto, int registradoPorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var existe = await ctx.SsAccidenteTrabajo.AnyAsync(a => a.Id == accidenteId);
+            if (!existe)
+                throw new AbrilException("Accidente de trabajo no encontrado.", 404);
+
+            var entity = new SsAccidenteSeguimiento
+            {
+                AccidenteId = accidenteId,
+                Fecha = dto.Fecha,
+                Tipo = dto.Tipo,
+                Descripcion = dto.Descripcion,
+                ProximaCita = dto.ProximaCita,
+                RegistradoPorId = registradoPorId,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+
+            ctx.SsAccidenteSeguimiento.Add(entity);
+            await ctx.SaveChangesAsync();
+            return entity.Id;
+        }
+
+        public async Task DeleteSeguimiento(int seguimientoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entity = await ctx.SsAccidenteSeguimiento.FirstOrDefaultAsync(s => s.Id == seguimientoId)
+                ?? throw new AbrilException("Seguimiento no encontrado.", 404);
+
+            ctx.SsAccidenteSeguimiento.Remove(entity);
+            await ctx.SaveChangesAsync();
         }
     }
 }

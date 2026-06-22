@@ -10,6 +10,8 @@ using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Services;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
@@ -105,6 +107,9 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<ICasoSocialRepository, CasoSocialRepository>();
             services.AddScoped<ISeguimientoRepository, SeguimientoRepository>();
             services.AddScoped<ICasoSocialService, CasoSocialService>();
+
+            // Charlas y Capacitaciones
+            services.AddScoped<ICharlaService, CharlaService>();
 
             return services;
         }

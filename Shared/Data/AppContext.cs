@@ -17,6 +17,7 @@ using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -231,6 +232,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaInspeccionRespuesta> SsomaInspeccionRespuesta => Set<SsomaInspeccionRespuesta>();
         public DbSet<SsomaInspeccionHallazgo> SsomaInspeccionHallazgo => Set<SsomaInspeccionHallazgo>();
         public DbSet<SsomaInspeccionHallazgoFoto> SsomaInspeccionHallazgoFoto => Set<SsomaInspeccionHallazgoFoto>();
+        // ── Charlas y Capacitaciones ───────────────────────────────────────────────
+        public DbSet<SsCharlaPrograma> SsCharlaProgramas { get; set; }
+        public DbSet<SsCharla> SsCharlas { get; set; }
+        public DbSet<SsCharlaAsistencia> SsCharlaAsistencias { get; set; }
 
         // ── Vecinos ──────────────────────────────────────────────────────────────
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino> Vecino => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino>();

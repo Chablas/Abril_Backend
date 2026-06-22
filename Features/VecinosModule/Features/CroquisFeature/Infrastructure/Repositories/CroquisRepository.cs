@@ -318,6 +318,32 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 select new { VecinoId = g.Key, Count = g.Count() }
             ).ToDictionaryAsync(x => x.VecinoId, x => x.Count);
 
+            // Estados de compromiso (para el desglose de las barras del resumen del proyecto).
+            var compromisoEstados = await ctx.VecinoCompromisoEstado
+                .Where(e => e.State)
+                .Select(e => new { e.VecinoCompromisoEstadoId, e.Descripcion })
+                .ToListAsync();
+            int compPendienteId = compromisoEstados.FirstOrDefault(e => e.Descripcion == "Pendiente")?.VecinoCompromisoEstadoId ?? -1;
+            int compEnProcesoId = compromisoEstados.FirstOrDefault(e => e.Descripcion == "En proceso")?.VecinoCompromisoEstadoId ?? -1;
+            int compCulminadoId = compromisoEstados.FirstOrDefault(e => e.Descripcion == "Culminado")?.VecinoCompromisoEstadoId ?? -1;
+
+            // Desglose de compromisos por vecino, estado y si tienen fecha límite por municipalidad/fiscalización.
+            var compromisosDesglose = await (
+                from c in ctx.VecinoCompromiso.Where(c => c.State && c.Active)
+                join s in ctx.VecinoSolicitud.Where(s => s.State && s.Active) on c.VecinoSolicitudId equals s.VecinoSolicitudId
+                where vecinoIds.Contains(s.VecinoId)
+                group c by new { s.VecinoId, c.VecinoCompromisoEstadoId, ConLimite = c.FechaFinMunicipalidad != null } into g
+                select new { g.Key.VecinoId, g.Key.VecinoCompromisoEstadoId, g.Key.ConLimite, Count = g.Count() }
+            ).ToListAsync();
+
+            // Mapa vecino → proyecto, para agregar el desglose por proyecto.
+            var vecinoProyecto = vecinos.ToDictionary(x => x.v.VecinoId, x => x.v.ProjectId);
+            int CompCount(int projectId, int estadoId, bool? conLimite) => compromisosDesglose
+                .Where(x => vecinoProyecto.GetValueOrDefault(x.VecinoId) == projectId
+                    && x.VecinoCompromisoEstadoId == estadoId
+                    && (conLimite == null || x.ConLimite == conLimite.Value))
+                .Sum(x => x.Count);
+
             // Ids de los estados de entregable relevantes para el % de aprobados.
             var entregableEstados = await ctx.VecinoEntregableEstado
                 .Where(e => e.State)
@@ -386,6 +412,12 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 CompromisosCount = vecinos
                     .Where(x => x.v.ProjectId == c.ProjectId)
                     .Sum(x => compromisosPorVecino.GetValueOrDefault(x.v.VecinoId)),
+                CompromisosPendientes = CompCount(c.ProjectId, compPendienteId, null),
+                CompromisosEnProceso = CompCount(c.ProjectId, compEnProcesoId, null),
+                CompromisosCulminados = CompCount(c.ProjectId, compCulminadoId, null),
+                CompromisosLimitePendientes = CompCount(c.ProjectId, compPendienteId, true),
+                CompromisosLimiteEnProceso = CompCount(c.ProjectId, compEnProcesoId, true),
+                CompromisosLimiteCulminados = CompCount(c.ProjectId, compCulminadoId, true),
                 EntregablesAprobados = vecinos
                     .Where(x => x.v.ProjectId == c.ProjectId)
                     .Sum(x => entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobados ?? 0),

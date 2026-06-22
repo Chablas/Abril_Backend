@@ -514,6 +514,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                     EstadoDescripcion = e.Descripcion,
                     FechaInicio = c.FechaInicio,
                     FechaFin = c.FechaFin,
+                    FechaFinMunicipalidad = c.FechaFinMunicipalidad,
                     Observaciones = c.Observaciones,
                     CreatedDateTime = c.CreatedDateTime
                 }
@@ -597,6 +598,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 VecinoCompromisoEstadoId = estadoId,
                 FechaInicio = dto.FechaInicio,
                 FechaFin = dto.FechaFin,
+                FechaFinMunicipalidad = dto.FechaFinMunicipalidad,
                 Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim(),
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
@@ -694,6 +696,25 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             if (compromiso is null) return false;
 
             compromiso.Observaciones = string.IsNullOrWhiteSpace(observaciones) ? null : observaciones.Trim();
+            compromiso.UpdatedDateTime = DateTime.UtcNow;
+            compromiso.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> UpdateCompromisoFechaMunicipalidad(int compromisoId, DateOnly? fechaFinMunicipalidad, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var compromiso = await ctx.VecinoCompromiso
+                .FirstOrDefaultAsync(c => c.VecinoCompromisoId == compromisoId && c.Active && c.State);
+            if (compromiso is null) return false;
+
+            // La fecha límite por municipalidad/fiscalización debe ser anterior (o igual) a la fecha fin del compromiso.
+            if (fechaFinMunicipalidad.HasValue && compromiso.FechaFin.HasValue && fechaFinMunicipalidad.Value > compromiso.FechaFin.Value)
+                throw new AbrilException("La fecha límite por municipalidad/fiscalización no puede ser posterior a la fecha fin del compromiso.", 422);
+
+            compromiso.FechaFinMunicipalidad = fechaFinMunicipalidad;
             compromiso.UpdatedDateTime = DateTime.UtcNow;
             compromiso.UpdatedUserId = userId;
             await ctx.SaveChangesAsync();
@@ -906,6 +927,31 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             return true;
         }
 
+        public async Task<VecinoLimpiezaCumplimientoDto> GetCumplimiento(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            var rows = await (
+                from l in ctx.VecinoLimpieza.Where(l => l.ProjectId == projectId && l.State && l.Fecha <= hoy)
+                join t in ctx.VecinoLimpiezaTipo on l.VecinoLimpiezaTipoId equals t.VecinoLimpiezaTipoId
+                select new { t.Descripcion, Hecha = l.AtencionArchivoUrl != null }
+            ).ToListAsync();
+
+            var depto = rows.Where(r => r.Descripcion == "Departamento").ToList();
+            var comun = rows.Where(r => r.Descripcion != "Departamento").ToList();
+
+            return new VecinoLimpiezaCumplimientoDto
+            {
+                DepartamentoProgramadas = depto.Count,
+                DepartamentoHechas = depto.Count(r => r.Hecha),
+                ComunProgramadas = comun.Count,
+                ComunHechas = comun.Count(r => r.Hecha),
+                TotalProgramadas = rows.Count,
+                TotalHechas = rows.Count(r => r.Hecha),
+            };
+        }
+
         public async Task<List<VecinoCompromisoSelectDto>> GetCompromisosSelect(int vecinoId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -1016,6 +1062,40 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 select new { g.Key.ProjectId, EstadoId = g.Key.VecinoCompromisoEstadoId, Count = g.Count() }
             ).ToListAsync();
 
+            // Cumplimiento de limpiezas por proyecto (programadas hasta hoy vs. hechas).
+            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+            var limpiezaCounts = await (
+                from l in ctx.VecinoLimpieza.Where(l => l.State && l.Fecha <= hoy)
+                join t in ctx.VecinoLimpiezaTipo on l.VecinoLimpiezaTipoId equals t.VecinoLimpiezaTipoId
+                group new { t.Descripcion, Hecha = l.AtencionArchivoUrl != null } by l.ProjectId into g
+                select new
+                {
+                    ProjectId = g.Key,
+                    DeptoProg = g.Count(x => x.Descripcion == "Departamento"),
+                    DeptoHechas = g.Count(x => x.Descripcion == "Departamento" && x.Hecha),
+                    ComunProg = g.Count(x => x.Descripcion != "Departamento"),
+                    ComunHechas = g.Count(x => x.Descripcion != "Departamento" && x.Hecha),
+                }
+            ).ToListAsync();
+
+            VecinoLimpiezaCumplimientoDto LimpiezasFor(int? projectId)
+            {
+                var src = limpiezaCounts.Where(x => projectId == null || x.ProjectId == projectId).ToList();
+                var deptoProg = src.Sum(x => x.DeptoProg);
+                var deptoHechas = src.Sum(x => x.DeptoHechas);
+                var comunProg = src.Sum(x => x.ComunProg);
+                var comunHechas = src.Sum(x => x.ComunHechas);
+                return new VecinoLimpiezaCumplimientoDto
+                {
+                    DepartamentoProgramadas = deptoProg,
+                    DepartamentoHechas = deptoHechas,
+                    ComunProgramadas = comunProg,
+                    ComunHechas = comunHechas,
+                    TotalProgramadas = deptoProg + comunProg,
+                    TotalHechas = deptoHechas + comunHechas,
+                };
+            }
+
             List<VecinosDashboardEstadoDto> SolicitudesFor(int? projectId) => solicitudEstados
                 .Select(e => new VecinosDashboardEstadoDto
                 {
@@ -1044,7 +1124,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 ProjectDescription = p.ProjectDescription,
                 VecinosCount = vecinoCounts.FirstOrDefault(x => x.ProjectId == p.ProjectId)?.Count ?? 0,
                 Solicitudes = SolicitudesFor(p.ProjectId),
-                Compromisos = CompromisosFor(p.ProjectId)
+                Compromisos = CompromisosFor(p.ProjectId),
+                Limpiezas = LimpiezasFor(p.ProjectId)
             }).ToList();
 
             var resumen = new VecinosDashboardProjectDto
@@ -1053,7 +1134,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 ProjectDescription = "Resumen general",
                 VecinosCount = vecinoCounts.Sum(x => x.Count),
                 Solicitudes = SolicitudesFor(null),
-                Compromisos = CompromisosFor(null)
+                Compromisos = CompromisosFor(null),
+                Limpiezas = LimpiezasFor(null)
             };
 
             return new VecinosDashboardDto { Resumen = resumen, Proyectos = proyectos };

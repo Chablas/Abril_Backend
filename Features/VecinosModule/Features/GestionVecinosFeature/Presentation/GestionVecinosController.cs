@@ -353,6 +353,28 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             }
         }
 
+        [HttpPatch("compromisos/{compromisoId:int}/fecha-municipalidad")]
+        public async Task<IActionResult> UpdateCompromisoFechaMunicipalidad(int compromisoId, [FromBody] VecinoCompromisoFechaMunicipalidadUpdateDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                await _service.UpdateCompromisoFechaMunicipalidad(compromisoId, dto.FechaFinMunicipalidad, userId);
+                return Ok(new { message = "Fecha límite por municipalidad/fiscalización actualizada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS COMPROMISO FECHA MUNICIPALIDAD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPost("compromisos/entregables/{entregableId:int}/upload")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> UploadEntregable(int entregableId, IFormFile file)
@@ -459,6 +481,21 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR GESTION VECINOS LIMPIEZA CREATE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("proyectos/{projectId:int}/limpiezas/cumplimiento")]
+        public async Task<IActionResult> GetLimpiezaCumplimiento(int projectId)
+        {
+            try
+            {
+                var result = await _service.GetCumplimiento(projectId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS LIMPIEZA CUMPLIMIENTO: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

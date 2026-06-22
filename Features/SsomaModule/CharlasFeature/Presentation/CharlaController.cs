@@ -142,6 +142,19 @@ public class CharlaController : ControllerBase
         catch { return StatusCode(500, new { message = "Error al obtener capacitaciones." }); }
     }
 
+    [HttpPost("capacitaciones/mi-evidencia")]
+    public async Task<IActionResult> SubirMiCapacitacion([FromQuery] int userId, [FromForm] DateTime fecha, [FromForm] string tema, IFormFile file)
+    {
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            var result = await _svc.SubirMiCapacitacionAsync(userId, fecha, tema, stream, file.FileName);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al subir capacitación." }); }
+    }
+
     [HttpPost("capacitaciones/{workerId}")]
     public async Task<IActionResult> SubirCapacitacion(int workerId, [FromQuery] int userId, [FromForm] DateTime fecha, [FromForm] string tema, IFormFile file)
     {

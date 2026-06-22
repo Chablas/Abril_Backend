@@ -69,10 +69,6 @@ public record CharlaDetalleDto(
     string? EvidenciaNombre,
     int TotalAsistentes,
     List<AsistenciaDetailDto> Asistencias,
-    int? AprobadoPorId,
-    string? AprobadoPorNombre,
-    DateTime? AprobadoEn,
-    string? MotivoRechazo,
     DateTime? EvidenciaSubidaEn
 );
 

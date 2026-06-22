@@ -246,6 +246,23 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 throw new AbrilException($"Error al subir archivo a SharePoint ({(int)response.StatusCode}).", 502);
             }
 
+            // Leer webUrl del cuerpo del PUT — SharePoint siempre la incluye en la respuesta
+            try
+            {
+                var putBody = await response.Content.ReadAsStringAsync();
+                using var putDoc = JsonDocument.Parse(putBody);
+                if (putDoc.RootElement.TryGetProperty("webUrl", out var webUrlEl))
+                {
+                    var webUrl = webUrlEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(webUrl))
+                        return webUrl;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo leer webUrl del PUT de SharePoint para {Path}", path);
+            }
+
             var getUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}?$select=id,%40microsoft.graph.downloadUrl";
             var getClient = _httpClientFactory.CreateClient();
             getClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);

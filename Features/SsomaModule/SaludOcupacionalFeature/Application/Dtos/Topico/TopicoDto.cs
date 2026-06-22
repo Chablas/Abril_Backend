@@ -10,7 +10,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public string? ProyectoNombre { get; set; }
         public DateOnly Fecha { get; set; }
         public TimeOnly Hora { get; set; }
-        public string TipoAtencion { get; set; } = string.Empty;
+        public int TipoAtencionId { get; set; }
+        public string? TipoAtencionNombre { get; set; }
         public string? Motivo { get; set; }
         public string? Diagnostico { get; set; }
         public bool DerivadoClinica { get; set; }
@@ -31,7 +32,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public string? EmpresaNombre { get; set; }
         public DateOnly Fecha { get; set; }
         public TimeOnly Hora { get; set; }
-        public string TipoAtencion { get; set; } = string.Empty;
+        public int TipoAtencionId { get; set; }
+        public string? TipoAtencionNombre { get; set; }
         public string? Motivo { get; set; }
         public string? Diagnostico { get; set; }
         public string? DiagnosticoCie10 { get; set; }
@@ -59,7 +61,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public int WorkerId { get; set; }
         public DateOnly Fecha { get; set; }
         public TimeOnly Hora { get; set; }
-        public string TipoAtencion { get; set; } = string.Empty;
+        public int TipoAtencionId { get; set; }
         public string? Motivo { get; set; }
         public string? Diagnostico { get; set; }
         public string? DiagnosticoCie10 { get; set; }
@@ -82,7 +84,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
 
     public class TopicoUpdateDto
     {
-        public string TipoAtencion { get; set; } = string.Empty;
+        public int TipoAtencionId { get; set; }
         public string? Motivo { get; set; }
         public string? Diagnostico { get; set; }
         public string? DiagnosticoCie10 { get; set; }
@@ -108,7 +110,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public int? WorkerId { get; set; }
         public DateOnly? FechaDesde { get; set; }
         public DateOnly? FechaHasta { get; set; }
-        public string? TipoAtencion { get; set; }
+        public int? TipoAtencionId { get; set; }
         public int? EmpresaId { get; set; }
         public int? ProyectoId { get; set; }
         public int Page { get; set; } = 1;

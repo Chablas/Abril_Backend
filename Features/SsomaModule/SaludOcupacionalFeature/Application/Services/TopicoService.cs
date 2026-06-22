@@ -8,12 +8,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
     public class TopicoService : ITopicoService
     {
-        private static readonly HashSet<string> TiposValidos = new()
-        {
-            "Consulta", "Primeros Auxilios", "Curacion", "Inyectable",
-            "Control", "Emergencia", "Otro"
-        };
-
         private readonly ITopicoRepository _repo;
 
         public TopicoService(ITopicoRepository repo)
@@ -30,15 +24,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         {
             if (dto.WorkerId <= 0)
                 throw new AbrilException("El trabajador es obligatorio.", 400);
-            if (string.IsNullOrWhiteSpace(dto.TipoAtencion) || !TiposValidos.Contains(dto.TipoAtencion))
-                throw new AbrilException($"Tipo de atención no válido. Valores permitidos: {string.Join(", ", TiposValidos)}.", 400);
+            if (dto.TipoAtencionId <= 0)
+                throw new AbrilException("El tipo de atención es obligatorio.", 400);
             return _repo.Create(dto, userId ?? 0);
         }
 
         public Task Update(int id, TopicoUpdateDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.TipoAtencion) || !TiposValidos.Contains(dto.TipoAtencion))
-                throw new AbrilException($"Tipo de atención no válido. Valores permitidos: {string.Join(", ", TiposValidos)}.", 400);
+            if (dto.TipoAtencionId <= 0)
+                throw new AbrilException("El tipo de atención es obligatorio.", 400);
             return _repo.Update(id, dto);
         }
 

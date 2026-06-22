@@ -25,16 +25,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var q =
                 from t in ctx.SsTopicoAtencion
                 join w in ctx.Worker on t.WorkerId equals w.Id
+                join ta in ctx.SsTopicoTipoAtencion on t.TipoAtencionId equals ta.Id into taj
+                from ta in taj.DefaultIfEmpty()
                 join em in ctx.Contributor on t.EmpresaId equals em.ContributorId into emj
                 from em in emj.DefaultIfEmpty()
                 join p in ctx.Project on t.ProyectoId equals p.ProjectId into pj
                 from p in pj.DefaultIfEmpty()
-                select new { t, w, em, p };
+                select new { t, w, ta, em, p };
 
             if (filter.WorkerId.HasValue)
                 q = q.Where(x => x.t.WorkerId == filter.WorkerId.Value);
-            if (!string.IsNullOrWhiteSpace(filter.TipoAtencion))
-                q = q.Where(x => x.t.TipoAtencion == filter.TipoAtencion);
+            if (filter.TipoAtencionId.HasValue)
+                q = q.Where(x => x.t.TipoAtencionId == filter.TipoAtencionId.Value);
             if (filter.EmpresaId.HasValue)
                 q = q.Where(x => x.t.EmpresaId == filter.EmpresaId.Value);
             if (filter.ProyectoId.HasValue)
@@ -62,7 +64,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ProyectoNombre = x.p != null ? x.p.ProjectDescription : null,
                     Fecha = x.t.Fecha,
                     Hora = x.t.Hora,
-                    TipoAtencion = x.t.TipoAtencion,
+                    TipoAtencionId = x.t.TipoAtencionId,
+                    TipoAtencionNombre = x.ta != null ? x.ta.Nombre : null,
                     Motivo = x.t.Motivo,
                     Diagnostico = x.t.Diagnostico,
                     DerivadoClinica = x.t.DerivadoClinica,
@@ -90,11 +93,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from t in ctx.SsTopicoAtencion
                 where t.Id == id
                 join w in ctx.Worker on t.WorkerId equals w.Id
+                join ta in ctx.SsTopicoTipoAtencion on t.TipoAtencionId equals ta.Id into taj
+                from ta in taj.DefaultIfEmpty()
                 join em in ctx.Contributor on t.EmpresaId equals em.ContributorId into emj
                 from em in emj.DefaultIfEmpty()
                 join p in ctx.Project on t.ProyectoId equals p.ProjectId into pj
                 from p in pj.DefaultIfEmpty()
-                select new { t, w, em, p }
+                select new { t, w, ta, em, p }
             ).FirstOrDefaultAsync()
               ?? throw new AbrilException("Atención de tópico no encontrada.", 404);
 
@@ -110,7 +115,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 EmpresaNombre = row.em != null ? row.em.ContributorName : null,
                 Fecha = row.t.Fecha,
                 Hora = row.t.Hora,
-                TipoAtencion = row.t.TipoAtencion,
+                TipoAtencionId = row.t.TipoAtencionId,
+                TipoAtencionNombre = row.ta != null ? row.ta.Nombre : null,
                 Motivo = row.t.Motivo,
                 Diagnostico = row.t.Diagnostico,
                 DiagnosticoCie10 = row.t.DiagnosticoCie10,
@@ -143,7 +149,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 WorkerId = dto.WorkerId,
                 Fecha = dto.Fecha,
                 Hora = dto.Hora,
-                TipoAtencion = dto.TipoAtencion,
+                TipoAtencionId = dto.TipoAtencionId,
                 Motivo = dto.Motivo,
                 Diagnostico = dto.Diagnostico,
                 DiagnosticoCie10 = dto.DiagnosticoCie10,
@@ -179,7 +185,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var entity = await ctx.SsTopicoAtencion.FirstOrDefaultAsync(t => t.Id == id)
                 ?? throw new AbrilException("Atención de tópico no encontrada.", 404);
 
-            entity.TipoAtencion = dto.TipoAtencion;
+            entity.TipoAtencionId = dto.TipoAtencionId;
             entity.Motivo = dto.Motivo;
             entity.Diagnostico = dto.Diagnostico;
             entity.DiagnosticoCie10 = dto.DiagnosticoCie10;

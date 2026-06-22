@@ -20,8 +20,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("hora")]
         public TimeOnly Hora { get; set; }
 
-        [Column("tipo_atencion")]
-        public string TipoAtencion { get; set; } = string.Empty;
+        [Column("tipo_atencion_id")]
+        public int TipoAtencionId { get; set; }
+
+        [ForeignKey(nameof(TipoAtencionId))]
+        public TopicoTipoAtencion? TipoAtencionNav { get; set; }
 
         [Column("motivo")]
         public string? Motivo { get; set; }

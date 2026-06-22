@@ -340,7 +340,7 @@ namespace Abril_Backend.Migrations
                     worker_id = table.Column<int>(type: "integer", nullable: false),
                     fecha = table.Column<DateOnly>(type: "date", nullable: false),
                     hora = table.Column<TimeOnly>(type: "time without time zone", nullable: false),
-                    tipo_atencion = table.Column<string>(type: "text", nullable: false),
+                    tipo_atencion_id = table.Column<int>(type: "integer", nullable: false),
                     motivo = table.Column<string>(type: "text", nullable: true),
                     diagnostico = table.Column<string>(type: "text", nullable: true),
                     diagnostico_cie10 = table.Column<string>(type: "text", nullable: true),
@@ -373,6 +373,12 @@ namespace Abril_Backend.Migrations
                         principalTable: "workers",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "fk_ss_topico_atencion_ss_topico_tipo_atencion_tipo_atencion_id",
+                        column: x => x.tipo_atencion_id,
+                        principalTable: "ss_topico_tipo_atencion",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -887,6 +893,11 @@ namespace Abril_Backend.Migrations
                 name: "ix_ss_topico_atencion_worker_id",
                 table: "ss_topico_atencion",
                 column: "worker_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_ss_topico_atencion_tipo_atencion_id",
+                table: "ss_topico_atencion",
+                column: "tipo_atencion_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_vecino_imagen_vecino_id",

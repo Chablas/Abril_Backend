@@ -7852,10 +7852,9 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("temperatura");
 
-                    b.Property<string>("TipoAtencion")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tipo_atencion");
+                    b.Property<int>("TipoAtencionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("tipo_atencion_id");
 
                     b.Property<string>("Tratamiento")
                         .HasColumnType("text")
@@ -7874,6 +7873,9 @@ namespace Abril_Backend.Migrations
 
                     b.HasIndex("WorkerId")
                         .HasDatabaseName("ix_ss_topico_atencion_worker_id");
+
+                    b.HasIndex("TipoAtencionId")
+                        .HasDatabaseName("ix_ss_topico_atencion_tipo_atencion_id");
 
                     b.ToTable("ss_topico_atencion", (string)null);
                 });
@@ -13568,6 +13570,15 @@ namespace Abril_Backend.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_ss_topico_atencion_workers_worker_id");
+
+                    b.HasOne("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoTipoAtencion", "TipoAtencionNav")
+                        .WithMany()
+                        .HasForeignKey("TipoAtencionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_ss_topico_atencion_ss_topico_tipo_atencion_tipo_atencion_id");
+
+                    b.Navigation("TipoAtencionNav");
 
                     b.Navigation("Worker");
                 });

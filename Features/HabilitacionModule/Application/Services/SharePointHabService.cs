@@ -391,6 +391,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("inspeccion-firmas")) return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesAbril2026LibraryId"];
             if (c.Contains("penalidad-pdf"))   return _configuration["SharePoint:Sites:SSOMAApps:PenalidadPdfLibraryId"];
             if (c.Contains("dossier-semanal")) return _configuration["SharePoint:Sites:SSOMAApps:DossierSemanal2026LibraryId"];
+            if (c.Contains("charlas-evidencias")) return _configuration["SharePoint:Sites:SSOMAApps:CharlasLibraryId"];
             return null;
         }
 

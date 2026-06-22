@@ -21,4 +21,22 @@ public interface ICharlaService
     Task<CapacitacionDto> SubirCapacitacionAsync(int workerId, DateTime fecha, string tema, Stream evidencia, string fileName, int userId);
     Task<CapacitacionDto> CambiarEstadoAsync(int id, string estado, int userId);
     Task EliminarCapacitacionAsync(int id);
+
+    // NEW: Tab 1 — Dashboard Asistencia Supervisores
+    Task<List<DashSupervisoresRowDto>> GetDashboardSupervisoresAsync(int proyectoId, int mes, int anio);
+
+    // NEW: Tab 2 — Comparativo Programadas vs Realizadas
+    Task<List<ComparativoMesDto>> GetComparativoAsync(int proyectoId, int anio);
+
+    // NEW: Tab 3 — Crear nueva charla con supervisor + asistentes
+    Task<CharlaListItemDto> CrearNuevaCharlaAsync(NuevaCharlaCreateDto dto, int userId);
+
+    // NEW: Tab 4 — Lista paginada + detalle + aprobación
+    Task<CharlaListResultDto> GetListaAsync(int? proyectoId, string? estado, int page, int pageSize);
+    Task<CharlaDetalleDto> GetDetalleAsync(int id);
+    Task AprobarAsync(int id, int userId);
+    Task RechazarAsync(int id, string motivo, int userId);
+
+    // NEW: Supervisor search (app_user)
+    Task<List<UsuarioDto>> GetSupervisoresAsync(string? search = null);
 }

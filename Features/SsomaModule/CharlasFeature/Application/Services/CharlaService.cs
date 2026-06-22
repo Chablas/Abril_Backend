@@ -98,7 +98,7 @@ public class CharlaService : ICharlaService
             .Select(w => w.Id)
             .ToListAsync();
 
-        var inicioMes = new DateTime(anio, mes, 1);
+        var inicioMes = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
         var finMes = inicioMes.AddMonths(1);
         var caps = await ctx.SsCharlas
             .Where(c => c.SupervisorId != null
@@ -310,7 +310,7 @@ public class CharlaService : ICharlaService
         var staffIds = staff.Select(w => w.Id).ToList();
 
         // get capacitaciones this month
-        var inicioMes = new DateTime(anio, mes, 1);
+        var inicioMes = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
         var finMes = inicioMes.AddMonths(1);
         var caps = await ctx.SsCharlas
             .Where(c => c.SupervisorId != null
@@ -351,7 +351,7 @@ public class CharlaService : ICharlaService
         var url = await _sp.SubirArchivoYObtenerUrlAsync(evidencia, fileName, "charlas-evidencias", carpeta);
 
         // find or create the capacitacion record for this worker this month
-        var inicioMes = new DateTime(fecha.Year, fecha.Month, 1);
+        var inicioMes = new DateTime(fecha.Year, fecha.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var finMes = inicioMes.AddMonths(1);
 
         var cap = await ctx.SsCharlas
@@ -458,5 +458,315 @@ public class CharlaService : ICharlaService
         cap.State = false;
         cap.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
+    }
+
+    // ── NEW: Tab 1 — Dashboard Asistencia Supervisores ────────────────────────
+
+    public async Task<List<DashSupervisoresRowDto>> GetDashboardSupervisoresAsync(int proyectoId, int mes, int anio)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var inicio = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
+        var fin = inicio.AddMonths(1);
+
+        var charlas = await ctx.SsCharlas
+            .Where(c => c.State
+                && c.SupervisorId != null
+                && c.Fecha >= inicio && c.Fecha < fin)
+            .ToListAsync();
+
+        if (charlas.Count == 0) return new List<DashSupervisoresRowDto>();
+
+        var supervisorIds = charlas.Select(c => c.SupervisorId!.Value).Distinct().ToList();
+        var charlaIds = charlas.Select(c => c.Id).ToList();
+
+        var workers = await ctx.Worker
+            .Include(w => w.Person)
+            .Where(w => supervisorIds.Contains(w.Id))
+            .ToDictionaryAsync(w => w.Id, w => w.Person?.FullName ?? string.Empty);
+
+        var asistencias = await ctx.SsCharlaAsistencias
+            .Where(a => charlaIds.Contains(a.CharlaId) && a.State)
+            .ToListAsync();
+
+        return charlas.Select(c =>
+        {
+            var supNombre = c.SupervisorId.HasValue && workers.TryGetValue(c.SupervisorId.Value, out var n) ? n : string.Empty;
+            var asis = asistencias.Where(a => a.CharlaId == c.Id).ToList();
+            return new DashSupervisoresRowDto(c.Id, c.Titulo, c.Fecha, c.SupervisorId, supNombre, asis.Count, asis.Count(a => a.Asistio));
+        }).OrderByDescending(r => r.Fecha).ToList();
+    }
+
+    // ── NEW: Tab 2 — Comparativo Programadas vs Realizadas ───────────────────
+
+    private static readonly string[] MesesNombres =
+        ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+    public async Task<List<ComparativoMesDto>> GetComparativoAsync(int proyectoId, int anio)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var programadas = await ctx.SsCharlaProgramas
+            .Where(p => p.ProyectoId == proyectoId && p.Anio == anio && p.State)
+            .GroupBy(p => p.Mes)
+            .Select(g => new { Mes = g.Key, Total = g.Count() })
+            .ToListAsync();
+
+        var inicioAnio = new DateTime(anio, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var finAnio = new DateTime(anio + 1, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var realizadas = await ctx.SsCharlas
+            .Where(c => c.State && c.Estado == "Aprobado"
+                && c.Fecha >= inicioAnio && c.Fecha < finAnio)
+            .Join(ctx.SsCharlaProgramas.Where(p => p.ProyectoId == proyectoId && p.State),
+                c => c.ProgramaId, p => p.Id, (c, _) => c)
+            .GroupBy(c => c.Fecha.Month)
+            .Select(g => new { Mes = g.Key, Total = g.Count() })
+            .ToListAsync();
+
+        return Enumerable.Range(1, 12).Select(m => new ComparativoMesDto(
+            m,
+            MesesNombres[m - 1],
+            programadas.FirstOrDefault(p => p.Mes == m)?.Total ?? 0,
+            realizadas.FirstOrDefault(r => r.Mes == m)?.Total ?? 0
+        )).ToList();
+    }
+
+    // ── NEW: Tab 3 — Crear nueva charla ──────────────────────────────────────
+
+    public async Task<CharlaListItemDto> CrearNuevaCharlaAsync(NuevaCharlaCreateDto dto, int userId)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        // auto-create or get programa
+        var mes = dto.Fecha.Month;
+        var anio = dto.Fecha.Year;
+        int programaId = dto.ProgramaId ?? 0;
+
+        if (programaId == 0)
+        {
+            var programa = await ctx.SsCharlaProgramas
+                .FirstOrDefaultAsync(p => p.ProyectoId == dto.ProyectoId && p.Mes == mes && p.Anio == anio && p.State);
+
+            if (programa == null)
+            {
+                programa = new SsCharlaPrograma
+                {
+                    ProyectoId = dto.ProyectoId,
+                    Mes = mes,
+                    Anio = anio,
+                    Nombre = $"Charlas {mes}/{anio}",
+                    Estado = "Activo",
+                    CreadoPorId = userId,
+                    CreatedAt = DateTime.UtcNow
+                };
+                ctx.SsCharlaProgramas.Add(programa);
+                await ctx.SaveChangesAsync();
+            }
+            programaId = programa.Id;
+        }
+
+        var charla = new SsCharla
+        {
+            ProgramaId = programaId,
+            Titulo = dto.Titulo,
+            Tema = dto.Tema,
+            Descripcion = dto.Descripcion,
+            Fecha = dto.Fecha,
+            DuracionHoras = dto.DuracionHoras,
+            SupervisorId = dto.SupervisorId,
+            Estado = "Abierto",
+            CreadoPorId = userId,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.SsCharlas.Add(charla);
+        await ctx.SaveChangesAsync();
+
+        foreach (var workerId in dto.WorkerIds.Distinct())
+        {
+            ctx.SsCharlaAsistencias.Add(new SsCharlaAsistencia
+            {
+                CharlaId = charla.Id,
+                WorkerId = workerId,
+                Asistio = false,
+                RegistradoPorId = userId,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        if (dto.WorkerIds.Count > 0) await ctx.SaveChangesAsync();
+
+        var supNombre = string.Empty;
+        if (dto.SupervisorId.HasValue)
+        {
+            supNombre = await ctx.User
+                .Where(u => u.UserId == dto.SupervisorId.Value)
+                .Select(u => u.Person != null ? u.Person.FullName : string.Empty)
+                .FirstOrDefaultAsync() ?? string.Empty;
+        }
+
+        return new CharlaListItemDto(charla.Id, charla.Titulo, charla.Tema, charla.Fecha, charla.SupervisorId, supNombre, charla.Estado, charla.EvidenciaNombre, dto.WorkerIds.Count);
+    }
+
+    // ── NEW: Tab 4 — Lista paginada ───────────────────────────────────────────
+
+    public async Task<CharlaListResultDto> GetListaAsync(int? proyectoId, string? estado, int page, int pageSize)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var query = ctx.SsCharlas
+            .Where(c => c.State && c.Estado != "Registrada");
+
+        if (proyectoId.HasValue)
+            query = query.Where(c => ctx.SsCharlaProgramas
+                .Any(p => p.Id == c.ProgramaId && p.ProyectoId == proyectoId.Value && p.State));
+
+        if (!string.IsNullOrWhiteSpace(estado))
+            query = query.Where(c => c.Estado == estado);
+
+        var total = await query.CountAsync();
+
+        var charlas = await query
+            .OrderByDescending(c => c.Fecha)
+            .ThenByDescending(c => c.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var supervisorIds = charlas.Where(c => c.SupervisorId.HasValue)
+            .Select(c => c.SupervisorId!.Value).Distinct().ToList();
+
+        var supervisores = supervisorIds.Count > 0
+            ? await ctx.User
+                .Where(u => supervisorIds.Contains(u.UserId))
+                .Select(u => new { u.UserId, Nombre = u.Person != null ? u.Person.FullName : string.Empty })
+                .ToDictionaryAsync(u => u.UserId, u => u.Nombre ?? string.Empty)
+            : new Dictionary<int, string>();
+
+        var charlaIds = charlas.Select(c => c.Id).ToList();
+        var conteos = await ctx.SsCharlaAsistencias
+            .Where(a => charlaIds.Contains(a.CharlaId) && a.State)
+            .GroupBy(a => a.CharlaId)
+            .Select(g => new { CharlaId = g.Key, Total = g.Count() })
+            .ToDictionaryAsync(x => x.CharlaId, x => x.Total);
+
+        var items = charlas.Select(c =>
+        {
+            var supNombre = c.SupervisorId.HasValue && supervisores.TryGetValue(c.SupervisorId.Value, out var n) ? n : string.Empty;
+            conteos.TryGetValue(c.Id, out var total2);
+            return new CharlaListItemDto(c.Id, c.Titulo, c.Tema, c.Fecha, c.SupervisorId, supNombre, c.Estado, c.EvidenciaNombre, total2);
+        }).ToList();
+
+        return new CharlaListResultDto(items, total);
+    }
+
+    // ── NEW: Tab 4 — Detalle modal ────────────────────────────────────────────
+
+    public async Task<CharlaDetalleDto> GetDetalleAsync(int id)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var charla = await ctx.SsCharlas
+            .Include(c => c.Asistencias)
+            .FirstOrDefaultAsync(c => c.Id == id && c.State)
+            ?? throw new AbrilException("Charla no encontrada.", 404);
+
+        var supNombre = string.Empty;
+        if (charla.SupervisorId.HasValue)
+        {
+            supNombre = await ctx.User
+                .Where(u => u.UserId == charla.SupervisorId.Value)
+                .Select(u => u.Person != null ? u.Person.FullName : string.Empty)
+                .FirstOrDefaultAsync() ?? string.Empty;
+        }
+
+        var aprobadoPorNombre = string.Empty;
+        if (charla.AprobadoPorId.HasValue)
+        {
+            aprobadoPorNombre = await ctx.User
+                .Where(u => u.UserId == charla.AprobadoPorId.Value)
+                .Select(u => u.Person != null ? u.Person.FullName : string.Empty)
+                .FirstOrDefaultAsync() ?? string.Empty;
+        }
+
+        var asistenciaIds = charla.Asistencias.Where(a => a.State).Select(a => a.WorkerId).Distinct().ToList();
+        var workers = asistenciaIds.Count > 0
+            ? await ctx.Worker
+                .Include(w => w.Person)
+                .Where(w => asistenciaIds.Contains(w.Id))
+                .ToDictionaryAsync(w => w.Id, w => w.Person?.FullName ?? string.Empty)
+            : new Dictionary<int, string>();
+
+        var asistencias = charla.Asistencias
+            .Where(a => a.State)
+            .Select(a =>
+            {
+                workers.TryGetValue(a.WorkerId, out var nombre);
+                return new AsistenciaDetailDto(a.WorkerId, nombre ?? string.Empty, a.Asistio);
+            }).ToList();
+
+        return new CharlaDetalleDto(
+            charla.Id, charla.Titulo, charla.Tema, charla.Descripcion,
+            charla.Fecha, charla.DuracionHoras,
+            charla.SupervisorId, supNombre,
+            charla.Estado, charla.EvidenciaUrl, charla.EvidenciaNombre,
+            asistencias.Count, asistencias,
+            charla.AprobadoPorId, aprobadoPorNombre, charla.AprobadoEn,
+            charla.MotivoRechazo, charla.EvidenciaSubidaEn
+        );
+    }
+
+    // ── NEW: Tab 4 — Aprobar / Rechazar ──────────────────────────────────────
+
+    public async Task AprobarAsync(int id, int userId)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+        var charla = await ctx.SsCharlas.FirstOrDefaultAsync(c => c.Id == id && c.State)
+            ?? throw new AbrilException("Charla no encontrada.", 404);
+
+        charla.Estado = "Aprobado";
+        charla.AprobadoPorId = userId;
+        charla.AprobadoEn = DateTime.UtcNow;
+        charla.MotivoRechazo = null;
+        charla.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task RechazarAsync(int id, string motivo, int userId)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+        var charla = await ctx.SsCharlas.FirstOrDefaultAsync(c => c.Id == id && c.State)
+            ?? throw new AbrilException("Charla no encontrada.", 404);
+
+        charla.Estado = "Rechazado";
+        charla.MotivoRechazo = motivo;
+        charla.AprobadoPorId = userId;
+        charla.AprobadoEn = DateTime.UtcNow;
+        charla.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    // ── NEW: Supervisor search ────────────────────────────────────────────────
+
+    public async Task<List<UsuarioDto>> GetSupervisoresAsync(string? search = null)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var query = ctx.User
+            .Include(u => u.Person)
+            .Where(u => u.Active && u.State);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.ToLower();
+            query = query.Where(u => u.Person != null
+                && u.Person.FullName != null
+                && u.Person.FullName.ToLower().Contains(s));
+        }
+
+        return await query
+            .OrderBy(u => u.Person != null ? u.Person.FullName : string.Empty)
+            .Take(50)
+            .Select(u => new UsuarioDto(u.UserId, u.Person != null ? u.Person.FullName ?? string.Empty : string.Empty, u.Email))
+            .ToListAsync();
     }
 }

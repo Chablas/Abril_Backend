@@ -27,8 +27,8 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         if (proyectoId.HasValue) q = q.Where(a => a.ProyectoId == proyectoId.Value);
         if (!string.IsNullOrEmpty(tipo)) q = q.Where(a => a.Tipo == tipo);
         if (!string.IsNullOrEmpty(estado)) q = q.Where(a => a.Estado == estado);
-        if (fechaDesde.HasValue) q = q.Where(a => a.Fecha >= fechaDesde.Value.Date);
-        if (fechaHasta.HasValue) q = q.Where(a => a.Fecha <= fechaHasta.Value.Date);
+        if (fechaDesde.HasValue) q = q.Where(a => a.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
+        if (fechaHasta.HasValue) q = q.Where(a => a.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
 
         return await q
             .OrderByDescending(a => a.Fecha)
@@ -57,8 +57,8 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         if (proyectoId.HasValue) q = q.Where(a => a.ProyectoId == proyectoId.Value);
         if (!string.IsNullOrEmpty(tipo)) q = q.Where(a => a.Tipo == tipo);
         if (!string.IsNullOrEmpty(estado)) q = q.Where(a => a.Estado == estado);
-        if (fechaDesde.HasValue) q = q.Where(a => a.Fecha >= fechaDesde.Value.Date);
-        if (fechaHasta.HasValue) q = q.Where(a => a.Fecha <= fechaHasta.Value.Date);
+        if (fechaDesde.HasValue) q = q.Where(a => a.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
+        if (fechaHasta.HasValue) q = q.Where(a => a.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
         return await q.CountAsync();
     }
 

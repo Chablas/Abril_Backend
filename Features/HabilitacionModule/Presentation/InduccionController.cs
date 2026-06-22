@@ -91,6 +91,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 _logger.LogInformation("GetInducciones — empresaId={EmpresaId}, systemRoles={SystemRoles}",
                     empresaId, User.FindFirst("systemRoles")?.Value);
 
+                if (fechaDesde.HasValue) fechaDesde = DateTime.SpecifyKind(fechaDesde.Value, DateTimeKind.Utc);
+                if (fechaHasta.HasValue) fechaHasta = DateTime.SpecifyKind(fechaHasta.Value, DateTimeKind.Utc);
+
                 var items = await _repo.GetAsync(proyectoId, empresaId, estado, fechaDesde, fechaHasta);
                 return Ok(items);
             }

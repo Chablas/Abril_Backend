@@ -178,4 +178,113 @@ public class CharlaController : ControllerBase
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch { return StatusCode(500, new { message = "Error al eliminar capacitación." }); }
     }
+
+    // ── NEW: Tab 1 — Dashboard Asistencia Supervisores ────────────────────────
+
+    [HttpGet("dashboard-supervisores")]
+    public async Task<IActionResult> GetDashboardSupervisores([FromQuery] int proyectoId, [FromQuery] int mes, [FromQuery] int anio)
+    {
+        try
+        {
+            var result = await _svc.GetDashboardSupervisoresAsync(proyectoId, mes, anio);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener dashboard de supervisores." }); }
+    }
+
+    // ── NEW: Tab 2 — Comparativo ──────────────────────────────────────────────
+
+    [HttpGet("comparativo")]
+    public async Task<IActionResult> GetComparativo([FromQuery] int proyectoId, [FromQuery] int anio)
+    {
+        try
+        {
+            var result = await _svc.GetComparativoAsync(proyectoId, anio);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener comparativo." }); }
+    }
+
+    // ── NEW: Tab 3 — Crear nueva charla ──────────────────────────────────────
+
+    [HttpPost("nueva")]
+    public async Task<IActionResult> CrearNueva([FromQuery] int userId, [FromBody] NuevaCharlaCreateDto dto)
+    {
+        try
+        {
+            var result = await _svc.CrearNuevaCharlaAsync(dto, userId);
+            return StatusCode(201, result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al crear charla." }); }
+    }
+
+    // ── NEW: Tab 4 — Lista paginada ───────────────────────────────────────────
+
+    [HttpGet("lista")]
+    public async Task<IActionResult> GetLista(
+        [FromQuery] int? proyectoId,
+        [FromQuery] string? estado,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        try
+        {
+            var result = await _svc.GetListaAsync(proyectoId, estado, page, pageSize);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener lista de charlas." }); }
+    }
+
+    [HttpGet("{id:int}/detalle")]
+    public async Task<IActionResult> GetDetalle(int id)
+    {
+        try
+        {
+            var result = await _svc.GetDetalleAsync(id);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener detalle." }); }
+    }
+
+    [HttpPut("{id:int}/aprobar")]
+    public async Task<IActionResult> Aprobar(int id, [FromQuery] int userId)
+    {
+        try
+        {
+            await _svc.AprobarAsync(id, userId);
+            return Ok(new { message = "Charla aprobada." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al aprobar charla." }); }
+    }
+
+    [HttpPut("{id:int}/rechazar")]
+    public async Task<IActionResult> Rechazar(int id, [FromQuery] int userId, [FromBody] RechazarCharlaDto dto)
+    {
+        try
+        {
+            await _svc.RechazarAsync(id, dto.Motivo, userId);
+            return Ok(new { message = "Charla rechazada." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al rechazar charla." }); }
+    }
+
+    // ── NEW: Supervisor search ────────────────────────────────────────────────
+
+    [HttpGet("supervisores")]
+    public async Task<IActionResult> GetSupervisores([FromQuery] string? search = null)
+    {
+        try
+        {
+            var result = await _svc.GetSupervisoresAsync(search);
+            return Ok(result);
+        }
+        catch { return StatusCode(500, new { message = "Error al obtener supervisores." }); }
+    }
 }

@@ -101,10 +101,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 query = query.Where(i => i.EmpresaId == empresaId.Value);
             if (!string.IsNullOrWhiteSpace(estado))
                 query = query.Where(i => i.Estado == estado);
-            if (fechaDesde.HasValue)
-                query = query.Where(i => i.FechaProgramada >= fechaDesde.Value);
-            if (fechaHasta.HasValue)
-                query = query.Where(i => i.FechaProgramada <= fechaHasta.Value);
+            var desde = DateTime.SpecifyKind(fechaDesde ?? DateTime.MinValue, DateTimeKind.Utc);
+            var hasta = DateTime.SpecifyKind(fechaHasta ?? DateTime.MaxValue, DateTimeKind.Utc);
+            query = query.Where(i => i.FechaProgramada >= desde && i.FechaProgramada <= hasta);
 
             var rows = await query
                 .OrderByDescending(i => i.FechaProgramada)

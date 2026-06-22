@@ -298,8 +298,8 @@ public class InspeccionRepository : IInspeccionRepository
         if (proyectoId.HasValue) q = q.Where(i => i.ProyectoId == proyectoId.Value);
         if (tipoId.HasValue) q = q.Where(i => i.TipoId == tipoId.Value);
         if (!string.IsNullOrEmpty(estado)) q = q.Where(i => i.Estado == estado);
-        if (fechaDesde.HasValue) q = q.Where(i => i.Fecha >= fechaDesde.Value.Date);
-        if (fechaHasta.HasValue) q = q.Where(i => i.Fecha <= fechaHasta.Value.Date);
+        if (fechaDesde.HasValue) q = q.Where(i => i.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
+        if (fechaHasta.HasValue) q = q.Where(i => i.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
 
         return await q
             .OrderByDescending(i => i.Fecha)
@@ -334,8 +334,8 @@ public class InspeccionRepository : IInspeccionRepository
         if (proyectoId.HasValue) q = q.Where(i => i.ProyectoId == proyectoId.Value);
         if (tipoId.HasValue) q = q.Where(i => i.TipoId == tipoId.Value);
         if (!string.IsNullOrEmpty(estado)) q = q.Where(i => i.Estado == estado);
-        if (fechaDesde.HasValue) q = q.Where(i => i.Fecha >= fechaDesde.Value.Date);
-        if (fechaHasta.HasValue) q = q.Where(i => i.Fecha <= fechaHasta.Value.Date);
+        if (fechaDesde.HasValue) q = q.Where(i => i.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
+        if (fechaHasta.HasValue) q = q.Where(i => i.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
         return await q.CountAsync();
     }
 

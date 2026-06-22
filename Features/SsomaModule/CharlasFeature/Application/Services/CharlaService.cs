@@ -309,12 +309,14 @@ public class CharlaService : ICharlaService
 
         var staffIds = staff.Select(w => w.Id).ToList();
 
-        // get capacitaciones this month
+        // get capacitaciones this month — solo individuales del proyecto
         var inicioMes = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
         var finMes = inicioMes.AddMonths(1);
         var caps = await ctx.SsCharlas
             .Where(c => c.SupervisorId != null
                 && staffIds.Contains(c.SupervisorId!.Value)
+                && c.EsCapacitacionIndividual
+                && c.ProyectoId == proyectoId
                 && c.Fecha >= inicioMes && c.Fecha < finMes
                 && c.State)
             .ToListAsync();
@@ -340,6 +342,7 @@ public class CharlaService : ICharlaService
 
     public async Task<CapacitacionDto> SubirCapacitacionAsync(int workerId, DateTime fecha, string tema, Stream evidencia, string fileName, int userId)
     {
+        fecha = DateTime.SpecifyKind(fecha, DateTimeKind.Utc);
         await using var ctx = await _factory.CreateDbContextAsync();
 
         var worker = await ctx.Worker
@@ -397,9 +400,11 @@ public class CharlaService : ICharlaService
             {
                 ProgramaId = programaId,
                 Fecha = fecha,
-                Titulo = $"Capacitación {worker.Person?.FullName ?? workerId.ToString()}",
+                Titulo = tema,
                 Tema = tema,
                 SupervisorId = workerId,
+                ProyectoId = proyectoId > 0 ? proyectoId : null,
+                EsCapacitacionIndividual = true,
                 EvidenciaUrl = url,
                 EvidenciaNombre = fileName,
                 EvidenciaSubidaPorId = userId,
@@ -413,7 +418,10 @@ public class CharlaService : ICharlaService
         else
         {
             cap.Fecha = fecha;
+            cap.Titulo = tema;
             cap.Tema = tema;
+            cap.ProyectoId = proyectoId > 0 ? proyectoId : cap.ProyectoId;
+            cap.EsCapacitacionIndividual = true;
             cap.EvidenciaUrl = url;
             cap.EvidenciaNombre = fileName;
             cap.EvidenciaSubidaPorId = userId;
@@ -425,6 +433,21 @@ public class CharlaService : ICharlaService
         await ctx.SaveChangesAsync();
 
         return new CapacitacionDto(cap.Id, workerId, worker.Person?.FullName ?? string.Empty, cap.Fecha, cap.Tema, cap.EvidenciaUrl, cap.EvidenciaNombre, cap.Estado);
+    }
+
+    public async Task<CapacitacionDto> SubirMiCapacitacionAsync(int userId, DateTime fecha, string tema, Stream evidencia, string fileName)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var workerId = await ctx.Person
+            .Where(p => p.UserId == userId)
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w.Id)
+            .FirstOrDefaultAsync();
+
+        if (workerId == 0)
+            throw new AbrilException("No se encontró el perfil de trabajador para este usuario.", 404);
+
+        return await SubirCapacitacionAsync(workerId, fecha, tema, evidencia, fileName, userId);
     }
 
     public async Task<CapacitacionDto> CambiarEstadoAsync(int id, string estado, int userId)
@@ -679,15 +702,6 @@ public class CharlaService : ICharlaService
                 .FirstOrDefaultAsync() ?? string.Empty;
         }
 
-        var aprobadoPorNombre = string.Empty;
-        if (charla.AprobadoPorId.HasValue)
-        {
-            aprobadoPorNombre = await ctx.User
-                .Where(u => u.UserId == charla.AprobadoPorId.Value)
-                .Select(u => u.Person != null ? u.Person.FullName : string.Empty)
-                .FirstOrDefaultAsync() ?? string.Empty;
-        }
-
         var asistenciaIds = charla.Asistencias.Where(a => a.State).Select(a => a.WorkerId).Distinct().ToList();
         var workers = asistenciaIds.Count > 0
             ? await ctx.Worker
@@ -710,8 +724,7 @@ public class CharlaService : ICharlaService
             charla.SupervisorId, supNombre,
             charla.Estado, charla.EvidenciaUrl, charla.EvidenciaNombre,
             asistencias.Count, asistencias,
-            charla.AprobadoPorId, aprobadoPorNombre, charla.AprobadoEn,
-            charla.MotivoRechazo, charla.EvidenciaSubidaEn
+            charla.EvidenciaSubidaEn
         );
     }
 
@@ -724,9 +737,6 @@ public class CharlaService : ICharlaService
             ?? throw new AbrilException("Charla no encontrada.", 404);
 
         charla.Estado = "Aprobado";
-        charla.AprobadoPorId = userId;
-        charla.AprobadoEn = DateTime.UtcNow;
-        charla.MotivoRechazo = null;
         charla.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
     }
@@ -738,9 +748,6 @@ public class CharlaService : ICharlaService
             ?? throw new AbrilException("Charla no encontrada.", 404);
 
         charla.Estado = "Rechazado";
-        charla.MotivoRechazo = motivo;
-        charla.AprobadoPorId = userId;
-        charla.AprobadoEn = DateTime.UtcNow;
         charla.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
     }

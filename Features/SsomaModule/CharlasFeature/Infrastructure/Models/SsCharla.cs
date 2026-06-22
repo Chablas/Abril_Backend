@@ -21,9 +21,9 @@ public class SsCharla
     [Column("evidencia_subida_por_id")] public int? EvidenciaSubidaPorId { get; set; }
     [Column("evidencia_subida_en")] public DateTime? EvidenciaSubidaEn { get; set; }
     [Column("creado_por_id")] public int? CreadoPorId { get; set; }
-    [Column("aprobado_por_id")] public int? AprobadoPorId { get; set; }
-    [Column("aprobado_en")] public DateTime? AprobadoEn { get; set; }
-    [Column("motivo_rechazo")] public string? MotivoRechazo { get; set; }
+    [Column("proyecto_id")] public int? ProyectoId { get; set; }
+    [Column("es_capacitacion_individual")] public bool EsCapacitacionIndividual { get; set; } = false;
+
     [Column("created_at")] public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     [Column("updated_at")] public DateTime? UpdatedAt { get; set; }
     [Column("state")] public bool State { get; set; } = true;

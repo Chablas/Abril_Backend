@@ -234,9 +234,10 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular",
         p => p
-            .AllowAnyOrigin()
+            .SetIsOriginAllowed(_ => true)
             .AllowAnyHeader()
             .AllowAnyMethod()
+            .AllowCredentials()
     );
 });
 builder.Services.AddEndpointsApiExplorer();

@@ -19,6 +19,7 @@ public interface ICharlaService
     // Tab 2 — Capacitaciones Staff (staff self-upload; coordinator approves)
     Task<List<CapacitacionDto>> GetCapacitacionesAsync(int proyectoId, int mes, int anio);
     Task<CapacitacionDto> SubirCapacitacionAsync(int workerId, DateTime fecha, string tema, Stream evidencia, string fileName, int userId);
+    Task<CapacitacionDto> SubirMiCapacitacionAsync(int userId, DateTime fecha, string tema, Stream evidencia, string fileName);
     Task<CapacitacionDto> CambiarEstadoAsync(int id, string estado, int userId);
     Task EliminarCapacitacionAsync(int id);
 

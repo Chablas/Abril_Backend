@@ -331,6 +331,28 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             }
         }
 
+        [HttpPatch("compromisos/{compromisoId:int}/observaciones")]
+        public async Task<IActionResult> UpdateCompromisoObservaciones(int compromisoId, [FromBody] VecinoCompromisoObservacionesUpdateDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                await _service.UpdateCompromisoObservaciones(compromisoId, dto.Observaciones, userId);
+                return Ok(new { message = "Observaciones actualizadas." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS COMPROMISO OBSERVACIONES: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPost("compromisos/entregables/{entregableId:int}/upload")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> UploadEntregable(int entregableId, IFormFile file)
@@ -350,6 +372,154 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR GESTION VECINOS ENTREGABLE UPLOAD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost("compromisos/{compromisoId:int}/normativas")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadNormativas(int compromisoId, [FromForm] IFormFileCollection files)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                var normativas = await _service.UploadNormativas(compromisoId, files, userId);
+                return Ok(new { normativas, message = "Archivos subidos exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS NORMATIVAS UPLOAD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpDelete("compromisos/normativas/{normativaId:int}")]
+        public async Task<IActionResult> DeleteNormativa(int normativaId)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                await _service.DeleteNormativa(normativaId, userId);
+                return Ok(new { message = "Archivo eliminado." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS NORMATIVA DELETE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        // ── Calendario de limpiezas ────────────────────────────────────────────
+        [HttpGet("proyectos/{projectId:int}/limpiezas")]
+        public async Task<IActionResult> GetLimpiezas(int projectId, [FromQuery] int year, [FromQuery] int month)
+        {
+            try
+            {
+                var result = await _service.GetLimpiezas(projectId, year, month);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS LIMPIEZAS GET: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost("proyectos/{projectId:int}/limpiezas")]
+        public async Task<IActionResult> CreateLimpieza(int projectId, [FromBody] VecinoLimpiezaCreateDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                var limpieza = await _service.CreateLimpieza(projectId, dto, userId);
+                return Ok(new { limpieza, message = "Limpieza registrada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS LIMPIEZA CREATE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Compromisos (de las solicitudes de un vecino) para relacionar la atención de limpieza.</summary>
+        [HttpGet("{vecinoId:int}/compromisos-select")]
+        public async Task<IActionResult> GetCompromisosSelect(int vecinoId)
+        {
+            try
+            {
+                var result = await _service.GetCompromisosSelect(vecinoId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS COMPROMISOS SELECT: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPost("limpiezas/{limpiezaId:int}/atencion")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadAtencion(int limpiezaId, [FromForm] IFormFile file, [FromForm] int? vecinoCompromisoId)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                var archivoUrl = await _service.UploadAtencion(limpiezaId, file, vecinoCompromisoId, userId);
+                return Ok(new { archivoUrl, message = "Atención de limpieza registrada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS ATENCION UPLOAD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpDelete("limpiezas/{limpiezaId:int}")]
+        public async Task<IActionResult> DeleteLimpieza(int limpiezaId)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                await _service.DeleteLimpieza(limpiezaId, userId);
+                return Ok(new { message = "Limpieza eliminada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS LIMPIEZA DELETE: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

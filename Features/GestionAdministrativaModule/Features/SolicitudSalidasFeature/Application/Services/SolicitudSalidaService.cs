@@ -334,13 +334,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         // ── CC / BCC recepción ──────────────────────────────────────────────
         private const int RoleIdRecepcion = 52;
         private const string CcRecepcionFijo = "recepcionnm@abril.pe";
+        /// <summary>Correo de GTH que va siempre en copia en los envíos al solicitante + recepción.</summary>
+        private const string CcGthFijo = "gthnm@abril.pe";
         /// <summary>Correo con copia oculta en todos los envíos que también van a recepción.</summary>
         private const string BccRecepcionMonitoreo = "calvarez@abril.pe";
 
         /// <summary>
         /// Devuelve los correos para CC del flujo de salidas:
         /// (a) <c>worker.email_personal</c> de todos los users con rol id 52 (USUARIO DE RECEPCIÓN),
-        /// (b) más el correo fijo <c>recepcionnm@abril.pe</c> (siempre).
+        /// (b) más el correo fijo <c>recepcionnm@abril.pe</c> (siempre),
+        /// (c) más el correo fijo de GTH <c>gthnm@abril.pe</c> (siempre).
         /// </summary>
         private static async Task<List<string>> GetCcRecepcionAsync(AppDbContext ctx)
         {
@@ -355,6 +358,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             if (!emails.Any(e => string.Equals(e, CcRecepcionFijo, StringComparison.OrdinalIgnoreCase)))
                 emails.Add(CcRecepcionFijo);
+
+            if (!emails.Any(e => string.Equals(e, CcGthFijo, StringComparison.OrdinalIgnoreCase)))
+                emails.Add(CcGthFijo);
 
             return emails;
         }

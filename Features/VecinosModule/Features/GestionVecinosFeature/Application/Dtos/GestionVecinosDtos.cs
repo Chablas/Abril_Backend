@@ -191,6 +191,14 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public string? OriginalFileName { get; set; }
     }
 
+    /// <summary>Un archivo de "normativas" de un compromiso (sección multi-archivo).</summary>
+    public class VecinoNormativaDto
+    {
+        public int VecinoCompromisoNormativaId { get; set; }
+        public string ArchivoUrl { get; set; } = null!;
+        public string? OriginalFileName { get; set; }
+    }
+
     public class VecinoCompromisoItemDto
     {
         public int VecinoCompromisoId { get; set; }
@@ -201,8 +209,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public string EstadoDescripcion { get; set; } = null!;
         public DateOnly? FechaInicio { get; set; }
         public DateOnly? FechaFin { get; set; }
+        public string? Observaciones { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public List<VecinoEntregableItemDto> Entregables { get; set; } = new();
+        public List<VecinoNormativaDto> Normativas { get; set; } = new();
     }
 
     public class VecinoCompromisoCreateDto
@@ -212,11 +222,17 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public int? VecinoCompromisoEstadoId { get; set; }
         public DateOnly? FechaInicio { get; set; }
         public DateOnly? FechaFin { get; set; }
+        public string? Observaciones { get; set; }
     }
 
     public class VecinoCompromisoEstadoUpdateDto
     {
         public int VecinoCompromisoEstadoId { get; set; }
+    }
+
+    public class VecinoCompromisoObservacionesUpdateDto
+    {
+        public string? Observaciones { get; set; }
     }
 
     public class VecinoEntregableEstadoUpdateDto
@@ -253,6 +269,46 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
     public class VecinoRequisitoNoAplicaDto
     {
         public bool NoAplica { get; set; }
+    }
+
+    // ── Calendario de limpiezas ────────────────────────────────────────────────
+    /// <summary>Una limpieza programada en una fecha (área común o depto de un vecino).</summary>
+    public class VecinoLimpiezaDto
+    {
+        public int VecinoLimpiezaId { get; set; }
+        public DateOnly Fecha { get; set; }
+        public int VecinoLimpiezaTipoId { get; set; }
+        public string TipoDescripcion { get; set; } = null!;
+        public int? VecinoId { get; set; }
+        public string? VecinoNombre { get; set; }
+        public string? VecinoDireccion { get; set; }
+        public string? Descripcion { get; set; }
+        public string? AtencionArchivoUrl { get; set; }
+        public string? AtencionOriginalFileName { get; set; }
+        public int? AtencionVecinoCompromisoId { get; set; }
+        public string? AtencionCompromisoLabel { get; set; }
+    }
+
+    /// <summary>Opción de compromiso de un vecino, para relacionar la atención de limpieza.</summary>
+    public class VecinoCompromisoSelectDto
+    {
+        public int VecinoCompromisoId { get; set; }
+        public string Label { get; set; } = null!;
+    }
+
+    /// <summary>Limpiezas de un proyecto en un mes + catálogo de tipos.</summary>
+    public class VecinoLimpiezasResponseDto
+    {
+        public List<VecinoLimpiezaDto> Limpiezas { get; set; } = new();
+        public List<CatalogOptionDto> Tipos { get; set; } = new();
+    }
+
+    public class VecinoLimpiezaCreateDto
+    {
+        public DateOnly Fecha { get; set; }
+        public int VecinoLimpiezaTipoId { get; set; }
+        public int? VecinoId { get; set; }
+        public string? Descripcion { get; set; }
     }
 
     // ── Dashboard ─────────────────────────────────────────────────────────────

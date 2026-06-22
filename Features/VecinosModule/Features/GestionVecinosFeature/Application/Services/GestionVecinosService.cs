@@ -232,6 +232,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
                 throw new AbrilException("No se pudo actualizar el estado del compromiso.", 404);
         }
 
+        public async Task UpdateCompromisoObservaciones(int compromisoId, string? observaciones, int userId)
+        {
+            var ok = await _repository.UpdateCompromisoObservaciones(compromisoId, observaciones, userId);
+            if (!ok)
+                throw new AbrilException("No se pudo actualizar las observaciones del compromiso.", 404);
+        }
+
         public async Task UpdateEntregableEstado(int entregableId, int estadoId, int userId)
         {
             if (estadoId <= 0)
@@ -267,6 +274,114 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
             var ok = await _repository.UploadEntregable(entregableId, archivoUrl, file.FileName, userId);
             if (!ok)
                 throw new AbrilException("El entregable no existe.", 404);
+
+            return archivoUrl;
+        }
+
+        public async Task<List<VecinoNormativaDto>> UploadNormativas(int compromisoId, IFormFileCollection files, int userId)
+        {
+            if (!await _repository.CompromisoExists(compromisoId))
+                throw new AbrilException("El compromiso no existe.", 404);
+            if (files == null || files.Count == 0)
+                throw new AbrilException("No se adjuntó ningún archivo.", 400);
+
+            foreach (var file in files)
+            {
+                if (file.Length == 0)
+                    throw new AbrilException("Uno de los archivos está vacío.", 400);
+                if (file.Length > MaxBytes)
+                    throw new AbrilException("Cada archivo supera el tamaño máximo permitido (15 MB).", 400);
+
+                var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (!AllowedExtensions.Contains(ext))
+                    throw new AbrilException("Formato no válido. Use PDF, Word, Excel o imagen.", 400);
+            }
+
+            var container = _containerResolver.GetVecinoEntregablesContainerName();
+
+            var toUpload = new List<(Stream, string)>();
+            var streams = new List<Stream>();
+            try
+            {
+                foreach (var file in files)
+                {
+                    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                    var stream = file.OpenReadStream();
+                    streams.Add(stream);
+                    toUpload.Add((stream, $"{Guid.NewGuid()}{ext}"));
+                }
+
+                var urls = (await _fileStorageService.UploadFilesAsync(toUpload, container)).ToList();
+
+                var archivos = urls
+                    .Select((url, i) => (ArchivoUrl: url, OriginalFileName: (string?)files[i].FileName))
+                    .ToList();
+
+                return await _repository.AddNormativas(compromisoId, archivos, userId);
+            }
+            finally
+            {
+                foreach (var s in streams) s.Dispose();
+            }
+        }
+
+        public async Task DeleteNormativa(int normativaId, int userId)
+        {
+            var ok = await _repository.DeleteNormativa(normativaId, userId);
+            if (!ok)
+                throw new AbrilException("El archivo no existe.", 404);
+        }
+
+        // ── Calendario de limpiezas ────────────────────────────────────────────
+        public Task<VecinoLimpiezasResponseDto> GetLimpiezas(int projectId, int year, int month)
+        {
+            if (month < 1 || month > 12)
+                throw new AbrilException("Mes inválido.", 400);
+            return _repository.GetLimpiezas(projectId, year, month);
+        }
+
+        public Task<VecinoLimpiezaDto> CreateLimpieza(int projectId, VecinoLimpiezaCreateDto dto, int userId)
+        {
+            if (dto.VecinoLimpiezaTipoId <= 0)
+                throw new AbrilException("Debe seleccionar el tipo de limpieza.", 400);
+            return _repository.CreateLimpieza(projectId, dto, userId);
+        }
+
+        public async Task DeleteLimpieza(int limpiezaId, int userId)
+        {
+            var ok = await _repository.DeleteLimpieza(limpiezaId, userId);
+            if (!ok)
+                throw new AbrilException("La limpieza no existe.", 404);
+        }
+
+        public Task<List<VecinoCompromisoSelectDto>> GetCompromisosSelect(int vecinoId)
+            => _repository.GetCompromisosSelect(vecinoId);
+
+        public async Task<string> UploadAtencion(int limpiezaId, IFormFile file, int? vecinoCompromisoId, int userId)
+        {
+            if (file == null || file.Length == 0)
+                throw new AbrilException("No se adjuntó ningún archivo.", 400);
+            if (file.Length > MaxBytes)
+                throw new AbrilException("El archivo supera el tamaño máximo permitido (15 MB).", 400);
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!AllowedExtensions.Contains(extension))
+                throw new AbrilException("Formato no válido. Use PDF, Word, Excel o imagen.", 400);
+
+            var container = _containerResolver.GetVecinoEntregablesContainerName();
+
+            string archivoUrl;
+            using (var stream = file.OpenReadStream())
+            {
+                var uploaded = await _fileStorageService.UploadFilesAsync(
+                    new[] { (stream, $"{Guid.NewGuid()}{extension}") },
+                    container);
+                archivoUrl = uploaded.First();
+            }
+
+            var ok = await _repository.UploadAtencion(limpiezaId, archivoUrl, file.FileName, vecinoCompromisoId, userId);
+            if (!ok)
+                throw new AbrilException("La limpieza no existe.", 404);
 
             return archivoUrl;
         }

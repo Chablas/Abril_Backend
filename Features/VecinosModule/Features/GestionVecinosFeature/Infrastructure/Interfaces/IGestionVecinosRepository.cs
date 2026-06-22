@@ -22,8 +22,18 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
         Task<List<VecinoCompromisoItemDto>> GetCompromisos(int solicitudId);
         Task<int> CreateCompromiso(int solicitudId, VecinoCompromisoCreateDto dto, int userId);
         Task<bool> UpdateCompromisoEstado(int compromisoId, int estadoId, int userId);
+        Task<bool> UpdateCompromisoObservaciones(int compromisoId, string? observaciones, int userId);
         Task<bool> UpdateEntregableEstado(int entregableId, int estadoId, int userId);
         Task<bool> UploadEntregable(int entregableId, string archivoUrl, string? originalFileName, int userId);
+        Task<bool> CompromisoExists(int compromisoId);
+        Task<List<VecinoNormativaDto>> AddNormativas(int compromisoId, List<(string ArchivoUrl, string? OriginalFileName)> archivos, int userId);
+        Task<bool> DeleteNormativa(int normativaId, int userId);
+
+        Task<VecinoLimpiezasResponseDto> GetLimpiezas(int projectId, int year, int month);
+        Task<VecinoLimpiezaDto> CreateLimpieza(int projectId, VecinoLimpiezaCreateDto dto, int userId);
+        Task<bool> DeleteLimpieza(int limpiezaId, int userId);
+        Task<List<VecinoCompromisoSelectDto>> GetCompromisosSelect(int vecinoId);
+        Task<bool> UploadAtencion(int limpiezaId, string archivoUrl, string? originalFileName, int? vecinoCompromisoId, int userId);
 
         Task<VecinosDashboardDto> GetDashboard();
 

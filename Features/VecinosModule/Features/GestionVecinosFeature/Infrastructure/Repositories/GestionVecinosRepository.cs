@@ -514,6 +514,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                     EstadoDescripcion = e.Descripcion,
                     FechaInicio = c.FechaInicio,
                     FechaFin = c.FechaFin,
+                    Observaciones = c.Observaciones,
                     CreatedDateTime = c.CreatedDateTime
                 }
             ).ToListAsync();
@@ -552,6 +553,30 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             foreach (var c in compromisos)
                 c.Entregables = byCompromiso.GetValueOrDefault(c.VecinoCompromisoId, new());
 
+            // Normativas (varios archivos por compromiso).
+            var normativas = await (
+                from n in ctx.VecinoCompromisoNormativa
+                where ids.Contains(n.VecinoCompromisoId) && n.Active && n.State
+                orderby n.VecinoCompromisoNormativaId
+                select new
+                {
+                    n.VecinoCompromisoId,
+                    Dto = new VecinoNormativaDto
+                    {
+                        VecinoCompromisoNormativaId = n.VecinoCompromisoNormativaId,
+                        ArchivoUrl = n.ArchivoUrl,
+                        OriginalFileName = n.OriginalFileName
+                    }
+                }
+            ).ToListAsync();
+
+            var normativasByCompromiso = normativas
+                .GroupBy(x => x.VecinoCompromisoId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
+
+            foreach (var c in compromisos)
+                c.Normativas = normativasByCompromiso.GetValueOrDefault(c.VecinoCompromisoId, new());
+
             return compromisos;
         }
 
@@ -572,6 +597,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 VecinoCompromisoEstadoId = estadoId,
                 FechaInicio = dto.FechaInicio,
                 FechaFin = dto.FechaFin,
+                Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim(),
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
                 Active = true,
@@ -659,6 +685,21 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             return true;
         }
 
+        public async Task<bool> UpdateCompromisoObservaciones(int compromisoId, string? observaciones, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var compromiso = await ctx.VecinoCompromiso
+                .FirstOrDefaultAsync(c => c.VecinoCompromisoId == compromisoId && c.Active && c.State);
+            if (compromiso is null) return false;
+
+            compromiso.Observaciones = string.IsNullOrWhiteSpace(observaciones) ? null : observaciones.Trim();
+            compromiso.UpdatedDateTime = DateTime.UtcNow;
+            compromiso.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
         public async Task<bool> UploadEntregable(int entregableId, string archivoUrl, string? originalFileName, int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -671,6 +712,257 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             entregable.OriginalFileName = originalFileName;
             entregable.UpdatedDateTime = DateTime.UtcNow;
             entregable.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> CompromisoExists(int compromisoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.VecinoCompromiso.AnyAsync(c => c.VecinoCompromisoId == compromisoId && c.Active && c.State);
+        }
+
+        public async Task<List<VecinoNormativaDto>> AddNormativas(int compromisoId, List<(string ArchivoUrl, string? OriginalFileName)> archivos, int userId)
+        {
+            if (archivos.Count == 0) return new();
+            using var ctx = _factory.CreateDbContext();
+
+            var now = DateTime.UtcNow;
+            var entities = archivos.Select(a => new VecinoCompromisoNormativa
+            {
+                VecinoCompromisoId = compromisoId,
+                ArchivoUrl = a.ArchivoUrl,
+                OriginalFileName = a.OriginalFileName,
+                CreatedDateTime = now,
+                CreatedUserId = userId,
+                Active = true,
+                State = true
+            }).ToList();
+
+            ctx.VecinoCompromisoNormativa.AddRange(entities);
+            await ctx.SaveChangesAsync();
+
+            return entities.Select(e => new VecinoNormativaDto
+            {
+                VecinoCompromisoNormativaId = e.VecinoCompromisoNormativaId,
+                ArchivoUrl = e.ArchivoUrl,
+                OriginalFileName = e.OriginalFileName
+            }).ToList();
+        }
+
+        public async Task<bool> DeleteNormativa(int normativaId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var row = await ctx.VecinoCompromisoNormativa.FirstOrDefaultAsync(n => n.VecinoCompromisoNormativaId == normativaId && n.State);
+            if (row is null) return false;
+
+            row.State = false;
+            row.UpdatedDateTime = DateTime.UtcNow;
+            row.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
+        // ── Calendario de limpiezas ────────────────────────────────────────────
+        public async Task<VecinoLimpiezasResponseDto> GetLimpiezas(int projectId, int year, int month)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var desde = new DateOnly(year, month, 1);
+            var hasta = desde.AddMonths(1);
+
+            var rows = await (
+                from l in ctx.VecinoLimpieza.Where(l => l.ProjectId == projectId && l.State && l.Fecha >= desde && l.Fecha < hasta)
+                join t in ctx.VecinoLimpiezaTipo on l.VecinoLimpiezaTipoId equals t.VecinoLimpiezaTipoId
+                join v in ctx.Vecino on l.VecinoId equals v.VecinoId into vj
+                from v in vj.DefaultIfEmpty()
+                orderby l.Fecha, l.VecinoLimpiezaId
+                select new VecinoLimpiezaDto
+                {
+                    VecinoLimpiezaId = l.VecinoLimpiezaId,
+                    Fecha = l.Fecha,
+                    VecinoLimpiezaTipoId = l.VecinoLimpiezaTipoId,
+                    TipoDescripcion = t.Descripcion,
+                    VecinoId = l.VecinoId,
+                    VecinoDireccion = v != null ? v.Direccion : null,
+                    Descripcion = l.Descripcion,
+                    AtencionArchivoUrl = l.AtencionArchivoUrl,
+                    AtencionOriginalFileName = l.AtencionOriginalFileName,
+                    AtencionVecinoCompromisoId = l.AtencionVecinoCompromisoId,
+                }
+            ).ToListAsync();
+
+            // Etiqueta del compromiso asociado a la atención (si tiene).
+            var compromisoIds = rows.Where(r => r.AtencionVecinoCompromisoId.HasValue)
+                .Select(r => r.AtencionVecinoCompromisoId!.Value).Distinct().ToList();
+            if (compromisoIds.Count > 0)
+            {
+                var labels = await (
+                    from c in ctx.VecinoCompromiso.Where(c => compromisoIds.Contains(c.VecinoCompromisoId))
+                    join s in ctx.VecinoSolicitud on c.VecinoSolicitudId equals s.VecinoSolicitudId
+                    select new { c.VecinoCompromisoId, Solicitud = s.Descripcion, Compromiso = c.Descripcion }
+                ).ToListAsync();
+                var labelById = labels.ToDictionary(x => x.VecinoCompromisoId, x => $"{x.Solicitud} — {x.Compromiso}");
+                foreach (var r in rows)
+                    if (r.AtencionVecinoCompromisoId.HasValue)
+                        r.AtencionCompromisoLabel = labelById.GetValueOrDefault(r.AtencionVecinoCompromisoId.Value);
+            }
+
+            // Nombre del propietario (primera persona) de los vecinos involucrados, en una consulta.
+            var vecinoIds = rows.Where(r => r.VecinoId.HasValue).Select(r => r.VecinoId!.Value).Distinct().ToList();
+            if (vecinoIds.Count > 0)
+            {
+                var nombres = await (
+                    from per in ctx.VecinoPersona.Where(p => vecinoIds.Contains(p.VecinoId) && p.Active && p.State)
+                    orderby per.VecinoRelacionTipoId, per.VecinoPersonaId
+                    select new { per.VecinoId, per.Nombre }
+                ).ToListAsync();
+                var nombreByVecino = nombres.GroupBy(x => x.VecinoId).ToDictionary(g => g.Key, g => g.First().Nombre);
+                foreach (var r in rows)
+                    if (r.VecinoId.HasValue) r.VecinoNombre = nombreByVecino.GetValueOrDefault(r.VecinoId.Value);
+            }
+
+            var tipos = await ctx.VecinoLimpiezaTipo
+                .Where(t => t.State && t.Active)
+                .OrderBy(t => t.VecinoLimpiezaTipoId)
+                .Select(t => new CatalogOptionDto { Id = t.VecinoLimpiezaTipoId, Descripcion = t.Descripcion })
+                .ToListAsync();
+
+            return new VecinoLimpiezasResponseDto { Limpiezas = rows, Tipos = tipos };
+        }
+
+        public async Task<VecinoLimpiezaDto> CreateLimpieza(int projectId, VecinoLimpiezaCreateDto dto, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            if (!await ctx.Project.AnyAsync(p => p.ProjectId == projectId && p.State))
+                throw new AbrilException("El proyecto no existe.", 404);
+
+            var tipo = await ctx.VecinoLimpiezaTipo.FirstOrDefaultAsync(t => t.VecinoLimpiezaTipoId == dto.VecinoLimpiezaTipoId && t.State && t.Active);
+            if (tipo is null)
+                throw new AbrilException("El tipo de limpieza no existe.", 404);
+
+            int? vecinoId = null;
+            string? vecinoNombre = null;
+            string? vecinoDireccion = null;
+
+            if (tipo.Descripcion == "Departamento")
+            {
+                if (!dto.VecinoId.HasValue)
+                    throw new AbrilException("Debe seleccionar el vecino del departamento a limpiar.", 400);
+
+                var vecino = await ctx.Vecino.FirstOrDefaultAsync(v => v.VecinoId == dto.VecinoId.Value && v.State && v.ProjectId == projectId);
+                if (vecino is null)
+                    throw new AbrilException("El vecino no pertenece a este proyecto.", 422);
+
+                vecinoId = vecino.VecinoId;
+                vecinoDireccion = vecino.Direccion;
+                vecinoNombre = await (
+                    from per in ctx.VecinoPersona.Where(p => p.VecinoId == vecino.VecinoId && p.Active && p.State)
+                    orderby per.VecinoRelacionTipoId, per.VecinoPersonaId
+                    select per.Nombre
+                ).FirstOrDefaultAsync();
+            }
+
+            var entity = new VecinoLimpieza
+            {
+                ProjectId = projectId,
+                VecinoLimpiezaTipoId = tipo.VecinoLimpiezaTipoId,
+                VecinoId = vecinoId,
+                Fecha = dto.Fecha,
+                Descripcion = string.IsNullOrWhiteSpace(dto.Descripcion) ? null : dto.Descripcion.Trim(),
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId = userId,
+                Active = true,
+                State = true,
+            };
+
+            ctx.VecinoLimpieza.Add(entity);
+            await ctx.SaveChangesAsync();
+
+            return new VecinoLimpiezaDto
+            {
+                VecinoLimpiezaId = entity.VecinoLimpiezaId,
+                Fecha = entity.Fecha,
+                VecinoLimpiezaTipoId = tipo.VecinoLimpiezaTipoId,
+                TipoDescripcion = tipo.Descripcion,
+                VecinoId = vecinoId,
+                VecinoNombre = vecinoNombre,
+                VecinoDireccion = vecinoDireccion,
+                Descripcion = entity.Descripcion,
+            };
+        }
+
+        public async Task<bool> DeleteLimpieza(int limpiezaId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var row = await ctx.VecinoLimpieza.FirstOrDefaultAsync(l => l.VecinoLimpiezaId == limpiezaId && l.State);
+            if (row is null) return false;
+
+            row.State = false;
+            row.UpdatedDateTime = DateTime.UtcNow;
+            row.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<List<VecinoCompromisoSelectDto>> GetCompromisosSelect(int vecinoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await (
+                from c in ctx.VecinoCompromiso.Where(c => c.Active && c.State)
+                join s in ctx.VecinoSolicitud.Where(s => s.VecinoId == vecinoId && s.State) on c.VecinoSolicitudId equals s.VecinoSolicitudId
+                orderby c.VecinoCompromisoId descending
+                select new VecinoCompromisoSelectDto
+                {
+                    VecinoCompromisoId = c.VecinoCompromisoId,
+                    Label = s.Descripcion + " — " + c.Descripcion,
+                }
+            ).ToListAsync();
+        }
+
+        /// <summary>Guarda la atención de limpieza (archivo + compromiso opcional). Valida que la fecha no sea futura.</summary>
+        public async Task<bool> UploadAtencion(int limpiezaId, string archivoUrl, string? originalFileName, int? vecinoCompromisoId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var limpieza = await ctx.VecinoLimpieza.FirstOrDefaultAsync(l => l.VecinoLimpiezaId == limpiezaId && l.State);
+            if (limpieza is null) return false;
+
+            if (limpieza.Fecha > DateOnly.FromDateTime(DateTime.UtcNow))
+                throw new AbrilException("No se puede registrar la atención de una limpieza en una fecha futura.", 422);
+
+            var tipoDesc = await ctx.VecinoLimpiezaTipo
+                .Where(t => t.VecinoLimpiezaTipoId == limpieza.VecinoLimpiezaTipoId)
+                .Select(t => t.Descripcion)
+                .FirstOrDefaultAsync();
+
+            if (tipoDesc == "Departamento")
+            {
+                if (!vecinoCompromisoId.HasValue)
+                    throw new AbrilException("Debe relacionar la atención con un compromiso de una solicitud.", 400);
+
+                // El compromiso debe pertenecer a una solicitud del vecino de esta limpieza.
+                var ok = await (
+                    from c in ctx.VecinoCompromiso.Where(c => c.VecinoCompromisoId == vecinoCompromisoId.Value && c.State)
+                    join s in ctx.VecinoSolicitud on c.VecinoSolicitudId equals s.VecinoSolicitudId
+                    where s.VecinoId == limpieza.VecinoId
+                    select c.VecinoCompromisoId
+                ).AnyAsync();
+                if (!ok)
+                    throw new AbrilException("El compromiso seleccionado no pertenece a este vecino.", 422);
+
+                limpieza.AtencionVecinoCompromisoId = vecinoCompromisoId.Value;
+            }
+            else
+            {
+                limpieza.AtencionVecinoCompromisoId = null;
+            }
+
+            limpieza.AtencionArchivoUrl = archivoUrl;
+            limpieza.AtencionOriginalFileName = originalFileName;
+            limpieza.UpdatedDateTime = DateTime.UtcNow;
+            limpieza.UpdatedUserId = userId;
             await ctx.SaveChangesAsync();
             return true;
         }

@@ -103,6 +103,54 @@ public class AccidenteIncidenteController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error eliminar flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
     }
 
+    // ── Entregables ───────────────────────────────────────────────────────────
+
+    [HttpGet("{id:int}/entregables")]
+    public async Task<IActionResult> GetEntregables(int id)
+    {
+        try { return Ok(await _service.GetEntregablesAsync(id)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error get entregables {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPatch("entregables/{entregableId:int}")]
+    public async Task<IActionResult> ActualizarEntregable(int entregableId, [FromBody] ActualizarEntregableRequest req)
+    {
+        try { await _service.ActualizarEntregableAsync(entregableId, req); return Ok(new { message = "Entregable actualizado." }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error actualizar entregable {Id}", entregableId); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPost("entregables/{entregableId:int}/archivo")]
+    public async Task<IActionResult> SubirArchivoEntregable(int entregableId, IFormFile archivo)
+    {
+        try
+        {
+            var url = await _service.SubirArchivoEntregableAsync(entregableId, archivo);
+            return Ok(new { url, message = "Archivo subido." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error subir archivo entregable {Id}", entregableId); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    // ── RM-050 ───────────────────────────────────────────────────────────────
+
+    [HttpGet("{id:int}/rm050")]
+    public async Task<IActionResult> GetRm050(int id)
+    {
+        try { return Ok(await _service.GetRm050Async(id)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error get rm050 {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPut("{id:int}/rm050")]
+    public async Task<IActionResult> GuardarRm050(int id, [FromBody] GuardarRm050Request req)
+    {
+        try { await _service.GuardarRm050Async(id, req); return Ok(new { message = "Investigación RM-050 guardada." }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error guardar rm050 {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
     private int? ObtenerUsuarioId()
     {
         var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

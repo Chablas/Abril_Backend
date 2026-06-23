@@ -61,6 +61,7 @@ public class SsomaInspeccion
     public Contributor? Empresa { get; set; }
     public ICollection<SsomaInspeccionRespuesta> Respuestas { get; set; } = [];
     public ICollection<SsomaInspeccionHallazgo> Hallazgos { get; set; } = [];
+    public ICollection<SsomaInspeccionFotoArea> FotosArea { get; set; } = [];
 }
 
 public class SsomaInspeccionRespuesta
@@ -107,4 +108,15 @@ public class SsomaInspeccionHallazgoFoto
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public SsomaInspeccionHallazgo? Hallazgo { get; set; }
+}
+
+public class SsomaInspeccionFotoArea
+{
+    public int Id { get; set; }
+    public int InspeccionId { get; set; }
+    public string Url { get; set; } = string.Empty;
+    public int Orden { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public SsomaInspeccion? Inspeccion { get; set; }
 }

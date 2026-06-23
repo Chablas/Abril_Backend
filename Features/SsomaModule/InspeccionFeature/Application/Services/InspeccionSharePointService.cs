@@ -11,6 +11,9 @@ public class InspeccionSharePointService : IInspeccionSharePointService
     public Task<string> SubirFotoHallazgoAsync(Stream stream, string filename, int inspeccionId, int hallazgoId)
         => _sp.SubirArchivoYObtenerUrlAsync(stream, filename, "inspeccion-fotos", $"Inspecciones/{inspeccionId}/hallazgos/{hallazgoId}");
 
+    public Task<string> SubirFotoAreaAsync(Stream stream, string filename, int inspeccionId, int orden)
+        => _sp.SubirArchivoYObtenerUrlAsync(stream, filename, "inspeccion-fotos", $"Inspecciones/{inspeccionId}/area");
+
     public Task<string> SubirFirmaInspectorAsync(Stream stream, string filename, int inspeccionId)
         => _sp.SubirArchivoYObtenerUrlAsync(stream, filename, "inspeccion-firmas", $"Inspecciones/{inspeccionId}/firmas");
 

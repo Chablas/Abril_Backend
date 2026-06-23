@@ -30,6 +30,15 @@ public class TrabajadorCatalogoDto
     public string NombreCompleto { get; set; } = string.Empty;
     public string? Documento { get; set; }
     public string? Cargo { get; set; }
+    public int? Edad { get; set; }
+    public int? AniosExperiencia { get; set; }
+    public int? ContributorId { get; set; }
+}
+
+public class ProyectoContratistaDto
+{
+    public int ProyectoId { get; set; }
+    public int ContributorId { get; set; }
 }
 
 public class FlashReportInicializarDto
@@ -42,6 +51,7 @@ public class FlashReportInicializarDto
     public List<CatalogoItemDto> Partidas { get; set; } = [];
     public List<ContratistaCatalogoDto> Contratistas { get; set; } = [];
     public List<TrabajadorCatalogoDto> Trabajadores { get; set; } = [];
+    public List<ProyectoContratistaDto> ProyectoContratistas { get; set; } = [];
 }
 
 // ── Lista ─────────────────────────────────────────────────────────────────────
@@ -188,6 +198,112 @@ public class AccidenteIncidenteListItemDto : FlashReportListItemDto { }
 public class AccidenteIncidenteDetalleDto : FlashReportDetalleDto { }
 public class CrearAccidenteIncidenteRequest : CrearFlashReportRequest { }
 public class ActualizarAccidenteIncidenteRequest : ActualizarFlashReportRequest { }
+
+// ── Entregables ───────────────────────────────────────────────────────────────
+
+public class EntregableResponsableDto
+{
+    public int Id { get; set; }
+    public int? WorkerId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+}
+
+public class EntregableDto
+{
+    public int Id { get; set; }
+    public int TipoId { get; set; }
+    public string TipoNombre { get; set; } = string.Empty;
+    public int Orden { get; set; }
+    public string Estado { get; set; } = string.Empty;
+    public DateOnly? FechaLimite { get; set; }
+    public string? UrlArchivo { get; set; }
+    public string? NombreArchivo { get; set; }
+    public string? Observacion { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public List<EntregableResponsableDto> Responsables { get; set; } = [];
+}
+
+public class ActualizarEntregableRequest
+{
+    public string Estado { get; set; } = string.Empty;
+    public DateOnly? FechaLimite { get; set; }
+    public string? Observacion { get; set; }
+    public List<string> Responsables { get; set; } = []; // nombres libres
+    public List<int> ResponsableWorkerIds { get; set; } = [];
+}
+
+// ── RM-050 ────────────────────────────────────────────────────────────────────
+
+public class AccionCorrectivaDto
+{
+    public int Id { get; set; }
+    public string Descripcion { get; set; } = string.Empty;
+    public string? Tipo { get; set; }
+    public string? ResponsableNombre { get; set; }
+    public int? ResponsableWorkerId { get; set; }
+    public DateOnly? FechaCompromiso { get; set; }
+    public DateOnly? FechaCumplimiento { get; set; }
+    public string Estado { get; set; } = "Pendiente";
+    public string? EvidenciaUrl { get; set; }
+}
+
+public class Rm050Dto
+{
+    public int? Id { get; set; }
+    public string? DescripcionDetallada { get; set; }
+    public string? Mecanismo { get; set; }
+    public string? AgenteCausante { get; set; }
+    public string? ActosSubestandar { get; set; }
+    public string? CondicionesSubestandar { get; set; }
+    public string? FactoresPersonales { get; set; }
+    public string? FactoresTrabajo { get; set; }
+    public int? DiasPerdidos { get; set; }
+    public string? TipoAccidente { get; set; }
+    public string? GravedadAccidente { get; set; }
+    public int? NroTrabajadoresAfectados { get; set; }
+    public string? Testigos { get; set; }
+    public string? ElaboradoPorNombre { get; set; }
+    public string? ElaboradoPorCargo { get; set; }
+    public DateOnly? ElaboradoPorFecha { get; set; }
+    public string? AprobadoPorNombre { get; set; }
+    public string? AprobadoPorCargo { get; set; }
+    public string Estado { get; set; } = "Borrador";
+    public DateTime? UpdatedAt { get; set; }
+    public List<AccionCorrectivaDto> AccionesCorrectivas { get; set; } = [];
+}
+
+public class GuardarAccionCorrectivaRequest
+{
+    public string Descripcion { get; set; } = string.Empty;
+    public string? Tipo { get; set; }
+    public string? ResponsableNombre { get; set; }
+    public int? ResponsableWorkerId { get; set; }
+    public DateOnly? FechaCompromiso { get; set; }
+    public DateOnly? FechaCumplimiento { get; set; }
+    public string Estado { get; set; } = "Pendiente";
+}
+
+public class GuardarRm050Request
+{
+    public string? DescripcionDetallada { get; set; }
+    public string? Mecanismo { get; set; }
+    public string? AgenteCausante { get; set; }
+    public string? ActosSubestandar { get; set; }
+    public string? CondicionesSubestandar { get; set; }
+    public string? FactoresPersonales { get; set; }
+    public string? FactoresTrabajo { get; set; }
+    public int? DiasPerdidos { get; set; }
+    public string? TipoAccidente { get; set; }
+    public string? GravedadAccidente { get; set; }
+    public int? NroTrabajadoresAfectados { get; set; }
+    public string? Testigos { get; set; }
+    public string? ElaboradoPorNombre { get; set; }
+    public string? ElaboradoPorCargo { get; set; }
+    public DateOnly? ElaboradoPorFecha { get; set; }
+    public string? AprobadoPorNombre { get; set; }
+    public string? AprobadoPorCargo { get; set; }
+    public List<GuardarAccionCorrectivaRequest> AccionesCorrectivas { get; set; } = [];
+}
 
 // ── SubirDocumento (legacy, mantener por compatibilidad) ──────────────────────
 public class SubirDocumentoRequest

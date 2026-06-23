@@ -221,6 +221,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaOptCriterioVerificacion> SsomaOptCriterioVerificacion { get; set; }
         public DbSet<SsomaOptVerificacion> SsomaOptVerificacion { get; set; }
         public DbSet<SsomaOptPaso> SsomaOptPaso { get; set; }
+        public DbSet<SsomaOptFotoArea> SsomaOptFotoArea => Set<SsomaOptFotoArea>();
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
         public DbSet<SsHabAuditoria> SsHabAuditorias { get; set; }
@@ -237,6 +238,11 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaAccidenteIncidente> SsomaAccidenteIncidente => Set<SsomaAccidenteIncidente>();
         public DbSet<SsomaFlashDescanso> SsomaFlashDescanso => Set<SsomaFlashDescanso>();
         public DbSet<SsomaAccidenteDocumento> SsomaAccidenteDocumento => Set<SsomaAccidenteDocumento>();
+        public DbSet<SsomaEntregableTipo> SsomaEntregableTipo => Set<SsomaEntregableTipo>();
+        public DbSet<SsomaEntregable> SsomaEntregable => Set<SsomaEntregable>();
+        public DbSet<SsomaEntregableResponsable> SsomaEntregableResponsable => Set<SsomaEntregableResponsable>();
+        public DbSet<SsomaInvestigacionRm050> SsomaInvestigacionRm050 => Set<SsomaInvestigacionRm050>();
+        public DbSet<SsomaAccionCorrectiva> SsomaAccionCorrectiva => Set<SsomaAccionCorrectiva>();
         // ── Inspecciones ───────────────────────────────────────────────────────
         public DbSet<SsomaInspeccionTipo> SsomaInspeccionTipo => Set<SsomaInspeccionTipo>();
         public DbSet<SsomaInspeccionChecklistItem> SsomaInspeccionChecklistItem => Set<SsomaInspeccionChecklistItem>();
@@ -244,6 +250,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaInspeccionRespuesta> SsomaInspeccionRespuesta => Set<SsomaInspeccionRespuesta>();
         public DbSet<SsomaInspeccionHallazgo> SsomaInspeccionHallazgo => Set<SsomaInspeccionHallazgo>();
         public DbSet<SsomaInspeccionHallazgoFoto> SsomaInspeccionHallazgoFoto => Set<SsomaInspeccionHallazgoFoto>();
+        public DbSet<SsomaInspeccionFotoArea> SsomaInspeccionFotoArea => Set<SsomaInspeccionFotoArea>();
         // ── Charlas y Capacitaciones ───────────────────────────────────────────────
         public DbSet<SsCharlaPrograma> SsCharlaProgramas { get; set; }
         public DbSet<SsCharla> SsCharlas { get; set; }
@@ -648,6 +655,11 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaAccidenteIncidente>().ToTable("ss_accidente_incidente");
             modelBuilder.Entity<SsomaAccidenteDocumento>().ToTable("ss_accidente_documento")
                 .Property(d => d.TamanioBytes).HasColumnName("tamanio_bytes");
+            modelBuilder.Entity<SsomaEntregableTipo>().ToTable("ss_entregable_tipo");
+            modelBuilder.Entity<SsomaEntregable>().ToTable("ss_entregable");
+            modelBuilder.Entity<SsomaEntregableResponsable>().ToTable("ss_entregable_responsable");
+            modelBuilder.Entity<SsomaInvestigacionRm050>().ToTable("ss_investigacion_rm050");
+            modelBuilder.Entity<SsomaAccionCorrectiva>().ToTable("ss_accion_correctiva");
             // ── Inspecciones — tablas y nombres explícitos ────────────────────
             modelBuilder.Entity<SsomaInspeccionTipo>().ToTable("ssoma_inspeccion_tipo");
             modelBuilder.Entity<SsomaInspeccionChecklistItem>().ToTable("ssoma_inspeccion_checklist_item");
@@ -655,6 +667,8 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaInspeccionRespuesta>().ToTable("ssoma_inspeccion_respuesta");
             modelBuilder.Entity<SsomaInspeccionHallazgo>().ToTable("ssoma_inspeccion_hallazgo");
             modelBuilder.Entity<SsomaInspeccionHallazgoFoto>().ToTable("ssoma_inspeccion_hallazgo_foto");
+            modelBuilder.Entity<SsomaInspeccionFotoArea>().ToTable("ssoma_inspeccion_foto_area");
+            modelBuilder.Entity<SsomaOptFotoArea>().ToTable("ssoma_opt_foto_area");
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)

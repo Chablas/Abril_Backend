@@ -12,125 +12,62 @@ namespace Abril_Backend.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "aprobado_en",
-                table: "ss_charla");
+            migrationBuilder.Sql("ALTER TABLE ss_charla DROP COLUMN IF EXISTS aprobado_en;");
+            migrationBuilder.Sql("ALTER TABLE ss_charla DROP COLUMN IF EXISTS motivo_rechazo;");
+            migrationBuilder.Sql(@"
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ss_charla' AND column_name='aprobado_por_id')
+                       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ss_charla' AND column_name='proyecto_id') THEN
+                        ALTER TABLE ss_charla RENAME COLUMN aprobado_por_id TO proyecto_id;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vecino_compromiso' AND column_name='observaciones') THEN
+                        ALTER TABLE vecino_compromiso ADD COLUMN observaciones text;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ss_charla' AND column_name='es_capacitacion_individual') THEN
+                        ALTER TABLE ss_charla ADD COLUMN es_capacitacion_individual boolean NOT NULL DEFAULT false;
+                    END IF;
+                END $$;");
 
-            migrationBuilder.DropColumn(
-                name: "motivo_rechazo",
-                table: "ss_charla");
-
-            migrationBuilder.RenameColumn(
-                name: "aprobado_por_id",
-                table: "ss_charla",
-                newName: "proyecto_id");
-
-            migrationBuilder.AddColumn<string>(
-                name: "observaciones",
-                table: "vecino_compromiso",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "es_capacitacion_individual",
-                table: "ss_charla",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.CreateTable(
-                name: "vecino_compromiso_normativa",
-                columns: table => new
-                {
-                    vecino_compromiso_normativa_id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    vecino_compromiso_id = table.Column<int>(type: "integer", nullable: false),
-                    archivo_url = table.Column<string>(type: "text", nullable: false),
-                    original_file_name = table.Column<string>(type: "text", nullable: true),
-                    created_date_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    created_user_id = table.Column<int>(type: "integer", nullable: false),
-                    updated_date_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    updated_user_id = table.Column<int>(type: "integer", nullable: true),
-                    active = table.Column<bool>(type: "boolean", nullable: false),
-                    state = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_vecino_compromiso_normativa", x => x.vecino_compromiso_normativa_id);
-                    table.ForeignKey(
-                        name: "fk_vecino_compromiso_normativa_vecino_compromiso_vecino_compro",
-                        column: x => x.vecino_compromiso_id,
-                        principalTable: "vecino_compromiso",
-                        principalColumn: "vecino_compromiso_id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "vecino_limpieza_tipo",
-                columns: table => new
-                {
-                    vecino_limpieza_tipo_id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    descripcion = table.Column<string>(type: "text", nullable: false),
-                    active = table.Column<bool>(type: "boolean", nullable: false),
-                    state = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_vecino_limpieza_tipo", x => x.vecino_limpieza_tipo_id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "vecino_limpieza",
-                columns: table => new
-                {
-                    vecino_limpieza_id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    project_id = table.Column<int>(type: "integer", nullable: false),
-                    vecino_limpieza_tipo_id = table.Column<int>(type: "integer", nullable: false),
-                    vecino_id = table.Column<int>(type: "integer", nullable: true),
-                    fecha = table.Column<DateOnly>(type: "date", nullable: false),
-                    descripcion = table.Column<string>(type: "text", nullable: true),
-                    atencion_archivo_url = table.Column<string>(type: "text", nullable: true),
-                    atencion_original_file_name = table.Column<string>(type: "text", nullable: true),
-                    atencion_vecino_compromiso_id = table.Column<int>(type: "integer", nullable: true),
-                    created_date_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    created_user_id = table.Column<int>(type: "integer", nullable: false),
-                    updated_date_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    updated_user_id = table.Column<int>(type: "integer", nullable: true),
-                    active = table.Column<bool>(type: "boolean", nullable: false),
-                    state = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_vecino_limpieza", x => x.vecino_limpieza_id);
-                    table.ForeignKey(
-                        name: "fk_vecino_limpieza_vecino_limpieza_tipo_vecino_limpieza_tipo_id",
-                        column: x => x.vecino_limpieza_tipo_id,
-                        principalTable: "vecino_limpieza_tipo",
-                        principalColumn: "vecino_limpieza_tipo_id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "fk_vecino_limpieza_vecino_vecino_id",
-                        column: x => x.vecino_id,
-                        principalTable: "vecino",
-                        principalColumn: "vecino_id");
-                });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_vecino_compromiso_normativa_vecino_compromiso_id",
-                table: "vecino_compromiso_normativa",
-                column: "vecino_compromiso_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_vecino_limpieza_vecino_id",
-                table: "vecino_limpieza",
-                column: "vecino_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_vecino_limpieza_vecino_limpieza_tipo_id",
-                table: "vecino_limpieza",
-                column: "vecino_limpieza_tipo_id");
+            migrationBuilder.Sql(@"
+                CREATE TABLE IF NOT EXISTS vecino_compromiso_normativa (
+                    vecino_compromiso_normativa_id serial PRIMARY KEY,
+                    vecino_compromiso_id integer NOT NULL REFERENCES vecino_compromiso(vecino_compromiso_id) ON DELETE CASCADE,
+                    archivo_url text NOT NULL,
+                    original_file_name text,
+                    created_date_time timestamp with time zone NOT NULL,
+                    created_user_id integer NOT NULL,
+                    updated_date_time timestamp with time zone,
+                    updated_user_id integer,
+                    active boolean NOT NULL,
+                    state boolean NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS vecino_limpieza_tipo (
+                    vecino_limpieza_tipo_id serial PRIMARY KEY,
+                    descripcion text NOT NULL,
+                    active boolean NOT NULL,
+                    state boolean NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS vecino_limpieza (
+                    vecino_limpieza_id serial PRIMARY KEY,
+                    project_id integer NOT NULL,
+                    vecino_limpieza_tipo_id integer NOT NULL REFERENCES vecino_limpieza_tipo(vecino_limpieza_tipo_id) ON DELETE CASCADE,
+                    vecino_id integer REFERENCES vecino(vecino_id),
+                    fecha date NOT NULL,
+                    descripcion text,
+                    atencion_archivo_url text,
+                    atencion_original_file_name text,
+                    atencion_vecino_compromiso_id integer,
+                    created_date_time timestamp with time zone NOT NULL,
+                    created_user_id integer NOT NULL,
+                    updated_date_time timestamp with time zone,
+                    updated_user_id integer,
+                    active boolean NOT NULL,
+                    state boolean NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_vecino_compromiso_normativa_vecino_compromiso_id ON vecino_compromiso_normativa(vecino_compromiso_id);
+                CREATE INDEX IF NOT EXISTS ix_vecino_limpieza_vecino_id ON vecino_limpieza(vecino_id);
+                CREATE INDEX IF NOT EXISTS ix_vecino_limpieza_vecino_limpieza_tipo_id ON vecino_limpieza(vecino_limpieza_tipo_id);
+            ");
         }
 
         /// <inheritdoc />

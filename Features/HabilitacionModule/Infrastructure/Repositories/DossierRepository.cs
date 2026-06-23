@@ -128,6 +128,8 @@ public class DossierRepository : IDossierRepository
             CreatedAt = DateTime.UtcNow
         });
         doc.Estado = "Subido";
+        doc.ArchivoPath = archivoPath;
+        doc.NombreArchivo = nombreArchivo;
         doc.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
     }

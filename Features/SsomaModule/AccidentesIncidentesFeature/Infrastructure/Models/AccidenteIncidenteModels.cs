@@ -122,6 +122,87 @@ public class SsomaFlashDescanso
     public SsomaAccidenteIncidente? AccidenteIncidente { get; set; }
 }
 
+// ── Entregables ──────────────────────────────────────────────────────────────
+
+public class SsomaEntregableTipo
+{
+    public int Id { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    public int Orden { get; set; }
+    public bool Activo { get; set; } = true;
+}
+
+public class SsomaEntregable
+{
+    public int Id { get; set; }
+    public int AccidenteIncidenteId { get; set; }
+    public int TipoId { get; set; }
+    public string Estado { get; set; } = "Pendiente"; // Pendiente, Presentado, Observado, Aprobado, No aplica
+    public DateOnly? FechaLimite { get; set; }
+    public string? UrlArchivo { get; set; }
+    public string? NombreArchivo { get; set; }
+    public string? Observacion { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+
+    public SsomaEntregableTipo? Tipo { get; set; }
+    public ICollection<SsomaEntregableResponsable> Responsables { get; set; } = [];
+}
+
+public class SsomaEntregableResponsable
+{
+    public int Id { get; set; }
+    public int EntregableId { get; set; }
+    public int? WorkerId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+}
+
+// ── Investigación RM-050 ──────────────────────────────────────────────────────
+
+public class SsomaInvestigacionRm050
+{
+    public int Id { get; set; }
+    public int AccidenteIncidenteId { get; set; }
+    public string? DescripcionDetallada { get; set; }
+    public string? Mecanismo { get; set; }
+    public string? AgenteCausante { get; set; }
+    public string? ActosSubestandar { get; set; }
+    public string? CondicionesSubestandar { get; set; }
+    public string? FactoresPersonales { get; set; }
+    public string? FactoresTrabajo { get; set; }
+    public int? DiasPerdidos { get; set; }
+    public string? TipoAccidente { get; set; }
+    public string? GravedadAccidente { get; set; }
+    public int? NroTrabajadoresAfectados { get; set; }
+    public string? Testigos { get; set; }
+    public string? ArbolCausasUrl { get; set; }
+    public string? ElaboradoPorNombre { get; set; }
+    public string? ElaboradoPorCargo { get; set; }
+    public DateOnly? ElaboradoPorFecha { get; set; }
+    public string? AprobadoPorNombre { get; set; }
+    public string? AprobadoPorCargo { get; set; }
+    public string Estado { get; set; } = "Borrador";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+
+    public ICollection<SsomaAccionCorrectiva> AccionesCorrectivas { get; set; } = [];
+}
+
+public class SsomaAccionCorrectiva
+{
+    public int Id { get; set; }
+    public int InvestigacionId { get; set; }
+    public string Descripcion { get; set; } = string.Empty;
+    public string? Tipo { get; set; } // Correctiva, Preventiva
+    public string? ResponsableNombre { get; set; }
+    public int? ResponsableWorkerId { get; set; }
+    public DateOnly? FechaCompromiso { get; set; }
+    public DateOnly? FechaCumplimiento { get; set; }
+    public string Estado { get; set; } = "Pendiente";
+    public string? EvidenciaUrl { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
 // ── Documentos adjuntos (compatibilidad hacia atrás) ─────────────────────────
 
 public class SsomaAccidenteDocumento

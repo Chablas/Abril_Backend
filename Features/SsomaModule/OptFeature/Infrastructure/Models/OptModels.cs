@@ -37,6 +37,7 @@ public class SsomaOpt
     public ICollection<SsomaOptTrabajador> Trabajadores { get; set; } = [];
     public ICollection<SsomaOptVerificacion> Verificaciones { get; set; } = [];
     public ICollection<SsomaOptPaso> Pasos { get; set; } = [];
+    public ICollection<SsomaOptFotoArea> FotosArea { get; set; } = [];
 }
 
 public class SsomaOptTrabajador
@@ -80,6 +81,17 @@ public class SsomaOptVerificacion
 
     public SsomaOpt? Opt { get; set; }
     public SsomaOptCriterioVerificacion? Criterio { get; set; }
+}
+
+public class SsomaOptFotoArea
+{
+    public int Id { get; set; }
+    public int OptId { get; set; }
+    public string Url { get; set; } = string.Empty;
+    public int Orden { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public SsomaOpt? Opt { get; set; }
 }
 
 public class SsomaOptPaso

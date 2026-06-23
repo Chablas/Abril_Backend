@@ -12,447 +12,219 @@ namespace Abril_Backend.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "layer");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS layer CASCADE;");
+            // partida kept: used by AccidentesIncidentes flash report queries via raw SQL
+            migrationBuilder.Sql("DROP TABLE IF EXISTS phase CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS phase_stage_sub_stage_sub_specialty CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS psss_scope CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS psss_template CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS psss_template_detail CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS stage CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS sub_specialty CASCADE;");
+            migrationBuilder.Sql("DROP TABLE IF EXISTS sub_stage CASCADE;");
 
-            migrationBuilder.DropTable(
-                name: "partida");
+            migrationBuilder.Sql("ALTER TABLE ga_solicitud_salida DROP COLUMN IF EXISTS estado_aprobacion;");
+            migrationBuilder.Sql("ALTER TABLE ga_solicitud_salida DROP COLUMN IF EXISTS estado_rendicion;");
+            migrationBuilder.Sql(@"
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lesson' AND column_name='phase_stage_sub_stage_sub_specialty_id')
+                       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lesson' AND column_name='reviewed_by_user_id') THEN
+                        ALTER TABLE lesson RENAME COLUMN phase_stage_sub_stage_sub_specialty_id TO reviewed_by_user_id;
+                    END IF;
+                END $$;");
 
-            migrationBuilder.DropTable(
-                name: "phase");
+            migrationBuilder.Sql(@"
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='workers' AND column_name='area_scope_id') THEN
+                        ALTER TABLE workers ADD COLUMN area_scope_id integer;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ss_item_empresa' AND column_name='es_mensual') THEN
+                        ALTER TABLE ss_item_empresa ADD COLUMN es_mensual boolean NOT NULL DEFAULT false;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ss_hab_empresa' AND column_name='motivo_rechazo') THEN
+                        ALTER TABLE ss_hab_empresa ADD COLUMN motivo_rechazo text;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ss_hab_documento_version' AND column_name='enviado') THEN
+                        ALTER TABLE ss_hab_documento_version ADD COLUMN enviado boolean NOT NULL DEFAULT false;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ss_hab_documento_version' AND column_name='fecha_envio') THEN
+                        ALTER TABLE ss_hab_documento_version ADD COLUMN fecha_envio timestamp with time zone;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_sub_contractor' AND column_name='finish_protection_status_id') THEN
+                        ALTER TABLE project_sub_contractor ADD COLUMN finish_protection_status_id integer;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_sub_contractor' AND column_name='non_conforming_output_status_id') THEN
+                        ALTER TABLE project_sub_contractor ADD COLUMN non_conforming_output_status_id integer;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_sub_contractor' AND column_name='tolerance_chart_status_id') THEN
+                        ALTER TABLE project_sub_contractor ADD COLUMN tolerance_chart_status_id integer;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project' AND column_name='operativo') THEN
+                        ALTER TABLE project ADD COLUMN operativo boolean NOT NULL DEFAULT false;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lesson_area' AND column_name='include_as_independent') THEN
+                        ALTER TABLE lesson_area ADD COLUMN include_as_independent boolean NOT NULL DEFAULT false;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lesson_area' AND column_name='include_descendants') THEN
+                        ALTER TABLE lesson_area ADD COLUMN include_descendants boolean NOT NULL DEFAULT false;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lesson_area' AND column_name='include_in_form') THEN
+                        ALTER TABLE lesson_area ADD COLUMN include_in_form boolean NOT NULL DEFAULT false;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lesson' AND column_name='approval_status') THEN
+                        ALTER TABLE lesson ADD COLUMN approval_status text NOT NULL DEFAULT '';
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lesson' AND column_name='rejection_comment') THEN
+                        ALTER TABLE lesson ADD COLUMN rejection_comment text;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lesson' AND column_name='reviewed_at') THEN
+                        ALTER TABLE lesson ADD COLUMN reviewed_at timestamp with time zone;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ga_solicitud_salida' AND column_name='estado_aprobacion_id') THEN
+                        ALTER TABLE ga_solicitud_salida ADD COLUMN estado_aprobacion_id integer NOT NULL DEFAULT 0;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ga_solicitud_salida' AND column_name='estado_rendicion_id') THEN
+                        ALTER TABLE ga_solicitud_salida ADD COLUMN estado_rendicion_id integer NOT NULL DEFAULT 0;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ga_rendicion' AND column_name='numero_planilla') THEN
+                        ALTER TABLE ga_rendicion ADD COLUMN numero_planilla integer;
+                    END IF;
+                END $$;");
 
-            migrationBuilder.DropTable(
-                name: "phase_stage_sub_stage_sub_specialty");
-
-            migrationBuilder.DropTable(
-                name: "psss_scope");
-
-            migrationBuilder.DropTable(
-                name: "psss_template");
-
-            migrationBuilder.DropTable(
-                name: "psss_template_detail");
-
-            migrationBuilder.DropTable(
-                name: "stage");
-
-            migrationBuilder.DropTable(
-                name: "sub_specialty");
-
-            migrationBuilder.DropTable(
-                name: "sub_stage");
-
-            migrationBuilder.DropColumn(
-                name: "estado_aprobacion",
-                table: "ga_solicitud_salida");
-
-            migrationBuilder.DropColumn(
-                name: "estado_rendicion",
-                table: "ga_solicitud_salida");
-
-            migrationBuilder.RenameColumn(
-                name: "phase_stage_sub_stage_sub_specialty_id",
-                table: "lesson",
-                newName: "reviewed_by_user_id");
-
-            migrationBuilder.AddColumn<int>(
-                name: "area_scope_id",
-                table: "workers",
-                type: "integer",
-                nullable: true);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "es_mensual",
-                table: "ss_item_empresa",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<string>(
-                name: "motivo_rechazo",
-                table: "ss_hab_empresa",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "enviado",
-                table: "ss_hab_documento_version",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<DateTime>(
-                name: "fecha_envio",
-                table: "ss_hab_documento_version",
-                type: "timestamp with time zone",
-                nullable: true);
-
-            migrationBuilder.AddColumn<int>(
-                name: "finish_protection_status_id",
-                table: "project_sub_contractor",
-                type: "integer",
-                nullable: true);
-
-            migrationBuilder.AddColumn<int>(
-                name: "non_conforming_output_status_id",
-                table: "project_sub_contractor",
-                type: "integer",
-                nullable: true);
-
-            migrationBuilder.AddColumn<int>(
-                name: "tolerance_chart_status_id",
-                table: "project_sub_contractor",
-                type: "integer",
-                nullable: true);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "operativo",
-                table: "project",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "include_as_independent",
-                table: "lesson_area",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "include_descendants",
-                table: "lesson_area",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "include_in_form",
-                table: "lesson_area",
-                type: "boolean",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<string>(
-                name: "approval_status",
-                table: "lesson",
-                type: "text",
-                nullable: false,
-                defaultValue: "");
-
-            migrationBuilder.AddColumn<string>(
-                name: "rejection_comment",
-                table: "lesson",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<DateTimeOffset>(
-                name: "reviewed_at",
-                table: "lesson",
-                type: "timestamp with time zone",
-                nullable: true);
-
-            migrationBuilder.AddColumn<int>(
-                name: "estado_aprobacion_id",
-                table: "ga_solicitud_salida",
-                type: "integer",
-                nullable: false,
-                defaultValue: 0);
-
-            migrationBuilder.AddColumn<int>(
-                name: "estado_rendicion_id",
-                table: "ga_solicitud_salida",
-                type: "integer",
-                nullable: false,
-                defaultValue: 0);
-
-            migrationBuilder.AddColumn<int>(
-                name: "numero_planilla",
-                table: "ga_rendicion",
-                type: "integer",
-                nullable: true);
-
-            migrationBuilder.CreateTable(
-                name: "lesson_jefe_reminder",
-                columns: table => new
-                {
-                    lesson_jefe_reminder_id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    worker_id = table.Column<int>(type: "integer", nullable: false),
-                    active = table.Column<bool>(type: "boolean", nullable: false),
-                    state = table.Column<bool>(type: "boolean", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_lesson_jefe_reminder", x => x.lesson_jefe_reminder_id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ss_hab_documento_archivo",
-                columns: table => new
-                {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    version_id = table.Column<int>(type: "integer", nullable: false),
-                    archivo_url = table.Column<string>(type: "text", nullable: false),
-                    nombre_archivo = table.Column<string>(type: "text", nullable: true),
-                    es_zip = table.Column<bool>(type: "boolean", nullable: false),
-                    zip_contenido = table.Column<string>(type: "text", nullable: true),
-                    orden = table.Column<int>(type: "integer", nullable: false),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_ss_hab_documento_archivo", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_ss_hab_documento_archivo_ss_hab_documento_version_version_id",
-                        column: x => x.version_id,
-                        principalTable: "ss_hab_documento_version",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ss_retiro_automatico_log",
-                columns: table => new
-                {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    worker_id = table.Column<int>(type: "integer", nullable: false),
-                    empresa_id = table.Column<int>(type: "integer", nullable: true),
-                    motivo = table.Column<string>(type: "text", nullable: true),
-                    ejecutado_en = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    tipo_retiro = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    dias_gracia = table.Column<int>(type: "integer", nullable: true),
-                    entregables_vencidos = table.Column<string>(type: "text", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_ss_retiro_automatico_log", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ssoma_paso",
-                columns: table => new
-                {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    proyecto_id = table.Column<int>(type: "integer", nullable: true),
-                    plantilla_id = table.Column<int>(type: "integer", nullable: true),
-                    nombre = table.Column<string>(type: "text", nullable: false),
-                    anio = table.Column<int>(type: "integer", nullable: false),
-                    mes_inicio = table.Column<int>(type: "integer", nullable: false),
-                    es_plantilla = table.Column<bool>(type: "boolean", nullable: false),
-                    estado = table.Column<string>(type: "text", nullable: false),
-                    aprobado_por = table.Column<int>(type: "integer", nullable: true),
-                    aprobado_en = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    created_by = table.Column<int>(type: "integer", nullable: true),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_ssoma_paso", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ssoma_paso_auditoria",
-                columns: table => new
-                {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    tipo = table.Column<string>(type: "text", nullable: false),
-                    entidad = table.Column<string>(type: "text", nullable: false),
-                    entidad_id = table.Column<int>(type: "integer", nullable: false),
-                    paso_id = table.Column<int>(type: "integer", nullable: false),
-                    descripcion = table.Column<string>(type: "text", nullable: true),
-                    motivo = table.Column<string>(type: "text", nullable: true),
-                    valor_anterior = table.Column<string>(type: "jsonb", nullable: true),
-                    valor_nuevo = table.Column<string>(type: "jsonb", nullable: true),
-                    usuario_id = table.Column<int>(type: "integer", nullable: true),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_ssoma_paso_auditoria", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ssoma_paso_categoria",
-                columns: table => new
-                {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    nombre = table.Column<string>(type: "text", nullable: false),
-                    ambito = table.Column<string>(type: "text", nullable: false),
-                    icono = table.Column<string>(type: "text", nullable: true),
-                    activo = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_ssoma_paso_categoria", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "work_item_category_anexo3_clause",
-                columns: table => new
-                {
-                    work_item_category_anexo3_clause_id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    work_item_category_id = table.Column<int>(type: "integer", nullable: false),
-                    clause_text = table.Column<string>(type: "text", nullable: false),
-                    sort_order = table.Column<int>(type: "integer", nullable: false),
-                    state = table.Column<bool>(type: "boolean", nullable: false),
-                    created_datetime = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    created_user_id = table.Column<int>(type: "integer", nullable: false),
-                    updated_datetime = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    updated_user_id = table.Column<int>(type: "integer", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_work_item_category_anexo3_clause", x => x.work_item_category_anexo3_clause_id);
-                    table.ForeignKey(
-                        name: "fk_work_item_category_anexo3_clause_work_item_category_work_it",
-                        column: x => x.work_item_category_id,
-                        principalTable: "work_item_category",
-                        principalColumn: "work_item_category_id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "work_item_category_anexo4_clause",
-                columns: table => new
-                {
-                    work_item_category_anexo4_clause_id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    work_item_category_id = table.Column<int>(type: "integer", nullable: false),
-                    clause_text = table.Column<string>(type: "text", nullable: false),
-                    sort_order = table.Column<int>(type: "integer", nullable: false),
-                    state = table.Column<bool>(type: "boolean", nullable: false),
-                    created_datetime = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    created_user_id = table.Column<int>(type: "integer", nullable: false),
-                    updated_datetime = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    updated_user_id = table.Column<int>(type: "integer", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_work_item_category_anexo4_clause", x => x.work_item_category_anexo4_clause_id);
-                    table.ForeignKey(
-                        name: "fk_work_item_category_anexo4_clause_work_item_category_work_it",
-                        column: x => x.work_item_category_id,
-                        principalTable: "work_item_category",
-                        principalColumn: "work_item_category_id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ssoma_paso_actividad",
-                columns: table => new
-                {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    paso_id = table.Column<int>(type: "integer", nullable: false),
-                    categoria_id = table.Column<int>(type: "integer", nullable: false),
-                    nombre = table.Column<string>(type: "text", nullable: false),
-                    descripcion = table.Column<string>(type: "text", nullable: true),
-                    alcance = table.Column<string>(type: "text", nullable: true),
-                    frecuencia = table.Column<string>(type: "text", nullable: false),
-                    responsable_id = table.Column<int>(type: "integer", nullable: true),
-                    responsable_texto = table.Column<string>(type: "text", nullable: true),
-                    mes_inicio = table.Column<int>(type: "integer", nullable: false),
-                    mes_fin = table.Column<int>(type: "integer", nullable: false),
-                    cantidad_planificada = table.Column<int>(type: "integer", nullable: false),
-                    horas = table.Column<decimal>(type: "numeric", nullable: true),
-                    recursos = table.Column<string>(type: "text", nullable: true),
-                    indicador = table.Column<string>(type: "text", nullable: false),
-                    meta = table.Column<string>(type: "text", nullable: false),
-                    orden = table.Column<int>(type: "integer", nullable: true),
-                    activo = table.Column<bool>(type: "boolean", nullable: false),
-                    deleted_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    deleted_by = table.Column<int>(type: "integer", nullable: true),
-                    motivo_eliminacion = table.Column<string>(type: "text", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_ssoma_paso_actividad", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_ssoma_paso_actividad_ssoma_paso_categoria_categoria_id",
-                        column: x => x.categoria_id,
-                        principalTable: "ssoma_paso_categoria",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "fk_ssoma_paso_actividad_ssoma_paso_paso_id",
-                        column: x => x.paso_id,
-                        principalTable: "ssoma_paso",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ssoma_paso_ejecucion",
-                columns: table => new
-                {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    actividad_id = table.Column<int>(type: "integer", nullable: false),
-                    fecha_programada = table.Column<DateOnly>(type: "date", nullable: false),
-                    fecha_verificacion = table.Column<DateOnly>(type: "date", nullable: true),
-                    fecha_ejecutada = table.Column<DateOnly>(type: "date", nullable: true),
-                    fecha_reprogramada = table.Column<DateOnly>(type: "date", nullable: true),
-                    motivo_reprogramacion = table.Column<string>(type: "text", nullable: true),
-                    estado = table.Column<string>(type: "text", nullable: false),
-                    observaciones = table.Column<string>(type: "text", nullable: true),
-                    participantes_count = table.Column<int>(type: "integer", nullable: true),
-                    evidencia_nombre = table.Column<string>(type: "text", nullable: true),
-                    evidencia_url = table.Column<string>(type: "text", nullable: true),
-                    evidencia_sp_id = table.Column<string>(type: "text", nullable: true),
-                    registrado_por = table.Column<int>(type: "integer", nullable: true),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_ssoma_paso_ejecucion", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_ssoma_paso_ejecucion_ssoma_paso_actividad_actividad_id",
-                        column: x => x.actividad_id,
-                        principalTable: "ssoma_paso_actividad",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_ss_hab_documento_archivo_version_id",
-                table: "ss_hab_documento_archivo",
-                column: "version_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_ssoma_paso_actividad_categoria_id",
-                table: "ssoma_paso_actividad",
-                column: "categoria_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_ssoma_paso_actividad_paso_id",
-                table: "ssoma_paso_actividad",
-                column: "paso_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_ssoma_paso_ejecucion_actividad_id",
-                table: "ssoma_paso_ejecucion",
-                column: "actividad_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_work_item_category_anexo3_clause_work_item_category_id",
-                table: "work_item_category_anexo3_clause",
-                column: "work_item_category_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_work_item_category_anexo4_clause_work_item_category_id",
-                table: "work_item_category_anexo4_clause",
-                column: "work_item_category_id");
+            migrationBuilder.Sql(@"
+                CREATE TABLE IF NOT EXISTS lesson_jefe_reminder (
+                    lesson_jefe_reminder_id serial PRIMARY KEY,
+                    worker_id integer NOT NULL,
+                    active boolean NOT NULL,
+                    state boolean NOT NULL,
+                    created_at timestamp with time zone NOT NULL,
+                    updated_at timestamp with time zone
+                );
+                CREATE TABLE IF NOT EXISTS ss_hab_documento_archivo (
+                    id serial PRIMARY KEY,
+                    version_id integer NOT NULL REFERENCES ss_hab_documento_version(id) ON DELETE CASCADE,
+                    archivo_url text NOT NULL,
+                    nombre_archivo text,
+                    es_zip boolean NOT NULL,
+                    zip_contenido text,
+                    orden integer NOT NULL,
+                    created_at timestamp with time zone
+                );
+                CREATE TABLE IF NOT EXISTS ss_retiro_automatico_log (
+                    id serial PRIMARY KEY,
+                    worker_id integer NOT NULL,
+                    empresa_id integer,
+                    motivo text,
+                    ejecutado_en timestamp with time zone NOT NULL,
+                    tipo_retiro varchar(50) NOT NULL,
+                    dias_gracia integer,
+                    entregables_vencidos text
+                );
+                CREATE TABLE IF NOT EXISTS ssoma_paso (
+                    id serial PRIMARY KEY,
+                    proyecto_id integer,
+                    plantilla_id integer,
+                    nombre text NOT NULL,
+                    anio integer NOT NULL,
+                    mes_inicio integer NOT NULL,
+                    es_plantilla boolean NOT NULL,
+                    estado text NOT NULL,
+                    aprobado_por integer,
+                    aprobado_en timestamp with time zone,
+                    created_by integer,
+                    created_at timestamp with time zone NOT NULL,
+                    updated_at timestamp with time zone
+                );
+                CREATE TABLE IF NOT EXISTS ssoma_paso_auditoria (
+                    id serial PRIMARY KEY,
+                    tipo text NOT NULL,
+                    entidad text NOT NULL,
+                    entidad_id integer NOT NULL,
+                    paso_id integer NOT NULL,
+                    descripcion text,
+                    motivo text,
+                    valor_anterior jsonb,
+                    valor_nuevo jsonb,
+                    usuario_id integer,
+                    created_at timestamp with time zone NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS ssoma_paso_categoria (
+                    id serial PRIMARY KEY,
+                    nombre text NOT NULL,
+                    ambito text NOT NULL,
+                    icono text,
+                    activo boolean NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS work_item_category_anexo3_clause (
+                    work_item_category_anexo3_clause_id serial PRIMARY KEY,
+                    work_item_category_id integer NOT NULL REFERENCES work_item_category(work_item_category_id) ON DELETE CASCADE,
+                    clause_text text NOT NULL,
+                    sort_order integer NOT NULL,
+                    state boolean NOT NULL,
+                    created_datetime timestamp with time zone NOT NULL,
+                    created_user_id integer NOT NULL,
+                    updated_datetime timestamp with time zone,
+                    updated_user_id integer
+                );
+                CREATE TABLE IF NOT EXISTS work_item_category_anexo4_clause (
+                    work_item_category_anexo4_clause_id serial PRIMARY KEY,
+                    work_item_category_id integer NOT NULL REFERENCES work_item_category(work_item_category_id) ON DELETE CASCADE,
+                    clause_text text NOT NULL,
+                    sort_order integer NOT NULL,
+                    state boolean NOT NULL,
+                    created_datetime timestamp with time zone NOT NULL,
+                    created_user_id integer NOT NULL,
+                    updated_datetime timestamp with time zone,
+                    updated_user_id integer
+                );
+                CREATE TABLE IF NOT EXISTS ssoma_paso_actividad (
+                    id serial PRIMARY KEY,
+                    paso_id integer NOT NULL REFERENCES ssoma_paso(id) ON DELETE CASCADE,
+                    categoria_id integer NOT NULL REFERENCES ssoma_paso_categoria(id) ON DELETE CASCADE,
+                    nombre text NOT NULL,
+                    descripcion text,
+                    alcance text,
+                    frecuencia text NOT NULL,
+                    responsable_id integer,
+                    responsable_texto text,
+                    mes_inicio integer NOT NULL,
+                    mes_fin integer NOT NULL,
+                    cantidad_planificada integer NOT NULL,
+                    horas numeric,
+                    recursos text,
+                    indicador text NOT NULL,
+                    meta text NOT NULL,
+                    orden integer,
+                    activo boolean NOT NULL,
+                    deleted_at timestamp with time zone,
+                    deleted_by integer,
+                    motivo_eliminacion text
+                );
+                CREATE TABLE IF NOT EXISTS ssoma_paso_ejecucion (
+                    id serial PRIMARY KEY,
+                    actividad_id integer NOT NULL REFERENCES ssoma_paso_actividad(id) ON DELETE CASCADE,
+                    fecha_programada date NOT NULL,
+                    fecha_verificacion date,
+                    fecha_ejecutada date,
+                    fecha_reprogramada date,
+                    motivo_reprogramacion text,
+                    estado text NOT NULL,
+                    observaciones text,
+                    participantes_count integer,
+                    evidencia_nombre text,
+                    evidencia_url text,
+                    evidencia_sp_id text,
+                    registrado_por integer,
+                    created_at timestamp with time zone NOT NULL,
+                    updated_at timestamp with time zone
+                );
+                CREATE INDEX IF NOT EXISTS ix_ss_hab_documento_archivo_version_id ON ss_hab_documento_archivo(version_id);
+                CREATE INDEX IF NOT EXISTS ix_ssoma_paso_actividad_categoria_id ON ssoma_paso_actividad(categoria_id);
+                CREATE INDEX IF NOT EXISTS ix_ssoma_paso_actividad_paso_id ON ssoma_paso_actividad(paso_id);
+                CREATE INDEX IF NOT EXISTS ix_ssoma_paso_ejecucion_actividad_id ON ssoma_paso_ejecucion(actividad_id);
+                CREATE INDEX IF NOT EXISTS ix_work_item_category_anexo3_clause_work_item_category_id ON work_item_category_anexo3_clause(work_item_category_id);
+                CREATE INDEX IF NOT EXISTS ix_work_item_category_anexo4_clause_work_item_category_id ON work_item_category_anexo4_clause(work_item_category_id);
+            ");
         }
 
         /// <inheritdoc />

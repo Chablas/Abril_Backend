@@ -13,4 +13,7 @@ public class OptSharePointService : IOptSharePointService
 
     public Task<string> SubirFirmaTrabajadorAsync(Stream stream, string filename, int optId, int trabajadorId)
         => _sp.SubirArchivoEnRutaAsync(stream, filename, "opt-firmas", $"OPT/{optId}/firmas");
+
+    public Task<string> SubirFotoAreaAsync(Stream stream, string filename, int optId, int orden)
+        => _sp.SubirArchivoEnRutaAsync(stream, filename, "opt-fotos", $"OPT/{optId}/area");
 }

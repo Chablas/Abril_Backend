@@ -15,4 +15,13 @@ public interface IAccidenteIncidenteRepository
     Task ActualizarAsync(int id, ActualizarFlashReportRequest request, string? urlFoto1, string? urlFoto2);
     Task MarcarEnviadoAsync(int id, string urlPdf);
     Task EliminarAsync(int id);
+
+    // Entregables
+    Task<List<EntregableDto>> GetEntregablesAsync(int accidenteId);
+    Task ActualizarEntregableAsync(int entregableId, ActualizarEntregableRequest req);
+    Task SubirArchivoEntregableAsync(int entregableId, string urlArchivo, string nombreArchivo);
+
+    // RM-050
+    Task<Rm050Dto?> GetRm050Async(int accidenteId);
+    Task GuardarRm050Async(int accidenteId, GuardarRm050Request req);
 }

@@ -10,9 +10,9 @@ public interface IOptRepository
         DateTime? fechaDesde, DateTime? fechaHasta, int? trabajadorId);
     Task<OptDetalleDto?> GetDetalleAsync(int id);
     Task<int> CrearOptAsync(CrearOptRequest request, string? firmaObservadorUrl,
-        Dictionary<int, string> firmasTrabajadorUrls);
+        Dictionary<int, string> firmasTrabajadorUrls, List<string> fotosAreaUrls);
     Task<OptDashboardDto> GetDashboardAsync(int? proyectoId, int? anio);
     Task<List<OptPetDto>> GetPetsAsync();
     Task<List<OptCriterioVerificacionDto>> GetCriteriosVerificacionAsync();
-    Task UpdateFirmasAsync(int optId, string? firmaObservadorUrl, Dictionary<int, string> firmasTrabajadorUrls);
+    Task UpdateFirmasAsync(int optId, string? firmaObservadorUrl, Dictionary<int, string> firmasTrabajadorUrls, List<string> fotosAreaUrls);
 }

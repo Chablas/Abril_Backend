@@ -49,7 +49,7 @@ public class OptService : IOptService
     public async Task<int> CrearOptAsync(CrearOptRequest request)
     {
         // 1. Crear OPT sin firmas para obtener el optId real
-        var optId = await _repo.CrearOptAsync(request, null, new Dictionary<int, string>());
+        var optId = await _repo.CrearOptAsync(request, null, new Dictionary<int, string>(), []);
 
         // 2. Subir firmas usando el optId real (base64 → MemoryStream)
         string? firmaObservadorUrl = null;
@@ -73,9 +73,20 @@ public class OptService : IOptService
             }
         }
 
-        // 3. Actualizar URLs en DB si se subió alguna firma
-        if (firmaObservadorUrl != null || firmasTrabajadorUrls.Count > 0)
-            await _repo.UpdateFirmasAsync(optId, firmaObservadorUrl, firmasTrabajadorUrls);
+        var fotosAreaUrls = new List<string>();
+        for (int j = 0; j < request.FotosAreaBase64.Count; j++)
+        {
+            var base64 = request.FotosAreaBase64[j];
+            var data = base64.Contains(",") ? base64.Split(',')[1] : base64;
+            var bytes2 = Convert.FromBase64String(data);
+            using var stream2 = new MemoryStream(bytes2);
+            var url2 = await _sp.SubirFotoAreaAsync(stream2, $"area_{j}_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg", optId, j);
+            fotosAreaUrls.Add(url2);
+        }
+
+        // 3. Actualizar URLs en DB si se subió algo
+        if (firmaObservadorUrl != null || firmasTrabajadorUrls.Count > 0 || fotosAreaUrls.Any())
+            await _repo.UpdateFirmasAsync(optId, firmaObservadorUrl, firmasTrabajadorUrls, fotosAreaUrls);
 
         return optId;
     }

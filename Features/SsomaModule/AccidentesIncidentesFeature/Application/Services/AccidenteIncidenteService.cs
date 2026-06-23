@@ -13,17 +13,20 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
     private readonly ISharePointHabService _sp;
     private readonly IEmailService _email;
     private readonly ILogger<AccidenteIncidenteService> _logger;
+    private readonly IConfiguration _config;
 
     public AccidenteIncidenteService(
         IAccidenteIncidenteRepository repo,
         ISharePointHabService sp,
         IEmailService email,
-        ILogger<AccidenteIncidenteService> logger)
+        ILogger<AccidenteIncidenteService> logger,
+        IConfiguration config)
     {
         _repo = repo;
         _sp = sp;
         _email = email;
         _logger = logger;
+        _config = config;
     }
 
     public Task<FlashReportInicializarDto> GetInicializarAsync() => _repo.GetInicializarAsync();
@@ -152,9 +155,18 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
 
     private async Task EnviarEmailAsync(FlashReportDetalleDto fr, byte[] pdfBytes, string pdfNombre)
     {
-        var destinatarios = new List<string> { "ssoma@abril.pe", "proyectos@abril.pe" };
-        if (!string.IsNullOrWhiteSpace(fr.ElaboradoPorEmail))
-            destinatarios.Add(fr.ElaboradoPorEmail);
+        var overrideEmail = _config["FlashReport:TestEmail"];
+        List<string> destinatarios;
+        if (!string.IsNullOrWhiteSpace(overrideEmail))
+        {
+            destinatarios = [overrideEmail];
+        }
+        else
+        {
+            destinatarios = ["ssoma@abril.pe", "proyectos@abril.pe"];
+            if (!string.IsNullOrWhiteSpace(fr.ElaboradoPorEmail))
+                destinatarios.Add(fr.ElaboradoPorEmail);
+        }
 
         var asunto = $"Flash Report {fr.Codigo} - {fr.ProyectoNombre} - {fr.Fecha:dd/MM/yyyy}";
         var nivel = fr.ConsecuenciaRealPersonal.HasValue && fr.ConsecuenciaRealPersonal > 0
@@ -189,4 +201,33 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         if (bytes.Length >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50) return "png";
         return "jpg";
     }
+
+    // ── Entregables ───────────────────────────────────────────────────────────
+
+    public Task<List<EntregableDto>> GetEntregablesAsync(int accidenteId)
+        => _repo.GetEntregablesAsync(accidenteId);
+
+    public Task ActualizarEntregableAsync(int entregableId, ActualizarEntregableRequest req)
+        => _repo.ActualizarEntregableAsync(entregableId, req);
+
+    public async Task<string> SubirArchivoEntregableAsync(int entregableId, IFormFile archivo)
+    {
+        await using var stream = archivo.OpenReadStream();
+        var ext = Path.GetExtension(archivo.FileName);
+        var nombre = $"{Path.GetFileNameWithoutExtension(archivo.FileName)}_{DateTime.UtcNow:yyyyMMddHHmmss}{ext}";
+        var url = await _sp.SubirArchivoEnRutaAsync(stream, nombre, "flash-report", "flash-reports/entregables");
+        await _repo.SubirArchivoEntregableAsync(entregableId, url, archivo.FileName);
+        return url;
+    }
+
+    // ── RM-050 ────────────────────────────────────────────────────────────────
+
+    public async Task<Rm050Dto> GetRm050Async(int accidenteId)
+    {
+        var rm = await _repo.GetRm050Async(accidenteId);
+        return rm ?? new Rm050Dto();
+    }
+
+    public Task GuardarRm050Async(int accidenteId, GuardarRm050Request req)
+        => _repo.GuardarRm050Async(accidenteId, req);
 }

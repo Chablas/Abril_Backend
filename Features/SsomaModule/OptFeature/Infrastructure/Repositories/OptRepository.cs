@@ -47,7 +47,7 @@ public class OptRepository : IOptRepository
     }
 
     public async Task<int> CrearOptAsync(CrearOptRequest request, string? firmaObservadorUrl,
-        Dictionary<int, string> firmasTrabajadorUrls)
+        Dictionary<int, string> firmasTrabajadorUrls, List<string> fotosAreaUrls)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -127,6 +127,17 @@ public class OptRepository : IOptRepository
             });
         }
 
+        for (int j = 0; j < fotosAreaUrls.Count; j++)
+        {
+            ctx.SsomaOptFotoArea.Add(new SsomaOptFotoArea
+            {
+                OptId = opt.Id,
+                Url = fotosAreaUrls[j],
+                Orden = j,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
         await ctx.SaveChangesAsync();
         return opt.Id;
     }
@@ -141,6 +152,7 @@ public class OptRepository : IOptRepository
             .Include(o => o.Trabajadores).ThenInclude(t => t.Trabajador).ThenInclude(w => w!.Contributor)
             .Include(o => o.Verificaciones).ThenInclude(v => v.Criterio)
             .Include(o => o.Pasos)
+            .Include(o => o.FotosArea)
             .FirstOrDefaultAsync(o => o.Id == id);
 
         if (opt == null) return null;
@@ -204,7 +216,8 @@ public class OptRepository : IOptRepository
                     Resultado           = p.Resultado,
                     DesviacionObservada = p.DesviacionObservada,
                     Orden               = p.Orden
-                }).ToList()
+                }).ToList(),
+            FotosArea = opt.FotosArea.OrderBy(f => f.Orden).Select(f => f.Url).ToList()
         };
     }
 
@@ -269,7 +282,7 @@ public class OptRepository : IOptRepository
         return await q.CountAsync();
     }
 
-    public async Task UpdateFirmasAsync(int optId, string? firmaObservadorUrl, Dictionary<int, string> firmasTrabajadorUrls)
+    public async Task UpdateFirmasAsync(int optId, string? firmaObservadorUrl, Dictionary<int, string> firmasTrabajadorUrls, List<string> fotosAreaUrls)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -287,6 +300,17 @@ public class OptRepository : IOptRepository
             foreach (var t in trabajadores)
                 if (firmasTrabajadorUrls.TryGetValue(t.TrabajadorId, out var url))
                     t.FirmaTrabajadorUrl = url;
+        }
+
+        for (int j = 0; j < fotosAreaUrls.Count; j++)
+        {
+            ctx.SsomaOptFotoArea.Add(new SsomaOptFotoArea
+            {
+                OptId = optId,
+                Url = fotosAreaUrls[j],
+                Orden = j,
+                CreatedAt = DateTime.UtcNow
+            });
         }
 
         await ctx.SaveChangesAsync();

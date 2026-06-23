@@ -13,9 +13,10 @@ public interface IInspeccionRepository
     Task<InspeccionDetalleDto?> GetDetalleAsync(int id);
     Task<int> CrearInspeccionAsync(CrearInspeccionRequest request,
         string? firmaInspectorUrl, string? firmaRepresentanteUrl,
-        Dictionary<int, List<string>> fotosHallazgoUrls);
+        Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls);
     Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request, string? evidenciaUrl);
-    Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl, Dictionary<int, List<string>> fotosHallazgoUrls);
+    Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl,
+        Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls);
     Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio);
     Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta);
     Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto);

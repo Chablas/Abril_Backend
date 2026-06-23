@@ -59,6 +59,7 @@ public class CrearInspeccionRequest
     public string? Conclusiones { get; set; }
     public List<InspeccionRespuestaRequest> Respuestas { get; set; } = [];
     public List<InspeccionHallazgoRequest> Hallazgos { get; set; } = [];
+    public List<string> FotosAreaBase64 { get; set; } = [];
 }
 
 public class CerrarHallazgoRequest
@@ -137,6 +138,7 @@ public class InspeccionDetalleDto
     public DateTime CreatedAt { get; set; }
     public List<InspeccionRespuestaDto> Respuestas { get; set; } = [];
     public List<InspeccionHallazgoDto> Hallazgos { get; set; } = [];
+    public List<InspeccionHallazgoFotoDto> FotosArea { get; set; } = [];
 }
 
 public class InspeccionListItemDto

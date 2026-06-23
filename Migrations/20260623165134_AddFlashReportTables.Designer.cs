@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260623165134_AddFlashReportTables")]
+    partial class AddFlashReportTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -8131,70 +8134,6 @@ namespace Abril_Backend.Migrations
                     b.ToTable("ss_accidente_incidente", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaAccionCorrectiva", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Descripcion")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("descripcion");
-
-                    b.Property<string>("Estado")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("estado");
-
-                    b.Property<string>("EvidenciaUrl")
-                        .HasColumnType("text")
-                        .HasColumnName("evidencia_url");
-
-                    b.Property<DateOnly?>("FechaCompromiso")
-                        .HasColumnType("date")
-                        .HasColumnName("fecha_compromiso");
-
-                    b.Property<DateOnly?>("FechaCumplimiento")
-                        .HasColumnType("date")
-                        .HasColumnName("fecha_cumplimiento");
-
-                    b.Property<int>("InvestigacionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("investigacion_id");
-
-                    b.Property<string>("ResponsableNombre")
-                        .HasColumnType("text")
-                        .HasColumnName("responsable_nombre");
-
-                    b.Property<int?>("ResponsableWorkerId")
-                        .HasColumnType("integer")
-                        .HasColumnName("responsable_worker_id");
-
-                    b.Property<int?>("SsomaInvestigacionRm050Id")
-                        .HasColumnType("integer")
-                        .HasColumnName("ssoma_investigacion_rm050id");
-
-                    b.Property<string>("Tipo")
-                        .HasColumnType("text")
-                        .HasColumnName("tipo");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_accion_correctiva");
-
-                    b.HasIndex("SsomaInvestigacionRm050Id")
-                        .HasDatabaseName("ix_ss_accion_correctiva_ssoma_investigacion_rm050id");
-
-                    b.ToTable("ss_accion_correctiva", (string)null);
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaEmpresaAbril", b =>
                 {
                     b.Property<int>("Id")
@@ -8221,124 +8160,6 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_ssoma_empresa_abril");
 
                     b.ToTable("ssoma_empresa_abril", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaEntregable", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AccidenteIncidenteId")
-                        .HasColumnType("integer")
-                        .HasColumnName("accidente_incidente_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Estado")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("estado");
-
-                    b.Property<DateOnly?>("FechaLimite")
-                        .HasColumnType("date")
-                        .HasColumnName("fecha_limite");
-
-                    b.Property<string>("NombreArchivo")
-                        .HasColumnType("text")
-                        .HasColumnName("nombre_archivo");
-
-                    b.Property<string>("Observacion")
-                        .HasColumnType("text")
-                        .HasColumnName("observacion");
-
-                    b.Property<int>("TipoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("tipo_id");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<string>("UrlArchivo")
-                        .HasColumnType("text")
-                        .HasColumnName("url_archivo");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_entregable");
-
-                    b.HasIndex("TipoId")
-                        .HasDatabaseName("ix_ss_entregable_tipo_id");
-
-                    b.ToTable("ss_entregable", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaEntregableResponsable", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("EntregableId")
-                        .HasColumnType("integer")
-                        .HasColumnName("entregable_id");
-
-                    b.Property<string>("Nombre")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("nombre");
-
-                    b.Property<int?>("SsomaEntregableId")
-                        .HasColumnType("integer")
-                        .HasColumnName("ssoma_entregable_id");
-
-                    b.Property<int?>("WorkerId")
-                        .HasColumnType("integer")
-                        .HasColumnName("worker_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_entregable_responsable");
-
-                    b.HasIndex("SsomaEntregableId")
-                        .HasDatabaseName("ix_ss_entregable_responsable_ssoma_entregable_id");
-
-                    b.ToTable("ss_entregable_responsable", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaEntregableTipo", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("Activo")
-                        .HasColumnType("boolean")
-                        .HasColumnName("activo");
-
-                    b.Property<string>("Nombre")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("nombre");
-
-                    b.Property<int>("Orden")
-                        .HasColumnType("integer")
-                        .HasColumnName("orden");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_entregable_tipo");
-
-                    b.ToTable("ss_entregable_tipo", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaFlashDescanso", b =>
@@ -8466,110 +8287,6 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_ssoma_flash_tipo");
 
                     b.ToTable("ssoma_flash_tipo", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaInvestigacionRm050", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AccidenteIncidenteId")
-                        .HasColumnType("integer")
-                        .HasColumnName("accidente_incidente_id");
-
-                    b.Property<string>("ActosSubestandar")
-                        .HasColumnType("text")
-                        .HasColumnName("actos_subestandar");
-
-                    b.Property<string>("AgenteCausante")
-                        .HasColumnType("text")
-                        .HasColumnName("agente_causante");
-
-                    b.Property<string>("AprobadoPorCargo")
-                        .HasColumnType("text")
-                        .HasColumnName("aprobado_por_cargo");
-
-                    b.Property<string>("AprobadoPorNombre")
-                        .HasColumnType("text")
-                        .HasColumnName("aprobado_por_nombre");
-
-                    b.Property<string>("ArbolCausasUrl")
-                        .HasColumnType("text")
-                        .HasColumnName("arbol_causas_url");
-
-                    b.Property<string>("CondicionesSubestandar")
-                        .HasColumnType("text")
-                        .HasColumnName("condiciones_subestandar");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("DescripcionDetallada")
-                        .HasColumnType("text")
-                        .HasColumnName("descripcion_detallada");
-
-                    b.Property<int?>("DiasPerdidos")
-                        .HasColumnType("integer")
-                        .HasColumnName("dias_perdidos");
-
-                    b.Property<string>("ElaboradoPorCargo")
-                        .HasColumnType("text")
-                        .HasColumnName("elaborado_por_cargo");
-
-                    b.Property<DateOnly?>("ElaboradoPorFecha")
-                        .HasColumnType("date")
-                        .HasColumnName("elaborado_por_fecha");
-
-                    b.Property<string>("ElaboradoPorNombre")
-                        .HasColumnType("text")
-                        .HasColumnName("elaborado_por_nombre");
-
-                    b.Property<string>("Estado")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("estado");
-
-                    b.Property<string>("FactoresPersonales")
-                        .HasColumnType("text")
-                        .HasColumnName("factores_personales");
-
-                    b.Property<string>("FactoresTrabajo")
-                        .HasColumnType("text")
-                        .HasColumnName("factores_trabajo");
-
-                    b.Property<string>("GravedadAccidente")
-                        .HasColumnType("text")
-                        .HasColumnName("gravedad_accidente");
-
-                    b.Property<string>("Mecanismo")
-                        .HasColumnType("text")
-                        .HasColumnName("mecanismo");
-
-                    b.Property<int?>("NroTrabajadoresAfectados")
-                        .HasColumnType("integer")
-                        .HasColumnName("nro_trabajadores_afectados");
-
-                    b.Property<string>("Testigos")
-                        .HasColumnType("text")
-                        .HasColumnName("testigos");
-
-                    b.Property<string>("TipoAccidente")
-                        .HasColumnType("text")
-                        .HasColumnName("tipo_accidente");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_investigacion_rm050");
-
-                    b.ToTable("ss_investigacion_rm050", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models.SsCharla", b =>
@@ -8994,41 +8711,6 @@ namespace Abril_Backend.Migrations
                     b.ToTable("ssoma_inspeccion_checklist_item", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models.SsomaInspeccionFotoArea", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<int>("InspeccionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("inspeccion_id");
-
-                    b.Property<int>("Orden")
-                        .HasColumnType("integer")
-                        .HasColumnName("orden");
-
-                    b.Property<string>("Url")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("url");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ssoma_inspeccion_foto_area");
-
-                    b.HasIndex("InspeccionId")
-                        .HasDatabaseName("ix_ssoma_inspeccion_foto_area_inspeccion_id");
-
-                    b.ToTable("ssoma_inspeccion_foto_area", (string)null);
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models.SsomaInspeccionHallazgo", b =>
                 {
                     b.Property<int>("Id")
@@ -9359,41 +9041,6 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_ssoma_opt_criterio_verificacion");
 
                     b.ToTable("ssoma_opt_criterio_verificacion", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models.SsomaOptFotoArea", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<int>("OptId")
-                        .HasColumnType("integer")
-                        .HasColumnName("opt_id");
-
-                    b.Property<int>("Orden")
-                        .HasColumnType("integer")
-                        .HasColumnName("orden");
-
-                    b.Property<string>("Url")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("url");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ssoma_opt_foto_area");
-
-                    b.HasIndex("OptId")
-                        .HasDatabaseName("ix_ssoma_opt_foto_area_opt_id");
-
-                    b.ToTable("ssoma_opt_foto_area", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models.SsomaOptPaso", b =>
@@ -14605,34 +14252,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Tipo");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaAccionCorrectiva", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaInvestigacionRm050", null)
-                        .WithMany("AccionesCorrectivas")
-                        .HasForeignKey("SsomaInvestigacionRm050Id")
-                        .HasConstraintName("fk_ss_accion_correctiva_ss_investigacion_rm050_ssoma_investiga");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaEntregable", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaEntregableTipo", "Tipo")
-                        .WithMany()
-                        .HasForeignKey("TipoId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_ss_entregable_ss_entregable_tipo_tipo_id");
-
-                    b.Navigation("Tipo");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaEntregableResponsable", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaEntregable", null)
-                        .WithMany("Responsables")
-                        .HasForeignKey("SsomaEntregableId")
-                        .HasConstraintName("fk_ss_entregable_responsable_ss_entregable_ssoma_entregable_id");
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaFlashDescanso", b =>
                 {
                     b.HasOne("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaAccidenteIncidente", "AccidenteIncidente")
@@ -14721,18 +14340,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Tipo");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models.SsomaInspeccionFotoArea", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models.SsomaInspeccion", "Inspeccion")
-                        .WithMany("FotosArea")
-                        .HasForeignKey("InspeccionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_ssoma_inspeccion_foto_area_ssoma_inspeccion_inspeccion_id");
-
-                    b.Navigation("Inspeccion");
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models.SsomaInspeccionHallazgo", b =>
                 {
                     b.HasOne("Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models.SsomaInspeccion", "Inspeccion")
@@ -14795,18 +14402,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Pet");
 
                     b.Navigation("Proyecto");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models.SsomaOptFotoArea", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models.SsomaOpt", "Opt")
-                        .WithMany("FotosArea")
-                        .HasForeignKey("OptId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_ssoma_opt_foto_area_ssoma_opt_opt_id");
-
-                    b.Navigation("Opt");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models.SsomaOptPaso", b =>
@@ -15545,16 +15140,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Descansos");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaEntregable", b =>
-                {
-                    b.Navigation("Responsables");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaInvestigacionRm050", b =>
-                {
-                    b.Navigation("AccionesCorrectivas");
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models.SsCharla", b =>
                 {
                     b.Navigation("Archivos");
@@ -15569,8 +15154,6 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models.SsomaInspeccion", b =>
                 {
-                    b.Navigation("FotosArea");
-
                     b.Navigation("Hallazgos");
 
                     b.Navigation("Respuestas");
@@ -15588,8 +15171,6 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models.SsomaOpt", b =>
                 {
-                    b.Navigation("FotosArea");
-
                     b.Navigation("Pasos");
 
                     b.Navigation("Trabajadores");

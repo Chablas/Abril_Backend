@@ -49,7 +49,7 @@ public class InspeccionService : IInspeccionService
 
         // PASO 1: Crear inspección sin firmas para obtener el ID
         var fotosHallazgoUrls = new Dictionary<int, List<string>>();
-        var id = await _repo.CrearInspeccionAsync(request, null, null, fotosHallazgoUrls);
+        var id = await _repo.CrearInspeccionAsync(request, null, null, fotosHallazgoUrls, []);
 
         // PASO 2: Subir firmas y fotos con el ID real
         string? firmaInspectorUrl = null;
@@ -92,9 +92,21 @@ public class InspeccionService : IInspeccionService
             if (urls.Any()) fotosHallazgoUrls[i] = urls;
         }
 
+        var fotosAreaUrls = new List<string>();
+        for (int j = 0; j < request.FotosAreaBase64.Count; j++)
+        {
+            var base64 = request.FotosAreaBase64[j];
+            var data = base64.Contains(",") ? base64.Split(',')[1] : base64;
+            var bytes = Convert.FromBase64String(data);
+            using var stream = new MemoryStream(bytes);
+            var url = await _sp.SubirFotoAreaAsync(
+                stream, $"area_{j}_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg", id, j);
+            fotosAreaUrls.Add(url);
+        }
+
         // PASO 3: Actualizar con firmas y fotos
-        if (firmaInspectorUrl != null || firmaRepresentanteUrl != null || fotosHallazgoUrls.Any())
-            await _repo.ActualizarFirmasYFotosAsync(id, firmaInspectorUrl, firmaRepresentanteUrl, fotosHallazgoUrls);
+        if (firmaInspectorUrl != null || firmaRepresentanteUrl != null || fotosHallazgoUrls.Any() || fotosAreaUrls.Any())
+            await _repo.ActualizarFirmasYFotosAsync(id, firmaInspectorUrl, firmaRepresentanteUrl, fotosHallazgoUrls, fotosAreaUrls);
 
         return id;
     }

@@ -48,7 +48,7 @@ public class InspeccionRepository : IInspeccionRepository
 
     public async Task<int> CrearInspeccionAsync(CrearInspeccionRequest request,
         string? firmaInspectorUrl, string? firmaRepresentanteUrl,
-        Dictionary<int, List<string>> fotosHallazgoUrls)
+        Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -145,6 +145,17 @@ public class InspeccionRepository : IInspeccionRepository
             }
         }
 
+        for (int j = 0; j < fotosAreaUrls.Count; j++)
+        {
+            ctx.SsomaInspeccionFotoArea.Add(new SsomaInspeccionFotoArea
+            {
+                InspeccionId = inspeccion.Id,
+                Url = fotosAreaUrls[j],
+                Orden = j,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
         await ctx.SaveChangesAsync();
         return inspeccion.Id;
     }
@@ -161,7 +172,8 @@ public class InspeccionRepository : IInspeccionRepository
         await ctx.SaveChangesAsync();
     }
 
-    public async Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl, Dictionary<int, List<string>> fotosHallazgoUrls)
+    public async Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl,
+        Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -197,6 +209,21 @@ public class InspeccionRepository : IInspeccionRepository
             }
             await ctx.SaveChangesAsync();
         }
+
+        if (fotosAreaUrls.Any())
+        {
+            for (int j = 0; j < fotosAreaUrls.Count; j++)
+            {
+                ctx.SsomaInspeccionFotoArea.Add(new SsomaInspeccionFotoArea
+                {
+                    InspeccionId = id,
+                    Url = fotosAreaUrls[j],
+                    Orden = j,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+            await ctx.SaveChangesAsync();
+        }
     }
 
     public async Task<InspeccionDetalleDto?> GetDetalleAsync(int id)
@@ -208,6 +235,7 @@ public class InspeccionRepository : IInspeccionRepository
             .Include(i => i.Empresa)
             .Include(i => i.Respuestas).ThenInclude(r => r.Item)
             .Include(i => i.Hallazgos).ThenInclude(h => h.Fotos)
+            .Include(i => i.FotosArea)
             .FirstOrDefaultAsync(i => i.Id == id);
 
         if (insp == null) return null;
@@ -280,7 +308,10 @@ public class InspeccionRepository : IInspeccionRepository
                             Descripcion = f.Descripcion,
                             Orden = f.Orden
                         }).ToList()
-                }).ToList()
+                }).ToList(),
+            FotosArea = insp.FotosArea.OrderBy(f => f.Orden)
+                .Select(f => new InspeccionHallazgoFotoDto { Id = f.Id, Url = f.Url, Orden = f.Orden })
+                .ToList()
         };
     }
 

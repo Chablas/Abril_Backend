@@ -65,6 +65,7 @@ public class CrearOptRequest
     public List<OptTrabajadorRequest> Trabajadores { get; set; } = [];
     public List<OptVerificacionRequest> Verificaciones { get; set; } = [];
     public List<OptPasoRequest> Pasos { get; set; } = [];
+    public List<string> FotosAreaBase64 { get; set; } = [];
 }
 
 // ── Respuestas ─────────────────────────────────────────────────────────────
@@ -130,6 +131,7 @@ public class OptDetalleDto
     public List<OptTrabajadorDto> Trabajadores { get; set; } = [];
     public List<OptVerificacionDto> Verificaciones { get; set; } = [];
     public List<OptPasoDto> Pasos { get; set; } = [];
+    public List<string> FotosArea { get; set; } = [];
 }
 
 public class OptListItemDto

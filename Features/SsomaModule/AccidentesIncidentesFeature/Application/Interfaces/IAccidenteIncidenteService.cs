@@ -12,4 +12,11 @@ public interface IAccidenteIncidenteService
     Task ActualizarAsync(int id, ActualizarFlashReportRequest request);
     Task EnviarFlashReportAsync(int id);
     Task EliminarAsync(int id);
+    Task<List<EntregableDto>> GetEntregablesAsync(int accidenteId);
+    Task ActualizarEntregableAsync(int entregableId, ActualizarEntregableRequest req);
+    Task<string> SubirArchivoEntregableAsync(int entregableId, IFormFile archivo);
+
+    // RM-050
+    Task<Rm050Dto> GetRm050Async(int accidenteId);
+    Task GuardarRm050Async(int accidenteId, GuardarRm050Request req);
 }

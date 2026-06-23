@@ -133,8 +133,7 @@ public class CharlaService : ICharlaService
         var staff = await ctx.Worker
             .Include(w => w.Person)
             .Where(w => workerIds.Contains(w.Id)
-                && w.Categoria == "Supervisor"
-                && (w.ObraOficina == "Staff" || w.ObraOficina == "Oficina Central")
+                && w.ObraOficina == "Staff"
                 && w.Estado == "ACTIVO")
             .ToListAsync();
 
@@ -333,7 +332,8 @@ public class CharlaService : ICharlaService
                 cap?.Tema,
                 cap?.EvidenciaUrl,
                 cap?.EvidenciaNombre,
-                cap == null ? "Falta" : cap.Estado
+                cap == null ? "Falta" : cap.Estado,
+                []
             ));
         }
 
@@ -432,7 +432,13 @@ public class CharlaService : ICharlaService
 
         await ctx.SaveChangesAsync();
 
-        return new CapacitacionDto(cap.Id, workerId, worker.Person?.FullName ?? string.Empty, cap.Fecha, cap.Tema, cap.EvidenciaUrl, cap.EvidenciaNombre, cap.Estado);
+        var archivosDb = await ctx.SsCharlaArchivos
+            .Where(a => a.CharlaId == cap.Id && a.State)
+            .OrderBy(a => a.Id)
+            .ToListAsync();
+        var archivosDto = archivosDb.Select(a => new ArchivoItemDto(a.Id, a.Url, a.Nombre)).ToList();
+
+        return new CapacitacionDto(cap.Id, workerId, worker.Person?.FullName ?? string.Empty, cap.Fecha, cap.Tema, cap.EvidenciaUrl, cap.EvidenciaNombre, cap.Estado, archivosDto);
     }
 
     public async Task<CapacitacionDto> SubirMiCapacitacionAsync(int userId, DateTime fecha, string tema, Stream evidencia, string fileName)
@@ -448,6 +454,109 @@ public class CharlaService : ICharlaService
             throw new AbrilException("No se encontró el perfil de trabajador para este usuario.", 404);
 
         return await SubirCapacitacionAsync(workerId, fecha, tema, evidencia, fileName, userId);
+    }
+
+    public async Task<CapacitacionDto> SubirMiCapacitacionMultiAsync(int userId, DateTime fecha, string tema, List<(Stream Stream, string FileName)> archivos)
+    {
+        fecha = DateTime.SpecifyKind(fecha, DateTimeKind.Utc);
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var workerId = await ctx.Person
+            .Where(p => p.UserId == userId)
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w.Id)
+            .FirstOrDefaultAsync();
+
+        if (workerId == 0)
+            throw new AbrilException("No se encontró el perfil de trabajador para este usuario.", 404);
+
+        var worker = await ctx.Worker
+            .Include(w => w.Person)
+            .FirstOrDefaultAsync(w => w.Id == workerId)
+            ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+        // resolve proyecto
+        var hoyLocal = DateOnly.FromDateTime(DateTime.UtcNow);
+        var proyectoId = await ctx.WorkerProyecto
+            .Where(wp => wp.WorkerId == workerId && (wp.FechaFin == null || wp.FechaFin >= hoyLocal))
+            .OrderByDescending(wp => wp.FechaInicio)
+            .Select(wp => wp.ProyectoId)
+            .FirstOrDefaultAsync();
+
+        int programaId = 0;
+        if (proyectoId > 0)
+        {
+            var mes = fecha.Month;
+            var anio = fecha.Year;
+            var programa = await ctx.SsCharlaProgramas
+                .FirstOrDefaultAsync(p => p.ProyectoId == proyectoId && p.Mes == mes && p.Anio == anio && p.State);
+            if (programa == null)
+            {
+                programa = new SsCharlaPrograma
+                {
+                    ProyectoId = proyectoId,
+                    Mes = mes,
+                    Anio = anio,
+                    Nombre = $"Capacitaciones {mes}/{anio}",
+                    Estado = "Activo",
+                    CreadoPorId = userId,
+                    CreatedAt = DateTime.UtcNow
+                };
+                ctx.SsCharlaProgramas.Add(programa);
+                await ctx.SaveChangesAsync();
+            }
+            programaId = programa.Id;
+        }
+
+        // create a new SsCharla per upload session (one record per tema+fecha)
+        var cap = new SsCharla
+        {
+            ProgramaId = programaId,
+            Fecha = fecha,
+            Titulo = tema,
+            Tema = tema,
+            SupervisorId = workerId,
+            ProyectoId = proyectoId > 0 ? proyectoId : null,
+            EsCapacitacionIndividual = true,
+            EvidenciaSubidaPorId = userId,
+            EvidenciaSubidaEn = DateTime.UtcNow,
+            Estado = "Enviado",
+            CreadoPorId = userId,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.SsCharlas.Add(cap);
+        await ctx.SaveChangesAsync();
+
+        // upload each file and create SsCharlaArchivo records
+        var carpeta = $"Capacitaciones/{fecha.Year}/{fecha.Month}/{workerId}";
+        string? firstUrl = null;
+        string? firstNombre = null;
+
+        foreach (var (stream, fileName) in archivos)
+        {
+            var url = await _sp.SubirArchivoYObtenerUrlAsync(stream, fileName, "charlas-evidencias", carpeta);
+            if (firstUrl == null) { firstUrl = url; firstNombre = fileName; }
+
+            ctx.SsCharlaArchivos.Add(new SsCharlaArchivo
+            {
+                CharlaId = cap.Id,
+                Url = url,
+                Nombre = fileName,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        // keep first file on SsCharla for backward compat
+        cap.EvidenciaUrl = firstUrl;
+        cap.EvidenciaNombre = firstNombre;
+        await ctx.SaveChangesAsync();
+
+        var archivosDb = await ctx.SsCharlaArchivos
+            .Where(a => a.CharlaId == cap.Id && a.State)
+            .OrderBy(a => a.Id)
+            .ToListAsync();
+        var archivosDto = archivosDb.Select(a => new ArchivoItemDto(a.Id, a.Url, a.Nombre)).ToList();
+
+        return new CapacitacionDto(cap.Id, workerId, worker.Person?.FullName ?? string.Empty, cap.Fecha, cap.Tema, firstUrl, firstNombre, cap.Estado, archivosDto);
     }
 
     public async Task<CapacitacionDto> CambiarEstadoAsync(int id, string estado, int userId)
@@ -470,7 +579,7 @@ public class CharlaService : ICharlaService
             ? await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == cap.SupervisorId.Value)
             : null;
 
-        return new CapacitacionDto(cap.Id, cap.SupervisorId ?? 0, worker?.Person?.FullName ?? string.Empty, cap.Fecha, cap.Tema, cap.EvidenciaUrl, cap.EvidenciaNombre, cap.Estado);
+        return new CapacitacionDto(cap.Id, cap.SupervisorId ?? 0, worker?.Person?.FullName ?? string.Empty, cap.Fecha, cap.Tema, cap.EvidenciaUrl, cap.EvidenciaNombre, cap.Estado, []);
     }
 
     public async Task EliminarCapacitacionAsync(int id)
@@ -595,9 +704,10 @@ public class CharlaService : ICharlaService
             Titulo = dto.Titulo,
             Tema = dto.Tema,
             Descripcion = dto.Descripcion,
-            Fecha = dto.Fecha,
+            Fecha = DateTime.SpecifyKind(dto.Fecha, DateTimeKind.Utc),
             DuracionHoras = dto.DuracionHoras,
             SupervisorId = dto.SupervisorId,
+            ProyectoId = dto.ProyectoId,
             Estado = "Abierto",
             CreadoPorId = userId,
             CreatedAt = DateTime.UtcNow
@@ -628,6 +738,34 @@ public class CharlaService : ICharlaService
         }
 
         return new CharlaListItemDto(charla.Id, charla.Titulo, charla.Tema, charla.Fecha, charla.SupervisorId, supNombre, charla.Estado, charla.EvidenciaNombre, dto.WorkerIds.Count);
+    }
+
+    public async Task<List<CharlaGaleriaItemDto>> GetCharlasProyectoAsync(int proyectoId, int mes, int anio)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var inicio = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
+        var fin = inicio.AddMonths(1);
+
+        var charlas = await ctx.SsCharlas
+            .Where(c => c.State && !c.EsCapacitacionIndividual
+                && c.ProyectoId == proyectoId
+                && c.Fecha >= inicio && c.Fecha < fin)
+            .OrderByDescending(c => c.Fecha)
+            .ToListAsync();
+
+        if (charlas.Count == 0) return [];
+
+        var charlaIds = charlas.Select(c => c.Id).ToList();
+        var asistencias = await ctx.SsCharlaAsistencias
+            .Where(a => charlaIds.Contains(a.CharlaId) && a.State)
+            .ToListAsync();
+
+        return charlas.Select(c =>
+        {
+            var asis = asistencias.Where(a => a.CharlaId == c.Id).ToList();
+            return new CharlaGaleriaItemDto(c.Id, c.Titulo, c.Tema ?? "Seguridad", c.Fecha, asis.Count, asis.Count(a => a.Asistio));
+        }).ToList();
     }
 
     // ── NEW: Tab 4 — Lista paginada ───────────────────────────────────────────
@@ -750,6 +888,229 @@ public class CharlaService : ICharlaService
         charla.Estado = "Rechazado";
         charla.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
+    }
+
+    // ── NEW: Mis capacitaciones ───────────────────────────────────────────────
+
+    public async Task<List<CapacitacionDto>> GetMisCapacitacionesAsync(int userId)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+
+        var workerId = await ctx.Person
+            .Where(p => p.UserId == userId)
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w.Id)
+            .FirstOrDefaultAsync();
+
+        if (workerId == 0) return [];
+
+        var worker = await ctx.Worker
+            .Include(w => w.Person)
+            .FirstOrDefaultAsync(w => w.Id == workerId);
+
+        var nombre = worker?.Person?.FullName ?? string.Empty;
+
+        var caps = await ctx.SsCharlas
+            .Where(c => c.State && c.EsCapacitacionIndividual && c.SupervisorId == workerId)
+            .Include(c => c.Archivos.Where(a => a.State))
+            .OrderByDescending(c => c.Fecha)
+            .ToListAsync();
+
+        return caps.Select(c =>
+        {
+            var archivosDto = c.Archivos.OrderBy(a => a.Id).Select(a => new ArchivoItemDto(a.Id, a.Url, a.Nombre)).ToList();
+            return new CapacitacionDto(c.Id, workerId, nombre, c.Fecha, c.Tema, c.EvidenciaUrl, c.EvidenciaNombre, c.Estado, archivosDto);
+        }).ToList();
+    }
+
+    // ── NEW: Dashboard ────────────────────────────────────────────────────────
+
+    private static (DateTime Inicio, DateTime Fin) GetWeekRange(int anio, int semana)
+    {
+        var lunes = System.Globalization.ISOWeek.ToDateTime(anio, semana, DayOfWeek.Monday);
+        var inicio = DateTime.SpecifyKind(lunes, DateTimeKind.Utc);
+        return (inicio, inicio.AddDays(7));
+    }
+
+    public async Task<DashPersonalResultDto> GetDashPersonalAsync(int proyectoId, int semana, int anio)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+        var (inicioSemana, finSemana) = GetWeekRange(anio, semana);
+        var mesLunes = inicioSemana.Month;
+        var anioLunes = inicioSemana.Year;
+        var inicioMes = new DateTime(anioLunes, mesLunes, 1, 0, 0, 0, DateTimeKind.Utc);
+        var finMes = inicioMes.AddMonths(1);
+
+        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+        var workerIds = await ctx.WorkerProyecto
+            .Where(wp => wp.ProyectoId == proyectoId && (wp.FechaFin == null || wp.FechaFin >= hoy))
+            .Select(wp => wp.WorkerId).Distinct().ToListAsync();
+
+        var staff = await ctx.Worker
+            .Include(w => w.Person)
+            .Where(w => workerIds.Contains(w.Id) && w.ObraOficina == "Staff" && w.Estado == "ACTIVO")
+            .ToListAsync();
+
+        if (staff.Count == 0) return new DashPersonalResultDto([], []);
+
+        var staffIds = staff.Select(w => w.Id).ToList();
+
+        // Charlas dictadas esta semana en el proyecto (con fecha para agrupar por día)
+        var charlasSemana = await ctx.SsCharlas
+            .Where(c => c.State && !c.EsCapacitacionIndividual
+                && c.ProyectoId == proyectoId
+                && c.Fecha >= inicioSemana && c.Fecha < finSemana)
+            .Select(c => new { c.Id, c.Fecha })
+            .ToListAsync();
+
+        var charlasIds = charlasSemana.Select(c => c.Id).ToList();
+
+        var asistencias = charlasIds.Count > 0
+            ? await ctx.SsCharlaAsistencias
+                .Where(a => charlasIds.Contains(a.CharlaId) && a.State)
+                .ToListAsync()
+            : [];
+
+        // Agrupar charlas por día de semana (1=Lunes..5=Viernes)
+        // Si hay varias charlas el mismo día, se cuentan juntas
+        var charlasPorDia = charlasSemana
+            .GroupBy(c => c.Fecha.Date)
+            .OrderBy(g => g.Key)
+            .Select(g =>
+            {
+                var diaSemana = ((int)g.Key.DayOfWeek == 0 ? 7 : (int)g.Key.DayOfWeek); // 1=Lun..7=Dom
+                var nombre = diaSemana switch
+                {
+                    1 => "Lunes", 2 => "Martes", 3 => "Miércoles",
+                    4 => "Jueves", 5 => "Viernes", 6 => "Sábado", _ => "Domingo"
+                };
+                return new
+                {
+                    NumDia = diaSemana,
+                    Nombre = nombre,
+                    Fecha = DateTime.SpecifyKind(g.Key, DateTimeKind.Utc),
+                    CharlaIds = g.Select(c => c.Id).ToList()
+                };
+            })
+            .ToList();
+
+        // Capacitaciones del mes por worker
+        var caps = await ctx.SsCharlas
+            .Where(c => c.State && c.EsCapacitacionIndividual
+                && staffIds.Contains(c.SupervisorId ?? 0)
+                && c.Fecha >= inicioMes && c.Fecha < finMes)
+            .Select(c => new { c.SupervisorId, c.Fecha, c.Estado })
+            .ToListAsync();
+
+        var diasHeader = charlasPorDia
+            .Select(d => new DashDiaSemanaDto(d.NumDia, d.Nombre, d.Fecha))
+            .ToList();
+
+        var staffRows = staff.Select(w =>
+        {
+            var diasWorker = charlasPorDia.Select(dia =>
+            {
+                // Si asistió a al menos una charla del día, marca como asistió
+                var asistioAlguna = dia.CharlaIds.Any(cid =>
+                    asistencias.Any(a => a.CharlaId == cid && a.WorkerId == w.Id && a.Asistio));
+                var habiaCharla = dia.CharlaIds.Any(cid =>
+                    asistencias.Any(a => a.CharlaId == cid && a.WorkerId == w.Id));
+                // Si hay registro = la charla lo incluía; si no hay = no fue listado ese día
+                bool? asistio = dia.CharlaIds.Any(cid =>
+                    asistencias.Any(a => a.CharlaId == cid && a.WorkerId == w.Id))
+                    ? asistioAlguna
+                    : (bool?)null;
+                return new DashPersonaAsistDiaDto(dia.NumDia, asistio);
+            }).ToList();
+
+            var charlasAsistidas = diasWorker.Count(d => d.Asistio == true);
+            var charlasTotales = charlasPorDia.Count;
+            var capsW = caps.Where(c => c.SupervisorId == w.Id).ToList();
+            var capsSemana = capsW.Count(c => c.Fecha >= inicioSemana && c.Fecha < finSemana);
+            var capsAprobMes = capsW.Count(c => c.Estado == "Aprobado");
+
+            return new DashPersonalItemDto(
+                w.Id, w.Person?.FullName ?? string.Empty, w.Ocupacion ?? string.Empty,
+                diasWorker, charlasAsistidas, charlasTotales,
+                capsSemana, capsAprobMes, capsW.Count
+            );
+        }).OrderBy(d => d.Nombre).ToList();
+
+        return new DashPersonalResultDto(diasHeader, staffRows);
+    }
+
+    public async Task<List<DashProyectoItemDto>> GetDashProyectosAsync(int semana, int anio)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+        var (inicioSemana, finSemana) = GetWeekRange(anio, semana);
+        var mesLunes = inicioSemana.Month;
+        var anioLunes = inicioSemana.Year;
+        var inicioMes = new DateTime(anioLunes, mesLunes, 1, 0, 0, 0, DateTimeKind.Utc);
+        var finMes = inicioMes.AddMonths(1);
+
+        // Proyectos activos que tienen actividad en el período
+        var proyectoIds = await ctx.SsCharlas
+            .Where(c => c.State && c.ProyectoId != null
+                && c.Fecha >= inicioMes && c.Fecha < finMes)
+            .Select(c => c.ProyectoId!.Value)
+            .Distinct().ToListAsync();
+
+        if (proyectoIds.Count == 0) return [];
+
+        var proyectos = await ctx.Project
+            .Where(p => proyectoIds.Contains(p.ProjectId))
+            .Select(p => new { p.ProjectId, p.ProjectDescription })
+            .ToListAsync();
+
+        // Charlas semana
+        var charlasSemana = await ctx.SsCharlas
+            .Where(c => c.State && !c.EsCapacitacionIndividual
+                && c.ProyectoId != null && proyectoIds.Contains(c.ProyectoId!.Value)
+                && c.Fecha >= inicioSemana && c.Fecha < finSemana)
+            .ToListAsync();
+
+        var charlaIds = charlasSemana.Select(c => c.Id).ToList();
+        var asistencias = charlaIds.Count > 0
+            ? await ctx.SsCharlaAsistencias.Where(a => charlaIds.Contains(a.CharlaId) && a.State).ToListAsync()
+            : [];
+
+        // Caps mes
+        var capsMes = await ctx.SsCharlas
+            .Where(c => c.State && c.EsCapacitacionIndividual
+                && c.ProyectoId != null && proyectoIds.Contains(c.ProyectoId!.Value)
+                && c.Fecha >= inicioMes && c.Fecha < finMes)
+            .Select(c => new { c.ProyectoId, c.Estado, c.Fecha })
+            .ToListAsync();
+
+        // Staff por proyecto
+        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+        var staffPorProyecto = await ctx.WorkerProyecto
+            .Where(wp => proyectoIds.Contains(wp.ProyectoId)
+                && (wp.FechaFin == null || wp.FechaFin >= hoy))
+            .Join(ctx.Worker.Where(w => w.ObraOficina == "Staff" && w.Estado == "ACTIVO"),
+                wp => wp.WorkerId, w => w.Id, (wp, w) => wp.ProyectoId)
+            .GroupBy(pid => pid)
+            .Select(g => new { ProyectoId = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        return proyectos.Select(p =>
+        {
+            var charlasProy = charlasSemana.Where(c => c.ProyectoId == p.ProjectId).ToList();
+            var charlaIdsProy = charlasProy.Select(c => c.Id).ToList();
+            var asisProy = asistencias.Where(a => charlaIdsProy.Contains(a.CharlaId)).ToList();
+            var totalPosibles = asisProy.Count;
+            var totalAsistio = asisProy.Count(a => a.Asistio);
+            var capsProy = capsMes.Where(c => c.ProyectoId == p.ProjectId).ToList();
+            var capsEnvSemana = capsProy.Count(c => c.Fecha >= inicioSemana && c.Fecha < finSemana);
+            var capsAprob = capsProy.Count(c => c.Estado == "Aprobado");
+            var totalStaff = staffPorProyecto.FirstOrDefault(s => s.ProyectoId == p.ProjectId)?.Count ?? 0;
+
+            return new DashProyectoItemDto(
+                p.ProjectId, p.ProjectDescription,
+                totalStaff, charlasProy.Count,
+                totalAsistio, totalPosibles,
+                capsEnvSemana, capsAprob
+            );
+        }).OrderByDescending(d => d.CharlasDictadas).ToList();
     }
 
     // ── NEW: Supervisor search ────────────────────────────────────────────────

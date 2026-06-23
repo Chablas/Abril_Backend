@@ -4,11 +4,12 @@ namespace Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Applica
 
 public interface IAccidenteIncidenteService
 {
-    Task<object> GetListAsync(int? proyectoId, string? tipo, string? estado, DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize);
-    Task<AccidenteIncidenteDetalleDto> GetDetalleAsync(int id);
-    Task<int> CrearAsync(CrearAccidenteIncidenteRequest request, int? usuarioId);
-    Task ActualizarAsync(int id, ActualizarAccidenteIncidenteRequest request);
+    Task<FlashReportInicializarDto> GetInicializarAsync();
+    Task<object> GetListAsync(int? proyectoId, int? tipoId, string? estado,
+        DateTime? fechaDesde, DateTime? fechaHasta, bool? soloEnviados, int page, int pageSize);
+    Task<FlashReportDetalleDto> GetDetalleAsync(int id);
+    Task<int> CrearAsync(CrearFlashReportRequest request, int? usuarioId);
+    Task ActualizarAsync(int id, ActualizarFlashReportRequest request);
+    Task EnviarFlashReportAsync(int id);
     Task EliminarAsync(int id);
-    Task<int> SubirDocumentoAsync(int accidenteId, SubirDocumentoRequest request, int? usuarioId);
-    Task<DocumentoAdjuntoDto> GetDocumentoAsync(int accidenteId, int docId);
 }

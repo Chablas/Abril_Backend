@@ -5,7 +5,8 @@ public record ProyectoDto(int ProyectoId, string Nombre);
 public record StaffDto(int WorkerId, string NombreCompleto, string Cargo);
 public record CharlaResumenDto(int Id, DateTime Fecha, string Titulo, string Tema, decimal DuracionHoras, int TotalAsistentes, List<int> AsistentesIds);
 public record AsistenciaDetailDto(int WorkerId, string NombreCompleto, bool Asistio);
-public record CapacitacionDto(int? Id, int WorkerId, string NombreCompleto, DateTime? Fecha, string? Tema, string? EvidenciaUrl, string? EvidenciaNombre, string Estado);
+public record ArchivoItemDto(int Id, string Url, string Nombre);
+public record CapacitacionDto(int? Id, int WorkerId, string NombreCompleto, DateTime? Fecha, string? Tema, string? EvidenciaUrl, string? EvidenciaNombre, string Estado, List<ArchivoItemDto> Archivos);
 public record ResumenDto(int TotalCharlas, int TotalAsistencias, int CapsTotal, int CapsFalta, int CapsEnviado, int CapsAprobado, int CapsRechazado);
 
 // ── Existing Request DTOs ─────────────────────────────────────────────────────
@@ -38,6 +39,44 @@ public record NuevaCharlaCreateDto(
     decimal DuracionHoras,
     int? SupervisorId,
     List<int> WorkerIds
+);
+
+// ── NEW: Tab 3 — Galería charlas proyecto ────────────────────────────────────
+public record CharlaGaleriaItemDto(
+    int Id,
+    string Titulo,
+    string Tipo,
+    DateTime Fecha,
+    int TotalAsistentes,
+    int TotalAsistio
+);
+
+// ── NEW: Dashboard Por Persona (matriz semanal) ───────────────────────────────
+public record DashDiaSemanaDto(int NumDia, string Nombre, DateTime Fecha);
+public record DashPersonaAsistDiaDto(int NumDia, bool? Asistio); // null = no hubo charla ese día
+public record DashPersonalItemDto(
+    int WorkerId,
+    string Nombre,
+    string Cargo,
+    List<DashPersonaAsistDiaDto> Dias,
+    int CharlasAsistidas,
+    int CharlasTotales,
+    int CapsSemana,
+    int CapsAprobMes,
+    int CapsAcumMes
+);
+public record DashPersonalResultDto(List<DashDiaSemanaDto> Dias, List<DashPersonalItemDto> Staff);
+
+// ── NEW: Dashboard Por Proyecto ───────────────────────────────────────────────
+public record DashProyectoItemDto(
+    int ProyectoId,
+    string Nombre,
+    int TotalStaff,
+    int CharlasDictadas,
+    int TotalAsistencias,
+    int TotalPosiblesAsistencias,
+    int CapsEnviadasSemana,
+    int CapsAprobMes
 );
 
 // ── NEW: Tab 4 — Lista paginada ───────────────────────────────────────────────

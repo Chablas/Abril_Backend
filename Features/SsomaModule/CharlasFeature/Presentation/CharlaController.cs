@@ -155,6 +155,25 @@ public class CharlaController : ControllerBase
         catch { return StatusCode(500, new { message = "Error al subir capacitación." }); }
     }
 
+    [HttpPost("capacitaciones/mi-evidencia-multi")]
+    public async Task<IActionResult> SubirMiCapacitacionMulti([FromQuery] int userId, [FromForm] DateTime fecha, [FromForm] string tema, IFormFileCollection files)
+    {
+        try
+        {
+            if (files == null || files.Count == 0)
+                return BadRequest(new { message = "Debe adjuntar al menos un archivo." });
+
+            var archivos = new List<(Stream Stream, string FileName)>();
+            foreach (var f in files)
+                archivos.Add((f.OpenReadStream(), f.FileName));
+
+            var result = await _svc.SubirMiCapacitacionMultiAsync(userId, fecha, tema, archivos);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al subir capacitación." }); }
+    }
+
     [HttpPost("capacitaciones/{workerId}")]
     public async Task<IActionResult> SubirCapacitacion(int workerId, [FromQuery] int userId, [FromForm] DateTime fecha, [FromForm] string tema, IFormFile file)
     {
@@ -286,6 +305,60 @@ public class CharlaController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch { return StatusCode(500, new { message = "Error al rechazar charla." }); }
+    }
+
+    [HttpGet("dashboard-personal")]
+    public async Task<IActionResult> GetDashPersonal([FromQuery] int proyectoId, [FromQuery] int semana, [FromQuery] int anio)
+    {
+        try { return Ok(await _svc.GetDashPersonalAsync(proyectoId, semana, anio)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener dashboard personal." }); }
+    }
+
+    [HttpGet("dashboard-proyectos")]
+    public async Task<IActionResult> GetDashProyectos([FromQuery] int semana, [FromQuery] int anio)
+    {
+        try { return Ok(await _svc.GetDashProyectosAsync(semana, anio)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener dashboard proyectos." }); }
+    }
+
+    [HttpPut("charlas/{charlaId}/asistencia")]
+    public async Task<IActionResult> EditarAsistencia(int charlaId, [FromQuery] int userId, [FromBody] GuardarAsistenciaDto dto)
+    {
+        try
+        {
+            await _svc.GuardarAsistenciaAsync(charlaId, dto, userId);
+            return NoContent();
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al editar asistencia." }); }
+    }
+
+    [HttpGet("charlas-proyecto")]
+    public async Task<IActionResult> GetCharlasProyecto([FromQuery] int proyectoId, [FromQuery] int mes, [FromQuery] int anio)
+    {
+        try
+        {
+            var result = await _svc.GetCharlasProyectoAsync(proyectoId, mes, anio);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener charlas del proyecto." }); }
+    }
+
+    // ── NEW: Mis capacitaciones ───────────────────────────────────────────────
+
+    [HttpGet("capacitaciones/mis")]
+    public async Task<IActionResult> GetMisCapacitaciones([FromQuery] int userId)
+    {
+        try
+        {
+            var result = await _svc.GetMisCapacitacionesAsync(userId);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener mis capacitaciones." }); }
     }
 
     // ── NEW: Supervisor search ────────────────────────────────────────────────

@@ -355,6 +355,31 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
         }
 
         [Authorize]
+        [HttpPost("{id}/send-contract-review-email")]
+        public async Task<IActionResult> SendContractReviewEmail(int id, [FromBody] SendAllObservationsEmailDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+
+                await _projectSubContractorService.SendContractReviewEmailAsync(id, dto, userId);
+                return Ok(new { message = "Correo de revisión enviado a Costos exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPost("{id}/send-all-levantamiento-email")]
         public async Task<IActionResult> SendAllLevantamientoEmail(int id, [FromBody] SendAllObservationsEmailDto dto)
         {

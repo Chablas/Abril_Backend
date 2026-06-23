@@ -39,6 +39,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IProjectLinkRepository _projectLinkRepository;
         private readonly ICostosPresupuestosEmailService _costosPresupuestosEmailService;
         private readonly SharePointSiteRef _site;
+        private readonly string _frontendUrl;
 
         private const string BccEmail = "calvarez@abril.pe";
 
@@ -81,6 +82,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _projectLinkRepository = projectLinkRepository;
             _costosPresupuestosEmailService = costosPresupuestosEmailService;
             _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
+            _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/', '.') ?? string.Empty;
         }
 
         /// <summary>
@@ -698,6 +700,73 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             }
 
             sb.AppendLine("<p>Por favor, tome las acciones necesarias para la corrección de los documentos indicados.</p>");
+            sb.AppendLine("</div>");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Paso 3 — Oficina Técnica solicita a Costos el visto bueno / comentarios del
+        /// contrato preparado. El correo va dirigido únicamente a los miembros de Costos
+        /// y Presupuestos e incluye el enlace de ingreso a la plataforma (no adjunta archivos).
+        /// </summary>
+        public async Task SendContractReviewEmailAsync(
+            int projectSubContractorId,
+            SendAllObservationsEmailDto dto,
+            int userId)
+        {
+            var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
+
+            // Destinatarios: únicamente los miembros de Costos y Presupuestos.
+            var costosEmails = await _costosPresupuestosEmailService.GetActiveEmails();
+            var toEmails = costosEmails
+                .Distinct()
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .ToList();
+
+            if (toEmails.Count == 0)
+                throw new AbrilException(
+                    "No hay correos de Costos y Presupuestos configurados para enviar la revisión.", 422);
+
+            var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature     = BuildEmailSignature(senderProfile);
+            var subject       = $"{data.ProjectDescription} // CONTRATO PARA REVISIÓN // {data.ContributorName}";
+            var platformUrl   = $"{_frontendUrl}/costs/adjudicaciones";
+            var body          = BuildContractReviewEmailBody(data, platformUrl) + signature;
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: dto.GraphAccessToken,
+                to:               toEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                attachments:      WithSignatureAttachment());
+        }
+
+        private static string BuildContractReviewEmailBody(Step3ApprovalDataDto data, string platformUrl)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Buen día,</p>");
+            sb.AppendLine(
+                $"<p>Por favor su apoyo con el visto bueno y/o comentarios de los documentos correspondiente a la " +
+                $"adjudicación del subcontratista <strong>{data.ContributorName}</strong>:</p>");
+
+            sb.AppendLine("<table style=\"border-collapse:collapse; font-size:13px; margin-bottom:16px;\">");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Proyecto</td>"
+                        + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Subcontratista</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.ContributorName}</td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Partida</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.WorkItemDescription}</td></tr>");
+            sb.AppendLine("</table>");
+
+            if (!string.IsNullOrWhiteSpace(platformUrl))
+                sb.AppendLine(
+                    $"<p>Puede revisar los documentos ingresando a la plataforma: " +
+                    $"<a href=\"{platformUrl}\">{platformUrl}</a></p>");
+
+            sb.AppendLine("<p>Gracias.</p>");
+            sb.AppendLine("<p>Saludos.</p>");
             sb.AppendLine("</div>");
             return sb.ToString();
         }

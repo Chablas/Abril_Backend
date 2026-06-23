@@ -200,8 +200,9 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Applicat
                 {
                     var cell = ws.Cell(row, firstMonthCol + i);
                     cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#DAEEF3");
+                    // Mismo borde negro fino que el resto de la tabla (antes era celeste y casi
+                    // no se veía debajo ni a la derecha de las barras).
                     cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                    cell.Style.Border.OutsideBorderColor = XLColor.FromHtml("#BDD7EE");
                 }
 
                 // Barra de línea de tiempo como FORMA (imagen) posicionada por día,

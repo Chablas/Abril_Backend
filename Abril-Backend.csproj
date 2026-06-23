@@ -40,6 +40,13 @@
 
 
   <ItemGroup>
+    <Compile Remove="Abril_Backend\**" />
+    <Content Remove="Abril_Backend\**" />
+    <EmbeddedResource Remove="Abril_Backend\**" />
+    <None Remove="Abril_Backend\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="Features\CostsModule\Features\AdjudicacionesFeature\Templates\**\*">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

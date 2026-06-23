@@ -1,15 +1,200 @@
 namespace Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Dtos;
 
-public class AccidenteIncidenteListItemDto
+// ── Catálogos para inicializar el formulario ──────────────────────────────────
+
+public class CatalogoItemDto
 {
     public int Id { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    public string? Codigo { get; set; }
+}
+
+public class FlashProyectoDto
+{
+    public int Id { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    public string? Abreviatura { get; set; }
+    public string? EmailCoordSsoma { get; set; }
+}
+
+public class ContratistaCatalogoDto
+{
+    public int Id { get; set; }
+    public string RazonSocial { get; set; } = string.Empty;
+    public string? Ruc { get; set; }
+}
+
+public class TrabajadorCatalogoDto
+{
+    public int Id { get; set; }
+    public string NombreCompleto { get; set; } = string.Empty;
+    public string? Documento { get; set; }
+    public string? Cargo { get; set; }
+}
+
+public class FlashReportInicializarDto
+{
+    public List<FlashProyectoDto> Proyectos { get; set; } = [];
+    public List<CatalogoItemDto> Tipos { get; set; } = [];
+    public List<CatalogoItemDto> EtapasProyecto { get; set; } = [];
+    public List<CatalogoItemDto> PartesAfectadas { get; set; } = [];
+    public List<CatalogoItemDto> EmpresasAbril { get; set; } = [];
+    public List<CatalogoItemDto> Partidas { get; set; } = [];
+    public List<ContratistaCatalogoDto> Contratistas { get; set; } = [];
+    public List<TrabajadorCatalogoDto> Trabajadores { get; set; } = [];
+}
+
+// ── Lista ─────────────────────────────────────────────────────────────────────
+
+public class FlashReportListItemDto
+{
+    public int Id { get; set; }
+    public string Codigo { get; set; } = string.Empty;
     public string ProyectoNombre { get; set; } = string.Empty;
     public DateTime Fecha { get; set; }
-    public string Descripcion { get; set; } = string.Empty;
-    public string Tipo { get; set; } = string.Empty;
+    public string TipoNombre { get; set; } = string.Empty;
+    public string TipoCodigo { get; set; } = string.Empty;
+    public string? TrabajadorNombre { get; set; }
     public string Estado { get; set; } = string.Empty;
-    public int TotalDocumentos { get; set; }
+    public bool Enviado { get; set; }
+    public DateTime? FechaEnvio { get; set; }
+    public int? ConsecuenciaRealPersonal { get; set; }
+}
+
+// ── Detalle ───────────────────────────────────────────────────────────────────
+
+public class DescansoDto
+{
+    public int Id { get; set; }
+    public DateTime FechaInicio { get; set; }
+    public DateTime FechaFin { get; set; }
+    public string? Observacion { get; set; }
+    public int DiasDescanso => (FechaFin - FechaInicio).Days + 1;
+}
+
+public class FlashReportDetalleDto
+{
+    public int Id { get; set; }
+    public string Codigo { get; set; } = string.Empty;
+    public int ProyectoId { get; set; }
+    public string ProyectoNombre { get; set; } = string.Empty;
+    public string? ProyectoAbreviatura { get; set; }
+    public int TipoId { get; set; }
+    public string TipoNombre { get; set; } = string.Empty;
+    public string TipoCodigo { get; set; } = string.Empty;
+    public DateTime Fecha { get; set; }
+    public TimeSpan? Hora { get; set; }
+    public string LugarExacto { get; set; } = string.Empty;
+    public string Descripcion { get; set; } = string.Empty;
+    public string Estado { get; set; } = string.Empty;
+
+    public int? EmpresaAbrilId { get; set; }
+    public string? EmpresaAbrilNombre { get; set; }
+    public int? ContributorId { get; set; }
+    public string? ContributorNombre { get; set; }
+    public string? JefeInmediatoNombre { get; set; }
+
+    public int? EtapaProyectoId { get; set; }
+    public string? EtapaProyectoNombre { get; set; }
+    public int? PartidaId { get; set; }
+    public string? PartidaNombre { get; set; }
+
+    public int? WorkerId { get; set; }
+    public string? TrabajadorNombre { get; set; }
+    public string? PuestoTrabajo { get; set; }
+    public int? Edad { get; set; }
+    public int? AniosExperiencia { get; set; }
+    public string? CelularTrabajador { get; set; }
+    public int? ParteAfectadaId { get; set; }
+    public string? ParteAfectadaNombre { get; set; }
+
+    public string? DanoProceso { get; set; }
+    public int? ConsecuenciaRealPersonal { get; set; }
+    public int? ConsecuenciaPotencialPersonal { get; set; }
+    public string? AccionesInmediatas { get; set; }
+
+    public int? ElaboradoPorId { get; set; }
+    public string? ElaboradoPorNombre { get; set; }
+    public string? ElaboradoPorCargo { get; set; }
+    public string? ElaboradoPorEmail { get; set; }
+    public string? ElaboradoPorTelefono { get; set; }
+
+    public string? UrlFoto1 { get; set; }
+    public string? UrlFoto2 { get; set; }
+
+    public bool Enviado { get; set; }
+    public DateTime? FechaEnvio { get; set; }
+    public string? UrlPdfSharepoint { get; set; }
+
+    public List<DescansoDto> Descansos { get; set; } = [];
     public DateTime CreatedAt { get; set; }
+}
+
+// ── Requests ──────────────────────────────────────────────────────────────────
+
+public class DescansoRequest
+{
+    public DateTime FechaInicio { get; set; }
+    public DateTime FechaFin { get; set; }
+    public string? Observacion { get; set; }
+}
+
+public class CrearFlashReportRequest
+{
+    public int ProyectoId { get; set; }
+    public int TipoId { get; set; }
+    public DateTime Fecha { get; set; }
+    public string? Hora { get; set; }   // "HH:mm"
+    public string LugarExacto { get; set; } = string.Empty;
+    public string Descripcion { get; set; } = string.Empty;
+
+    public int? EmpresaAbrilId { get; set; }
+    public int? ContributorId { get; set; }
+    public string? JefeInmediatoNombre { get; set; }
+
+    public int? EtapaProyectoId { get; set; }
+    public int? PartidaId { get; set; }
+
+    public int? WorkerId { get; set; }
+    public string? TrabajadorNombre { get; set; }
+    public string? PuestoTrabajo { get; set; }
+    public int? Edad { get; set; }
+    public int? AniosExperiencia { get; set; }
+    public string? CelularTrabajador { get; set; }
+    public int? ParteAfectadaId { get; set; }
+
+    public string? DanoProceso { get; set; }
+    public int? ConsecuenciaRealPersonal { get; set; }
+    public int? ConsecuenciaPotencialPersonal { get; set; }
+    public string? AccionesInmediatas { get; set; }
+
+    public string? ElaboradoPorNombre { get; set; }
+    public string? ElaboradoPorCargo { get; set; }
+    public string? ElaboradoPorEmail { get; set; }
+    public string? ElaboradoPorTelefono { get; set; }
+
+    // base64 o null
+    public string? Foto1Base64 { get; set; }
+    public string? Foto2Base64 { get; set; }
+
+    public List<DescansoRequest> Descansos { get; set; } = [];
+}
+
+public class ActualizarFlashReportRequest : CrearFlashReportRequest { }
+
+// ── Aliases legacy (no romper código existente) ───────────────────────────────
+
+public class AccidenteIncidenteListItemDto : FlashReportListItemDto { }
+public class AccidenteIncidenteDetalleDto : FlashReportDetalleDto { }
+public class CrearAccidenteIncidenteRequest : CrearFlashReportRequest { }
+public class ActualizarAccidenteIncidenteRequest : ActualizarFlashReportRequest { }
+
+// ── SubirDocumento (legacy, mantener por compatibilidad) ──────────────────────
+public class SubirDocumentoRequest
+{
+    public string NombreArchivo { get; set; } = string.Empty;
+    public string TipoArchivo { get; set; } = string.Empty;
+    public string ContenidoBase64 { get; set; } = string.Empty;
 }
 
 public class DocumentoAdjuntoDto
@@ -20,47 +205,4 @@ public class DocumentoAdjuntoDto
     public long TamanioBytes { get; set; }
     public string UrlSharepoint { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
-}
-
-public class AccidenteIncidenteDetalleDto
-{
-    public int Id { get; set; }
-    public int ProyectoId { get; set; }
-    public string ProyectoNombre { get; set; } = string.Empty;
-    public DateTime Fecha { get; set; }
-    public string Descripcion { get; set; } = string.Empty;
-    public string Tipo { get; set; } = string.Empty;
-    public string Estado { get; set; } = string.Empty;
-    public int? ResponsableId { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
-    public List<DocumentoAdjuntoDto> Documentos { get; set; } = [];
-}
-
-public class CrearAccidenteIncidenteRequest
-{
-    public int ProyectoId { get; set; }
-    public DateTime Fecha { get; set; }
-    public string Descripcion { get; set; } = string.Empty;
-    public string Tipo { get; set; } = "Incidente";
-    public string Estado { get; set; } = "Abierto";
-    public int? ResponsableId { get; set; }
-}
-
-public class ActualizarAccidenteIncidenteRequest
-{
-    public int ProyectoId { get; set; }
-    public DateTime Fecha { get; set; }
-    public string Descripcion { get; set; } = string.Empty;
-    public string Tipo { get; set; } = "Incidente";
-    public string Estado { get; set; } = "Abierto";
-    public int? ResponsableId { get; set; }
-}
-
-public class SubirDocumentoRequest
-{
-    public string NombreArchivo { get; set; } = string.Empty;
-    public string TipoArchivo { get; set; } = string.Empty;
-    public long TamanioBytes { get; set; }
-    public string ContenidoBase64 { get; set; } = string.Empty;
 }

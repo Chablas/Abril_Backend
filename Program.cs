@@ -22,6 +22,7 @@ using System.Text;
 using System.Security.Claims;
 using Abril_Backend.Features.Costs;
 using Abril_Backend.Features.ConfigurationModule;
+using Abril_Backend.Features.Shared.Application.Services;
 using Abril_Backend.Shared.Services.Reniec.Services;
 using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Abril_Backend.Features.Contractors;
@@ -149,6 +150,7 @@ builder.Services.AddScoped<IResidentMonitoringService, ResidentMonitoringService
 builder.Services.AddScoped<IRoleService, RoleService>();
 // IReniecService se registra vía AddHttpClient abajo para que el HttpClient tenga base URL y token configurados
 builder.Services.AddScoped<IArquitecturaComercialService, ArquitecturaComercialService>();
+builder.Services.AddScoped<ISharedFiltersService, SharedFiltersService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IIvtControlPdfRepository, IvtControlPdfRepository>();
@@ -323,6 +325,7 @@ builder.Services.AddExceptionHandler<Abril_Backend.Shared.Exceptions.DatabaseExc
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
+app.UseCors("AllowAngular");
 app.UseExceptionHandler();
 app.UseStaticFiles();
 // Configure the HTTP request pipeline.
@@ -335,8 +338,8 @@ if (app.Environment.IsDevelopment())
         c.RoutePrefix = "swagger"; // opcional
     });
 }
-app.UseHttpsRedirection();
-app.UseCors("AllowAngular");
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();

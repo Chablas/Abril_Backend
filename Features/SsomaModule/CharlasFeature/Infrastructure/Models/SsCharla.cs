@@ -30,4 +30,5 @@ public class SsCharla
 
     public virtual SsCharlaPrograma? Programa { get; set; }
     public virtual ICollection<SsCharlaAsistencia> Asistencias { get; set; } = new List<SsCharlaAsistencia>();
+    public virtual ICollection<SsCharlaArchivo> Archivos { get; set; } = new List<SsCharlaArchivo>();
 }

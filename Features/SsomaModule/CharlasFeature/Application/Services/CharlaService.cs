@@ -308,14 +308,13 @@ public class CharlaService : ICharlaService
 
         var staffIds = staff.Select(w => w.Id).ToList();
 
-        // get capacitaciones this month — solo individuales del proyecto
+        // capacitaciones del mes: registros individuales (tiene evidencia o flag explícito)
         var inicioMes = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
         var finMes = inicioMes.AddMonths(1);
         var caps = await ctx.SsCharlas
             .Where(c => c.SupervisorId != null
                 && staffIds.Contains(c.SupervisorId!.Value)
-                && c.EsCapacitacionIndividual
-                && c.ProyectoId == proyectoId
+                && (c.EsCapacitacionIndividual || c.EvidenciaUrl != null)
                 && c.Fecha >= inicioMes && c.Fecha < finMes
                 && c.State)
             .ToListAsync();

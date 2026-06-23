@@ -28,6 +28,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public bool Active { get; set; }
     }
 
+    /// <summary>
+    /// Cambia el proyecto de un recordatorio existente. El trabajador NO se puede
+    /// modificar; solo se reasigna el proyecto.
+    /// </summary>
+    public class LessonReminderUpdateProjectDTO
+    {
+        public int ProjectId { get; set; }
+    }
+
     public class LessonReminderCreateDataDTO
     {
         public List<LessonReminderWorkerDTO> Workers { get; set; } = new();

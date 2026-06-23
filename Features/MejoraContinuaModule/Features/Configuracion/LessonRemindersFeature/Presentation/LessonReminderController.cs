@@ -20,7 +20,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
         [Authorize]
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 10, [FromQuery] string? subarea = null)
+        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 10, [FromQuery] string? subarea = null, [FromQuery] int? workerId = null, [FromQuery] bool includeWorkers = false)
         {
             try
             {
@@ -29,7 +29,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 if (page < 1) page = 1;
-                var result = await _service.GetPaged(page, pageSize, subarea);
+                var result = await _service.GetPaged(page, pageSize, subarea, workerId, includeWorkers);
                 return Ok(result);
             }
             catch (Exception)
@@ -79,6 +79,33 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             catch (AbrilException ex)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("{id}/project")]
+        public async Task<IActionResult> UpdateProject(int id, [FromBody] LessonReminderUpdateProjectDTO dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                if (dto.ProjectId <= 0)
+                    return BadRequest(new { message = "Debe seleccionar un proyecto." });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _service.UpdateProjectAsync(id, dto.ProjectId, userId);
+                return Ok(new { message = "Recordatorio actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

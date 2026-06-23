@@ -130,7 +130,9 @@ namespace Abril_Backend.Application.Services
             //   • Día 4: reporte de quién NO subió su lección (antes salía el 1er día del mes).
             //   • Días 4–5: ventana de revisión de la jefatura (Aprobar/Rechazar en la app;
             //     no hay correo automático adicional — esos correos los dispara la acción del jefe).
-            var ordinal = LastFiveBusinessDayOrdinal(today);
+            // Los feriados/días no laborables NO cuentan como días hábiles (igual que sábados/domingos).
+            var holidays = await _lessonReminderRepository.GetHolidayDatesAsync(today.Year, today.Month);
+            var ordinal = LastFiveBusinessDayOrdinal(today, holidays);
 
             if (ordinal >= 1 && ordinal <= 3)
             {
@@ -161,9 +163,10 @@ namespace Abril_Backend.Application.Services
         /// <summary>
         /// Ordinal de <paramref name="date"/> dentro de los últimos 5 días hábiles del
         /// mes: 1 = el más temprano de los 5, 5 = el último día hábil. 0 si la fecha no
-        /// cae en esa ventana.
+        /// cae en esa ventana. No cuentan como hábiles los sábados, domingos ni los
+        /// feriados/días no laborables en <paramref name="holidays"/>.
         /// </summary>
-        private int LastFiveBusinessDayOrdinal(DateTime date)
+        private int LastFiveBusinessDayOrdinal(DateTime date, HashSet<DateOnly>? holidays = null)
         {
             var year = date.Year;
             var month = date.Month;
@@ -173,7 +176,9 @@ namespace Abril_Backend.Application.Services
             var businessDays = new List<DateTime>();
             for (var d = lastDay; d.Month == month; d = d.AddDays(-1))
             {
-                if (d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday)
+                var isWeekend = d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday;
+                var isHoliday = holidays != null && holidays.Contains(DateOnly.FromDateTime(d));
+                if (!isWeekend && !isHoliday)
                     businessDays.Add(d);
                 if (businessDays.Count == 5) break;
             }

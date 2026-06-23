@@ -180,6 +180,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ScopeTemplateItem> ScopeTemplateItem => Set<ScopeTemplateItem>();
         public DbSet<AreaType> AreaType => Set<AreaType>();
         public DbSet<AreaItem> AreaItem => Set<AreaItem>();
+        public DbSet<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.HolidayType> HolidayType => Set<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.HolidayType>();
+        public DbSet<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday> Holiday => Set<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday>();
         public DbSet<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope> AreaScope => Set<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea> LessonArea => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder> ProjectStaffReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder>();
@@ -552,6 +554,13 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(a => a.AreaType)
                 .WithMany()
                 .HasForeignKey(a => a.AreaTypeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Holiday: FK a HolidayType
+            modelBuilder.Entity<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday>()
+                .HasOne(h => h.HolidayType)
+                .WithMany()
+                .HasForeignKey(h => h.HolidayTypeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // AreaScope: árbol con FK a AreaItem + self-referential parent

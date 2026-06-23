@@ -5,11 +5,21 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 {
     public interface ILessonReminderRepository
     {
-        Task<object> GetPaged(int page, int pageSize, string? subarea = null);
+        Task<object> GetPaged(int page, int pageSize, string? subarea = null, int? workerId = null, bool includeWorkers = false);
         Task<LessonReminderCreateDataDTO> GetCreateData();
         Task Create(LessonReminderCreateDTO dto, int userId);
+        Task UpdateProjectAsync(int userProjectId, int newProjectId, int userId);
         Task<bool> DeleteSoftAsync(int userProjectId, int userId);
         Task<ToggleLessonReminderResultDTO> ToggleActiveAsync(int userProjectId, int userId);
+
+        /// <summary>
+        /// Fechas que caen como feriado/día no laborable dentro del mes indicado.
+        /// Los registros recurrentes (recurring_yearly=true, ej. feriados) se resuelven
+        /// al año solicitado por mes/día; los no recurrentes solo aplican a su fecha
+        /// exacta. Usado por el cron de recordatorios para excluir feriados del cálculo
+        /// de días hábiles.
+        /// </summary>
+        Task<HashSet<DateOnly>> GetHolidayDatesAsync(int year, int month);
 
         // ── Recordatorios por correo (consumidos por ReminderService) ──────────
         /// <summary>

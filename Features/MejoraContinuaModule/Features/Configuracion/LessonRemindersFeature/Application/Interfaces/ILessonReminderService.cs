@@ -4,9 +4,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 {
     public interface ILessonReminderService
     {
-        Task<object> GetPaged(int page, int pageSize, string? subarea = null);
+        Task<object> GetPaged(int page, int pageSize, string? subarea = null, int? workerId = null, bool includeWorkers = false);
         Task<LessonReminderCreateDataDTO> GetCreateData();
         Task Create(LessonReminderCreateDTO dto, int userId);
+        Task UpdateProjectAsync(int userProjectId, int newProjectId, int userId);
         Task<bool> DeleteSoftAsync(int userProjectId, int userId);
         Task<ToggleLessonReminderResultDTO> ToggleActiveAsync(int userProjectId, int userId);
 

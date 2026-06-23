@@ -30,7 +30,36 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             _jefeResolver = jefeResolver;
         }
 
-        public async Task<object> GetPaged(int page, int pageSize, string? subarea = null)
+        public async Task<HashSet<DateOnly>> GetHolidayDatesAsync(int year, int month)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Lista pequeña: traemos los registros vivos/activos y resolvemos en memoria.
+            var holidays = await ctx.Holiday
+                .Where(h => h.State && h.Active)
+                .Select(h => new { h.HolidayDate, h.RecurringYearly })
+                .ToListAsync();
+
+            var result = new HashSet<DateOnly>();
+            foreach (var h in holidays)
+            {
+                if (h.RecurringYearly)
+                {
+                    // Se repite cada año: resolvemos al año solicitado por mes/día.
+                    // Guardamos contra fechas inválidas (ej. 29-feb en año no bisiesto).
+                    if (h.HolidayDate.Month != month) continue;
+                    var day = Math.Min(h.HolidayDate.Day, DateTime.DaysInMonth(year, month));
+                    result.Add(new DateOnly(year, month, day));
+                }
+                else if (h.HolidayDate.Year == year && h.HolidayDate.Month == month)
+                {
+                    result.Add(h.HolidayDate);
+                }
+            }
+            return result;
+        }
+
+        public async Task<object> GetPaged(int page, int pageSize, string? subarea = null, int? workerId = null, bool includeWorkers = false)
         {
             page = page < 1 ? 1 : page;
             pageSize = pageSize < 1 ? 10 : pageSize;
@@ -54,6 +83,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 baseQuery = baseQuery.Where(x => x.w.Subarea == sa);
             }
 
+            // Filtro opcional por trabajador.
+            if (workerId.HasValue && workerId.Value > 0)
+            {
+                baseQuery = baseQuery.Where(x => x.w.Id == workerId.Value);
+            }
+
             var query = baseQuery
                 .OrderByDescending(x => x.up.UserProjectId)
                 .Select(x => new LessonReminderDTO
@@ -74,13 +109,35 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             var totalRecords = await query.CountAsync();
             var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
+            // Opciones del filtro por trabajador: trabajadores distintos con algún
+            // recordatorio vivo (independiente de la subárea seleccionada, para que el
+            // desplegable sea estable). Solo se devuelve en la carga inicial.
+            List<LessonReminderWorkerDTO>? workers = null;
+            if (includeWorkers)
+            {
+                workers = await (
+                    from up in ctx.UserProject
+                    join w in ctx.Worker on up.WorkerId equals w.Id
+                    join p in ctx.Person on w.PersonId equals p.PersonId
+                    where up.State == true
+                    orderby p.FullName
+                    select new LessonReminderWorkerDTO
+                    {
+                        WorkerId = w.Id,
+                        FullName = p.FullName,
+                        Email = w.EmailPersonal
+                    }
+                ).Distinct().ToListAsync();
+            }
+
             return new
             {
                 page,
                 pageSize,
                 totalRecords,
                 totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
-                data
+                data,
+                workers
             };
         }
 
@@ -173,6 +230,43 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             };
 
             ctx.UserProject.Add(userProject);
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task UpdateProjectAsync(int userProjectId, int newProjectId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var userProject = await ctx.UserProject
+                .FirstOrDefaultAsync(u => u.UserProjectId == userProjectId && u.State == true);
+            if (userProject == null)
+                throw new AbrilException("El recordatorio no existe.", 404);
+
+            if (newProjectId <= 0)
+                throw new AbrilException("Debe seleccionar un proyecto.", 400);
+
+            if (userProject.ProjectId == newProjectId)
+                throw new AbrilException("El recordatorio ya está asignado a ese proyecto.", 400);
+
+            var projectExists = await ctx.Project
+                .AnyAsync(p => p.ProjectId == newProjectId && p.State && p.Active);
+            if (!projectExists)
+                throw new AbrilException("El proyecto seleccionado no existe o está inactivo.", 404);
+
+            // No permitir duplicar: el mismo trabajador ya tiene un recordatorio vivo
+            // en el proyecto destino (otra fila).
+            var duplicate = await ctx.UserProject.AnyAsync(u =>
+                u.UserProjectId != userProjectId &&
+                u.WorkerId == userProject.WorkerId &&
+                u.ProjectId == newProjectId &&
+                u.State == true);
+            if (duplicate)
+                throw new AbrilException("El trabajador ya tiene un recordatorio en el proyecto seleccionado.", 400);
+
+            userProject.ProjectId = newProjectId;
+            userProject.UpdatedDateTime = DateTime.UtcNow;
+            userProject.UpdatedUserId = userId;
+
             await ctx.SaveChangesAsync();
         }
 

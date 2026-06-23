@@ -13,9 +13,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             _repository = repository;
         }
 
-        public Task<object> GetPaged(int page, int pageSize, string? subarea = null) => _repository.GetPaged(page, pageSize, subarea);
+        public Task<object> GetPaged(int page, int pageSize, string? subarea = null, int? workerId = null, bool includeWorkers = false) => _repository.GetPaged(page, pageSize, subarea, workerId, includeWorkers);
         public Task<LessonReminderCreateDataDTO> GetCreateData() => _repository.GetCreateData();
         public Task Create(LessonReminderCreateDTO dto, int userId) => _repository.Create(dto, userId);
+        public Task UpdateProjectAsync(int userProjectId, int newProjectId, int userId) => _repository.UpdateProjectAsync(userProjectId, newProjectId, userId);
         public Task<bool> DeleteSoftAsync(int userProjectId, int userId) => _repository.DeleteSoftAsync(userProjectId, userId);
         public Task<ToggleLessonReminderResultDTO> ToggleActiveAsync(int userProjectId, int userId) => _repository.ToggleActiveAsync(userProjectId, userId);
 

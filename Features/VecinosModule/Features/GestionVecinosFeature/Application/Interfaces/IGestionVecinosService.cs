@@ -22,6 +22,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         Task<int> CreateCompromiso(int solicitudId, VecinoCompromisoCreateDto dto, int userId);
         Task UpdateCompromisoEstado(int compromisoId, int estadoId, int userId);
         Task UpdateCompromisoObservaciones(int compromisoId, string? observaciones, int userId);
+        Task UpdateCompromisoFechaMunicipalidad(int compromisoId, DateOnly? fechaFinMunicipalidad, int userId);
         Task UpdateEntregableEstado(int entregableId, int estadoId, int userId);
         Task<string> UploadEntregable(int entregableId, IFormFile file, int userId);
         Task<List<VecinoNormativaDto>> UploadNormativas(int compromisoId, IFormFileCollection files, int userId);
@@ -30,6 +31,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         Task<VecinoLimpiezasResponseDto> GetLimpiezas(int projectId, int year, int month);
         Task<VecinoLimpiezaDto> CreateLimpieza(int projectId, VecinoLimpiezaCreateDto dto, int userId);
         Task DeleteLimpieza(int limpiezaId, int userId);
+        Task<VecinoLimpiezaCumplimientoDto> GetCumplimiento(int projectId);
         Task<List<VecinoCompromisoSelectDto>> GetCompromisosSelect(int vecinoId);
         Task<string> UploadAtencion(int limpiezaId, IFormFile file, int? vecinoCompromisoId, int userId);
 

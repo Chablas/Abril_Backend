@@ -209,6 +209,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public string EstadoDescripcion { get; set; } = null!;
         public DateOnly? FechaInicio { get; set; }
         public DateOnly? FechaFin { get; set; }
+        /// <summary>Fecha límite por municipalidad/fiscalización (si la tiene, el compromiso está priorizado).</summary>
+        public DateOnly? FechaFinMunicipalidad { get; set; }
         public string? Observaciones { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public List<VecinoEntregableItemDto> Entregables { get; set; } = new();
@@ -222,12 +224,19 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public int? VecinoCompromisoEstadoId { get; set; }
         public DateOnly? FechaInicio { get; set; }
         public DateOnly? FechaFin { get; set; }
+        public DateOnly? FechaFinMunicipalidad { get; set; }
         public string? Observaciones { get; set; }
     }
 
     public class VecinoCompromisoEstadoUpdateDto
     {
         public int VecinoCompromisoEstadoId { get; set; }
+    }
+
+    /// <summary>Cuerpo para fijar/limpiar la fecha límite por municipalidad/fiscalización de un compromiso.</summary>
+    public class VecinoCompromisoFechaMunicipalidadUpdateDto
+    {
+        public DateOnly? FechaFinMunicipalidad { get; set; }
     }
 
     public class VecinoCompromisoObservacionesUpdateDto
@@ -311,6 +320,20 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public string? Descripcion { get; set; }
     }
 
+    /// <summary>
+    /// Cumplimiento de atenciones de limpieza de un proyecto: programadas hasta hoy (sin contar
+    /// futuras) vs. hechas (con archivo de atención subido), por departamento, área común y total.
+    /// </summary>
+    public class VecinoLimpiezaCumplimientoDto
+    {
+        public int DepartamentoProgramadas { get; set; }
+        public int DepartamentoHechas { get; set; }
+        public int ComunProgramadas { get; set; }
+        public int ComunHechas { get; set; }
+        public int TotalProgramadas { get; set; }
+        public int TotalHechas { get; set; }
+    }
+
     // ── Dashboard ─────────────────────────────────────────────────────────────
     /// <summary>Conteo de registros por estado de catálogo (para los donuts).</summary>
     public class VecinosDashboardEstadoDto
@@ -329,6 +352,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public int VecinosCount { get; set; }
         public List<VecinosDashboardEstadoDto> Solicitudes { get; set; } = new();
         public List<VecinosDashboardEstadoDto> Compromisos { get; set; } = new();
+        /// <summary>Cumplimiento de atenciones de limpieza (programadas hasta hoy vs. hechas).</summary>
+        public VecinoLimpiezaCumplimientoDto Limpiezas { get; set; } = new();
     }
 
     /// <summary>Respuesta del dashboard: primero el resumen global, luego cada proyecto.</summary>

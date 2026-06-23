@@ -239,6 +239,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
                 throw new AbrilException("No se pudo actualizar las observaciones del compromiso.", 404);
         }
 
+        public async Task UpdateCompromisoFechaMunicipalidad(int compromisoId, DateOnly? fechaFinMunicipalidad, int userId)
+        {
+            var ok = await _repository.UpdateCompromisoFechaMunicipalidad(compromisoId, fechaFinMunicipalidad, userId);
+            if (!ok)
+                throw new AbrilException("No se pudo actualizar la fecha límite por municipalidad/fiscalización del compromiso.", 404);
+        }
+
         public async Task UpdateEntregableEstado(int entregableId, int estadoId, int userId)
         {
             if (estadoId <= 0)
@@ -353,6 +360,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
             if (!ok)
                 throw new AbrilException("La limpieza no existe.", 404);
         }
+
+        public Task<VecinoLimpiezaCumplimientoDto> GetCumplimiento(int projectId)
+            => _repository.GetCumplimiento(projectId);
 
         public Task<List<VecinoCompromisoSelectDto>> GetCompromisosSelect(int vecinoId)
             => _repository.GetCompromisosSelect(vecinoId);

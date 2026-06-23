@@ -52,6 +52,18 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Applicati
         public int SolicitudesCount { get; set; }
         /// <summary>Total de compromisos de todos los vecinos del proyecto.</summary>
         public int CompromisosCount { get; set; }
+        /// <summary>Compromisos del proyecto en estado "Pendiente".</summary>
+        public int CompromisosPendientes { get; set; }
+        /// <summary>Compromisos del proyecto en estado "En proceso".</summary>
+        public int CompromisosEnProceso { get; set; }
+        /// <summary>Compromisos del proyecto en estado "Culminado".</summary>
+        public int CompromisosCulminados { get; set; }
+        /// <summary>Compromisos con fecha límite por municipalidad/fiscalización en estado "Pendiente".</summary>
+        public int CompromisosLimitePendientes { get; set; }
+        /// <summary>Compromisos con fecha límite por municipalidad/fiscalización en estado "En proceso".</summary>
+        public int CompromisosLimiteEnProceso { get; set; }
+        /// <summary>Compromisos con fecha límite por municipalidad/fiscalización en estado "Culminado".</summary>
+        public int CompromisosLimiteCulminados { get; set; }
         /// <summary>Solicitudes aprobadas (Aceptada) de todos los vecinos del proyecto.</summary>
         public int SolicitudesAprobadas { get; set; }
         /// <summary>Solicitudes evaluables del proyecto (Aceptada + Por responder, sin Denegada).</summary>

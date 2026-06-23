@@ -20,6 +20,7 @@ public interface ICharlaService
     Task<List<CapacitacionDto>> GetCapacitacionesAsync(int proyectoId, int mes, int anio);
     Task<CapacitacionDto> SubirCapacitacionAsync(int workerId, DateTime fecha, string tema, Stream evidencia, string fileName, int userId);
     Task<CapacitacionDto> SubirMiCapacitacionAsync(int userId, DateTime fecha, string tema, Stream evidencia, string fileName);
+    Task<CapacitacionDto> SubirMiCapacitacionMultiAsync(int userId, DateTime fecha, string tema, List<(Stream Stream, string FileName)> archivos);
     Task<CapacitacionDto> CambiarEstadoAsync(int id, string estado, int userId);
     Task EliminarCapacitacionAsync(int id);
 
@@ -31,6 +32,7 @@ public interface ICharlaService
 
     // NEW: Tab 3 — Crear nueva charla con supervisor + asistentes
     Task<CharlaListItemDto> CrearNuevaCharlaAsync(NuevaCharlaCreateDto dto, int userId);
+    Task<List<CharlaGaleriaItemDto>> GetCharlasProyectoAsync(int proyectoId, int mes, int anio);
 
     // NEW: Tab 4 — Lista paginada + detalle + aprobación
     Task<CharlaListResultDto> GetListaAsync(int? proyectoId, string? estado, int page, int pageSize);
@@ -40,4 +42,11 @@ public interface ICharlaService
 
     // NEW: Supervisor search (app_user)
     Task<List<UsuarioDto>> GetSupervisoresAsync(string? search = null);
+
+    // NEW: Mis capacitaciones (current user's uploaded capacitaciones)
+    Task<List<CapacitacionDto>> GetMisCapacitacionesAsync(int userId);
+
+    // NEW: Dashboard por persona y por proyecto
+    Task<DashPersonalResultDto> GetDashPersonalAsync(int proyectoId, int semana, int anio);
+    Task<List<DashProyectoItemDto>> GetDashProyectosAsync(int semana, int anio);
 }

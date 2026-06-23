@@ -16,6 +16,13 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
         public DateOnly? FechaInicio { get; set; }
         public DateOnly? FechaFin { get; set; }
 
+        /// <summary>
+        /// Fecha límite impuesta por la municipalidad/fiscalización (anterior a la fecha fin del
+        /// compromiso). Cuando está presente, el compromiso se cataloga como "con fecha límite por
+        /// municipalidad/fiscalización" y debe priorizarse.
+        /// </summary>
+        public DateOnly? FechaFinMunicipalidad { get; set; }
+
         /// <summary>Observaciones libres del compromiso (opcional).</summary>
         public string? Observaciones { get; set; }
 

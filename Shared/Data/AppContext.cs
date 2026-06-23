@@ -226,8 +226,14 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsDossierSemana> SsDossierSemana => Set<SsDossierSemana>();
         public DbSet<SsDossierDocumento> SsDossierDocumento => Set<SsDossierDocumento>();
         public DbSet<SsDossierDocumentoArchivo> SsDossierDocumentoArchivo => Set<SsDossierDocumentoArchivo>();
-        // ── Accidentes e Incidentes ────────────────────────────────────────────
+        // ── Accidentes e Incidentes / Flash Report ─────────────────────────────
+        public DbSet<SsomaFlashTipo> SsomaFlashTipo => Set<SsomaFlashTipo>();
+        public DbSet<SsomaFlashEtapaProyecto> SsomaFlashEtapaProyecto => Set<SsomaFlashEtapaProyecto>();
+        public DbSet<SsomaFlashParteAfectada> SsomaFlashParteAfectada => Set<SsomaFlashParteAfectada>();
+        public DbSet<SsomaEmpresaAbril> SsomaEmpresaAbril => Set<SsomaEmpresaAbril>();
+        public DbSet<SsomaFlashPartida> SsomaFlashPartida => Set<SsomaFlashPartida>();
         public DbSet<SsomaAccidenteIncidente> SsomaAccidenteIncidente => Set<SsomaAccidenteIncidente>();
+        public DbSet<SsomaFlashDescanso> SsomaFlashDescanso => Set<SsomaFlashDescanso>();
         public DbSet<SsomaAccidenteDocumento> SsomaAccidenteDocumento => Set<SsomaAccidenteDocumento>();
         // ── Inspecciones ───────────────────────────────────────────────────────
         public DbSet<SsomaInspeccionTipo> SsomaInspeccionTipo => Set<SsomaInspeccionTipo>();
@@ -240,6 +246,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsCharlaPrograma> SsCharlaProgramas { get; set; }
         public DbSet<SsCharla> SsCharlas { get; set; }
         public DbSet<SsCharlaAsistencia> SsCharlaAsistencias { get; set; }
+        public DbSet<SsCharlaArchivo> SsCharlaArchivos { get; set; }
 
         // ── Vecinos ──────────────────────────────────────────────────────────────
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino> Vecino => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino>();

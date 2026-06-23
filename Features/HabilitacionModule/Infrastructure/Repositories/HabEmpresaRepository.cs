@@ -49,9 +49,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .GroupBy(v => v.HabEmpresaId!.Value)
                 .ToDictionary(
                     g => g.Key,
-                    g => g.OrderByDescending(v => v.Version)
-                          .First()
-                          .Archivos
+                    g => g.OrderBy(v => v.Version)
+                          .SelectMany(v => v.Archivos)
                           .GroupBy(a => a.Id)
                           .Select(grp => grp.First())
                           .OrderBy(a => a.Orden)

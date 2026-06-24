@@ -288,10 +288,9 @@ public class CharlaService : ICharlaService
         await using var ctx = await _factory.CreateDbContextAsync();
 
         // get all staff workers for the project
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
-        var workerIds = await ctx.WorkerProyecto
-            .Where(wp => wp.ProyectoId == proyectoId && (wp.FechaFin == null || wp.FechaFin >= hoy))
-            .Select(wp => wp.WorkerId)
+        var workerIds = await ctx.WorkerVinculacion
+            .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
+            .Select(v => v.WorkerId)
             .Distinct()
             .ToListAsync();
 
@@ -316,21 +315,22 @@ public class CharlaService : ICharlaService
                 && c.State)
             .ToListAsync();
 
+        const int MetaCaps = 2;
         var result = new List<CapacitacionDto>();
         foreach (var w in staff)
         {
-            var cap = caps.FirstOrDefault(c => c.SupervisorId == w.Id);
-            result.Add(new CapacitacionDto(
-                cap?.Id,
-                w.Id,
-                w.Person?.FullName ?? string.Empty,
-                cap?.Fecha,
-                cap?.Tema,
-                cap?.EvidenciaUrl,
-                cap?.EvidenciaNombre,
-                cap == null ? "Falta" : cap.Estado,
-                []
-            ));
+            var workerCaps = caps.Where(c => c.SupervisorId == w.Id).OrderBy(c => c.Fecha).ToList();
+            foreach (var cap in workerCaps)
+            {
+                var archivos = await ctx.SsCharlaArchivos
+                    .Where(a => a.CharlaId == cap.Id && a.State)
+                    .OrderBy(a => a.Id)
+                    .Select(a => new ArchivoItemDto(a.Id, a.Url, a.Nombre))
+                    .ToListAsync();
+                result.Add(new CapacitacionDto(cap.Id, w.Id, w.Person?.FullName ?? string.Empty, cap.Fecha, cap.Tema, cap.EvidenciaUrl, cap.EvidenciaNombre, cap.Estado, archivos));
+            }
+            for (var i = workerCaps.Count; i < MetaCaps; i++)
+                result.Add(new CapacitacionDto(null, w.Id, w.Person?.FullName ?? string.Empty, null, null, null, null, "Falta", []));
         }
 
         return result;
@@ -936,10 +936,9 @@ public class CharlaService : ICharlaService
         var inicioMes = new DateTime(anioLunes, mesLunes, 1, 0, 0, 0, DateTimeKind.Utc);
         var finMes = inicioMes.AddMonths(1);
 
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
-        var workerIds = await ctx.WorkerProyecto
-            .Where(wp => wp.ProyectoId == proyectoId && (wp.FechaFin == null || wp.FechaFin >= hoy))
-            .Select(wp => wp.WorkerId).Distinct().ToListAsync();
+        var workerIds = await ctx.WorkerVinculacion
+            .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
+            .Select(v => v.WorkerId).Distinct().ToListAsync();
 
         var staff = await ctx.Worker
             .Include(w => w.Person)

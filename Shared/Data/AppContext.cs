@@ -21,6 +21,7 @@ using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
+using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -64,6 +65,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<PaymentMethod> PaymentMethod { get; set; }
         public DbSet<PaymentForm> PaymentForm { get; set; }
         public DbSet<Contributor> Contributor { get; set; }
+        public DbSet<Invoice> Invoice { get; set; }
+        public DbSet<InvoicePaymentForm> InvoicePaymentForm { get; set; }
         public DbSet<Contractor> Contractor { get; set; }
         public DbSet<ContractorEmail> ContractorEmail { get; set; }
         public DbSet<ContractorPersonType> ContractorPersonType { get; set; }
@@ -364,6 +367,19 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<Contractor>()
                 .HasIndex(c => c.ContributorId)
                 .IsUnique();
+
+            // ── Contabilidad: Facturas ───────────────────────────────────────
+            modelBuilder.Entity<Invoice>()
+                .HasOne(i => i.Contributor)
+                .WithMany()
+                .HasForeignKey(i => i.ContributorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Invoice>()
+                .HasOne(i => i.InvoicePaymentForm)
+                .WithMany()
+                .HasForeignKey(i => i.InvoicePaymentFormId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ContractorEmail>()
                 .HasOne(e => e.Contractor)

@@ -20,6 +20,7 @@ namespace Abril_Backend.Infrastructure.Services
         public string VecinoRequisitosContainer { get; set; } = "vecino-requisitos";
         public string VecinoEntregablesContainer { get; set; } = "vecino-entregables";
         public string VecinoPropiedadImagenesContainer { get; set; } = "vecino-propiedad-imagenes";
+        public string InvoicesContainer { get; set; } = "facturas";
     }
 
     public class LocalStorageOptions
@@ -34,5 +35,6 @@ namespace Abril_Backend.Infrastructure.Services
         public string VecinoRequisitosContainer { get; set; } = "vecino-requisitos";
         public string VecinoEntregablesContainer { get; set; } = "vecino-entregables";
         public string VecinoPropiedadImagenesContainer { get; set; } = "vecino-propiedad-imagenes";
+        public string InvoicesContainer { get; set; } = "facturas";
     }
 }

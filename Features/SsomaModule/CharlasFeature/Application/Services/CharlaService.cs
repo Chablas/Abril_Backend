@@ -123,22 +123,19 @@ public class CharlaService : ICharlaService
     {
         await using var ctx = await _factory.CreateDbContextAsync();
 
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
-        var workerIds = await ctx.WorkerProyecto
-            .Where(wp => wp.ProyectoId == proyectoId && (wp.FechaFin == null || wp.FechaFin >= hoy))
-            .Select(wp => wp.WorkerId)
-            .Distinct()
-            .ToListAsync();
-
         var staff = await ctx.Worker
             .Include(w => w.Person)
-            .Where(w => workerIds.Contains(w.Id)
-                && w.ObraOficina == "Staff"
-                && w.Estado == "ACTIVO")
+            .Where(w => w.ObraOficina == "Staff"
+                && w.Estado == "ACTIVO"
+                && ctx.WorkerVinculacion.Any(v =>
+                    v.WorkerId == w.Id
+                    && v.ProyectoId == proyectoId
+                    && v.FechaFin == null))
             .ToListAsync();
 
         return staff
-            .Select(w => new StaffDto(w.Id, w.Person?.FullName ?? string.Empty, w.Ocupacion ?? string.Empty))
+            .Select(w => new StaffDto(w.Id, ToTitleCase(w.Person?.FullName), w.Ocupacion ?? string.Empty, w.Categoria))
+            .OrderBy(s => s.NombreCompleto)
             .ToList();
     }
 
@@ -1135,5 +1132,12 @@ public class CharlaService : ICharlaService
             .Take(50)
             .Select(u => new UsuarioDto(u.UserId, u.Person != null ? u.Person.FullName ?? string.Empty : string.Empty, u.Email))
             .ToListAsync();
+    }
+
+    private static string ToTitleCase(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+        return string.Join(" ", name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => char.ToUpper(w[0]) + w[1..].ToLower()));
     }
 }

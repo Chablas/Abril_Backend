@@ -2,7 +2,7 @@ namespace Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Dtos;
 
 // ── Existing Response DTOs ────────────────────────────────────────────────────
 public record ProyectoDto(int ProyectoId, string Nombre);
-public record StaffDto(int WorkerId, string NombreCompleto, string Cargo);
+public record StaffDto(int WorkerId, string NombreCompleto, string Cargo, string? Categoria);
 public record CharlaResumenDto(int Id, DateTime Fecha, string Titulo, string Tema, decimal DuracionHoras, int TotalAsistentes, List<int> AsistentesIds);
 public record AsistenciaDetailDto(int WorkerId, string NombreCompleto, bool Asistio);
 public record ArchivoItemDto(int Id, string Url, string Nombre);

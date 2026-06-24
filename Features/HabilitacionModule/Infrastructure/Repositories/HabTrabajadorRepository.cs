@@ -460,16 +460,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 entregable.FechaAprobacion = DateTime.UtcNow;
             }
 
-            if (entregable.ItemId == HabItemIds.InduccionObra
-                && string.Equals(dto.Estado, "Falta", StringComparison.OrdinalIgnoreCase))
+            if (entregable.ItemId == HabItemIds.InduccionObra)
             {
-                var wpRows = await ctx.WorkerProyecto
-                    .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
-                    .ToListAsync();
-                foreach (var wp in wpRows)
+                if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
                 {
-                    wp.InduccionCompletada = false;
-                    wp.FechaInduccion = null;
+                    var wpRows = await ctx.WorkerProyecto
+                        .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
+                        .ToListAsync();
+                    foreach (var wp in wpRows)
+                    {
+                        wp.InduccionCompletada = true;
+                        wp.FechaInduccion ??= DateOnly.FromDateTime(DateTime.UtcNow);
+                        wp.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
+                }
+                else if (string.Equals(dto.Estado, "Falta", StringComparison.OrdinalIgnoreCase))
+                {
+                    var wpRows = await ctx.WorkerProyecto
+                        .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
+                        .ToListAsync();
+                    foreach (var wp in wpRows)
+                    {
+                        wp.InduccionCompletada = false;
+                        wp.FechaInduccion = null;
+                        wp.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
                 }
             }
 
@@ -621,6 +636,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await ValidarExclusividadEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId.Value);
 
             var itemsToReset = new HashSet<int>();
+            var itemsToRestore = new HashSet<int>();
             var pendingEmails = new List<(List<string> To, string Subject, string Body)>();
             Project? proyectoDestino = null;
 
@@ -646,6 +662,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
                         ));
                     }
+                }
+                else
+                {
+                    itemsToRestore.Add(HabItemIds.InduccionObra);
                 }
             }
 
@@ -705,7 +725,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 CreatedAt = now
             });
 
-            if (esCambioProyecto && !esContratista)
+            if (esCambioProyecto)
             {
                 await SincronizarWorkerProyectoCambioAsync(
                     ctx,
@@ -726,6 +746,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 foreach (var e in entregables)
                 {
                     e.Estado = "Falta";
+                    e.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            if (itemsToRestore.Count > 0)
+            {
+                var entregables = await ctx.SsHabTrabajador
+                    .Where(h => h.WorkerId == workerId && itemsToRestore.Contains(h.ItemId))
+                    .ToListAsync();
+
+                foreach (var e in entregables)
+                {
+                    e.Estado = "Aprobado";
                     e.UpdatedAt = DateTime.UtcNow;
                 }
             }

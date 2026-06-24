@@ -146,7 +146,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             await ctx.SaveChangesAsync();
 
             // Tras mover actividades (hojas y padres), sincronizar fechas padre ↔ hijos
-            await RecalcularFechasPadresInternoAsync(ctx, proyectoId);
+            _ = await RecalcularFechasPadresInternoAsync(ctx, proyectoId);
 
             return new CascadaResultDto { HayCambios = cambios.Count > 0, Cambios = cambios };
         }
@@ -338,20 +338,36 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         // ─────────────────────────── Fechas de nodos padre ───────────────────────────
 
-        public async Task RecalcularFechasPadresAsync(int proyectoId)
+        public async Task<List<ActividadDto>> RecalcularFechasPadresAsync(int proyectoId)
         {
             using var ctx = _factory.CreateDbContext();
-            await RecalcularFechasPadresInternoAsync(ctx, proyectoId);
+            var modificados = await RecalcularFechasPadresInternoAsync(ctx, proyectoId);
+            return modificados.Select(a => new ActividadDto
+            {
+                ProjectActivityId = a.ProjectActivityId,
+                ProjectId         = a.ProjectId,
+                ActivityDescription = a.ActivityDescription,
+                PlannedStartDate  = a.PlannedStartDate,
+                PlannedEndDate    = a.PlannedEndDate,
+                ActualEndDate     = a.ActualEndDate,
+                BaselineStartDate = a.BaselineStartDate,
+                BaselineEndDate   = a.BaselineEndDate,
+                ProgressPercentage = a.ProgressPercentage,
+                Order             = a.Order,
+                HierarchyLevel    = a.HierarchyLevel,
+                ParentId          = a.ParentId,
+                EsPadre           = true
+            }).ToList();
         }
 
-        private static async Task RecalcularFechasPadresInternoAsync(AppDbContext ctx, int proyectoId)
+        private static async Task<List<ProjectActivity>> RecalcularFechasPadresInternoAsync(AppDbContext ctx, int proyectoId)
         {
             // 1. TODAS las actividades activas del proyecto, sin filtro por nivel.
             var todas = await ctx.ProjectActivity
                 .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
                 .ToListAsync();
 
-            if (todas.Count == 0) return;
+            if (todas.Count == 0) return new List<ProjectActivity>();
 
             // 2. esPadre ≡ aparece como clave en hijosDe
             //    (existe ≥1 actividad activa con ParentId = ese id).
@@ -359,6 +375,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 .Where(a => a.ParentId.HasValue)
                 .GroupBy(a => a.ParentId!.Value)
                 .ToDictionary(g => g.Key, g => g.ToList());
+
+            var modificados = new List<ProjectActivity>();
 
             // 3. Orden bottom-up REAL: HierarchyLevel DESCENDENTE.
             //    Los nodos más profundos se procesan primero; cuando llegamos a un padre
@@ -384,10 +402,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     nodo.PlannedStartDate = nuevoInicio;
                     nodo.PlannedEndDate = nuevoFin;
                     nodo.UpdatedDateTime = DateTime.UtcNow;
+                    modificados.Add(nodo);
                 }
             }
 
             await ctx.SaveChangesAsync();
+            return modificados;
         }
     }
 }

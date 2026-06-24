@@ -2,6 +2,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
 {
     public class ProjectsDashboardResponseDto
     {
+        /// <summary>Filtros disponibles — incluidos para evitar una segunda llamada a GET /filters.</summary>
+        public ProjectsDashboardFiltersResponseDto Filtros { get; set; } = new();
         public int TotalProyectos { get; set; }
         public int AlDia { get; set; }
         public int ConRetraso { get; set; }

@@ -53,13 +53,9 @@ namespace Abril_Backend.Controllers
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var projectsTask = _projectRepository.GetAllFactory();
-
-                await Task.WhenAll(projectsTask);
-
                 var result = new
                 {
-                    Projects = projectsTask.Result,
+                    Projects = await _projectRepository.GetAllFactory(),
                 };
 
                 return Ok(result);

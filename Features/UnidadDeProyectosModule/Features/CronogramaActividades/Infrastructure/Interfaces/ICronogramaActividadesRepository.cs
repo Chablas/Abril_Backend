@@ -6,7 +6,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     public interface ICronogramaActividadesRepository
     {
         Task<List<ProyectoSimpleCronogramaDto>> GetProyectosAsync();
-        Task<List<ActividadDto>> GetActividadesAsync(int proyectoId);
+        Task<ActividadesProyectoResponseDto> GetActividadesAsync(int proyectoId);
         Task<ActividadDto> CrearActividadAsync(int proyectoId, CrearActividadRequest request, int userId);
         Task<ActividadDto> EditarActividadAsync(int projectActivityId, EditarActividadRequest request, int userId);
         Task<CulminarActividadDto> CulminarActividadAsync(int projectActivityId, int userId);
@@ -15,7 +15,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId);
         Task<List<ActividadDto>> ReordenarActividadesAsync(int proyectoId, List<ReordenarItem> items);
         Task<List<ActividadDto>> CambiarJerarquiaAsync(int proyectoId, CambiarJerarquiaRequest request);
-        Task<List<DebugActividadOrdenDto>> GetDebugOrderAsync(int proyectoId);
         Task<List<ActividadDto>> SubirNivelAsync(int proyectoId, int actividadId);
         Task<List<ActividadDto>> BajarNivelAsync(int proyectoId, int actividadId);
 
@@ -32,5 +31,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         Task SetPredecesorasAsync(int activityId, List<int> predecessorIds);
         /// <summary>Devuelve el ProjectId de una actividad (valida que exista y esté activa).</summary>
         Task<int> GetProyectoIdDeActividadAsync(int activityId);
+
+        // Dashboard
+        Task<CronogramaDashboardResponseDto> GetDashboardAsync(int? responsableId, string? estado);
     }
 }

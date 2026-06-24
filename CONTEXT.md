@@ -30,6 +30,58 @@ Config: `appsettings.json` → `appsettings.{Env}.json` → `appsettings.Local.j
 
 ---
 
+## REGLAS DE CODIFICACIÓN (obligatorias en todo código nuevo)
+
+### R1 — 1 acción = 1 endpoint = 1 query
+Cada acción del usuario (entrar a una página, seleccionar un detalle, aplicar un filtro)
+debe disparar **una sola llamada HTTP** al backend. Ese endpoint debe ejecutar
+**una sola query** (o un pipeline SQL que cuente como una operación lógica única).
+
+- Prohibido que el frontend llame a `/datos` + `/filtros` al iniciar una página.
+  El endpoint debe devolver ambos en un solo response.
+- Prohibido que un endpoint haga dos queries secuenciales donde una depende del
+  resultado de la otra (roundtrip). Usar JOIN o subquery.
+
+### R2 — Task.WhenAll solo para Microsoft Graph
+`Task.WhenAll` está prohibido para queries a base de datos (EF Core o Dapper).
+Solo se permite para llamadas a Microsoft Graph API (múltiples llamadas HTTP externas en paralelo).
+
+```csharp
+// PROHIBIDO
+await Task.WhenAll(dbQuery1, dbQuery2);
+
+// PERMITIDO
+var result1 = await dbQuery1;
+var result2 = await dbQuery2;
+
+// PERMITIDO (solo Graph)
+await Task.WhenAll(graphCall1, graphCall2);
+```
+
+### R3 — Sin N+1
+Prohibido iterar una colección y hacer una query por elemento.
+Usar `.Include()` en EF Core, o JOIN + agrupación en memoria con `Dictionary` en Dapper.
+
+```csharp
+// PROHIBIDO
+foreach (var p in proyectos)
+    p.Actividades = await ctx.Actividades.Where(a => a.ProjectId == p.Id).ToListAsync();
+
+// CORRECTO
+var proyectos = await ctx.Proyectos.Include(p => p.Actividades).ToListAsync();
+```
+
+### R4 — Sin roundtrips en Dapper
+En Dapper, nunca hacer una query para obtener IDs y luego otra con esos IDs.
+Usar un solo SQL con JOIN o subquery que traiga todo en una pasada.
+
+### R5 — Estructura por features
+Todo código nuevo va en `Features/<NombreFeature>/`.
+Prohibido agregar código en carpetas por capa (`Controllers/`, `Services/`, `Repositories/` en raíz).
+La estructura por capas en raíz es legacy y no debe crecer.
+
+---
+
 ## 2. Arquitectura
 
 ### 2a. Layered tradicional (carpetas raíz)
@@ -4187,6 +4239,43 @@ foreach (var nodo in todas.OrderByDescending(a => a.HierarchyLevel))
 ```
 
 `RecalcularFechasPadresAsync` (y su versión interna) se llama en: `ImportarMppAsync`, `AplicarCascadaAsync`, `EditarActividadAsync`.
+
+---
+
+## Sesión 2026-06-02 — Arquitectura, contratos API y eficiencia BD
+
+### Reglas de codificación establecidas (ver sección §REGLAS al inicio)
+- R1: 1 acción = 1 endpoint = 1 query
+- R2: Task.WhenAll solo para Microsoft Graph
+- R3: Sin N+1
+- R4: Sin roundtrips en Dapper
+- R5: Estructura por features
+
+### Fixes de eficiencia en CronogramaActividadesRepository
+- ImportarMppAsync: N+1 resuelto — 2 pasadas con 2 SaveChangesAsync en vez de N
+- MilestoneScheduleHistoryRepository.Create: query duplicada ejecutada 1 sola vez
+- Reordenar/Subir/BajarNivel: SELECT post-save eliminado, se mapea desde memoria
+- Editar/ActualizarLineaBase: 2 queries combinadas en 1 con proyección EF
+
+### Nuevos contratos API (CronogramaActividades)
+- GET /{proyectoId}/actividades → ActividadesProyectoResponseDto { proyecto, actividades }
+  (elimina la segunda llamada a /proyectos desde el frontend)
+- PUT /actividades/{id} → acepta PredecessorIds? en el body, devuelve EditarActividadResultDto { actividad, cascada? }
+  (unifica editar + predecesoras + cascada en 1 sola llamada)
+- PUT /actividades/{id}/predecesoras → mantiene como legacy deprecated
+
+### Nuevos contratos API (ProjectsDashboard)
+- GET /projects-dashboard → incluye campo Filtros en el response
+  (elimina la segunda llamada a /filters desde el frontend)
+- GET /projects-dashboard/filters → mantiene como legacy deprecated
+
+### Limpieza pre-merge
+- Eliminado endpoint GET /cronograma-actividades/debug-order
+- Eliminados Console.WriteLine en ImportarMppAsync
+
+### Migraciones aplicadas en Aiven
+- 20260601184746_AddBaselineDatesProjectActivity — aplicada manualmente vía pgAdmin
+  (baseline_start_date, baseline_end_date nullable en project_activity)
 
 ---
 

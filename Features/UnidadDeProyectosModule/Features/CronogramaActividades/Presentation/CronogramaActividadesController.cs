@@ -22,6 +22,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         private int GetUserId() =>
             int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
 
+        // GET /api/v1/cronograma-actividades/dashboard
+        [HttpGet("dashboard")]
+        public async Task<IActionResult> GetDashboard([FromQuery] int? responsableId, [FromQuery] string? estado)
+        {
+            try
+            {
+                var result = await _service.GetDashboardAsync(responsableId, estado);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // GET /api/v1/cronograma-actividades/proyectos
         [HttpGet("proyectos")]
         public async Task<IActionResult> GetProyectos()
@@ -152,20 +165,6 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
-        // GET /api/v1/cronograma-actividades/{proyectoId}/debug-order
-        [HttpGet("{proyectoId:int}/debug-order")]
-        [AllowAnonymous]
-        public async Task<IActionResult> DebugOrder(int proyectoId)
-        {
-            try
-            {
-                var result = await _service.GetDebugOrderAsync(proyectoId);
-                return Ok(result);
-            }
-            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
-        }
-
         // PUT /api/v1/cronograma-actividades/{proyectoId}/cambiar-jerarquia
         [HttpPut("{proyectoId:int}/cambiar-jerarquia")]
         public async Task<IActionResult> CambiarJerarquia(int proyectoId, [FromBody] CambiarJerarquiaRequest request)
@@ -285,11 +284,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ImportarMpp ERROR] {ex}");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
     }
 }

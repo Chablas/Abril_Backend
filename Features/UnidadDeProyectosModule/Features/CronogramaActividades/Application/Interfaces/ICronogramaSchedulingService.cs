@@ -24,7 +24,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         /// <summary>Ejecuta la cascada FS, persiste los cambios y recalcula fechas de padres.</summary>
         Task<CascadaResultDto> AplicarCascadaAsync(int proyectoId);
 
-        /// <summary>Recalcula y persiste inicio=MIN(hijos)/fin=MAX(hijos) para todo nodo padre.</summary>
-        Task RecalcularFechasPadresAsync(int proyectoId);
+        /// <summary>Recalcula y persiste inicio=MIN(hijos)/fin=MAX(hijos) para todo nodo padre. Devuelve los padres que cambiaron.</summary>
+        Task<List<ActividadDto>> RecalcularFechasPadresAsync(int proyectoId);
     }
 }

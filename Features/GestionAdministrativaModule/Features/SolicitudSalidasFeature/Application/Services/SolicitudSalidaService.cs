@@ -279,8 +279,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             string aprobadorEmail,
             string nombreSolicitante)
         {
-            var tokenAprobar  = _tokenService.Generate(solicitud.Id, SolicitudSalidaAction.Aprobar,  TimeSpan.FromDays(7));
-            var tokenRechazar = _tokenService.Generate(solicitud.Id, SolicitudSalidaAction.Rechazar, TimeSpan.FromDays(7));
+            var tokenAprobar  = _tokenService.Generate(solicitud.Id, SolicitudSalidaAction.Aprobar,  TimeSpan.FromDays(30));
+            var tokenRechazar = _tokenService.Generate(solicitud.Id, SolicitudSalidaAction.Rechazar, TimeSpan.FromDays(30));
 
             var backendUrl = (_configuration["BackendSettings:PublicUrl"] ?? "http://localhost:5236").TrimEnd('/');
             var basePath   = "/api/v1/gestion-administrativa/solicitud-salidas";
@@ -440,7 +440,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         <a href=""{urlAprobar}"" style=""display:inline-block;background:#009C87;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Aprobar</a>
         <a href=""{urlRechazar}"" style=""display:inline-block;background:#D30000;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Rechazar</a>
       </div>
-      <p style=""color:#999;font-size:12px;margin-top:24px"">Los enlaces son válidos por 7 días.</p>
+      <p style=""color:#999;font-size:12px;margin-top:24px"">Los enlaces son válidos por 30 días.</p>
     </div>
   </div>
 </body></html>";

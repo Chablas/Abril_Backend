@@ -57,6 +57,27 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                             WorkItemCategoryClauseId = c.WorkItemCategoryClauseId,
                             ClauseText = c.ClauseText,
                             SortOrder  = c.SortOrder,
+                            ContractModalityId = c.ContractModalityId,
+                        })
+                        .ToList(),
+                    Anexo3Clauses = _context.WorkItemCategoryAnexo3Clause
+                        .Where(c => c.WorkItemCategoryId == x.WorkItemCategoryId && c.State)
+                        .OrderBy(c => c.SortOrder)
+                        .Select(c => new WorkItemCategoryAnexo3ClauseDto
+                        {
+                            WorkItemCategoryAnexo3ClauseId = c.WorkItemCategoryAnexo3ClauseId,
+                            ClauseText = c.ClauseText,
+                            SortOrder  = c.SortOrder,
+                        })
+                        .ToList(),
+                    Anexo4Clauses = _context.WorkItemCategoryAnexo4Clause
+                        .Where(c => c.WorkItemCategoryId == x.WorkItemCategoryId && c.State)
+                        .OrderBy(c => c.SortOrder)
+                        .Select(c => new WorkItemCategoryAnexo4ClauseDto
+                        {
+                            WorkItemCategoryAnexo4ClauseId = c.WorkItemCategoryAnexo4ClauseId,
+                            ClauseText = c.ClauseText,
+                            SortOrder  = c.SortOrder,
                         })
                         .ToList()
                 })
@@ -145,6 +166,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                     {
                         existing.ClauseText       = clauseDto.ClauseText.Trim();
                         existing.SortOrder        = clauseDto.SortOrder;
+                        existing.ContractModalityId = clauseDto.ContractModalityId;
                         existing.UpdatedDatetime  = now;
                         existing.UpdatedUserId    = userId;
                     }
@@ -152,6 +174,99 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                 else
                 {
                     _context.WorkItemCategoryClause.Add(new WorkItemCategoryClause
+                    {
+                        WorkItemCategoryId = dto.WorkItemCategoryId,
+                        ClauseText         = clauseDto.ClauseText.Trim(),
+                        SortOrder          = clauseDto.SortOrder,
+                        ContractModalityId = clauseDto.ContractModalityId,
+                        State              = true,
+                        CreatedDatetime    = now,
+                        CreatedUserId      = userId,
+                    });
+                }
+            }
+
+            // ── Cláusulas Anexo 3 (Suministro): mismo patrón de upsert + soft-delete ──
+            var incomingAnexo3Ids = dto.Anexo3Clauses
+                .Where(c => c.WorkItemCategoryAnexo3ClauseId.HasValue)
+                .Select(c => c.WorkItemCategoryAnexo3ClauseId!.Value)
+                .ToHashSet();
+
+            var anexo3ToDelete = await _context.WorkItemCategoryAnexo3Clause
+                .Where(c => c.WorkItemCategoryId == dto.WorkItemCategoryId
+                         && c.State
+                         && !incomingAnexo3Ids.Contains(c.WorkItemCategoryAnexo3ClauseId))
+                .ToListAsync();
+            foreach (var c in anexo3ToDelete)
+            {
+                c.State           = false;
+                c.UpdatedDatetime = now;
+                c.UpdatedUserId   = userId;
+            }
+
+            foreach (var clauseDto in dto.Anexo3Clauses)
+            {
+                if (clauseDto.WorkItemCategoryAnexo3ClauseId.HasValue)
+                {
+                    var existing = await _context.WorkItemCategoryAnexo3Clause
+                        .FirstOrDefaultAsync(c => c.WorkItemCategoryAnexo3ClauseId == clauseDto.WorkItemCategoryAnexo3ClauseId.Value);
+                    if (existing is not null)
+                    {
+                        existing.ClauseText      = clauseDto.ClauseText.Trim();
+                        existing.SortOrder       = clauseDto.SortOrder;
+                        existing.UpdatedDatetime = now;
+                        existing.UpdatedUserId   = userId;
+                    }
+                }
+                else
+                {
+                    _context.WorkItemCategoryAnexo3Clause.Add(new WorkItemCategoryAnexo3Clause
+                    {
+                        WorkItemCategoryId = dto.WorkItemCategoryId,
+                        ClauseText         = clauseDto.ClauseText.Trim(),
+                        SortOrder          = clauseDto.SortOrder,
+                        State              = true,
+                        CreatedDatetime    = now,
+                        CreatedUserId      = userId,
+                    });
+                }
+            }
+
+            // ── Cláusulas Anexo 4 (Suministro): mismo patrón de upsert + soft-delete ──
+            var incomingAnexo4Ids = dto.Anexo4Clauses
+                .Where(c => c.WorkItemCategoryAnexo4ClauseId.HasValue)
+                .Select(c => c.WorkItemCategoryAnexo4ClauseId!.Value)
+                .ToHashSet();
+
+            var anexo4ToDelete = await _context.WorkItemCategoryAnexo4Clause
+                .Where(c => c.WorkItemCategoryId == dto.WorkItemCategoryId
+                         && c.State
+                         && !incomingAnexo4Ids.Contains(c.WorkItemCategoryAnexo4ClauseId))
+                .ToListAsync();
+            foreach (var c in anexo4ToDelete)
+            {
+                c.State           = false;
+                c.UpdatedDatetime = now;
+                c.UpdatedUserId   = userId;
+            }
+
+            foreach (var clauseDto in dto.Anexo4Clauses)
+            {
+                if (clauseDto.WorkItemCategoryAnexo4ClauseId.HasValue)
+                {
+                    var existing = await _context.WorkItemCategoryAnexo4Clause
+                        .FirstOrDefaultAsync(c => c.WorkItemCategoryAnexo4ClauseId == clauseDto.WorkItemCategoryAnexo4ClauseId.Value);
+                    if (existing is not null)
+                    {
+                        existing.ClauseText      = clauseDto.ClauseText.Trim();
+                        existing.SortOrder       = clauseDto.SortOrder;
+                        existing.UpdatedDatetime = now;
+                        existing.UpdatedUserId   = userId;
+                    }
+                }
+                else
+                {
+                    _context.WorkItemCategoryAnexo4Clause.Add(new WorkItemCategoryAnexo4Clause
                     {
                         WorkItemCategoryId = dto.WorkItemCategoryId,
                         ClauseText         = clauseDto.ClauseText.Trim(),

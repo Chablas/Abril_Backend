@@ -1,7 +1,9 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Dtos;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
@@ -11,42 +13,122 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
     public class LessonReminderRepository : ILessonReminderRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ILessonJefeResolver _jefeResolver;
 
-        public LessonReminderRepository(IDbContextFactory<AppDbContext> factory)
+        // Categorías consideradas "jefatura" para la sección de recordatorios y el
+        // aviso del 4.º día (texto exacto). OJO: es independiente de
+        // LessonJefeResolver, que solo usa "Jefe" para decidir quién PUEDE
+        // aprobar/rechazar lecciones (jerarquía de revisión). Aquí solo definimos
+        // quién aparece/puede activarse en la sección Jefaturas.
+        private static readonly string[] CategoriasJefatura = { "Jefe", "Coordinador", "Residente" };
+
+        public LessonReminderRepository(
+            IDbContextFactory<AppDbContext> factory,
+            ILessonJefeResolver jefeResolver)
         {
             _factory = factory;
+            _jefeResolver = jefeResolver;
         }
 
-        public async Task<object> GetPaged(int page, int pageSize)
+        public async Task<HashSet<DateOnly>> GetHolidayDatesAsync(int year, int month)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Lista pequeña: traemos los registros vivos/activos y resolvemos en memoria.
+            var holidays = await ctx.Holiday
+                .Where(h => h.State && h.Active)
+                .Select(h => new { h.HolidayDate, h.RecurringYearly })
+                .ToListAsync();
+
+            var result = new HashSet<DateOnly>();
+            foreach (var h in holidays)
+            {
+                if (h.RecurringYearly)
+                {
+                    // Se repite cada año: resolvemos al año solicitado por mes/día.
+                    // Guardamos contra fechas inválidas (ej. 29-feb en año no bisiesto).
+                    if (h.HolidayDate.Month != month) continue;
+                    var day = Math.Min(h.HolidayDate.Day, DateTime.DaysInMonth(year, month));
+                    result.Add(new DateOnly(year, month, day));
+                }
+                else if (h.HolidayDate.Year == year && h.HolidayDate.Month == month)
+                {
+                    result.Add(h.HolidayDate);
+                }
+            }
+            return result;
+        }
+
+        public async Task<object> GetPaged(int page, int pageSize, string? subarea = null, int? workerId = null, bool includeWorkers = false)
         {
             page = page < 1 ? 1 : page;
             pageSize = pageSize < 1 ? 10 : pageSize;
 
             using var ctx = _factory.CreateDbContext();
 
-            var query =
+            // Asignaciones por TRABAJADOR (user_project.worker_id). Nombre/área desde
+            // person/worker; correo desde worker.email_personal. NO requiere usuario.
+            var baseQuery =
                 from up in ctx.UserProject
-                join u in ctx.User on up.UserId equals u.UserId
-                join p in ctx.Person on u.UserId equals p.UserId
+                join w in ctx.Worker on up.WorkerId equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
-                orderby up.UserProjectId descending
-                select new LessonReminderDTO
+                select new { up, w, p, pj };
+
+            // Filtro opcional por subárea del trabajador.
+            if (!string.IsNullOrWhiteSpace(subarea))
+            {
+                var sa = subarea.Trim();
+                baseQuery = baseQuery.Where(x => x.w.Subarea == sa);
+            }
+
+            // Filtro opcional por trabajador.
+            if (workerId.HasValue && workerId.Value > 0)
+            {
+                baseQuery = baseQuery.Where(x => x.w.Id == workerId.Value);
+            }
+
+            var query = baseQuery
+                .OrderByDescending(x => x.up.UserProjectId)
+                .Select(x => new LessonReminderDTO
                 {
-                    UserProjectId = up.UserProjectId,
-                    UserId = up.UserId,
-                    UserFullName = p.FullName,
-                    ProjectId = up.ProjectId,
-                    ProjectDescription = pj.ProjectDescription ?? string.Empty,
-                    CreatedDateTime = up.CreatedDateTime,
-                    CreatedUserId = up.CreatedUserId,
-                    UpdatedDateTime = up.UpdatedDateTime,
-                    UpdatedUserId = up.UpdatedUserId,
-                    Active = up.Active
-                };
+                    UserProjectId = x.up.UserProjectId,
+                    WorkerId = x.w.Id,
+                    WorkerFullName = x.p.FullName,
+                    Email = x.w.EmailPersonal,
+                    ProjectId = x.up.ProjectId,
+                    ProjectDescription = x.pj.ProjectDescription ?? string.Empty,
+                    CreatedDateTime = x.up.CreatedDateTime,
+                    CreatedUserId = x.up.CreatedUserId,
+                    UpdatedDateTime = x.up.UpdatedDateTime,
+                    UpdatedUserId = x.up.UpdatedUserId,
+                    Active = x.up.Active
+                });
 
             var totalRecords = await query.CountAsync();
             var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+
+            // Opciones del filtro por trabajador: trabajadores distintos con algún
+            // recordatorio vivo (independiente de la subárea seleccionada, para que el
+            // desplegable sea estable). Solo se devuelve en la carga inicial.
+            List<LessonReminderWorkerDTO>? workers = null;
+            if (includeWorkers)
+            {
+                workers = await (
+                    from up in ctx.UserProject
+                    join w in ctx.Worker on up.WorkerId equals w.Id
+                    join p in ctx.Person on w.PersonId equals p.PersonId
+                    where up.State == true
+                    orderby p.FullName
+                    select new LessonReminderWorkerDTO
+                    {
+                        WorkerId = w.Id,
+                        FullName = p.FullName,
+                        Email = w.EmailPersonal
+                    }
+                ).Distinct().ToListAsync();
+            }
 
             return new
             {
@@ -54,7 +136,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 pageSize,
                 totalRecords,
                 totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
-                data
+                data,
+                workers
             };
         }
 
@@ -62,19 +145,24 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
-            var users = await (
-                from u in ctx.User
-                join p in ctx.Person on u.UserId equals p.UserId
-                where u.Active == true
-                      && u.State == true
-                      && p.Active == true
+            // IMPORTANTE: ejecutar SECUENCIALMENTE sobre una sola instancia de DbContext.
+            // DbContext no es thread-safe; lanzar ambas queries con Task.WhenAll sobre el
+            // mismo ctx provoca "A second operation was started on this context instance"
+            // (Npgsql/PostgreSQL no soporta operaciones concurrentes en la misma conexión).
+            // Trabajadores (worker + person) con correo corporativo @abril. NO se exige
+            // usuario en app_user: pueden existir trabajadores nunca registrados en la app.
+            var workers = await (
+                from w in ctx.Worker
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where w.EmailPersonal != null
+                      && w.EmailPersonal.ToLower().Contains("@abril")
                       && p.State == true
-                      && u.EmailConfirmed == true
                 orderby p.FullName
-                select new LessonReminderUserDTO
+                select new LessonReminderWorkerDTO
                 {
-                    UserId = u.UserId,
-                    FullName = p.FullName
+                    WorkerId = w.Id,
+                    FullName = p.FullName,
+                    Email = w.EmailPersonal
                 }
             ).ToListAsync();
 
@@ -90,7 +178,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             return new LessonReminderCreateDataDTO
             {
-                Users = users,
+                Workers = workers,
                 Projects = projects
             };
         }
@@ -99,19 +187,31 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
+            // Validar trabajador (worker + person) y resolver su usuario si lo tiene
+            // (para compatibilidad: si existe app_user, se guarda user_id también).
+            var workerInfo = await (
+                from w in ctx.Worker
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where w.Id == dto.WorkerId
+                select new { w.Id, UserId = p.UserId }
+            ).FirstOrDefaultAsync();
+            if (workerInfo == null)
+                throw new AbrilException("El trabajador no existe.", 404);
+
             var existing = await ctx.UserProject
-                .FirstOrDefaultAsync(up => up.UserId == dto.UserId && up.ProjectId == dto.ProjectId);
+                .FirstOrDefaultAsync(up => up.WorkerId == dto.WorkerId && up.ProjectId == dto.ProjectId);
 
             if (existing != null && existing.State && existing.Active)
-                throw new AbrilException("El usuario ya está asignado a este proyecto");
+                throw new AbrilException("El trabajador ya está asignado a este proyecto");
 
             if (existing != null && existing.State && !existing.Active)
-                throw new AbrilException("El usuario ya está asignado a este proyecto, pero se encuentra inactivo. Reactívelo para continuar.");
+                throw new AbrilException("El trabajador ya está asignado a este proyecto, pero se encuentra inactivo. Reactívelo para continuar.");
 
             if (existing != null && !existing.State)
             {
                 existing.State = true;
                 existing.Active = dto.Active;
+                existing.UserId = workerInfo.UserId;
                 existing.UpdatedDateTime = DateTime.UtcNow;
                 existing.UpdatedUserId = userId;
                 await ctx.SaveChangesAsync();
@@ -120,7 +220,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
             var userProject = new UserProject
             {
-                UserId = dto.UserId,
+                WorkerId = dto.WorkerId,
+                UserId = workerInfo.UserId, // null si el trabajador no tiene usuario
                 ProjectId = dto.ProjectId,
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
@@ -129,6 +230,43 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             };
 
             ctx.UserProject.Add(userProject);
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task UpdateProjectAsync(int userProjectId, int newProjectId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var userProject = await ctx.UserProject
+                .FirstOrDefaultAsync(u => u.UserProjectId == userProjectId && u.State == true);
+            if (userProject == null)
+                throw new AbrilException("El recordatorio no existe.", 404);
+
+            if (newProjectId <= 0)
+                throw new AbrilException("Debe seleccionar un proyecto.", 400);
+
+            if (userProject.ProjectId == newProjectId)
+                throw new AbrilException("El recordatorio ya está asignado a ese proyecto.", 400);
+
+            var projectExists = await ctx.Project
+                .AnyAsync(p => p.ProjectId == newProjectId && p.State && p.Active);
+            if (!projectExists)
+                throw new AbrilException("El proyecto seleccionado no existe o está inactivo.", 404);
+
+            // No permitir duplicar: el mismo trabajador ya tiene un recordatorio vivo
+            // en el proyecto destino (otra fila).
+            var duplicate = await ctx.UserProject.AnyAsync(u =>
+                u.UserProjectId != userProjectId &&
+                u.WorkerId == userProject.WorkerId &&
+                u.ProjectId == newProjectId &&
+                u.State == true);
+            if (duplicate)
+                throw new AbrilException("El trabajador ya tiene un recordatorio en el proyecto seleccionado.", 400);
+
+            userProject.ProjectId = newProjectId;
+            userProject.UpdatedDateTime = DateTime.UtcNow;
+            userProject.UpdatedUserId = userId;
+
             await ctx.SaveChangesAsync();
         }
 
@@ -360,6 +498,344 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             }
 
             return pending;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Usuarios pendientes (user_project) — consumido por ReminderService
+        // ─────────────────────────────────────────────────────────────────────
+
+        public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsThisMonth(string period)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // El período viene del llamador (formato "MM-yyyy") para que la fecha
+            // simulada de ReminderService se propague correctamente al filtro.
+            var currentPeriod = period;
+
+            var query =
+                from up in ctx.UserProject
+                join w in ctx.Worker on up.WorkerId equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                join pj in ctx.Project on up.ProjectId equals pj.ProjectId
+                where up.State == true
+                      && up.Active == true
+                      && w.EmailPersonal != null && w.EmailPersonal != ""
+                      // Pendiente si NO existe lección suya (por su usuario, si lo tiene)
+                      // en el período. Un trabajador sin usuario nunca tendrá lección → pendiente.
+                      && !ctx.Lesson.Any(l =>
+                             l.CreatedUserId == p.UserId &&
+                             l.ProjectId == up.ProjectId &&
+                             l.Period == currentPeriod &&
+                             l.State == true &&
+                             l.Active == true
+                         )
+                group new { up, pj } by new
+                {
+                    WorkerId = w.Id,
+                    p.FullName,
+                    Email = w.EmailPersonal,
+                    UserId = p.UserId
+                }
+                into g
+                select new UserWithoutLessonsDTO
+                {
+                    WorkerId = g.Key.WorkerId,
+                    UserId = g.Key.UserId,
+                    UserFullName = g.Key.FullName,
+                    Email = g.Key.Email,
+                    Projects = g.Select(x => new ProjectSimpleDTO
+                    {
+                        ProjectId = x.pj.ProjectId,
+                        ProjectDescription = x.pj.ProjectDescription ?? string.Empty
+                    }).ToList()
+                };
+
+            return await query.ToListAsync();
+        }
+
+        public async Task<List<string>> GetAbrilWorkerEmailsWithUserAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // worker.email_personal guarda el correo corporativo @abril (la columna
+            // email_corporativo está siempre en NULL). Solo trabajadores con usuario
+            // registrado y activo: worker.person_id → person.person_id →
+            // person.user_id → app_user. Comparación lower() para que el match de
+            // "@abril" y la deduplicación sean case-insensitive.
+            var emails = await (
+                from w in ctx.Worker
+                where w.EmailPersonal != null
+                      && w.EmailPersonal.ToLower().Contains("@abril")
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                join u in ctx.User on p.UserId equals u.UserId
+                where u.State == true && u.Active == true
+                select w.EmailPersonal!
+            ).ToListAsync();
+
+            // Dedup case-insensitive conservando una sola variante por correo.
+            return emails
+                .Select(e => e.Trim())
+                .Where(e => e.Length > 0)
+                .GroupBy(e => e.ToLowerInvariant())
+                .Select(g => g.First())
+                .ToList();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Jefaturas (lesson_jefe_reminder) — recordatorio del 4.º día
+        // ─────────────────────────────────────────────────────────────────────
+
+        public async Task<List<JefeReminderConfigItemDTO>> GetAllJefesAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Todos los workers con categoria 'Jefe' (texto exacto, igual que LessonJefeResolver).
+            var jefes = await (
+                from w in ctx.Worker
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                where CategoriasJefatura.Contains(c.Name)
+                join p in ctx.Person on w.PersonId equals p.PersonId into pj
+                from p in pj.DefaultIfEmpty()
+                select new
+                {
+                    w.Id,
+                    w.EmailPersonal,
+                    Categoria = c.Name,
+                    FullName = p != null ? p.FullName : null
+                }
+            ).ToListAsync();
+
+            // Solo la fila viva (state=true) por worker.
+            var rows = await ctx.LessonJefeReminder.Where(r => r.State).ToListAsync();
+            var byWorker = rows.ToDictionary(r => r.WorkerId);
+
+            return jefes
+                .Select(j =>
+                {
+                    byWorker.TryGetValue(j.Id, out var row);
+                    return new JefeReminderConfigItemDTO
+                    {
+                        LessonJefeReminderId = row?.LessonJefeReminderId,
+                        WorkerId = j.Id,
+                        FullName = j.FullName,
+                        Email = j.EmailPersonal,
+                        Categoria = j.Categoria,
+                        Active = row != null && row.Active
+                    };
+                })
+                .OrderBy(x => x.FullName)
+                .ToList();
+        }
+
+        public async Task<ToggleJefeReminderResultDTO> ToggleJefeAsync(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var isJefe = await (
+                from w in ctx.Worker
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                where w.Id == workerId && CategoriasJefatura.Contains(c.Name)
+                select w.Id
+            ).AnyAsync();
+            if (!isJefe)
+                throw new AbrilException("El trabajador no existe o no es una jefatura (Jefe/Coordinador/Residente).", 404);
+
+            var row = await ctx.LessonJefeReminder.FirstOrDefaultAsync(r => r.WorkerId == workerId && r.State);
+            if (row == null)
+            {
+                // Primera activación: se crea el registro vivo en active=true.
+                row = new LessonJefeReminder
+                {
+                    WorkerId = workerId,
+                    Active = true,
+                    State = true,
+                    CreatedAt = DateTimeOffset.UtcNow
+                };
+                ctx.LessonJefeReminder.Add(row);
+            }
+            else
+            {
+                row.Active = !row.Active;
+                row.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
+            await ctx.SaveChangesAsync();
+            return new ToggleJefeReminderResultDTO
+            {
+                LessonJefeReminderId = row.LessonJefeReminderId,
+                Active = row.Active
+            };
+        }
+
+        public async Task<List<JefeReviewStatusDTO>> GetActiveJefesReviewStatusAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Jefaturas activas (con correo y usuario para resolver subordinados).
+            var jefes = await (
+                from r in ctx.LessonJefeReminder
+                join w in ctx.Worker on r.WorkerId equals w.Id
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where r.State
+                      && r.Active
+                      && CategoriasJefatura.Contains(c.Name)
+                      && w.EmailPersonal != null
+                      && w.EmailPersonal != ""
+                      && p.UserId != null
+                select new
+                {
+                    WorkerId = w.Id,
+                    Email = w.EmailPersonal!,
+                    p.FullName,
+                    UserId = p.UserId!.Value
+                }
+            ).ToListAsync();
+
+            var result = new List<JefeReviewStatusDTO>();
+            foreach (var j in jefes)
+            {
+                // Subordinados cuyo jefe más cercano (subiendo el árbol area_scope) es este jefe.
+                var subordinateUserIds = await _jefeResolver.GetSubordinateUserIdsAsync(j.UserId);
+
+                var pending = subordinateUserIds.Count == 0
+                    ? 0
+                    : await ctx.Lesson.CountAsync(l =>
+                        subordinateUserIds.Contains(l.CreatedUserId)
+                        && l.ApprovalStatus == "PENDIENTE"
+                        && l.State
+                        && l.Active);
+
+                result.Add(new JefeReviewStatusDTO
+                {
+                    WorkerId = j.WorkerId,
+                    FullName = j.FullName,
+                    Email = j.Email,
+                    PendingCount = pending
+                });
+            }
+
+            return result;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Revisor de Trabajadores (workers.worker_lesson_jefe_id)
+        // ─────────────────────────────────────────────────────────────────────
+
+        public async Task<List<WorkerRevisorItemDTO>> GetWorkerRevisoresAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Trabajadores con correo corporativo @abril.pe (vive en email_personal)
+            // + su jefe directo si lo tiene. Left join doble: persona del trabajador
+            // y worker/persona del jefe pueden faltar.
+            return await (
+                from w in ctx.Worker
+                where w.EmailPersonal != null && w.EmailPersonal.ToLower().Contains("@abril.pe")
+                join p in ctx.Person on w.PersonId equals p.PersonId into pj
+                from p in pj.DefaultIfEmpty()
+                join j in ctx.Worker on w.WorkerLessonJefeId equals j.Id into jj
+                from j in jj.DefaultIfEmpty()
+                join jp in ctx.Person on j.PersonId equals jp.PersonId into jpj
+                from jp in jpj.DefaultIfEmpty()
+                orderby p != null ? p.FullName : ""
+                select new WorkerRevisorItemDTO
+                {
+                    WorkerId = w.Id,
+                    FullName = p != null ? p.FullName : null,
+                    Email = w.EmailPersonal,
+                    JefeWorkerId = w.WorkerLessonJefeId,
+                    JefeFullName = jp != null ? jp.FullName : null,
+                    JefeEmail = j != null ? j.EmailPersonal : null
+                }
+            ).ToListAsync();
+        }
+
+        public async Task<List<WorkerRevisorOptionDTO>> GetWorkerRevisorOptionsAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Cualquier worker con persona asociada puede ser jefe.
+            return await (
+                from w in ctx.Worker
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                where p.State == true
+                orderby p.FullName
+                select new WorkerRevisorOptionDTO
+                {
+                    WorkerId = w.Id,
+                    FullName = p.FullName,
+                    Email = w.EmailPersonal
+                }
+            ).ToListAsync();
+        }
+
+        public async Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId);
+            if (worker == null)
+                throw new AbrilException("El trabajador no existe.", 404);
+
+            if (jefeWorkerId.HasValue)
+            {
+                if (jefeWorkerId.Value == workerId)
+                    throw new AbrilException("Un trabajador no puede ser su propio jefe.", 400);
+
+                var jefeExists = await ctx.Worker.AnyAsync(w => w.Id == jefeWorkerId.Value);
+                if (!jefeExists)
+                    throw new AbrilException("El jefe seleccionado no existe.", 404);
+            }
+
+            worker.WorkerLessonJefeId = jefeWorkerId;
+            worker.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsByPeriod(DateTime periodDate)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var targetPeriod = new DateTime(periodDate.Year, periodDate.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            var query =
+                from up in ctx.UserProject
+                join w in ctx.Worker on up.WorkerId equals w.Id
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                join pj in ctx.Project on up.ProjectId equals pj.ProjectId
+                where up.State == true
+                      && up.Active == true
+                      && w.EmailPersonal != null && w.EmailPersonal != ""
+                      && !ctx.Lesson.Any(l =>
+                             l.CreatedUserId == p.UserId &&
+                             l.ProjectId == up.ProjectId &&
+                             l.PeriodDate == targetPeriod &&
+                             l.State == true &&
+                             l.Active == true
+                         )
+                group new { up, pj } by new
+                {
+                    WorkerId = w.Id,
+                    p.FullName,
+                    Email = w.EmailPersonal,
+                    UserId = p.UserId
+                }
+                into g
+                select new UserWithoutLessonsDTO
+                {
+                    WorkerId = g.Key.WorkerId,
+                    UserId = g.Key.UserId,
+                    UserFullName = g.Key.FullName,
+                    Email = g.Key.Email,
+                    Projects = g.Select(x => new ProjectSimpleDTO
+                    {
+                        ProjectId = x.pj.ProjectId,
+                        ProjectDescription = x.pj.ProjectDescription ?? string.Empty
+                    }).ToList()
+                };
+
+            return await query.ToListAsync();
         }
     }
 }

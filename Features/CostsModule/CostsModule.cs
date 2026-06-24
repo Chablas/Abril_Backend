@@ -22,6 +22,18 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuest
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Interfaces;
 using Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresupuestosEmailFeature.Application.Services;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Application.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Application.Services;
+using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Application.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Application.Services;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Application.Interfaces;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Application.Services;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
@@ -42,6 +54,7 @@ namespace Abril_Backend.Features.Costs
             // Adjudicaciones
             services.AddScoped<IProjectSubContractorRepository, ProjectSubContractorRepository>();
             services.AddScoped<IProjectSubContractorService, ProjectSubContractorService>();
+            services.AddScoped<IAdjudicacionOneDriveStorage, AdjudicacionOneDriveStorage>();
 
             // StaffProjectEmail
             services.AddScoped<IStaffProjectEmailRepository, StaffProjectEmailRepository>();
@@ -62,6 +75,18 @@ namespace Abril_Backend.Features.Costs
             // CostosPresupuestosEmail
             services.AddScoped<ICostosPresupuestosEmailRepository, CostosPresupuestosEmailRepository>();
             services.AddScoped<ICostosPresupuestosEmailService, CostosPresupuestosEmailService>();
+
+            // Cronograma de adjudicaciones
+            services.AddScoped<ICostosCronogramaRepository, CostosCronogramaRepository>();
+            services.AddScoped<ICostosCronogramaService, CostosCronogramaService>();
+
+            // Carpeta de adjudicaciones por proyecto (OneDrive/SharePoint)
+            services.AddScoped<IAdjudicacionFolderRepository, AdjudicacionFolderRepository>();
+            services.AddScoped<IAdjudicacionFolderService, AdjudicacionFolderService>();
+
+            // Especialidades
+            services.AddScoped<IWorkSpecialtyRepository, WorkSpecialtyRepository>();
+            services.AddScoped<IWorkSpecialtyService, WorkSpecialtyService>();
 
             return services;
         }

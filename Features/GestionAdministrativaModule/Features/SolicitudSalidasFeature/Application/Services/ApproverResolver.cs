@@ -5,8 +5,28 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Services
 {
+    /// <summary>
+    /// Resuelve el correo del aprobador para una solicitud de salida usando el árbol
+    /// <c>area_scope</c> y la categoría del trabajador.
+    ///
+    /// Reglas:
+    ///   1) Gerente                  → no necesita aprobador (null).
+    ///   2) Jefe / Sub Gerente        → directo al Gerente del macro-área (mismo root).
+    ///   3) Resto                    → walk-up por la cadena ancestral
+    ///                                 buscando Jefe → Sub Gerente → Coordinador.
+    ///                                 Si la cadena no devuelve nada → fallback al
+    ///                                 Gerente del macro-área.
+    ///
+    /// Sólo se consideran como aprobadores trabajadores con <c>email_personal</c>
+    /// que termine en <c>@abril.pe</c> (correo corporativo).
+    /// </summary>
     public class ApproverResolver : IApproverResolver
     {
+        private const string EmailDomainCorp = "@abril.pe";
+
+        // Categorías que pueden aprobar a un trabajador "regular" (regla C).
+        private static readonly string[] CategoriasWalkUp = { "Jefe", "Sub Gerente", "Coordinador" };
+
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public ApproverResolver(IDbContextFactory<AppDbContext> factory)
@@ -17,57 +37,136 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public async Task<string?> ResolveApproverEmailAsync(Worker user)
         {
             using var ctx = _factory.CreateDbContext();
-            var workers = ctx.Worker.AsNoTracking();
 
-            // ── REGLA 1: Jefe o Sub Gerente → Gerente del mismo Area ─────────
-            if (user.Categoria == "Jefe" || user.Categoria == "Sub Gerente")
+            // Categoría del solicitante leída del catálogo workers_category
+            // (FK worker_category_id), no del texto libre workers.categoria.
+            var userCategoria = user.WorkerCategoryId.HasValue
+                ? await ctx.WorkersCategory
+                    .Where(c => c.WorkersCategoryId == user.WorkerCategoryId.Value)
+                    .Select(c => c.Name)
+                    .FirstOrDefaultAsync()
+                : null;
+
+            // Regla A: el Gerente no necesita aprobador
+            if (string.Equals(userCategoria, "Gerente", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            // Si el trabajador no tiene área en el árbol, no se puede resolver por jerarquía
+            if (!user.AreaScopeId.HasValue)
+                return null;
+
+            // Cargamos la topología completa del árbol una sola vez (es una tabla
+            // chica, decenas de filas) y caminamos en memoria.
+            var parentByScope = await ctx.AreaScope
+                .AsNoTracking()
+                .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
+                .ToDictionaryAsync(s => s.AreaScopeId, s => s.AreaScopeParentId);
+
+            var ancestros = BuildAncestorsChain(user.AreaScopeId.Value, parentByScope);
+            var rootId    = ancestros[^1]; // último = raíz
+
+            // Regla B: Jefe / Sub Gerente → salta directo al Gerente del macro-área
+            if (string.Equals(userCategoria, "Jefe", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(userCategoria, "Sub Gerente", StringComparison.OrdinalIgnoreCase))
             {
-                var gerente = await workers.FirstOrDefaultAsync(w =>
-                    w.Area == user.Area && w.Categoria == "Gerente");
-                return Pick(gerente);
+                return await FindGerenteByRootAsync(ctx, rootId, user.Id, parentByScope);
             }
 
-            // ── REGLA 2: Subarea Legal ───────────────────────────────────────
-            if (user.Subarea == "Legal")
+            // Regla C: walk-up Jefe>SubGer>Coord por la cadena ancestral
+            foreach (var scopeId in ancestros)
             {
-                var coordinadorLegal = await workers.FirstOrDefaultAsync(w =>
-                    w.Subarea == "Legal" && w.Categoria == "Coordinador");
+                var candidatos = await (
+                    from w in ctx.Worker.AsNoTracking()
+                    join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                    where w.AreaScopeId == scopeId
+                          && w.Id != user.Id
+                          && CategoriasWalkUp.Contains(c.Name)
+                          && w.EmailPersonal != null
+                          && w.EmailPersonal.EndsWith(EmailDomainCorp)
+                    select new { Categoria = c.Name, w.EmailPersonal }
+                ).ToListAsync();
 
-                var gerenteLegal = await workers.FirstOrDefaultAsync(w =>
-                    w.Area == user.Area && w.Categoria == "Gerente");
+                if (candidatos.Count == 0) continue;
 
-                // Coordinador Legal → Gerente
-                if (user.Categoria == "Coordinador")
-                    return Pick(gerenteLegal);
+                var elegido = candidatos
+                    .OrderBy(c => CategoriaPriority(c.Categoria))
+                    .First();
 
-                // Otros en Legal → Coordinador (si no es self) → Gerente
-                if (coordinadorLegal != null && coordinadorLegal.Id != user.Id)
-                    return Pick(coordinadorLegal);
-                return Pick(gerenteLegal);
+                return elegido.EmailPersonal!.Trim();
             }
 
-            // ── REGLA 3: Resto de áreas ──────────────────────────────────────
-            var jefe = await workers.FirstOrDefaultAsync(w =>
-                w.Subarea == user.Subarea && w.Categoria == "Jefe");
-            if (jefe != null && jefe.Id != user.Id)
-                return Pick(jefe);
-
-            var subGerente = await workers.FirstOrDefaultAsync(w =>
-                w.Subarea == user.Subarea && w.Categoria == "Sub Gerente");
-            if (subGerente != null && subGerente.Id != user.Id)
-                return Pick(subGerente);
-
-            var gerenteResto = await workers.FirstOrDefaultAsync(w =>
-                w.Area == user.Area && w.Categoria == "Gerente");
-            return Pick(gerenteResto);
+            // Fallback: ningún Jefe/SubGer/Coord en la cadena → Gerente del macro-área
+            return await FindGerenteByRootAsync(ctx, rootId, user.Id, parentByScope);
         }
 
-        /// <summary>Devuelve el email del trabajador, o null si no tiene.</summary>
-        private static string? Pick(Worker? w)
+        // ── Helpers ─────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Devuelve la cadena (scope propio, padre, abuelo, …, raíz) caminando hacia arriba.
+        /// Si hay un ciclo de datos (no debería existir), se corta defensivamente.
+        /// </summary>
+        private static List<int> BuildAncestorsChain(int startScopeId, IDictionary<int, int?> parentByScope)
         {
-            if (w == null) return null;
-            if (!string.IsNullOrWhiteSpace(w.EmailPersonal)) return w.EmailPersonal.Trim();
-            return null;
+            var chain = new List<int>();
+            var seen  = new HashSet<int>();
+            int? curr = startScopeId;
+            while (curr.HasValue && seen.Add(curr.Value))
+            {
+                chain.Add(curr.Value);
+                parentByScope.TryGetValue(curr.Value, out var parent);
+                curr = parent;
+            }
+            return chain;
         }
+
+        /// <summary>
+        /// Busca el Gerente entre todos los workers cuyo <c>area_scope_id</c> resuelva
+        /// al mismo root que el del solicitante. Excluye self.
+        /// </summary>
+        private static async Task<string?> FindGerenteByRootAsync(
+            AppDbContext ctx,
+            int rootId,
+            int excludeWorkerId,
+            IDictionary<int, int?> parentByScope)
+        {
+            // Pre-calcular qué scopes cuelgan de ese root (incluido él mismo)
+            var scopesEnRaiz = parentByScope.Keys
+                .Where(scopeId => RootOf(scopeId, parentByScope) == rootId)
+                .ToHashSet();
+
+            var gerentes = await (
+                from w in ctx.Worker.AsNoTracking()
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                where w.AreaScopeId.HasValue
+                      && w.Id != excludeWorkerId
+                      && c.Name == "Gerente"
+                      && w.EmailPersonal != null
+                      && w.EmailPersonal.EndsWith(EmailDomainCorp)
+                select new { w.Id, w.AreaScopeId, w.EmailPersonal }
+            ).ToListAsync();
+
+            var gerente = gerentes.FirstOrDefault(g => g.AreaScopeId.HasValue && scopesEnRaiz.Contains(g.AreaScopeId.Value));
+            return gerente?.EmailPersonal?.Trim();
+        }
+
+        /// <summary>Camina hacia arriba devolviendo el id de la raíz de un scope.</summary>
+        private static int RootOf(int scopeId, IDictionary<int, int?> parentByScope)
+        {
+            var seen = new HashSet<int>();
+            int curr = scopeId;
+            while (seen.Add(curr) && parentByScope.TryGetValue(curr, out var parent) && parent.HasValue)
+            {
+                curr = parent.Value;
+            }
+            return curr;
+        }
+
+        private static int CategoriaPriority(string? categoria) => categoria switch
+        {
+            "Jefe"        => 1,
+            "Sub Gerente" => 2,
+            "Coordinador" => 3,
+            _             => 99,
+        };
     }
 }

@@ -3,8 +3,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
     public class LessonReminderDTO
     {
         public int UserProjectId { get; set; }
-        public int UserId { get; set; }
-        public string? UserFullName { get; set; }
+        public int WorkerId { get; set; }
+        public string? WorkerFullName { get; set; }
+        public string? Email { get; set; } // worker.email_personal
         public int ProjectId { get; set; }
         public string? ProjectDescription { get; set; }
         public DateTime CreatedDateTime { get; set; }
@@ -16,7 +17,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
     public class LessonReminderCreateDTO
     {
-        public int UserId { get; set; }
+        public int WorkerId { get; set; }
         public int ProjectId { get; set; }
         public bool Active { get; set; }
     }
@@ -27,16 +28,26 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public bool Active { get; set; }
     }
 
+    /// <summary>
+    /// Cambia el proyecto de un recordatorio existente. El trabajador NO se puede
+    /// modificar; solo se reasigna el proyecto.
+    /// </summary>
+    public class LessonReminderUpdateProjectDTO
+    {
+        public int ProjectId { get; set; }
+    }
+
     public class LessonReminderCreateDataDTO
     {
-        public List<LessonReminderUserDTO> Users { get; set; } = new();
+        public List<LessonReminderWorkerDTO> Workers { get; set; } = new();
         public List<LessonReminderProjectDTO> Projects { get; set; } = new();
     }
 
-    public class LessonReminderUserDTO
+    public class LessonReminderWorkerDTO
     {
-        public int UserId { get; set; }
+        public int WorkerId { get; set; }
         public string? FullName { get; set; }
+        public string? Email { get; set; } // worker.email_personal (@abril.pe)
     }
 
     public class LessonReminderProjectDTO
@@ -70,6 +81,74 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = string.Empty;
         public string StaffEmail { get; set; } = string.Empty;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Jefaturas (lesson_jefe_reminder) — recordatorio del 4.º día
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Una fila por trabajador con categoria='Jefe'. Refleja el toggle de
+    /// lesson_jefe_reminder.active (false / sin fila = no recibe el recordatorio).
+    /// </summary>
+    public class JefeReminderConfigItemDTO
+    {
+        public int? LessonJefeReminderId { get; set; } // null si todavía no se ha activado nunca
+        public int WorkerId { get; set; }
+        public string? FullName { get; set; }
+        public string? Email { get; set; }
+        public string? Categoria { get; set; } // Jefe | Coordinador | Residente
+        public bool Active { get; set; }
+    }
+
+    public class ToggleJefeReminderResultDTO
+    {
+        public int LessonJefeReminderId { get; set; }
+        public bool Active { get; set; }
+    }
+
+    /// <summary>
+    /// Jefatura activa (active=true, con correo) + cuántas lecciones de su equipo
+    /// (subordinados) están PENDIENTE de revisión. Usado por el aviso del 4.º día:
+    /// si PendingCount = 0 se envía un correo con contenido distinto.
+    /// </summary>
+    public class JefeReviewStatusDTO
+    {
+        public int WorkerId { get; set; }
+        public string? FullName { get; set; }
+        public string Email { get; set; } = string.Empty;
+        public int PendingCount { get; set; }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Revisor de Trabajadores (workers.worker_lesson_jefe_id)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Una fila por trabajador con email_personal @abril.pe, junto a su jefe
+    /// directo (workers.worker_lesson_jefe_id) encargado de revisar sus lecciones.
+    /// </summary>
+    public class WorkerRevisorItemDTO
+    {
+        public int WorkerId { get; set; }
+        public string? FullName { get; set; }
+        public string? Email { get; set; }
+        public int? JefeWorkerId { get; set; }
+        public string? JefeFullName { get; set; }
+        public string? JefeEmail { get; set; }
+    }
+
+    /// <summary>Opción del selector de jefe: cualquier worker.</summary>
+    public class WorkerRevisorOptionDTO
+    {
+        public int WorkerId { get; set; }
+        public string? FullName { get; set; }
+        public string? Email { get; set; }
+    }
+
+    public class WorkerRevisorUpdateDTO
+    {
+        public int? JefeWorkerId { get; set; }
     }
 
     /// <summary>

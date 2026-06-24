@@ -75,7 +75,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 from up in ctx.UserProject
                 join u in ctx.User on up.UserId equals u.UserId
                 join p in ctx.Person on u.UserId equals p.UserId
-                select new { up.UserId, u.Email, Nombre = p.FullName ?? "" }
+                select new { UserId = u.UserId, u.Email, Nombre = p.FullName ?? "" }
             ).Distinct().ToListAsync();
 
             return evaluadores

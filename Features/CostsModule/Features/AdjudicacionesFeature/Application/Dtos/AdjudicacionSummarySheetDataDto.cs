@@ -19,13 +19,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? ProjectContributorRuc { get; set; }
         public string? ProjectDistrict { get; set; }
         public string? ProjectLocation { get; set; }
+        /// <summary>N° de niveles: project.level_description, con fallback a project.num_niveles.</summary>
+        public string? Niveles { get; set; }
         public string? ProjectLegalEntityRegistryNumber { get; set; }
+        public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; } = null!;
+        /// <summary>Nombre final de la partida para el contrato ({{PARTIDA}}). Null = usar WorkItemDescription.</summary>
+        public string? ContractWorkItemName { get; set; }
         public string ContractTypeDescription { get; set; } = null!;
         public int? ContractModalityId { get; set; }
         public int PaymentMethodId { get; set; }
         public string PaymentMethodDescription { get; set; } = null!;
         public string? PaymentFormDescription { get; set; }
+        public bool IncludesCartaFianza { get; set; }
         public string CurrencyCode { get; set; } = null!;
         public decimal Amount { get; set; }
         public bool HasIgv { get; set; }
@@ -40,8 +46,23 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public int? GuaranteeFundPercentage { get; set; }
         public int? GuaranteeFundDays { get; set; }
         public int? GuaranteeValidityDays { get; set; }
+        /// <summary>Forma de pago en días hábiles (paso 2) — "pago a x días hábiles".</summary>
+        public int PaymentDays { get; set; }
 
-        /// <summary>Cláusulas especiales de la partida de control, ordenadas por SortOrder.</summary>
+        /// <summary>Cláusulas especiales de la partida de control (9.x / 7.x), ordenadas por SortOrder.</summary>
         public List<string> SpecialClauses { get; set; } = [];
+
+        /// <summary>Cláusulas de Anexo 3 (Suministro) de la partida de control, ordenadas por SortOrder.</summary>
+        public List<string> SpecialClausesAnexo3 { get; set; } = [];
+
+        /// <summary>Cláusulas de Anexo 4 (Suministro) de la partida de control, ordenadas por SortOrder.</summary>
+        public List<string> SpecialClausesAnexo4 { get; set; } = [];
+
+        /// <summary>
+        /// Formas de valorización (cláusula 5.1) de la partida, ordenadas por SortOrder.
+        /// Si la partida tiene formas registradas, reemplazan la oración por defecto
+        /// "Las valorizaciones se determinan a partir del inicio de los trabajos…".
+        /// </summary>
+        public List<(decimal Percentage, string Concept)> ValorizationForms { get; set; } = [];
     }
 }

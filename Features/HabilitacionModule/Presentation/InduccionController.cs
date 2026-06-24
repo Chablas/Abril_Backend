@@ -16,11 +16,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     {
         private readonly IInduccionRepository _repo;
         private readonly ILogger<InduccionController> _logger;
+        private readonly IConfiguration _configuration;
 
-        public InduccionController(IInduccionRepository repo, ILogger<InduccionController> logger)
+        public InduccionController(IInduccionRepository repo, ILogger<InduccionController> logger, IConfiguration configuration)
         {
             _repo = repo;
             _logger = logger;
+            _configuration = configuration;
         }
 
         [HttpPost]
@@ -89,6 +91,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 _logger.LogInformation("GetInducciones — empresaId={EmpresaId}, systemRoles={SystemRoles}",
                     empresaId, User.FindFirst("systemRoles")?.Value);
 
+                if (fechaDesde.HasValue) fechaDesde = DateTime.SpecifyKind(fechaDesde.Value, DateTimeKind.Utc);
+                if (fechaHasta.HasValue) fechaHasta = DateTime.SpecifyKind(fechaHasta.Value, DateTimeKind.Utc);
+
                 var items = await _repo.GetAsync(proyectoId, empresaId, estado, fechaDesde, fechaHasta);
                 return Ok(items);
             }
@@ -121,6 +126,22 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.AprobarBatch"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [AllowAnonymous]
+        [HttpPost("cron/reset-falta")]
+        public async Task<IActionResult> ResetFalta()
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized();
+
+                var afectados = await _repo.ResetFaltaAsync();
+                return Ok(new { afectados, mensaje = $"Se marcaron {afectados} inducciones como FALTA." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en cron reset-falta inducciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         private int ParseUserIdOrZero()

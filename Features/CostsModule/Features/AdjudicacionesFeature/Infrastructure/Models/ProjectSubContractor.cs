@@ -10,6 +10,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? ContractModalityId { get; set; }
         public int PaymentMethodId {get; set;}
         public int? PaymentFormId { get; set; }
+        // Suministro + contrato con adelanto: indica si el contrato incluye carta de fianza.
+        public bool IncludesCartaFianza { get; set; }
         public decimal AdvancePercentage {get;set;}
         public decimal? AdvanceAmount {get; set;}
         public decimal Amount {get; set;}
@@ -18,7 +20,21 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public string ContractorEmail {get; set;}
         public int WorkItemId {get; set;}
         public int WorkItemCategoryId {get; set;}
+        // Especialidad de la partida (opcional). FK a work_specialty.
+        public int? WorkSpecialtyId {get; set;}
+        // Flags que normalizan cómo se nombra la partida en el contrato.
+        // Subcontrato (SC) y mano de obra (M.O.) — afectan el nombre final ({{PARTIDA}}).
+        public bool IsSubcontract { get; set; }
+        public bool IsLabor { get; set; }
+        // Nombre final de la partida tal como debe figurar en el contrato ({{PARTIDA}}).
+        // Se genera dinámicamente en el formulario pero es editable; null = usar WorkItem.WorkItemDescription.
+        public string? ContractWorkItemName { get; set; }
         public int ProjectSubContractorStatusId {get;set;}
+
+        // Nombre de la carpeta de la adjudicación en OneDrive ("ADJUDICACIÓN N° X"), autoincremental
+        // dentro de la carpeta del contratista (especialidad+partida+contratista). Se asigna la primera
+        // vez que se guarda un documento y se reutiliza para que todos los documentos vayan a la misma carpeta.
+        public string? AdjudicacionFolderName { get; set; }
 
         // Expediente dates (step 2)
         public DateOnly? SigningDate { get; set; }
@@ -35,9 +51,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? GuaranteeFundDays { get; set; }
         // Periodo de validez de garantía en días (paso 2)
         public int? GuaranteeValidityDays { get; set; }
+        // Forma de pago en días hábiles (paso 2) — usado en "pago a x días hábiles" de la hoja resumen
+        public int PaymentDays { get; set; } = 7;
 
         // Llegada a Of. Central (paso 5)
         public bool? ArrivedWithObservations { get; set; }
+        public string? ArrivalObservation { get; set; }
+
+        // Procesos de firma (paso 6) — estado persistido de cada checkbox
+        public bool Step6SignedCostos { get; set; }
+        public bool Step6SignedGerenteInmobiliario { get; set; }
+        public bool Step6SignedGerenteGeneral { get; set; }
 
         // Document FKs (nullable — populated as the expediente progresses)
         public int? ProjectSubContractorContractId { get; set; }
@@ -53,6 +77,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models {
         public int? ProjectSubContractorToleranceChartId { get; set; }
         public int? ProjectSubContractorFichaTecnicaId { get; set; }
         public int? ProjectSubContractorAnexoId { get; set; }
+
+        // Documentos de plantilla fija (no se sube archivo). Solo guardan el estado:
+        // 4 = Sí aplica → va en el paquete; 1 = No aplica → no va.
+        public int? NonConformingOutputStatusId { get; set; }
+        public int? ToleranceChartStatusId { get; set; }
+        public int? FinishProtectionStatusId { get; set; }
 
         public DateTimeOffset CreatedDateTime {get; set;}
         public int CreatedUserId {get; set;}

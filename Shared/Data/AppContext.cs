@@ -3,13 +3,23 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Models;
+using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastructure.Models;
+using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Infrastructure.Models;
+using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
+using Abril_Backend.Features.Ssoma.Paso.Entities;
+using Abril_Backend.Features.Ssoma.Rac.Entities;
+using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -28,15 +38,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<DocumentIdentityType> DocumentIdentityType { get; set; }
         public DbSet<ImageType> ImageType { get; set; }
         public DbSet<IvtControlPdf> IvtControlPdf { get;set; }
-        public DbSet<Layer> Layer { get; set; }
         public DbSet<Lesson> Lesson { get; set; }
         public DbSet<LessonImages> LessonImages { get; set; }
         public DbSet<Milestone> Milestone { get; set; }
         public DbSet<MilestoneSchedule> MilestoneSchedule { get; set; }
         public DbSet<MilestoneScheduleHistory> MilestoneScheduleHistory { get; set; }
         public DbSet<Person> Person { get; set; }
-        public DbSet<Phase> Phase { get; set; }
-        public DbSet<PhaseStageSubStageSubSpecialty> PhaseStageSubStageSubSpecialty { get; set; }
         public DbSet<Project> Project { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
@@ -44,10 +51,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ResidentReportResponse> ResidentReportResponse {get;set;}
         public DbSet<ResidentReportResponseImage> ResidentReportResponseImage {get;set;}
         public DbSet<Role> Role {get;set;}
-        public DbSet<Stage> Stage { get; set; }
         public DbSet<State> State { get; set; }
-        public DbSet<SubSpecialty> SubSpecialty { get; set; }
-        public DbSet<SubStage> SubStage { get; set; }
         public DbSet<User> User { get; set; }
         public DbSet<UserPasswordToken> UserPasswordToken {get;set;}
         public DbSet<UserRole> UserRole { get; set; }
@@ -65,11 +69,22 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ContractorPersonType> ContractorPersonType { get; set; }
         public DbSet<ContractorState> ContractorState { get; set; }
         public DbSet<ContractorUser> ContractorUser { get; set; }
+        public DbSet<ContractorUpdateState> ContractorUpdateState { get; set; }
+        public DbSet<ContractorUpdateRequest> ContractorUpdateRequest { get; set; }
+        public DbSet<ContractorUpdateRequestEmail> ContractorUpdateRequestEmail { get; set; }
         public DbSet<Currency> Currency { get; set; }
         public DbSet<WorkItemCategory> WorkItemCategory { get; set; }
         public DbSet<WorkItemCategoryClause> WorkItemCategoryClause { get; set; }
+        public DbSet<WorkItemCategoryAnexo3Clause> WorkItemCategoryAnexo3Clause { get; set; }
+        public DbSet<WorkItemCategoryAnexo4Clause> WorkItemCategoryAnexo4Clause { get; set; }
         public DbSet<WorkItem> WorkItem { get; set; }
+        public DbSet<WorkItemValorizationForm> WorkItemValorizationForm { get; set; }
         public DbSet<ProjectSubContractor> ProjectSubContractor { get; set; }
+        public DbSet<CostosCronograma> CostosCronograma { get; set; }
+        public DbSet<CostosCronogramaActividad> CostosCronogramaActividad { get; set; }
+        public DbSet<CostosCronogramaActividadNodo> CostosCronogramaActividadNodo { get; set; }
+        public DbSet<ProjectAdjudicacionFolder> ProjectAdjudicacionFolder { get; set; }
+        public DbSet<WorkSpecialty> WorkSpecialty { get; set; }
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
         public DbSet<ProjectSubContractorStatus> ProjectSubContractorStatus { get; set; }
@@ -100,6 +115,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcCategoria> AcCategoria { get; set; }
         public DbSet<AcEspecialidad> AcEspecialidad { get; set; }
         public DbSet<Worker> Worker { get; set; }
+        public DbSet<WorkersCategory> WorkersCategory => Set<WorkersCategory>();
         public DbSet<WorkerEmo> WorkerEmo { get; set; }
         public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }
         public DbSet<WorkerVinculacion> WorkerVinculacion { get; set; }
@@ -133,8 +149,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsRegistroModelo> SsRegistroModelo => Set<SsRegistroModelo>();
         public DbSet<SsItemTrabajadorRegla> SsItemTrabajadorRegla => Set<SsItemTrabajadorRegla>();
         public DbSet<SsHabBloqueoLog> SsHabBloqueoLog => Set<SsHabBloqueoLog>();
+        public DbSet<SsRetiroAutomaticoLog> SsRetiroAutomaticoLog => Set<SsRetiroAutomaticoLog>();
         public DbSet<AuditoriaCambio> AuditoriaCambios => Set<AuditoriaCambio>();
         public DbSet<SsHabDocumentoVersion> SsHabDocumentoVersion => Set<SsHabDocumentoVersion>();
+        public DbSet<SsHabDocumentoArchivo> SsHabDocumentoArchivo => Set<SsHabDocumentoArchivo>();
         public DbSet<SsResetToken> SsResetToken => Set<SsResetToken>();
         public DbSet<SsTareo> SsTareo => Set<SsTareo>();
         public DbSet<SsTareoPartida> SsTareoPartida => Set<SsTareoPartida>();
@@ -155,10 +173,6 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaSolicitudCaptura> GaSolicitudCaptura { get; set; }
         public DbSet<GaRendicion> GaRendicion { get; set; }
         public DbSet<GaTrayecto> GaTrayecto { get; set; }
-        public DbSet<Partida> Partida => Set<Partida>();
-        public DbSet<PsssScope> PsssScope => Set<PsssScope>();
-        public DbSet<PsssTemplate> PsssTemplate => Set<PsssTemplate>();
-        public DbSet<PsssTemplateDetail> PsssTemplateDetail => Set<PsssTemplateDetail>();
         // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();
@@ -167,9 +181,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ScopeTemplateItem> ScopeTemplateItem => Set<ScopeTemplateItem>();
         public DbSet<AreaType> AreaType => Set<AreaType>();
         public DbSet<AreaItem> AreaItem => Set<AreaItem>();
+        public DbSet<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.HolidayType> HolidayType => Set<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.HolidayType>();
+        public DbSet<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday> Holiday => Set<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday>();
         public DbSet<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope> AreaScope => Set<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea> LessonArea => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder> ProjectStaffReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder>();
+        public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.LessonJefeReminder> LessonJefeReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.LessonJefeReminder>();
 
         // ── master ─────────────────────────────────────────────────────────────
         public DbSet<SsClinicaUsuario> SsClinicaUsuario => Set<SsClinicaUsuario>();
@@ -185,8 +202,104 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvEvaluacionResidenteDetalle> EvEvaluacionesResidenteDetalle => Set<EvEvaluacionResidenteDetalle>();
         public DbSet<EvNoAplica> EvNoAplica => Set<EvNoAplica>();
         public DbSet<EvRecordatorioLog> EvRecordatorioLogs => Set<EvRecordatorioLog>();
+        public DbSet<EvAsignacionSupervisor> EvAsignacionesSupervisor => Set<EvAsignacionSupervisor>();
+        public DbSet<SsomaPasoCategoria> SsomaPasoCategorias { get; set; }
+        public DbSet<SsomaPaso> SsomaPasos { get; set; }
+        public DbSet<SsomaPasoActividad> SsomaPasoActividades { get; set; }
+        public DbSet<SsomaPasoEjecucion> SsomaPasoEjecuciones { get; set; }
+        public DbSet<SsomaPasoAuditoria> SsomaPasoAuditorias { get; set; }
+        public DbSet<SsomaPasoEjecucionArchivo> SsomaPasoEjecucionArchivos { get; set; }
+        // ── RAC — Reporte de Actos y Condiciones Subestándar ─────────────────
+        public DbSet<SsomaRacCategoria> SsomaRacCategorias { get; set; }
+        public DbSet<SsomaRacInfraccion> SsomaRacInfracciones { get; set; }
+        public DbSet<SsomaUitAnio> SsomaUitAnios { get; set; }
+        public DbSet<SsomaRac> SsomaRacs { get; set; }
+        public DbSet<SsomaRacFoto> SsomaRacFotos { get; set; }
+        public DbSet<SsomaRacPenalidad> SsomaRacPenalidades { get; set; }
+        public DbSet<SsomaOpt> SsomaOpt { get; set; }
+        public DbSet<SsomaOptTrabajador> SsomaOptTrabajador { get; set; }
+        public DbSet<SsomaPet> SsomaPet { get; set; }
+        public DbSet<SsomaOptCriterioVerificacion> SsomaOptCriterioVerificacion { get; set; }
+        public DbSet<SsomaOptVerificacion> SsomaOptVerificacion { get; set; }
+        public DbSet<SsomaOptPaso> SsomaOptPaso { get; set; }
+        public DbSet<SsomaOptFotoArea> SsomaOptFotoArea => Set<SsomaOptFotoArea>();
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
+        public DbSet<SsHabAuditoria> SsHabAuditorias { get; set; }
+        // ── Dossier Semanal ────────────────────────────────────────────────────
+        public DbSet<SsDossierSemana> SsDossierSemana => Set<SsDossierSemana>();
+        public DbSet<SsDossierDocumento> SsDossierDocumento => Set<SsDossierDocumento>();
+        public DbSet<SsDossierDocumentoArchivo> SsDossierDocumentoArchivo => Set<SsDossierDocumentoArchivo>();
+        // ── Accidentes e Incidentes / Flash Report ─────────────────────────────
+        public DbSet<SsomaFlashTipo> SsomaFlashTipo => Set<SsomaFlashTipo>();
+        public DbSet<SsomaFlashEtapaProyecto> SsomaFlashEtapaProyecto => Set<SsomaFlashEtapaProyecto>();
+        public DbSet<SsomaFlashParteAfectada> SsomaFlashParteAfectada => Set<SsomaFlashParteAfectada>();
+        public DbSet<SsomaEmpresaAbril> SsomaEmpresaAbril => Set<SsomaEmpresaAbril>();
+        public DbSet<SsomaFlashPartida> SsomaFlashPartida => Set<SsomaFlashPartida>();
+        public DbSet<SsomaAccidenteIncidente> SsomaAccidenteIncidente => Set<SsomaAccidenteIncidente>();
+        public DbSet<SsomaFlashDescanso> SsomaFlashDescanso => Set<SsomaFlashDescanso>();
+        public DbSet<SsomaAccidenteDocumento> SsomaAccidenteDocumento => Set<SsomaAccidenteDocumento>();
+        public DbSet<SsomaEntregableTipo> SsomaEntregableTipo => Set<SsomaEntregableTipo>();
+        public DbSet<SsomaEntregable> SsomaEntregable => Set<SsomaEntregable>();
+        public DbSet<SsomaEntregableResponsable> SsomaEntregableResponsable => Set<SsomaEntregableResponsable>();
+        public DbSet<SsomaInvestigacionRm050> SsomaInvestigacionRm050 => Set<SsomaInvestigacionRm050>();
+        public DbSet<SsomaAccionCorrectiva> SsomaAccionCorrectiva => Set<SsomaAccionCorrectiva>();
+        // ── Inspecciones ───────────────────────────────────────────────────────
+        public DbSet<SsomaInspeccionTipo> SsomaInspeccionTipo => Set<SsomaInspeccionTipo>();
+        public DbSet<SsomaInspeccionChecklistItem> SsomaInspeccionChecklistItem => Set<SsomaInspeccionChecklistItem>();
+        public DbSet<SsomaInspeccion> SsomaInspeccion => Set<SsomaInspeccion>();
+        public DbSet<SsomaInspeccionRespuesta> SsomaInspeccionRespuesta => Set<SsomaInspeccionRespuesta>();
+        public DbSet<SsomaInspeccionHallazgo> SsomaInspeccionHallazgo => Set<SsomaInspeccionHallazgo>();
+        public DbSet<SsomaInspeccionHallazgoFoto> SsomaInspeccionHallazgoFoto => Set<SsomaInspeccionHallazgoFoto>();
+        public DbSet<SsomaInspeccionFotoArea> SsomaInspeccionFotoArea => Set<SsomaInspeccionFotoArea>();
+        // ── Auditoría ATS ──────────────────────────────────────────────────────
+        public DbSet<SsomaAuditoriaAtsPregunta> SsomaAuditoriaAtsPregunta => Set<SsomaAuditoriaAtsPregunta>();
+        public DbSet<SsomaAuditoriaAts> SsomaAuditoriaAts => Set<SsomaAuditoriaAts>();
+        public DbSet<SsomaAuditoriaAtsRespuesta> SsomaAuditoriaAtsRespuesta => Set<SsomaAuditoriaAtsRespuesta>();
+        public DbSet<SsomaAuditoriaAtsFoto> SsomaAuditoriaAtsFoto => Set<SsomaAuditoriaAtsFoto>();
+        // ── Charlas y Capacitaciones ───────────────────────────────────────────────
+        public DbSet<SsCharlaPrograma> SsCharlaProgramas { get; set; }
+        public DbSet<SsCharla> SsCharlas { get; set; }
+        public DbSet<SsCharlaAsistencia> SsCharlaAsistencias { get; set; }
+        public DbSet<SsCharlaArchivo> SsCharlaArchivos { get; set; }
+        // ── Amonestaciones y Suspensiones ──────────────────────────────────────────
+        public DbSet<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionTipoSancion> SsomaAmonestacionTipoSanciones => Set<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionTipoSancion>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionInfraccionTipo> SsomaAmonestacionInfraccionTipos => Set<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionInfraccionTipo>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacion> SsomaAmonestaciones => Set<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacion>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionFoto> SsomaAmonestacionFotos => Set<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionFoto>();
+
+        // ── Vecinos ──────────────────────────────────────────────────────────────
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino> Vecino => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoColindancia> VecinoColindancia => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoColindancia>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoTipoConstruccion> VecinoTipoConstruccion => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoTipoConstruccion>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoUso> VecinoUso => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoUso>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRelacionTipo> VecinoRelacionTipo => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRelacionTipo>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoPersona> VecinoPersona => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoPersona>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoImagen> VecinoImagen => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoImagen>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoSolicitud> VecinoSolicitud => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoSolicitud>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoSolicitudEstado> VecinoSolicitudEstado => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoSolicitudEstado>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromiso> VecinoCompromiso => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromiso>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromisoEntregable> VecinoCompromisoEntregable => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromisoEntregable>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromisoEstado> VecinoCompromisoEstado => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromisoEstado>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoEntregableTipo> VecinoEntregableTipo => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoEntregableTipo>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoEntregableEstado> VecinoEntregableEstado => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoEntregableEstado>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromisoNormativa> VecinoCompromisoNormativa => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoCompromisoNormativa>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLimpiezaTipo> VecinoLimpiezaTipo => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLimpiezaTipo>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLimpieza> VecinoLimpieza => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLimpieza>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis> ProjectCroquis => Set<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquisLote> ProjectCroquisLote => Set<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquisLote>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoTipo> VecinoRequisitoTipo => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoTipo>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoEstado> VecinoRequisitoEstado => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoEstado>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisito> VecinoRequisito => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisito>();
+
+        // ── Salud Ocupacional: Tópico, Accidentes, Descansos ──────────
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>     SsTopicoAtencion     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoTipoAtencion> SsTopicoTipoAtencion => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoTipoAtencion>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo>     SsAccidenteTrabajo     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteSeguimiento> SsAccidenteSeguimiento => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteSeguimiento>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedico>       SsDescansoMedico       => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedico>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocial>            SsCasoSocial            => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocial>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocialSeguimiento> SsCasoSocialSeguimiento => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocialSeguimiento>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -273,6 +386,13 @@ namespace Abril_Backend.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(cu => cu.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // ── Solicitud de actualización de datos de contratista ──────────
+            modelBuilder.Entity<ContractorUpdateRequest>()
+                .HasMany(r => r.Emails)
+                .WithOne()
+                .HasForeignKey(e => e.ContractorUpdateRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<ProjectSubContractorQuotationFile>()
                 .HasOne(f => f.ProjectSubContractor)
@@ -461,6 +581,13 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(a => a.AreaTypeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Holiday: FK a HolidayType
+            modelBuilder.Entity<Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Models.Holiday>()
+                .HasOne(h => h.HolidayType)
+                .WithMany()
+                .HasForeignKey(h => h.HolidayTypeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // AreaScope: árbol con FK a AreaItem + self-referential parent
             modelBuilder.Entity<Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models.AreaScope>()
                 .HasOne(s => s.AreaItem)
@@ -483,6 +610,82 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(wp => wp.Worker)
                 .WithMany()
                 .HasForeignKey(wp => wp.WorkerId);
+
+            modelBuilder.Entity<SsomaPasoCategoria>().ToTable("ssoma_paso_categoria");
+            modelBuilder.Entity<SsomaPaso>().ToTable("ssoma_paso");
+            modelBuilder.Entity<SsomaPasoActividad>().ToTable("ssoma_paso_actividad");
+            modelBuilder.Entity<SsomaPasoEjecucion>().ToTable("ssoma_paso_ejecucion");
+            modelBuilder.Entity<SsomaPaso>()
+                .HasMany(x => x.Actividades).WithOne(x => x.Paso).HasForeignKey(x => x.PasoId);
+            modelBuilder.Entity<SsomaPasoActividad>()
+                .HasOne(x => x.Categoria).WithMany().HasForeignKey(x => x.CategoriaId);
+            modelBuilder.Entity<SsomaPasoActividad>()
+                .HasMany(x => x.Ejecuciones).WithOne(x => x.Actividad).HasForeignKey(x => x.ActividadId);
+            modelBuilder.Entity<SsomaPasoEjecucionArchivo>().ToTable("ssoma_paso_ejecucion_archivo");
+            modelBuilder.Entity<SsomaPasoEjecucion>()
+                .HasMany(x => x.Archivos).WithOne(x => x.Ejecucion).HasForeignKey(x => x.EjecucionId);
+
+            // ── RAC — tablas, relaciones y defaults ──────────────────────────
+            modelBuilder.Entity<SsomaRacCategoria>().ToTable("ssoma_rac_categoria");
+            modelBuilder.Entity<SsomaRacInfraccion>().ToTable("ssoma_rac_infraccion");
+            modelBuilder.Entity<SsomaUitAnio>().ToTable("ssoma_uit_anio");
+            modelBuilder.Entity<SsomaRac>().ToTable("ssoma_rac");
+            modelBuilder.Entity<SsomaRacFoto>().ToTable("ssoma_rac_foto");
+            modelBuilder.Entity<SsomaRacPenalidad>().ToTable("ssoma_rac_penalidad");
+
+            modelBuilder.Entity<SsomaRac>()
+                .HasOne(x => x.Categoria).WithMany().HasForeignKey(x => x.CategoriaId).IsRequired();
+            modelBuilder.Entity<SsomaRacFoto>()
+                .HasOne(x => x.Rac).WithMany(x => x.Fotos).HasForeignKey(x => x.RacId);
+            modelBuilder.Entity<SsomaRacPenalidad>()
+                .HasOne(x => x.Rac).WithOne(x => x.Penalidad).HasForeignKey<SsomaRacPenalidad>(x => x.RacId);
+            modelBuilder.Entity<SsomaRacPenalidad>()
+                .HasOne(x => x.Infraccion).WithMany().HasForeignKey(x => x.InfraccionId).IsRequired(false);
+
+            modelBuilder.Entity<SsomaRac>()
+                .Property(x => x.Estado).HasDefaultValue("Abierto");
+            modelBuilder.Entity<SsomaRacPenalidad>()
+                .Property(x => x.Estado).HasDefaultValue("EnEvaluacion");
+            modelBuilder.Entity<SsomaRacFoto>()
+                .Property(x => x.Tipo).HasDefaultValue("Hallazgo");
+            modelBuilder.Entity<SsomaRacFoto>()
+                .Property(x => x.Orden).HasDefaultValue(1);
+
+            // ── OPT — tablas y nombres explícitos ────────────────────────────
+            modelBuilder.Entity<SsomaOpt>().ToTable("ssoma_opt");
+            modelBuilder.Entity<SsomaOptTrabajador>().ToTable("ssoma_opt_trabajador");
+            modelBuilder.Entity<SsomaPet>().ToTable("ssoma_pet");
+            modelBuilder.Entity<SsomaOptCriterioVerificacion>().ToTable("ssoma_opt_criterio_verificacion");
+            modelBuilder.Entity<SsomaOptVerificacion>().ToTable("ssoma_opt_verificacion");
+            modelBuilder.Entity<SsomaOptPaso>().ToTable("ssoma_opt_paso");
+
+            modelBuilder.Entity<SsomaOpt>()
+                .Property(x => x.Estado).HasDefaultValue("Completado");
+
+            // ── Accidentes e Incidentes ───────────────────────────────────────
+            modelBuilder.Entity<SsomaAccidenteIncidente>().ToTable("ss_accidente_incidente");
+            modelBuilder.Entity<SsomaAccidenteDocumento>().ToTable("ss_accidente_documento")
+                .Property(d => d.TamanioBytes).HasColumnName("tamanio_bytes");
+            modelBuilder.Entity<SsomaEntregableTipo>().ToTable("ss_entregable_tipo");
+            modelBuilder.Entity<SsomaEntregable>().ToTable("ss_entregable");
+            modelBuilder.Entity<SsomaEntregableResponsable>().ToTable("ss_entregable_responsable");
+            modelBuilder.Entity<SsomaInvestigacionRm050>().ToTable("ss_investigacion_rm050");
+            modelBuilder.Entity<SsomaAccionCorrectiva>().ToTable("ss_accion_correctiva");
+            // ── Inspecciones — tablas y nombres explícitos ────────────────────
+            modelBuilder.Entity<SsomaInspeccionTipo>().ToTable("ssoma_inspeccion_tipo");
+            modelBuilder.Entity<SsomaInspeccionChecklistItem>().ToTable("ssoma_inspeccion_checklist_item");
+            modelBuilder.Entity<SsomaInspeccion>().ToTable("ssoma_inspeccion");
+            modelBuilder.Entity<SsomaInspeccionRespuesta>().ToTable("ssoma_inspeccion_respuesta");
+            modelBuilder.Entity<SsomaInspeccionHallazgo>().ToTable("ssoma_inspeccion_hallazgo");
+            modelBuilder.Entity<SsomaInspeccionHallazgoFoto>().ToTable("ssoma_inspeccion_hallazgo_foto");
+            modelBuilder.Entity<SsomaInspeccionFotoArea>().ToTable("ssoma_inspeccion_foto_area");
+            modelBuilder.Entity<SsomaOptFotoArea>().ToTable("ssoma_opt_foto_area");
+            // ── Auditoría ATS ──────────────────────────────────────────────
+            modelBuilder.Entity<SsomaAuditoriaAtsPregunta>().ToTable("ssoma_auditoria_ats_pregunta");
+            modelBuilder.Entity<SsomaAuditoriaAts>().ToTable("ssoma_auditoria_ats");
+            modelBuilder.Entity<SsomaAuditoriaAtsRespuesta>().ToTable("ssoma_auditoria_ats_respuesta")
+                .HasIndex(r => new { r.AuditoriaId, r.PreguntaId }).IsUnique();
+            modelBuilder.Entity<SsomaAuditoriaAtsFoto>().ToTable("ssoma_auditoria_ats_foto");
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)
@@ -496,14 +699,65 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.ToTable("app_user");
             });
 
+            modelBuilder.Entity<ProjectSubContractor>(entity =>
+            {
+                // La convención snake_case produce "step6signed_*" (no inserta guion después
+                // del dígito 6). Forzamos los nombres con guion para que coincidan con las
+                // columnas realmente creadas en la BD.
+                entity.Property(e => e.Step6SignedCostos)
+                      .HasColumnName("step6_signed_costos");
+                entity.Property(e => e.Step6SignedGerenteInmobiliario)
+                      .HasColumnName("step6_signed_gerente_inmobiliario");
+                entity.Property(e => e.Step6SignedGerenteGeneral)
+                      .HasColumnName("step6_signed_gerente_general");
+            });
+
+            // Un solo croquis activo por proyecto: índice único parcial sobre los registros con state = true.
+            modelBuilder.Entity<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis>()
+                .HasIndex(c => c.ProjectId)
+                .IsUnique()
+                .HasFilter("state = true");
+
+            // Un solo requisito activo por vecino + tipo: índice único parcial sobre state = true.
+            modelBuilder.Entity<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisito>()
+                .HasIndex(r => new { r.VecinoId, r.VecinoRequisitoTipoId })
+                .IsUnique()
+                .HasFilter("state = true");
+
             modelBuilder.Entity<WorkItemCategoryClause>()
                 .HasOne(c => c.WorkItemCategory)
                 .WithMany()
                 .HasForeignKey(c => c.WorkItemCategoryId)
                 .IsRequired();
-            modelBuilder.Entity<Phase>(entity =>
+            modelBuilder.Entity<WorkItemValorizationForm>()
+                .HasOne(f => f.WorkItem)
+                .WithMany()
+                .HasForeignKey(f => f.WorkItemId)
+                .IsRequired();
+            modelBuilder.Entity<WorkItemCategoryAnexo3Clause>(entity =>
             {
-                entity.Property(e => e.Order).HasColumnName("phase_order");
+                // Mismo caso que Anexo4: la convención snake_case produce "work_item_category_anexo3clause"
+                // (sin guion antes de "clause" por el dígito 3). Forzamos los nombres con guion.
+                entity.ToTable("work_item_category_anexo3_clause");
+                entity.Property(e => e.WorkItemCategoryAnexo3ClauseId)
+                      .HasColumnName("work_item_category_anexo3_clause_id");
+                entity.HasOne(c => c.WorkItemCategory)
+                      .WithMany()
+                      .HasForeignKey(c => c.WorkItemCategoryId)
+                      .IsRequired();
+            });
+            modelBuilder.Entity<WorkItemCategoryAnexo4Clause>(entity =>
+            {
+                // La convención snake_case produce "work_item_category_anexo4clause" (no inserta guion
+                // antes de "clause" por el dígito 4). Forzamos los nombres con guion para que coincidan
+                // con la tabla/columna realmente creadas en la BD.
+                entity.ToTable("work_item_category_anexo4_clause");
+                entity.Property(e => e.WorkItemCategoryAnexo4ClauseId)
+                      .HasColumnName("work_item_category_anexo4_clause_id");
+                entity.HasOne(c => c.WorkItemCategory)
+                      .WithMany()
+                      .HasForeignKey(c => c.WorkItemCategoryId)
+                      .IsRequired();
             });
             modelBuilder.Entity<MilestoneSchedule>(entity =>
             {
@@ -517,6 +771,16 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.Property(e => e.DatosAnteriores).HasColumnType("jsonb");
                 entity.Property(e => e.DatosNuevos).HasColumnType("jsonb");
+            });
+            modelBuilder.Entity<SsomaPasoAuditoria>(entity =>
+            {
+                entity.ToTable("ssoma_paso_auditoria");
+                entity.Property(e => e.EntidadId).HasColumnName("entidad_id");
+                entity.Property(e => e.PasoId).HasColumnName("paso_id");
+                entity.Property(e => e.UsuarioId).HasColumnName("usuario_id");
+                entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+                entity.Property(e => e.ValorAnterior).HasColumnName("valor_anterior").HasColumnType("jsonb");
+                entity.Property(e => e.ValorNuevo).HasColumnName("valor_nuevo").HasColumnType("jsonb");
             });
             modelBuilder.Entity<WorkerEvento>().ToTable("worker_eventos");
             modelBuilder.Entity<WorkerEvento>().Property(e => e.Datos).HasColumnType("jsonb");
@@ -571,6 +835,62 @@ namespace Abril_Backend.Infrastructure.Data
                     .WithMany()
                     .HasForeignKey(e => e.PredecessorId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── RAC — HasColumnName para prefijos conflictivos en snake_case ──
+            // "Sp" (SharePoint ID) y "Uit" (Unidad Impositiva Tributaria) pueden
+            // producir nombres incorrectos dependiendo de la versión de Humanizer.
+            modelBuilder.Entity<SsomaRacFoto>(entity =>
+            {
+                entity.Property(e => e.SpId).HasColumnName("sp_id");
+            });
+            modelBuilder.Entity<SsomaRac>(entity =>
+            {
+                entity.Property(e => e.PdfSpId).HasColumnName("pdf_sp_id");
+                entity.Property(e => e.FirmaReportanteSpId).HasColumnName("firma_reportante_sp_id");
+                entity.Property(e => e.PdfUrl).HasColumnName("pdf_url");
+            });
+            modelBuilder.Entity<SsomaRacInfraccion>(entity =>
+            {
+                entity.Property(e => e.FactorUit).HasColumnName("factor_uit");
+            });
+            modelBuilder.Entity<SsomaRacPenalidad>(entity =>
+            {
+                entity.Property(e => e.UitReferencia).HasColumnName("uit_referencia");
+                entity.Property(e => e.PdfResolucionUrl).HasColumnName("pdf_resolucion_url");
+            });
+
+            // ── Dossier Semanal ──────────────────────────────────────────────
+            modelBuilder.Entity<SsDossierSemana>(entity =>
+            {
+                entity.HasIndex(e => new { e.ContributorId, e.ProyectoId, e.Anio, e.NumeroSemana })
+                      .IsUnique();
+                entity.HasMany(e => e.Documentos)
+                      .WithOne(d => d.Dossier)
+                      .HasForeignKey(d => d.DossierId)
+                      .OnDelete(DeleteBehavior.Cascade);
+            });
+            modelBuilder.Entity<SsDossierDocumento>(entity =>
+            {
+                entity.HasIndex(e => new { e.DossierId, e.TipoDoc }).IsUnique();
+            });
+            modelBuilder.Entity<SsDossierDocumentoArchivo>(e =>
+            {
+                e.ToTable("ss_dossier_documento_archivo");
+                e.Property(x => x.Id).HasColumnName("id");
+                e.Property(x => x.DocumentoId).HasColumnName("documento_id");
+                e.Property(x => x.NombreArchivo).HasColumnName("nombre_archivo");
+                e.Property(x => x.ArchivoPath).HasColumnName("archivo_path");
+                e.Property(x => x.CreatedAt).HasColumnName("created_at");
+                e.HasOne(x => x.Documento).WithMany(d => d.Archivos).HasForeignKey(x => x.DocumentoId);
+            });
+
+            // ── Amonestaciones y Suspensiones ──────────────────────────────────
+            modelBuilder.Entity<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacion>(e =>
+            {
+                e.HasMany(a => a.Fotos)
+                 .WithOne(f => f.Amonestacion)
+                 .HasForeignKey(f => f.AmonestacionId);
             });
         }
     }

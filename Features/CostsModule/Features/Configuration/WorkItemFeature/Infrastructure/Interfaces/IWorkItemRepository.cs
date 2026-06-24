@@ -9,5 +9,12 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
         Task Create(WorkItemCreateDto dto, int userId);
         Task Update(WorkItemEditDto dto, int userId);
         Task<bool> Delete(int workItemId, int userId);
+
+        // ── Soporte para sincronización ────────────────────────────────────
+        Task<List<AdjudicacionFolderRootDto>> GetActiveAdjudicacionFolderRoots();
+        /// <summary>Partidas activas (state = true), para dedup en la sincronización.</summary>
+        Task<List<ExistingWorkItemDto>> GetActivePartidas();
+        /// <summary>Inserta las partidas omitiendo cualquier duplicado; devuelve las que sí se crearon.</summary>
+        Task<List<string>> BulkCreate(IEnumerable<string> descriptions, int userId);
     }
 }

@@ -81,12 +81,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         .FirstOrDefault(),
                     EstadoCalc =
                         (ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
+                             h.ItemId != HabItemIds.LecturaEmo &&
                              (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado") &&
                              !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
                         ? "No Autorizado"
-                        : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id && h.Estado == "En plazo" &&
+                        : ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
+                            h.ItemId != HabItemIds.LecturaEmo &&
+                            h.Estado == "En plazo" &&
                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
                         ? "Autorizado Temporalmente"
                         : "Habilitado"
@@ -120,6 +123,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 else
                     baseQuery = baseQuery.Where(x => x.LatestVincActiva != null && x.LatestVincActiva.ProyectoId == proyectoId.Value);
             }
+
+            var countAntes = await baseQuery.CountAsync();
+            _logger.LogInformation("[HAB DEBUG] proyectoId={pId} count={c}", proyectoId, countAntes);
 
             if (!string.IsNullOrWhiteSpace(contratistaCasa))
             {
@@ -259,7 +265,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     DiasRestantesEmo = emoVenc.HasValue
                         ? (int?)(emoVenc.Value.DayNumber - today.DayNumber)
                         : null,
-                    EstadoProgramacionEmo = estadoProg
+                    EstadoProgramacionEmo = estadoProg,
+                    AniosExperiencia = r.Worker.AniosExperiencia,
+                    FechaIngreso = r.Worker.FechaIngreso.HasValue ? r.Worker.FechaIngreso.Value.ToString("yyyy-MM-dd") : null
                 };
             }).ToList();
 
@@ -342,7 +350,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .FirstOrDefaultAsync();
 
                 var vigente = ultimoEmo != null
-                    && (ultimoEmo.Estado == "Vigente" || ultimoEmo.Estado == "Convalidado");
+                    && (ultimoEmo.Estado == "Vigente" || ultimoEmo.Estado == "Convalidado")
+                    && !(ultimoEmo.RequiereInterconsulta == true && ultimoEmo.InterconsultaResuelta == false);
 
                 DateTime? vigenciaEmo = null;
                 if (vigente)
@@ -423,7 +432,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (!string.IsNullOrEmpty(dto.Estado))
                 entregable.Estado = dto.Estado;
             if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
-                entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
+            {
+                var requiereV = entregable.Item?.RequiereVigencia ?? true;
+                // Preservar vigencia existente cuando el estado nuevo es Enviado o Aprobado y no viene fecha
+                var preservar = (string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+                    && !dto.Vigencia.HasValue
+                    && entregable.Vigencia.HasValue;
+                if (!preservar)
+                    entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(requiereV, entregable.Estado, dto.Vigencia);
+
+                // Rechazar si el item requiere vigencia y quedaría en null tras la operación
+                if (requiereV
+                    && (string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+                    && !entregable.Vigencia.HasValue)
+                    throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
+            }
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;
@@ -449,6 +474,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             await ctx.SaveChangesAsync();
+
+            if ((esAprobacion || esRechazo) && (entregable.ItemId == HabItemIds.Sctr || entregable.ItemId == HabItemIds.VidaLey))
+            {
+                try
+                {
+                    await SincronizarPolizasSctrVidaLeyAsync(entregable.WorkerId, entregable.ItemId, ctx);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[SincronizarPolizas] Error sincronizando póliza workerId={WorkerId} itemId={ItemId}", entregable.WorkerId, entregable.ItemId);
+                }
+            }
+
             return entregable;
         }
 
@@ -579,7 +617,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 && dto.NuevaEmpresaId != currentEmpresaId
                 && !esContratista;
 
-            if (dto.NuevaEmpresaId.HasValue)
+            if (dto.NuevaEmpresaId.HasValue && esContratista)
                 await ValidarExclusividadEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId.Value);
 
             var itemsToReset = new HashSet<int>();
@@ -1112,6 +1150,48 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
         }
 
+        private static async Task SincronizarPolizasSctrVidaLeyAsync(int workerId, int itemId, AppDbContext ctx)
+        {
+            var tipo = itemId == HabItemIds.VidaLey ? "VIDA_LEY" : "SCTR";
+            int itemIdTipo = tipo == "SCTR" ? 11 : 13;
+
+            var polizas = await ctx.SsSctrVidaley
+                .Where(sv => (sv.Estado == "Enviado" || sv.Estado == "Aprobado" || sv.Estado == "En revision")
+                          && sv.Tipo == tipo
+                          && ctx.SsSctrVidaLeyWorker.Any(svw => svw.SctrVidaLeyId == sv.Id && svw.WorkerId == workerId))
+                .ToListAsync();
+
+            foreach (var poliza in polizas)
+            {
+                int countEnviado = await ctx.SsSctrVidaLeyWorker
+                    .Where(svw => svw.SctrVidaLeyId == poliza.Id)
+                    .Join(ctx.SsHabTrabajador,
+                          svw => svw.WorkerId,
+                          ht => ht.WorkerId,
+                          (svw, ht) => ht)
+                    .CountAsync(ht => ht.ItemId == itemIdTipo && ht.Estado == "Enviado");
+
+                int countEnRevision = await ctx.SsSctrVidaLeyWorker
+                    .Where(svw => svw.SctrVidaLeyId == poliza.Id)
+                    .Join(ctx.SsHabTrabajador,
+                          svw => svw.WorkerId,
+                          ht => ht.WorkerId,
+                          (svw, ht) => ht)
+                    .CountAsync(ht => ht.ItemId == itemIdTipo && ht.Estado == "En revision");
+
+                var nuevoEstado = countEnviado > 0 ? "Enviado"
+                                : countEnRevision > 0 ? "En revision"
+                                : "Aprobado";
+                if (poliza.Estado != nuevoEstado)
+                {
+                    poliza.Estado = nuevoEstado;
+                    poliza.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
         private static bool CsvContiene(string? csv, string? valor)
             => csv == null || csv.Split(',', StringSplitOptions.TrimEntries)
                    .Contains(valor ?? string.Empty, StringComparer.OrdinalIgnoreCase);
@@ -1163,6 +1243,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.Procedencia is not null) w.Procedencia = dto.Procedencia;
             if (dto.Notas is not null) w.Notas = dto.Notas;
             if (dto.PuntosInfraccion.HasValue) w.PuntosInfraccion = dto.PuntosInfraccion;
+            if (dto.AniosExperiencia.HasValue) w.AniosExperiencia = dto.AniosExperiencia;
 
             w.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -1297,7 +1378,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             CondicionMedica = w.CondicionMedica,
             Procedencia = w.Procedencia,
             Notas = w.Notas,
-            PuntosInfraccion = w.PuntosInfraccion
+            PuntosInfraccion = w.PuntosInfraccion,
+            AniosExperiencia = w.AniosExperiencia
         };
 
         public async Task BajaAsync(int workerId, DateOnly fechaRetiro)
@@ -1618,6 +1700,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             asignacion.FechaInduccion = DateOnly.FromDateTime(DateTime.UtcNow);
             asignacion.UpdatedAt = DateTimeOffset.UtcNow;
 
+            var now = DateTime.UtcNow;
+            var sentinel = HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null);
+
+            var habInduccion = await ctx.SsHabTrabajador
+                .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra);
+
+            if (habInduccion is not null)
+            {
+                habInduccion.Estado = "Aprobado";
+                habInduccion.Vigencia = sentinel;
+                habInduccion.UpdatedAt = now;
+            }
+            else
+            {
+                ctx.SsHabTrabajador.Add(new SsHabTrabajador
+                {
+                    WorkerId = workerId,
+                    ItemId = HabItemIds.InduccionObra,
+                    Estado = "Aprobado",
+                    Vigencia = sentinel,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+
             await ctx.SaveChangesAsync();
         }
 
@@ -1685,6 +1792,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             await ctx.SaveChangesAsync();
             _logger.LogWarning("[RepararVinculaciones] Total reparados: {Count}.", reparados.Count);
             return reparados;
+        }
+
+        public async Task<string?> GetResponsableItemTrabajadorAsync(int entregableId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsHabTrabajador
+                .Where(h => h.Id == entregableId)
+                .Select(h => h.Item != null ? h.Item.Responsable : null)
+                .FirstOrDefaultAsync();
         }
 
         private static string BuildBodyNuevoProyecto(Worker worker, Project proyecto, DateOnly fechaInicio)

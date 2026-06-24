@@ -51,7 +51,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     RolNombre = u.Rol?.Nombre,
                     Scope = u.Scope,
                     Activo = u.Activo,
-                    ProyectoIds = u.Proyectos.Select(p => p.ProyectoId).ToList()
+                    ProyectoIds = u.Proyectos.Select(p => p.ProyectoId).ToList(),
+                    Modulos = u.Modulos,
+                    WorkerId = u.WorkerId
                 };
             }).ToList();
         }
@@ -96,6 +98,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             existing.RolId = entity.RolId;
             existing.Scope = entity.Scope;
             existing.Activo = entity.Activo;
+            existing.Modulos = entity.Modulos;
 
             if (proyectoIds is not null)
             {

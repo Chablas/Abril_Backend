@@ -34,10 +34,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IEmailService _emailService;
         private readonly IGraphUserService _graphUserService;
         private readonly IGraphSharePointService _sharePointService;
+        private readonly IAdjudicacionOneDriveStorage _oneDriveStorage;
         private readonly OneDriveOptions _oneDriveOptions;
         private readonly IProjectLinkRepository _projectLinkRepository;
         private readonly ICostosPresupuestosEmailService _costosPresupuestosEmailService;
         private readonly SharePointSiteRef _site;
+        private readonly string _frontendUrl;
 
         private const string BccEmail = "calvarez@abril.pe";
 
@@ -61,6 +63,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             IEmailService emailService,
             IGraphUserService graphUserService,
             IGraphSharePointService sharePointService,
+            IAdjudicacionOneDriveStorage oneDriveStorage,
             IOptions<OneDriveOptions> oneDriveOptions,
             IProjectLinkRepository projectLinkRepository,
             ICostosPresupuestosEmailService costosPresupuestosEmailService,
@@ -74,24 +77,47 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             _emailService = emailService;
             _graphUserService = graphUserService;
             _sharePointService = sharePointService;
+            _oneDriveStorage = oneDriveStorage;
             _oneDriveOptions = oneDriveOptions.Value;
             _projectLinkRepository = projectLinkRepository;
             _costosPresupuestosEmailService = costosPresupuestosEmailService;
             _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
+            _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/', '.') ?? string.Empty;
         }
 
-        public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter)
+        /// <summary>
+        /// Oficina Técnica solo ve adjudicaciones de sus proyectos: aquellos donde su
+        /// correo está registrado en Configuración → Correo de staff por proyecto
+        /// (misma lógica que en Links de proyecto).
+        /// </summary>
+        private async Task ApplyOwnProjectsRestrictionAsync(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects)
+        {
+            if (!restrictToOwnProjects) return;
+            filter.AllowedProjectIds = await _projectLinkRepository.GetUserProjectIdsAsync(userId);
+        }
+
+        public async Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects)
         {
             if (filter.Page < 1) filter.Page = 1;
+            await ApplyOwnProjectsRestrictionAsync(filter, userId, restrictToOwnProjects);
             return await _projectSubContractorRepository.GetPaged(filter);
         }
 
-        public async Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFilters(ProjectSubContractorFilterDTO filter)
+        public async Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFilters(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects)
         {
             // Combina GetPaged + GetFormDataAsync en una sola llamada al repositorio.
             // Las operaciones se ejecutan en paralelo aprovechando el connection pooling.
             if (filter.Page < 1) filter.Page = 1;
+            await ApplyOwnProjectsRestrictionAsync(filter, userId, restrictToOwnProjects);
             return await _projectSubContractorRepository.GetPagedWithFiltersAsync(filter);
+        }
+
+        public async Task<AdjudicacionDashboardDto> GetDashboard(int userId, bool restrictToOwnProjects)
+        {
+            List<int>? allowedProjectIds = restrictToOwnProjects
+                ? await _projectLinkRepository.GetUserProjectIdsAsync(userId)
+                : null;
+            return await _projectSubContractorRepository.GetDashboardAsync(allowedProjectIds);
         }
 
         public async Task Create(ProjectSubContractorCreateDTO dto, int userId)
@@ -124,8 +150,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (files == null || files.Count == 0)
                 return new List<(string, string, string?)>();
 
-            var folderPath = BuildSharePointPath(pathData, documentType);
-            var results    = new List<(string Url, string OriginalFileName, string? ItemId)>();
+            var results = new List<(string Url, string OriginalFileName, string? ItemId)>();
 
             foreach (var file in files)
             {
@@ -133,27 +158,31 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     throw new AbrilException("Se detectó un archivo vacío.");
 
                 using var stream = file.OpenReadStream();
-                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                    site:        _site,
-                    libraryName: "Adjudicaciones",
-                    folderPath:  folderPath,
-                    fileName:    file.FileName,
-                    fileStream:  stream,
-                    contentType: file.ContentType)
-                    ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+                var spResult = await _oneDriveStorage.UploadAsync(
+                    pathData, documentType, file.FileName, stream, file.ContentType);
 
-                if (spResult.WebUrl is null)
-                    throw new AbrilException("No se pudo obtener la URL del archivo subido.");
-
-                results.Add((spResult.WebUrl, file.FileName, spResult.ItemId));
+                results.Add((spResult.WebUrl!, file.FileName, spResult.ItemId));
             }
 
             return results;
         }
 
+        /// <summary>
+        /// 422 — el proyecto no tiene asociado el tipo de correo requerido en
+        /// Configuración → Correo de staff por proyecto. El frontend muestra este
+        /// código como advertencia de configuración, no como error del sistema.
+        /// </summary>
+        private static AbrilException MissingStaffEmailConfig(string emailType) =>
+            new(
+                $"Falta asociar un correo de tipo \"{emailType}\" al proyecto de esta adjudicación. " +
+                "Regístrelo en Configuración → Correo de staff por proyecto y vuelva a intentarlo.", 422);
+
         public async Task SendNotification(SendAdjudicacionNotificationDto dto, int userId)
         {
             var data = await _projectSubContractorRepository.GetNotificationData(dto.ProjectSubContractorId);
+
+            if (data.StaffEmails.Count == 0)
+                throw MissingStaffEmailConfig("Staff de obra");
 
             // Expandir grupos: staff de obra (van a la matriz) y oficina central (solo CC).
             var staffProfiles          = await _graphUserService.GetResolvedProfilesAsync(data.StaffEmails);
@@ -228,9 +257,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
 
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
+
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 4, userId);
 
-            if (data.StaffObraEmails.Count > 0)
+            if (data.OficinaTecnicaEmails.Count > 0)
             {
                 var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
                 var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
@@ -238,7 +270,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
                 var body = new StringBuilder();
                 body.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
-                body.AppendLine("<p>Estimado equipo de Staff de Obra,</p>");
+                body.AppendLine("<p>Estimado equipo de Oficina Técnica,</p>");
                 body.AppendLine("<p>Se le informa que los documentos han sido revisados, aprobados y la adjudicación avanza a la siguiente etapa. A continuación se detallan los datos:</p>");
                 body.AppendLine("<ul>");
                 body.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
@@ -252,7 +284,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 // no a través de un proveedor externo.
                 await _delegatedMailService.SendAsync(
                     graphAccessToken: graphAccessToken,
-                    to:               data.StaffObraEmails,
+                    to:               data.OficinaTecnicaEmails,
                     subject:          $"Adjudicación aprobada - {data.ProjectDescription} / {data.ContributorName}",
                     body:             body.ToString() + signature,
                     isHtml:           true,
@@ -265,6 +297,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data     = await _projectSubContractorRepository.GetScNotificationDataAsync(projectSubContractorId);
             var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
+
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             byte[] fileBytes;
             string fileName;
@@ -285,20 +320,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 var pkgInfo = await _projectSubContractorRepository.GetPackageFileInfoAsync(projectSubContractorId)
                     ?? throw new AbrilException("No hay paquete de contrato generado. Por favor genere o seleccione el archivo antes de enviar.", 400);
 
-                fileBytes   = await _sharePointService.DownloadFromSharePointAsync(_site, pkgInfo.FileUrl);
+                fileBytes   = await _oneDriveStorage.DownloadByWebUrlAsync(pkgInfo.FileUrl);
                 fileName    = pkgInfo.OriginalFileName;
                 contentType = "application/pdf";
             }
 
-            // Subir a SharePoint
-            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.ScPackage);
-            await _sharePointService.UploadToSharePointLibraryAsync(
-                site:        _site,
-                libraryName: "Adjudicaciones",
-                folderPath:  folderPath,
-                fileName:    fileName,
-                fileStream:  new MemoryStream(fileBytes),
-                contentType: contentType);
+            // Subir a OneDrive del proyecto
+            await _oneDriveStorage.UploadAsync(
+                pathData, AdjudicacionDocumentType.ScPackage, fileName,
+                new MemoryStream(fileBytes), contentType);
 
             // Construir y enviar el correo
             var subject    = $"{data.ProjectDescription} : {fileName}";
@@ -314,7 +344,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             };
 
             var costosEmailsSc = await _costosPresupuestosEmailService.GetActiveEmails();
-            var ccEmails = data.StaffObraEmails
+            var ccEmails = data.OficinaTecnicaEmails
                 .Concat(costosEmailsSc)
                 .Distinct()
                 .ToList();
@@ -337,14 +367,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.SetArrivalOptionAsync(projectSubContractorId, arrivedWithObservations, userId);
         }
 
-        public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, string graphAccessToken, int userId)
+        public async Task ConfirmStep5Async(int projectSubContractorId, bool arrivedWithObservations, string? arrivalObservation, string graphAccessToken, int userId)
         {
-            await _projectSubContractorRepository.ConfirmStep5Async(projectSubContractorId, arrivedWithObservations, userId);
+            // Validar antes de cambiar el estado: el correo del paso 6 va a Oficina Técnica.
+            var emailCheck = await _projectSubContractorRepository.GetStep5EmailDataAsync(projectSubContractorId);
+            if (emailCheck.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
+
+            await _projectSubContractorRepository.ConfirmStep5Async(projectSubContractorId, arrivedWithObservations, arrivalObservation, userId);
 
             var data = await _projectSubContractorRepository.GetStep6NotificationDataAsync(projectSubContractorId);
 
             var costosEmailsStep5 = await _costosPresupuestosEmailService.GetActiveEmails();
-            var toEmails = data.StaffObraEmails
+            var toEmails = data.OficinaTecnicaEmails
                 .Concat(costosEmailsStep5)
                 .Distinct()
                 .ToList();
@@ -371,6 +406,117 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, 7, userId);
         }
 
+        public async Task UpdateStep6ChecksAsync(int projectSubContractorId, UpdateStep6ChecksDTO dto, int userId)
+        {
+            await _projectSubContractorRepository.UpdateStep6ChecksAsync(
+                projectSubContractorId,
+                dto.SignedCostos,
+                dto.SignedGerenteInmobiliario,
+                dto.SignedGerenteGeneral,
+                userId);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // Paso 5 — Correos de observaciones (Of. Central → Of. Técnica) y
+        //          levantamiento (Of. Técnica → Of. Central)
+        // ─────────────────────────────────────────────────────────────────────────
+
+        public async Task SendStep5ObservationsEmailAsync(int projectSubContractorId, SendStep5ObservationsEmailDto dto, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Observation))
+                throw new AbrilException("Debe registrar una observación antes de enviar el correo.", 400);
+
+            // Persistir la observación para que Of. Técnica la vea al abrir el detalle.
+            await _projectSubContractorRepository.SaveArrivalObservationAsync(projectSubContractorId, dto.Observation, userId);
+
+            var data = await _projectSubContractorRepository.GetStep5EmailDataAsync(projectSubContractorId);
+
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
+
+            var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
+            var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature      = BuildEmailSignature(senderProfile);
+            var subject        = $"OBSERVACIONES EN LLEGADA DE EXPEDIENTE / {data.ProjectDescription} / {data.ContributorName}";
+            var body           = BuildStep5ObservationsEmailBody(data, dto.Observation) + signature;
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: dto.GraphAccessToken,
+                to:               data.OficinaTecnicaEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                cc:               costosEmailsCc,
+                attachments:      WithSignatureAttachment());
+        }
+
+        public async Task SendStep5LevantamientoEmailAsync(int projectSubContractorId, SendStep5LevantamientoEmailDto dto, int userId)
+        {
+            var data = await _projectSubContractorRepository.GetStep5EmailDataAsync(projectSubContractorId);
+
+            if (data.OficinaCentralEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina central");
+
+            var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
+            var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature      = BuildEmailSignature(senderProfile);
+            var subject        = $"LEVANTAMIENTO DE OBSERVACIONES / {data.ProjectDescription} / {data.ContributorName}";
+            var body           = BuildStep5LevantamientoEmailBody(data, dto.Message) + signature;
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: dto.GraphAccessToken,
+                to:               data.OficinaCentralEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                cc:               costosEmailsCc,
+                attachments:      WithSignatureAttachment());
+        }
+
+        private static string BuildStep5ObservationsEmailBody(Step5EmailDataDto data, string observation)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Estimado equipo de Oficina Técnica,</p>");
+            sb.AppendLine("<p>Se les informa que el contrato llegó a Oficina Central con observaciones:</p>");
+            sb.AppendLine("<ul>");
+            sb.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
+            sb.AppendLine($"  <li><strong>Contratista:</strong> {data.ContributorName}</li>");
+            sb.AppendLine($"  <li><strong>Partida:</strong> {data.WorkItemDescription}</li>");
+            sb.AppendLine("</ul>");
+            sb.AppendLine("<p><strong>Observaciones:</strong></p>");
+            sb.AppendLine($"<p style=\"background:#FFF7ED; border:1px solid #FDBA74; border-radius:6px; padding:10px; white-space:pre-line;\">{System.Net.WebUtility.HtmlEncode(observation)}</p>");
+            sb.AppendLine("<p>Por favor, gestionen el levantamiento de las observaciones indicadas.</p>");
+            sb.AppendLine("</div>");
+            return sb.ToString();
+        }
+
+        private static string BuildStep5LevantamientoEmailBody(Step5EmailDataDto data, string? message)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Estimado equipo de Oficina Central,</p>");
+            sb.AppendLine("<p>Se les informa que las observaciones registradas en la llegada del expediente del siguiente contrato han sido levantadas:</p>");
+            sb.AppendLine("<ul>");
+            sb.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
+            sb.AppendLine($"  <li><strong>Contratista:</strong> {data.ContributorName}</li>");
+            sb.AppendLine($"  <li><strong>Partida:</strong> {data.WorkItemDescription}</li>");
+            sb.AppendLine("</ul>");
+            if (!string.IsNullOrWhiteSpace(data.ArrivalObservation))
+            {
+                sb.AppendLine("<p><strong>Observaciones originales:</strong></p>");
+                sb.AppendLine($"<p style=\"background:#FFF7ED; border:1px solid #FDBA74; border-radius:6px; padding:10px; white-space:pre-line;\">{System.Net.WebUtility.HtmlEncode(data.ArrivalObservation)}</p>");
+            }
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                sb.AppendLine("<p><strong>Mensaje de Oficina Técnica:</strong></p>");
+                sb.AppendLine($"<p style=\"background:#F0FAE5; border:1px solid #A3D977; border-radius:6px; padding:10px; white-space:pre-line;\">{System.Net.WebUtility.HtmlEncode(message)}</p>");
+            }
+            sb.AppendLine("<p>Por favor, verifiquen y continúen con el proceso de la adjudicación.</p>");
+            sb.AppendLine("</div>");
+            return sb.ToString();
+        }
+
         private static string BuildStep6EmailBody(Step6NotificationDataDto data)
         {
             var sb = new StringBuilder();
@@ -394,13 +540,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (data.ScannedDocs.Count == 0)
                 throw new AbrilException("No hay documentos escaneados adjuntos para enviar.");
 
-            var toEmails = data.StaffObraEmails
+            var toEmails = data.OficinaTecnicaEmails
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .ToList();
 
             if (toEmails.Count == 0)
-                throw new AbrilException("No hay correos de Staff de Obra configurados para este proyecto.");
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             var attachments    = await DownloadAttachmentsAsync(data.ScannedDocs);
             var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(graphAccessToken);
@@ -446,18 +592,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
 
-            // Destinatarios: Costos y Presupuestos + Staff de Obra del proyecto
+            // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
             var costosEmailsObs = await _costosPresupuestosEmailService.GetActiveEmails();
             var toEmails = costosEmailsObs
-                .Concat(data.StaffObraEmails)
+                .Concat(data.OficinaTecnicaEmails)
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .ToList();
 
-            if (toEmails.Count == 0)
-                throw new AbrilException(
-                    "No hay destinatarios configurados para enviar el correo. " +
-                    "Verifique que existan correos de Staff de Obra registrados para este proyecto.", 400);
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
             var signature     = BuildEmailSignature(senderProfile);
@@ -488,18 +632,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     "No hay documentos con observaciones registradas en este momento. " +
                     "Marque al menos un documento como 'Con observaciones' antes de enviar el correo.", 400);
 
-            // Destinatarios: Costos y Presupuestos + Staff de Obra del proyecto
+            // Destinatarios: Costos y Presupuestos + Oficina Técnica del proyecto
             var costosEmailsObs = await _costosPresupuestosEmailService.GetActiveEmails();
             var toEmails = costosEmailsObs
-                .Concat(data.StaffObraEmails)
+                .Concat(data.OficinaTecnicaEmails)
                 .Distinct()
                 .Where(e => !string.IsNullOrWhiteSpace(e))
                 .ToList();
 
-            if (toEmails.Count == 0)
-                throw new AbrilException(
-                    "No hay destinatarios configurados para enviar el correo. " +
-                    "Verifique que existan correos de Staff de Obra registrados para este proyecto.", 400);
+            if (data.OficinaTecnicaEmails.Count == 0)
+                throw MissingStaffEmailConfig("Oficina Técnica");
 
             var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
             var signature     = BuildEmailSignature(senderProfile);
@@ -562,6 +704,73 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Paso 3 — Oficina Técnica solicita a Costos el visto bueno / comentarios del
+        /// contrato preparado. El correo va dirigido únicamente a los miembros de Costos
+        /// y Presupuestos e incluye el enlace de ingreso a la plataforma (no adjunta archivos).
+        /// </summary>
+        public async Task SendContractReviewEmailAsync(
+            int projectSubContractorId,
+            SendAllObservationsEmailDto dto,
+            int userId)
+        {
+            var data = await _projectSubContractorRepository.GetStep3ApprovalDataAsync(projectSubContractorId);
+
+            // Destinatarios: únicamente los miembros de Costos y Presupuestos.
+            var costosEmails = await _costosPresupuestosEmailService.GetActiveEmails();
+            var toEmails = costosEmails
+                .Distinct()
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .ToList();
+
+            if (toEmails.Count == 0)
+                throw new AbrilException(
+                    "No hay correos de Costos y Presupuestos configurados para enviar la revisión.", 422);
+
+            var senderProfile = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
+            var signature     = BuildEmailSignature(senderProfile);
+            var subject       = $"{data.ProjectDescription} // CONTRATO PARA REVISIÓN // {data.ContributorName}";
+            var platformUrl   = $"{_frontendUrl}/costs/adjudicaciones";
+            var body          = BuildContractReviewEmailBody(data, platformUrl) + signature;
+
+            await _delegatedMailService.SendAsync(
+                graphAccessToken: dto.GraphAccessToken,
+                to:               toEmails,
+                subject:          subject,
+                body:             body,
+                isHtml:           true,
+                attachments:      WithSignatureAttachment());
+        }
+
+        private static string BuildContractReviewEmailBody(Step3ApprovalDataDto data, string platformUrl)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
+            sb.AppendLine("<p>Buen día,</p>");
+            sb.AppendLine(
+                $"<p>Por favor su apoyo con el visto bueno y/o comentarios de los documentos correspondiente a la " +
+                $"adjudicación del subcontratista <strong>{data.ContributorName}</strong>:</p>");
+
+            sb.AppendLine("<table style=\"border-collapse:collapse; font-size:13px; margin-bottom:16px;\">");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Proyecto</td>"
+                        + $"<td style=\"padding:4px 0;\"><strong>{data.ProjectDescription}</strong></td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Subcontratista</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.ContributorName}</td></tr>");
+            sb.AppendLine($"  <tr><td style=\"padding:4px 16px 4px 0; color:#666; white-space:nowrap;\">Partida</td>"
+                        + $"<td style=\"padding:4px 0;\">{data.WorkItemDescription}</td></tr>");
+            sb.AppendLine("</table>");
+
+            if (!string.IsNullOrWhiteSpace(platformUrl))
+                sb.AppendLine(
+                    $"<p>Puede revisar los documentos ingresando a la plataforma: " +
+                    $"<a href=\"{platformUrl}\">{platformUrl}</a></p>");
+
+            sb.AppendLine("<p>Gracias.</p>");
+            sb.AppendLine("<p>Saludos.</p>");
+            sb.AppendLine("</div>");
+            return sb.ToString();
+        }
+
         private static string BuildObservationEmailBody(
             Step3ApprovalDataDto data,
             string documentLabel,
@@ -620,6 +829,28 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             sb.AppendLine("<p>Quedo atenta.</p>");
             sb.AppendLine("<p>Saludos.</p>");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Construye la oración de valorización (numeral 5.1.x) a partir de las "Formas de
+        /// valorización" de la partida. Ej.: "Las valorizaciones serán de acuerdo con los
+        /// siguientes porcentajes de valorización: 60% por instalación, 30% por acabado y
+        /// 10% por levantamiento de observaciones." Devuelve null si la partida no tiene
+        /// formas registradas (en ese caso el contrato usa el texto por defecto).
+        /// </summary>
+        private static string? BuildValorizationFormsSentence(List<(decimal Percentage, string Concept)> forms)
+        {
+            if (forms is null || forms.Count == 0) return null;
+
+            var partes = forms
+                .Select(f => $"{f.Percentage.ToString("0.##", CultureInfo.InvariantCulture)}% {f.Concept.Trim()}")
+                .ToList();
+
+            var listado = partes.Count == 1
+                ? partes[0]
+                : string.Join(", ", partes.Take(partes.Count - 1)) + " y " + partes[^1];
+
+            return $"Las valorizaciones serán de acuerdo con los siguientes porcentajes de valorización: {listado}.";
         }
 
         private static string BuildInternalEmailBody(AdjudicacionNotificationDataDto data)
@@ -730,6 +961,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         public async Task SaveDates(int projectSubContractorId, UpdateDatesDTO dto, int userId)
         {
             await _projectSubContractorRepository.SaveDates(projectSubContractorId, dto, userId);
+        }
+
+        public async Task UpdateInfo(int projectSubContractorId, ProjectSubContractorUpdateInfoDTO dto, int userId)
+        {
+            await _projectSubContractorRepository.UpdateInfo(projectSubContractorId, dto, userId);
         }
 
         public async Task UpdateDocumentStatusAsync(
@@ -857,6 +1093,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionDocumentType.Instructivo        => "Instructivo",
             AdjudicacionDocumentType.NonConformingOutput => "Causales de Conformidad",
             AdjudicacionDocumentType.ToleranceChart     => "Cuadro de Tolerancias",
+            AdjudicacionDocumentType.FinishProtection   => "Protección de Acabados",
             AdjudicacionDocumentType.FichaTecnica       => "Ficha Técnica",
             AdjudicacionDocumentType.Anexo              => "Anexos",
             _                                           => documentType.ToString(),
@@ -871,6 +1108,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (file is null || file.Length == 0)
                 throw new AbrilException("El archivo no puede estar vacío.");
 
+            // Causales de No Conformidad, Cuadro de Tolerancias y Protección de Acabados no se suben:
+            // usan un PDF de plantilla fijo. Solo se controla su estado (Sí aplica / No aplica).
+            if (documentType is AdjudicacionDocumentType.NonConformingOutput
+                             or AdjudicacionDocumentType.ToleranceChart
+                             or AdjudicacionDocumentType.FinishProtection)
+                throw new AbrilException(
+                    "Este documento no se sube: se usa el documento estándar de Abril. Solo configure su estado (Sí aplica / No aplica).",
+                    400);
+
             // La cotización adjunta debe ser PDF — se inserta dentro del contrato (paso 4)
             // y para eso se mergea a nivel PDF.
             if (documentType == AdjudicacionDocumentType.AttachedQuotation)
@@ -881,22 +1127,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             }
 
             var pathData   = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
-            var folderPath = BuildSharePointPath(pathData, documentType);
             var fileName   = file.FileName;
 
             string fileUrl;
             string? sharepointItemId;
             using (var stream = file.OpenReadStream())
             {
-                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                    site:        _site,
-                    libraryName: "Adjudicaciones",
-                    folderPath:  folderPath,
-                    fileName:    fileName,
-                    fileStream:  stream,
-                    contentType: file.ContentType) ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+                var spResult = await _oneDriveStorage.UploadAsync(
+                    pathData, documentType, fileName, stream, file.ContentType);
 
-                fileUrl          = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo subido.");
+                fileUrl          = spResult.WebUrl!;
                 sharepointItemId = spResult.ItemId;
             }
 
@@ -982,7 +1222,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     if (!data.EndDate.HasValue)              missing.Add("Fecha de fin del contrato");
                     if (!data.ContractNumber.HasValue)       missing.Add("Número de contrato");
                     if (!data.PromissoryNoteNumber.HasValue) missing.Add("Número de pagaré");
-                    if (!data.AdvancePercentage.HasValue && !data.AdvanceAmount.HasValue)
+                    // El adelanto es obligatorio solo en "Contrato con adelanto" (2). En "Pago a cuenta" (4)
+                    // el % / monto del pagaré es opcional.
+                    if (data.PaymentMethodId == 2 && !data.AdvancePercentage.HasValue && !data.AdvanceAmount.HasValue)
                         missing.Add("Adelanto");
                     break;
 
@@ -1044,17 +1286,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             }
 
             var pathData  = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
-            var destFolder = BuildSharePointPath(pathData, AdjudicacionDocumentType.Instructivo);
 
             using var stream = new MemoryStream(content);
-            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                site:        _site,
-                libraryName: "Adjudicaciones",
-                folderPath: destFolder,
-                fileName:   fileName,
-                fileStream: stream,
-                contentType: contentType ?? "application/octet-stream")
-                ?? throw new AbrilException("No se pudo subir el instructivo a SharePoint.");
+            var spResult = await _oneDriveStorage.UploadAsync(
+                pathData, AdjudicacionDocumentType.Instructivo, fileName, stream,
+                contentType ?? "application/octet-stream");
 
             await _projectSubContractorRepository.SaveDocumentAsync(
                 projectSubContractorId,
@@ -1091,29 +1327,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             workbook.SaveAs(ms);
             ms.Position = 0;
 
-            var pathData = new AdjudicacionPathDataDto
-            {
-                ProjectSubContractorId = data.ProjectSubContractorId,
-                ProjectDescription     = data.ProjectDescription,
-                ContributorRuc         = data.ContributorRuc,
-                ContributorName        = data.ContributorName,
-                WorkItemDescription    = data.WorkItemDescription,
-            };
+            var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
 
-            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.SummarySheet);
             var fileName   = $"HOJA RESUMEN N°{data.ContractNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.xlsx";
             const string xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                site:        _site,
-                libraryName: "Adjudicaciones",
-                folderPath:  folderPath,
-                fileName:    fileName,
-                fileStream:  ms,
-                contentType: xlsxMime)
-                ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+            var spResult = await _oneDriveStorage.UploadAsync(
+                pathData, AdjudicacionDocumentType.SummarySheet, fileName, ms, xlsxMime);
 
-            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+            var fileUrl = spResult.WebUrl!;
 
             await _projectSubContractorRepository.SaveDocumentAsync(
                 projectSubContractorId, AdjudicacionDocumentType.SummarySheet, fileUrl, fileName, userId, spResult.ItemId);
@@ -1199,6 +1421,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var fondoMeses = (int)Math.Round(fondoDias / 30.0);
             var fondoPorcPalabras  = ((long)fondoPorc).ToWords(esCulture);
             var fondoMesesPalabras = ((long)fondoMeses).ToWords(esCulture);
+            // {{HOJA_RESUMEN_FONDO_GARANTÍA_PORCENTAJE}}: "{x}% Fondo de Garantía"; si es 0 o null → "-".
+            var hasFondoGarantia = data.GuaranteeFundPercentage.HasValue && data.GuaranteeFundPercentage.Value > 0;
+            var hojaResumenFondoGarantiaPorcentaje = hasFondoGarantia
+                ? $"{data.GuaranteeFundPercentage}% Fondo de Garantía"
+                : "-";
             // Si el plazo es menor a un año, mostrar el plazo en días en lugar de "0 año".
             // 1 año → singular; 2 o más → "años".
             var fondoAniosTexto = fondoAnios >= 1
@@ -1210,14 +1437,23 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (!string.IsNullOrEmpty(plazoPalabras))
                 plazoPalabras = char.ToUpper(plazoPalabras[0]) + plazoPalabras[1..];
 
-            // Tipo de documento de garantía: con adelanto (PaymentMethodId == 2) incluye el pagaré
-            // con sus placeholders ya resueltos; en cualquier otra forma de pago, solo la letra.
+            // Tipo de documento de garantía:
+            //   • Con adelanto (PaymentMethodId == 2) Y de Suministro (ContractModalityId == 2):
+            //     Pagaré + Letra de Garantía + Carta de Fianza.
+            //   • Solo con adelanto (otra modalidad): Pagaré + Letra de Garantía.
+            //   • Sin adelanto: "-".
             var numPagareStr = data.PromissoryNoteNumber.HasValue
                 ? data.PromissoryNoteNumber.Value.ToString("D3")
                 : "";
+            var pagareRef = $"PAGARÉ N°{numPagareStr}{abreviaturaProyecto}-{DateTime.UtcNow.Year}";
+            // La carta de fianza solo aplica en Suministro (ContractModalityId == 2) + contrato con adelanto
+            // (PaymentMethodId == 2) y únicamente cuando se marcó el toggle IncludesCartaFianza.
+            var includeCartaFianza = data.PaymentMethodId == 2 && data.ContractModalityId == 2 && data.IncludesCartaFianza;
             var tipoDocumentoGarantia = data.PaymentMethodId == 2
-                ? $"PAGARÉ N°{numPagareStr}{abreviaturaProyecto}-{DateTime.UtcNow.Year} Y LETRA DE GARANTÍA"
-                : "LETRA DE GARANTÍA";
+                ? (includeCartaFianza
+                    ? $"{pagareRef}, LETRA DE GARANTÍA Y CARTA DE FIANZA"
+                    : $"{pagareRef} Y LETRA DE GARANTÍA")
+                : "-";
 
             // Cláusulas del numeral 5.1.x según la forma de pago (PaymentMethodId).
             // Los valores se insertan ya resueltos y la negrita inline se marca con **…**.
@@ -1232,10 +1468,27 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     ? "quincenales"
                     : "semanales";
 
+            // Modalidad SUMINISTRO (id 2): en el flujo sin adelanto, la cláusula de valorización se traslada
+            // al cierre de la 5.1 vía {{CLAUSULA_MONTO_TOTAL}}, por lo que 5.1.1 desaparece (lista vacía).
+            // Para las demás modalidades (Suministro e Instalación / Instalación) se mantiene el comportamiento previo.
+            var esSuministro = data.ContractModalityId == 2;
+
+            // Oración de cierre de la valorización (numeral 5.1.x). Si la partida tiene
+            // "Formas de valorización" registradas (Configuración → Partidas), se reemplaza el
+            // texto por defecto "Las valorizaciones se determinan a partir del inicio de los
+            // trabajos…" por el desglose de porcentajes de la partida (ej.: "Las valorizaciones
+            // serán de acuerdo con los siguientes porcentajes de valorización: 60% por
+            // instalación, 30% por acabado y 10% por levantamiento de observaciones.").
+            var formasValorizacionSentence = BuildValorizationFormsSentence(data.ValorizationForms);
+            var cierreSaldoValorizacion = formasValorizacionSentence
+                ?? "Las valorizaciones se determinan a partir del inicio de los trabajos de obra.";
+            var cierreValorizacion = formasValorizacionSentence
+                ?? "Las valorizaciones se determinan a partir del inicio de los trabajos en obra.";
+
             List<string> clausulasAdelanto;
             if (data.PaymentMethodId == 2)
             {
-                // Contrato con adelanto → 5.1.1 (adelanto) y 5.1.2 (saldo)
+                // Contrato con adelanto → 5.1.1 (adelanto) y 5.1.2 (saldo). Igual para todas las modalidades.
                 clausulasAdelanto = new List<string>
                 {
                     $"Un adelanto **equivalente al {advancePercentageStr} del monto contractual**, que se otorgará en el mes de julio, " +
@@ -1246,19 +1499,75 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
                     $"El **saldo** equivalente a la suma de **{diferenciaFormato} ({diferenciaEnPalabras})** será cancelado mediante valorizaciones semanales, " +
                     "pagaderas a los 7 días hábiles siguientes de recepcionada la factura y/o valorización correspondiente, debidamente emitida, " +
-                    "con la respectiva retención del fondo de garantía. Las valorizaciones se determinan a partir del inicio de los trabajos de obra."
+                    "con la respectiva retención del fondo de garantía. " + cierreSaldoValorizacion
                 };
+            }
+            else if (esSuministro)
+            {
+                // Suministro sin adelanto → 5.1.1 NO aplica (su texto vive ahora en el cierre de {{CLAUSULA_MONTO_TOTAL}}).
+                clausulasAdelanto = new List<string>();
             }
             else
             {
-                // Sin adelanto (u otra forma de pago) → única cláusula 5.1.1 de pago por valorizaciones
+                // Otras modalidades sin adelanto (Suministro e Instalación / Instalación) → única cláusula 5.1.1 de valorización.
                 clausulasAdelanto = new List<string>
                 {
                     $"Pago mediante valorizaciones {frecuenciaValorizacion}, pagaderas a los 7 días hábiles siguientes de recepcionada la factura " +
                     "y/o valorización correspondiente, debidamente emitida, con la respectiva retención del fondo de garantía. " +
-                    "Las valorizaciones se determinan a partir del inicio de los trabajos en obra."
+                    cierreValorizacion
                 };
             }
+
+            // {{CLAUSULA_MONTO_TOTAL}} — texto completo de la cláusula 5.1 (solo SUMINISTRO).
+            // Se pasa como multiParagraphReplacements (1 párrafo) para que los marcadores **negrita** funcionen.
+            // Para otras modalidades, lista vacía (el placeholder no existe en esas plantillas → no-op).
+            List<string> clausulaMontoTotalParagraphs;
+            if (esSuministro)
+            {
+                var palabrasSinMoneda = $"{palabras} con {centavos:D2}/100";
+
+                var cierre = data.PaymentMethodId == 2
+                    ? "de la siguiente forma:"
+                    : "acorde a los despachos establecidos en el Cronograma, mediante valorizaciones previa entrega del suministro, " +
+                      "lo cual deberá ser cancelado a los siete (7) días hábiles siguientes de brindada la conformidad de " +
+                      "**EL SUMINISTRADO** del producto entregado, siempre que no hubiese observaciones sobre el suministro.";
+
+                clausulaMontoTotalParagraphs = new List<string>
+                {
+                    $"El monto total del **CONTRATO DE SUMINISTRO** por el concepto de **{data.WorkItemDescription} EN {monedaMayuscula}** " +
+                    $"es de **{currencySymbol} {data.Amount:N2} ({palabrasSinMoneda})** incluido el I.G.V. " +
+                    $"(en adelante, **EL PRECIO**) que será cancelado {cierre}"
+                };
+            }
+            else
+            {
+                clausulaMontoTotalParagraphs = new List<string>();
+            }
+
+            // ── Valores de adelanto para la hoja resumen del contrato ─────────────
+            // Si no hay adelanto efectivo (0 o null) los placeholders resuelven a "-" en lugar de "0.00%" / "S/ 0.00".
+            var hasAdvance = data.AdvancePercentage.HasValue && data.AdvancePercentage.Value > 0;
+            var advancePercentageDisplay = hasAdvance ? $"{data.AdvancePercentage:N2}%" : "-";
+            var advanceAmountDisplay = hasAdvance
+                ? $"{currencySymbol} {advanceAmount:N2} {(data.HasIgv ? "Inc. IGV" : "No Inc. IGV")}"
+                : "-";
+
+            // {{HOJA_RESUMEN_FORMA_DE_PAGO}}: con adelanto → descripción + % + monto del adelanto;
+            //                                sin adelanto/adenda → solo la descripción ("Contrato sin adelanto" / "Adenda").
+            //                                En ambos casos se añade la valorización (semanal/quincenal) con pago a los
+            //                                días hábiles configurados en el paso 2 (PaymentDays, default 7).
+            var pagoDiasHabiles = data.PaymentDays > 0 ? data.PaymentDays : 7;
+            var valorizacionTexto = !string.IsNullOrWhiteSpace(data.PaymentFormDescription)
+                ? $"valorización {data.PaymentFormDescription.Trim().ToLower(esCulture)} con pago a {pagoDiasHabiles} días hábiles"
+                : $"valorizaciones con pago a {pagoDiasHabiles} días hábiles";
+            var hojaResumenFormaDePago = data.PaymentMethodId == 2
+                ? $"{data.PaymentMethodDescription} {advancePercentageDisplay} ({advanceAmountDisplay}), {valorizacionTexto}"
+                : $"{data.PaymentMethodDescription}, {valorizacionTexto}";
+
+            // {{HOJA_RESUMEN_ADELANTO_MONTO}}: con adelanto → "% - monto"; sin adelanto → única "-".
+            var hojaResumenAdelantoMonto = data.PaymentMethodId == 2
+                ? $"{advancePercentageDisplay} - {advanceAmountDisplay}"
+                : "-";
 
             var replacements = new Dictionary<string, string>
             {
@@ -1281,12 +1590,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PROYECTO_UBICACION_OBRA}}",       data.ProjectLocation ?? "" },
                 { "{{PROYECTO_PARTIDA_REGISTRAL}}",    data.ProjectLegalEntityRegistryNumber ?? "" },
                 // Contrato
+                { "{{PAGO_A_CUENTA}}",                 data.PaymentMethodId == 4 ? "mediante Pago a cuenta, " : "" },
                 { "{{FORMA_DE_PAGO}}",                 data.PaymentMethodDescription },
                 { "{{FORMA_DE_VALORIZACIÓN}}",         data.PaymentFormDescription ?? "" },
                 { "{{MONTO}}",                         $"{currencySymbol} {data.Amount:N2}" },
                 { "{{MONTO_CON_IGV}}",                 $"{currencySymbol} {data.Amount:N2} {(data.HasIgv ? "incluido IGV" : "sin IGV")}" },
                 { "{{MONTO_EN_PALABRAS}}",             montoEnPalabras },
-                { "{{MONEDA}}",                        monedaMayuscula },
+                { "{{MONEDA}}",                        $"EN {monedaMayuscula}" },
                 { "{{FECHA_INICIO}}",                  data.StartDate?.ToString("dd/MM/yyyy") ?? "" },
                 { "{{FECHA_FIN}}",                     data.EndDate?.ToString("dd/MM/yyyy")   ?? "" },
                 // Fecha de firma del contrato formateada como "10 de julio del 2025" (es-PE; "del" en lugar de "de").
@@ -1298,20 +1608,24 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                         : "" },
                 { "{{PLAZO_NUM}}",                     plazo.ToString() },
                 { "{{PLAZO_EN_PALABRAS}}",             plazoPalabras },
-                { "{{ADVANCE_PERCENTAGE}}",            data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
+                { "{{ADVANCE_PERCENTAGE}}",            advancePercentageDisplay },
                 { "{{FORMA_DE_PAGO_ADVANCE_PERCENTAGE}}", data.PaymentMethodId == 2 && data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
-                { "{{ADVANCE_AMOUNT}}",                $"{currencySymbol} {advanceAmount:N2}" },
+                { "{{ADVANCE_AMOUNT}}",                advanceAmountDisplay },
+                { "{{HOJA_RESUMEN_FORMA_DE_PAGO}}",    hojaResumenFormaDePago },
+                { "{{HOJA_RESUMEN_ADELANTO_MONTO}}",   hojaResumenAdelantoMonto },
                 { "{{ADVANCE_AMOUNT_EN_PALABRAS}}",    advanceAmountEnPalabras },
                 { "{{DIFERENCIA_MONTO}}",              diferenciaFormato },
                 { "{{DIFERENCIA_MONTO_EN_PALABRAS}}", diferenciaEnPalabras },
                 { "{{PERIODO_VALIDEZ_GARANTIA}}",      FormatGuaranteeValidity(data.GuaranteeValidityDays) },
                 { "{{FONDO_GARANTÍA_PORCENTAJE}}",     $"{fondoPorc}%" },
+                { "{{HOJA_RESUMEN_FONDO_GARANTÍA_PORCENTAJE}}", hojaResumenFondoGarantiaPorcentaje },
                 { "{{FONDO_GARANTÍA_EN_PALABRAS}}",    $"{fondoPorcPalabras} por ciento" },
                 { "{{FONDO_GARANTÍA_PLAZO_EN_DÍAS}}",  $"{fondoDias} días" },
                 { "{{FONDO_GARANTÍA_PLAZO_EN_AÑOS}}",  fondoAniosTexto },
                 { "{{FONDO_GARANTÍA_PLAZO_NUM_PALABRA}}", $"{fondoMeses} ({fondoMesesPalabras})" },
                 { "{{TIPO_CONTRATO}}",                 data.ContractTypeDescription },
-                { "{{PARTIDA}}",                       data.WorkItemDescription },
+                { "{{TIPO_CONTRATO_MAYÚSCULA}}",       (data.ContractTypeDescription ?? "").ToUpper() },
+                { "{{PARTIDA}}",                       string.IsNullOrWhiteSpace(data.ContractWorkItemName) ? data.WorkItemDescription : data.ContractWorkItemName },
                 { "{{AÑO_ACTUAL}}",                    DateTime.UtcNow.Year.ToString() },
                 { "{{NUM_CONTRATO}}",                  data.ContractNumber.HasValue ? data.ContractNumber.Value.ToString("D3") : "" },
                 { "{{NUM_PAGARE}}",                    data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },
@@ -1331,23 +1645,53 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var linkEspecialidades = projectLinks.FirstOrDefault(l => l.ProjectLinkTypeId == 1 && l.Active);
             var linkDetalles       = projectLinks.FirstOrDefault(l => l.ProjectLinkTypeId == 2 && l.Active);
 
-            var missingLinks = new List<string>();
-            if (linkEspecialidades == null) missingLinks.Add("Planos de Especialidades");
-            if (linkDetalles       == null) missingLinks.Add("Planos de Detalles");
+            // La modalidad Suministro (id 2) no incluye planos en su contrato, por lo que
+            // se omite la validación de links. Las demás modalidades (Suministro e Instalación /
+            // Instalación) sí los requieren.
+            if (!esSuministro)
+            {
+                var missingLinks = new List<string>();
+                if (linkEspecialidades == null) missingLinks.Add("Planos de Especialidades");
+                if (linkDetalles       == null) missingLinks.Add("Planos de Detalles");
 
-            if (missingLinks.Count > 0)
-                throw new AbrilException(
-                    $"Para generar el contrato falta registrar el link de: {string.Join(" y ", missingLinks)}.",
-                    400);
+                if (missingLinks.Count > 0)
+                    throw new AbrilException(
+                        $"Para generar el contrato falta registrar el link de: {string.Join(" y ", missingLinks)}.",
+                        400);
+            }
 
-            replacements["{{LINK1}}"] = linkEspecialidades!.LinkUrl;
-            replacements["{{LINK2}}"] = linkDetalles!.LinkUrl;
+            replacements["{{LINK1}}"] = linkEspecialidades?.LinkUrl ?? "";
+            replacements["{{LINK2}}"] = linkDetalles?.LinkUrl ?? "";
 
             // Cláusula del Anexo 3 (Pagaré) — solo aplica cuando hay adelanto (PaymentMethodId == 2).
             // Se pasa como multi-párrafo: si la lista está vacía, el helper elimina el párrafo entero
             // (incluido el bullet "•") para que no quede una viñeta huérfana en el documento.
             var clausulaAnexo3Pagare = data.PaymentMethodId == 2
                 ? new List<string> { $"• {advancePercentageStr} de adelanto del monto total con la firma de este contra letra de garantía y pagaré." }
+                : new List<string>();
+
+            // Cláusula 10.2 "De la carta fianza" — SOLO en contratos con adelanto (PaymentMethodId == 2).
+            // Se separa en dos marcadores para respetar el formato de la plantilla:
+            //   {{CARTA_FIANZA}}         → título "De la carta fianza:" (párrafo numerado 10.2, subrayado).
+            //   {{CARTA_FIANZA_DETALLE}} → contenido como VIÑETA real (mismo estilo de lista que la garantía).
+            // El detalle NO lleva "•" literal: la viñeta la pone Word desde el párrafo de la plantilla.
+            // Subrayado con __…__, negrita con **…**. Si la lista está vacía, el helper elimina el párrafo.
+            var clausulaCartaFianza = includeCartaFianza
+                ? new List<string> { "__De la carta fianza:__" }
+                : new List<string>();
+
+            var clausulaCartaFianzaDetalle = includeCartaFianza
+                ? new List<string>
+                {
+                    "A efectos de garantizar cualquier gasto adicional en el que tenga que incurrir " +
+                    "**EL SUMINISTRADO** a causa de daños a terceros que hayan sido originados por observaciones " +
+                    "de **EL SUMINISTRO**, dentro del periodo de vigencia de la garantía, pudiendo ser multas " +
+                    "ante INDECOPI, trabajos de cambio total o parcial de **EL SUMINISTRO**, entre otros; " +
+                    "**EL SUMINISTRANTE** extenderá una carta fianza por el 20% por ciento del valor total de " +
+                    "**EL SUMINISTRO** equivalente al monto del adelanto, a favor de **EL SUMINISTRADO**; la misma " +
+                    "que podrá ser ejecutada de manera inmediata, en caso de acreditarse cualquiera de los supuestos " +
+                    "previstos para ello en el presente contrato."
+                }
                 : new List<string>();
 
             byte[] docBytes;
@@ -1359,43 +1703,41 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     {
                         { "{{CLÁUSULAS}}", clauseParagraphs },
                         { "{{CLÁUSULAS_ADELANTO}}", clausulasAdelanto },
-                        { "{{CLÁUSULA_ANEXO_3_PAGARÉ}}", clausulaAnexo3Pagare }
+                        { "{{CLÁUSULA_ANEXO_3_PAGARÉ}}", clausulaAnexo3Pagare },
+                        { "{{CLAUSULA_MONTO_TOTAL}}", clausulaMontoTotalParagraphs },
+                        // Cláusulas de Anexo 3 y Anexo 4 (Suministro). Solo existen en la plantilla de
+                        // Suministro; en las demás el marcador no aparece y simplemente se ignora.
+                        { "{{CLÁUSULAS_ANEXO_3_SUMINISTRO}}", data.SpecialClausesAnexo3.ToList() },
+                        { "{{CLÁUSULAS_ANEXO_4_SUMINISTRO}}", data.SpecialClausesAnexo4.ToList() },
+                        { "{{CARTA_FIANZA}}", clausulaCartaFianza },
+                        { "{{CARTA_FIANZA_DETALLE}}", clausulaCartaFianzaDetalle }
                     });
 
-            var pathData = new AdjudicacionPathDataDto
-            {
-                ProjectSubContractorId = data.ProjectSubContractorId,
-                ProjectDescription     = data.ProjectDescription,
-                ContributorRuc         = data.ContributorRuc,
-                ContributorName        = data.ContributorName,
-                WorkItemDescription    = data.WorkItemDescription,
-            };
+            var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
 
-            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.Contract);
             var fileName   = $"CONTRATO N°{data.ContractNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.docx";
             const string docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
             string fileUrl;
             string? contractItemId;
+            string finalFileName;
             using (var ms = new MemoryStream(docBytes))
             {
-                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                    site:        _site,
-                    libraryName: "Adjudicaciones",
-                    folderPath:  folderPath,
-                    fileName:    fileName,
-                    fileStream:  ms,
-                    contentType: docxMime)
-                    ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+                // autoRenameOnLock: si ya existe un contrato con el mismo nombre abierto/en uso
+                // (HTTP 423), se sube con un nombre alterno ("… (2).docx") en lugar de fallar.
+                var spResult = await _oneDriveStorage.UploadAsync(
+                    pathData, AdjudicacionDocumentType.Contract, fileName, ms, docxMime,
+                    autoRenameOnLock: true);
 
-                fileUrl       = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+                fileUrl        = spResult.WebUrl!;
                 contractItemId = spResult.ItemId;
+                finalFileName  = spResult.FileName ?? fileName;   // puede diferir si hubo renombrado
             }
 
             await _projectSubContractorRepository.SaveDocumentAsync(
-                projectSubContractorId, AdjudicacionDocumentType.Contract, fileUrl, fileName, userId, contractItemId);
+                projectSubContractorId, AdjudicacionDocumentType.Contract, fileUrl, finalFileName, userId, contractItemId);
 
-            return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = fileName };
+            return new DocumentUploadResponseDto { FileUrl = fileUrl, OriginalFileName = finalFileName };
         }
 
         private async Task<DocumentUploadResponseDto> GeneratePromissoryNoteAsync(
@@ -1430,13 +1772,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var moneda = data.CurrencyCode == "USD" ? "dólares" : "soles";
             var advanceAmountEnPalabras = $"{advancePalabras} con {advanceCentavos:D2}/100 {moneda}";
 
-            // Monto total en palabras
-            var entero   = (long)Math.Truncate(data.Amount);
-            var centavos = (int)Math.Round((data.Amount - entero) * 100);
-            var palabras = entero.ToWords(esCulture);
-            palabras = char.ToUpper(palabras[0]) + palabras[1..];
-            var montoEnPalabras = $"{palabras} con {centavos:D2}/100 {moneda}";
-
             // ADVANCE_FECHA_FIN: end_date + 3 meses
             var advanceFechaFin = data.EndDate.HasValue
                 ? data.EndDate.Value.AddMonths(3).ToString("dd/MM/yyyy")
@@ -1469,8 +1804,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{ADVANCE_AMOUNT}}",                   $"{currencySymbol} {advanceAmount:N2}" },
                 { "{{ADVANCE_AMOUNT_EN_PALABRAS}}",       advanceAmountEnPalabras },
                 { "{{ADVANCE_FECHA_FIN}}",                advanceFechaFin },
-                { "{{MONTO_EN_PALABRAS}}",                montoEnPalabras },
-                { "{{PARTIDA}}",                          data.WorkItemDescription },
+                { "{{MONEDA}}",                           moneda.ToUpperInvariant() },
+                { "{{PARTIDA}}",                          string.IsNullOrWhiteSpace(data.ContractWorkItemName) ? data.WorkItemDescription : data.ContractWorkItemName },
                 { "{{FECHA_ACTUAL}}",                     fechaActual },
                 { "{{CONTRATISTA_RAZON_SOCIAL}}",         data.ContributorName },
                 { "{{CONTRATISTA_RUC}}",                  data.ContributorRuc },
@@ -1485,16 +1820,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             using (var templateStream = File.OpenRead(templatePath))
                 docBytes = WordTemplateHelper.FillTemplate(templateStream, replacements);
 
-            var pathData = new AdjudicacionPathDataDto
-            {
-                ProjectSubContractorId = data.ProjectSubContractorId,
-                ProjectDescription     = data.ProjectDescription,
-                ContributorRuc         = data.ContributorRuc,
-                ContributorName        = data.ContributorName,
-                WorkItemDescription    = data.WorkItemDescription,
-            };
+            var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
 
-            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.PromissoryNote);
             var fileName   = $"PAGARE N°{data.PromissoryNoteNumber?.ToString("D3") ?? "000"}{abreviaturaProyecto} – {DateTime.UtcNow.Year}.docx";
             const string docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -1502,16 +1829,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             string? pagareItemId;
             using (var ms = new MemoryStream(docBytes))
             {
-                var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                    site:        _site,
-                    libraryName: "Adjudicaciones",
-                    folderPath:  folderPath,
-                    fileName:    fileName,
-                    fileStream:  ms,
-                    contentType: docxMime)
-                    ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+                var spResult = await _oneDriveStorage.UploadAsync(
+                    pathData, AdjudicacionDocumentType.PromissoryNote, fileName, ms, docxMime);
 
-                fileUrl      = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del archivo generado.");
+                fileUrl      = spResult.WebUrl!;
                 pagareItemId = spResult.ItemId;
             }
 
@@ -1531,10 +1852,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 throw new AbrilException("La hoja resumen debe ser regenerada antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
             if (!string.IsNullOrEmpty(docs.ContractUrl) && string.IsNullOrEmpty(docs.ContractItemId))
                 throw new AbrilException("El contrato debe ser regenerado antes de generar el paquete. Vaya al paso 3 y presione 'Generar'.");
-            if (!string.IsNullOrEmpty(docs.NonConformingOutputUrl) && string.IsNullOrEmpty(docs.NonConformingOutputItemId))
-                throw new AbrilException("Las salidas no conformes deben ser recargadas antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
-            if (!string.IsNullOrEmpty(docs.ToleranceChartUrl) && string.IsNullOrEmpty(docs.ToleranceChartItemId))
-                throw new AbrilException("El cuadro de tolerancias debe ser recargado antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
+            // Causales de No Conformidad y Cuadro de Tolerancias ya no se suben: usan PDF de plantilla
+            // y solo dependen del estado (Aprobado / No aplica), por lo que no requieren validación de archivo.
             if (!string.IsNullOrEmpty(docs.InstructivoUrl) && string.IsNullOrEmpty(docs.InstructivoItemId))
                 throw new AbrilException("El instructivo debe ser recargado antes de generar el paquete. Vaya al paso 3 y vuelva a subir el archivo.");
             if (!string.IsNullOrEmpty(docs.PromissoryNoteUrl) && string.IsNullOrEmpty(docs.PromissoryNoteItemId))
@@ -1557,15 +1876,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             if (!string.IsNullOrEmpty(docs.FichaTecnicaItemId))         downloads.Add((docs.FichaTecnicaItemId,         AlreadyPdf: IsPdf(docs.FichaTecnicaFileName)));
             if (!string.IsNullOrEmpty(docs.ServiceOrderItemId))         downloads.Add((docs.ServiceOrderItemId,         AlreadyPdf: IsPdf(docs.ServiceOrderFileName)));
             if (!string.IsNullOrEmpty(docs.ScheduleItemId))             downloads.Add((docs.ScheduleItemId,             AlreadyPdf: IsPdf(docs.ScheduleFileName)));
-            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId))  downloads.Add((docs.NonConformingOutputItemId,  AlreadyPdf: false));
-            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))       downloads.Add((docs.ToleranceChartItemId,       AlreadyPdf: false));
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))          downloads.Add((docs.InstructivoItemId,          AlreadyPdf: false));
             if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))       downloads.Add((docs.PromissoryNoteItemId,       AlreadyPdf: false));
 
-            if (downloads.Count == 0)
+            if (downloads.Count == 0 && !docs.NonConformingOutputApproved && !docs.ToleranceChartApproved && !docs.FinishProtectionApproved)
                 throw new AbrilException("No hay documentos para incluir en el paquete. Todos los documentos están marcados como 'No aplica'.");
 
-            var downloaded = await _sharePointService.DownloadMultipleAsPdfFromSharePointAsync(_site, "Adjudicaciones", downloads);
+            var downloaded = await _oneDriveStorage.DownloadMultipleAsPdfAsync(projectSubContractorId, downloads);
 
             var pdfBytesList = new List<byte[]>();
 
@@ -1578,16 +1895,24 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
                 // Inserciones DENTRO del contrato — cada una se aplica si el archivo correspondiente existe.
                 // Si el marcador no aparece en el contrato, InsertPdfAfterMarker hace fallback al final.
-                var inserts = new (string ItemId, string Marker)[]
+                //
+                // 'insertsVisualOrder' = orden en que deben aparecer de ARRIBA hacia ABAJO en el PDF final:
+                //   1) Cotización  2) Orden de Servicio  3) Ficha Técnica   (todos en Anexo 1)  4) Cronograma (Anexo 2)
+                //
+                // OJO: cuando varios marcadores están en la MISMA página, InsertPdfAfterMarker inserta el PDF
+                // justo después de esa página, por lo que cada inserción empuja hacia abajo a la anterior:
+                // la ÚLTIMA insertada queda PRIMERA. Por eso se procesa en orden INVERSO al orden visual deseado.
+                var insertsVisualOrder = new (string ItemId, string Marker)[]
                 {
                     (docs.AttachedQuotationItemId ?? "", ContractQuotationMarker),
-                    (docs.FichaTecnicaItemId      ?? "", ContractFichaTecnicaMarker),
                     (docs.ServiceOrderItemId      ?? "", ContractServiceOrderMarker),
+                    (docs.FichaTecnicaItemId      ?? "", ContractFichaTecnicaMarker),
                     (docs.ScheduleItemId          ?? "", ContractScheduleMarker),
                 };
 
-                foreach (var (itemId, marker) in inserts)
+                for (int i = insertsVisualOrder.Length - 1; i >= 0; i--)
                 {
+                    var (itemId, marker) = insertsVisualOrder[i];
                     if (string.IsNullOrEmpty(itemId)) continue;
                     contractPdf = InsertPdfAfterMarker(contractPdf, downloaded[itemId], marker);
                 }
@@ -1595,8 +1920,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 pdfBytesList.Add(contractPdf);
             }
 
-            if (!string.IsNullOrEmpty(docs.NonConformingOutputItemId)) pdfBytesList.Add(downloaded[docs.NonConformingOutputItemId]);
-            if (!string.IsNullOrEmpty(docs.ToleranceChartItemId))      pdfBytesList.Add(downloaded[docs.ToleranceChartItemId]);
+            // Causales de No Conformidad, Cuadro de Tolerancias y Protección de Acabados: van JUSTO
+            // DESPUÉS del contrato (en ese orden). Ya no se suben: se usa un PDF de plantilla fijo y
+            // solo se incluyen cuando su estado es "Sí aplica" (Aprobado).
+            if (docs.NonConformingOutputApproved)
+                pdfBytesList.Add(ReadTemplatePdf("causales_de_no_conformidad.pdf"));
+            if (docs.ToleranceChartApproved)
+                pdfBytesList.Add(ReadTemplatePdf("cuadro_de_tolerancias.pdf"));
+            if (docs.FinishProtectionApproved)
+                pdfBytesList.Add(ReadTemplatePdf("proteccion_de_acabados.pdf"));
+
             if (!string.IsNullOrEmpty(docs.InstructivoItemId))         pdfBytesList.Add(downloaded[docs.InstructivoItemId]);
             if (!string.IsNullOrEmpty(docs.PromissoryNoteItemId))      pdfBytesList.Add(downloaded[docs.PromissoryNoteItemId]);
 
@@ -1627,24 +1960,35 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 filePrefix = $"{proyAbrev}ADJ{projectSubContractorId:D4}-{contratAbbrev}";
 
             var fileName   = $"{filePrefix}.pdf";
-            var folderPath = BuildSharePointPath(pathData, AdjudicacionDocumentType.ContractPackage);
 
             using var ms = new MemoryStream(mergedBytes);
-            var spResult = await _sharePointService.UploadToSharePointLibraryAsync(
-                site:        _site,
-                libraryName: "Adjudicaciones",
-                folderPath:  folderPath,
-                fileName:    fileName,
-                fileStream:  ms,
-                contentType: "application/pdf")
-                ?? throw new AbrilException("No se pudo obtener la URL del paquete subido a SharePoint.");
+            var spResult = await _oneDriveStorage.UploadAsync(
+                pathData, AdjudicacionDocumentType.ContractPackage, fileName, ms, "application/pdf");
 
-            var fileUrl = spResult.WebUrl ?? throw new AbrilException("No se pudo obtener la URL del paquete subido a SharePoint.");
+            var fileUrl = spResult.WebUrl!;
 
             await _projectSubContractorRepository.SaveDocumentAsync(
                 projectSubContractorId, AdjudicacionDocumentType.ContractPackage, fileUrl, fileName, userId, spResult.ItemId);
 
             return (mergedBytes, fileUrl, fileName);
+        }
+
+        /// <summary>
+        /// Lee un PDF de plantilla fijo desde Features/CostsModule/Features/AdjudicacionesFeature/Templates.
+        /// Se usa para Causales de No Conformidad y Cuadro de Tolerancias (documentos estándar de Abril).
+        /// </summary>
+        private static byte[] ReadTemplatePdf(string fileName)
+        {
+            var path = Path.Combine(
+                AppContext.BaseDirectory,
+                "Features", "CostsModule", "Features", "AdjudicacionesFeature",
+                "Templates", fileName);
+
+            if (!File.Exists(path))
+                throw new AbrilException(
+                    $"No se encontró la plantilla '{fileName}' en el servidor. Contacte al administrador del sistema.");
+
+            return File.ReadAllBytes(path);
         }
 
         private static byte[] MergePdfs(List<byte[]> pdfBytesList)
@@ -1786,16 +2130,37 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 : 0;
             var currencySymbol = data.CurrencyCode == "USD" ? "US$" : "S/";
 
+            // Los montos se escriben como TEXTO con separadores fijos (coma para miles, punto para
+            // decimales), p. ej. "S/ 1,258,621.42" o "US$ 1,258,621.42". Se hace así porque Excel
+            // SIEMPRE usa los separadores del locale del visor para celdas numéricas (ignora el locale
+            // del formato), por lo que un formato numérico saldría como "1.258.621,42" en es-PE.
+            // Escribirlo como texto garantiza el formato en cualquier visor o al convertir a PDF.
+            // El cero se muestra como guion, estilo contable.
+            var inv = CultureInfo.InvariantCulture;
+            string FormatMoney(decimal v) =>
+                v == 0m
+                    ? $"{currencySymbol} -"
+                    : $"{currencySymbol} {v.ToString("#,##0.00", inv)}";
+
+            // Número de documento del contrato: {N°:D3}{ABREV}-{AÑO}, p. ej. "011MAX-2026".
+            // Mismo formato que aparece en el N° DOC y en el título.
+            var abrevProyecto = !string.IsNullOrWhiteSpace(data.Abbreviation)
+                ? data.Abbreviation
+                : (data.ProjectDescription.Length >= 3
+                    ? data.ProjectDescription[..3].ToUpperInvariant()
+                    : data.ProjectDescription.ToUpperInvariant());
+            var docNumber = data.ContractNumber.HasValue
+                ? $"{data.ContractNumber.Value:D3}{abrevProyecto}-{DateTime.UtcNow.Year}"
+                : data.ProjectSubContractorId.ToString("D4");
+
             // ── Row 2: Title ───────────────────────────────────────────────────
             ws.Range("B2:N2").Merge();
-            var contractLabel = data.ContractNumber.HasValue
-                ? data.ContractNumber.Value.ToString("D3")
-                : data.ProjectSubContractorId.ToString("D4");
-            ws.Cell("B2").Value = $"RESUMEN DEL CONTRATO N°{contractLabel} " +
+            ws.Cell("B2").Value = $"RESUMEN DEL CONTRATO N°{docNumber} " +
                                   $"{data.ContractTypeDescription.ToUpper()} POR EL SERVICIO DE " +
                                   $"{data.WorkItemDescription.ToUpper()}";
             ws.Range("B2:N2").Style.Font.Bold       = true;
             ws.Range("B2:N2").Style.Font.FontSize   = 11;
+            ws.Range("B2:N2").Style.Fill.BackgroundColor = XLColor.FromHtml("#D9D9D9");
             ws.Range("B2:N2").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Range("B2:N2").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("B2:N2").Style.Alignment.WrapText   = true;
@@ -1808,12 +2173,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("B6").Value = "Contratista:"; ws.Cell("B6").Style.Font.Bold = true;
             ws.Cell("C6").Value = data.ContributorName;
 
+            ws.Cell("B7").Value = "N° de niveles:"; ws.Cell("B7").Style.Font.Bold = true;
+            if (!string.IsNullOrWhiteSpace(data.Niveles))
+                ws.Cell("C7").Value = data.Niveles;
+
             ws.Cell("B8").Value = "Fecha:"; ws.Cell("B8").Style.Font.Bold = true;
+            // Fecha como TEXTO (no valor de fecha): evita la indentación/derecha del formato fecha
+            // y que el locale del visor cambie el formato (p. ej. "1/12/2026" en vez de "12/01/2026").
             if (data.SigningDate.HasValue)
-            {
-                ws.Cell("C8").Value = data.SigningDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("C8").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("C8").Value = data.SigningDate.Value.ToString("dd/MM/yyyy", inv);
 
             // ── Row 11: Sub-header ─────────────────────────────────────────────
             ws.Range("B11:D11").Merge();
@@ -1847,9 +2215,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             SetHeader("D12:D12", "FECHA DE\nCONTRATO");
             SetHeader("E12:E12", "MONTO CONTRATADO\n(inc IGV)");
             SetHeader("F12:F12", "N° DOC");
-            SetHeader("G12:G12", "CHEQUE / RECIBO");
+            // La carta de fianza solo aplica en Suministro (ContractModalityId == 2) + contrato con
+            // adelanto (PaymentMethodId == 2) y únicamente cuando se marcó el toggle IncludesCartaFianza.
+            var conCartaFianza = data.PaymentMethodId == 2 && data.ContractModalityId == 2 && data.IncludesCartaFianza;
+            SetHeader("G12:G12", conCartaFianza
+                ? "PAGARÉ, LETRA DE GARANTÍA\nY CARTA DE FIANZA"
+                : "PAGARÉ Y LETRA DE GARANTÍA");
             SetHeader("H12:H12", "% ADELANTO");
-            SetHeader("I12:I12", "IMPORTE ADELANTO\nS/");
+            SetHeader("I12:I12", $"IMPORTE ADELANTO\n{currencySymbol}");
             SetHeader("J12:J12", "SALDO");
             SetHeader("K12:K12", "INICIO");
             SetHeader("L12:L12", "FIN");
@@ -1864,40 +2237,51 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Range("B13:C14").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Range("B13:C14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // D – Fecha contrato
+            // D – Fecha contrato (texto)
             ws.Range("D13:D14").Merge();
             if (data.SigningDate.HasValue)
-            {
-                ws.Cell("D13").Value = data.SigningDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("D13").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("D13").Value = data.SigningDate.Value.ToString("dd/MM/yyyy", inv);
             ws.Cell("D13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("D13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("D13:D14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // E – Monto contratado
             ws.Range("E13:E14").Merge();
-            ws.Cell("E13").Value = data.Amount;
-            ws.Cell("E13").Style.NumberFormat.Format  = $"\"{currencySymbol}\" #,##0.00";
-            ws.Cell("E13").Style.Font.FontColor       = XLColor.FromHtml("#E26B0A");
+            ws.Cell("E13").Value = FormatMoney(data.Amount);
             ws.Cell("E13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("E13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Range("E13:E14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // F – N° DOC
             ws.Range("F13:F14").Merge();
-            ws.Cell("F13").Value = "";
+            ws.Cell("F13").Value = $"CONTRATO N°{docNumber}";
             ws.Cell("F13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("F13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("F13").Style.Alignment.WrapText   = true;
             ws.Range("F13:F14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // G – Cheque / Recibo (vacío)
+            // G – Documentos de garantía: solo en contratos CON adelanto (PaymentMethodId == 2) se indica
+            // "PAGARÉ N°{N°}{ABREV}-{AÑO} Y LETRA DE GARANTÍA", añadiendo la carta de fianza si aplica
+            // (igual que el contrato).
             ws.Range("G13:G14").Merge();
+            if (data.PaymentMethodId == 2)
+            {
+                var numPagare = data.PromissoryNoteNumber.HasValue
+                    ? data.PromissoryNoteNumber.Value.ToString("D3")
+                    : "";
+                var pagareRef = $"PAGARÉ N°{numPagare}{abrevProyecto}-{DateTime.UtcNow.Year}";
+                ws.Cell("G13").Value = conCartaFianza
+                    ? $"{pagareRef}, LETRA DE GARANTÍA Y CARTA DE FIANZA"
+                    : $"{pagareRef} Y LETRA DE GARANTÍA";
+            }
+            ws.Cell("G13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell("G13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("G13").Style.Alignment.WrapText   = true;
             ws.Range("G13:G14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // H – % Adelanto
             ws.Range("H13:H14").Merge();
-            ws.Cell("H13").Value = (data.AdvancePercentage ?? 0) / 100m;
-            ws.Cell("H13").Style.NumberFormat.Format  = "0.00%";
+            ws.Cell("H13").Value = $"{(data.AdvancePercentage ?? 0).ToString("0.00", inv)}%";
             ws.Cell("H13").Style.Font.Bold            = true;
             ws.Cell("H13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("H13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
@@ -1905,37 +2289,30 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // I – Importe adelanto
             ws.Range("I13:I14").Merge();
-            ws.Cell("I13").Value = advance;
-            ws.Cell("I13").Style.NumberFormat.Format = "\"S/\" #,##0.00";
+            ws.Cell("I13").Value = FormatMoney(advance);
             ws.Cell("I13").Style.Alignment.Vertical  = XLAlignmentVerticalValues.Center;
+            ws.Cell("I13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Range("I13:I14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             // J – Saldo
             ws.Range("J13:J14").Merge();
-            ws.Cell("J13").Value = saldo;
-            ws.Cell("J13").Style.NumberFormat.Format  = $"\"{currencySymbol}\" #,##0.00";
-            ws.Cell("J13").Style.Font.FontColor       = XLColor.FromHtml("#E26B0A");
+            ws.Cell("J13").Value = FormatMoney(saldo);
             ws.Cell("J13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("J13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Range("J13:J14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // K – Inicio
+            // K – Inicio (texto)
             ws.Range("K13:K14").Merge();
             if (data.StartDate.HasValue)
-            {
-                ws.Cell("K13").Value = data.StartDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("K13").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("K13").Value = data.StartDate.Value.ToString("dd/MM/yyyy", inv);
             ws.Cell("K13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("K13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("K13:K14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // L – Fin
+            // L – Fin (texto)
             ws.Range("L13:L14").Merge();
             if (data.EndDate.HasValue)
-            {
-                ws.Cell("L13").Value = data.EndDate.Value.ToDateTime(TimeOnly.MinValue);
-                ws.Cell("L13").Style.DateFormat.Format = "dd/MM/yyyy";
-            }
+                ws.Cell("L13").Value = data.EndDate.Value.ToString("dd/MM/yyyy", inv);
             ws.Cell("L13").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell("L13").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("L13:L14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
@@ -1956,10 +2333,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Range("B15:D15").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
             ws.Range("B15:D15").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            ws.Cell("E15").Value = data.Amount;
-            ws.Cell("E15").Style.NumberFormat.Format  = $"\"{currencySymbol}\" #,##0.00";
+            ws.Cell("E15").Value = FormatMoney(data.Amount);
             ws.Cell("E15").Style.Font.Bold            = true;
             ws.Cell("E15").Style.Alignment.Vertical   = XLAlignmentVerticalValues.Center;
+            ws.Cell("E15").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             ws.Cell("E15").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             foreach (var col in new[] { "F", "G", "H", "I", "J" })
@@ -2001,49 +2378,6 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.PageSetup.Margins.Bottom = 0.5;
         }
 
-        // ── Helpers de ruta SharePoint ───────────────────────────────────────
-
-        private static string BuildSharePointPath(AdjudicacionPathDataDto data, AdjudicacionDocumentType documentType)
-        {
-            var project      = Sanitize(data.ProjectDescription);
-            var company      = Sanitize($"{data.ContributorRuc} - {data.ContributorName}");
-            var workItem  = Sanitize($"{data.ProjectSubContractorId} - {data.WorkItemDescription}");
-            var subfolder = GetSubfolderName(documentType);
-            return $"{project}/{company}/{workItem}/{subfolder}";
-        }
-
-        private static string GetSubfolderName(AdjudicacionDocumentType documentType) => documentType switch
-        {
-            AdjudicacionDocumentType.Contract           => "Contrato",
-            AdjudicacionDocumentType.SummarySheet       => "Hoja Resumen",
-            AdjudicacionDocumentType.Budget             => "Presupuesto",
-            AdjudicacionDocumentType.Schedule           => "Cronograma",
-            AdjudicacionDocumentType.AttachedQuotation  => "Cotizacion Adjunta",
-            AdjudicacionDocumentType.ServiceOrder       => "Orden de Servicio",
-            AdjudicacionDocumentType.InitialQuotation   => "Cotizaciones",
-            AdjudicacionDocumentType.InitialComparative => "Comparativo",
-            AdjudicacionDocumentType.PromissoryNote     => "Pagaré",
-            AdjudicacionDocumentType.ScPackage          => "Paquete SC",
-            AdjudicacionDocumentType.ScannedDoc1        => "Escaneados",
-            AdjudicacionDocumentType.ScannedDoc2        => "Escaneados",
-            AdjudicacionDocumentType.ScannedDoc3        => "Escaneados",
-            AdjudicacionDocumentType.ContractPackage    => "Contrato completo",
-            AdjudicacionDocumentType.Instructivo           => "Instructivos",
-            AdjudicacionDocumentType.NonConformingOutput   => "Salidas No Conforme",
-            AdjudicacionDocumentType.ToleranceChart        => "Cuadro de Tolerancias",
-            AdjudicacionDocumentType.FichaTecnica          => "Ficha Tecnica",
-            AdjudicacionDocumentType.Anexo                 => "Anexos",
-            _ => throw new ArgumentOutOfRangeException(nameof(documentType))
-        };
-
-        /// <summary>Elimina caracteres que SharePoint no acepta en nombres de carpeta.</summary>
-        private static string Sanitize(string name)
-        {
-            var invalid = new HashSet<char> { '\\', '/', ':', '*', '?', '"', '<', '>', '|', '#', '%' };
-            var result = string.Concat(name.Select(c => invalid.Contains(c) ? '-' : c)).Trim();
-            return result.Length > 60 ? result[..60].TrimEnd() : result;
-        }
-
         private async Task<List<MailAttachmentDto>> DownloadAttachmentsAsync(
             List<ProjectSubContractorFileDto> files)
         {
@@ -2054,7 +2388,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             {
                 try
                 {
-                    var bytes = await _sharePointService.DownloadFromSharePointAsync(_site, file.FileUrl);
+                    var bytes = await _oneDriveStorage.DownloadByWebUrlAsync(file.FileUrl);
                     var fileName = !string.IsNullOrWhiteSpace(file.OriginalFileName)
                         ? file.OriginalFileName
                         : Path.GetFileName(new Uri(file.FileUrl).LocalPath);

@@ -16,6 +16,10 @@ namespace Abril_Backend.Infrastructure.Services
         public string ResidentReportIncidence { get; set; }
         public string ProjectSubContractor { get; set; }
         public string ProjectFotosContainer { get; set; } = "project-fotos";
+        public string ProjectCroquisContainer { get; set; } = "project-croquis";
+        public string VecinoRequisitosContainer { get; set; } = "vecino-requisitos";
+        public string VecinoEntregablesContainer { get; set; } = "vecino-entregables";
+        public string VecinoPropiedadImagenesContainer { get; set; } = "vecino-propiedad-imagenes";
     }
 
     public class LocalStorageOptions
@@ -26,5 +30,9 @@ namespace Abril_Backend.Infrastructure.Services
         public string ResidentReportIncidence { get; set; }
         public string ProjectSubContractor { get; set; }
         public string ProjectFotosContainer { get; set; } = "project-fotos";
+        public string ProjectCroquisContainer { get; set; } = "project-croquis";
+        public string VecinoRequisitosContainer { get; set; } = "vecino-requisitos";
+        public string VecinoEntregablesContainer { get; set; } = "vecino-entregables";
+        public string VecinoPropiedadImagenesContainer { get; set; } = "vecino-propiedad-imagenes";
     }
 }

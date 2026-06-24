@@ -24,6 +24,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public string PaymentMethodDescription { get; set; }
         public int? PaymentFormId { get; set; }
         public string? PaymentFormDescription { get; set; }
+        public bool IncludesCartaFianza { get; set; }
         public decimal? AdvancePercentage {get;set;}
         public decimal? AdvanceAmount {get;set;}
         public decimal Amount { get; set; }
@@ -33,8 +34,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public List<string> ContractorEmails { get; set; } = new();
         public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; }
+        public bool IsSubcontract { get; set; }
+        public bool IsLabor { get; set; }
+        public string? ContractWorkItemName { get; set; }
         public int WorkItemCategoryId { get; set; }
         public string WorkItemCategoryDescription { get; set; }
+        /// <summary>Estado del instructivo de la partida de control (1=automático, 2=manual, 3=sin instructivo).</summary>
+        public int? WorkItemCategoryInstructivosSyncStatus { get; set; }
+        /// <summary>Nombre del instructivo asociado a la partida de control, si existe.</summary>
+        public string? WorkItemCategoryInstructivosFolderName { get; set; }
+        /// <summary>Formas de valorización (cláusula 5.1) de la partida, ordenadas por SortOrder.</summary>
+        public List<WorkItemValorizationFormSimpleDTO> WorkItemValorizationForms { get; set; } = new();
+        public int? WorkSpecialtyId { get; set; }
+        public string? WorkSpecialtyDescription { get; set; }
         public int ProjectSubContractorStatusId { get; set; }
         public string ProjectSubContractorStatusDescription { get; set; }
         public DateOnly? SigningDate { get; set; }
@@ -46,7 +58,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public int?   GuaranteeFundPercentage   { get; set; }
         public int?   GuaranteeFundDays         { get; set; }
         public int?   GuaranteeValidityDays     { get; set; }
+        public int    PaymentDays               { get; set; }
         public bool?  ArrivedWithObservations   { get; set; }
+        public string? ArrivalObservation       { get; set; }
+        // Procesos de firma (paso 6)
+        public bool Step6SignedCostos { get; set; }
+        public bool Step6SignedGerenteInmobiliario { get; set; }
+        public bool Step6SignedGerenteGeneral { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public string? CreatedUserFullName { get; set; }
         public List<ProjectSubContractorFileDto> QuotationFiles { get; set; } = new();
@@ -67,9 +85,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public ProjectSubContractorFileDto? Package { get; set; }
         // Instructivo (paso 3 — obtenido desde OneDrive de Calidad)
         public ProjectSubContractorFileDto? Instructivo { get; set; }
-        // Salidas no conforme y cuadro de tolerancias (paso 3 — solo subida)
+        // Salidas no conforme y cuadro de tolerancias (paso 3 — solo estado, usan plantilla)
         public ProjectSubContractorFileDto? NonConformingOutput { get; set; }
         public ProjectSubContractorFileDto? ToleranceChart { get; set; }
+        // Protección de Acabados (paso 3 — solo estado, usa plantilla). Solo expone StatusId.
+        public ProjectSubContractorFileDto? FinishProtection { get; set; }
         // Ficha técnica y anexos (paso 3 — solo subida)
         public ProjectSubContractorFileDto? FichaTecnica { get; set; }
         public ProjectSubContractorFileDto? Anexo { get; set; }

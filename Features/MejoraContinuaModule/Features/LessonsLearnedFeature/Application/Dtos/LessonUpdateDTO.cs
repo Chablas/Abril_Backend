@@ -1,18 +1,12 @@
-using Microsoft.AspNetCore.Http;
-
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos
 {
-    public class UpdateLessonDTO
+    /// <summary>
+    /// Payload de edición de una lección (solo el autor). Hereda los campos de
+    /// creación y agrega la lista de imágenes existentes a eliminar.
+    /// </summary>
+    public class LessonUpdateDTO : LessonCreateDTO
     {
-        public int LessonId { get; set; }
-        public string? LessonCode { get; set; }
-        public string ProblemDescription { get; set; } = string.Empty;
-        public string ReasonDescription { get; set; } = string.Empty;
-        public string LessonDescription { get; set; } = string.Empty;
-        public string ImpactDescription { get; set; } = string.Empty;
-        public int ProjectId { get; set; }
-        public int PhaseStageSubStageSubSpecialtyId { get; set; }
-        public IFormFile[] ProblemImages { get; set; } = Array.Empty<IFormFile>();
-        public IFormFile[] LessonImages { get; set; } = Array.Empty<IFormFile>();
+        /// <summary>lesson_image_id de imágenes existentes que el autor quitó.</summary>
+        public List<int>? RemovedImageIds { get; set; }
     }
 }

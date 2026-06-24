@@ -2,6 +2,34 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories;
+using Abril_Backend.Features.Ssoma.Paso.Services;
+using Abril_Backend.Features.Ssoma.Rac.Services;
+using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.OptFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Services;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -48,6 +76,63 @@ namespace Abril_Backend.Features.Ssoma
 
             // Resumen diario EMO (cron 4:30pm)
             services.AddScoped<IEmoResumenDiarioService, EmoResumenDiarioService>();
+
+            // PASO — Programa Anual de Seguridad
+            services.AddScoped<IPasoService, PasoService>();
+
+            // RAC — Reporte de Actos y Condiciones Subestándar
+            services.AddScoped<IRacService, RacService>();
+            services.AddScoped<IPenalidadService, PenalidadService>();
+            services.AddScoped<IRacSharePointService, RacSharePointService>();
+            services.AddScoped<IRacNotificationService, RacNotificationService>();
+
+            // OPT — Observación Planeada de Tarea
+            services.AddScoped<IOptRepository, OptRepository>();
+            services.AddScoped<IOptSharePointService, OptSharePointService>();
+            services.AddScoped<IOptService, OptService>();
+
+            // Inspecciones
+            services.AddScoped<IInspeccionSharePointService, InspeccionSharePointService>();
+            services.AddScoped<IInspeccionRepository, InspeccionRepository>();
+            services.AddScoped<IInspeccionService, InspeccionService>();
+            services.AddScoped<InspeccionPdfService>();
+
+            // Tópico Médico
+            services.AddScoped<ITopicoRepository, TopicoRepository>();
+            services.AddScoped<ITopicoService, TopicoService>();
+
+            // Accidentes de Trabajo
+            services.AddScoped<IAccidenteTrabajoRepository, AccidenteTrabajoRepository>();
+            services.AddScoped<IAccidenteTrabajoService, AccidenteTrabajoService>();
+
+            // Descansos Médicos
+            services.AddScoped<IDescansoMedicoRepository, DescansoMedicoRepository>();
+            services.AddScoped<IDescansoMedicoService, DescansoMedicoService>();
+
+            // Mi Salud (self-service staff)
+            services.AddScoped<IMiSaludRepository, MiSaludRepository>();
+            services.AddScoped<IMiSaludService, MiSaludService>();
+
+            // Asistente Social — Casos Sociales
+            services.AddScoped<ICasoSocialRepository, CasoSocialRepository>();
+            services.AddScoped<ISeguimientoRepository, SeguimientoRepository>();
+            services.AddScoped<ICasoSocialService, CasoSocialService>();
+
+            // Charlas y Capacitaciones
+            services.AddScoped<ICharlaService, CharlaService>();
+
+            // Accidentes e Incidentes
+            services.AddScoped<IAccidenteIncidenteRepository, AccidenteIncidenteRepository>();
+            services.AddScoped<IAccidenteIncidenteService, AccidenteIncidenteService>();
+
+            // Auditoría ATS
+            services.AddScoped<IAuditoriaAtsRepository, AuditoriaAtsRepository>();
+            services.AddScoped<IAuditoriaAtsService, AuditoriaAtsService>();
+
+            // Amonestaciones y Suspensiones
+            services.AddScoped<IAmonestacionRepository, AmonestacionRepository>();
+            services.AddScoped<IAmonestacionService, AmonestacionService>();
+            services.AddScoped<AmonestacionNotificationService>();
 
             return services;
         }

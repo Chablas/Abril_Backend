@@ -6,6 +6,10 @@ using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Applicatio
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Application.Services;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Application.Interfaces;
+using Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Application.Services;
+using Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.ConfigurationModule.Features.HolidayFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.ConfigurationModule
 {
@@ -24,6 +28,10 @@ namespace Abril_Backend.Features.ConfigurationModule
             services.AddScoped<IAreaItemService, AreaItemService>();
             services.AddScoped<IAreaScopeRepository, AreaScopeRepository>();
             services.AddScoped<IAreaScopeService, AreaScopeService>();
+
+            // Holiday (Feriados y días no laborables)
+            services.AddScoped<IHolidayRepository, HolidayRepository>();
+            services.AddScoped<IHolidayService, HolidayService>();
 
             return services;
         }

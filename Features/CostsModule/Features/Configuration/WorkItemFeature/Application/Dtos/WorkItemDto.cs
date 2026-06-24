@@ -9,5 +9,17 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
         public DateTime? UpdatedDateTime { get; set; }
         public int? UpdatedUserId { get; set; }
         public bool Active { get; set; }
+
+        /// <summary>Formas de valorización (cláusula 5.1), ordenadas por SortOrder.</summary>
+        public List<WorkItemValorizationFormDto> ValorizationForms { get; set; } = [];
+    }
+
+    /// <summary>Una línea de la forma de valorización (porcentaje + concepto) de la partida.</summary>
+    public class WorkItemValorizationFormDto
+    {
+        public int     WorkItemValorizationFormId { get; set; }
+        public string  Concept                    { get; set; } = null!;
+        public decimal Percentage                 { get; set; }
+        public int     SortOrder                  { get; set; }
     }
 }

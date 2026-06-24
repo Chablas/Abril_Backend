@@ -20,7 +20,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
         [Authorize]
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+        public async Task<IActionResult> GetPaged([FromQuery] int page = 1, [FromQuery] int pageSize = 10, [FromQuery] string? subarea = null, [FromQuery] int? workerId = null, [FromQuery] bool includeWorkers = false)
         {
             try
             {
@@ -29,7 +29,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 if (page < 1) page = 1;
-                var result = await _service.GetPaged(page, pageSize);
+                var result = await _service.GetPaged(page, pageSize, subarea, workerId, includeWorkers);
                 return Ok(result);
             }
             catch (Exception)
@@ -67,8 +67,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                if (dto.UserId <= 0)
-                    return BadRequest(new { message = "Debe seleccionar un usuario." });
+                if (dto.WorkerId <= 0)
+                    return BadRequest(new { message = "Debe seleccionar un trabajador." });
                 if (dto.ProjectId <= 0)
                     return BadRequest(new { message = "Debe seleccionar un proyecto." });
 
@@ -79,6 +79,33 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             catch (AbrilException ex)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("{id}/project")]
+        public async Task<IActionResult> UpdateProject(int id, [FromBody] LessonReminderUpdateProjectDTO dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                if (dto.ProjectId <= 0)
+                    return BadRequest(new { message = "Debe seleccionar un proyecto." });
+
+                var userId = int.Parse(userIdClaim.Value);
+                await _service.UpdateProjectAsync(id, dto.ProjectId, userId);
+                return Ok(new { message = "Recordatorio actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -162,6 +189,97 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             try
             {
                 var result = await _service.ToggleProjectStaffAsync(projectId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Jefaturas (lesson_jefe_reminder): lista + toggle del recordatorio del 4.º día
+        // ─────────────────────────────────────────────────────────────────────
+
+        [Authorize]
+        [HttpGet("jefe")]
+        public async Task<IActionResult> GetJefes()
+        {
+            try
+            {
+                var result = await _service.GetAllJefesAsync();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Revisor de Trabajadores (workers.worker_lesson_jefe_id)
+        // ─────────────────────────────────────────────────────────────────────
+
+        [Authorize]
+        [HttpGet("worker-revisor")]
+        public async Task<IActionResult> GetWorkerRevisores()
+        {
+            try
+            {
+                var result = await _service.GetWorkerRevisoresAsync();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("worker-revisor/options")]
+        public async Task<IActionResult> GetWorkerRevisorOptions()
+        {
+            try
+            {
+                var result = await _service.GetWorkerRevisorOptionsAsync();
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("worker-revisor/{workerId}")]
+        public async Task<IActionResult> UpdateWorkerRevisor(int workerId, [FromBody] WorkerRevisorUpdateDTO dto)
+        {
+            try
+            {
+                await _service.UpdateWorkerRevisorAsync(workerId, dto.JefeWorkerId);
+                return Ok(new { message = "Jefe actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpPut("jefe/toggle/{workerId}")]
+        public async Task<IActionResult> ToggleJefe(int workerId)
+        {
+            try
+            {
+                var result = await _service.ToggleJefeAsync(workerId);
                 return Ok(result);
             }
             catch (AbrilException ex)

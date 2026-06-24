@@ -11,5 +11,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         public int Orden { get; set; }
         public bool RequiereVigencia { get; set; } = true;
         public bool Activo { get; set; } = true;
+        public bool EsMensual { get; set; } = false;
     }
 }

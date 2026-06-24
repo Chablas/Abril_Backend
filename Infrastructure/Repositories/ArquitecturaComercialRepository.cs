@@ -934,33 +934,51 @@ namespace Abril_Backend.Infrastructure.Repositories
 
         private static decimal CalcularSpi(AcActividad a)
         {
-            if (!a.InicioProgramado.HasValue)
+            if (!a.InicioProgramado.HasValue || !a.FinProgramado.HasValue)
                 return 0m;
 
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
+            var diasPlan = (a.FinProgramado.Value.ToDateTime(TimeOnly.MinValue)
+                          - a.InicioProgramado.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+            if (diasPlan <= 0) return 0m;
+
+            // % avance real
+            double avanceReal;
             if (a.FinEfectivo.HasValue)
             {
-                var diasPlan = (a.FinProgramado!.Value.ToDateTime(TimeOnly.MinValue)
-                              - a.InicioProgramado.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
-                if (diasPlan == 0) return 0m;
-                var diasReal = (a.FinEfectivo.Value.ToDateTime(TimeOnly.MinValue)
-                              - (a.InicioEfectivo ?? a.InicioProgramado.Value).ToDateTime(TimeOnly.MinValue)).TotalDays;
-                if (diasReal == 0) return 0m;
-                return Math.Round((decimal)(diasPlan / diasReal), 2);
+                avanceReal = 100.0;
             }
-
-            if (a.InicioEfectivo.HasValue)
+            else if (a.InicioEfectivo.HasValue)
             {
-                var diasPlan = (a.FinProgramado!.Value.ToDateTime(TimeOnly.MinValue)
-                              - a.InicioProgramado.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
-                if (diasPlan == 0) return 0m;
                 var diasTranscurridos = (today.ToDateTime(TimeOnly.MinValue)
                                        - a.InicioEfectivo.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
-                return Math.Round((decimal)(diasTranscurridos / diasPlan), 2);
+                avanceReal = Math.Min(diasTranscurridos / diasPlan * 100.0, 99.0);
+            }
+            else
+            {
+                return 0m;
             }
 
-            return 0m;
+            // % avance esperado según cronograma
+            var diasTranscurridosPlan = (today.ToDateTime(TimeOnly.MinValue)
+                                        - a.InicioProgramado.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+            if (diasTranscurridosPlan <= 0) return 0m;
+            var avanceEsperado = Math.Min(diasTranscurridosPlan / diasPlan * 100.0, 100.0);
+            if (avanceEsperado <= 0) return 0m;
+
+            // Para actividades terminadas usar fecha fin efectivo vs fin programado
+            if (a.FinEfectivo.HasValue)
+            {
+                var diasRealTotal = (a.FinEfectivo.Value.ToDateTime(TimeOnly.MinValue)
+                                   - a.InicioProgramado.Value.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (diasRealTotal <= 0) return 0m;
+                var spiTerminada = Math.Round((decimal)(diasPlan / diasRealTotal), 2);
+                return Math.Min(spiTerminada, 1.5m);
+            }
+
+            var spi = Math.Round((decimal)(avanceReal / avanceEsperado), 2);
+            return Math.Min(spi, 1.5m);
         }
 
         private static decimal CalcularPorcentajeAvance(AcActividad a, DateOnly today)
@@ -1109,6 +1127,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Nombre = p.Nombre,
                 Tipo = p.Tipo,
                 EtapaId = p.EtapaId,
+                CategoriaId = p.CategoriaId,
+                EspecialidadId = p.EspecialidadId,
                 Orden = p.Orden,
                 Activo = false,
             }).ToList();
@@ -1294,7 +1314,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var spiVals = actividades.Where(a => a.Spi.HasValue && a.Spi.Value > 0)
                 .Select(a => (double)a.Spi!.Value).ToList();
-            var eficienciaMedia = spiVals.Count > 0 ? Math.Round(spiVals.Average() * 100, 1) : 0.0;
+            var eficienciaMedia = spiVals.Count > 0 ? Math.Round(spiVals.Average(), 2) : 0.0;
             var progresoGlobal  = total > 0 ? Math.Round((double)culminadas / total * 100, 1) : 0.0;
 
             var semLunes   = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
@@ -1340,12 +1360,7 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var tareasPorArquitectoDetalle = workerIds.Select(uid =>
             {
-                var tareas = actividades.Where(a =>
-                {
-                    var resp1 = a.UserId ??
-                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
-                    return resp1 == uid || a.UserId2 == uid;
-                }).ToList();
+                var tareas = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
                 var completadas = tareas.Count(a => a.FinEfectivo != null);
                 return new TareasPorArquitectoDTO
                 {
@@ -1359,22 +1374,55 @@ namespace Abril_Backend.Infrastructure.Repositories
                 };
             }).OrderByDescending(t => t.Total).ToList();
 
-            var supervisores = tareasPorArquitectoDetalle.Select(t => new SupervisorProgresoDTO
-            {
-                Nombre      = t.Nombre,
-                Progreso    = (double)t.AvancePct,
-                Completadas = actividades.Count(a =>
+            var supervisores = workerIds
+                .Select(uid =>
                 {
-                    var resp1 = a.UserId ??
-                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
-                    return (resp1 == t.UserId || a.UserId2 == t.UserId) && a.FinEfectivo != null;
-                }),
-                Total       = t.Total,
-            }).ToList();
+                    var tareas = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
+                    var total  = tareas.Count;
+                    if (total == 0) return null;
+
+                    var completadas = tareas.Count(a => a.FinEfectivo != null);
+
+                    // 1. SPI (35%)
+                    var spiValidos  = tareas.Where(a => a.Spi.HasValue && a.Spi.Value > 0 && a.Spi.Value <= 1.5m).ToList();
+                    var spiPromedio = spiValidos.Any() ? (double)spiValidos.Average(a => a.Spi!.Value) : 1.0;
+                    var compSpi     = Math.Min(spiPromedio / 1.5, 1.0) * 100;
+
+                    // 2. Tasa de cierre (35%)
+                    var compCierre = completadas / (double)total * 100;
+
+                    // 3. Puntualidad de inicio (20%)
+                    var conInicioEfectivo = tareas.Where(a => a.InicioEfectivo.HasValue).ToList();
+                    var puntuales         = conInicioEfectivo.Count(a => a.InicioEfectivo!.Value <= a.InicioProgramado!.Value);
+                    var compInicio        = conInicioEfectivo.Any()
+                        ? puntuales / (double)conInicioEfectivo.Count * 100
+                        : 50.0;
+
+                    // 4. Penalización mora (10%)
+                    var vencidas = tareas.Count(a => a.FinProgramado.HasValue && a.FinProgramado.Value < today && a.FinEfectivo == null);
+                    var compMora = (1 - vencidas / (double)total) * 100;
+
+                    var ies = Math.Round(compSpi * 0.35 + compCierre * 0.35 + compInicio * 0.20 + compMora * 0.10, 1);
+                    if (completadas == 0 && total > 0) ies = Math.Min(ies, 30.0);
+
+                    return new SupervisorProgresoDTO
+                    {
+                        Nombre      = workerNameMap.GetValueOrDefault(uid, $"Worker {uid}"),
+                        Progreso    = ies,
+                        Total       = total,
+                        Completadas = completadas,
+                    };
+                })
+                .Where(s => s != null)
+                .Cast<SupervisorProgresoDTO>()
+                .OrderByDescending(s => s.Progreso)
+                .ToList();
 
             var hitosBase = actividades
-                .Where(a => a.Tipo == "HITO" && a.Estado != EstadoCulminado &&
-                       a.FinProgramado.HasValue && a.FinProgramado.Value <= today.AddDays(30))
+                .Where(a => a.Tipo == "HITO"
+                    && a.FinEfectivo == null
+                    && a.FinProgramado.HasValue
+                    && a.FinProgramado.Value <= today.AddDays(30))
                 .OrderBy(a => a.FinProgramado).Take(50).ToList();
 
             var hitosProjectIds = hitosBase.Select(a => a.ProjectId).Distinct().ToList();
@@ -1388,7 +1436,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Id            = a.Id,
                 Nombre        = a.Nombre,
                 Proyecto      = hitosProjects.GetValueOrDefault(a.ProjectId, ""),
-                Estado        = a.Estado ?? "",
+                Estado        = ComputeEstado(a.InicioProgramado, a.FinProgramado, a.InicioEfectivo, a.FinEfectivo, today),
                 FechaLimite   = a.FinProgramado?.ToString("dd/MM/yyyy") ?? "",
                 DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
             }).ToList();
@@ -1408,9 +1456,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Programado = Math.Round(s.Real * 0.9m, 2),
             }).ToList();
 
-            var hace3Semanas = today.AddDays(-21);
             var spiRaw = await ctx.AcAvanceSemanal
-                .Where(s => s.Semana >= hace3Semanas)
+                .Where(s => s.Semana >= hace8Semanas)
                 .GroupBy(s => s.Semana)
                 .Select(g => new { Semana = g.Key, Spi = g.Average(x => x.Spi) })
                 .OrderBy(s => s.Semana)
@@ -1422,9 +1469,41 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Spi    = s.Spi,
             }).ToList();
 
-            var categorias = await ctx.AcCategoria
-                .Select(c => new CategoriaItemDTO { Id = c.Id, Nombre = c.Nombre })
+            var categoriasRaw = await ctx.AcCategoria
+                .Select(c => new { c.Id, c.Nombre })
                 .ToListAsync();
+
+            var categorias = categoriasRaw
+                .Select(c => new CategoriaItemDTO { Id = c.Id, Nombre = c.Nombre })
+                .ToArray();
+
+            static CategoriaDashboardItemDTO BuildCategoriaItem(int id, string nombre, List<AcActividad> acts, DateOnly today)
+            {
+                var t   = acts.Count;
+                var cul = acts.Count(a => a.FinEfectivo != null);
+                var ep  = acts.Count(a => a.InicioEfectivo != null && a.FinEfectivo == null);
+                var ven = acts.Count(a => a.FinProgramado.HasValue && a.FinProgramado.Value < today && a.FinEfectivo == null);
+                var pen = acts.Count(a => a.InicioProgramado.HasValue && a.InicioProgramado.Value > today && a.InicioEfectivo == null);
+                return new CategoriaDashboardItemDTO
+                {
+                    Id         = id,
+                    Nombre     = nombre,
+                    Total      = t,
+                    Culminadas = cul,
+                    EnProceso  = ep,
+                    Vencidas   = ven,
+                    Pendientes = pen,
+                    Progreso   = t > 0 ? Math.Round((double)cul / t * 100, 1) : 0,
+                };
+            }
+
+            var distribucionPorCategoria = categoriasRaw
+                .Select(c => BuildCategoriaItem(c.Id, c.Nombre, actividades.Where(a => a.CategoriaId == c.Id).ToList(), today))
+                .ToList();
+
+            var sinCat = actividades.Where(a => a.CategoriaId == null).ToList();
+            if (sinCat.Count > 0)
+                distribucionPorCategoria.Add(BuildCategoriaItem(0, "Sin categoría", sinCat, today));
 
             return new ArqComercialDashboardDTO
             {
@@ -1467,7 +1546,8 @@ namespace Abril_Backend.Infrastructure.Repositories
                 TareasPorArquitectoDetalle = [.. tareasPorArquitectoDetalle],
                 AvanceSemanal              = [.. semanas],
                 EficienciaSpi              = [.. eficienciaSpi],
-                Categorias                 = [.. categorias],
+                Categorias                 = categorias,
+                DistribucionPorCategoria   = distribucionPorCategoria,
             };
         }
 
@@ -1626,6 +1706,17 @@ namespace Abril_Backend.Infrastructure.Repositories
                 """;
 
             await emailService.SendAsync(destinatarios.ToList(), titulo, html, isHtml: true);
+        }
+
+        public async Task RecalcularTodosSpi()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var actividades = await ctx.AcActividad.ToListAsync();
+            foreach (var a in actividades)
+            {
+                a.Spi = CalcularSpi(a);
+            }
+            await ctx.SaveChangesAsync();
         }
     }
 }

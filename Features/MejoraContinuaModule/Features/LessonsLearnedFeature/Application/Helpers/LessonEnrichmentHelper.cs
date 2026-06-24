@@ -1,23 +1,21 @@
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
 
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Helpers
 {
     public class LessonEnrichmentData
     {
-        /// <summary>Path completo (incluyendo Gerencia) joineado con " / ". Para vista de detalle.</summary>
+        /// <summary>Path completo (Gerencia / Estándar / …). Para detalle.</summary>
         public string? AreaDescription { get; set; }
-        /// <summary>
-        /// Path "corto" para listas/tarjetas: omite los nodos cuyo área_type es "Área de Gerencia"
-        /// y devuelve los nombres en MAYÚSCULAS unidos con " / ".
-        /// </summary>
+        /// <summary>Path "corto" sin Gerencia, MAYÚSCULAS. Para lista/tarjetas.</summary>
         public string? AreaListDescription { get; set; }
-        public string? PhaseDescription { get; set; }
-        public string? StageDescription { get; set; }
-        public string? LayerDescription { get; set; }
-        public string? SubStageDescription { get; set; }
-        public string? SubSpecialtyDescription { get; set; }
-        public string? PartidaDescription { get; set; }
+        /// <summary>
+        /// Segmentos de la clasificación caminando scope_item hacia arriba.
+        /// Cada entrada trae (catalog_type_name, catalog_item_description) ordenados
+        /// de raíz a hoja.
+        /// </summary>
+        public List<LessonClassificationSegmentDTO> ClassificationSegments { get; set; } = new();
     }
 
     /// <summary>Nombre del area_type que debe ocultarse en listas/tarjetas (se conserva en detalle).</summary>
@@ -27,11 +25,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
     }
 
     /// <summary>
-    /// Calcula el path de área (vía lesson_area → area_scope → area_item) y la
-    /// clasificación por tipo de catálogo (vía scope_item walk-up) para una lista
-    /// de lecciones. Usado para enriquecer los DTOs de lista y de detalle desde el
-    /// nuevo modelo, manteniendo los nombres legacy (PhaseDescription, etc.) para
-    /// no romper el frontend.
+    /// Calcula:
+    /// • El path de área (via lesson_area → area_scope → area_item) en dos formatos
+    ///   (completo y "sin Gerencia + MAYÚSCULAS").
+    /// • La clasificación (Fase / Etapa / … / Partida) caminando scope_item hacia arriba
+    ///   desde el catalog_item de la lección.
+    /// Reemplaza la vieja lógica basada en phase_stage_sub_stage_sub_specialty.
     /// </summary>
     public static class LessonEnrichmentHelper
     {
@@ -42,14 +41,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             var result = new Dictionary<int, LessonEnrichmentData>();
             if (lessons.Count == 0) return result;
 
-            // 1. Path de área por lesson_area_id
+            // ── 1. Área (path full + path corto sin Gerencia) ───────────────────
             var lessonAreaIds = lessons
                 .Where(l => l.LessonAreaId.HasValue)
                 .Select(l => l.LessonAreaId!.Value)
                 .Distinct()
                 .ToList();
 
-            // pathByLessonAreaId: ruta completa (para detalle) y filtrada (para lista/tarjetas).
             var pathByLessonAreaId = new Dictionary<int, string>();
             var pathListByLessonAreaId = new Dictionary<int, string>();
             if (lessonAreaIds.Count > 0)
@@ -59,7 +57,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     .Select(la => new { la.LessonAreaId, la.AreaScopeId })
                     .ToListAsync();
 
-                // Trae el nombre del área Y el nombre del tipo (para filtrar gerencias).
                 var allAreaScope = await (
                     from s in ctx.AreaScope
                     join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
@@ -84,7 +81,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     while (cur.HasValue && safety-- > 0 && areaScopeById.TryGetValue(cur.Value, out var n))
                     {
                         fullParts.Insert(0, n.AreaItemName);
-                        // Para la vista lista: omitir nodos cuyo area_type es Gerencia.
                         if (!string.Equals(n.AreaTypeName, AreaTypeNames.Gerencia, StringComparison.OrdinalIgnoreCase))
                         {
                             listParts.Insert(0, n.AreaItemName.ToUpperInvariant());
@@ -98,59 +94,71 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 }
             }
 
-            // 2. Clasificación por (lesson_area_id, catalog_item_id) usando scope_item
+            // ── 2. Clasificación: segmentos (catalog_type, catalog_item_description)
+            //    caminando scope_item hacia arriba desde el catalog_item de la lección.
             var pairs = lessons
                 .Where(l => l.LessonAreaId.HasValue && l.CatalogItemId.HasValue)
                 .Select(l => (LessonAreaId: l.LessonAreaId!.Value, CatalogItemId: l.CatalogItemId!.Value))
                 .Distinct()
                 .ToList();
 
-            var classByPair = new Dictionary<(int, int), Dictionary<string, string>>();
+            var segmentsByPair = new Dictionary<(int, int), List<LessonClassificationSegmentDTO>>();
 
             if (pairs.Count > 0)
             {
                 var activeLessonAreaIds = pairs.Select(p => p.LessonAreaId).Distinct().ToList();
+                // OrderBy ScopeItemId ascending = MISMA criterio que el filtro en
+                // LessonRepository.BuildAncestorCatalogItemsByPairAsync. Si el mismo
+                // par (lesson_area_id, catalog_item_id) aparece en varios scope_items
+                // (caso ambiguo cuando no se guarda scope_item_id en lesson), ambos
+                // toman el de menor id → display y filtro nunca divergen.
                 var allScope = await (
                     from si in ctx.ScopeItem
                     join ci in ctx.CatalogItem on si.CatalogItemId equals ci.CatalogItemId
                     join ct in ctx.CatalogType on ci.CatalogTypeId equals ct.CatalogTypeId
                     where activeLessonAreaIds.Contains(si.LessonAreaId) && si.Active
+                    orderby si.ScopeItemId
                     select new
                     {
                         si.ScopeItemId,
                         si.LessonAreaId,
                         si.CatalogItemId,
                         si.ScopeItemParentId,
-                        ct.CatalogTypeName,
-                        ci.CatalogItemDescription
+                        ci.CatalogItemDescription,
+                        ct.CatalogTypeName
                     }
                 ).ToListAsync();
                 var scopeById = allScope.ToDictionary(s => s.ScopeItemId);
 
                 foreach (var pair in pairs)
                 {
+                    // FirstOrDefault sobre lista ya ordenada por ScopeItemId asc
+                    // garantiza la misma elección que el filtro.
                     var leaf = allScope.FirstOrDefault(s =>
                         s.LessonAreaId == pair.LessonAreaId && s.CatalogItemId == pair.CatalogItemId);
+                    if (leaf == null) continue;
 
-                    var map = new Dictionary<string, string>();
-                    if (leaf != null)
+                    var segments = new List<LessonClassificationSegmentDTO>();
+                    int? cur = leaf.ScopeItemId;
+                    int safety = 50;
+                    while (cur.HasValue && safety-- > 0 && scopeById.TryGetValue(cur.Value, out var s))
                     {
-                        int? cur = leaf.ScopeItemId;
-                        int safety = 50;
-                        while (cur.HasValue && safety-- > 0 && scopeById.TryGetValue(cur.Value, out var s))
+                        segments.Insert(0, new LessonClassificationSegmentDTO
                         {
-                            map[s.CatalogTypeName] = s.CatalogItemDescription;
-                            cur = s.ScopeItemParentId;
-                        }
+                            CatalogTypeName = s.CatalogTypeName,
+                            CatalogItemDescription = s.CatalogItemDescription
+                        });
+                        cur = s.ScopeItemParentId;
                     }
-                    classByPair[pair] = map;
+                    if (segments.Count > 0)
+                        segmentsByPair[pair] = segments;
                 }
 
-                // Fallback: catalog_items que no están en scope_item del área
-                // (raro pero posible si se cambió el scope después de crear la lección)
-                var unmappedCatIds = classByPair
-                    .Where(kv => kv.Value.Count == 0)
-                    .Select(kv => kv.Key.Item2)
+                // Fallback: catalog_item no presente en scope_item del área — solo
+                // exponemos un segmento con (catalog_type, descripción) del catálogo.
+                var unmappedCatIds = pairs
+                    .Where(p => !segmentsByPair.ContainsKey(p))
+                    .Select(p => p.CatalogItemId)
                     .Distinct()
                     .ToList();
                 if (unmappedCatIds.Count > 0)
@@ -159,19 +167,27 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                         from ci in ctx.CatalogItem
                         join ct in ctx.CatalogType on ci.CatalogTypeId equals ct.CatalogTypeId
                         where unmappedCatIds.Contains(ci.CatalogItemId)
-                        select new { ci.CatalogItemId, ct.CatalogTypeName, ci.CatalogItemDescription }
+                        select new { ci.CatalogItemId, ci.CatalogItemDescription, ct.CatalogTypeName }
                     ).ToListAsync();
                     var fallbackByCat = fallback.ToDictionary(f => f.CatalogItemId);
-                    foreach (var key in classByPair.Keys.ToList())
+                    foreach (var pair in pairs.Where(p => !segmentsByPair.ContainsKey(p)))
                     {
-                        if (classByPair[key].Count > 0) continue;
-                        if (fallbackByCat.TryGetValue(key.Item2, out var f))
-                            classByPair[key] = new Dictionary<string, string> { { f.CatalogTypeName, f.CatalogItemDescription } };
+                        if (fallbackByCat.TryGetValue(pair.CatalogItemId, out var f))
+                        {
+                            segmentsByPair[pair] = new List<LessonClassificationSegmentDTO>
+                            {
+                                new LessonClassificationSegmentDTO
+                                {
+                                    CatalogTypeName = f.CatalogTypeName,
+                                    CatalogItemDescription = f.CatalogItemDescription
+                                }
+                            };
+                        }
                     }
                 }
             }
 
-            // 3. Construir resultado
+            // ── 3. Armar resultado ──────────────────────────────────────────────
             foreach (var l in lessons)
             {
                 var e = new LessonEnrichmentData();
@@ -186,20 +202,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     e.AreaListDescription = listPath;
                 }
                 if (l.LessonAreaId.HasValue && l.CatalogItemId.HasValue
-                    && classByPair.TryGetValue((l.LessonAreaId.Value, l.CatalogItemId.Value), out var classMap))
+                    && segmentsByPair.TryGetValue((l.LessonAreaId.Value, l.CatalogItemId.Value), out var segs))
                 {
-                    classMap.TryGetValue("Fase", out var phase);
-                    classMap.TryGetValue("Etapa", out var stage);
-                    classMap.TryGetValue("Nivel", out var layer);
-                    classMap.TryGetValue("Subetapa", out var substage);
-                    classMap.TryGetValue("Subespecialidad", out var subspec);
-                    classMap.TryGetValue("Partida", out var partida);
-                    e.PhaseDescription = phase;
-                    e.StageDescription = stage;
-                    e.LayerDescription = layer;
-                    e.SubStageDescription = substage;
-                    e.SubSpecialtyDescription = subspec;
-                    e.PartidaDescription = partida;
+                    e.ClassificationSegments = segs;
                 }
                 result[l.LessonId] = e;
             }

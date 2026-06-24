@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
 {
     public interface ILessonsDashboardService
     {
-        Task<LessonsDashboardDataDTO> GetData(DateTimeOffset? periodDate, int? userId, int? lessonAreaId);
+        Task<LessonsDashboardDataDTO> GetData(DateTimeOffset? periodDate, int? userId, List<int>? lessonAreaIds, List<int>? projectIds);
         Task<LessonsDashboardFiltersDTO> GetFilters();
         Task SendPdfAsync(IFormFile pdf);
     }

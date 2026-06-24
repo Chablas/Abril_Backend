@@ -45,7 +45,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         $"El trabajador {w.Person?.FullName} está restringido. Comuníquese con el área de Administración o SSOMA.", 400);
             }
 
-            var fecha = DateTime.SpecifyKind(dto.FechaProgramada, DateTimeKind.Utc);
+            var limaZone = TimeZoneInfo.FindSystemTimeZoneById("America/Lima");
+            var fechaLima = DateTime.SpecifyKind(dto.FechaProgramada, DateTimeKind.Unspecified);
+            var fecha = TimeZoneInfo.ConvertTimeToUtc(fechaLima, limaZone);
 
             // IDs de workers que ya tienen una inducción PROGRAMADA en este proyecto
             var yaExisten = await ctx.SsInduccion
@@ -99,10 +101,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 query = query.Where(i => i.EmpresaId == empresaId.Value);
             if (!string.IsNullOrWhiteSpace(estado))
                 query = query.Where(i => i.Estado == estado);
-            if (fechaDesde.HasValue)
-                query = query.Where(i => i.FechaProgramada >= fechaDesde.Value);
-            if (fechaHasta.HasValue)
-                query = query.Where(i => i.FechaProgramada <= fechaHasta.Value);
+            var desde = DateTime.SpecifyKind(fechaDesde ?? DateTime.MinValue, DateTimeKind.Utc);
+            var hasta = DateTime.SpecifyKind(fechaHasta ?? DateTime.MaxValue, DateTimeKind.Utc);
+            query = query.Where(i => i.FechaProgramada >= desde && i.FechaProgramada <= hasta);
 
             var rows = await query
                 .OrderByDescending(i => i.FechaProgramada)
@@ -171,6 +172,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(wp => wp.WorkerId)
                 .Distinct()
                 .ToListAsync();
+
+            if (workerIds.Count == 0) return [];
+
+            var workerIdsConProgramacion = await ctx.SsInduccion
+                .Where(i => i.ProyectoId == proyectoId
+                         && workerIds.Contains(i.WorkerId)
+                         && i.Estado == "PROGRAMADA")
+                .Select(i => i.WorkerId)
+                .Distinct()
+                .ToListAsync();
+
+            workerIds = workerIds
+                .Where(id => !workerIdsConProgramacion.Contains(id))
+                .ToList();
 
             if (workerIds.Count == 0) return [];
 
@@ -283,6 +298,35 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await AprobarInduccionAsync(ctx, induccion);
 
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<int> ResetFaltaAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ahora = DateTime.UtcNow;
+            var limaZone = TimeZoneInfo.FindSystemTimeZoneById("America/Lima");
+            var hoyLima = TimeZoneInfo.ConvertTimeFromUtc(ahora, limaZone).Date;
+
+            var candidatas = await ctx.SsInduccion
+                .Where(i => i.Estado == "PROGRAMADA" && !i.IngresoConfirmado)
+                .ToListAsync();
+
+            var aMarcar = candidatas.Where(i =>
+            {
+                var fechaLima = TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.SpecifyKind(i.FechaProgramada, DateTimeKind.Utc),
+                    limaZone).Date;
+                return fechaLima < hoyLima;
+            }).ToList();
+
+            foreach (var ind in aMarcar)
+            {
+                ind.Estado = "FALTA";
+                ind.UpdatedAt = ahora;
+            }
+
+            await ctx.SaveChangesAsync();
+            return aMarcar.Count;
         }
 
         private async Task AprobarInduccionAsync(AppDbContext ctx, SsInduccion induccion)

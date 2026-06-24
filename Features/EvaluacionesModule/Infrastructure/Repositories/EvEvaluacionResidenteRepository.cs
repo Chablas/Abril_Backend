@@ -101,18 +101,21 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
 
-            // Paso 1: obtener obra_oficina del evaluador
-            var obraOficina = await conn.QueryFirstOrDefaultAsync<string>(
-                @"SELECT w.obra_oficina
+            var evaluador = await conn.QueryFirstOrDefaultAsync<EvaluadorInfo>(
+                @"SELECT w.obra_oficina AS ObraOficina, w.area AS Area, w.subarea AS Subarea,
+                         w.categoria   AS Categoria,   w.id AS WorkerId
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   WHERE p.user_id = @EvaluadorUserId
                   LIMIT 1",
                 new { EvaluadorUserId = evaluadorUserId });
 
-            var puedeVerTodos = string.Equals(obraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
+            if (evaluador == null) return [];
 
-            // Paso 2: residentes según scope
+            // REGLA 4: Gerente de Proyectos → no evalúa
+            if (Eq(evaluador.Categoria, "Gerente") && Eq(evaluador.Area, "Proyectos"))
+                return [];
+
             const string selectBase = @"
                 SELECT DISTINCT
                     p.full_name            AS NombreCompleto,
@@ -122,29 +125,69 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     w.area                 AS Area,
                     w.subarea              AS Subarea
                 FROM workers w
-                JOIN person p   ON p.person_id    = w.person_id
-                JOIN app_user u ON u.user_id       = p.user_id
-                JOIN project pr ON pr.contributor_id = w.contributor_id
+                JOIN person p   ON p.person_id      = w.person_id
+                JOIN app_user u ON u.user_id          = p.user_id
+                JOIN project pr ON pr.contributor_id  = w.contributor_id
                 WHERE w.ocupacion = 'Residencia'
                   AND w.estado   != 'Retirado'
                   AND u.active    = true";
 
-            var sql = puedeVerTodos
-                ? selectBase + "\nORDER BY p.full_name"
-                : selectBase + @"
+            bool esOficinaProyectos = Eq(evaluador.ObraOficina, "Oficina Central")
+                                      && Eq(evaluador.Area, "Proyectos");
+            bool esSubareaEspecial  = Eq(evaluador.Subarea, "Unidad de Proyectos")
+                                      || Eq(evaluador.Subarea, "Planeamiento BIM");
+
+            // REGLA 1: Oficina Central, Proyectos, subarea general, Jefe/Coordinador → ve todos
+            if (esOficinaProyectos && !esSubareaEspecial
+                && (Eq(evaluador.Categoria, "Jefe") || Eq(evaluador.Categoria, "Coordinador")))
+            {
+                var todos = (await conn.QueryAsync<ResidenteEvaluableDto>(
+                    selectBase + "\nORDER BY p.full_name",
+                    new { EvaluadorUserId = evaluadorUserId })).ToList();
+                todos.ForEach(r => r.PuedeVerTodos = true);
+                return todos;
+            }
+
+            // REGLA 2: Oficina Central, Proyectos, Unidad de Proyectos/Planeamiento BIM → proyectos asignados
+            if (esOficinaProyectos && esSubareaEspecial)
+            {
+                var projectIds = (await conn.QueryAsync<int>(
+                    @"SELECT project_id FROM ev_asignacion_supervisor
+                      WHERE supervisor_worker_id = @WorkerId AND activo = true",
+                    new { evaluador.WorkerId })).ToList();
+
+                if (projectIds.Count == 0) return [];
+
+                return (await conn.QueryAsync<ResidenteEvaluableDto>(
+                    selectBase + "\n                  AND pr.project_id = ANY(@ProjectIds)\n                ORDER BY p.full_name",
+                    new { ProjectIds = projectIds.ToArray() })).ToList();
+            }
+
+            // REGLA 3: Staff → residentes del mismo proyecto que el evaluador
+            return (await conn.QueryAsync<ResidenteEvaluableDto>(
+                selectBase + @"
                   AND pr.project_id = (
                       SELECT pr2.project_id
                       FROM workers w2
-                      JOIN person p2  ON p2.person_id    = w2.person_id
+                      JOIN person p2   ON p2.person_id      = w2.person_id
                       JOIN project pr2 ON pr2.contributor_id = w2.contributor_id
                       WHERE p2.user_id = @EvaluadorUserId
                       LIMIT 1
                   )
-                ORDER BY p.full_name";
+                ORDER BY p.full_name",
+                new { EvaluadorUserId = evaluadorUserId })).ToList();
+        }
 
-            var result = (await conn.QueryAsync<ResidenteEvaluableDto>(sql, new { EvaluadorUserId = evaluadorUserId })).ToList();
-            result.ForEach(r => r.PuedeVerTodos = puedeVerTodos);
-            return result;
+        private static bool Eq(string? a, string b) =>
+            string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        private sealed class EvaluadorInfo
+        {
+            public string? ObraOficina { get; set; }
+            public string? Area { get; set; }
+            public string? Subarea { get; set; }
+            public string? Categoria { get; set; }
+            public int WorkerId { get; set; }
         }
 
         public async Task<string?> GetMiSubareaAsync(int userId)

@@ -1,6 +1,6 @@
 # CONTEXT.md — Abril Backend
 
-> Última actualización: 2026-06-02 — Pull master: MejoraContinuaModule refactorizado (LessonsLearned + LessonsDashboard migrados desde UnidadDeProyectosModule, LessonReminderFeature nueva), LessonController raíz eliminado, DTOs Lesson movidos a Features, IEmailGroupResolver añadido a Shared/Services/Graph.
+> Última actualización: 2026-06-17 — DossierSemanal: módulo completo (entidades, repo, service, controller, 8 endpoints en api/v1/habilitacion/dossier, ON CONFLICT DO NOTHING, upload via SharePoint 'dossier-semanal'). InspeccionFeature: PDF RM 050-2013-TR con QuestPDF + tab hallazgos centralizado.
 
 ---
 
@@ -16,7 +16,7 @@
 | Email             | PowerAutomate / SendGrid / SMTP (selector `Email:EmailProvider`)                                               |
 | Storage           | Azure Blob / local `wwwroot/uploads` (selector `Storage:StorageProvider`)                                      |
 | Queries complejas | **Dapper** + conexión directa (`NpgsqlConnection` en `BandejaRepository`; `ctx.Database.GetDbConnection()` en `EvEvaluacionResidenteRepository`) |
-| Fechas UTC        | `HabilitacionDateHelper` — `AsUtc()` y `ResolverVigencia()`                                                    |
+| Fechas UTC        | `HabilitacionDateHelper` — `AsUtc()`, `ResolverVigencia()`, `ResolverVigenciaEmpresa(itemId, estado, vigencia)` |
 | Puerto dev        | 5236 http / 7298 https                                                                                         |
 | Swagger           | Solo en Development en `/swagger`                                                                              |
 
@@ -115,7 +115,7 @@ Features/<Modulo>Module/
 | Módulo | Registro DI | Contenido |
 |--------|-------------|-----------|
 | `HabilitacionModule` | `AddHabilitacionModule` | Principal activo — ver sección 5 |
-| `SsomaModule` | `AddSsomaModule` | EMO, programación, alertas automáticas, clínica, reportes SUNAFIL |
+| `SsomaModule` | `AddSsomaModule` | EMO, programación, alertas automáticas, clínica, reportes SUNAFIL. **PasoFeature** (PASO - Programa Anual de Seguridad, ruta `api/v1/ssoma-paso`) |
 | `AuthModule` | `AddAuthModule` | MicrosoftLogin, MicrosoftProfile, ContractorCredentials, RoleFeature, UserFeature |
 | `ContractorsModule` | `AddContractorsModule` | ContractorRegistration, ContractorManagement |
 | `CostsModule` | `AddCostsModule` | Adjudicaciones (contrato completo), WorkItem, StaffProjectEmail, ProjectLink |
@@ -123,7 +123,7 @@ Features/<Modulo>Module/
 | `GestionAdministrativaModule` | `AddGestionAdministrativaModule` | SolicitudSalidas, GestionSalidas, Lugares, MotivosSalida |
 | `MejoraContinuaModule` | `AddMejoraContinuaModule` | LessonsLearned, LessonsDashboard, LessonReminder, AreasYSubareas, PsssTemplate, Relations |
 | `UnidadDeProyectosModule` | `AddUnidadDeProyectosModule` | ProjectsDashboard (LessonsLearnedDashboard migrado a MejoraContinua) |
-| `EvaluacionesModule` | `AddEvaluacionesModule` | Evaluaciones de residentes — periodos, plantilla, evaluaciones, dashboard [nuevo 2026-05-31] |
+| `EvaluacionesModule` | `AddEvaluacionesModule` | Evaluaciones de residentes — periodos, plantilla, evaluaciones, dashboard. EvAsignacionSupervisor (supervisores UDP/BIM). Cron recordatorios + descargo. |
 
 **ArquitecturaComercial** vive en capa tradicional, no en Features.
 
@@ -176,7 +176,10 @@ if (authHeader != $"Bearer {_configuration["CronSecret"]}") return Unauthorized(
 | `SsTareoDetalleCasa`        | `ss_tareo_detalle_casa`        | `id`                  | Detalle de tareo para personal Casa. `tareo_id` → `ss_tareo.id`, `partida_id` → `ss_tareo_partida.id`, `cantidad_personas` (int). Tabla manual.                                                                                                                                                                                                 |
 | `SsTareoDetalleContratista` | `ss_tareo_detalle_contratista` | `id`                  | Detalle de tareo para personal contratista. `tareo_id` → `ss_tareo.id`, `empresa_id` → `contributor.contributor_id`, `cantidad_personas` (int). Tabla manual.                                                                                                                                                                                   |
 | `SsHabTrabajador`           | `ss_hab_trabajador`            | `id`                  | Entregables por worker.                                                                                                                                                                                                                                                                                                                         |
-| `SsHabEmpresa`              | `ss_hab_empresa`               | `id`                  | `proyecto_id` → `project.project_id`. `empresa_id` → `contributor.contributor_id`.                                                                                                                                                                                                                                                              |
+| `SsHabEmpresa`              | `ss_hab_empresa`               | `id`                  | `proyecto_id` → `project.project_id`. `empresa_id` → `contributor.contributor_id`. +`MotivoRechazo` (2026-06-06).                                                                                                                                                                                                                               |
+| `SsItemEmpresa`             | `ss_item_empresa`              | `id`                  | Catálogo de entregables empresa. +`EsMensual bool` (2026-06-06) — items mensuales generan un registro por mes.                                                                                                                                                                                                                                   |
+| `SsHabDocumentoVersion`     | `ss_hab_documento_version`     | `id`                  | Versiones de documentos. FK a SsHabTrabajador/SsHabEmpresa/SsHabEquipo. +`Enviado bool`, `FechaEnvio`, nav `Archivos` (2026-06-06).                                                                                                                                                                                                             |
+| `SsHabDocumentoArchivo`     | `ss_hab_documento_archivo`     | `id`                  | Archivos individuales de una versión (flujo multi-archivo). FK `VersionId → ss_hab_documento_version`. Props: `ArchivoUrl`, `NombreArchivo`, `EsZip`, `ZipContenido` (JSONB string), `Orden`. ⚠️ **Pendiente migración EF**.                                                                                                                     |
 | `SsEquipo`                  | `ss_equipo`                    | `id`                  | `proyecto_id` → `project.project_id`. `propietario_empresa_id` → `contributor.contributor_id` (nav property `Contributor? PropietarioEmpresa`).                                                                                                                                                                                                 |
 | `SsHabEquipo`               | `ss_hab_equipo`                | `id`                  | Entregables por equipo. Tiene `ObsContratista` (agregada directamente en BD). `archivo_url` es `text` (fue `varchar(1000)` — alterada manualmente).                                                                                                                                                                                             |
 | `SsItemTrabajador`          | `ss_item_trabajador`           | `id`                  | Catálogo de entregables con reglas.                                                                                                                                                                                                                                                                                                             |
@@ -236,6 +239,9 @@ Query Dapper con `NpgsqlConnection` directa. Cuatro segmentos:
 - `CAST(he.vigencia AS timestamp)`
 - `JOIN project p ON p.project_id = he.proyecto_id` + `p.project_description`
 - Empresa via `JOIN contributor ec ON ec.contributor_id = he.empresa_id` + `ec.contributor_name`
+- Columnas extra (2026-06-06): `item_id`, `es_mensual`, `empresa_id_raw`, `mes`, `anio`, `meses_pendientes` (subquery COUNT items `Enviado` mismo item/empresa/proyecto)
+- Dedup mensual: `AND (NOT i.es_mensual OR he.id = (SELECT id ... ORDER BY anio DESC, mes DESC LIMIT 1))` — solo muestra la fila más reciente por item mensual
+- Excluye `item_id IN (15, 16)` (sentinels excluidos de bandeja)
 
 **EQUIPO** (`ss_hab_equipo WHERE estado='Enviado'`):
 
@@ -268,9 +274,14 @@ EstadoCalc =
   : "Habilitado"
 ```
 
-### 5d. InicializarEntregablesAsync
+### 5d. InicializarEntregablesAsync / InicializarEntregablesEmpresaAsync
 
-Crea registros `Estado="Falta"` filtrando en orden: `AplicaA` → `AplicaCategoria` → `AplicaObraOficina` → `ExcluyeObraOficina` → `ExcluyeCategoriaContratista`. Caso especial: Casa+Practicante omite `ItemVidaLey`. No toca `ss_hab_worker_proyecto`.
+**Trabajadores** (`InicializarEntregablesAsync`): Crea registros `Estado="Falta"` filtrando en orden: `AplicaA` → `AplicaCategoria` → `AplicaObraOficina` → `ExcluyeObraOficina` → `ExcluyeCategoriaContratista`. Caso especial: Casa+Practicante omite `ItemVidaLey`. No toca `ss_hab_worker_proyecto`.
+
+**Empresas** (`InicializarEntregablesEmpresaAsync`, 2026-06-06):
+- IDs 12 y 13 (`itemsFalta`): arrancan `Estado="Falta"`, `Vigencia=null` — esperan que el contratista los envíe
+- Resto: arrancan `Estado="Aprobado"`, `Vigencia=día 27 del mes siguiente` (vigenciaInicial)
+- Solo inserta entregables que aún no existen para `(empresaId, proyectoId)`
 
 ### 5e. AprobarInduccionAsync (privado en InduccionRepository)
 
@@ -335,12 +346,20 @@ POST          /api/v1/habilitacion/empresas/{id}/activar-proyecto
 DELETE        /api/v1/habilitacion/empresas/{id}/desactivar-proyecto
 
 # Catálogos
-GET  /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
-GET  /api/v1/habilitacion/catalogos/areas        (público)
-GET  /api/v1/habilitacion/catalogos/subareas     (público, ?area= opcional)
-GET  /api/v1/habilitacion/catalogos/categorias   (público)
-GET  /api/v1/habilitacion/catalogos/ocupaciones  (público)
-GET  /api/v1/habilitacion/proyectos              (lista activos desde Project legacy)
+GET    /api/v1/habilitacion/catalogos/items-trabajador|items-empresa|items-equipo|criterios
+GET    /api/v1/habilitacion/catalogos/areas                   (público)
+GET    /api/v1/habilitacion/catalogos/subareas                (público, ?area= opcional)
+GET    /api/v1/habilitacion/catalogos/categorias              (público, solo activos)
+GET    /api/v1/habilitacion/catalogos/categorias/admin        (público, todos — incluye Orden y Activo)
+POST   /api/v1/habilitacion/catalogos/categorias              body: { nombre }  [AllowAnonymous]
+PUT    /api/v1/habilitacion/catalogos/categorias/{id}         body: { nombre }  [AllowAnonymous]
+PATCH  /api/v1/habilitacion/catalogos/categorias/{id}/toggle  body: { activo }  [AllowAnonymous]
+GET    /api/v1/habilitacion/catalogos/ocupaciones             (público, solo activos)
+GET    /api/v1/habilitacion/catalogos/ocupaciones/admin       (público, todos — incluye Orden y Activo)
+POST   /api/v1/habilitacion/catalogos/ocupaciones             body: { nombre }  [AllowAnonymous]
+PUT    /api/v1/habilitacion/catalogos/ocupaciones/{id}        body: { nombre }  [AllowAnonymous]
+PATCH  /api/v1/habilitacion/catalogos/ocupaciones/{id}/toggle body: { activo }  [AllowAnonymous]
+GET    /api/v1/habilitacion/proyectos                         (lista activos desde Project legacy)
 
 # Trabajadores restringidos
 GET    /api/v1/habilitacion/restringidos?soloActivos=&dni=   (cualquier usuario autenticado)
@@ -429,9 +448,29 @@ PUT   /api/v1/habilitacion/control-acceso/tareo/{id}  body: TareoCreateDto
       → actualiza cabecera, borra detalles anteriores e inserta los nuevos
 
 # Archivos
-POST  /api/v1/habilitacion/archivos/subir   → { path, url }  — guardar `path` (ruta relativa), NO `url` (URL firmada que expira)
-      ⚠️ En el frontend, SIEMPRE usar res.path al guardar el resultado del upload (empresa.ts, sctr-subir.ts, registro-empresa.ts corregidos 2026-05-19)
+POST  /api/v1/habilitacion/archivos/subir          → { path, url }  — flujo clásico (1 archivo + marca Enviado si HabTrabajadorId)
+      ⚠️ En el frontend, SIEMPRE usar res.path al guardar el resultado del upload
+POST  /api/v1/habilitacion/archivos/subir-multiple → { path, nombreArchivo, esZip, zipContenido? } — solo sube, NO marca Enviado
+POST  /api/v1/habilitacion/archivos/enviar         body: { habTrabajadorId?, habEmpresaId?, habEquipoId?, archivos:[{archivoUrl,nombreArchivo,esZip,zipContenido?}], vigencia?, obsContratista? }
+                                                   → { versionId, archivos: N } — crea versión + archivos hijos + marca entregable Enviado
 GET   /api/v1/habilitacion/archivos/url?path=
+# Empresas — endpoints adicionales (2026-06-06)
+PATCH  /api/v1/habilitacion/empresas/{id}/entregables/{entregableId}/mes   body: EmpresaEntregableUpdateDto — aprobar/rechazar mes específico
+DELETE /api/v1/habilitacion/empresas/{id}/archivos/{archivoId}             — eliminar archivo de versión (solo si estado != Aprobado/Rechazado)
+
+# Dossier Semanal (2026-06-17)
+GET    /api/v1/habilitacion/dossier?contributorId=&proyectoId=&anio=  → lista de semanas con contadores
+GET    /api/v1/habilitacion/dossier/{id}                              → detalle con documentos
+POST   /api/v1/habilitacion/dossier/semana                            body: { contributorId, proyectoId, numeroSemana, anio } → { id, fechaInicio, fechaFin }
+POST   /api/v1/habilitacion/dossier/{dossierId}/documento             [FromForm] { File, TipoDoc } → sube a SharePoint 'dossier-semanal', guarda path
+PATCH  /api/v1/habilitacion/dossier/documento/{docId}/marcar-na       → toggle NA/Pendiente, limpia path
+POST   /api/v1/habilitacion/dossier/{dossierId}/enviar                → Borrador/Rechazado → Enviado
+POST   /api/v1/habilitacion/dossier/{dossierId}/revisar               body: { estado: 'Aprobado'|'Rechazado', obsRevisor? } → Enviado → Aprobado/Rechazado
+GET    /api/v1/habilitacion/dossier/documento/{docId}/url             → downloadUrl de SharePoint
+
+⚠️ EnsureSemana usa ON CONFLICT DO NOTHING en PG + crea 7 tipos de doc automáticamente
+⚠️ Tipos de doc: Accidente, EPP, Estadisticas, Capacitaciones, PETAR, ATS, Charlas
+⚠️ Upload: path carpeta = "{contributorId}/{proyectoId}/Sem{N}_{fechaInicio:yyyyMMdd}", NUNCA guardar url
 
 # Otros
 GET/POST/PUT/DELETE  /api/v1/habilitacion/reglas
@@ -1044,17 +1083,86 @@ GET              /api/v1/evaluaciones/recordatorios/descargo  ← CronSecret, en
 - `EvRecordatorioLog` ahora es usado activamente (ya no solo tabla pasiva).
 - `AddEvaluacionesModule` registra `IEvRecordatorioRepository` + `IEvRecordatorioService`.
 
+**EvAsignacionSupervisor** (`ev_asignacion_supervisor`) — tabla manual en BD. Entidad con `SupervisorWorkerId` (FK→`workers.id`), `ProjectId`, `Activo`, `CreatedAt`, `UpdatedAt`, `UpdatedByUserId`. DbSet `EvAsignacionesSupervisor` en AppDbContext.
+
+**Endpoints asignaciones supervisor:**
+```
+GET  /api/v1/evaluaciones/asignaciones-supervisor           → supervisores UDP/BIM con sus proyectos asignados
+GET  /api/v1/evaluaciones/asignaciones-supervisor/proyectos → proyectos activos (excluye General/AC/Post Venta/OC)
+PUT  /api/v1/evaluaciones/asignaciones-supervisor/{workerId} body: { projectIds: [] } → reemplaza asignaciones
+```
+El PUT desactiva activas no-en-lista → reactiva existentes → inserta nuevas. Registra `updated_at`/`updated_by_user_id` del JWT.
+
+**4 reglas `GetResidentesEvaluablesAsync(evaluadorUserId)` — Dapper:**
+- Lee `workers.id`, `obra_oficina`, `area`, `subarea`, `categoria` del evaluador en 1 query.
+- **R4**: `categoria='Gerente' AND area='Proyectos'` → lista vacía (no evalúa).
+- **R1**: OC + Proyectos + `categoria IN ('Jefe','Coordinador')` + subarea no-especial → todos los residentes, `PuedeVerTodos=true`.
+- **R2**: subarea IN ('Unidad de Proyectos','Planeamiento BIM') → consulta `ev_asignacion_supervisor WHERE activo=true` → residentes de esos proyectos con `ANY(@ProjectIds)`.
+- **R3** (fallback/Staff): residentes del mismo proyecto via subquery `contributor_id`.
+- ⚠️ La PK de `workers` es `id` (columna `id`), NO `worker_id`. Usar `w.id AS WorkerId` en Dapper.
+
+**`GetEvaluadoresPendientesAsync` — 3 queries independientes (Dapper), resultado combinado con `Concat`:**
+- **R1**: OC + Proyectos + `categoria IN ('Jefe','Coordinador')` + subarea no-especial. INNER JOIN app_user. Pendiente: NOT EXISTS en `ev_evaluacion_residente`.
+- **R2**: subarea IN ('UDP','BIM') + tiene asignaciones activas en `ev_asignacion_supervisor`. LEFT JOIN app_user. Pendiente: EXISTS residente en sus proyectos sin su evaluación.
+- **R3**: `obra_oficina != 'Oficina Central'` + tiene residente en su proyecto. INNER JOIN app_user. Pendiente: EXISTS residente del proyecto sin evaluación suya.
+- R4 (Gerente+Proyectos) excluido de los tres.
+- CC: `/enviar` sin CC (`null`); `/descargo` con CC jefatura + `coriundo@abril.pe`.
+
 **Dapper en `EvEvaluacionResidenteRepository`** — patrón:
 ```csharp
 await ctx.Database.OpenConnectionAsync();
 var conn = ctx.Database.GetDbConnection();
 await conn.QueryAsync<T>(sql, params)
 ```
-`GetResidentesEvaluablesAsync(evaluadorUserId)`:
-- Paso 1: lee `obra_oficina` del evaluador (`workers → person WHERE user_id = @id LIMIT 1`)
-- Paso 2: si `obra_oficina = 'Oficina Central'` → todos los residentes activos; si no → filtra por `project_id` del evaluador
-- Join: `workers → person → app_user → project ON contributor_id = w.contributor_id`
-- `ResidenteEvaluableDto`: UserId, NombreCompleto, ProjectId, ProjectNombre, Area, Subarea, PuedeVerTodos
+`GetResidentesEvaluablesAsync` — Join: `workers → person → app_user → project ON contributor_id = w.contributor_id`. `ResidenteEvaluableDto`: UserId, NombreCompleto, ProjectId, ProjectNombre, Area, Subarea, PuedeVerTodos.
+
+---
+
+## 12. Sesión 2026-06-08 — Vigencia empresa refactorizada + Bandeja Meses[]
+
+### 12a. HabilitacionDateHelper — nueva lógica de vigencia empresa
+
+`HabilitacionDateHelper.cs` reemplazado completamente:
+
+| Símbolo | Cambio |
+|---|---|
+| `ItemsEmpresaSentinel` | Renombrado a `ItemsCentinela` — quita items 20 y 22: `{ 12, 13, 14, 17, 18, 19, 21, 23, 24, 25 }` |
+| `ItemsSctrVidaLey` | Nuevo: `{ 15, 16 }` — reservado a flujo SctrVidaLeyController, NO pasa por lógica empresa |
+| `ResolverVigenciaAlEnviar(itemId, esMensual, mes, anio, dtoVigencia)` | **Nuevo** — llamado por contratista al enviar. SCTR/VidaLey → `dtoVigencia`; centinela → 2040; mensual → día 27 del mes siguiente; resto → `dtoVigencia` |
+| `ResolverVigenciaAlAprobar(itemId, estado, dtoVigencia, vigenciaActual)` | **Nuevo** — llamado por admin al aprobar/rechazar. Rechazado → ayer UTC; Aprobado → `dtoVigencia` si viene, sino conserva `vigenciaActual` |
+| `ResolverVigenciaEmpresa(itemId, estado, dtoVigencia)` | Simplificado: Rechazado → ayer; centinela → 2040; hay fecha → esa fecha; sino → día 27 mes siguiente |
+
+### 12b. HabEmpresaRepository — UpdateEntregableEmpresaAsync
+
+Bloque de vigencia dividido por estado:
+
+```
+Enviado            → ResolverVigenciaAlEnviar(itemId, esMensual, mes, anio, dtoVigencia)
+Aprobado/Rechazado → ResolverVigenciaAlAprobar(...) + AprobadoPor, FechaAprobacion
+                     Rechazado también setea MotivoRechazo
+Otro con Vigencia  → AsUtc(dto.Vigencia)
+```
+
+### 12c. ArchivoHabilitacionController — método Enviar
+
+- **Mensual**: `vigenciaCalculada = ResolverVigenciaAlEnviar(itemId, true, mes, anio, request.Vigencia)` → entra en `updateDto.Vigencia`
+- **No mensual**: `ResolverVigenciaAlEnviar(ent.ItemId, false, null, null, request.Vigencia)` siempre (reemplaza `AsUtc` condicional)
+
+### 12d. HabEmpresaRepository — GetEntregablesEmpresaAsync
+
+- `meses` filtra `.Where(r => r.Mes.HasValue && r.Anio.HasValue)` — excluye registro base del cálculo de estado
+- `CalcularEstadoGlobal` nueva prioridad: `Count==0→Falta`; `Rechazado`; `Enviado`; `Falta`; `all Aprobado→Aprobado`
+- `archivosPorEntregable`: `.OrderByDescending(v => v.Version).First().Archivos` — solo versión más reciente
+
+### 12e. BandejaRepository — EnrichWithArchivosAsync
+
+- Archivos simplificados: solo `archivosPorEntregable[item.Id]` (registro de bandeja)
+- Diccionario también usa versión más reciente
+- **Nuevo**: `item.Meses` poblado con registros del mismo grupo `Estado=="Enviado"` con mes/anio, ordenados DESC, con archivos
+
+### 12f. BandejaItemDto — nuevo campo Meses[]
+
+`BandejaMesDto { Id, Mes, Anio, Estado, Vigencia, Archivos[] }` — permite aprobar mes a mes desde bandeja usando `PATCH /bandeja/empresa/{mesId}` con el Id del registro mensual específico.
 
 ---
 
@@ -4168,3 +4276,315 @@ foreach (var nodo in todas.OrderByDescending(a => a.HierarchyLevel))
 ### Migraciones aplicadas en Aiven
 - 20260601184746_AddBaselineDatesProjectActivity — aplicada manualmente vía pgAdmin
   (baseline_start_date, baseline_end_date nullable en project_activity)
+
+---
+
+## Sesión 2026-06-06 — HabilitacionModule: multi-archivo, vigencia empresa, entregables mensuales
+
+### ResolverVigenciaEmpresa — HabilitacionDateHelper
+
+Nuevo método (no reemplaza `ResolverVigencia` — coexisten):
+
+```csharp
+ResolverVigenciaEmpresa(int itemId, string estado, DateTime? dtoVigencia)
+// IDs 12, 13 → sentinel 2040 (ItemsEmpresaSentinel)
+// No Aprobado → AsUtc(dtoVigencia)
+// Aprobado + fecha explícita → AsUtc(dtoVigencia)
+// Aprobado + sin fecha → día 27 del mes siguiente
+```
+
+Usado en: `UpdateEntregableEmpresaAsync`, `BandejaRepository.AprobarEmpresaAsync`, `CrearOActualizarEntregableMesAsync`.
+
+### InicializarEntregablesEmpresaAsync — nueva lógica de estado inicial
+
+- IDs `{12, 13}` → `Estado="Falta"`, `Vigencia=null`
+- Resto → `Estado="Aprobado"`, `Vigencia=día 27 del mes siguiente`
+
+### VigenciaRevisionService — excluye ids 12 y 13 empresas
+
+```csharp
+.Where(h => ... && h.ItemId != 12 && h.ItemId != 13)
+```
+Los items 12 y 13 tienen `Vigencia=2040` o `null` — no deben vencerse automáticamente.
+
+### Flujo multi-archivo (POST /subir-multiple + POST /enviar)
+
+1. **`POST /archivos/subir-multiple`** — sube 1 archivo a SharePoint, extrae índice ZIP si aplica. Retorna `{ path, nombreArchivo, esZip, zipContenido }`. **NO toca el entregable**.
+2. **`POST /archivos/enviar`** — recibe lista de archivos ya subidos + id del entregable. Crea `SsHabDocumentoVersion` (con `Enviado=true`, `FechaEnvio`) + N filas `SsHabDocumentoArchivo` + marca el entregable `Estado="Enviado"`.
+3. **`POST /archivos/subir`** original — sin cambios, sigue funcionando para flujo de 1 archivo.
+
+### Entregables mensuales (`SsItemEmpresa.EsMensual`)
+
+- `GetEntregablesEmpresaAsync`: items con `EsMensual=true` se agrupan en un solo `EmpresaEntregableDto` con `Meses: [EntregableMesDto]`. Estado global = peor estado (`Rechazado > Falta > Enviado > Aprobado`).
+- Cada `EntregableMesDto` incluye `Archivos: [EntregableMesArchivoDto]` — batch query `SsHabDocumentoVersion.Include(Archivos)` para todos los entregables a la vez. Fallback: si el mes no tiene archivos propios, busca el registro base del item (`Mes==null && Anio==null`) y usa sus archivos (compatibilidad con archivos legacy subidos antes del flujo multi-archivo).
+- `CrearOActualizarEntregableMesAsync`: crea fila nueva si no existe `(empresaId, proyectoId, itemId, mes, anio)`, luego aplica update. **No bloquea** si estado == Aprobado/Rechazado — se puede subir nuevos archivos en cualquier estado. Solo `EliminarArchivoVersionAsync` bloquea en esos estados.
+- `EliminarArchivoVersionAsync`: elimina fila de `SsHabDocumentoArchivo`; verifica empresa y que el entregable no esté Aprobado/Rechazado.
+- `EnviarDocumentoRequest` incluye `Mes?` y `Anio?` para identificar el mes al que pertenece el envío.
+- `ArchivoHabilitacionController` inyecta `IHabEmpresaRepository` (campo `_habEmpresaRepo`).
+
+### Migración EF pendiente
+
+```sql
+-- ss_item_empresa
+ALTER TABLE ss_item_empresa ADD COLUMN IF NOT EXISTS es_mensual boolean NOT NULL DEFAULT false;
+
+-- ss_hab_empresa
+ALTER TABLE ss_hab_empresa ADD COLUMN IF NOT EXISTS motivo_rechazo text;
+
+-- ss_hab_documento_version
+ALTER TABLE ss_hab_documento_version ADD COLUMN IF NOT EXISTS enviado boolean NOT NULL DEFAULT true;
+ALTER TABLE ss_hab_documento_version ADD COLUMN IF NOT EXISTS fecha_envio timestamptz;
+
+-- nueva tabla
+CREATE TABLE IF NOT EXISTS ss_hab_documento_archivo (
+    id serial PRIMARY KEY,
+    version_id int NOT NULL REFERENCES ss_hab_documento_version(id),
+    archivo_url text NOT NULL,
+    nombre_archivo text,
+    es_zip boolean NOT NULL DEFAULT false,
+    zip_contenido text,
+    orden int NOT NULL DEFAULT 0,
+    created_at timestamptz
+);
+```
+
+O generar con: `dotnet ef migrations add AddHabDocumentoArchivoAndMensuales --project Abril-Backend.csproj`
+
+---
+
+## Sesión 2026-06-07 — HabilitacionModule: bandeja archivos, sentinel empresa, archivos no mensuales
+
+### ItemsEmpresaSentinel — ampliado
+
+`HabilitacionDateHelper.ItemsEmpresaSentinel` actualizado:
+
+```csharp
+// Antes:
+private static readonly HashSet<int> ItemsEmpresaSentinel = new() { 12, 13 };
+// Ahora:
+private static readonly HashSet<int> ItemsEmpresaSentinel = new() { 12, 13, 14, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
+```
+
+Estos items reciben `Vigencia=2040-12-31` al aprobar (no requieren renovación periódica).
+
+### EmpresaEntregableDto — propiedad Archivos agregada
+
+`EmpresaEntregableDto` ahora incluye `List<EntregableMesArchivoDto> Archivos { get; set; } = []`.
+
+`MapToDto` (HabEmpresaRepository) recibe y asigna `archivos`. La llamada para `esMensual=false` pasa los archivos del registro base desde `archivosPorEntregable.TryGetValue(reg.Id, ...)`.
+
+### BandejaItemDto — propiedad Archivos agregada
+
+`BandejaItemDto` ahora incluye `List<EntregableMesArchivoDto> Archivos { get; set; } = []`.
+
+### BandejaRepository — EnrichWithArchivosAsync
+
+Método privado que se llama después de ambas queries Dapper (`GetPendientesAsync` y `GetPendientesCursorAsync`). Enriquece los items de tipo `EMPRESA` con sus archivos:
+
+1. Filtra `empresaIds` de items EMPRESA en la página.
+2. Carga `registrosBase` (los registros exactos de esos IDs).
+3. Expande a `todosRegistros` (todos los registros del mismo grupo `EmpresaId+ProyectoId+ItemId`) iterando por grupo con valores primitivos — evita el problema de EF con `.Any()` sobre lista en memoria.
+4. Query batch de `SsHabDocumentoVersion.Include(Archivos)` para `todosIds` con `Enviado=true`.
+5. Asigna archivos al item buscando en todos los IDs del grupo (base + mensuales).
+
+### BandejaRepository — filtro sub2.mes IS NOT NULL en segmento EMPRESA
+
+El subquery que selecciona el registro mensual más reciente en la cláusula WHERE del segmento EMPRESA ahora excluye el registro base:
+
+```sql
+AND sub2.estado = 'Enviado'
+AND sub2.mes IS NOT NULL      -- evita que el registro base (mes=null) gane el ORDER BY
+ORDER BY sub2.anio DESC, sub2.mes DESC
+```
+
+---
+
+## Fixes 2026-06-08
+
+### Vigencia en entregables trabajadores
+- `/archivos/enviar`: agrega `ent.Vigencia = DateTime.SpecifyKind(request.Vigencia.Value, DateTimeKind.Utc)` al bloque `habTrabajadorId`
+- `UpdateEntregableAsync` (HabTrabajadorRepository): no sobreescribe vigencia si `dto.Estado="Enviado"` + `dto.Vigencia=null` + vigencia actual ya existe
+- `HabTrabajadorController`: contratista ya no borra `dto.Vigencia` en `UpdateEntregable`
+- `guardarEntregable()`: si `!isContratista && archivosPendientes.length > 0` → delega a `enviarDocumento()`
+- `trabajadores.html`: botón GUARDAR en footer para admin/Casa cuando hay `archivosPendientes`
+
+### Permisos por responsable
+- `RolesAprobadoresSsoma` / `RolesAprobadoresAdmin` en `HabTrabajadorController` y `HabEmpresaController`
+- `GetResponsableItemTrabajadorAsync` / `GetResponsableItemEmpresaAsync` en repos
+- `puedeAprobarEntregableActual` getter en `empresa.ts`, `trabajadores.ts`, `bandeja.ts`
+- Bandeja: dropdown estado auto-guarda con `(ngModelChange)="guardarEstado()"`
+
+### Cambio de obra Casa
+- `ValidarExclusividadEmpresaAsync` solo ejecuta si `esContratista == true`
+
+### Flujo archivo limpio
+- `/archivos/subir`: ya no actualiza entregables (solo sube a SharePoint)
+- `/archivos/enviar`: valida archivos obligatorios + vigencia obligatoria si `requiereVigencia`
+
+---
+
+## Sesión 2026-06-16 — HabilitacionModule (Inducción/listado), OPT fechas UTC, SharePointHabService drive OPT
+
+### HabTrabajadorRepository — MarcarInduccionAsync sincroniza item InduccionObra
+
+Al marcar inducción completada en `WorkerProyecto`, ahora también upsertea el ítem `HabItemIds.InduccionObra` (12) en `SsHabTrabajador` a `Estado="Aprobado"` con `Vigencia` sentinel (`HabilitacionDateHelper.ResolverVigencia(false, "Aprobado", null)` → 2040-12-31 UTC), igual que `InduccionRepository`. Antes solo quedaba reflejado en `WorkerProyecto`, no en el checklist de habilitación.
+
+### WorkerHabilitacionListDto — AniosExperiencia y FechaIngreso
+
+Agregados `AniosExperiencia` (`int?`) y `FechaIngreso` (`string?`, formateado `yyyy-MM-dd`) al DTO de listado de trabajadores. Mapeados en `HabTrabajadorRepository` desde `Worker.AniosExperiencia` / `Worker.FechaIngreso` (ya existían en el modelo, columnas `anios_experiencia` / `fecha_ingreso`). Usado en frontend para auto-calcular `tiempoEnObra` en OPT.
+
+### OptRepository — fechas con Kind=Unspecified rompían Npgsql
+
+Error: `Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with time zone'`. Causa: `Fecha = request.Fecha.Date` en `CrearOptAsync` llega del JSON con `Kind=Unspecified`, y `ssoma_opt.fecha` es `timestamptz` sin override. Fix (mismo patrón que `SctrVidaLeyRepository`/`RacService`):
+- `CrearOptAsync`: `Fecha = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc)`
+- `GetListAsync` / `GetListCountAsync`: filtros `fechaDesde`/`fechaHasta` envueltos en `DateTime.SpecifyKind(..., DateTimeKind.Utc)`
+- `GetDashboardAsync`: `DateTime.Now.Year/.Month` → `DateTime.UtcNow.Year/.Month` (consistencia)
+
+### SharePointHabService — GetDownloadUrlAsync no resolvía paths "OPT/..."
+
+Las firmas de OPT se guardan en SharePoint bajo un path que empieza con `OPT/`, pero `OPT` no es el nombre de ninguna librería/drive del sitio — es una carpeta dentro de un drive específico. Dos fixes encadenados:
+
+1. `GetDriveIdByNameAsync`: si no encuentra drive por nombre, en vez de `return null` cae al drive default del sitio vía `GetDriveIdAsync(siteId, token, null)`.
+2. `GetDownloadUrlAsync`: agregado un caso especial **antes** de la extracción de `libraryName` — si `archivoUrl` empieza con `"OPT/"`, usa el `driveId` hardcodeado de la librería real que contiene la carpeta `OPT` (`b!Bmji2TXVU0OWEBlZeOIDkC8Dt6ceUVNLiodQihkLPHxZH7QqINghTq0UWOH5DOFR`) y construye la URL de `/content` con el **path completo** (incluyendo el prefijo `OPT/`, a diferencia del flujo normal que lo descarta) porque ahí `OPT` es carpeta, no librería.
+
+### Frontend (Abril-Frontend) — opt-detalle: firmas removidas del detalle
+
+En `opt-detalle.html` se quitaron ambas secciones que renderizaban `<app-document-viewer>` para firmas (firma observador y firma por trabajador en `trab-block`). Las firmas ya no se muestran en el detalle — solo se usarán al generar el PDF.
+
+---
+
+## Sesión 2026-06-16 (segunda parte) — PASO reprogramación y LecturaEmo
+
+### PasoFeature — endpoint ProgramarEjecucion (SinProgramar → Programado)
+
+Nuevo flujo para crear una ejecución con estado `Programado` en actividades que aún no tienen ejecución en el mes:
+
+- `ProgramarEjecucionRequest { ActividadId, FechaProgramada }` agregado a `SsomaPasoDtos.cs`
+- `IPasoService.ProgramarEjecucionAsync(req)` — firma en interfaz
+- `PasoService.ProgramarEjecucionAsync`: valida unicidad `(ActividadId, FechaProgramada)`, crea `SsomaPasoEjecucion` con `Estado="Programado"` y `FechaVerificacion = UltimoDiaMes(...)`
+- `POST api/v1/ssoma-paso/ejecucion/programar` en `PasoController`
+
+### PasoFeature — GetResumenMesAsync: filtro de actividades unificado
+
+El bloque `actividadesEnMes` reemplaza la lógica anterior con reglas en orden de prioridad:
+
+1. Inactivas (`!act.Activo`) → excluir
+2. Tiene ejecución `Programado` en **este** mes → incluir siempre (reprogramadas hacia aquí)
+3. Tiene ejecución `Programado` en **otro** mes → excluir (fue reprogramada fuera de este mes)
+4. Lógica normal de frecuencia/ciclo (Mensual, Bimestral, Única, etc.)
+
+### HabilitacionModule — LecturaEmo (ItemId=25) excluido del cálculo de habilitación
+
+`LecturaEmo` no debe bloquear la habilitación del trabajador. Excluido en tres puntos:
+
+1. **`HabTrabajadorRepository.cs` líneas 84 y 91** (`EstadoCalc`): `h.ItemId != HabItemIds.LecturaEmo` en ambas ramas (No Autorizado y Autorizado Temporalmente). Commit anterior.
+2. **`ControlAccesoRepository.cs` líneas 462 y 467** (`hasPendientes` y `faltantes`): misma exclusión para el endpoint de control de acceso. Requirió agregar `using Abril_Backend.Shared.Constants;` que faltaba.
+
+### HabilitacionModule — validación vigencia flexible (WorkerEntregableUpdateValidator)
+
+Regla anterior rechazaba cualquier `Vigencia ≤ DateTime.Today`. Nueva regla:
+
+```csharp
+RuleFor(x => x.Vigencia)
+    .Must((dto, vigencia) => vigencia == null || dto.Estado == "Falta" || vigencia.Value > DateTime.Today)
+    .WithMessage("La vigencia debe ser una fecha futura.");
+```
+
+Cuando `Estado == "Falta"`, la vigencia puede ser cualquier fecha (o null) — útil para registrar documentos históricos o vencidos sin bloquear el flujo.
+
+---
+
+## Sesión 2026-06-16 (tercera parte) — InspeccionFeature: flujo 3-pasos y URLs SharePoint
+
+### InspeccionFeature — flujo de creación en 3 pasos
+
+Problema original: firmas y fotos de hallazgos se subían a `Inspecciones/0/firmas` porque `inspeccionId=0` al momento del upload.
+
+Nuevo flujo en `InspeccionService.CrearInspeccionAsync`:
+
+1. **Paso 1** — Crear inspección en BD sin firmas ni fotos → obtiene `id` real
+2. **Paso 2** — Subir firmas (`inspeccion-firmas`) y fotos de hallazgos (`inspeccion-fotos`) a SharePoint con el `id` real → rutas correctas `Inspecciones/{id}/firmas` y `Inspecciones/{id}/hallazgos/{hallazgoIdx}`
+3. **Paso 3** — `ActualizarFirmasYFotosAsync`: si hay algo que actualizar, hace UPDATE de `FirmaInspectorUrl`/`FirmaRepresentanteUrl` en la inspección e inserta registros `SsomaInspeccionHallazgoFoto` (mapeando índice de hallazgo por `OrderBy(h.Id)`)
+
+### InspeccionFeature — nuevo método ActualizarFirmasYFotosAsync
+
+Agregado a `IInspeccionRepository` e implementado en `InspeccionRepository`:
+
+```csharp
+Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl, Dictionary<int, List<string>> fotosHallazgoUrls);
+```
+
+### SharePointHabService — SubirArchivoYObtenerUrlAsync
+
+Nuevo método que sube el archivo y luego hace GET para obtener `@microsoft.graph.downloadUrl`:
+
+```
+GET /sites/{siteId}/drives/{driveId}/root:/{encoded}?$select=id,%40microsoft.graph.downloadUrl
+```
+
+Devuelve la URL pre-autenticada de Graph (expira ~1 hora). Fallback a ruta relativa si el GET falla (con warning en log). Agregado a `ISharePointHabService` y llamado desde `InspeccionSharePointService` en los 3 métodos (firma inspector, firma representante, foto hallazgo).
+
+> **Nota:** `@microsoft.graph.downloadUrl` es temporal. Si el frontend muestra estas URLs días después de crearlas, habrá que refrescarlas con `GetDownloadUrlAsync`.
+
+### SharePointHabService — fix clave config InspeccionesLibraryId
+
+`ResolverLibraryId` usaba `"SharePoint:Sites:SSOMAApps:InspeccionesLibraryId"` pero la clave real en `appsettings.Local.json` es `"InspeccionesAbril2026LibraryId"`. Corregido en las dos líneas (`inspeccion-fotos` e `inspeccion-firmas`).
+
+### InspeccionRepository — DateTime.SpecifyKind para campos del request
+
+- `Fecha = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc)` (antes sin Kind)
+- `FechaLimite = h.FechaLimite.HasValue ? DateTime.SpecifyKind(h.FechaLimite.Value, DateTimeKind.Utc) : null` (antes sin Kind)
+
+---
+
+## Sesión 2026-06-17 — InspeccionFeature: PDF + Tab Hallazgos
+
+### TAREA 1 — PDF RM 050-2013-TR
+
+**Archivo nuevo:** `Features/SsomaModule/InspeccionFeature/Application/Services/InspeccionPdfService.cs`
+
+Inyecta `IHttpClientFactory`. Método público `GenerarPdfAsync(InspeccionDetalleDto)` → `byte[]`.
+
+Flujo:
+1. Descarga en paralelo firmas (`FirmaInspectorUrl`, `FirmaRepresentanteUrl`) y fotos de hallazgos via `DescargarImagenAsync(url)` — falla silenciosamente (return null) si la URL no responde.
+2. Agrupa `Respuestas` por `Categoria ?? "General"` para el checklist.
+3. Genera PDF A4 con QuestPDF: colores `#1B3A6B` (primario) / `#2D5AA0` (subheader) / `#E8EEF7` (header grupo).
+
+**Secciones del PDF:**
+- Header sticky: "REGISTRO DE INSPECCIONES — RM 050-2013-TR", código `REG-SSOMA-INS-{id:D4}`, paginación
+- Datos generales: tabla 4 columnas (label/valor/label/valor)
+- Resumen numérico: Total Items / Cumple / No Cumple / NA / Tasa
+- Checklist: tabla con header grupal por `Categoria`, columnas N°/Descripción/Cumple(✓)/NoCumple(✗)/NA(—)/Observaciones
+- Hallazgos: tabla con color de celda Estado (verde=Cerrado, naranja=Abierto, rojo=vencido no cerrado)
+- Registro fotográfico: grid 2 columnas con caption = descripción del hallazgo (si hay fotos descargables)
+- Conclusiones/Causas: `DescripcionCausas` + `Conclusiones`
+- Firmas: 2 columnas con imagen descargada o línea punteada si null
+
+**Endpoint:** `GET /api/v1/ssoma-inspeccion/{id}/pdf` → `File(bytes, "application/pdf", ...)`
+
+**DI:** `services.AddScoped<InspeccionPdfService>()` en `SsomaModule.cs`
+
+> QuestPDF ya estaba instalado (`2024.12.3`) y configurado en Program.cs (`LicenseType.Community`).
+
+### TAREA 2 — Tab Hallazgos centralizado
+
+**DTOs nuevos** en `InspeccionDtos.cs`:
+- `HallazgoListItemDto`: `Id`, `InspeccionId`, `Proyecto`, `FechaInspeccion`, `Descripcion`, `Tipo`, `Area`, `ResponsableNombre`, `ResponsableCargo`, `FechaLimite`, `AccionCorrectiva`, `Estado`, `FechaCierre`, `FotosUrls` (`List<string>`)
+- `LevantarHallazgoDto`: `Estado` ("En proceso" | "Cerrado"), `EvidenciaUrl`, `EvidenciaNombre`
+
+**Endpoints nuevos:**
+```
+GET   /api/v1/ssoma-inspeccion/hallazgos
+      ?estado=&proyecto=&area=&responsableId=&fechaLimiteHasta=
+      → List<HallazgoListItemDto> — todos los hallazgos de todas las inspecciones
+
+PATCH /api/v1/ssoma-inspeccion/hallazgos/{hallazgoId}/levantar
+      body: LevantarHallazgoDto
+      → actualiza Estado, FechaCierre (si Cerrado), EvidenciaCierreUrl
+```
+
+**Ordenamiento GetHallazgos** (en memoria tras query EF): vencidos-abiertos (0) → abiertos (1) → en proceso (2) → cerrados (3), luego por `FechaLimite ASC`.
+
+**Estados en BD:** "Abierto" (inicial) | "En proceso" (vía LevantarHallazgo) | "Cerrado" (vía LevantarHallazgo o CerrarHallazgo).
+
+> La tabla `ssoma_inspeccion_hallazgo_evidencia_cierre` y la columna `cerrado_por_id` del SQL de la tarea son DDL pendientes de ejecutar manualmente en PostgreSQL — no incluidas en código porque el modelo actual ya tiene `EvidenciaCierreUrl` y `FechaCierre`.

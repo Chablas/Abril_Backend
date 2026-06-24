@@ -5,38 +5,32 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 {
     public interface ILessonService
     {
+        Task<LessonDetailDTO?> GetByIdAsync(int id, int currentUserId);
+
         Task<PagedResult<LessonListDTO>> GetLessonsFilterPaged(
             DateTimeOffset? periodDate,
             int? stateId,
             int? projectId,
             int? areaId,
-            int? phaseId,
-            int? stageId,
-            int? layerId,
-            int? subStageId,
-            int? subSpecialtyId,
             int? userId,
             int page,
-            int pageSize
-        );
+            int pageSize);
+
         Task<LessonsPagedWithFiltersDTO> GetPagedWithFilters(LessonFilterDTO filter);
 
-        Task<object?> CreateAsync(LessonCreateDTO dto, int userId);
-
-        Task<List<PhaseStageSubStageSubSpecialtyDTO>> GetFiltersForCreateAsync(int areaId, int? subAreaId);
-
-        // Migrados desde el legacy
-        Task<LessonDetailDTO?> GetByIdAsync(int id);
         Task<List<LessonListDTO>> GetLessonsFilterAsync(
             string? period,
             int? stateId,
             int? projectId,
             int? areaId,
-            int? phaseId,
-            int? stageId,
-            int? layerId,
-            int? subStageId,
-            int? subSpecialtyId);
+            int? userId,
+            List<int>? lessonAreaIds = null);
+
+        Task<object?> CreateAsync(LessonCreateDTO dto, int userId);
+        Task<bool> UpdateAsync(int lessonId, LessonUpdateDTO dto, int currentUserId);
         Task<bool> DeleteSoftAsync(int lessonId, int userId);
+
+        Task ApproveAsync(int lessonId, int currentUserId);
+        Task RejectAsync(int lessonId, int currentUserId, string? comment);
     }
 }

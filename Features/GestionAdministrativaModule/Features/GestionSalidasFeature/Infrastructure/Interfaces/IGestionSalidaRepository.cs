@@ -18,7 +18,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             int userId,
             string pdfUrl,
             string? pdfItemId,
-            string pdfFilename);
+            string pdfFilename,
+            int numeroPlanilla);
+
+        /// <summary>Consume el siguiente número de la secuencia <c>seq_planilla_numero</c>.</summary>
+        Task<int> GetNextNumeroPlanillaAsync();
 
         /// <summary>IDs elegibles (Aprobadas + No rendidas) sin tocar BD. Pre-flight.</summary>
         Task<List<int>> GetEligibleIdsForRendicion(IEnumerable<int> ids);

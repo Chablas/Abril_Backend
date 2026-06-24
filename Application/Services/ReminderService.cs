@@ -11,12 +11,12 @@ namespace Abril_Backend.Application.Services
 {
     public class ReminderService : IReminderService
     {
-        private readonly IUserProjectRepository _userProjectRepository;
         private readonly IMilestoneScheduleRepository _milestoneScheduleRepository;
         private readonly IEmailService _emailService;
         private readonly IMilestoneScheduleHistoryRepository _milestoneScheduleHistoryRepository;
         private readonly ILessonReminderRepository _lessonReminderRepository;
         private readonly IEmailGroupResolver _emailGroupResolver;
+        private readonly string _frontendUrl;
         private readonly List<string> _systemAdminsEmails = new List<string>
         {
             "alvarezvillegaschristian@outlook.com",
@@ -43,21 +43,34 @@ namespace Abril_Backend.Application.Services
             "cedro33_op@abril.pe",
             "granmanzano_op@abril.pe"*/
         };
+
+        // ── Aviso mensual de publicación de lecciones (1er día del mes) ─────────
+        // Buzón visible como destinatario/remitente del aviso masivo; también
+        // recibe cada lote como copia de auditoría. Cambiar por el correo
+        // institucional (ej. comunicaciones@abril.pe) cuando se defina.
+        private readonly List<string> _publicationAnnouncementTo = new List<string>
+        {
+            "calvarez@abril.pe"
+        };
+        // Tamaño de lote para el BCC: evita topes del proveedor (Outlook/365 ~500
+        // destinatarios por mensaje) y reduce el riesgo de marcas de spam.
+        private const int PublicationBatchSize = 90;
+
         public ReminderService(
-            IUserProjectRepository userProjectRepository,
             IEmailService emailService,
             IMilestoneScheduleRepository milestoneScheduleRepository,
             IMilestoneScheduleHistoryRepository milestoneScheduleHistoryRepository,
             ILessonReminderRepository lessonReminderRepository,
-            IEmailGroupResolver emailGroupResolver
+            IEmailGroupResolver emailGroupResolver,
+            IConfiguration configuration
         )
         {
-            _userProjectRepository = userProjectRepository;
             _emailService = emailService;
             _milestoneScheduleRepository = milestoneScheduleRepository;
             _milestoneScheduleHistoryRepository = milestoneScheduleHistoryRepository;
             _lessonReminderRepository = lessonReminderRepository;
             _emailGroupResolver = emailGroupResolver;
+            _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
         }
 
         /// <summary>
@@ -100,90 +113,172 @@ namespace Abril_Backend.Application.Services
         public async Task<bool> ExecuteReminders()
         {
             var today = DateTime.UtcNow.AddHours(-5);
-            //var today = new DateTime(2026, 6, 26);
-            if (IsInFirstDayOfMonth(today))
+            //var today = new DateTime(2026, 6, 29);
+
+            // 1er día del mes (independiente de la ventana de fin de mes): aviso de
+            // publicación de las lecciones aprendidas del MES ANTERIOR — el que acaba
+            // de cerrar — dirigido a todos los trabajadores @abril con usuario.
+            if (today.Day == 1)
             {
-                Console.WriteLine("⏰ Recordatorio mensual a supervisores ejecutado");
-                await NotifySupervisorsAboutPendingLessonsAsync(today);
-                Console.WriteLine("📧 Recordatorios enviados correctamente");
-            }
-            else
-            {
-                Console.WriteLine("Hoy no corresponde enviar recordatorios de notificación a supervisores");
+                Console.WriteLine("⏰ Día 1 del mes: aviso de publicación de lecciones aprendidas");
+                await SendLessonsLearnedPublicationAsync(today);
+                Console.WriteLine("📧 Aviso de publicación enviado correctamente");
             }
 
-            if (IsInLastFiveBusinessDays(today))
+            // Ventana de los últimos 5 días hábiles del mes:
+            //   • Días 1–3: recordatorio para subir lecciones.
+            //   • Día 4: reporte de quién NO subió su lección (antes salía el 1er día del mes).
+            //   • Días 4–5: ventana de revisión de la jefatura (Aprobar/Rechazar en la app;
+            //     no hay correo automático adicional — esos correos los dispara la acción del jefe).
+            // Los feriados/días no laborables NO cuentan como días hábiles (igual que sábados/domingos).
+            var holidays = await _lessonReminderRepository.GetHolidayDatesAsync(today.Year, today.Month);
+            var ordinal = LastFiveBusinessDayOrdinal(today, holidays);
+
+            if (ordinal >= 1 && ordinal <= 3)
             {
-                Console.WriteLine("⏰ Recordatorio mensual para subir lecciones aprendidas ejecutado");
+                Console.WriteLine($"⏰ Día {ordinal}/5 hábil final: recordatorio para subir lecciones aprendidas");
                 // Pasamos `today` (puede estar simulado) para que el período del filtro,
                 // el periodLabel del correo y el canal de staff sean consistentes.
                 await SendLessonsLearnedMonthlyRemindersAsync(today);
                 Console.WriteLine("📧 Recordatorios enviados correctamente");
-
-                // este deberia ejecutarse el ultimo dia laborable del mes
-                /*Console.WriteLine("⏰ Recordatorio mensual de cronograma de hitos ejecutado");
-                await SendMilestoneScheduleMonthlyReminderAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
-
-                /*Console.WriteLine("⏰ Recordatorio mensual para subir cronograma de hitos ejecutado");
-                await SendMilestoneScheduleHistoryMonthlyRemindersAsync(DateTime.UtcNow.AddHours(-5));
-                Console.WriteLine("📧 Recordatorios enviados correctamente");*/
+            }
+            else if (ordinal == 4)
+            {
+                Console.WriteLine("⏰ Día 4/5 hábil final: reporte de pendientes + aviso de revisión a jefaturas");
+                await NotifySupervisorsAboutPendingLessonsAsync(today);
+                await SendJefesReviewWindowReminderAsync(today);
+                Console.WriteLine("📧 Reporte y aviso de revisión enviados correctamente");
+            }
+            else if (ordinal == 5)
+            {
+                Console.WriteLine("⏰ Día 5/5 hábil final: ventana de revisión de jefatura (sin correo automático)");
             }
             else
             {
-                Console.WriteLine("Hoy no corresponde enviar recordatorios de lecciones ni cronogramas");
+                Console.WriteLine("Hoy no corresponde enviar recordatorios de lecciones");
             }
             return false;
         }
 
-        private bool IsInFirstDayOfMonth(DateTime date)
-        {
-            var firstDay = new DateTime(date.Year, date.Month, 1);
-
-            if (firstDay.DayOfWeek == DayOfWeek.Saturday)
-                firstDay = firstDay.AddDays(2);
-
-            else if (firstDay.DayOfWeek == DayOfWeek.Sunday)
-                firstDay = firstDay.AddDays(1);
-
-            return date.Date == firstDay.Date;
-        }
-
-        private bool IsInLastFiveBusinessDays(DateTime date)
+        /// <summary>
+        /// Ordinal de <paramref name="date"/> dentro de los últimos 5 días hábiles del
+        /// mes: 1 = el más temprano de los 5, 5 = el último día hábil. 0 si la fecha no
+        /// cae en esa ventana. No cuentan como hábiles los sábados, domingos ni los
+        /// feriados/días no laborables en <paramref name="holidays"/>.
+        /// </summary>
+        private int LastFiveBusinessDayOrdinal(DateTime date, HashSet<DateOnly>? holidays = null)
         {
             var year = date.Year;
             var month = date.Month;
-
             var lastDay = new DateTime(year, month, DateTime.DaysInMonth(year, month));
 
+            // businessDays[0] = último hábil del mes; businessDays[4] = el más temprano de los 5.
             var businessDays = new List<DateTime>();
-
             for (var d = lastDay; d.Month == month; d = d.AddDays(-1))
             {
-                if (d.DayOfWeek != DayOfWeek.Saturday &&
-                    d.DayOfWeek != DayOfWeek.Sunday)
-                {
+                var isWeekend = d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday;
+                var isHoliday = holidays != null && holidays.Contains(DateOnly.FromDateTime(d));
+                if (!isWeekend && !isHoliday)
                     businessDays.Add(d);
-                }
-
-                if (businessDays.Count == 5)
-                    break;
+                if (businessDays.Count == 5) break;
             }
 
-            return businessDays.Any(d => d.Date == date.Date);
+            var idx = businessDays.FindIndex(d => d.Date == date.Date);
+            if (idx < 0) return 0;
+            return businessDays.Count - idx; // idx 0 (último hábil) → 5 ; idx 4 → 1
+        }
+
+        /// <summary>
+        /// Aviso mensual (1er día del mes) de que las lecciones aprendidas del mes
+        /// anterior ya están publicadas. Va a todos los trabajadores cuyo correo
+        /// corporativo @abril (worker.email_personal) tiene un usuario registrado.
+        /// Los destinatarios viajan en BCC por lotes para no exponer sus correos.
+        /// </summary>
+        public async Task SendLessonsLearnedPublicationAsync(DateTime executionDate)
+        {
+            // Mes anterior: al día 1 el mes recién cerrado ya tiene sus lecciones
+            // recolectadas (los recordatorios de subida corren a fin de mes).
+            var target = executionDate.AddMonths(-1);
+            var es = new CultureInfo("es-PE");
+            var periodLabel = target.ToString("MMMM yyyy", es);        // "marzo 2026"
+            var periodLabelTitle = es.TextInfo.ToTitleCase(periodLabel); // "Marzo 2026"
+
+            var recipients = await _lessonReminderRepository.GetAbrilWorkerEmailsWithUserAsync();
+            Console.WriteLine($"📊 [publicación lecciones] destinatarios @abril con usuario: {recipients.Count}");
+            if (recipients.Count == 0)
+            {
+                Console.WriteLine("   • Sin destinatarios; no se envía el aviso de publicación.");
+                return;
+            }
+
+            var platformUrl = $"{_frontendUrl}/auth/login";
+
+            var subject = $"📘 Publicación de Lecciones Aprendidas — {periodLabelTitle}";
+
+            var body = $@"
+            <p>Estimados,</p>
+
+            <p>
+                Les informamos que las lecciones aprendidas correspondientes al mes de
+                <strong>{periodLabel}</strong> ya se encuentran disponibles en la plataforma
+                corporativa para su revisión y consulta.
+            </p>
+
+            <p>
+                Este registro reúne las principales buenas prácticas, oportunidades de mejora
+                y experiencias identificadas en los distintos proyectos, promoviendo la gestión
+                del conocimiento y la mejora continua en la organización.
+            </p>
+
+            <p>
+                Invitamos a todos los equipos a revisar el contenido publicado y considerar su
+                aplicación en futuras etapas y proyectos, contribuyendo así a una ejecución más
+                eficiente, preventiva y estandarizada.
+            </p>
+
+            <p>
+                👉 <a href='{platformUrl}' target='_blank'>Acceder a la plataforma</a>
+            </p>
+
+            <p>
+                Agradecemos el compromiso de cada área en la generación y difusión de
+                conocimiento dentro de la organización.
+            </p>
+
+            <p style='font-size: 12px; color: #666;'>
+                Este mensaje se envía automáticamente el primer día de cada mes.
+            </p>
+            ";
+
+            // Envío masivo: trabajadores en BCC por lotes (no se exponen entre sí).
+            // El To lleva el buzón institucional, que también queda como auditoría.
+            var batches = 0;
+            foreach (var batch in recipients.Chunk(PublicationBatchSize))
+            {
+                await _emailService.SendAsync(
+                    to: _publicationAnnouncementTo,
+                    subject: subject,
+                    body: body,
+                    isHtml: true,
+                    bcc: batch.ToList()
+                );
+                batches++;
+            }
+
+            Console.WriteLine($"📧 Aviso de publicación enviado en {batches} lote(s) a {recipients.Count} destinatario(s).");
         }
 
         public async Task SendLessonsLearnedMonthlyRemindersAsync(DateTime executionDate)
         {
             var currentPeriod = executionDate.ToString("MM-yyyy");
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
 
             // ─────────────────────────────────────────────────────────────────
             // CANAL 1 — user_project: usuarios asignados a proyectos que no han
             // subido lecciones este mes.
             // ─────────────────────────────────────────────────────────────────
-            var pendingUserProjects = await _userProjectRepository.GetUsersWithoutLessonsThisMonth(currentPeriod);
+            var pendingUserProjects = await _lessonReminderRepository.GetUsersWithoutLessonsThisMonth(currentPeriod);
             Console.WriteLine($"📊 [user_project] pendientes: {pendingUserProjects.Count}");
 
             // Staff emails activos por proyecto (project_staff_reminder.active=true).
@@ -346,10 +441,11 @@ namespace Abril_Backend.Application.Services
 
         public async Task NotifySupervisorsAboutPendingLessonsAsync(DateTime executionDate)
         {
-            var previousMonthDate = executionDate.AddMonths(-1);
-            var periodLabel = previousMonthDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
+            // Se mueve del 1er día del mes al día 4 de los últimos 5 hábiles → reporta el MES ACTUAL.
+            var targetMonthDate = executionDate;
+            var periodLabel = targetMonthDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
 
-            var pendingUserProjects = await _userProjectRepository.GetUsersWithoutLessonsByPeriod(previousMonthDate);
+            var pendingUserProjects = await _lessonReminderRepository.GetUsersWithoutLessonsByPeriod(targetMonthDate);
 
             if (!pendingUserProjects.Any())
                 return;
@@ -365,7 +461,7 @@ namespace Abril_Backend.Application.Services
             emailsTo.AddRange(_supervisorsEmails);
             emailsTo.AddRange(pendingEmails);
 
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
 
             var usersHtml = string.Join("",
                 pendingUserProjects.Select(u => $@"
@@ -399,7 +495,7 @@ namespace Abril_Backend.Application.Services
         </p>
 
         <p style='font-size: 12px; color: #666;'>
-            Este mensaje se envía automáticamente el primer día laboral de cada mes.
+            Este mensaje se envía automáticamente el 4.º día hábil final del mes.
         </p>
     ";
 
@@ -414,6 +510,100 @@ namespace Abril_Backend.Application.Services
             );
         }
 
+        /// <summary>
+        /// Aviso del 4.º día hábil a las jefaturas ACTIVAS en la sección
+        /// "Jefaturas" (lesson_jefe_reminder.active=true): las lecciones del mes ya
+        /// están listas y se abre la ventana de revisión (Aprobar/Rechazar). Es
+        /// independiente del reporte de pendientes — sale aunque no haya pendientes.
+        /// </summary>
+        public async Task SendJefesReviewWindowReminderAsync(DateTime executionDate)
+        {
+            var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
+
+            var jefes = await _lessonReminderRepository.GetActiveJefesReviewStatusAsync();
+            Console.WriteLine($"📊 [jefaturas] activas para aviso de revisión: {jefes.Count}");
+            if (jefes.Count == 0)
+            {
+                Console.WriteLine("   • Sin jefaturas activas; no se envía el aviso de revisión.");
+                return;
+            }
+
+            var platformUrl = $"{_frontendUrl}/auth/login";
+
+            foreach (var jefe in jefes)
+            {
+                if (string.IsNullOrWhiteSpace(jefe.Email)) continue;
+
+                var saludo = !string.IsNullOrWhiteSpace(jefe.FullName)
+                    ? $"Estimado(a) <strong>{jefe.FullName}</strong>,"
+                    : "Estimado(a),";
+
+                var pieHtml = @"
+                <p style='font-size: 12px; color: #666;'>
+                    Este aviso se envía automáticamente el 4.º día hábil final del mes a las
+                    jefaturas habilitadas en la configuración de recordatorios.
+                </p>";
+
+                string subject;
+                string body;
+
+                if (jefe.PendingCount > 0)
+                {
+                    var sustantivo = jefe.PendingCount == 1 ? "lección pendiente" : "lecciones pendientes";
+                    subject = $"📋 Lecciones aprendidas listas para tu revisión — {periodLabel}";
+                    body = $@"
+                    <p>{saludo}</p>
+
+                    <p>
+                        Se ha abierto la <strong>ventana de revisión</strong> de Lecciones Aprendidas de
+                        <strong>{periodLabel}</strong>. Tu equipo tiene <strong>{jefe.PendingCount}</strong>
+                        {sustantivo} de tu revisión.
+                    </p>
+
+                    <p>
+                        Ingresa a la plataforma para <strong>aprobar o rechazar</strong> durante la ventana
+                        de revisión (los últimos 2 días hábiles del mes).
+                    </p>
+
+                    <p>
+                        👉 <a href='{platformUrl}' target='_blank'>Acceder a la plataforma</a>
+                    </p>
+                    {pieHtml}";
+                }
+                else
+                {
+                    subject = $"📋 Ventana de revisión de Lecciones Aprendidas — {periodLabel} (sin pendientes)";
+                    body = $@"
+                    <p>{saludo}</p>
+
+                    <p>
+                        Se ha detectado que hoy inicia la <strong>ventana de revisión</strong> de Lecciones
+                        Aprendidas de <strong>{periodLabel}</strong>, pero <strong>no tienes lecciones de tu
+                        equipo pendientes de revisar</strong> en este momento.
+                    </p>
+
+                    <p>
+                        No necesitas hacer nada. Si más adelante un integrante de tu equipo registra o
+                        edita una lección, te aparecerá pendiente en la plataforma.
+                    </p>
+
+                    <p>
+                        👉 <a href='{platformUrl}' target='_blank'>Acceder a la plataforma</a>
+                    </p>
+                    {pieHtml}";
+                }
+
+                await _emailService.SendAsync(
+                    to: new List<string> { jefe.Email },
+                    subject: subject,
+                    body: body,
+                    isHtml: true,
+                    bcc: new List<string> { "calvarez@abril.pe" });
+            }
+
+            Console.WriteLine($"📧 Aviso de revisión enviado a {jefes.Count} jefatura(s).");
+        }
+
         public async Task SendMilestoneScheduleMonthlyReminderAsync(DateTime executionDate)
         {
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
@@ -423,7 +613,7 @@ namespace Abril_Backend.Application.Services
             if (!changes.Any())
                 return;
 
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
 
             var projectsHtml = string.Join("",
                 changes.Select(x =>
@@ -483,7 +673,7 @@ namespace Abril_Backend.Application.Services
             var pendingUserProjects = await _milestoneScheduleHistoryRepository.GetUsersWithoutScheduleHistoryThisMonth();
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
             //var periodLabel = "Enero 2026";
-            var platformUrl = "https://abril-frontend-m21l.onrender.com/auth/login";
+            var platformUrl = $"{_frontendUrl}/auth/login";
             foreach (var item in pendingUserProjects)
             {
                 Console.WriteLine(item.Email);

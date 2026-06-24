@@ -36,22 +36,6 @@ namespace Abril_Backend.Infrastructure.Repositories {
             return data;
         }
 
-        public async Task<List<UserPersonFilterDTO>> GetAllFilterFactory()
-        {
-            using var ctx = _factory.CreateDbContext();
-            var query = from u in ctx.User
-                join p in ctx.Person
-                on u.UserId equals p.UserId
-                where (u.Active == true) && (u.State == true) && (p.Active == true) && (p.State == true) && (u.EmailConfirmed == true)
-                select new UserPersonFilterDTO
-                {
-                    UserId = u.UserId,
-                    PersonId = p.PersonId,
-                    PersonFullName = p.FullName,
-                };
-                return await query.ToListAsync();
-        }
-
         public async Task<PagedResult<UserDTO>> GetPagedFactory(int page, int pageSizeQuery)
         {
             int pageSize = pageSizeQuery;

@@ -149,9 +149,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     "Cada trayecto debe tener al menos una captura con monto, o (para trabajadores de Tecnología de la Información) un trayecto registrado en el catálogo.",
                     400);
 
-            // 2. Cargar info y generar PDF en memoria.
-            var datos = await _repo.GetRendicionData(elegiblesIds);
-            var pdf   = GenerarPlanillaPdf(datos);
+            // 2. Cargar info, consumir el correlativo de planilla y generar PDF en memoria.
+            var datos          = await _repo.GetRendicionData(elegiblesIds);
+            var numeroPlanilla = await _repo.GetNextNumeroPlanillaAsync();
+            var numeroLabel    = $"TI: {numeroPlanilla:D6}";
+            var pdf            = GenerarPlanillaPdf(datos, numeroLabel);
 
             // 3. Subir a SharePoint ANTES de marcar como rendidas.
             //    Si el upload falla, no se modifica nada en BD (estricto).
@@ -186,7 +188,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             // 4. Persistir GaRendicion + marcar solicitudes (transacción interna).
             var rendidasIds = await _repo.CrearRendicionYMarcarBulk(
-                elegiblesIds, userId, pdfUrl, pdfItemId, filename);
+                elegiblesIds, userId, pdfUrl, pdfItemId, filename, numeroPlanilla);
 
             return (pdf, rendidasIds.Count);
         }
@@ -196,7 +198,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
         // ── Generación de la planilla de gasto por movilidad (QuestPDF) ──────
 
-        private const int FilasPorPagina = 10;
+        private const int FilasPorPagina = 15;
+
+        /// <summary>Tamaño de letra de las celdas de la tabla — reducido para que entren 15 filas/página.</summary>
+        private const float TablaFontSize = 7.5f;
+
+        /// <summary>Máximo de líneas que puede ocupar el texto de una celda de la tabla.</summary>
+        private const int TablaMaxLineas = 2;
 
         private static string LogoPath() => Path.Combine(
             AppContext.BaseDirectory,
@@ -213,13 +221,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return _logoBytes;
         }
 
-        private static byte[] GenerarPlanillaPdf(List<RendicionItemDto> items)
+        private static byte[] GenerarPlanillaPdf(List<RendicionItemDto> items, string numeroLabel)
         {
             var grupos = items.GroupBy(x => x.WorkerId).Select(g => g.ToList()).ToList();
             if (grupos.Count == 0) grupos.Add(new List<RendicionItemDto>());
 
-            // Una "página lógica" por chunk de FilasPorPagina dentro de cada grupo.
-            // En QuestPDF lo modelamos como múltiples Document.Page() — cada chunk es su propia página.
             var paginas = new List<(List<RendicionItemDto> trabajadorItems, List<RendicionItemDto> pageItems, bool isLast, int pageNum, int totalPages)>();
             foreach (var g in grupos)
             {
@@ -243,7 +249,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         page.Margin(25);
                         page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(10));
 
-                        page.Content().Element(c => RenderPagina(c, pag.trabajadorItems, pag.pageItems, pag.isLast, pag.pageNum, pag.totalPages, logo));
+                        page.Content().Element(c => RenderPagina(c, pag.trabajadorItems, pag.pageItems, pag.isLast, pag.pageNum, pag.totalPages, logo, numeroLabel));
+
+                        // Pie de página común a todas las páginas — número de registro (izq)
+                        // y "Página X de Y" (der) cuando aplique.
+                        var pageNum_   = pag.pageNum;
+                        var totalPages_ = pag.totalPages;
+                        page.Footer().PaddingTop(4).Row(footerRow =>
+                        {
+                            footerRow.RelativeItem().AlignLeft()
+                                .Text(numeroLabel).FontSize(9).Bold().FontColor(Colors.Grey.Darken2);
+                            footerRow.RelativeItem().AlignRight()
+                                .Text(totalPages_ > 1 ? $"Página {pageNum_} de {totalPages_}" : "")
+                                .FontSize(9).FontColor(Colors.Grey.Medium);
+                        });
                     });
                 }
             });
@@ -258,7 +277,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             bool isLastPage,
             int pageNum,
             int totalPages,
-            byte[]? logo)
+            byte[]? logo,
+            string numeroLabel)
         {
             var first       = trabajadorItems.FirstOrDefault();
             var trabajador  = first?.TrabajadorNombre ?? "";
@@ -266,13 +286,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             var area        = first?.Area             ?? "";
             var razonSocial = first?.RazonSocial      ?? "";
             var ruc         = first?.Ruc              ?? "";
+            // Label del documento: DNI (tipo 1) | CE (tipo 2) | DNI por defecto.
+            var documentoLabel = first?.TrabajadorDocumentTypeId switch
+            {
+                2 => "CE:",
+                _ => "DNI:",
+            };
             string periodo  = trabajadorItems.Count > 0
                 ? $"{trabajadorItems.Min(i => i.FechaSalida):dd/MM/yyyy}   AL   {trabajadorItems.Max(i => i.FechaSalida):dd/MM/yyyy}"
                 : "";
 
             container.Column(col =>
             {
-                col.Spacing(10);
+                col.Spacing(6);
 
                 // ── Header: logo izquierda + caja título derecha ─────────────
                 col.Item().Row(row =>
@@ -290,14 +316,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         titleRow.RelativeItem(3).Border(1).AlignCenter().AlignMiddle()
                             .Text("PLANILLA DE GASTO POR MOVILIDAD Nº")
                             .FontSize(11).Bold();
-                        titleRow.RelativeItem(1).Border(1); // caja vacía para el número
+                        titleRow.RelativeItem(1).Border(1).AlignCenter().AlignMiddle()
+                            .Text(numeroLabel).FontSize(10).Bold();
                     });
                 });
 
                 // ── Info section ─────────────────────────────────────────────
-                col.Item().PaddingTop(5).Column(info =>
+                col.Item().PaddingTop(3).Column(info =>
                 {
-                    info.Spacing(4);
+                    info.Spacing(2);
 
                     info.Item().Element(c => InfoLine(c, "RAZÓN SOCIAL:", razonSocial));
 
@@ -307,17 +334,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                         r.RelativeItem().Element(c => InfoLine(c, "NOMBRE DEL ÁREA/PROYECTO:", area));
                     });
 
-                    info.Item().Element(c => InfoLine(c, "APELLIDOS Y NOMBRE:", trabajador));
+                    info.Item().Element(c => InfoLine(c, "NOMBRES Y APELLIDOS:", trabajador));
 
                     info.Item().Row(r =>
                     {
-                        r.RelativeItem().Element(c => InfoLine(c, "DNI:", dni));
+                        r.RelativeItem().Element(c => InfoLine(c, documentoLabel, dni));
                         r.RelativeItem().Element(c => InfoLine(c, "PERIODO DEL:", periodo));
                     });
                 });
 
                 // ── Tabla ────────────────────────────────────────────────────
-                col.Item().PaddingTop(10).Table(table =>
+                col.Item().PaddingTop(6).Table(table =>
                 {
                     table.ColumnsDefinition(c =>
                     {
@@ -331,29 +358,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     table.Header(h =>
                     {
                         static IContainer Th(IContainer c) => c.Border(1).Background(Colors.Grey.Lighten4)
-                            .PaddingVertical(6).AlignCenter().AlignMiddle();
-                        h.Cell().Element(Th).Text("FECHA").Bold();
-                        h.Cell().Element(Th).Text("MOTIVO").Bold();
-                        h.Cell().Element(Th).Text("ORIGEN").Bold();
-                        h.Cell().Element(Th).Text("DESTINO").Bold();
-                        h.Cell().Element(Th).Text("IMPORTE S/").Bold();
+                            .PaddingVertical(3).AlignCenter().AlignMiddle();
+                        h.Cell().Element(Th).Text("FECHA").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("MOTIVO").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("ORIGEN").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("DESTINO").Bold().FontSize(TablaFontSize);
+                        h.Cell().Element(Th).Text("IMPORTE S/").Bold().FontSize(TablaFontSize);
                     });
 
-                    static IContainer Td(IContainer c) => c.Border(1).PaddingVertical(5).PaddingHorizontal(4).AlignMiddle();
+                    static IContainer Td(IContainer c) => c.Border(1).PaddingVertical(2).PaddingHorizontal(4).AlignMiddle();
+
+                    // Texto de celda recortado a un máximo de 2 líneas (evita "textazos").
+                    static void CeldaTexto(IContainer c, string value, bool center = false) =>
+                        (center ? c.AlignCenter() : c)
+                            .Text(value ?? "").FontSize(TablaFontSize).ClampLines(TablaMaxLineas);
 
                     foreach (var it in pageItems)
                     {
-                        table.Cell().Element(Td).AlignCenter().Text(it.FechaSalida.ToString("dd/MM/yyyy"));
-                        table.Cell().Element(Td).Text(it.Motivo ?? "");
-                        table.Cell().Element(Td).Text(it.LugarOrigen ?? "");
-                        table.Cell().Element(Td).Text(it.LugarDestino ?? "");
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.FechaSalida.ToString("dd/MM/yyyy"), center: true));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.Motivo ?? ""));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarOrigen ?? ""));
+                        table.Cell().Element(Td).Element(c => CeldaTexto(c, it.LugarDestino ?? ""));
                         // Importe: mostrar siempre que venga del catálogo (incluso si es 0.00)
                         // o cuando la suma de capturas sea > 0. Si el trayecto no tiene
                         // ninguna fuente, dejar la celda vacía.
                         table.Cell().Element(Td).AlignRight().Text(
                             (it.EsCatalogo || it.Importe > 0)
                                 ? it.Importe.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("es-PE"))
-                                : "");
+                                : "").FontSize(TablaFontSize);
                     }
 
                     if (isLastPage)
@@ -374,31 +406,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 // ── Firmas (solo última página del trabajador) ───────────────
                 if (isLastPage)
                 {
-                    col.Item().PaddingTop(40).Row(row =>
+                    col.Item().PaddingTop(24).Row(row =>
                     {
                         row.RelativeItem().AlignCenter().Column(fc =>
                         {
                             fc.Item().LineHorizontal(0.7f);
                             fc.Item().PaddingTop(2).AlignCenter()
-                                .Text("Firma del Residente").FontSize(9).Italic();
+                                .Text("Firma de Jefatura").FontSize(9).Italic();
                         });
                         row.ConstantItem(60); // spacer
                         row.RelativeItem().AlignCenter().Column(fc =>
                         {
                             fc.Item().LineHorizontal(0.7f);
                             fc.Item().PaddingTop(2).AlignCenter()
-                                .Text("Firma del Responsable").FontSize(9).Italic();
+                                .Text("Firma de Gerencia").FontSize(9).Italic();
                         });
                     });
                 }
 
-                // ── Indicador de página (si el trabajador ocupa varias) ──────
-                if (totalPages > 1)
-                {
-                    col.Item().PaddingTop(8).AlignRight()
-                        .Text($"Página {pageNum} de {totalPages}")
-                        .FontSize(9).FontColor(Colors.Grey.Medium);
-                }
+                // (El indicador "Página X de Y" se muestra ahora en el footer global de la página.)
             });
         }
 
@@ -406,10 +432,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         {
             container.Row(r =>
             {
-                r.ConstantItem(170).AlignMiddle().Text(label).Bold().FontSize(10);
+                r.ConstantItem(155).AlignMiddle().Text(label).Bold().FontSize(9);
                 r.RelativeItem().BorderBottom(0.6f).BorderColor(Colors.Grey.Darken1)
-                    .PaddingBottom(2).AlignMiddle()
-                    .Text(value ?? "").FontSize(10);
+                    .PaddingBottom(1).AlignMiddle()
+                    .Text(value ?? "").FontSize(9);
             });
         }
 

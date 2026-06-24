@@ -16,10 +16,11 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftProfile.Application.Service
 
         public async Task<MicrosoftProfileDto?> GetProfile(string accessToken)
         {
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", accessToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                "v1.0/me?$select=id,displayName,givenName,surname,userPrincipalName,mail,jobTitle,officeLocation,mobilePhone,businessPhones,department");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-            var response = await _httpClient.GetAsync("v1.0/me?$select=id,displayName,givenName,surname,userPrincipalName,mail,jobTitle,officeLocation,mobilePhone,businessPhones,department");
+            var response = await _httpClient.SendAsync(request);
             if (!response.IsSuccessStatusCode)
                 return null;
 
@@ -28,10 +29,10 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftProfile.Application.Service
 
         public async Task<string?> GetPhotoBase64(string accessToken)
         {
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", accessToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, "v1.0/me/photo/$value");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-            var response = await _httpClient.GetAsync("v1.0/me/photo/$value");
+            var response = await _httpClient.SendAsync(request);
             if (!response.IsSuccessStatusCode)
                 return null;
 

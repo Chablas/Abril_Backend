@@ -273,6 +273,21 @@ public static class WordTemplateHelper
             : stripped.Replace("</w:rPr>", "<w:b/><w:bCs/></w:rPr>"); // fallback defensivo
     }
 
+    /// <summary>
+    /// Garantiza que &lt;w:u w:val="single"/&gt; (subrayado) esté presente en el rPr.
+    /// En el orden de hijos de &lt;w:rPr&gt; (CT_RPr), &lt;w:u&gt; va casi al final (tras sz/color),
+    /// por lo que insertarlo antes de &lt;/w:rPr&gt; es la posición válida más simple.
+    /// </summary>
+    private static string ForceUnderline(string rPr)
+    {
+        if (string.IsNullOrEmpty(rPr))
+            return "<w:rPr><w:u w:val=\"single\"/></w:rPr>";
+
+        return rPr.Contains("</w:rPr>")
+            ? rPr.Replace("</w:rPr>", "<w:u w:val=\"single\"/></w:rPr>")
+            : rPr;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -303,6 +318,30 @@ public static class WordTemplateHelper
                     sb.Append("</w:r>");
                 }
                 inBold = !inBold;
+            }
+            return;
+        }
+
+        // Subrayado inline: si el texto contiene __ tomamos un camino análogo al de negrita.
+        // (Una línea usa negrita O subrayado, no ambos a la vez, en las cláusulas generadas.)
+        if (line.Contains("__"))
+        {
+            var parts = Regex.Split(line, @"__");
+            bool inUnderline = false;
+            foreach (var part in parts)
+            {
+                if (part.Length > 0)
+                {
+                    var partRPr = inUnderline ? ForceUnderline(rPr) : rPr;
+                    var spaceAttr = (part.StartsWith(' ') || part.EndsWith(' '))
+                        ? " xml:space=\"preserve\""
+                        : "";
+                    sb.Append("<w:r>");
+                    if (!string.IsNullOrEmpty(partRPr)) sb.Append(partRPr);
+                    sb.Append($"<w:t{spaceAttr}>{XmlEscape(part)}</w:t>");
+                    sb.Append("</w:r>");
+                }
+                inUnderline = !inUnderline;
             }
             return;
         }

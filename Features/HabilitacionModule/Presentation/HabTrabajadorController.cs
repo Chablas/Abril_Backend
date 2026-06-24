@@ -15,7 +15,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     [Authorize]
     public class HabTrabajadorController : ControllerBase
     {
-        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP", "ADMINISTRADOR ADMINISTRACION"];
+        private static readonly string[] RolesAprobadoresSsoma = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP"];
+        private static readonly string[] RolesAprobadoresAdmin = ["ADMINISTRADOR ADMINISTRACION", "ADMINISTRADOR DE UDP"];
 
         private readonly IHabTrabajadorRepository _repo;
         private readonly ILogger<HabTrabajadorController> _logger;
@@ -133,8 +134,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             try
             {
                 var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
-                var esAprobador = User.FindAll(ClaimTypes.Role).Any(c => RolesAprobadores.Contains(c.Value, StringComparer.OrdinalIgnoreCase));
-
                 if (esContratista)
                 {
                     var itemId = await _repo.GetEntregableItemIdAsync(id);
@@ -142,11 +141,25 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                         return BadRequest(new { message = "La Inducción de Obra no puede ser enviada por el contratista. Debe ser aprobada presencialmente." });
 
                     dto.Estado = "Enviado";
-                    dto.Vigencia = null;
+                    // No borrar vigencia — el contratista puede enviarla cuando el item la requiere
                 }
 
-                if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase) && !esAprobador)
-                    return StatusCode(403, new { message = "Solo ADMINISTRADOR SSOMA o ADMINISTRADOR DE UDP pueden aprobar." });
+                var esAccionRestringida =
+                    string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase) ||
+                    dto.Vigencia.HasValue;
+
+                if (!esContratista && esAccionRestringida)
+                {
+                    var responsable = await _repo.GetResponsableItemTrabajadorAsync(id);
+                    var rolesPermitidos = string.Equals(responsable, "SSOMA", StringComparison.OrdinalIgnoreCase)
+                        ? RolesAprobadoresSsoma
+                        : RolesAprobadoresAdmin;
+                    var tienePermiso = User.FindAll(ClaimTypes.Role)
+                        .Any(c => rolesPermitidos.Contains(c.Value, StringComparer.OrdinalIgnoreCase));
+                    if (!tienePermiso)
+                        return StatusCode(403, new { message = "No tienes permiso para modificar este documento." });
+                }
 
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
                 int? userId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;
@@ -306,7 +319,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         [HttpGet("reparar-vinculaciones")]
         public async Task<IActionResult> RepararVinculaciones()
         {
-            if (!User.Claims.Any(c => c.Type == ClaimTypes.Role && RolesAprobadores.Contains(c.Value)))
+            if (!User.Claims.Any(c => c.Type == ClaimTypes.Role && (RolesAprobadoresSsoma.Contains(c.Value) || RolesAprobadoresAdmin.Contains(c.Value))))
                 return StatusCode(403, new { message = "Solo administradores pueden ejecutar esta operación." });
             try
             {

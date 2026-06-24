@@ -1,8 +1,10 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.ContratistaUsuarios;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
+using Abril_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
@@ -13,13 +15,16 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     public class ContratistaUsuarioController : ControllerBase
     {
         private readonly IContratistaUsuarioService _service;
+        private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly ILogger<ContratistaUsuarioController> _logger;
 
         public ContratistaUsuarioController(
             IContratistaUsuarioService service,
+            IDbContextFactory<AppDbContext> dbFactory,
             ILogger<ContratistaUsuarioController> logger)
         {
             _service = service;
+            _dbFactory = dbFactory;
             _logger = logger;
         }
 
@@ -63,6 +68,46 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ContratistaUsuarioController.ActualizarUsuario"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("{contractorId}/buscar-workers")]
+        public async Task<IActionResult> BuscarWorkers(int contractorId, [FromQuery] string? search)
+        {
+            try
+            {
+                using var ctx = _dbFactory.CreateDbContext();
+                var query = ctx.Worker
+                    .Include(w => w.Person)
+                    .Where(w => w.ContributorId == contractorId
+                             && (w.Estado == "ACTIVO" || w.Estado == "Activo"));
+
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    var s = search.Trim().ToLower();
+                    query = query.Where(w =>
+                        (w.Person != null && (
+                            (w.Person.DocumentIdentityCode != null && w.Person.DocumentIdentityCode.ToLower().Contains(s)) ||
+                            (w.Person.FullName != null && w.Person.FullName.ToLower().Contains(s))
+                        )));
+                }
+
+                var result = await query
+                    .Select(w => new {
+                        w.Id,
+                        Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                        NombreCompleto = w.Person != null ? w.Person.FullName : null,
+                        w.EmailPersonal
+                    })
+                    .Take(10)
+                    .ToListAsync();
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error buscando workers contractorId={Id}", contractorId);
+                return StatusCode(500, new { message = "Error del servidor." });
+            }
         }
 
         [HttpDelete("{id:int}")]

@@ -128,8 +128,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.RequiereSeguimiento.HasValue) ent.RequiereSeguimiento = dto.RequiereSeguimiento.Value;
             ent.UpdatedAt = DateTimeOffset.UtcNow;
 
-            if (dto.Estado == "Completado")
+            if (dto.Estado == "Atendida" || dto.Estado == "Completado")
             {
+                if (ent.EmoId.HasValue)
+                {
+                    var emo = await ctx.WorkerEmo.FirstOrDefaultAsync(e => e.Id == ent.EmoId.Value);
+                    if (emo != null)
+                    {
+                        emo.InterconsultaResuelta = true;
+                        emo.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
+                }
+
                 var lecturaEmo = await ctx.SsHabTrabajador
                     .FirstOrDefaultAsync(h => h.WorkerId == ent.WorkerId && h.ItemId == 25);
                 if (lecturaEmo != null)

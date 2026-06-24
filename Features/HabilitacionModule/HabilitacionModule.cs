@@ -29,6 +29,13 @@ namespace Abril_Backend.Features.Habilitacion
             services.AddScoped<IContratistaUsuarioRepository, ContratistaUsuarioRepository>();
             services.AddScoped<IContratistaUsuarioService, ContratistaUsuarioService>();
             services.AddScoped<IVigenciaRevisionService, VigenciaRevisionService>();
+            services.AddScoped<IDashboardHabRepository, DashboardHabRepository>();
+            services.AddScoped<IRetiroAutomaticoService, RetiroAutomaticoService>();
+
+            // Dossier Semanal
+            services.AddScoped<IDossierRepository, DossierRepository>();
+            services.AddScoped<IDossierService, DossierService>();
+
             return services;
         }
     }

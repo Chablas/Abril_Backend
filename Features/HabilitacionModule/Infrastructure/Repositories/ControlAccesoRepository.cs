@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.ControlAcceso;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -45,14 +46,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 query = query.Where(w => ids.Contains(w.Id));
             }
 
-            var oficinaId = _configuration.GetValue<int>("OficinaCentral:ProjectId");
+            var oficinaId = _configuration.GetValue<int>("OficinaCentral:ProjectId", 36);
             var esOficinaCentral = proyectoId.HasValue && proyectoId.Value == oficinaId;
 
             var workers = await query.Take(100).ToListAsync();
             return await BuildDtosAsync(ctx, workers, esOficinaCentral);
         }
 
-        public async Task<List<ControlAccesoWorkerDto>> GetNoAutorizadosAsync(int proyectoId)
+        public async Task<List<ControlAccesoWorkerDto>> GetNoAutorizadosAsync(int proyectoId, string? estadoHabilitacion)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -78,9 +79,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Distinct()
                 .ToListAsync();
 
+            var noAutorizadosSet = noAutorizadosIds.ToHashSet();
+
+            List<int> filteredIds = estadoHabilitacion switch
+            {
+                "No Autorizado" => noAutorizadosIds,
+                "Habilitado"    => workerIds.Where(id => !noAutorizadosSet.Contains(id)).ToList(),
+                _               => workerIds
+            };
+
+            if (filteredIds.Count == 0) return [];
+
             var workers = await ctx.Worker
                 .Include(w => w.Person)
-                .Where(w => noAutorizadosIds.Contains(w.Id))
+                .Where(w => filteredIds.Contains(w.Id))
                 .ToListAsync();
 
             return await BuildDtosAsync(ctx, workers);
@@ -448,12 +460,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 else
                 {
                     hasPendientes = items.Any(h =>
-                        h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
-                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora));
+                        h.ItemId != HabItemIds.LecturaEmo &&
+                        (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
+                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)));
 
                     faltantes = items
-                        .Where(h => h.Estado == "Falta" || h.Estado == "Rechazado" ||
-                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora))
+                        .Where(h => h.ItemId != HabItemIds.LecturaEmo &&
+                                    (h.Estado == "Falta" || h.Estado == "Rechazado" ||
+                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)))
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)
                         .ToList();

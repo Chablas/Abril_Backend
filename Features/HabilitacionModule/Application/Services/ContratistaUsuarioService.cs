@@ -17,15 +17,21 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
         private readonly IContratistaUsuarioRepository _repo;
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
+        private readonly ILogger<ContratistaUsuarioService> _logger;
+        private readonly IConfiguration _configuration;
 
         public ContratistaUsuarioService(
             IContratistaUsuarioRepository repo,
             IDbContextFactory<AppDbContext> factory,
-            IEmailService emailService)
+            IEmailService emailService,
+            ILogger<ContratistaUsuarioService> logger,
+            IConfiguration configuration)
         {
             _repo = repo;
             _factory = factory;
             _emailService = emailService;
+            _logger = logger;
+            _configuration = configuration;
         }
 
         public Task<List<ContratistaUsuarioListDto>> GetUsuariosAsync(int contractorId)
@@ -47,6 +53,14 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             using var ctx = _factory.CreateDbContext();
 
             var email = dto.Email.Trim().ToLower();
+
+            if (dto.EsWorker && dto.WorkerId.HasValue)
+            {
+                var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == dto.WorkerId.Value)
+                    ?? throw new AbrilException("Trabajador no encontrado.", 404);
+                if (!string.IsNullOrWhiteSpace(worker.EmailPersonal))
+                    email = worker.EmailPersonal.Trim().ToLower();
+            }
 
             var rol = await ctx.SsContratistaRoles.FirstOrDefaultAsync(r => r.Nombre == rolNombre)
                 ?? throw new AbrilException("Rol no encontrado en el sistema.", 500);
@@ -91,23 +105,29 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 await ctx.SaveChangesAsync();
             }
 
-            var existeContractorEmail = await ctx.ContractorEmail
-                .AnyAsync(ce => ce.UserId == user.UserId && ce.ContractorId == contractorId);
-            if (!existeContractorEmail)
+            var contractor = await ctx.Contractor
+                .FirstOrDefaultAsync(c => c.ContributorId == contractorId && c.Active && c.State);
+
+            if (contractor != null)
             {
-                ctx.ContractorEmail.Add(new ContractorEmail
+                var existeContractorEmail = await ctx.ContractorEmail
+                    .AnyAsync(ce => ce.UserId == user.UserId && ce.ContractorId == contractor.ContractorId);
+                if (!existeContractorEmail)
                 {
-                    Email = dto.Email.Trim().ToLower(),
-                    ContractorId = contractorId,
-                    UserId = user.UserId,
-                    Active = true,
-                    State = true,
-                    CreatedDateTime = DateTimeOffset.UtcNow,
-                    UpdatedDateTime = DateTimeOffset.UtcNow,
-                    CreatedUserId = creadoPor,
-                    UpdatedUserId = creadoPor
-                });
-                await ctx.SaveChangesAsync();
+                    ctx.ContractorEmail.Add(new ContractorEmail
+                    {
+                        Email = dto.Email.Trim().ToLower(),
+                        ContractorId = contractor.ContractorId,
+                        UserId = user.UserId,
+                        Active = true,
+                        State = true,
+                        CreatedDateTime = DateTimeOffset.UtcNow,
+                        UpdatedDateTime = DateTimeOffset.UtcNow,
+                        CreatedUserId = creadoPor,
+                        UpdatedUserId = creadoPor
+                    });
+                    await ctx.SaveChangesAsync();
+                }
             }
 
             var entity = new SsContratistaUsuario
@@ -119,24 +139,34 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 Scope = scope,
                 Activo = true,
                 CreadoEn = DateTime.UtcNow,
-                CreadoPor = creadoPor
+                CreadoPor = creadoPor,
+                Modulos = dto.Modulos?.Trim().ToUpper() ?? "AMBOS",
+                WorkerId = dto.EsWorker ? dto.WorkerId : null
             };
 
             await _repo.InvitarUsuarioAsync(entity, scope == "POR_PROYECTO" ? dto.ProyectoIds : null);
 
             if (passwordTemporal is not null)
             {
+                var frontendUrl = _configuration["App:FrontendUrl"] ?? "https://intranet.abril.pe";
                 var html = $@"<p>Has sido invitado a la plataforma <strong>Abril - CASEVIP</strong>.</p>
 <p>Tu usuario es: <strong>{email}</strong></p>
 <p>Tu contraseña temporal es: <strong>{passwordTemporal}</strong></p>
-<p>Ingresa en <a href='https://abril.com'>https://abril.com</a></p>
+<p>Ingresa en <a href='{frontendUrl}'>{frontendUrl}</a></p>
 <p>Te recomendamos cambiar tu contraseña después del primer ingreso.</p>";
 
-                await _emailService.SendAsync(
-                    to: new List<string> { email },
-                    subject: "Invitación a plataforma Abril - CASEVIP",
-                    body: html,
-                    isHtml: true);
+                try
+                {
+                    await _emailService.SendAsync(
+                        to: new List<string> { email },
+                        subject: "Invitación a plataforma Abril - CASEVIP",
+                        body: html,
+                        isHtml: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "No se pudo enviar email de invitación a {Email}", email);
+                }
             }
         }
 
@@ -170,7 +200,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 ContractorId = contractorId,
                 RolId = rolId,
                 Scope = scope,
-                Activo = dto.Activo ?? existing.Activo
+                Activo = dto.Activo ?? existing.Activo,
+                Modulos = dto.Modulos?.Trim().ToUpper() ?? existing.Modulos
             };
 
             var proyectosActualizar = scope == "POR_PROYECTO" ? dto.ProyectoIds : (scope == "TODOS" ? new List<int>() : null);

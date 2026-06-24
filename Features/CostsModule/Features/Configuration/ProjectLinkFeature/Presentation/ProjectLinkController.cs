@@ -19,6 +19,22 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
             _service = service;
         }
 
+        private const string RolAdministrador  = "ADMINISTRADOR DE COSTOS Y PRESUPUESTOS";
+        private const string RolOficinaCentral = "USUARIO DE COSTOS Y PRESUPUESTOS DE OFICINA CENTRAL";
+        private const string RolOficinaTecnica = "USUARIO DE COSTOS Y PRESUPUESTOS DE OFICINA TÉCNICA";
+
+        /// <summary>
+        /// Oficina Técnica (sin Admin ni Of. Central) solo gestiona links de sus proyectos
+        /// (aquellos donde su correo está registrado en staff_project_email).
+        /// </summary>
+        private bool RestrictToOwnProjects()
+        {
+            var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+            return roles.Contains(RolOficinaTecnica)
+                && !roles.Contains(RolAdministrador)
+                && !roles.Contains(RolOficinaCentral);
+        }
+
         [HttpGet("paged")]
         public async Task<IActionResult> GetPaged(
             [FromQuery] int? projectId,
@@ -36,7 +52,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
                     Page = page
                 };
 
-                var result = await _service.GetPaged(filter);
+                var userId = int.Parse(userIdClaim.Value);
+                var result = await _service.GetPaged(filter, userId, RestrictToOwnProjects());
                 return Ok(result);
             }
             catch (Exception)
@@ -54,7 +71,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetFormData();
+                var userId = int.Parse(userIdClaim.Value);
+                var result = await _service.GetFormData(userId, RestrictToOwnProjects());
                 return Ok(result);
             }
             catch (Exception)
@@ -73,12 +91,13 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var userId = int.Parse(userIdClaim.Value);
-                await _service.Create(dto, userId);
+                await _service.Create(dto, userId, RestrictToOwnProjects());
                 return Ok(new { message = "Link registrado exitosamente." });
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = advertencia de configuración/permiso).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -96,12 +115,13 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var userId = int.Parse(userIdClaim.Value);
-                await _service.Update(dto, userId);
+                await _service.Update(dto, userId, RestrictToOwnProjects());
                 return Ok(new { message = "Link actualizado exitosamente." });
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                // Respeta el código de la excepción (p. ej. 422 = advertencia de configuración/permiso).
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -119,11 +139,15 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
                     return Unauthorized(new { message = "Inicie sesión" });
 
                 var userId = int.Parse(userIdClaim.Value);
-                var result = await _service.Delete(projectLinkId, userId);
+                var result = await _service.Delete(projectLinkId, userId, RestrictToOwnProjects());
                 if (!result)
                     return NotFound(new { message = "El link no existe." });
 
                 return Ok(new { message = "Link eliminado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

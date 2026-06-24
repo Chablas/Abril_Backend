@@ -6,7 +6,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
     public interface IUserRepository
     {
         Task<List<UserFilterDTO>> GetAllUsersFactory();
-        Task<List<UserPersonFilterDTO>> GetAllFilterFactory();
         Task<PagedResult<UserDTO>> GetPagedFactory(int page, int pageSizeQuery);
         Task<User?> Create(UserCreateDTO dto);
         Task Update(int userId, UserUpdateDTO dto);

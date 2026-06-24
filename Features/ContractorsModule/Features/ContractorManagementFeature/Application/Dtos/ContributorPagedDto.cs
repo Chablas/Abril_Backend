@@ -23,6 +23,10 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Dt
         public bool HasUser { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public List<string> Emails { get; set; } = new();
+        /// <summary>Correos con su id y estado 'active', usado por el modal de edición.</summary>
+        public List<ContractorEmailItemDto> EmailDetails { get; set; } = new();
         public List<ContractorUserItemDto> Users { get; set; } = new();
+        /// <summary>Datos propuestos cuando el contratista está en estado 4 (actualización pendiente); null en otro caso.</summary>
+        public ContractorPendingUpdateDto? PendingUpdate { get; set; }
     }
 }

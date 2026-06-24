@@ -1,4 +1,5 @@
 using Microsoft.OpenApi;
+using Abril_Backend.Shared.Realtime;
 using Abril_Backend.Shared.Services.Email.Interfaces;
 using Abril_Backend.Shared.Services.Email.Services;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
@@ -21,6 +22,7 @@ using System.Text;
 using System.Security.Claims;
 using Abril_Backend.Features.Costs;
 using Abril_Backend.Features.ConfigurationModule;
+using Abril_Backend.Features.Shared.Application.Services;
 using Abril_Backend.Shared.Services.Reniec.Services;
 using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Abril_Backend.Features.Contractors;
@@ -29,6 +31,7 @@ using Abril_Backend.Features.GestionAdministrativa;
 using Abril_Backend.Features.Habilitacion;
 using Abril_Backend.Features.UnidadDeProyectosModule;
 using Abril_Backend.Features.Evaluaciones;
+using Abril_Backend.Features.VecinosModule;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using Abril_Backend.Shared.Interceptors;
@@ -49,12 +52,6 @@ builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 3_000_000_000;
 });
-
-builder.Configuration
-    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true)
-    .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true)
-    .AddEnvironmentVariables();
 
 var databaseProvider = builder.Configuration["Database:DatabaseProvider"];
 var emailProvider = builder.Configuration["Email:EmailProvider"];
@@ -140,6 +137,7 @@ builder.Services.AddHabilitacionModule();
 builder.Services.AddEvaluacionesModule();
 builder.Services.AddUnidadDeProyectosModule();
 builder.Services.AddMejoraContinuaModule();
+builder.Services.AddVecinosModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();
@@ -152,10 +150,10 @@ builder.Services.AddScoped<IResidentMonitoringService, ResidentMonitoringService
 builder.Services.AddScoped<IRoleService, RoleService>();
 // IReniecService se registra vía AddHttpClient abajo para que el HttpClient tenga base URL y token configurados
 builder.Services.AddScoped<IArquitecturaComercialService, ArquitecturaComercialService>();
+builder.Services.AddScoped<ISharedFiltersService, SharedFiltersService>();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlRepository, ConstructionSiteLogbookControlRepository>();
 builder.Services.AddScoped<IIvtControlPdfRepository, IvtControlPdfRepository>();
-builder.Services.AddScoped<IUserProjectRepository, UserProjectRepository>();
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IProjectResidentRepository, ProjectResidentRepository>();
@@ -168,16 +166,9 @@ builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 builder.Services.AddScoped<IArquitecturaComercialRepository, ArquitecturaComercialRepository>();
 
 builder.Services.AddScoped<AreaRepository>();
-builder.Services.AddScoped<LayerRepository>();
 builder.Services.AddScoped<MilestoneRepository>();
 builder.Services.AddScoped<PersonRepository>();
-builder.Services.AddScoped<PhaseRepository>();
-builder.Services.AddScoped<PhaseStageSubStageSubSpecialtyRepository>();
 builder.Services.AddScoped<ProjectRepository>();
-builder.Services.AddScoped<StageRepository>();
-builder.Services.AddScoped<SubSpecialtyRepository>();
-builder.Services.AddScoped<SubStageRepository>();
-builder.Services.AddScoped<UserProjectRepository>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ExcelService>();
 builder.Services.Configure<EmailSettings>(
@@ -239,13 +230,16 @@ builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
+builder.Services.AddScoped<IRealtimeNotifier, RealtimeNotifier>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular",
         p => p
-            .AllowAnyOrigin()
+            .SetIsOriginAllowed(_ => true)
             .AllowAnyHeader()
             .AllowAnyMethod()
+            .AllowCredentials()
     );
 });
 builder.Services.AddEndpointsApiExplorer();
@@ -281,7 +275,27 @@ builder.Services.AddAuthentication("Bearer")
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])
             ),
 
-            NameClaimType = ClaimTypes.NameIdentifier
+            NameClaimType = ClaimTypes.NameIdentifier,
+
+            // El JWT vive 2 min y se refresca contra user_session; sin esto, el
+            // ClockSkew por defecto (5 min) lo mantendría válido ~7 min reales.
+            ClockSkew = TimeSpan.Zero
+        };
+
+        // El cliente de SignalR (WebSocket) no puede mandar el header Authorization,
+        // así que envía el JWT por query string; lo leemos solo para las rutas /hubs.
+        options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
         };
     })
     .AddJwtBearer("AzureAd", options =>
@@ -306,7 +320,13 @@ builder.Services.AddAuthorization(options =>
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+// Manejo global de fallos de conectividad con la BD → 503 con detalle real (no 500 opaco).
+builder.Services.AddExceptionHandler<Abril_Backend.Shared.Exceptions.DatabaseExceptionHandler>();
+builder.Services.AddProblemDetails();
+
 var app = builder.Build();
+app.UseCors("AllowAngular");
+app.UseExceptionHandler();
 app.UseStaticFiles();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -318,13 +338,14 @@ if (app.Environment.IsDevelopment())
         c.RoutePrefix = "swagger"; // opcional
     });
 }
-app.UseHttpsRedirection();
-app.UseCors("AllowAngular");
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<NotificationsHub>("/hubs/notifications");
 app.MapGet("/", () => "API funcionando");
 
 app.Run();

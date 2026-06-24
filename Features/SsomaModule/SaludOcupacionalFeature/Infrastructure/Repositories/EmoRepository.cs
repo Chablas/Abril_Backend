@@ -391,14 +391,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ? (DateOnly?)dto.FechaEmo.AddMonths(tipo.VigenciaMeses.Value)
                 : null;
 
+            var esApto = !string.Equals(dto.Aptitud, "Observado", StringComparison.OrdinalIgnoreCase)
+                      && !string.Equals(dto.Aptitud, "No Apto", StringComparison.OrdinalIgnoreCase);
+
             var emo = new WorkerEmo
             {
                 WorkerId = dto.WorkerId,
                 EmpresaOrigenId = dto.EmpresaOrigenId,
                 TipoEmoId = dto.TipoEmoId,
                 FechaEmo = dto.FechaEmo,
-                FechaVencimiento = fechaVencCalc,
-                FechaVencimientoCalculada = fechaVencCalc,
+                FechaVencimiento = esApto ? fechaVencCalc : null,
+                FechaVencimientoCalculada = esApto ? fechaVencCalc : null,
                 ClinicaId = dto.ClinicaId,
                 MedicoId = dto.MedicoId,
                 Aptitud = dto.Aptitud,
@@ -407,7 +410,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 FechaLectura = dto.FechaLectura,
                 UrlResultado = dto.UrlResultado,
                 Notas = dto.Notas,
-                Estado = "Vigente",
+                Estado = esApto ? "Vigente" : "Observado",
                 Activo = true,
                 RegistradoPorId = userId,
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -548,9 +551,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .FirstOrDefaultAsync();
             if (progActiva != null)
             {
-                progActiva.Estado = "Completado";
                 progActiva.EmoResultadoId = emo.Id;
                 progActiva.UpdatedAt = DateTimeOffset.UtcNow;
+                if (emo.RequiereInterconsulta != true)
+                {
+                    progActiva.Estado = "Completado";
+                }
+                // Si requiere interconsulta, se queda en "En Atención"
+                // hasta que la interconsulta sea resuelta
             }
 
             if (dto.FechaLectura.HasValue)
@@ -658,9 +666,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
         private static async Task SincronizarEntregableEmoAsync(AppDbContext ctx, WorkerEmo emo, Worker worker)
         {
-            if (!string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase))
-                return;
-
             var hab = await ctx.SsHabTrabajador
                 .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.CertAptitud);
 
@@ -672,7 +677,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 case "Apto con Restricciones":
                     hab.Estado = "Aprobado";
                     var fv = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
-                    hab.Vigencia = fv.HasValue ? fv.Value.ToDateTime(TimeOnly.MinValue) : null;
+                    if (fv.HasValue)
+                        hab.Vigencia = DateTime.SpecifyKind(fv.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
                     break;
                 case "No Apto":
                     hab.Estado = "Rechazado";
@@ -695,9 +701,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     habLectura.Estado = "Aprobado";
                     var fvLectura = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
-                    habLectura.Vigencia = fvLectura.HasValue
-                        ? fvLectura.Value.ToDateTime(TimeOnly.MinValue)
-                        : null;
+                    if (fvLectura.HasValue)
+                        habLectura.Vigencia = DateTime.SpecifyKind(fvLectura.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
                     habLectura.ArchivoUrl = emo.UrlResultado;
                     habLectura.UpdatedAt = DateTime.UtcNow;
                 }

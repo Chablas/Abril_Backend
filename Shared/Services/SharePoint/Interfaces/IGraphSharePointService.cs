@@ -32,6 +32,9 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         /// <summary>
         /// Sube un archivo a una biblioteca de documentos compartida en el sitio indicado por
         /// <paramref name="site"/>, usando permisos de aplicación (Sites.ReadWrite.All).
+        /// Si <paramref name="autoRenameOnLock"/> es true y el archivo destino está bloqueado/en uso
+        /// (HTTP 423), reintenta con un nombre alterno ("nombre (2).ext", "(3)", …). El nombre
+        /// finalmente usado se devuelve en <see cref="SharePointUploadResultDto.FileName"/>.
         /// </summary>
         Task<SharePointUploadResultDto?> UploadToSharePointLibraryAsync(
             SharePointSiteRef site,
@@ -39,7 +42,57 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
             string folderPath,
             string fileName,
             Stream fileStream,
-            string contentType = "application/octet-stream");
+            string contentType = "application/octet-stream",
+            bool autoRenameOnLock = false);
+
+        /// <summary>
+        /// Resuelve un link de SharePoint/OneDrive (cualquier formato) a su ubicación estable
+        /// (driveId + itemId) usando la Graph Shares API con permisos de aplicación. Devuelve
+        /// null si no se puede resolver (no existe, sin acceso o link inválido).
+        /// </summary>
+        Task<ShareLinkResolveDto?> ResolveShareLinkAsync(string link);
+
+        /// <summary>Lista las subcarpetas directas (id + nombre) de un item por su driveId+itemId.</summary>
+        Task<List<ShareLinkResolveDto>> GetChildFoldersByItemIdAsync(string driveId, string itemId);
+
+        /// <summary>
+        /// Crea (o devuelve si ya existe) una subcarpeta con nombre exacto dentro de un item
+        /// (driveId + parentItemId). Devuelve el itemId de la carpeta resultante. Usa permisos
+        /// de aplicación. Tolera condiciones de carrera (HTTP 409): vuelve a listar y devuelve la
+        /// carpeta existente.
+        /// </summary>
+        Task<string> EnsureChildFolderAsync(string driveId, string parentItemId, string folderName);
+
+        /// <summary>
+        /// Sube un archivo dentro de una carpeta de OneDrive (driveId + parentItemId) usando
+        /// permisos de aplicación. Si <paramref name="autoRenameOnLock"/> es true y el destino está
+        /// bloqueado (HTTP 423), reintenta con un nombre alterno. El nombre usado se devuelve en
+        /// <see cref="SharePointUploadResultDto.FileName"/>.
+        /// </summary>
+        Task<SharePointUploadResultDto?> UploadToOneDriveFolderAsync(
+            string driveId,
+            string parentItemId,
+            string fileName,
+            Stream fileStream,
+            string contentType = "application/octet-stream",
+            bool autoRenameOnLock = false);
+
+        /// <summary>
+        /// Descarga el contenido de un archivo de OneDrive a partir de su webUrl, resolviéndolo
+        /// vía la Graph Shares API (permisos de aplicación). Lanza si no se puede resolver.
+        /// </summary>
+        Task<byte[]> DownloadOneDriveFileByWebUrlAsync(string webUrl);
+
+        /// <summary>
+        /// Descarga varios archivos de un drive de OneDrive convertidos a PDF (?format=pdf) usando
+        /// el endpoint /$batch. Cada entrada indica si el archivo ya es PDF. Devuelve itemId → bytes.
+        /// </summary>
+        Task<Dictionary<string, byte[]>> DownloadMultipleAsPdfFromOneDriveAsync(
+            string driveId,
+            IReadOnlyList<(string ItemId, bool AlreadyPdf)> items);
+
+        /// <summary>Obtiene un driveItem por driveId+itemId (para validar/leer la carpeta elegida). Null si no existe.</summary>
+        Task<ShareLinkResolveDto?> GetDriveItemAsync(string driveId, string itemId);
 
         /// <summary>
         /// Descarga el contenido de un archivo del sitio indicado por <paramref name="site"/>

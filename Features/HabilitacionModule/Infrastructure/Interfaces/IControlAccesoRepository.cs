@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
     public interface IControlAccesoRepository
     {
         Task<List<ControlAccesoWorkerDto>> GetConsultaAsync(string? search, int? proyectoId);
-        Task<List<ControlAccesoWorkerDto>> GetNoAutorizadosAsync(int proyectoId);
+        Task<List<ControlAccesoWorkerDto>> GetNoAutorizadosAsync(int proyectoId, string? estadoHabilitacion);
         Task<List<ControlAccesoWorkerDto>> GetOficinaCentralAsync(int? proyectoId);
         Task<List<InduccionHoyDto>> GetInduccionesHoyAsync();
         Task ConfirmarIngresoAsync(int induccionId);

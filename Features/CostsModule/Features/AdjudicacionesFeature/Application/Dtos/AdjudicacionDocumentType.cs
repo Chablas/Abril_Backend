@@ -19,6 +19,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         Instructivo,
         NonConformingOutput,
         ToleranceChart,
+        FinishProtection,
         FichaTecnica,
         Anexo
     }

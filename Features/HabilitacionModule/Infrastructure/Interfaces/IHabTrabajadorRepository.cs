@@ -45,5 +45,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task MarcarInduccionAsync(int workerId, int proyectoId);
 
         Task<List<WorkerReparacionVinculacionDto>> RepararVinculacionesAsync();
+
+        Task<string?> GetResponsableItemTrabajadorAsync(int entregableId);
     }
 }

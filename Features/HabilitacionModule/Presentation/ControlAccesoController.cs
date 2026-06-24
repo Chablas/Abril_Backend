@@ -37,11 +37,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("no-autorizados")]
-        public async Task<IActionResult> GetNoAutorizados([FromQuery] int proyectoId)
+        public async Task<IActionResult> GetNoAutorizados(
+            [FromQuery] int proyectoId,
+            [FromQuery] string? estadoHabilitacion)
         {
             try
             {
-                var result = await _repo.GetNoAutorizadosAsync(proyectoId);
+                var result = await _repo.GetNoAutorizadosAsync(proyectoId, estadoHabilitacion);
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

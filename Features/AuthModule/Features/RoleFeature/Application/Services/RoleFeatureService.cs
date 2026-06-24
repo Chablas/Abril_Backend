@@ -3,16 +3,19 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.AuthModule.Role.Application.Dtos;
 using Abril_Backend.Features.AuthModule.Role.Application.Interfaces;
 using Abril_Backend.Features.AuthModule.Role.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Realtime;
 
 namespace Abril_Backend.Features.AuthModule.Role.Application.Services
 {
     public class RoleFeatureService : IRoleFeatureService
     {
         private readonly IRoleFeatureRepository _repository;
+        private readonly IRealtimeNotifier _notifier;
 
-        public RoleFeatureService(IRoleFeatureRepository repository)
+        public RoleFeatureService(IRoleFeatureRepository repository, IRealtimeNotifier notifier)
         {
             _repository = repository;
+            _notifier = notifier;
         }
 
         public async Task<PagedResult<RoleDto>> GetPaged(int page, int pageSize)
@@ -40,6 +43,12 @@ namespace Abril_Backend.Features.AuthModule.Role.Application.Services
         public async Task UpdateRoleFeatures(int roleId, List<int> featureIds)
         {
             await _repository.UpdateRoleFeatures(roleId, featureIds);
+
+            // Avisar en tiempo real a todos los usuarios que tienen este rol para que
+            // refresquen sus permisos al instante (los desconectados se enteran en su
+            // próximo refresh de token).
+            var userIds = await _repository.GetUserIdsByRole(roleId);
+            await _notifier.NotifyRoleFeaturesChanged(userIds);
         }
 
         public async Task UpdateRoleDescription(int roleId, RoleUpdateDescriptionDto dto, int userId)

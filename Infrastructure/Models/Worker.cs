@@ -21,6 +21,9 @@ namespace Abril_Backend.Infrastructure.Models
         /*[Column("celular")]
         public string? Celular { get; set; }*/
 
+        [Column("apellido_nombre")]
+        public string? ApellidoNombre { get; set; }
+
         [Column("email_personal")]
         public string? EmailPersonal { get; set; }
 
@@ -40,6 +43,14 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("categoria")]
         public string? Categoria { get; set; }
 
+        /// <summary>
+        /// FK al catálogo <c>workers_category</c>. Usado SOLO por Lecciones Aprendidas
+        /// y Solicitud de Salidas (normaliza el texto de <see cref="Categoria"/>, que se
+        /// conserva para el resto de funcionalidades).
+        /// </summary>
+        [Column("worker_category_id")]
+        public int? WorkerCategoryId { get; set; }
+
         [Column("ocupacion")]
         public string? Ocupacion { get; set; }
 
@@ -48,6 +59,13 @@ namespace Abril_Backend.Infrastructure.Models
 
         [Column("subarea")]
         public string? Subarea { get; set; }
+
+        /// <summary>
+        /// FK a <c>area_scope</c>. Reemplaza el uso de <see cref="Area"/>/<see cref="Subarea"/>
+        /// (texto plano) para resolver jefaturas vía el árbol jerárquico.
+        /// </summary>
+        [Column("area_scope_id")]
+        public int? AreaScopeId { get; set; }
 
         [Column("contrata_casa")]
         public string? ContrataCasa { get; set; }
@@ -76,8 +94,18 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("notas")]
         public string? Notas { get; set; }
 
+        [Column("anios_experiencia")]
+        public int? AniosExperiencia { get; set; }
+
         [Column("puntos_infraccion")]
         public int? PuntosInfraccion { get; set; }
+
+        /// <summary>
+        /// Jefe directo (worker) encargado de revisar las lecciones aprendidas de este
+        /// trabajador. Autoreferencia a <c>workers.id</c>; null si aún no se asigna.
+        /// </summary>
+        [Column("worker_lesson_jefe_id")]
+        public int? WorkerLessonJefeId { get; set; }
 
         [Column("created_at")]
         public DateTimeOffset? CreatedAt { get; set; }

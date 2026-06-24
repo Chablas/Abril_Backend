@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Interfaces;
+using Abril_Backend.Shared.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,6 +17,7 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Presentation
             _service = service;
         }
 
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login()
         {
@@ -31,6 +33,14 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Presentation
             catch (AbrilException ex)
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex) when (DbConnectivity.IsUnavailable(ex, out var detalle))
+            {
+                return StatusCode(503, new
+                {
+                    message = "La base de datos no está disponible en este momento (sin conexiones libres). Intenta nuevamente en unos segundos.",
+                    detalle
+                });
             }
             catch (Exception)
             {

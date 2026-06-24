@@ -3,7 +3,9 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Contractors.ContractorManagement.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorManagement.Application.Interfaces;
+using Abril_Backend.Features.Contractors.ContractorManagement.Application;
 using Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure.Interfaces;
+using Abril_Backend.Features.ContractorsModule.Shared;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
@@ -55,6 +57,16 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
             await _repository.Reject(contractorId, userId);
         }
 
+        public async Task ApproveUpdate(int contractorId, int userId)
+        {
+            await _repository.ApproveUpdate(contractorId, userId);
+        }
+
+        public async Task RejectUpdate(int contractorId, int userId)
+        {
+            await _repository.RejectUpdate(contractorId, userId);
+        }
+
         public async Task SendCredentials(int contractorId, int adminUserId)
         {
             var contractor = await _repository.GetWithEmails(contractorId);
@@ -65,7 +77,7 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
                 throw new AbrilException("Solo se pueden enviar credenciales a contratistas aprobados.", 400);
 
             if (contractor.Emails.Count == 0)
-                throw new AbrilException("El contratista no tiene correos registrados.", 400);
+                throw new AbrilException("El contratista no tiene correos de contacto activos a los cuales enviar las credenciales.", 400);
 
             var token = GenerateToken();
             var expiry = DateTime.UtcNow.AddHours(24);
@@ -98,6 +110,10 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Se
 
         public async Task Update(int contractorId, ContractorUpdateDto dto, int userId)
         {
+            // Validar formato de los correos (solo letras, números, '@' y '.').
+            var incomingEmails = ContractorEmailParser.Parse(dto.EmailsJson);
+            ContractorEmailValidator.ValidateOrThrow(incomingEmails.Select(e => e.Email));
+
             var existing = await _repository.GetWithEmails(contractorId)
                 ?? throw new AbrilException("Contratista no encontrado.", 404);
 

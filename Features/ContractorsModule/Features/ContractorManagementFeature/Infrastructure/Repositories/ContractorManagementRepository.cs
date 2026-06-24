@@ -1,4 +1,6 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Contractors.ContractorManagement.Application;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Features.Contractors.ContractorManagement.Application.Dtos;
 using Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure.Interfaces;
@@ -11,6 +13,11 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
         private const int PendingContractorStateId = 1;
         private const int ApprovedContractorStateId = 2;
         private const int RejectedContractorStateId = 3;
+        private const int PendingUpdateContractorStateId = 4;
+
+        private const int PendingUpdateRequestStateId  = 1; // contractor_update_state: PENDIENTE
+        private const int AppliedUpdateRequestStateId  = 2; // APLICADA
+        private const int RejectedUpdateRequestStateId = 3; // RECHAZADA
 
         private readonly IDbContextFactory<AppDbContext> _factory;
 
@@ -89,16 +96,29 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             var ids = items.Select(c => c.ContractorId).ToList();
 
             var emails = await ctx.ContractorEmail
-                .Where(e => ids.Contains(e.ContractorId) && e.Active)
-                .Select(e => new { e.ContractorId, e.Email })
+                .Where(e => ids.Contains(e.ContractorId) && e.State)
+                .Select(e => new { e.ContractorId, e.ContractorEmailId, e.Email, e.Active })
                 .ToListAsync();
 
             var emailsByContractor = emails
                 .GroupBy(e => e.ContractorId)
-                .ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
+                .ToDictionary(g => g.Key, g => g.ToList());
 
             foreach (var item in items)
-                item.Emails = emailsByContractor.GetValueOrDefault(item.ContractorId, new());
+            {
+                var contractorEmails = emailsByContractor.GetValueOrDefault(item.ContractorId);
+                if (contractorEmails is null) continue;
+
+                item.Emails = contractorEmails.Select(e => e.Email).ToList();
+                item.EmailDetails = contractorEmails
+                    .Select(e => new ContractorEmailItemDto
+                    {
+                        ContractorEmailId = e.ContractorEmailId,
+                        Email = e.Email,
+                        Active = e.Active
+                    })
+                    .ToList();
+            }
 
             var users = await (
                 from cu in ctx.ContractorUser
@@ -118,6 +138,61 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
             foreach (var item in items)
                 item.Users = usersByContractor.GetValueOrDefault(item.ContractorId, new());
+
+            // ── Datos propuestos para contratistas en estado 4 (actualización pendiente) ──
+            var pendingIds = items
+                .Where(i => i.ContractorStateId == PendingUpdateContractorStateId)
+                .Select(i => i.ContractorId)
+                .ToList();
+
+            if (pendingIds.Count > 0)
+            {
+                var requests = await ctx.ContractorUpdateRequest
+                    .Where(r => pendingIds.Contains(r.ContractorId)
+                                && r.State
+                                && r.ContractorUpdateStateId == PendingUpdateRequestStateId)
+                    .ToListAsync();
+
+                var requestIds = requests.Select(r => r.ContractorUpdateRequestId).ToList();
+                var requestEmails = await ctx.ContractorUpdateRequestEmail
+                    .Where(e => requestIds.Contains(e.ContractorUpdateRequestId) && e.State)
+                    .Select(e => new { e.ContractorUpdateRequestId, e.Email })
+                    .ToListAsync();
+
+                var emailsByRequest = requestEmails
+                    .GroupBy(e => e.ContractorUpdateRequestId)
+                    .ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
+
+                // Un solo request pendiente por contratista (índice único parcial lo garantiza).
+                var requestByContractor = requests
+                    .GroupBy(r => r.ContractorId)
+                    .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.CreatedDateTime).First());
+
+                foreach (var item in items)
+                {
+                    if (!requestByContractor.TryGetValue(item.ContractorId, out var r)) continue;
+                    item.PendingUpdate = new ContractorPendingUpdateDto
+                    {
+                        ContractorUpdateRequestId               = r.ContractorUpdateRequestId,
+                        ContributorRuc                          = r.ContributorRuc,
+                        ContributorName                         = r.ContributorName,
+                        ContributorAddress                      = r.ContributorAddress,
+                        ContributorEconomicActivityDescription  = r.ContributorEconomicActivityDescription,
+                        ContributorDistrict                     = r.ContributorDistrict,
+                        ContributorProvince                     = r.ContributorProvince,
+                        ContributorDepartment                   = r.ContributorDepartment,
+                        LegalRepresentativeDni                  = r.LegalRepresentativeDni,
+                        LegalRepresentativeFullName             = r.LegalRepresentativeFullName,
+                        LegalEntityRegistryNumber               = r.LegalEntityRegistryNumber,
+                        LogoFileUrl                             = r.LogoFileUrl,
+                        BrochureFileUrl                         = r.BrochureFileUrl,
+                        FichaRucFileUrl                         = r.FichaRucFileUrl,
+                        ReferencesListFileUrl                   = r.ReferencesListFileUrl,
+                        CreatedDateTime                         = r.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                        Emails                                  = emailsByRequest.GetValueOrDefault(r.ContractorUpdateRequestId, new()),
+                    };
+                }
+            }
 
             return new PagedResult<ContributorPagedDto>
             {
@@ -155,6 +230,138 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             await ctx.SaveChangesAsync();
         }
 
+        public async Task ApproveUpdate(int contractorId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var contractor = await ctx.Contractor
+                .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.State && c.ContractorStateId == PendingUpdateContractorStateId)
+                ?? throw new AbrilException("Este contratista no tiene una actualización pendiente.", 404);
+
+            var request = await ctx.ContractorUpdateRequest
+                .FirstOrDefaultAsync(r => r.ContractorId == contractorId && r.State && r.ContractorUpdateStateId == PendingUpdateRequestStateId)
+                ?? throw new AbrilException("No se encontró la solicitud de actualización pendiente.", 404);
+
+            var contributor = await ctx.Contributor
+                .FirstOrDefaultAsync(c => c.ContributorId == contractor.ContributorId)
+                ?? throw new AbrilException("Contribuyente no encontrado.", 404);
+
+            // ── Aplicar datos de empresa (el RUC no cambia: el flujo se identifica por RUC) ──
+            contributor.ContributorName                        = request.ContributorName;
+            contributor.ContributorAddress                     = request.ContributorAddress ?? contributor.ContributorAddress;
+            contributor.ContributorEconomicActivityDescription = request.ContributorEconomicActivityDescription;
+            contributor.ContributorDistrict                    = request.ContributorDistrict;
+            contributor.ContributorProvince                    = request.ContributorProvince;
+            contributor.ContributorDepartment                  = request.ContributorDepartment;
+            contributor.LegalEntityRegistryNumber              = request.LegalEntityRegistryNumber;
+            contributor.UpdatedDateTime                        = DateTimeOffset.UtcNow;
+            contributor.UpdatedUserId                          = userId;
+
+            // ── Representante legal ──────────────────────────────────────────────
+            if (!string.IsNullOrWhiteSpace(request.LegalRepresentativeDni) || !string.IsNullOrWhiteSpace(request.LegalRepresentativeFullName))
+            {
+                var dni = request.LegalRepresentativeDni?.Trim();
+                var person = !string.IsNullOrWhiteSpace(dni)
+                    ? await ctx.Person.FirstOrDefaultAsync(p => p.DocumentIdentityCode == dni)
+                    : null;
+
+                if (person is null)
+                {
+                    person = new Abril_Backend.Infrastructure.Models.Person
+                    {
+                        DocumentIdentityCode = dni,
+                        FullName             = request.LegalRepresentativeFullName?.Trim(),
+                        CreatedDateTime      = DateTime.UtcNow,
+                        CreatedUserId        = userId,
+                        Active = true,
+                        State  = true
+                    };
+                    ctx.Person.Add(person);
+                    await ctx.SaveChangesAsync();
+                }
+                else
+                {
+                    person.FullName        = request.LegalRepresentativeFullName?.Trim();
+                    person.UpdatedDateTime = DateTime.UtcNow;
+                    person.UpdatedUserId   = userId;
+                }
+                contributor.LegalRepresentativePersonId = person.PersonId;
+            }
+
+            // ── Archivos (null = conservar el vigente) ───────────────────────────
+            if (request.LogoFileUrl           is not null) contractor.LogoFileUrl           = request.LogoFileUrl;
+            if (request.BrochureFileUrl       is not null) contractor.BrochureFileUrl       = request.BrochureFileUrl;
+            if (request.FichaRucFileUrl       is not null) contractor.FichaRucFileUrl       = request.FichaRucFileUrl;
+            if (request.ReferencesListFileUrl is not null) contractor.ReferencesListFileUrl = request.ReferencesListFileUrl;
+
+            // ── Correos: reemplazar el conjunto vigente por el propuesto ─────────
+            var reqEmails = await ctx.ContractorUpdateRequestEmail
+                .Where(e => e.ContractorUpdateRequestId == request.ContractorUpdateRequestId && e.State)
+                .ToListAsync();
+
+            var current = await ctx.ContractorEmail
+                .Where(e => e.ContractorId == contractorId && e.State)
+                .ToListAsync();
+            foreach (var e in current)
+            {
+                e.State           = false;
+                e.Active          = false;
+                e.UpdatedDateTime = DateTimeOffset.UtcNow;
+                e.UpdatedUserId   = userId;
+            }
+
+            foreach (var re in reqEmails)
+            {
+                var emailNorm  = re.Email.Trim().ToLower();
+                var linkedUser = await ctx.User.FirstOrDefaultAsync(u => u.Email == emailNorm && u.Active && u.State);
+                ctx.ContractorEmail.Add(new Abril_Backend.Features.CostsModule.Shared.Models.ContractorEmail
+                {
+                    ContractorId           = contractorId,
+                    Email                  = re.Email,
+                    ContractorPersonTypeId = re.ContractorPersonTypeId,
+                    CreatedDateTime        = DateTimeOffset.UtcNow,
+                    CreatedUserId          = userId,
+                    UserId                 = linkedUser?.UserId,
+                    Active = true,
+                    State  = true
+                });
+            }
+
+            request.ContractorUpdateStateId = AppliedUpdateRequestStateId;
+            request.UpdatedDateTime         = DateTimeOffset.UtcNow;
+            request.UpdatedUserId           = userId;
+
+            contractor.ContractorStateId = ApprovedContractorStateId;
+            contractor.UpdatedDateTime   = DateTimeOffset.UtcNow;
+            contractor.UpdatedUserId     = userId;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task RejectUpdate(int contractorId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var contractor = await ctx.Contractor
+                .FirstOrDefaultAsync(c => c.ContractorId == contractorId && c.State && c.ContractorStateId == PendingUpdateContractorStateId)
+                ?? throw new AbrilException("Este contratista no tiene una actualización pendiente.", 404);
+
+            var request = await ctx.ContractorUpdateRequest
+                .FirstOrDefaultAsync(r => r.ContractorId == contractorId && r.State && r.ContractorUpdateStateId == PendingUpdateRequestStateId)
+                ?? throw new AbrilException("No se encontró la solicitud de actualización pendiente.", 404);
+
+            // Se descartan los datos nuevos; el contratista vuelve a "Aprobado" con los datos antiguos.
+            request.ContractorUpdateStateId = RejectedUpdateRequestStateId;
+            request.UpdatedDateTime         = DateTimeOffset.UtcNow;
+            request.UpdatedUserId           = userId;
+
+            contractor.ContractorStateId = ApprovedContractorStateId;
+            contractor.UpdatedDateTime   = DateTimeOffset.UtcNow;
+            contractor.UpdatedUserId     = userId;
+
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task<ContractorWithEmailsDto?> GetWithEmails(int contractorId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -174,8 +381,10 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
             if (result == null) return null;
 
+            // Solo correos vigentes y activos: un correo desactivado (active=false) no debe
+            // recibir credenciales ni notificaciones.
             result.Emails = await ctx.ContractorEmail
-                .Where(e => e.ContractorId == contractorId && e.Active)
+                .Where(e => e.ContractorId == contractorId && e.State && e.Active)
                 .Select(e => e.Email)
                 .ToListAsync();
 
@@ -201,7 +410,24 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                 .FirstOrDefaultAsync(c => c.ContributorId == contractor.ContributorId)
                 ?? throw new Exception("Contribuyente no encontrado.");
 
+            // ── Validar RUC duplicado ─────────────────────────────────────────────
+            // Si el RUC cambia, no debe coincidir con el de otro contribuyente vigente
+            // (evita romper el índice único y devuelve un mensaje claro).
+            var newRuc = dto.ContributorRuc?.Trim();
+            if (!string.IsNullOrWhiteSpace(newRuc) && !string.Equals(newRuc, contributor.ContributorRuc, StringComparison.Ordinal))
+            {
+                var rucEnUso = await ctx.Contributor.AnyAsync(c =>
+                    c.ContributorId != contributor.ContributorId &&
+                    c.State &&
+                    c.ContributorRuc == newRuc);
+
+                if (rucEnUso)
+                    throw new AbrilException($"Ya existe otro contribuyente registrado con el RUC {newRuc}.", 409);
+            }
+
             // ── Campos texto del Contributor ─────────────────────────────────────
+            if (!string.IsNullOrWhiteSpace(dto.ContributorRuc))
+                contributor.ContributorRuc                      = dto.ContributorRuc.Trim();
             contributor.ContributorName                         = dto.ContributorName.Trim();
             contributor.ContributorAddress                      = dto.ContributorAddress.Trim();
             contributor.ContributorEconomicActivityDescription  = dto.ContributorEconomicActivityDescription.Trim();
@@ -228,18 +454,37 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             else if (!string.IsNullOrWhiteSpace(dto.LegalRepresentativeDni)
                   || !string.IsNullOrWhiteSpace(dto.LegalRepresentativeFullName))
             {
-                var newPerson = new Abril_Backend.Infrastructure.Models.Person
+                var dni = dto.LegalRepresentativeDni?.Trim();
+
+                // Si ya existe una persona con ese DNI (aunque no esté asociada a este contratista),
+                // se reutiliza y se le actualiza el nombre — así no se viola la restricción única
+                // person_document_identity_code_key al intentar insertar un duplicado.
+                var existingPerson = !string.IsNullOrWhiteSpace(dni)
+                    ? await ctx.Person.FirstOrDefaultAsync(p => p.DocumentIdentityCode == dni)
+                    : null;
+
+                if (existingPerson is not null)
                 {
-                    DocumentIdentityCode = dto.LegalRepresentativeDni?.Trim(),
-                    FullName             = dto.LegalRepresentativeFullName?.Trim(),
-                    CreatedDateTime      = DateTime.UtcNow,
-                    CreatedUserId        = userId,
-                    Active               = true,
-                    State                = true
-                };
-                ctx.Person.Add(newPerson);
-                await ctx.SaveChangesAsync();   // flush para obtener PersonId
-                contributor.LegalRepresentativePersonId = newPerson.PersonId;
+                    existingPerson.FullName        = dto.LegalRepresentativeFullName?.Trim();
+                    existingPerson.UpdatedDateTime = DateTime.UtcNow;
+                    existingPerson.UpdatedUserId   = userId;
+                    contributor.LegalRepresentativePersonId = existingPerson.PersonId;
+                }
+                else
+                {
+                    var newPerson = new Abril_Backend.Infrastructure.Models.Person
+                    {
+                        DocumentIdentityCode = dni,
+                        FullName             = dto.LegalRepresentativeFullName?.Trim(),
+                        CreatedDateTime      = DateTime.UtcNow,
+                        CreatedUserId        = userId,
+                        Active               = true,
+                        State                = true
+                    };
+                    ctx.Person.Add(newPerson);
+                    await ctx.SaveChangesAsync();   // flush para obtener PersonId
+                    contributor.LegalRepresentativePersonId = newPerson.PersonId;
+                }
             }
 
             // ── Archivos (null = conservar el existente) ──────────────────────────
@@ -252,52 +497,60 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             contractor.UpdatedUserId   = userId;
 
             // ── Sincronizar correos ───────────────────────────────────────────────
-            var allEmails = await ctx.ContractorEmail
-                .Where(e => e.ContractorId == contractorId)
+            // 'State' es el flag de soft-delete: ningún registro se elimina físicamente.
+            // 'Active' indica si el correo está habilitado (aparece en filtros/desplegables y
+            // recibe correos). Ahora los correos existentes son editables: se puede cambiar su
+            // texto y activarlos/desactivarlos sin borrarlos.
+            //   - Correo con id existente que llega en la lista → se actualiza Email y Active.
+            //   - Correo con id existente que NO llega en la lista → State = false (soft-delete).
+            //   - Correo sin id (nuevo) → se INSERTA con su flag Active.
+            // Existe un índice único parcial (contractor_id, correo) WHERE state = true que
+            // garantiza un único registro vigente por correo EXACTO, permitiendo múltiples
+            // históricos con State = false. La comparación es sensible a mayúsculas.
+            var incomingEmails = ContractorEmailParser.Parse(dto.EmailsJson);
+
+            var currentEmails = await ctx.ContractorEmail
+                .Where(e => e.ContractorId == contractorId && e.State)
                 .ToListAsync();
 
-            var emailMap = allEmails.ToDictionary(
-                e => e.Email.Trim().ToLowerInvariant());
+            var incomingById = incomingEmails
+                .Where(e => e.ContractorEmailId is > 0)
+                .ToDictionary(e => e.ContractorEmailId!.Value);
 
-            var newSet = dto.Emails
-                .Select(e => e.Trim())
-                .Where(e => !string.IsNullOrEmpty(e))
-                .ToList();
-
-            var newSetLower = newSet.Select(e => e.ToLowerInvariant()).ToHashSet();
-
-            // Desactivar los que ya no están en la nueva lista
-            foreach (var email in allEmails.Where(e => e.Active && !newSetLower.Contains(e.Email.Trim().ToLowerInvariant())))
+            // Actualizar / soft-delete de los correos existentes
+            foreach (var existing in currentEmails)
             {
-                email.Active           = false;
-                email.UpdatedDateTime  = DateTimeOffset.UtcNow;
-                email.UpdatedUserId    = userId;
-            }
-
-            // Agregar / reactivar los nuevos
-            foreach (var newEmail in newSet)
-            {
-                if (emailMap.TryGetValue(newEmail.ToLowerInvariant(), out var existing))
+                if (incomingById.TryGetValue(existing.ContractorEmailId, out var match))
                 {
-                    if (!existing.Active)
-                    {
-                        existing.Active          = true;
-                        existing.UpdatedDateTime = DateTimeOffset.UtcNow;
-                        existing.UpdatedUserId   = userId;
-                    }
+                    existing.Email           = match.Email.Trim();
+                    existing.Active          = match.Active;
+                    existing.UpdatedDateTime = DateTimeOffset.UtcNow;
+                    existing.UpdatedUserId   = userId;
                 }
                 else
                 {
-                    ctx.ContractorEmail.Add(new Abril_Backend.Features.CostsModule.Shared.Models.ContractorEmail
-                    {
-                        ContractorId    = contractorId,
-                        Email           = newEmail,
-                        CreatedDateTime = DateTimeOffset.UtcNow,
-                        CreatedUserId   = userId,
-                        Active          = true,
-                        State           = true
-                    });
+                    existing.State           = false;
+                    existing.Active          = false;
+                    existing.UpdatedDateTime = DateTimeOffset.UtcNow;
+                    existing.UpdatedUserId   = userId;
                 }
+            }
+
+            // Insertar los nuevos (sin id)
+            foreach (var newEmail in incomingEmails.Where(e => e.ContractorEmailId is null or 0))
+            {
+                var email = newEmail.Email.Trim();
+                if (string.IsNullOrEmpty(email)) continue;
+
+                ctx.ContractorEmail.Add(new Abril_Backend.Features.CostsModule.Shared.Models.ContractorEmail
+                {
+                    ContractorId    = contractorId,
+                    Email           = email,
+                    CreatedDateTime = DateTimeOffset.UtcNow,
+                    CreatedUserId   = userId,
+                    Active          = newEmail.Active,
+                    State           = true
+                });
             }
 
             await ctx.SaveChangesAsync();

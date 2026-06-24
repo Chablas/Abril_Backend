@@ -4,6 +4,7 @@ using Abril_Backend.Features.AuthModule.UserFeature.Application.Dtos;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Realtime;
 using Microsoft.Extensions.Options;
 
 namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
@@ -14,21 +15,30 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
         private readonly IUserPasswordTokenRepository _tokenRepo;
         private readonly IEmailService _emailService;
         private readonly FrontendSettings _frontendSettings;
+        private readonly IRealtimeNotifier _notifier;
 
         public UserFeatureService(
             IUserFeatureRepository repo,
             IUserPasswordTokenRepository tokenRepo,
             IEmailService emailService,
-            IOptions<FrontendSettings> frontendSettings)
+            IOptions<FrontendSettings> frontendSettings,
+            IRealtimeNotifier notifier)
         {
             _repo = repo;
             _tokenRepo = tokenRepo;
             _emailService = emailService;
             _frontendSettings = frontendSettings.Value;
+            _notifier = notifier;
         }
 
         public Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null) =>
             _repo.GetPaged(page, pageSize, search);
+
+        public Task<List<AbrilWorkerOptionDto>> GetAbrilWorkersWithoutUser() =>
+            _repo.GetAbrilWorkersWithoutUser();
+
+        public Task CreateAbrilWorkerUser(AbrilWorkerUserCreateDto dto, int createdUserId) =>
+            _repo.CreateAbrilWorkerUser(dto, createdUserId);
 
         public async Task Create(UserFeatureCreateDto dto)
         {
@@ -68,8 +78,12 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
                 bcc: new List<string> { "calvarez@abril.pe" });
         }
 
-        public Task Update(int userId, UserFeatureUpdateDto dto, int updatedUserId) =>
-            _repo.Update(userId, dto, updatedUserId);
+        public async Task Update(int userId, UserFeatureUpdateDto dto, int updatedUserId)
+        {
+            await _repo.Update(userId, dto, updatedUserId);
+            // Sus roles pudieron cambiar: avisarle para que refresque sus permisos al instante.
+            await _notifier.NotifyUserRolesChanged(userId);
+        }
 
         public Task ToggleActive(int userId, int updatedUserId) =>
             _repo.ToggleActive(userId, updatedUserId);

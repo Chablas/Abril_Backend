@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,11 +27,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (filters.WorkerId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.WorkerId == filters.WorkerId.Value);
 
-            if (!string.IsNullOrWhiteSpace(filters.EstadoRendicion))
-                solicitudQuery = solicitudQuery.Where(s => s.EstadoRendicion == filters.EstadoRendicion);
+            var rendId = EstadosSalida.Rendicion.IdFromNombre(filters.EstadoRendicion);
+            if (rendId.HasValue)
+                solicitudQuery = solicitudQuery.Where(s => s.EstadoRendicionId == rendId.Value);
 
-            if (!string.IsNullOrWhiteSpace(filters.EstadoAprobacion))
-                solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacion == filters.EstadoAprobacion);
+            var aprobId = EstadosSalida.Aprobacion.IdFromNombre(filters.EstadoAprobacion);
+            if (aprobId.HasValue)
+                solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacionId == aprobId.Value);
 
             // Filtro por lugar proyecto: necesita pasar por trayectos
             if (filters.LugarProyectoId.HasValue)
@@ -46,13 +49,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 join w in ctx.Worker on s.WorkerId equals w.Id
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
                 from per in perGroup.DefaultIfEmpty()
-                orderby s.EstadoAprobacion == "Pendiente" ? 0 : 1,
+                orderby s.EstadoAprobacionId == EstadosSalida.Aprobacion.Pendiente ? 0 : 1,
                         s.CreatedAt descending
                 select new
                 {
                     s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
-                    s.FechaSalida, s.EstadoAprobacion, s.EstadoRendicion, s.CreatedAt,
+                    s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt,
                     s.HoraSalidaReal
                 }
             ).ToListAsync();
@@ -139,8 +142,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     LugarOrigen      = first?.LugarOrigen,
                     LugarDestino     = last?.LugarDestino,
                     TrayectosCount   = trList.Count,
-                    EstadoAprobacion = s.EstadoAprobacion,
-                    EstadoRendicion  = s.EstadoRendicion,
+                    EstadoAprobacion = EstadosSalida.Aprobacion.Nombre(s.EstadoAprobacionId),
+                    EstadoRendicion  = EstadosSalida.Rendicion.Nombre(s.EstadoRendicionId),
                     CreatedAt        = s.CreatedAt,
                     PuedeRendirse    = puedeRendir,
                     HoraSalidaReal   = s.HoraSalidaReal,
@@ -196,10 +199,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == id)
                 ?? throw new AbrilException("Solicitud no encontrada.", 404);
-            if (s.EstadoAprobacion != "Pendiente")
+            if (s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente)
                 throw new AbrilException("Solo se pueden aprobar solicitudes en estado Pendiente.", 400);
-            s.EstadoAprobacion = "Aprobado";
-            s.UpdatedAt        = DateTimeOffset.UtcNow;
+            s.EstadoAprobacionId = EstadosSalida.Aprobacion.Aprobado;
+            s.UpdatedAt          = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }
 
@@ -208,11 +211,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == id)
                 ?? throw new AbrilException("Solicitud no encontrada.", 404);
-            if (s.EstadoAprobacion != "Pendiente")
+            if (s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente)
                 throw new AbrilException("Solo se pueden rechazar solicitudes en estado Pendiente.", 400);
-            s.EstadoAprobacion = "Rechazado";
-            s.UpdatedAt        = DateTimeOffset.UtcNow;
+            s.EstadoAprobacionId = EstadosSalida.Aprobacion.Rechazado;
+            s.UpdatedAt          = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<int> GetNextNumeroPlanillaAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var values = await ctx.Database
+                .SqlQuery<int>($"SELECT nextval('seq_planilla_numero')::int AS \"Value\"")
+                .ToListAsync();
+            return values.First();
         }
 
         public async Task<List<int>> CrearRendicionYMarcarBulk(
@@ -220,7 +232,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             int userId,
             string pdfUrl,
             string? pdfItemId,
-            string pdfFilename)
+            string pdfFilename,
+            int numeroPlanilla)
         {
             using var ctx = _factory.CreateDbContext();
             var idsList = ids?.Distinct().ToList() ?? new List<int>();
@@ -228,8 +241,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
             var solicitudes = await ctx.GaSolicitudSalida
                 .Where(s => idsList.Contains(s.Id)
-                         && s.EstadoAprobacion == "Aprobado"
-                         && s.EstadoRendicion  == "No rendido")
+                         && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+                         && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido)
                 .ToListAsync();
 
             if (solicitudes.Count == 0)
@@ -244,20 +257,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
                 var rendicion = new GaRendicion
                 {
-                    PdfUrl       = pdfUrl,
-                    PdfItemId    = pdfItemId,
-                    PdfFilename  = pdfFilename,
-                    RendidoPorId = userId,
-                    RendidoAt    = now,
+                    PdfUrl         = pdfUrl,
+                    PdfItemId      = pdfItemId,
+                    PdfFilename    = pdfFilename,
+                    RendidoPorId   = userId,
+                    RendidoAt      = now,
+                    NumeroPlanilla = numeroPlanilla,
                 };
                 ctx.GaRendicion.Add(rendicion);
                 await ctx.SaveChangesAsync();
 
                 foreach (var s in solicitudes)
                 {
-                    s.EstadoRendicion = "Rendido";
-                    s.RendicionId     = rendicion.Id;
-                    s.UpdatedAt       = now;
+                    s.EstadoRendicionId = EstadosSalida.Rendicion.Rendido;
+                    s.RendicionId       = rendicion.Id;
+                    s.UpdatedAt         = now;
                 }
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();
@@ -274,8 +288,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
             return await ctx.GaSolicitudSalida
                 .Where(s => idsList.Contains(s.Id)
-                         && s.EstadoAprobacion == "Aprobado"
-                         && s.EstadoRendicion  == "No rendido")
+                         && s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+                         && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido)
                 .Select(s => s.Id)
                 .ToListAsync();
         }
@@ -357,7 +371,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 {
                     s.Id, WorkerInternalId = w.Id, w.Subarea,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
-                    s.FechaSalida, s.EstadoAprobacion, s.EstadoRendicion, s.CreatedAt, s.MotivoRechazo,
+                    s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt, s.MotivoRechazo,
                     Rendicion = r == null ? null : new GestionSalidaRendicionDto
                     {
                         Id          = r.Id,
@@ -459,8 +473,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 WorkerId         = head.WorkerInternalId,
                 Trabajador       = head.Trabajador,
                 FechaSalida      = head.FechaSalida,
-                EstadoAprobacion = head.EstadoAprobacion,
-                EstadoRendicion  = head.EstadoRendicion,
+                EstadoAprobacion = EstadosSalida.Aprobacion.Nombre(head.EstadoAprobacionId),
+                EstadoRendicion  = EstadosSalida.Rendicion.Nombre(head.EstadoRendicionId),
                 CreatedAt        = head.CreatedAt,
                 MotivoRechazo    = head.MotivoRechazo,
                 Rendicion        = head.Rendicion,
@@ -504,7 +518,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         WorkerId         = w.Id,
                         TrabajadorNombre = per != null ? (per.FullName ?? "") : "",
                         TrabajadorDni    = per != null ? per.DocumentIdentityCode : null,
-                        Area             = w.Area,
+                        TrabajadorDocumentTypeId = per != null ? per.DocumentIdentityTypeId : null,
+                        Area             = w.Area,     // fallback; se sobrescribe abajo si hay area_scope_id
                         FechaSalida      = s.FechaSalida,
                         Motivo           = m != null ? m.Descripcion : (t.MotivoLibre ?? ""),
                         LugarOrigen      = lo == null ? t.LugarOrigenLibre
@@ -517,10 +532,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         Ruc              = cont != null ? cont.ContributorRuc  : null,
                     },
                     Subarea = w.Subarea,
+                    WorkerAreaScopeId = w.AreaScopeId,
                     t.LugarOrigenId,
                     t.LugarDestinoId,
                 }
             ).ToListAsync();
+
+            // Resolver nombre del área navegando hacia arriba en area_scope hasta encontrar
+            // el primer nodo cuyo tipo sea "Área Estándar" (saltando "Área de Gerencia", etc).
+            // Una solicitud puede tener N trayectos → hay varias filas por worker; nos quedamos
+            // con una sola entrada (worker → area_scope_id) para no duplicar la clave del diccionario.
+            var workerScope = rowsRaw
+                .Where(r => r.WorkerAreaScopeId.HasValue)
+                .GroupBy(r => r.Item.WorkerId)
+                .ToDictionary(g => g.Key, g => g.First().WorkerAreaScopeId!.Value);
+
+            var areaResueltaPorWorker = await ResolverAreaPorWorkerAsync(
+                ctx,
+                workerScope.Keys.ToList(),
+                workerScope);
+
+            foreach (var r in rowsRaw)
+            {
+                if (areaResueltaPorWorker.TryGetValue(r.Item.WorkerId, out var nombreArea) && !string.IsNullOrWhiteSpace(nombreArea))
+                    r.Item.Area = nombreArea;
+            }
 
             // Importe por trayecto (suma de capturas)
             var trayectoIds = rowsRaw.Select(r => r.Item.Id).ToList();
@@ -572,7 +608,58 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             await ctx.SaveChangesAsync();
         }
 
-        private const string SubareaTi = "Tecnología de la Información";
+        private const string SubareaTi              = "Tecnología de la Información";
+        private const string TipoAreaEstandar       = "Área Estándar";
+
+        /// <summary>
+        /// Para cada workerId dado (con area_scope_id), camina hacia arriba en el árbol
+        /// area_scope y devuelve el nombre del primer nodo cuyo tipo (area_type.area_type_name)
+        /// sea "Área Estándar". Si no encuentra uno, devuelve null para ese worker.
+        /// </summary>
+        private static async Task<Dictionary<int, string?>> ResolverAreaPorWorkerAsync(
+            AppDbContext ctx,
+            List<int> workerIds,
+            Dictionary<int, int> workerToScope)
+        {
+            var resultado = new Dictionary<int, string?>();
+            if (workerIds.Count == 0) return resultado;
+
+            // Topología: scopeId → (nombre, tipo, padre)
+            var nodos = await (
+                from sc in ctx.AreaScope
+                join it in ctx.AreaItem on sc.AreaItemId equals it.AreaItemId
+                join tp in ctx.AreaType on it.AreaTypeId equals tp.AreaTypeId
+                select new
+                {
+                    sc.AreaScopeId,
+                    sc.AreaScopeParentId,
+                    Nombre = it.AreaItemName,
+                    Tipo   = tp.AreaTypeName,
+                }
+            ).ToDictionaryAsync(
+                x => x.AreaScopeId,
+                x => (Padre: x.AreaScopeParentId, Nombre: x.Nombre, Tipo: x.Tipo));
+
+            foreach (var workerId in workerIds)
+            {
+                if (!workerToScope.TryGetValue(workerId, out var startScope)) continue;
+
+                string? nombre = null;
+                var seen = new HashSet<int>();
+                int? curr = startScope;
+                while (curr.HasValue && seen.Add(curr.Value) && nodos.TryGetValue(curr.Value, out var nodo))
+                {
+                    if (string.Equals(nodo.Tipo, TipoAreaEstandar, StringComparison.OrdinalIgnoreCase))
+                    {
+                        nombre = nodo.Nombre;
+                        break;
+                    }
+                    curr = nodo.Padre;
+                }
+                resultado[workerId] = nombre;
+            }
+            return resultado;
+        }
 
         /// <summary>
         /// Carga el catálogo de trayectos activos en memoria. Llave: (lugar_origen_id, lugar_destino_id).

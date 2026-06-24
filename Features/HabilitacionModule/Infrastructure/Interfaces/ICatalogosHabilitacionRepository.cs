@@ -12,5 +12,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<CatSubarea>> GetSubareasAsync(string? area);
         Task<List<CatCategoria>> GetCategoriasAsync();
         Task<List<CatOcupacion>> GetOcupacionesAsync();
+
+        // Categorías CRUD
+        Task<List<CatCategoria>> GetCategoriasTodasAsync();
+        Task<CatCategoria> CrearCategoriaAsync(string nombre);
+        Task<CatCategoria> ActualizarCategoriaAsync(int id, string nombre);
+        Task ToggleCategoriaAsync(int id, bool activo);
+
+        // Ocupaciones CRUD
+        Task<List<CatOcupacion>> GetOcupacionesTodasAsync();
+        Task<CatOcupacion> CrearOcupacionAsync(string nombre);
+        Task<CatOcupacion> ActualizarOcupacionAsync(int id, string nombre);
+        Task ToggleOcupacionAsync(int id, bool activo);
     }
 }

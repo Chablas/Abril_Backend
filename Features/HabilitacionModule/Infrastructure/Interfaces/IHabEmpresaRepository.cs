@@ -21,5 +21,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task DesactivarProyectoAsync(int empresaId, int proyectoId);
 
         Task<List<SsHabDocumentoVersionDto>> GetVersionesDocumentoEmpresaAsync(int empresaId, int itemId);
+
+        Task<SsHabEmpresa> CrearOActualizarEntregableMesAsync(
+            int empresaId, int proyectoId, int itemId, int mes, int anio,
+            EmpresaEntregableUpdateDto dto, int? userId, int? empresaContId);
+
+        Task EliminarArchivoVersionAsync(int versionArchivoId, int empresaId);
+
+        Task<string?> GetResponsableItemEmpresaAsync(int entregableId);
     }
 }

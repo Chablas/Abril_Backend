@@ -64,6 +64,14 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetPendientes"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("proyectos")]
+        public async Task<IActionResult> GetProyectosUnicos()
+        {
+            try { return Ok(await _repo.GetProyectosUnicosAsync()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetProyectosUnicos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("empresas")]
         public async Task<IActionResult> GetEmpresasUnicas()
         {

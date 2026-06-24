@@ -23,44 +23,152 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var query = ctx.SsHabEmpresa
-                .Where(h => h.EmpresaId == empresaId && h.ProyectoId == proyectoId);
+            var registros = await ctx.SsHabEmpresa
+                .Include(h => h.Item)
+                .Where(h => h.EmpresaId == empresaId && h.ProyectoId == proyectoId)
+                .ToListAsync();
 
-            if (mes.HasValue) query = query.Where(h => h.Mes == mes.Value);
-            if (anio.HasValue) query = query.Where(h => h.Anio == anio.Value);
-
-            var registros = await query.ToListAsync();
             if (registros.Count == 0) return [];
 
-            var itemIds = registros.Select(h => h.ItemId).Distinct().ToList();
-            var itemMap = await ctx.SsItemEmpresa
-                .Where(i => itemIds.Contains(i.Id))
-                .ToDictionaryAsync(i => i.Id);
+            var items = await ctx.SsItemEmpresa
+                .Where(i => i.Activo)
+                .OrderBy(i => i.Orden)
+                .ToListAsync();
 
-            return registros
-                .Where(h => itemMap.ContainsKey(h.ItemId))
-                .Select(h =>
+            // Batch: versión más reciente (Enviado=true) + sus archivos para todos los entregables
+            var habEmpresaIds = registros.Select(r => r.Id).ToList();
+            var versionesConArchivos = await ctx.SsHabDocumentoVersion
+                .Include(v => v.Archivos)
+                .Where(v => v.HabEmpresaId.HasValue
+                         && habEmpresaIds.Contains(v.HabEmpresaId.Value)
+                         && v.Enviado)
+                .ToListAsync();
+
+            var archivosPorEntregable = versionesConArchivos
+                .Where(v => v.HabEmpresaId.HasValue)
+                .GroupBy(v => v.HabEmpresaId!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderBy(v => v.Version)
+                          .SelectMany(v => v.Archivos)
+                          .GroupBy(a => a.Id)
+                          .Select(grp => grp.First())
+                          .OrderBy(a => a.Orden)
+                          .Select(a => new EntregableMesArchivoDto
+                          {
+                              Id = a.Id,
+                              NombreArchivo = a.NombreArchivo ?? "",
+                              ArchivoUrl = a.ArchivoUrl,
+                              EsZip = a.EsZip,
+                              Orden = a.Orden
+                          })
+                          .ToList()
+                );
+
+            var result = new List<EmpresaEntregableDto>();
+
+            foreach (var item in items)
+            {
+                var regsItem = registros.Where(r => r.ItemId == item.Id).ToList();
+
+                if (!item.EsMensual)
                 {
-                    var item = itemMap[h.ItemId];
-                    return new EmpresaEntregableDto
+                    var reg = regsItem.FirstOrDefault();
+                    if (reg == null) continue;
+                    result.Add(MapToDto(reg, item, [],
+                        archivosPorEntregable.TryGetValue(reg.Id, out var arch) ? arch : []));
+                }
+                else
+                {
+                    if (regsItem.Count == 0) continue;
+
+                    var meses = regsItem
+                        .Where(r => r.Mes.HasValue && r.Anio.HasValue)
+                        .OrderByDescending(r => r.Anio)
+                        .ThenByDescending(r => r.Mes)
+                        .Select(r =>
+                        {
+                            var baseId = registros
+                                .Where(s => s.ItemId == r.ItemId && s.Mes == null && s.Anio == null)
+                                .Select(s => (int?)s.Id)
+                                .FirstOrDefault();
+
+                            return new EntregableMesDto
+                            {
+                                Id = r.Id,
+                                Mes = r.Mes ?? 0,
+                                Anio = r.Anio ?? 0,
+                                Estado = r.Estado,
+                                Vigencia = r.Vigencia,
+                                ArchivoUrl = r.ArchivoUrl,
+                                ObsAbril = r.ObsAbril,
+                                ObsContratista = r.ObsContratista,
+                                MotivoRechazo = r.MotivoRechazo,
+                                Archivos = archivosPorEntregable.TryGetValue(r.Id, out var arch) && arch.Count > 0
+                                    ? arch
+                                    : (baseId.HasValue && archivosPorEntregable.TryGetValue(baseId.Value, out var baseArch)
+                                        ? baseArch
+                                        : [])
+                            };
+                        })
+                        .ToList();
+
+                    var estadoGlobal = CalcularEstadoGlobal(meses.Select(m => m.Estado).ToList());
+                    var regReciente = regsItem.OrderByDescending(r => r.Anio).ThenByDescending(r => r.Mes).First();
+
+                    result.Add(new EmpresaEntregableDto
                     {
-                        Id = h.Id,
-                        ItemId = h.ItemId,
+                        Id = regReciente.Id,
+                        ItemId = item.Id,
                         NombreItem = item.Nombre,
-                        Estado = h.Estado,
-                        Vigencia = h.Vigencia,
-                        ArchivoUrl = h.ArchivoUrl,
-                        ObsAbril = h.ObsAbril,
-                        ObsContratista = h.ObsContratista,
+                        Estado = estadoGlobal,
+                        Vigencia = regReciente.Vigencia,
+                        ArchivoUrl = regReciente.ArchivoUrl,
+                        ObsAbril = regReciente.ObsAbril,
+                        ObsContratista = regReciente.ObsContratista,
                         RequiereVigencia = item.RequiereVigencia,
+                        EsMensual = true,
                         Responsable = item.Responsable,
-                        Mes = h.Mes,
-                        Anio = h.Anio
-                    };
-                })
-                .OrderBy(d => itemMap[d.ItemId].Orden)
-                .ToList();
+                        Mes = regReciente.Mes,
+                        Anio = regReciente.Anio,
+                        Meses = meses
+                    });
+                }
+            }
+
+            return result;
         }
+
+        private static string CalcularEstadoGlobal(List<string> estados)
+        {
+            if (estados.Count == 0) return "Falta";
+            if (estados.Any(e => e == "Rechazado")) return "Rechazado";
+            if (estados.Any(e => e == "Enviado")) return "Enviado";
+            if (estados.Any(e => e == "Falta")) return "Falta";
+            if (estados.All(e => e == "Aprobado")) return "Aprobado";
+            return "Falta";
+        }
+
+        private static EmpresaEntregableDto MapToDto(SsHabEmpresa r, SsItemEmpresa item, List<EntregableMesDto> meses, List<EntregableMesArchivoDto> archivos)
+            => new()
+            {
+                Id = r.Id,
+                ItemId = item.Id,
+                NombreItem = item.Nombre,
+                Estado = r.Estado,
+                Vigencia = r.Vigencia,
+                ArchivoUrl = r.ArchivoUrl,
+                ObsAbril = r.ObsAbril,
+                ObsContratista = r.ObsContratista,
+                MotivoRechazo = r.MotivoRechazo,
+                RequiereVigencia = item.RequiereVigencia,
+                EsMensual = item.EsMensual,
+                Responsable = item.Responsable,
+                Mes = r.Mes,
+                Anio = r.Anio,
+                Meses = meses,
+                Archivos = archivos
+            };
 
         public async Task<SsHabEmpresa> UpdateEntregableEmpresaAsync(
             int id, EmpresaEntregableUpdateDto dto, int? userId, int? empresaId = null)
@@ -93,20 +201,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (!string.IsNullOrEmpty(dto.Estado))
                 entregable.Estado = dto.Estado;
-            if (!string.IsNullOrEmpty(dto.Estado) || dto.Vigencia.HasValue)
-                entregable.Vigencia = HabilitacionDateHelper.ResolverVigencia(entregable.Item?.RequiereVigencia ?? true, entregable.Estado, dto.Vigencia);
+
+            if (string.Equals(dto.Estado, "Enviado", StringComparison.OrdinalIgnoreCase))
+            {
+                entregable.Vigencia = HabilitacionDateHelper.ResolverVigenciaAlEnviar(
+                    entregable.ItemId,
+                    entregable.Item?.EsMensual ?? false,
+                    entregable.Mes,
+                    entregable.Anio,
+                    dto.Vigencia);
+            }
+            else if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase)
+                  || string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase))
+            {
+                entregable.Vigencia = HabilitacionDateHelper.ResolverVigenciaAlAprobar(
+                    entregable.ItemId, entregable.Estado, dto.Vigencia, entregable.Vigencia);
+                entregable.AprobadoPor = userId;
+                entregable.FechaAprobacion = DateTime.UtcNow;
+                if (string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase))
+                    entregable.MotivoRechazo = dto.MotivoRechazo;
+            }
+            else if (dto.Vigencia.HasValue)
+            {
+                entregable.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
+            }
+
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;
             if (dto.Mes is not null) entregable.Mes = dto.Mes;
             if (dto.Anio is not null) entregable.Anio = dto.Anio;
             entregable.UpdatedAt = DateTime.UtcNow;
-
-            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
-            {
-                entregable.AprobadoPor = userId;
-                entregable.FechaAprobacion = DateTime.UtcNow;
-            }
 
             await ctx.SaveChangesAsync();
             return entregable;
@@ -182,6 +307,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(h => h.ItemId)
                 .ToListAsync();
 
+            var itemsFalta = new HashSet<int> { 12, 13 };
+
+            var hoy = DateTime.UtcNow;
+            var vigenciaInicial = new DateTime(hoy.Year, hoy.Month, 1, 0, 0, 0, DateTimeKind.Utc)
+                .AddMonths(1).AddDays(26);
+
             var faltantes = items
                 .Where(i => !existentesIds.Contains(i.Id))
                 .Select(i => new SsHabEmpresa
@@ -189,7 +320,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EmpresaId = empresaId,
                     ProyectoId = proyectoId,
                     ItemId = i.Id,
-                    Estado = "Falta",
+                    Estado = itemsFalta.Contains(i.Id) ? "Falta" : "Aprobado",
+                    Vigencia = itemsFalta.Contains(i.Id) ? null : vigenciaInicial,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 })
@@ -281,6 +413,113 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             registro.Activo = false;
             registro.FechaFin = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<SsHabEmpresa> CrearOActualizarEntregableMesAsync(
+            int empresaId, int proyectoId, int itemId, int mes, int anio,
+            EmpresaEntregableUpdateDto dto, int? userId, int? empresaContId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entregable = await ctx.SsHabEmpresa
+                .Include(h => h.Item)
+                .FirstOrDefaultAsync(h =>
+                    h.EmpresaId == empresaId &&
+                    h.ProyectoId == proyectoId &&
+                    h.ItemId == itemId &&
+                    h.Mes == mes &&
+                    h.Anio == anio);
+
+            if (entregable == null)
+            {
+                _ = await ctx.SsItemEmpresa.FindAsync(itemId)
+                    ?? throw new AbrilException("Item no encontrado.", 404);
+
+                entregable = new SsHabEmpresa
+                {
+                    EmpresaId = empresaId,
+                    ProyectoId = proyectoId,
+                    ItemId = itemId,
+                    Mes = mes,
+                    Anio = anio,
+                    Estado = "Falta",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                ctx.SsHabEmpresa.Add(entregable);
+                await ctx.SaveChangesAsync();
+            }
+
+            if (!string.IsNullOrEmpty(dto.Estado)) entregable.Estado = dto.Estado;
+            if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
+            if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
+            if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;
+            if (dto.MotivoRechazo is not null) entregable.MotivoRechazo = dto.MotivoRechazo;
+
+            entregable.Vigencia = HabilitacionDateHelper.ResolverVigenciaEmpresa(
+                entregable.ItemId, entregable.Estado, dto.Vigencia ?? entregable.Vigencia);
+
+            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+            {
+                entregable.AprobadoPor = userId;
+                entregable.FechaAprobacion = DateTime.UtcNow;
+            }
+
+            entregable.UpdatedAt = DateTime.UtcNow;
+
+            if (dto.ArchivoUrl is not null && dto.ArchivoUrl != entregable.ArchivoUrl)
+            {
+                var versionActual = await ctx.SsHabDocumentoVersion
+                    .CountAsync(v => v.HabEmpresaId == entregable.Id);
+                ctx.SsHabDocumentoVersion.Add(new SsHabDocumentoVersion
+                {
+                    HabEmpresaId = entregable.Id,
+                    Version = versionActual + 1,
+                    ArchivoUrl = dto.ArchivoUrl,
+                    SubidoPorUserId = userId,
+                    SubidoPorEmpresaId = empresaContId,
+                    EstadoAlSubir = dto.Estado,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            await ctx.SaveChangesAsync();
+            return entregable;
+        }
+
+        public async Task EliminarArchivoVersionAsync(int versionArchivoId, int empresaId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var archivo = await ctx.SsHabDocumentoArchivo
+                .Include(a => a.Version)
+                .FirstOrDefaultAsync(a => a.Id == versionArchivoId)
+                ?? throw new AbrilException("Archivo no encontrado.", 404);
+
+            if (archivo.Version?.HabEmpresaId.HasValue == true)
+            {
+                var entregable = await ctx.SsHabEmpresa
+                    .FindAsync(archivo.Version.HabEmpresaId.Value)
+                    ?? throw new AbrilException("Entregable no encontrado.", 404);
+
+                if (entregable.EmpresaId != empresaId)
+                    throw new AbrilException("No tienes permiso para eliminar este archivo.", 403);
+
+                if (entregable.Estado == "Aprobado" || entregable.Estado == "Rechazado")
+                    throw new AbrilException("No puedes eliminar archivos de un entregable ya revisado.", 403);
+            }
+
+            ctx.SsHabDocumentoArchivo.Remove(archivo);
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<string?> GetResponsableItemEmpresaAsync(int entregableId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsHabEmpresa
+                .Where(h => h.Id == entregableId)
+                .Select(h => h.Item != null ? h.Item.Responsable : null)
+                .FirstOrDefaultAsync();
         }
 
     }

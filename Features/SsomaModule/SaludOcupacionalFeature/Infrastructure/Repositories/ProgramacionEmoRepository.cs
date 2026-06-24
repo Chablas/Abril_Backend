@@ -134,10 +134,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.FechaProgramada == default)
                 throw new AbrilException("La fecha es obligatoria.", 400);
 
+            var empresaId = dto.EmpresaId;
+            if (empresaId == null)
+            {
+                var hoy = DateOnly.FromDateTime(DateTime.Today);
+                empresaId = await ctx.WorkerVinculacion
+                    .Where(v => v.WorkerId == dto.WorkerId && (v.FechaFin == null || v.FechaFin >= hoy))
+                    .OrderByDescending(v => v.FechaInicio)
+                    .Select(v => (int?)v.EmpresaId)
+                    .FirstOrDefaultAsync();
+            }
+
             var ent = new SsProgramacionEmo
             {
                 WorkerId = dto.WorkerId,
-                EmpresaId = dto.EmpresaId,
+                EmpresaId = empresaId,
                 TipoEmoId = dto.TipoEmoId,
                 FechaProgramada = dto.FechaProgramada,
                 HoraProgramada = dto.HoraProgramada,
@@ -242,11 +253,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                             .OrderByDescending(e => e.FechaVencimiento)
                             .FirstOrDefaultAsync();
 
-                        habCert.Estado = emoActivo == null
-                            ? "Falta"
-                            : emoActivo.FechaVencimiento < hoyNoAsistio
-                                ? "Vencido"
-                                : "Aprobado";
+                        if (emoActivo == null)
+                        {
+                            habCert.Estado = "Falta";
+                        }
+                        else if (emoActivo.FechaVencimiento < hoyNoAsistio)
+                        {
+                            habCert.Estado = "Vencido";
+                        }
+                        else
+                        {
+                            habCert.Estado = "Aprobado";
+                            var venc = emoActivo.FechaVencimientoCalculada ?? emoActivo.FechaVencimiento;
+                            if (venc.HasValue)
+                                habCert.Vigencia = DateTime.SpecifyKind(venc.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+                        }
                         habCert.UpdatedAt = DateTime.UtcNow;
                     }
 
@@ -369,8 +390,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 var toRaw = new List<string?>();
 
-                var medOcupacional = _configuration["EmailsArea:MedicinaOcupacional"];
-                var gth = _configuration["EmailsArea:GTH"];
+                var medOcupacional     = _configuration["EmailsArea:MedicinaOcupacional"];
+                var gth                = _configuration["EmailsArea:GTH"];
+                var emailJefeArqCom    = _configuration["EmailsArea:JefeArqCom"];
+                var emailJefePostVenta = _configuration["EmailsArea:JefePostVenta"];
+                var emailPrevArqCom    = _configuration["EmailsArea:PrevenicionistaArqCom"];
+                var emailPrevPostVenta = _configuration["EmailsArea:PrevenicionistaPostVenta"];
 
                 var vinculacion = await ctx.WorkerVinculacion.AsNoTracking()
                     .Where(v => v.WorkerId == worker.Id && v.FechaFin == null)
@@ -404,6 +429,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     }
                     toRaw.Add(medOcupacional);
                     toRaw.Add(adminEmail);
+                    if (proyecto?.TieneArquitecturaComercial == true)
+                    {
+                        var extraEmails = new[] { emailJefeArqCom, emailJefePostVenta, emailPrevArqCom, emailPrevPostVenta };
+                        foreach (var e in extraEmails)
+                            if (!string.IsNullOrWhiteSpace(e)) toRaw.Add(e);
+                    }
                 }
                 else if (esStaff)
                 {
@@ -420,6 +451,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         toRaw.Add(projectEmails?.EmailCoordSsoma);
                     }
                     toRaw.Add(adminEmail);
+                    if (proyecto?.TieneArquitecturaComercial == true)
+                    {
+                        var extraEmails = new[] { emailJefeArqCom, emailJefePostVenta, emailPrevArqCom, emailPrevPostVenta };
+                        foreach (var e in extraEmails)
+                            if (!string.IsNullOrWhiteSpace(e)) toRaw.Add(e);
+                    }
                 }
                 else if (esOficinaCentral)
                 {
@@ -435,6 +472,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                             .Select(j => j.Email!)
                             .ToListAsync();
                         toRaw.AddRange(jefaturaEmails);
+                    }
+                    if (proyecto?.TieneArquitecturaComercial == true)
+                    {
+                        var extraEmails = new[] { emailJefeArqCom, emailJefePostVenta, emailPrevArqCom, emailPrevPostVenta };
+                        foreach (var e in extraEmails)
+                            if (!string.IsNullOrWhiteSpace(e)) toRaw.Add(e);
                     }
                 }
 

@@ -28,5 +28,6 @@ namespace Abril_Backend.Application.Interfaces
         Task<ArqComercialDashboardDTO>   GetDashboardDataFiltrado(DashboardFiltroDTO filtro);
         Task<List<ActividadAlertaDTO>>   GetActividadesPorAlerta(string tipoAlerta, DashboardFiltroDTO filtro);
         Task                             EnviarAlertasActividades(EnviarAlertaRequestDTO request);
+        Task                             RecalcularTodosSpi();
     }
 }

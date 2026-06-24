@@ -30,7 +30,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             _logger = logger;
         }
 
-        public async Task<string?> GetDownloadUrlAsync(string archivoUrl)
+        public async Task<string?> GetDownloadUrlAsync(string archivoUrl, string? libraryContexto = null)
         {
             var trimmed = archivoUrl?.Trim() ?? string.Empty;
             if (trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
@@ -40,17 +40,69 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 return trimmed;
             }
 
-            var siteId = ResolverSiteId(archivoUrl ?? string.Empty);
+            var siteId = ResolverSiteId(libraryContexto ?? archivoUrl ?? string.Empty);
             if (string.IsNullOrWhiteSpace(siteId)) return null;
 
             var token = await GetAccessTokenAsync();
             if (string.IsNullOrWhiteSpace(token)) return null;
 
-            var libraryId = ResolverLibraryId(archivoUrl ?? string.Empty);
-            var driveId = await GetDriveIdAsync(siteId, token, libraryId);
-            if (string.IsNullOrWhiteSpace(driveId)) return null;
+            if ((archivoUrl ?? string.Empty).StartsWith("OPT/", StringComparison.OrdinalIgnoreCase))
+            {
+                const string driveIdOpt = "b!Bmji2TXVU0OWEBlZeOIDkC8Dt6ceUVNLiodQihkLPHxZH7QqINghTq0UWOH5DOFR";
+                var encodedOpt = Uri.EscapeDataString(archivoUrl!).Replace("%2F", "/");
+                var urlOpt = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveIdOpt}/root:/{encodedOpt}:/content";
 
-            var path = NormalizarPath(archivoUrl!);
+                var clientOpt = _noRedirectClient.Value;
+                clientOpt.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+
+                var responseOpt = await clientOpt.GetAsync(urlOpt);
+
+                if (responseOpt.StatusCode == System.Net.HttpStatusCode.Found ||
+                    responseOpt.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
+                {
+                    var locationOpt = responseOpt.Headers.Location?.ToString();
+                    if (!string.IsNullOrWhiteSpace(locationOpt))
+                        return locationOpt;
+
+                    _logger.LogWarning("SharePoint /content devolvió redirect sin Location para {Path}", archivoUrl);
+                    return null;
+                }
+
+                _logger.LogWarning("SharePoint /content GET falló ({Status}) para {Path}", responseOpt.StatusCode, archivoUrl);
+                return null;
+            }
+
+            var libraryId = ResolverLibraryId(libraryContexto ?? archivoUrl ?? string.Empty);
+            string? driveId;
+            string path;
+
+            if (libraryId != null)
+            {
+                driveId = await GetDriveIdAsync(siteId, token, libraryId);
+                path = NormalizarPath(archivoUrl!);
+            }
+            else
+            {
+                // Extraer primer segmento como nombre de librería (ej: "PETSAbril2026/archivo.docx" → "PETSAbril2026")
+                var normalizado = (archivoUrl ?? string.Empty).Trim().TrimStart('/');
+                var slashIdx = normalizado.IndexOf('/');
+                var libraryName = slashIdx > 0 ? normalizado[..slashIdx] : normalizado;
+                var pathDentro   = slashIdx > 0 ? normalizado[(slashIdx + 1)..] : string.Empty;
+
+                if (string.IsNullOrWhiteSpace(libraryName))
+                {
+                    _logger.LogWarning("GetDownloadUrlAsync: no se pudo extraer nombre de librería de '{Path}'", archivoUrl);
+                    return null;
+                }
+
+                driveId = await GetDriveIdByNameAsync(siteId, token, libraryName);
+                path = pathDentro;
+            }
+
+            if (string.IsNullOrWhiteSpace(driveId)) return null;
+            if (string.IsNullOrWhiteSpace(path)) return null;
+
             var encoded = Uri.EscapeDataString(path).Replace("%2F", "/");
             var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
 
@@ -119,6 +171,154 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             }
 
             return path;
+        }
+
+        public async Task<string> SubirArchivoEnRutaAsync(Stream fileStream, string fileName, string libraryContexto, string carpetaPath)
+        {
+            var siteId = ResolverSiteId(libraryContexto);
+            if (string.IsNullOrWhiteSpace(siteId))
+                throw new AbrilException("SharePoint no está configurado.", 500);
+
+            var token = await GetAccessTokenAsync()
+                ?? throw new AbrilException("No se pudo obtener token de Microsoft Graph.", 500);
+
+            var libraryId = ResolverLibraryId(libraryContexto);
+            var driveId = await GetDriveIdAsync(siteId, token, libraryId)
+                ?? throw new AbrilException("No se pudo resolver el drive de SharePoint.", 500);
+
+            var fechaPrefix = DateTime.UtcNow.ToString("yyyyMMdd");
+            var fileNameLimpio = SanitizarNombreArchivo(fileName);
+            var path = $"{carpetaPath.Trim('/')}/{fechaPrefix}_{fileNameLimpio}";
+
+            var encoded = Uri.EscapeDataString(path).Replace("%2F", "/");
+            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var content = new StreamContent(fileStream);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var response = await client.PutAsync(url, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("SharePoint upload falló ({Status}) para {Path}: {Body}",
+                    response.StatusCode, path, body);
+                throw new AbrilException($"Error al subir archivo a SharePoint ({(int)response.StatusCode}).", 502);
+            }
+
+            return path;
+        }
+
+        public async Task<string> SubirArchivoYObtenerUrlAsync(Stream fileStream, string fileName, string libraryContexto, string carpetaPath)
+        {
+            var siteId = ResolverSiteId(libraryContexto);
+            if (string.IsNullOrWhiteSpace(siteId))
+                throw new AbrilException("SharePoint no está configurado.", 500);
+
+            var token = await GetAccessTokenAsync()
+                ?? throw new AbrilException("No se pudo obtener token de Microsoft Graph.", 500);
+
+            var libraryId = ResolverLibraryId(libraryContexto);
+            var driveId = await GetDriveIdAsync(siteId, token, libraryId)
+                ?? throw new AbrilException("No se pudo resolver el drive de SharePoint.", 500);
+
+            var fechaPrefix = DateTime.UtcNow.ToString("yyyyMMdd");
+            var fileNameLimpio = SanitizarNombreArchivo(fileName);
+            var path = $"{carpetaPath.Trim('/')}/{fechaPrefix}_{fileNameLimpio}";
+
+            var encoded = Uri.EscapeDataString(path).Replace("%2F", "/");
+            var uploadUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var content = new StreamContent(fileStream);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var response = await client.PutAsync(uploadUrl, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("SharePoint upload falló ({Status}) para {Path}: {Body}",
+                    response.StatusCode, path, body);
+                throw new AbrilException($"Error al subir archivo a SharePoint ({(int)response.StatusCode}).", 502);
+            }
+
+            // Leer webUrl del cuerpo del PUT — SharePoint siempre la incluye en la respuesta
+            try
+            {
+                var putBody = await response.Content.ReadAsStringAsync();
+                using var putDoc = JsonDocument.Parse(putBody);
+                if (putDoc.RootElement.TryGetProperty("webUrl", out var webUrlEl))
+                {
+                    var webUrl = webUrlEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(webUrl))
+                        return webUrl;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo leer webUrl del PUT de SharePoint para {Path}", path);
+            }
+
+            var getUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}?$select=id,%40microsoft.graph.downloadUrl";
+            var getClient = _httpClientFactory.CreateClient();
+            getClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var getResponse = await getClient.GetAsync(getUrl);
+            if (getResponse.IsSuccessStatusCode)
+            {
+                var json = await getResponse.Content.ReadAsStringAsync();
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("@microsoft.graph.downloadUrl", out var dlUrl))
+                    return dlUrl.GetString()!;
+            }
+
+            _logger.LogWarning("No se pudo obtener downloadUrl para {Path}, se devuelve ruta relativa.", path);
+            return path;
+        }
+
+        private async Task<string?> GetDriveIdByNameAsync(string siteId, string token, string libraryName)
+        {
+            if (string.IsNullOrWhiteSpace(libraryName)) return null;
+
+            var cacheKey = $"name:{libraryName}";
+            if (_driveIdCache.TryGetValue(cacheKey, out var cached)) return cached;
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
+
+            var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives";
+            var response = await client.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Drives list GET falló ({Status}) para sitio {Site}", response.StatusCode, siteId);
+                return null;
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync();
+            using var doc = await JsonDocument.ParseAsync(stream);
+
+            if (!doc.RootElement.TryGetProperty("value", out var drives)) return null;
+
+            foreach (var drive in drives.EnumerateArray())
+            {
+                var name = drive.TryGetProperty("name", out var n) ? n.GetString() : null;
+                if (string.Equals(name, libraryName, StringComparison.OrdinalIgnoreCase))
+                {
+                    var driveId = drive.GetProperty("id").GetString()!;
+                    _driveIdCache[cacheKey] = driveId;
+                    _logger.LogInformation(
+                        "SharePoint drive por nombre '{Name}' resuelto — id: {DriveId}",
+                        libraryName, driveId);
+                    return driveId;
+                }
+            }
+
+            _logger.LogWarning("No se encontró drive con nombre '{Name}', usando drive default", libraryName);
+            return await GetDriveIdAsync(siteId, token, null);
         }
 
         private static string NormalizarPath(string rawPath)
@@ -198,7 +398,18 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("emo-aptitud"))   return _configuration["SharePoint:Sites:SSOMAApps:AptitudesLibraryId"];
             if (c.Contains("emo-completo"))  return _configuration["SharePoint:Sites:SSOMAApps:EMOSLibraryId"];
             if (c.Contains("interconsulta")) return _configuration["SharePoint:Sites:SSOMAApps:EmoInterconsultasLibraryId"];
-            if (c.Contains("lectura-emo"))   return _configuration["SharePoint:Sites:SSOMAApps:LecturaEmosLibraryId"];
+            if (c.Contains("lectura-emo"))      return _configuration["SharePoint:Sites:SSOMAApps:LecturaEmosLibraryId"];
+            if (c.Contains("paso-evidencias")) return _configuration["SharePoint:Sites:SSOMAApps:PasoEvidenciasLibraryId"];
+            if (c.Contains("rac-pdf"))           return _configuration["SharePoint:Sites:SSOMAApps:RacPdfLibraryId"];
+            if (c.Contains("rac-fotos"))         return _configuration["SharePoint:Sites:SSOMAApps:RacFotosLibraryId"];
+            if (c.Contains("rac-firmas"))        return _configuration["SharePoint:Sites:SSOMAApps:RacFirmasLibraryId"];
+            if (c.Contains("opt-firmas"))        return _configuration["SharePoint:Sites:SSOMAApps:OptFirmasLibraryId"];
+            if (c.Contains("inspeccion-fotos"))  return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesAbril2026LibraryId"];
+            if (c.Contains("inspeccion-firmas")) return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesAbril2026LibraryId"];
+            if (c.Contains("penalidad-pdf"))   return _configuration["SharePoint:Sites:SSOMAApps:PenalidadPdfLibraryId"];
+            if (c.Contains("dossier-semanal")) return _configuration["SharePoint:Sites:SSOMAApps:DossierSemanal2026LibraryId"];
+            if (c.Contains("charlas-evidencias")) return _configuration["SharePoint:Sites:SSOMAApps:CharlasLibraryId"];
+            if (c.Contains("flash-report"))        return _configuration["SharePoint:Sites:SSOMAApps:EvidenciaAccidentesLibraryId"];
             return null;
         }
 

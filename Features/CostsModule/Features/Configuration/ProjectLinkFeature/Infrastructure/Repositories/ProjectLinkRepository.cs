@@ -17,11 +17,14 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
             _context = context;
         }
 
-        public async Task<PagedResult<ProjectLinkDto>> GetPaged(ProjectLinkFilterDto filter)
+        public async Task<PagedResult<ProjectLinkDto>> GetPaged(ProjectLinkFilterDto filter, List<int>? allowedProjectIds = null)
         {
             const int pageSize = 10;
 
             var query = _context.ProjectLink.Where(x => x.State);
+
+            if (allowedProjectIds != null)
+                query = query.Where(x => allowedProjectIds.Contains(x.ProjectId));
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.ProjectId == filter.ProjectId.Value);
@@ -59,10 +62,15 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
             };
         }
 
-        public async Task<ProjectLinkFormDataDto> GetFormData()
+        public async Task<ProjectLinkFormDataDto> GetFormData(List<int>? allowedProjectIds = null)
         {
-            var projects = await _context.Project
-                .Where(x => x.State && x.Active)
+            var projectsQuery = _context.Project
+                .Where(x => x.State && x.Active);
+
+            if (allowedProjectIds != null)
+                projectsQuery = projectsQuery.Where(x => allowedProjectIds.Contains(x.ProjectId));
+
+            var projects = await projectsQuery
                 .OrderBy(x => x.ProjectDescription)
                 .Select(x => new ProjectSimpleDto
                 {
@@ -86,6 +94,38 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
                 Projects = projects,
                 Types = types
             };
+        }
+
+        public async Task<List<int>> GetUserProjectIdsAsync(int userId)
+        {
+            // Proyectos del usuario según los correos registrados en staff_project_email:
+            // el correo registrado identifica al trabajador por workers.email_personal
+            // (ahí se guarda el correo @abril.pe, que es el mismo de app_user.email).
+            var userEmail = await _context.User
+                .Where(u => u.UserId == userId)
+                .Select(u => u.Email)
+                .FirstOrDefaultAsync();
+
+            if (string.IsNullOrWhiteSpace(userEmail))
+                return new List<int>();
+
+            var email = userEmail.Trim().ToLower();
+
+            return await (
+                from spe in _context.StaffProjectEmail
+                join w in _context.Worker on spe.Email.ToLower() equals (w.EmailPersonal ?? string.Empty).ToLower()
+                where spe.State && spe.Active
+                   && (w.EmailPersonal ?? string.Empty).ToLower() == email
+                select spe.ProjectId
+            ).Distinct().ToListAsync();
+        }
+
+        public async Task<int?> GetProjectIdAsync(int projectLinkId)
+        {
+            return await _context.ProjectLink
+                .Where(x => x.ProjectLinkId == projectLinkId && x.State)
+                .Select(x => (int?)x.ProjectId)
+                .FirstOrDefaultAsync();
         }
 
         public async Task<List<ProjectLink>> GetByProjectIdAsync(int projectId)

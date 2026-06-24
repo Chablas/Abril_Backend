@@ -45,6 +45,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
             if (!string.IsNullOrWhiteSpace(filter.Email))
                 query = query.Where(x => x.s.Email.Contains(filter.Email));
 
+            if (filter.StaffProjectEmailTypeId.HasValue)
+                query = query.Where(x => x.s.StaffProjectEmailTypeId == filter.StaffProjectEmailTypeId.Value);
+
             var totalRecords = await query.CountAsync();
 
             var data = await query

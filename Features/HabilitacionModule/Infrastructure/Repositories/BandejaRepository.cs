@@ -1,4 +1,7 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Proyectos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -44,7 +47,13 @@ SELECT
     ht.archivo_url,
     ht.obs_contratista,
     i.responsable,
-    ht.updated_at as fecha_envio
+    ht.updated_at as fecha_envio,
+    NULL::int as item_id,
+    false as es_mensual,
+    NULL::int as empresa_id_raw,
+    NULL::int as mes,
+    NULL::int as anio,
+    0 as meses_pendientes
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
 JOIN workers w ON w.id = ht.worker_id
@@ -81,13 +90,33 @@ SELECT
     he.archivo_url,
     he.obs_contratista,
     i.responsable,
-    he.updated_at as fecha_envio
+    he.updated_at as fecha_envio,
+    i.id as item_id,
+    i.es_mensual as es_mensual,
+    he.empresa_id as empresa_id_raw,
+    he.mes as mes,
+    he.anio as anio,
+    (SELECT COUNT(*) FROM ss_hab_empresa sub
+     WHERE sub.empresa_id = he.empresa_id
+       AND sub.proyecto_id = he.proyecto_id
+       AND sub.item_id = he.item_id
+       AND sub.estado = 'Enviado') as meses_pendientes
 FROM ss_hab_empresa he
 JOIN ss_item_empresa i ON i.id = he.item_id
 JOIN contributor ec ON ec.contributor_id = he.empresa_id
 JOIN project p ON p.project_id = he.proyecto_id
 WHERE he.estado = 'Enviado'
   AND he.item_id NOT IN (15, 16)
+  AND (NOT i.es_mensual OR he.id = (
+      SELECT id FROM ss_hab_empresa sub2
+      WHERE sub2.empresa_id = he.empresa_id
+        AND sub2.proyecto_id = he.proyecto_id
+        AND sub2.item_id = he.item_id
+        AND sub2.estado = 'Enviado'
+        AND sub2.mes IS NOT NULL
+      ORDER BY sub2.anio DESC, sub2.mes DESC
+      LIMIT 1
+  ))
   AND (@ProyectoId IS NULL OR he.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR he.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
@@ -108,7 +137,13 @@ SELECT
     heq.archivo_url,
     NULL as obs_contratista,
     'SSOMA' as responsable,
-    heq.updated_at as fecha_envio
+    heq.updated_at as fecha_envio,
+    NULL::int as item_id,
+    false as es_mensual,
+    NULL::int as empresa_id_raw,
+    NULL::int as mes,
+    NULL::int as anio,
+    0 as meses_pendientes
 FROM ss_hab_equipo heq
 JOIN ss_item_equipo i ON i.id = heq.item_id
 JOIN ss_equipo eq ON eq.id = heq.equipo_id
@@ -135,7 +170,13 @@ SELECT
     NULL as archivo_url,
     NULL as obs_contratista,
     'SSOMA' as responsable,
-    i.created_at as fecha_envio
+    i.created_at as fecha_envio,
+    NULL::int as item_id,
+    false as es_mensual,
+    NULL::int as empresa_id_raw,
+    NULL::int as mes,
+    NULL::int as anio,
+    0 as meses_pendientes
 FROM ss_induccion i
 JOIN workers w ON w.id = i.worker_id
 LEFT JOIN person per ON per.person_id = w.person_id
@@ -173,6 +214,8 @@ LIMIT @PageSize OFFSET @Offset";
             using var conn = CreateConnection();
             var items = (await conn.QueryAsync<BandejaItemDto>(dataSql, parametros)).ToList();
             var total = await conn.ExecuteScalarAsync<int>(countSql, parametros);
+
+            await EnrichWithArchivosAsync(items);
 
             return (items, total);
         }
@@ -235,6 +278,8 @@ LIMIT @PageSize";
             var hasMore = rows.Count > pageSize;
             var page = hasMore ? rows.Take(pageSize).ToList() : rows;
 
+            await EnrichWithArchivosAsync(page);
+
             string? nextCursor = null;
             if (hasMore && page.Count > 0)
             {
@@ -251,6 +296,157 @@ LIMIT @PageSize";
                 NextCursor = nextCursor,
                 HasMore = hasMore
             };
+        }
+
+        private async Task EnrichWithArchivosAsync(List<BandejaItemDto> items)
+        {
+            var empresaIds = items
+                .Where(i => i.Tipo == "EMPRESA")
+                .Select(i => i.Id)
+                .Distinct()
+                .ToList();
+
+            if (empresaIds.Count == 0) return;
+
+            Console.WriteLine($"empresaIds: {string.Join(",", empresaIds)}");
+
+            using var ctx = _factory.CreateDbContext();
+
+            var registrosBase = await ctx.SsHabEmpresa
+                .Where(e => empresaIds.Contains(e.Id))
+                .ToListAsync();
+
+            var grupos = registrosBase
+                .Select(r => new { r.EmpresaId, r.ProyectoId, r.ItemId })
+                .Distinct()
+                .ToList();
+
+            var todosRegistros = new List<SsHabEmpresa>();
+            foreach (var g in grupos)
+            {
+                var regs = await ctx.SsHabEmpresa
+                    .Where(e => e.EmpresaId == g.EmpresaId
+                             && e.ProyectoId == g.ProyectoId
+                             && e.ItemId == g.ItemId)
+                    .ToListAsync();
+                todosRegistros.AddRange(regs);
+            }
+
+            var todosIds = todosRegistros.Select(r => r.Id).ToList();
+
+            var versiones = await ctx.SsHabDocumentoVersion
+                .Include(v => v.Archivos)
+                .Where(v => v.HabEmpresaId.HasValue
+                         && todosIds.Contains(v.HabEmpresaId.Value)
+                         && v.Enviado)
+                .ToListAsync();
+
+            var archivosPorEntregable = versiones
+                .Where(v => v.HabEmpresaId.HasValue)
+                .GroupBy(v => v.HabEmpresaId!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderBy(v => v.Version)
+                          .SelectMany(v => v.Archivos)
+                          .GroupBy(a => a.Id)
+                          .Select(grp => grp.First())
+                          .OrderBy(a => a.Orden)
+                          .Select(a => new EntregableMesArchivoDto
+                          {
+                              Id = a.Id,
+                              NombreArchivo = a.NombreArchivo ?? "",
+                              ArchivoUrl = a.ArchivoUrl,
+                              EsZip = a.EsZip,
+                              Orden = a.Orden
+                          })
+                          .ToList()
+                );
+
+            Console.WriteLine($"archivosPorEntregable keys: {string.Join(",", archivosPorEntregable.Keys)}");
+
+            foreach (var item in items.Where(i => i.Tipo == "EMPRESA"))
+            {
+                var idsDelGrupo = todosRegistros
+                    .Where(r => r.EmpresaId == registrosBase
+                        .FirstOrDefault(b => b.Id == item.Id)?.EmpresaId
+                        && r.ProyectoId == registrosBase
+                        .FirstOrDefault(b => b.Id == item.Id)?.ProyectoId
+                        && r.ItemId == registrosBase
+                        .FirstOrDefault(b => b.Id == item.Id)?.ItemId)
+                    .Select(r => r.Id)
+                    .ToList();
+
+                // Solo usar archivos del registro que aparece en bandeja (item.Id)
+                // que es el mensual más reciente con estado Enviado
+                var archivosDelItem = archivosPorEntregable.ContainsKey(item.Id)
+                    ? archivosPorEntregable[item.Id]
+                    : new List<EntregableMesArchivoDto>();
+
+                if (archivosDelItem.Any())
+                    item.Archivos = archivosDelItem;
+
+                if (item.EsMensual)
+                {
+                    item.Meses = todosRegistros
+                        .Where(r => r.EmpresaId == registrosBase.FirstOrDefault(b => b.Id == item.Id)?.EmpresaId
+                                 && r.ProyectoId == registrosBase.FirstOrDefault(b => b.Id == item.Id)?.ProyectoId
+                                 && r.ItemId == registrosBase.FirstOrDefault(b => b.Id == item.Id)?.ItemId
+                                 && r.Mes.HasValue && r.Anio.HasValue
+                                 && r.Estado == "Enviado")
+                        .OrderByDescending(r => r.Anio)
+                        .ThenByDescending(r => r.Mes)
+                        .Select(r => new BandejaMesDto
+                        {
+                            Id = r.Id,
+                            Mes = r.Mes!.Value,
+                            Anio = r.Anio!.Value,
+                            Estado = r.Estado,
+                            Vigencia = r.Vigencia,
+                            Archivos = archivosPorEntregable.TryGetValue(r.Id, out var arch) ? arch : []
+                        })
+                        .ToList();
+                }
+            }
+        }
+
+        public async Task<List<ProyectoSimpleDto>> GetProyectosUnicosAsync()
+        {
+            const string sql = @"
+SELECT DISTINCT proyecto_id as Id, proyecto_nombre as Nombre
+FROM (
+    SELECT p.project_id as proyecto_id, p.project_description as proyecto_nombre
+    FROM ss_hab_trabajador ht
+    JOIN workers w ON w.id = ht.worker_id
+    LEFT JOIN LATERAL (
+        SELECT proyecto_id FROM worker_vinculaciones
+        WHERE worker_id = w.id AND fecha_fin IS NULL
+        ORDER BY created_at DESC, id DESC LIMIT 1
+    ) wv ON TRUE
+    LEFT JOIN project p ON p.project_id = wv.proyecto_id
+    WHERE ht.estado = 'Enviado'
+    UNION
+    SELECT p.project_id, p.project_description
+    FROM ss_hab_empresa he
+    JOIN project p ON p.project_id = he.proyecto_id
+    WHERE he.estado = 'Enviado'
+    UNION
+    SELECT p.project_id, p.project_description
+    FROM ss_hab_equipo heq
+    JOIN ss_equipo eq ON eq.id = heq.equipo_id
+    JOIN project p ON p.project_id = eq.proyecto_id
+    WHERE heq.estado = 'Enviado'
+    UNION
+    SELECT p.project_id, p.project_description
+    FROM ss_induccion i
+    JOIN project p ON p.project_id = i.proyecto_id
+    WHERE i.estado = 'PROGRAMADA'
+) t
+WHERE proyecto_nombre IS NOT NULL
+ORDER BY Nombre";
+
+            using var conn = CreateConnection();
+            var result = await conn.QueryAsync<ProyectoSimpleDto>(sql);
+            return result.ToList();
         }
 
         public async Task<List<string>> GetEmpresasUnicasAsync()
@@ -277,7 +473,18 @@ ORDER BY ec.contributor_name";
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = HabilitacionDateHelper.ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+
+            var requiereVigencia = entity.Item?.RequiereVigencia ?? true;
+            DateTime? nuevaVigencia;
+            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase) && !dto.Vigencia.HasValue)
+                nuevaVigencia = entity.Vigencia; // preservar vigencia existente al aprobar sin fecha
+            else
+                nuevaVigencia = HabilitacionDateHelper.ResolverVigencia(requiereVigencia, dto.Estado, dto.Vigencia);
+            if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase)
+                && requiereVigencia && !nuevaVigencia.HasValue)
+                throw new AbrilException("Este documento requiere fecha de vigencia para ser aprobado.", 400);
+
+            entity.Vigencia = nuevaVigencia;
             entity.AprobadoPor = userId;
             entity.FechaAprobacion = DateTime.UtcNow;
             entity.UpdatedAt = DateTime.UtcNow;
@@ -296,7 +503,7 @@ ORDER BY ec.contributor_name";
 
             entity.Estado = dto.Estado;
             entity.ObsAbril = dto.ObsAbril;
-            entity.Vigencia = HabilitacionDateHelper.ResolverVigencia(entity.Item?.RequiereVigencia ?? true, dto.Estado, dto.Vigencia);
+            entity.Vigencia = HabilitacionDateHelper.ResolverVigenciaEmpresa(entity.ItemId, dto.Estado, dto.Vigencia);
             entity.AprobadoPor = userId;
             entity.FechaAprobacion = DateTime.UtcNow;
             entity.UpdatedAt = DateTime.UtcNow;

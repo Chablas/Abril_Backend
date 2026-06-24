@@ -114,6 +114,14 @@ namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories
                 await ctx.Database.ExecuteSqlAsync($"INSERT INTO role_feature (role_id, feature_id) VALUES ({roleId}, {featureId})");
         }
 
+        public async Task<List<int>> GetUserIdsByRole(int roleId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Database
+                .SqlQuery<int>($"SELECT DISTINCT user_id FROM user_role WHERE role_id = {roleId}")
+                .ToListAsync();
+        }
+
         public async Task UpdateRoleDescription(int roleId, string description, int userId)
         {
             using var ctx = _factory.CreateDbContext();

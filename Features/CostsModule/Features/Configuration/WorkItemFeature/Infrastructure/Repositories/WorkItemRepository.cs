@@ -24,7 +24,10 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             var query = _context.WorkItem.Where(x => x.State);
 
             if (!string.IsNullOrWhiteSpace(filter.Description))
-                query = query.Where(x => x.WorkItemDescription.Contains(filter.Description));
+            {
+                var descLower = filter.Description.ToLower();
+                query = query.Where(x => x.WorkItemDescription.ToLower().Contains(descLower));
+            }
 
             var totalRecords = await query.CountAsync();
 
@@ -42,7 +45,18 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                         ? x.UpdatedDateTime.Value.ToOffset(TimeSpan.FromHours(-5)).DateTime
                         : null,
                     UpdatedUserId = x.UpdatedUserId,
-                    Active = x.Active
+                    Active = x.Active,
+                    ValorizationForms = _context.WorkItemValorizationForm
+                        .Where(f => f.WorkItemId == x.WorkItemId && f.State)
+                        .OrderBy(f => f.SortOrder)
+                        .Select(f => new WorkItemValorizationFormDto
+                        {
+                            WorkItemValorizationFormId = f.WorkItemValorizationFormId,
+                            Concept    = f.Concept,
+                            Percentage = f.Percentage,
+                            SortOrder  = f.SortOrder,
+                        })
+                        .ToList()
                 })
                 .ToListAsync();
 
@@ -99,6 +113,55 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             record.UpdatedDateTime = DateTimeOffset.UtcNow;
             record.UpdatedUserId = userId;
 
+            // ── Formas de valorización (cláusula 5.1): upsert completo + soft-delete ──
+            var now = DateTimeOffset.UtcNow;
+            var incomingIds = dto.ValorizationForms
+                .Where(f => f.WorkItemValorizationFormId.HasValue)
+                .Select(f => f.WorkItemValorizationFormId!.Value)
+                .ToHashSet();
+
+            var toDelete = await _context.WorkItemValorizationForm
+                .Where(f => f.WorkItemId == dto.WorkItemId
+                         && f.State
+                         && !incomingIds.Contains(f.WorkItemValorizationFormId))
+                .ToListAsync();
+            foreach (var f in toDelete)
+            {
+                f.State           = false;
+                f.UpdatedDatetime = now;
+                f.UpdatedUserId   = userId;
+            }
+
+            foreach (var formDto in dto.ValorizationForms)
+            {
+                if (formDto.WorkItemValorizationFormId.HasValue)
+                {
+                    var existing = await _context.WorkItemValorizationForm
+                        .FirstOrDefaultAsync(f => f.WorkItemValorizationFormId == formDto.WorkItemValorizationFormId.Value);
+                    if (existing is not null)
+                    {
+                        existing.Concept         = formDto.Concept.Trim();
+                        existing.Percentage      = formDto.Percentage;
+                        existing.SortOrder       = formDto.SortOrder;
+                        existing.UpdatedDatetime = now;
+                        existing.UpdatedUserId   = userId;
+                    }
+                }
+                else
+                {
+                    _context.WorkItemValorizationForm.Add(new WorkItemValorizationForm
+                    {
+                        WorkItemId      = dto.WorkItemId,
+                        Concept         = formDto.Concept.Trim(),
+                        Percentage      = formDto.Percentage,
+                        SortOrder       = formDto.SortOrder,
+                        State           = true,
+                        CreatedDatetime = now,
+                        CreatedUserId   = userId,
+                    });
+                }
+            }
+
             await _context.SaveChangesAsync();
         }
 
@@ -117,6 +180,69 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
 
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        public async Task<List<AdjudicacionFolderRootDto>> GetActiveAdjudicacionFolderRoots()
+        {
+            return await (
+                from f in _context.ProjectAdjudicacionFolder
+                join p in _context.Project on f.ProjectId equals p.ProjectId
+                where f.State && f.Active
+                select new AdjudicacionFolderRootDto
+                {
+                    ProjectId = f.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    DriveId = f.DriveId,
+                    FolderId = f.FolderId
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<ExistingWorkItemDto>> GetActivePartidas()
+        {
+            // Solo activas: el índice único parcial (WHERE state) permite N soft-deleted con el mismo nombre.
+            return await _context.WorkItem
+                .Where(x => x.State)
+                .Select(x => new ExistingWorkItemDto
+                {
+                    WorkItemId = x.WorkItemId,
+                    WorkItemDescription = x.WorkItemDescription
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<string>> BulkCreate(IEnumerable<string> descriptions, int userId)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var created = new List<string>();
+
+            // Inserción defensiva: cada partida en su propio SaveChanges; si choca con el índice
+            // único (duplicado que se haya colado), se descarta esa fila y se continúa con el resto.
+            foreach (var description in descriptions)
+            {
+                var record = new WorkItem
+                {
+                    WorkItemDescription = description.Trim(),
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId
+                };
+
+                _context.WorkItem.Add(record);
+                try
+                {
+                    await _context.SaveChangesAsync();
+                    created.Add(record.WorkItemDescription);
+                }
+                catch (DbUpdateException)
+                {
+                    // Quitar la entidad fallida del tracker para no arrastrar el error a la siguiente.
+                    _context.Entry(record).State = EntityState.Detached;
+                }
+            }
+
+            return created;
         }
     }
 }

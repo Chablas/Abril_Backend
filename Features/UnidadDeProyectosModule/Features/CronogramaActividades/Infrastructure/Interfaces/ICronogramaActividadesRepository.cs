@@ -31,5 +31,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         Task SetPredecesorasAsync(int activityId, List<int> predecessorIds);
         /// <summary>Devuelve el ProjectId de una actividad (valida que exista y esté activa).</summary>
         Task<int> GetProyectoIdDeActividadAsync(int activityId);
+
+        // Dashboard
+        Task<CronogramaDashboardResponseDto> GetDashboardAsync(int? responsableId, string? estado);
     }
 }

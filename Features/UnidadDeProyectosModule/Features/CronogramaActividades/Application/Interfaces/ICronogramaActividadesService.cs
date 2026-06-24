@@ -30,5 +30,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         Task<ActualizarPredecesorasResultDto> ActualizarPredecesorasAsync(int activityId, List<int> predecessorIds);
         Task<CascadaResultDto> PreviewCascadaAsync(int proyectoId);
         Task<CascadaResultDto> AplicarCascadaAsync(int proyectoId);
+
+        // Dashboard
+        Task<CronogramaDashboardResponseDto> GetDashboardAsync(int? responsableId, string? estado);
     }
 }

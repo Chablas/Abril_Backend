@@ -125,6 +125,49 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public CascadaResultDto PreviewCascada { get; set; } = new();
     }
 
+    // ─────────────────────────── Dashboard ───────────────────────────
+
+    public class CronogramaDashboardKpisDto
+    {
+        public int TotalProyectos { get; set; }
+        public int PorcentajeAvancePromedio { get; set; }
+        public int ProyectosAlDia { get; set; }
+        public int ProyectosConRetraso { get; set; }
+        public int ProyectosSinActividades { get; set; }
+        public int ActividadesVencidas { get; set; }
+        public int ActividadesCulminadasEstaSemana { get; set; }
+        public int ActividadesCulminadasEsteMes { get; set; }
+    }
+
+    public class CronogramaDashboardProyectoDto
+    {
+        public int ProjectId { get; set; }
+        public string ProjectDescription { get; set; } = string.Empty;
+        public string? ResponsableUdp { get; set; }
+        public int TotalActividades { get; set; }
+        public int Culminadas { get; set; }
+        public int EnProceso { get; set; }
+        public int Vencidas { get; set; }
+        public int Pendientes { get; set; }
+        public int PorcentajeAvance { get; set; }
+        public int DiasRetraso { get; set; }
+        public string Semaforo { get; set; } = "VERDE";
+        public string Estado { get; set; } = "AL_DIA";
+    }
+
+    public class CronogramaDashboardResponsableDto
+    {
+        public int UserId { get; set; }
+        public string NombreCompleto { get; set; } = string.Empty;
+    }
+
+    public class CronogramaDashboardResponseDto
+    {
+        public CronogramaDashboardKpisDto Kpis { get; set; } = new();
+        public List<CronogramaDashboardProyectoDto> Proyectos { get; set; } = new();
+        public List<CronogramaDashboardResponsableDto> Responsables { get; set; } = new();
+    }
+
     // ─────────────────────────── GetActividades response ───────────────────────────
 
     /// <summary>Cabecera del proyecto en la vista de cronograma.</summary>

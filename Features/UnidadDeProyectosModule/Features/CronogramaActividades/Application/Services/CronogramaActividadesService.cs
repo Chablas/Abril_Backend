@@ -142,5 +142,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         public Task<CascadaResultDto> AplicarCascadaAsync(int proyectoId)
             => _scheduling.AplicarCascadaAsync(proyectoId);
+
+        public Task<CronogramaDashboardResponseDto> GetDashboardAsync(int? responsableId, string? estado)
+            => _repository.GetDashboardAsync(responsableId, estado);
     }
 }

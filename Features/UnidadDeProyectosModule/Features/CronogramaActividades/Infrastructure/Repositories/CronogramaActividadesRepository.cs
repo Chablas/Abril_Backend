@@ -75,6 +75,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             public int ProjectId { get; set; }
             public int? ParentId { get; set; }
             public int HierarchyLevel { get; set; }
+            public DateOnly? PlannedEndDate { get; set; }
             public DateOnly? ActualEndDate { get; set; }
             public int ProgressPercentage { get; set; }
         }
@@ -824,6 +825,158 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 HierarchyLevel = activity.HierarchyLevel,
                 ParentId = activity.ParentId,
                 EsPadre = false
+            };
+        }
+
+        // ─────────────────────────── Dashboard ───────────────────────────
+
+        public async Task<CronogramaDashboardResponseDto> GetDashboardAsync(int? responsableId, string? estado)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            // Query 1: todos los proyectos UDP activos
+            var proyectos = await ctx.Project
+                .Where(p => p.TieneUnidadDeProyectos && p.State)
+                .Select(p => new { p.ProjectId, p.ProjectDescription, p.ResponsableUdp, p.ResponsableUdpId })
+                .ToListAsync();
+
+            if (proyectos.Count == 0)
+                return new CronogramaDashboardResponseDto();
+
+            var projectIds = proyectos.Select(p => p.ProjectId).ToList();
+
+            // Query 2: todas las actividades activas de esos proyectos
+            var actividades = await ctx.ProjectActivity
+                .Where(a => projectIds.Contains(a.ProjectId) && a.State && a.Active)
+                .Select(a => new ActividadAvance
+                {
+                    ProjectActivityId = a.ProjectActivityId,
+                    ProjectId = a.ProjectId,
+                    ParentId = a.ParentId,
+                    HierarchyLevel = a.HierarchyLevel,
+                    PlannedEndDate = a.PlannedEndDate,
+                    ActualEndDate = a.ActualEndDate,
+                    ProgressPercentage = a.ProgressPercentage
+                })
+                .ToListAsync();
+
+            // Query 3: datos de usuario de los responsables
+            var responsableIds = proyectos
+                .Where(p => p.ResponsableUdpId.HasValue)
+                .Select(p => p.ResponsableUdpId!.Value)
+                .Distinct()
+                .ToList();
+
+            List<CronogramaDashboardResponsableDto> listaResponsables = new();
+            if (responsableIds.Count > 0)
+            {
+                listaResponsables = await ctx.User
+                    .Where(u => responsableIds.Contains(u.UserId) && u.State)
+                    .Select(u => new CronogramaDashboardResponsableDto
+                    {
+                        UserId = u.UserId,
+                        NombreCompleto = u.Person.FullName ?? string.Empty
+                    })
+                    .OrderBy(r => r.NombreCompleto)
+                    .ToListAsync();
+            }
+
+            // Agrupación en memoria (sin N+1)
+            var actividadesPorProyecto = actividades
+                .GroupBy(a => a.ProjectId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Semana ISO: lunes a domingo
+            int dow = (int)today.DayOfWeek;
+            var semanaStart = today.AddDays(dow == 0 ? -6 : -(dow - 1));
+            var semanaEnd = semanaStart.AddDays(6);
+
+            // Fila por proyecto (todas, para calcular KPIs globales)
+            var allRows = proyectos.Select(p =>
+            {
+                var acts = actividadesPorProyecto.GetValueOrDefault(p.ProjectId, new List<ActividadAvance>());
+
+                var culminadas = acts.Count(a => a.ActualEndDate.HasValue);
+                var vencidas = acts.Count(a => !a.ActualEndDate.HasValue
+                                               && a.PlannedEndDate.HasValue
+                                               && a.PlannedEndDate.Value < today);
+                var enProceso = acts.Count(a => !a.ActualEndDate.HasValue
+                                                && a.ProgressPercentage > 0
+                                                && !(a.PlannedEndDate.HasValue && a.PlannedEndDate.Value < today));
+                var pendientes = acts.Count(a => !a.ActualEndDate.HasValue
+                                                 && a.ProgressPercentage == 0
+                                                 && !(a.PlannedEndDate.HasValue && a.PlannedEndDate.Value < today));
+
+                int porcentajeAvance = acts.Count > 0 ? CalcularAvanceNivel0(acts) : 0;
+
+                int diasRetraso = vencidas > 0
+                    ? acts.Where(a => !a.ActualEndDate.HasValue && a.PlannedEndDate.HasValue && a.PlannedEndDate.Value < today)
+                          .Max(a => today.DayNumber - a.PlannedEndDate!.Value.DayNumber)
+                    : 0;
+
+                string semaforo = diasRetraso == 0 ? "VERDE" : diasRetraso <= 7 ? "AMARILLO" : "ROJO";
+                string estadoProy = acts.Count == 0 ? "SIN_ACTIVIDADES" : vencidas > 0 ? "CON_RETRASO" : "AL_DIA";
+
+                return new CronogramaDashboardProyectoDto
+                {
+                    ProjectId = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    ResponsableUdp = p.ResponsableUdp,
+                    TotalActividades = acts.Count,
+                    Culminadas = culminadas,
+                    EnProceso = enProceso,
+                    Vencidas = vencidas,
+                    Pendientes = pendientes,
+                    PorcentajeAvance = porcentajeAvance,
+                    DiasRetraso = diasRetraso,
+                    Semaforo = semaforo,
+                    Estado = estadoProy
+                };
+            }).ToList();
+
+            // KPIs globales
+            var conActividades = allRows.Where(r => r.TotalActividades > 0).ToList();
+            var kpis = new CronogramaDashboardKpisDto
+            {
+                TotalProyectos = conActividades.Count,
+                PorcentajeAvancePromedio = conActividades.Count > 0
+                    ? (int)Math.Round(conActividades.Average(r => (double)r.PorcentajeAvance), MidpointRounding.AwayFromZero)
+                    : 0,
+                ProyectosAlDia = allRows.Count(r => r.Estado == "AL_DIA"),
+                ProyectosConRetraso = allRows.Count(r => r.Estado == "CON_RETRASO"),
+                ProyectosSinActividades = allRows.Count(r => r.Estado == "SIN_ACTIVIDADES"),
+                ActividadesVencidas = actividades.Count(a => !a.ActualEndDate.HasValue
+                                                             && a.PlannedEndDate.HasValue
+                                                             && a.PlannedEndDate.Value < today),
+                ActividadesCulminadasEstaSemana = actividades.Count(a => a.ActualEndDate.HasValue
+                                                                         && a.ActualEndDate.Value >= semanaStart
+                                                                         && a.ActualEndDate.Value <= semanaEnd),
+                ActividadesCulminadasEsteMes = actividades.Count(a => a.ActualEndDate.HasValue
+                                                                      && a.ActualEndDate.Value.Year == today.Year
+                                                                      && a.ActualEndDate.Value.Month == today.Month)
+            };
+
+            // Aplicar filtros a la lista de proyectos
+            IEnumerable<CronogramaDashboardProyectoDto> filtrados = allRows;
+
+            if (responsableId.HasValue)
+            {
+                var proyectosDelResponsable = proyectos
+                    .Where(p => p.ResponsableUdpId == responsableId.Value)
+                    .Select(p => p.ProjectId)
+                    .ToHashSet();
+                filtrados = filtrados.Where(r => proyectosDelResponsable.Contains(r.ProjectId));
+            }
+
+            if (!string.IsNullOrEmpty(estado))
+                filtrados = filtrados.Where(r => r.Estado == estado);
+
+            return new CronogramaDashboardResponseDto
+            {
+                Kpis = kpis,
+                Proyectos = filtrados.ToList(),
+                Responsables = listaResponsables
             };
         }
 

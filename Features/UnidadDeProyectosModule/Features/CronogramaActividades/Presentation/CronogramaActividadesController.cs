@@ -22,6 +22,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         private int GetUserId() =>
             int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
 
+        // GET /api/v1/cronograma-actividades/dashboard
+        [HttpGet("dashboard")]
+        public async Task<IActionResult> GetDashboard([FromQuery] int? responsableId, [FromQuery] string? estado)
+        {
+            try
+            {
+                var result = await _service.GetDashboardAsync(responsableId, estado);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // GET /api/v1/cronograma-actividades/proyectos
         [HttpGet("proyectos")]
         public async Task<IActionResult> GetProyectos()

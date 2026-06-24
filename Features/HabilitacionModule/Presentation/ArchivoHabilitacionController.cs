@@ -109,7 +109,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("url")]
-        public async Task<IActionResult> GetUrl([FromQuery] string path)
+        public async Task<IActionResult> GetUrl([FromQuery] string path, [FromQuery] string? ctx = null)
         {
             try
             {
@@ -117,7 +117,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     return BadRequest(new { message = "Parámetro 'path' requerido." });
 
                 var decodedPath = Uri.UnescapeDataString(path);
-                var libraryCtxUrl = decodedPath.StartsWith("PASO/", StringComparison.OrdinalIgnoreCase) ? "paso-evidencias" : null;
+                var libraryCtxUrl = !string.IsNullOrWhiteSpace(ctx) ? ctx
+                    : decodedPath.StartsWith("PASO/", StringComparison.OrdinalIgnoreCase) ? "paso-evidencias"
+                    : null;
                 var downloadUrl = await _sharePoint.GetDownloadUrlAsync(decodedPath, libraryCtxUrl);
                 if (string.IsNullOrWhiteSpace(downloadUrl))
                     return NotFound(new { message = "Archivo no encontrado." });

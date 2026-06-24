@@ -35,6 +35,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (aprobId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacionId == aprobId.Value);
 
+            // "Pendientes de mi revisión": solo Pendientes cuyo aprobador resuelto (worker → user)
+            // sea el usuario logueado. El aprobador se guardó como aprobador_worker_id al crear.
+            if (filters.OnlyMyPendingReview && filters.CurrentUserId.HasValue)
+            {
+                var uid = filters.CurrentUserId.Value;
+                solicitudQuery = solicitudQuery.Where(s =>
+                    s.EstadoAprobacionId == EstadosSalida.Aprobacion.Pendiente &&
+                    s.AprobadorWorkerId != null &&
+                    ctx.Worker.Any(w => w.Id == s.AprobadorWorkerId &&
+                        ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)));
+            }
+
             // Filtro por lugar proyecto: necesita pasar por trayectos
             if (filters.LugarProyectoId.HasValue)
             {

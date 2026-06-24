@@ -211,12 +211,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             return (solicitud, trayectosEnts, solicitante);
         }
 
-        public async Task SetAprobadorEmail(int solicitudId, string aprobadorEmail)
+        public async Task SetAprobadorWorkerId(int solicitudId, int aprobadorWorkerId)
         {
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId);
             if (s == null) return;
-            s.AprobadorEmail = aprobadorEmail;
+            s.AprobadorWorkerId = aprobadorWorkerId;
             s.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }

@@ -16,7 +16,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     /// </summary>
     public interface IApproverResolver
     {
-        /// <summary>Devuelve el email del aprobador, o null si no se pudo resolver.</summary>
-        Task<string?> ResolveApproverEmailAsync(Worker user);
+        /// <summary>
+        /// Devuelve el aprobador resuelto (worker id + su correo corporativo), o null si no
+        /// se pudo resolver. El correo proviene de <c>workers.email_personal</c> de ese worker.
+        /// </summary>
+        Task<ApproverResolution?> ResolveApproverAsync(Worker user);
     }
+
+    /// <summary>Aprobador resuelto: a quién apunta (worker) y su correo corporativo.</summary>
+    public record ApproverResolution(int WorkerId, string Email);
 }

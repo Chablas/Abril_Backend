@@ -13,7 +13,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// <summary>FK a <c>ga_estado_rendicion</c>. Ver <see cref="EstadosSalida.Rendicion"/>.</summary>
         public int EstadoRendicionId { get; set; } = EstadosSalida.Rendicion.NoRendido;
         public int? RegistradoPorId { get; set; }
-        public string? AprobadorEmail { get; set; }
+        /// <summary>FK a <c>workers.id</c> del trabajador que es la jefatura que debe aprobar.
+        /// El correo del aprobador se deriva de <c>workers.email_personal</c>.</summary>
+        public int? AprobadorWorkerId { get; set; }
         public DateTimeOffset? FechaDecision { get; set; }
         public string? MotivoRechazo { get; set; }
         public int? RendicionId { get; set; }

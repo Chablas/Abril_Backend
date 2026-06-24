@@ -6,6 +6,10 @@ using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Application.I
 using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Application.Services;
 using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeature.Application.Interfaces;
+using Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeature.Application.Services;
+using Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.VecinosModule
 {
@@ -17,6 +21,8 @@ namespace Abril_Backend.Features.VecinosModule
             services.AddScoped<IGestionVecinosService, GestionVecinosService>();
             services.AddScoped<ICroquisRepository, CroquisRepository>();
             services.AddScoped<ICroquisService, CroquisService>();
+            services.AddScoped<IControlVencimientosRepository, ControlVencimientosRepository>();
+            services.AddScoped<IControlVencimientosService, ControlVencimientosService>();
             return services;
         }
     }

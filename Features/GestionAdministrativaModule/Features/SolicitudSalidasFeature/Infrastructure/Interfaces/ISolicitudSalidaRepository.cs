@@ -13,7 +13,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// <summary>Crea la solicitud + sus trayectos en una transacción. Devuelve la solicitud (con trayectos) y el worker solicitante.</summary>
         Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId);
 
-        Task SetAprobadorEmail(int solicitudId, string aprobadorEmail);
+        Task SetAprobadorWorkerId(int solicitudId, int aprobadorWorkerId);
         Task<GaSolicitudSalida?> Aprobar(int solicitudId);
         Task<GaSolicitudSalida?> Rechazar(int solicitudId, string? motivoRechazo);
 

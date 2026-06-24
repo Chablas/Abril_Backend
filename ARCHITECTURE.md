@@ -2,7 +2,7 @@
 
 ## Información del proyecto general
 
-Este proyecto busca acelear los procesos internos que se dan dentro de la empresa Abril Grupo Inmobiliario, como automatizar la generación de contratos, acelerar el registro de trabajadores mediante el uso de consultas a APIs tercerizadas de RENIEC, acelerar el registro de subcontratistas mediante el uso de consultas a APIs tercerizadas de SUNAT, entre otras cosas
+Este proyecto busca acelerar los procesos internos que se dan dentro de la empresa Abril Grupo Inmobiliario, como automatizar la generación de contratos, acelerar el registro de trabajadores mediante el uso de consultas a APIs tercerizadas de RENIEC, acelerar el registro de subcontratistas mediante el uso de consultas a APIs tercerizadas de SUNAT, entre otras cosas
 El proyecto cuenta con un frontend en Angular 21, un backend .NET 10, una base de datos PostgreSQL 17, entre otros servicios como el uso de https://cron-job.org/ para recordatorios automatizados.
 Tanto el frontend, backend y base de datos están hosteados en una VPS y se cuenta con un deploy.yml para subir los cambios.
 

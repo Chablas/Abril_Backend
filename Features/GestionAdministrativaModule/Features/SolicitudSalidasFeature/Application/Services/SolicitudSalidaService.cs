@@ -65,8 +65,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                         .FirstOrDefaultAsync();
                     if (solicitante != null)
                     {
-                        // Aprobador (best-effort)
-                        data.AprobadorEmail = await _approverResolver.ResolveApproverEmailAsync(solicitante);
+                        // Aprobador (best-effort): el correo se deriva del worker resuelto.
+                        var aprobador = await _approverResolver.ResolveApproverAsync(solicitante);
+                        data.AprobadorEmail = aprobador?.Email;
 
                         // Si el trabajador es TI, exponer el catálogo de trayectos para que el
                         // frontend muestre el monto automático al seleccionar origen+destino.
@@ -147,12 +148,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 var trayectosResueltos = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
-                // 2a. Email al aprobador
-                var aprobadorEmail = await _approverResolver.ResolveApproverEmailAsync(solicitante);
-                if (!string.IsNullOrWhiteSpace(aprobadorEmail))
+                // 2a. Email al aprobador. Se guarda el worker aprobador (FK) y el correo se
+                //     deriva de su email_personal.
+                var aprobador = await _approverResolver.ResolveApproverAsync(solicitante);
+                var aprobadorEmail = aprobador?.Email;
+                if (aprobador != null && !string.IsNullOrWhiteSpace(aprobador.Email))
                 {
-                    await _repo.SetAprobadorEmail(solicitud.Id, aprobadorEmail);
-                    await SendNotificacionAprobadorAsync(solicitud, trayectosResueltos, aprobadorEmail, nombreSolicitante);
+                    await _repo.SetAprobadorWorkerId(solicitud.Id, aprobador.WorkerId);
+                    await SendNotificacionAprobadorAsync(solicitud, trayectosResueltos, aprobador.Email, nombreSolicitante);
                 }
                 else
                 {

@@ -39,6 +39,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string? EstadoRendicion { get; set; }
         /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | null para todos.</summary>
         public string? EstadoAprobacion { get; set; }
+
+        /// <summary>Si true, solo solicitudes Pendientes cuyo aprobador resuelto es el usuario actual.</summary>
+        public bool OnlyMyPendingReview { get; set; }
+
+        /// <summary>UserId del usuario logueado (de claims). Necesario para <see cref="OnlyMyPendingReview"/>.</summary>
+        public int? CurrentUserId { get; set; }
     }
 
     public class MarcarRendidasBulkDto

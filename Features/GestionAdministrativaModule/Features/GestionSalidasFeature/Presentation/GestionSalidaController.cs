@@ -22,16 +22,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion)
+        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] bool onlyMyPendingReview = false)
         {
             try
             {
+                var currentUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+
                 var filters = new GestionSalidaFiltersDto
                 {
-                    WorkerId         = workerId,
-                    LugarProyectoId  = lugarProyectoId,
-                    EstadoRendicion  = estadoRendicion,
-                    EstadoAprobacion = estadoAprobacion,
+                    WorkerId            = workerId,
+                    LugarProyectoId     = lugarProyectoId,
+                    EstadoRendicion     = estadoRendicion,
+                    EstadoAprobacion    = estadoAprobacion,
+                    OnlyMyPendingReview = onlyMyPendingReview,
+                    CurrentUserId       = currentUserId,
                 };
                 return Ok(await _service.GetAll(filters));
             }

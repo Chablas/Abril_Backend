@@ -34,7 +34,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             _factory = factory;
         }
 
-        public async Task<string?> ResolveApproverEmailAsync(Worker user)
+        public async Task<ApproverResolution?> ResolveApproverAsync(Worker user)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -83,7 +83,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                           && CategoriasWalkUp.Contains(c.Name)
                           && w.EmailPersonal != null
                           && w.EmailPersonal.EndsWith(EmailDomainCorp)
-                    select new { Categoria = c.Name, w.EmailPersonal }
+                    select new { w.Id, Categoria = c.Name, w.EmailPersonal }
                 ).ToListAsync();
 
                 if (candidatos.Count == 0) continue;
@@ -92,7 +92,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     .OrderBy(c => CategoriaPriority(c.Categoria))
                     .First();
 
-                return elegido.EmailPersonal!.Trim();
+                return new ApproverResolution(elegido.Id, elegido.EmailPersonal!.Trim());
             }
 
             // Fallback: ningún Jefe/SubGer/Coord en la cadena → Gerente del macro-área
@@ -123,7 +123,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// Busca el Gerente entre todos los workers cuyo <c>area_scope_id</c> resuelva
         /// al mismo root que el del solicitante. Excluye self.
         /// </summary>
-        private static async Task<string?> FindGerenteByRootAsync(
+        private static async Task<ApproverResolution?> FindGerenteByRootAsync(
             AppDbContext ctx,
             int rootId,
             int excludeWorkerId,
@@ -146,7 +146,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             ).ToListAsync();
 
             var gerente = gerentes.FirstOrDefault(g => g.AreaScopeId.HasValue && scopesEnRaiz.Contains(g.AreaScopeId.Value));
-            return gerente?.EmailPersonal?.Trim();
+            return gerente == null ? null : new ApproverResolution(gerente.Id, gerente.EmailPersonal!.Trim());
         }
 
         /// <summary>Camina hacia arriba devolviendo el id de la raíz de un scope.</summary>

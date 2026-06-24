@@ -46,6 +46,28 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var token = await GetAccessTokenAsync();
             if (string.IsNullOrWhiteSpace(token)) return null;
 
+            // Dossier paths: {contributorId}/{proyectoId}/Sem{n}_{yyyyMMdd}/archivo — stored in Documentos drive
+            if (System.Text.RegularExpressions.Regex.IsMatch(archivoUrl ?? string.Empty,
+                @"^\d+/\d+/Sem\d+_\d{8}/", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                const string driveIdDoc = "b!Bmji2TXVU0OWEBlZeOIDkC8Dt6ceUVNLiodQihkLPHxZH7QqINghTq0UWOH5DOFR";
+                var encodedDoc = Uri.EscapeDataString(archivoUrl!).Replace("%2F", "/");
+                var urlDoc = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveIdDoc}/root:/{encodedDoc}:/content";
+
+                var clientDoc = _noRedirectClient.Value;
+                clientDoc.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                var responseDoc = await clientDoc.GetAsync(urlDoc);
+                if (responseDoc.StatusCode == System.Net.HttpStatusCode.Found ||
+                    responseDoc.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
+                {
+                    var locationDoc = responseDoc.Headers.Location?.ToString();
+                    if (!string.IsNullOrWhiteSpace(locationDoc)) return locationDoc;
+                }
+                _logger.LogWarning("SharePoint dossier GET falló ({Status}) para {Path}", responseDoc.StatusCode, archivoUrl);
+                return null;
+            }
+
             if ((archivoUrl ?? string.Empty).StartsWith("OPT/", StringComparison.OrdinalIgnoreCase))
             {
                 const string driveIdOpt = "b!Bmji2TXVU0OWEBlZeOIDkC8Dt6ceUVNLiodQihkLPHxZH7QqINghTq0UWOH5DOFR";
@@ -407,7 +429,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (c.Contains("inspeccion-fotos"))  return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesAbril2026LibraryId"];
             if (c.Contains("inspeccion-firmas")) return _configuration["SharePoint:Sites:SSOMAApps:InspeccionesAbril2026LibraryId"];
             if (c.Contains("penalidad-pdf"))   return _configuration["SharePoint:Sites:SSOMAApps:PenalidadPdfLibraryId"];
-            if (c.Contains("dossier-semanal")) return _configuration["SharePoint:Sites:SSOMAApps:DossierSemanal2026LibraryId"];
+            if (c.Contains("dossier-semanal")) return _configuration["SharePoint:Sites:SSOMAApps:DossierSemanal2026"];
+            // paths guardados por DossierService: "{contributorId}/{proyectoId}/Sem{n}_{yyyyMMdd}/archivo"
+            if (System.Text.RegularExpressions.Regex.IsMatch(c, @"^\d+/\d+/sem\d+_\d{8}/"))
+                return _configuration["SharePoint:Sites:SSOMAApps:DossierSemanal2026"];
             if (c.Contains("charlas-evidencias")) return _configuration["SharePoint:Sites:SSOMAApps:CharlasLibraryId"];
             if (c.Contains("flash-report"))        return _configuration["SharePoint:Sites:SSOMAApps:EvidenciaAccidentesLibraryId"];
             return null;

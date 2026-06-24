@@ -23,6 +23,13 @@ using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repositor
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -117,6 +124,15 @@ namespace Abril_Backend.Features.Ssoma
             // Accidentes e Incidentes
             services.AddScoped<IAccidenteIncidenteRepository, AccidenteIncidenteRepository>();
             services.AddScoped<IAccidenteIncidenteService, AccidenteIncidenteService>();
+
+            // Auditoría ATS
+            services.AddScoped<IAuditoriaAtsRepository, AuditoriaAtsRepository>();
+            services.AddScoped<IAuditoriaAtsService, AuditoriaAtsService>();
+
+            // Amonestaciones y Suspensiones
+            services.AddScoped<IAmonestacionRepository, AmonestacionRepository>();
+            services.AddScoped<IAmonestacionService, AmonestacionService>();
+            services.AddScoped<AmonestacionNotificationService>();
 
             return services;
         }

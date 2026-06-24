@@ -13,5 +13,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public bool Activo { get; set; }
         public int? AniosExperiencia { get; set; }
         public DateOnly? FechaIngreso { get; set; }
+        public bool InhabilitadoSsoma { get; set; }
+        public bool EsAbril { get; set; }
     }
 }

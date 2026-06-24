@@ -21,6 +21,9 @@ namespace Abril_Backend.Infrastructure.Models
         /*[Column("celular")]
         public string? Celular { get; set; }*/
 
+        [Column("apellido_nombre")]
+        public string? ApellidoNombre { get; set; }
+
         [Column("email_personal")]
         public string? EmailPersonal { get; set; }
 

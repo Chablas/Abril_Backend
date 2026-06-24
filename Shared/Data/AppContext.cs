@@ -18,6 +18,7 @@ using Abril_Backend.Features.Ssoma.Paso.Entities;
 using Abril_Backend.Features.Ssoma.Rac.Entities;
 using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
@@ -251,11 +252,21 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaInspeccionHallazgo> SsomaInspeccionHallazgo => Set<SsomaInspeccionHallazgo>();
         public DbSet<SsomaInspeccionHallazgoFoto> SsomaInspeccionHallazgoFoto => Set<SsomaInspeccionHallazgoFoto>();
         public DbSet<SsomaInspeccionFotoArea> SsomaInspeccionFotoArea => Set<SsomaInspeccionFotoArea>();
+        // ── Auditoría ATS ──────────────────────────────────────────────────────
+        public DbSet<SsomaAuditoriaAtsPregunta> SsomaAuditoriaAtsPregunta => Set<SsomaAuditoriaAtsPregunta>();
+        public DbSet<SsomaAuditoriaAts> SsomaAuditoriaAts => Set<SsomaAuditoriaAts>();
+        public DbSet<SsomaAuditoriaAtsRespuesta> SsomaAuditoriaAtsRespuesta => Set<SsomaAuditoriaAtsRespuesta>();
+        public DbSet<SsomaAuditoriaAtsFoto> SsomaAuditoriaAtsFoto => Set<SsomaAuditoriaAtsFoto>();
         // ── Charlas y Capacitaciones ───────────────────────────────────────────────
         public DbSet<SsCharlaPrograma> SsCharlaProgramas { get; set; }
         public DbSet<SsCharla> SsCharlas { get; set; }
         public DbSet<SsCharlaAsistencia> SsCharlaAsistencias { get; set; }
         public DbSet<SsCharlaArchivo> SsCharlaArchivos { get; set; }
+        // ── Amonestaciones y Suspensiones ──────────────────────────────────────────
+        public DbSet<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionTipoSancion> SsomaAmonestacionTipoSanciones => Set<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionTipoSancion>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionInfraccionTipo> SsomaAmonestacionInfraccionTipos => Set<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionInfraccionTipo>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacion> SsomaAmonestaciones => Set<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacion>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionFoto> SsomaAmonestacionFotos => Set<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionFoto>();
 
         // ── Vecinos ──────────────────────────────────────────────────────────────
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino> Vecino => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino>();
@@ -669,6 +680,12 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaInspeccionHallazgoFoto>().ToTable("ssoma_inspeccion_hallazgo_foto");
             modelBuilder.Entity<SsomaInspeccionFotoArea>().ToTable("ssoma_inspeccion_foto_area");
             modelBuilder.Entity<SsomaOptFotoArea>().ToTable("ssoma_opt_foto_area");
+            // ── Auditoría ATS ──────────────────────────────────────────────
+            modelBuilder.Entity<SsomaAuditoriaAtsPregunta>().ToTable("ssoma_auditoria_ats_pregunta");
+            modelBuilder.Entity<SsomaAuditoriaAts>().ToTable("ssoma_auditoria_ats");
+            modelBuilder.Entity<SsomaAuditoriaAtsRespuesta>().ToTable("ssoma_auditoria_ats_respuesta")
+                .HasIndex(r => new { r.AuditoriaId, r.PreguntaId }).IsUnique();
+            modelBuilder.Entity<SsomaAuditoriaAtsFoto>().ToTable("ssoma_auditoria_ats_foto");
         }
 
         private void ConfigureSqlServer(ModelBuilder modelBuilder)
@@ -866,6 +883,14 @@ namespace Abril_Backend.Infrastructure.Data
                 e.Property(x => x.ArchivoPath).HasColumnName("archivo_path");
                 e.Property(x => x.CreatedAt).HasColumnName("created_at");
                 e.HasOne(x => x.Documento).WithMany(d => d.Archivos).HasForeignKey(x => x.DocumentoId);
+            });
+
+            // ── Amonestaciones y Suspensiones ──────────────────────────────────
+            modelBuilder.Entity<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacion>(e =>
+            {
+                e.HasMany(a => a.Fotos)
+                 .WithOne(f => f.Amonestacion)
+                 .HasForeignKey(f => f.AmonestacionId);
             });
         }
     }

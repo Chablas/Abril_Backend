@@ -1,0 +1,15 @@
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Dtos;
+
+namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Interfaces;
+
+public interface IAmonestacionRepository
+{
+    Task<AmonestacionInitDto> GetInitAsync();
+    Task<int> CrearAsync(AmonestacionDetalleDto detalle, List<(string Base64, string NombreArchivo)> fotos);
+    Task<(List<AmonestacionListItemDto> Items, int Total)> GetListAsync(AmonestacionListQuery q);
+    Task<AmonestacionDetalleDto?> GetDetalleAsync(int id);
+    Task<AmonestacionDashboardDto> GetDashboardAsync();
+    Task<WorkerPuntajeDto?> GetPuntajeWorkerAsync(int workerId);
+    Task<string> GenerarCodigoAsync(int proyectoId);
+    Task GuardarPdfUrlAsync(int id, string url);
+}

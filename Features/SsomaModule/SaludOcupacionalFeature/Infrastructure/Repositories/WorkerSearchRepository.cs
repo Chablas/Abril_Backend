@@ -69,6 +69,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .GroupBy(x => x.WorkerId)
                 .ToDictionary(g => g.Key, g => g.First());
 
+            // Obtener EsAbril por empresa
+            var empresaIds = vinculacionActual.Where(v => v.EmpresaId.HasValue)
+                .Select(v => v.EmpresaId!.Value).Distinct().ToList();
+            var esAbrilPorEmpresa = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .Select(c => new { c.ContributorId, c.EsAbril })
+                .ToDictionaryAsync(c => c.ContributorId, c => c.EsAbril);
+
+            // Calcular inhabilitados por puntaje SSOMA (>= 10 puntos acumulados)
+            var inhabilitadosSet = await ctx.SsomaAmonestaciones
+                .Where(a => ids.Contains(a.WorkerId) && a.State)
+                .GroupBy(a => a.WorkerId)
+                .Where(g => g.Sum(a => a.PuntosInfraccion) >= 10)
+                .Select(g => g.Key)
+                .ToHashSetAsync();
+
             return baseList.Select(b =>
             {
                 porWorker.TryGetValue(b.Id, out var vin);
@@ -85,7 +101,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Activo = !string.IsNullOrWhiteSpace(b.Estado)
                              && b.Estado.Trim().Equals("ACTIVO", StringComparison.OrdinalIgnoreCase),
                     AniosExperiencia = b.AniosExperiencia,
-                    FechaIngreso = b.FechaIngreso
+                    FechaIngreso = b.FechaIngreso,
+                    InhabilitadoSsoma = inhabilitadosSet.Contains(b.Id),
+                    EsAbril = vin?.EmpresaId.HasValue == true
+                        && esAbrilPorEmpresa.TryGetValue(vin!.EmpresaId!.Value, out var ea) && ea
                 };
             }).ToList();
         }

@@ -204,6 +204,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 Order = maxOrder + 1,
                 HierarchyLevel = request.HierarchyLevel,
                 ParentId = request.ParentId,
+                IsManual = true,
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
                 Active = true,
@@ -376,16 +377,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 if (mppStartDate.HasValue && proyecto.FechaInicio.HasValue)
                     offsetDias = proyecto.FechaInicio.Value.DayNumber - mppStartDate.Value.DayNumber;
 
-                // Eliminar todas las actividades existentes del proyecto (eliminación física)
+                // Preservar actividades manuales antes del borrado
+                var manuales = await ctx.ProjectActivity
+                    .Where(a => a.ProjectId == proyectoId && a.IsManual)
+                    .ToListAsync();
+
+                // Eliminar solo actividades no-manuales (is_manual = false)
                 var existentes = await ctx.ProjectActivity
-                    .Where(a => a.ProjectId == proyectoId)
+                    .Where(a => a.ProjectId == proyectoId && !a.IsManual)
                     .ToListAsync();
                 int eliminadas = existentes.Count;
 
-                // Primero borrar las dependencias (predecesoras) que referencian a esas
-                // actividades, ya sea como sucesora o como predecesora; de lo contrario el
-                // FK fk_activity_predecessor_project_activity_predecessor_id (ON DELETE RESTRICT)
-                // bloquea el RemoveRange de las actividades.
+                // Borrar predecesoras de las actividades a eliminar; el FK predecessor_id
+                // es RESTRICT, por lo que hay que limpiarlas antes del RemoveRange.
                 var actividadIds = existentes.Select(a => a.ProjectActivityId).ToList();
                 if (actividadIds.Count > 0)
                 {
@@ -413,14 +417,22 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     DateOnly? inicio = AplicarOffset(tarea.Start, offsetDias);
                     DateOnly? fin = AplicarOffset(tarea.Finish, offsetDias);
 
+                    int pct = (int)(tarea.PercentageComplete ?? 0.0);
+                    DateOnly? actualEnd = pct >= 100
+                        ? (tarea.ActualFinish.HasValue
+                            ? DateOnly.FromDateTime(tarea.ActualFinish.Value)
+                            : fin ?? DateOnly.FromDateTime(DateTime.UtcNow))
+                        : null;
+                    pct = Math.Min(pct, 100);
+
                     var nueva = new ProjectActivity
                     {
                         ProjectId = proyectoId,
                         ActivityDescription = tarea.Name.Trim(),
                         PlannedStartDate = inicio,
                         PlannedEndDate = fin,
-                        ActualEndDate = null,
-                        ProgressPercentage = 0,
+                        ActualEndDate = actualEnd,
+                        ProgressPercentage = pct,
                         Order = orden++,
                         ParentId = null,
                         HierarchyLevel = tarea.OutlineLevel ?? 0,
@@ -453,10 +465,41 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 }
                 await ctx.SaveChangesAsync();  // actualiza solo los ParentId que cambiaron
 
+                // Post-procesado: ajustar actividades manuales conservadas
+                if (manuales.Count > 0)
+                {
+                    var mppIdsList = uniqueIdToEntity.Values.Select(e => e.ProjectActivityId).ToList();
+                    var manualesIdsList = manuales.Select(m => m.ProjectActivityId).ToList();
+                    var idsValidos = mppIdsList.Concat(manualesIdsList).ToHashSet();
+                    var idsValidosList = idsValidos.ToList();
+
+                    // Eliminar predecesoras de manuales que apunten a IDs ya inexistentes
+                    var predsHuerfanas = await ctx.ActivityPredecessors
+                        .Where(ap => manualesIdsList.Contains(ap.ActivityId)
+                                  && !idsValidosList.Contains(ap.PredecessorId))
+                        .ToListAsync();
+                    if (predsHuerfanas.Count > 0)
+                        ctx.ActivityPredecessors.RemoveRange(predsHuerfanas);
+
+                    int idxManual = 1;
+                    foreach (var m in manuales.OrderBy(m => m.Order))
+                    {
+                        if (m.ParentId.HasValue && !idsValidos.Contains(m.ParentId.Value))
+                        {
+                            m.ParentId = null;
+                            m.HierarchyLevel = 0;
+                        }
+                        m.Order = (orden - 1) + idxManual++;
+                    }
+
+                    await ctx.SaveChangesAsync();
+                }
+
                 return new ImportarMppResultDto
                 {
                     ActividadesImportadas = orden - 1,
-                    ActividadesEliminadas = eliminadas
+                    ActividadesEliminadas = eliminadas,
+                    ActividadesManualesConservadas = manuales.Count
                 };
             }
             finally

@@ -89,6 +89,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     {
         public int ActividadesImportadas { get; set; }
         public int ActividadesEliminadas { get; set; }
+        public int ActividadesManualesConservadas { get; set; }
     }
 
     // ─────────────────────────── Feriados ───────────────────────────

@@ -172,7 +172,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     {
                         // Solo sobreescribir si el estado actual es inferior
                         // Nunca degradar "Aprobado", "En revision", "En plazo"
-                        if (hab.Estado == "Falta" || string.IsNullOrEmpty(hab.Estado))
+                        if (hab.Estado == "Falta" || hab.Estado == "Rechazado" || string.IsNullOrEmpty(hab.Estado))
                         {
                             hab.Estado = estadoHab;
                             hab.Vigencia = vigenciaHab;
@@ -343,7 +343,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     {
                         // Solo sobreescribir si el estado actual es inferior
                         // Nunca degradar "Aprobado", "En revision", "En plazo"
-                        if (hab.Estado == "Falta" || string.IsNullOrEmpty(hab.Estado))
+                        if (hab.Estado == "Falta" || hab.Estado == "Rechazado" || string.IsNullOrEmpty(hab.Estado))
                         {
                             hab.Estado = estadoNuevoWorker;
                             hab.ArchivoUrl = dto.ArchivoUrl;

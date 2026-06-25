@@ -20,6 +20,7 @@ using Abril_Backend.Features.SsomaModule.OptFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
@@ -255,6 +256,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaInspeccionHallazgo> SsomaInspeccionHallazgo => Set<SsomaInspeccionHallazgo>();
         public DbSet<SsomaInspeccionHallazgoFoto> SsomaInspeccionHallazgoFoto => Set<SsomaInspeccionHallazgoFoto>();
         public DbSet<SsomaInspeccionFotoArea> SsomaInspeccionFotoArea => Set<SsomaInspeccionFotoArea>();
+        // ── Indicadores Proactivos ─────────────────────────────────────────────
+        public DbSet<SsomaProgInspeccionEmpresa> SsomaProgInspeccionEmpresa => Set<SsomaProgInspeccionEmpresa>();
         // ── Auditoría ATS ──────────────────────────────────────────────────────
         public DbSet<SsomaAuditoriaAtsPregunta> SsomaAuditoriaAtsPregunta => Set<SsomaAuditoriaAtsPregunta>();
         public DbSet<SsomaAuditoriaAts> SsomaAuditoriaAts => Set<SsomaAuditoriaAts>();
@@ -697,6 +700,11 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaInspeccionHallazgoFoto>().ToTable("ssoma_inspeccion_hallazgo_foto");
             modelBuilder.Entity<SsomaInspeccionFotoArea>().ToTable("ssoma_inspeccion_foto_area");
             modelBuilder.Entity<SsomaOptFotoArea>().ToTable("ssoma_opt_foto_area");
+            // ── Indicadores Proactivos ─────────────────────────────────────
+            modelBuilder.Entity<SsomaProgInspeccionEmpresa>().ToTable("ssoma_prog_inspeccion_empresa");
+            modelBuilder.Entity<SsomaProgInspeccionEmpresa>()
+                .HasIndex(e => new { e.ProyectoId, e.EmpresaId, e.EmpresaTipo, e.Mes, e.Anio, e.InspeccionTipoId })
+                .IsUnique();
             // ── Auditoría ATS ──────────────────────────────────────────────
             modelBuilder.Entity<SsomaAuditoriaAtsPregunta>().ToTable("ssoma_auditoria_ats_pregunta");
             modelBuilder.Entity<SsomaAuditoriaAts>().ToTable("ssoma_auditoria_ats");

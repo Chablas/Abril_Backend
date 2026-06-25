@@ -188,7 +188,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPost("recalcular-estados")]
-        [AllowAnonymous]
         public async Task<IActionResult> RecalcularEstados()
         {
             try

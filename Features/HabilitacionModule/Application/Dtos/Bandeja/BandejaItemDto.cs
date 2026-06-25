@@ -22,6 +22,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Bandeja
         public int? Mes { get; set; }
         public int? Anio { get; set; }
         public int MesesPendientes { get; set; }
+        public bool RequiereVigencia { get; set; }
         public List<EntregableMesArchivoDto> Archivos { get; set; } = [];
         public List<BandejaMesDto> Meses { get; set; } = [];
     }

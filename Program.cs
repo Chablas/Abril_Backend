@@ -59,6 +59,7 @@ var emailProvider = builder.Configuration["Email:EmailProvider"];
 var storageProvider = builder.Configuration["Storage:StorageProvider"];
 
 // Add services to the container.
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<AuditoriaInterceptor>();
 
@@ -133,6 +134,7 @@ builder.Services.AddContractorsModule();
 builder.Services.AddConfigurationModule();
 builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddSsomaModule();
+builder.Services.AddHostedService<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.SsomaIndicadoresCacheWarmup>();
 builder.Services.AddGestionAdministrativaModule();
 builder.Services.AddHabilitacionModule();
 builder.Services.AddEvaluacionesModule();

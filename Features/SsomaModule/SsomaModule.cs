@@ -27,9 +27,13 @@ using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Interfa
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -133,6 +137,13 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IAmonestacionRepository, AmonestacionRepository>();
             services.AddScoped<IAmonestacionService, AmonestacionService>();
             services.AddScoped<AmonestacionNotificationService>();
+
+            // Indicadores Proactivos
+            services.AddScoped<IIndicadoresProactivosRepository, IndicadoresProactivosRepository>();
+            services.AddScoped<IIndicadoresProactivosService, IndicadoresProactivosService>();
+
+            // Desempeño Supervisor
+            services.AddScoped<DesempenoSupervisorRepository>();
 
             return services;
         }

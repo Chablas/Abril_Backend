@@ -669,7 +669,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var hab = await ctx.SsHabTrabajador
                 .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.CertAptitud);
 
-            if (hab == null) return;
+            if (hab == null)
+            {
+                hab = new SsHabTrabajador
+                {
+                    WorkerId = emo.WorkerId,
+                    ItemId = HabItemIds.CertAptitud,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                ctx.SsHabTrabajador.Add(hab);
+            }
 
             switch (emo.Aptitud)
             {

@@ -1,0 +1,171 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Dtos;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Interfaces;
+
+namespace Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Presentation;
+
+[ApiController]
+[Route("api/v1/ssoma-indicadores-proactivos")]
+[Authorize]
+public class IndicadoresProactivosController : ControllerBase
+{
+    private readonly IIndicadoresProactivosService _service;
+    private readonly IMemoryCache _cache;
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
+
+    public IndicadoresProactivosController(IIndicadoresProactivosService service, IMemoryCache cache)
+    {
+        _service = service;
+        _cache = cache;
+    }
+
+    private int GetUserId() =>
+        int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+
+    // ── CATÁLOGOS ─────────────────────────────────────────────────────────────
+
+    /// <summary>Lista los 32 tipos de inspección del catálogo.</summary>
+    [HttpGet("tipos-inspeccion")]
+    public async Task<IActionResult> GetTiposInspeccion()
+    {
+        try
+        {
+            var result = await _service.GetTiposInspeccionAsync();
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener los tipos de inspección." }); }
+    }
+
+    // ── PROGRAMACIÓN DE INSPECCIONES ─────────────────────────────────────────
+
+    /// <summary>
+    /// Devuelve la configuración de tipos de inspección por empresa
+    /// para un proyecto y mes dado. Incluye todas las empresas del tareo.
+    /// </summary>
+    [HttpGet("programacion")]
+    public async Task<IActionResult> GetProgramacion(
+        [FromQuery] int proyectoId,
+        [FromQuery] int mes,
+        [FromQuery] int anio)
+    {
+        try
+        {
+            var result = await _service.GetProgInspeccionAsync(proyectoId, mes, anio);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener la programación de inspecciones." }); }
+    }
+
+    /// <summary>Guarda (reemplaza) los tipos de inspección aplicables para una empresa en el mes.</summary>
+    [HttpPost("programacion")]
+    public async Task<IActionResult> GuardarProgramacion([FromBody] GuardarProgInspeccionRequest request)
+    {
+        try
+        {
+            await _service.GuardarProgInspeccionAsync(request, GetUserId());
+            return Ok(new { message = "Programación guardada correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al guardar la programación." }); }
+    }
+
+    // ── INDICADORES POR PROYECTO ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Indicadores proactivos de un proyecto para un mes/año.
+    /// Incluye metas y actuals por empresa.
+    /// </summary>
+    [HttpGet("proyecto/{proyectoId:int}")]
+    public async Task<IActionResult> GetIndicadoresProyecto(
+        int proyectoId,
+        [FromQuery] int mes,
+        [FromQuery] int anio)
+    {
+        try
+        {
+            var key = $"ind_proy_{proyectoId}_{mes}_{anio}";
+            var result = await _cache.GetOrCreateAsync(key, async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = CacheTtl;
+                return await _service.GetIndicadoresProyectoAsync(proyectoId, mes, anio);
+            });
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al calcular los indicadores." }); }
+    }
+
+    // ── SEGUIMIENTO TODOS LOS PROYECTOS ──────────────────────────────────────
+
+    /// <summary>
+    /// Dashboard competitivo: indicadores proactivos de todos los proyectos activos.
+    /// Ordenado por % cumplimiento general descendente.
+    /// </summary>
+    [HttpGet("seguimiento")]
+    public async Task<IActionResult> GetSeguimiento(
+        [FromQuery] int mes,
+        [FromQuery] int anio)
+    {
+        try
+        {
+            var key = $"ind_seguimiento_{mes}_{anio}";
+            var result = await _cache.GetOrCreateAsync(key, async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = CacheTtl;
+                return await _service.GetSeguimientoTodosProyectosAsync(mes, anio);
+            });
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener el seguimiento." }); }
+    }
+
+    // ── PUNTAJE DEL MES ───────────────────────────────────────────────────────
+
+    /// <summary>Puntaje del mes (max 110 pts) para un proyecto.</summary>
+    [HttpGet("puntaje/{proyectoId:int}")]
+    public async Task<IActionResult> GetPuntaje(
+        int proyectoId,
+        [FromQuery] int mes,
+        [FromQuery] int anio)
+    {
+        try
+        {
+            var key = $"ind_puntaje_{proyectoId}_{mes}_{anio}";
+            var result = await _cache.GetOrCreateAsync(key, async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = CacheTtl;
+                return await _service.GetPuntajeMesAsync(proyectoId, mes, anio);
+            });
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al calcular el puntaje." }); }
+    }
+
+    /// <summary>Puntaje del mes para todos los proyectos activos (ranking).</summary>
+    [HttpGet("puntaje")]
+    public async Task<IActionResult> GetPuntajeTodos(
+        [FromQuery] int mes,
+        [FromQuery] int anio)
+    {
+        try
+        {
+            var key = $"ind_puntaje_todos_{mes}_{anio}";
+            var result = await _cache.GetOrCreateAsync(key, async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = CacheTtl;
+                return await _service.GetPuntajeTodosProyectosAsync(mes, anio);
+            });
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al calcular los puntajes." }); }
+    }
+}

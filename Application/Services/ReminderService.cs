@@ -136,10 +136,15 @@ namespace Abril_Backend.Application.Services
 
             if (ordinal >= 1 && ordinal <= 3)
             {
-                Console.WriteLine($"⏰ Día {ordinal}/5 hábil final: recordatorio para subir lecciones aprendidas");
+                // El 3.º día hábil es el ÚLTIMO de la ventana de subida (los días 4–5
+                // son revisión de jefatura). Ese día el recordatorio cambia de tono:
+                // asunto ligeramente distinto y cuerpo que avisa que se tiene "hasta
+                // hoy" para registrar las lecciones aprendidas.
+                var isLastUploadDay = ordinal == 3;
+                Console.WriteLine($"⏰ Día {ordinal}/5 hábil final: recordatorio para subir lecciones aprendidas{(isLastUploadDay ? " (ÚLTIMO DÍA)" : "")}");
                 // Pasamos `today` (puede estar simulado) para que el período del filtro,
                 // el periodLabel del correo y el canal de staff sean consistentes.
-                await SendLessonsLearnedMonthlyRemindersAsync(today);
+                await SendLessonsLearnedMonthlyRemindersAsync(today, isLastUploadDay);
                 Console.WriteLine("📧 Recordatorios enviados correctamente");
             }
             else if (ordinal == 4)
@@ -268,7 +273,13 @@ namespace Abril_Backend.Application.Services
             Console.WriteLine($"📧 Aviso de publicación enviado en {batches} lote(s) a {recipients.Count} destinatario(s).");
         }
 
-        public async Task SendLessonsLearnedMonthlyRemindersAsync(DateTime executionDate)
+        /// <summary>
+        /// Recordatorios mensuales de subida de lecciones (días 1–3 de la ventana).
+        /// Cuando <paramref name="isLastUploadDay"/> es true (3.º día = último de
+        /// subida) el asunto se modifica y el cuerpo avisa que se tiene "hasta hoy"
+        /// para registrar, porque al día siguiente inicia la revisión de jefatura.
+        /// </summary>
+        public async Task SendLessonsLearnedMonthlyRemindersAsync(DateTime executionDate, bool isLastUploadDay = false)
         {
             var currentPeriod = executionDate.ToString("MM-yyyy");
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
@@ -282,11 +293,9 @@ namespace Abril_Backend.Application.Services
             Console.WriteLine($"📊 [user_project] pendientes: {pendingUserProjects.Count}");
 
             // Staff emails activos por proyecto (project_staff_reminder.active=true).
-            // En el canal 1 los usamos como CC; en el canal 2 son el origen mismo.
+            // Origen del canal 2; en el canal 1 ya no se usan como CC (los correos
+            // van solo al destinatario, sin copia a nadie más).
             var activeStaffEmails = await _lessonReminderRepository.GetActiveStaffEmailsAsync();
-            var staffByProjectId = activeStaffEmails
-                .GroupBy(s => s.ProjectId)
-                .ToDictionary(g => g.Key, g => g.First().StaffEmail);
 
             // Para deduplicar entre canal 1 y canal 2: si ya mandé al user X
             // por el canal 1 (porque está en user_project), no le mando otra
@@ -300,14 +309,36 @@ namespace Abril_Backend.Application.Services
                     item.Projects.Select(p => $"<li>{p.ProjectDescription}</li>")
                 );
 
+                // Párrafo de apertura: en el último día de subida avisamos que el
+                // plazo vence hoy; el resto de días es un recordatorio normal.
+                var introHtml = isLastUploadDay
+                    ? $@"<p>
+                            <strong>Hoy es el último día</strong> para registrar tus
+                            <strong>lecciones aprendidas</strong> correspondientes a
+                            <strong>{periodLabel}</strong>. A partir de mañana inicia la ventana de
+                            revisión de la jefatura y ya no será posible registrar nuevas lecciones.
+                            Tienes pendiente el envío en los siguientes proyectos:
+                        </p>"
+                    : $@"<p>
+                            Te recordamos que tienes pendiente el envío mensual de
+                            <strong>lecciones aprendidas</strong> correspondiente a
+                            <strong>{periodLabel}</strong> en los siguientes proyectos:
+                        </p>";
+
+                var pieHtml = isLastUploadDay
+                    ? @"<p style='font-size: 12px; color: #666;'>
+                            Este es el aviso del último día de registro; se envía de manera automática
+                            a quienes aún no han registrado sus lecciones aprendidas del mes.
+                        </p>"
+                    : @"<p style='font-size: 12px; color: #666;'>
+                            Este recordatorio se envía de manera automática a quienes aún no han registrado
+                            sus lecciones aprendidas del mes.
+                        </p>";
+
                 var body = $@"
                 <p>Estimado(a) <strong>{item.UserFullName}</strong>,</p>
 
-                <p>
-                    Te recordamos que tienes pendiente el envío mensual de
-                    <strong>lecciones aprendidas</strong> correspondiente a
-                    <strong>{periodLabel}</strong> en los siguientes proyectos:
-                </p>
+                {introHtml}
 
                 <ul>
                     {projectsHtml}
@@ -323,32 +354,24 @@ namespace Abril_Backend.Application.Services
                     </a>
                 </p>
 
-                <p style='font-size: 12px; color: #666;'>
-                    Este recordatorio se envía de manera automática a quienes aún no han registrado
-                    sus lecciones aprendidas del mes.
-                </p>
+                {pieHtml}
 
                 <p>Gracias por tu compromiso con la mejora continua.</p>
                 ";
 
-                // Recipientes: el usuario + staff_email activo de los proyectos donde tiene pendientes
+                // Destinatario: solo el usuario pendiente. La única copia es la BCC
+                // de auditoría (calvarez@abril.pe); no se copia a nadie más.
                 var to = new List<string> { item.Email };
-                var staffCcSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var p in item.Projects)
-                {
-                    if (staffByProjectId.TryGetValue(p.ProjectId, out var staff)
-                        && !string.IsNullOrWhiteSpace(staff))
-                    {
-                        staffCcSet.Add(staff);
-                    }
-                }
+
+                var subject = isLastUploadDay
+                    ? $"⏰ ÚLTIMO DÍA para registrar tus lecciones aprendidas — {periodLabel}"
+                    : "🔔 Abril App Recordatorio: envío mensual de lecciones aprendidas pendiente";
 
                 await SendEmailExpandingGroupsAsync(
                     to: to,
-                    subject: "🔔 Abril App Recordatorio: envío mensual de lecciones aprendidas pendiente",
+                    subject: subject,
                     body: body,
                     isHtml: true,
-                    cc: staffCcSet.Count > 0 ? staffCcSet.ToList() : null,
                     bcc: new List<string> {"calvarez@abril.pe"}
                 );
 
@@ -397,15 +420,26 @@ namespace Abril_Backend.Application.Services
                         ? $"Estimado(a) <strong>{m.FullName}</strong>,"
                         : "Estimado(a),";
 
+                    var staffIntroHtml = isLastUploadDay
+                        ? $@"<p>
+                                Como miembro del staff del proyecto
+                                <strong>{staffProject.ProjectDescription}</strong>, te avisamos que
+                                <strong>hoy es el último día</strong> para registrar tu
+                                <strong>lección aprendida</strong> correspondiente a
+                                <strong>{periodLabel}</strong>. A partir de mañana inicia la ventana de
+                                revisión de la jefatura y ya no será posible registrar nuevas lecciones.
+                            </p>"
+                        : $@"<p>
+                                Como miembro del staff del proyecto
+                                <strong>{staffProject.ProjectDescription}</strong>, te recordamos que aún
+                                no tienes registrada tu <strong>lección aprendida</strong> correspondiente
+                                a <strong>{periodLabel}</strong>.
+                            </p>";
+
                     var body = $@"
                     <p>{greeting}</p>
 
-                    <p>
-                        Como miembro del staff del proyecto
-                        <strong>{staffProject.ProjectDescription}</strong>, te recordamos que aún
-                        no tienes registrada tu <strong>lección aprendida</strong> correspondiente
-                        a <strong>{periodLabel}</strong>.
-                    </p>
+                    {staffIntroHtml}
 
                     <p>
                         Por favor ingresa a la plataforma y completa el envío:
@@ -425,10 +459,14 @@ namespace Abril_Backend.Application.Services
                     <p>Gracias por tu compromiso con la mejora continua.</p>
                     ";
 
+                    var staffSubject = isLastUploadDay
+                        ? $"⏰ ÚLTIMO DÍA: registra tu lección aprendida de {staffProject.ProjectDescription} — {periodLabel}"
+                        : $"🔔 Abril App Recordatorio: lección pendiente para {staffProject.ProjectDescription} — {periodLabel}";
+
                     // Enviar directo (ya está expandido — no volver a expandir).
                     await _emailService.SendAsync(
                         to: new List<string> { m.Email },
-                        subject: $"🔔 Abril App Recordatorio: lección pendiente para {staffProject.ProjectDescription} — {periodLabel}",
+                        subject: staffSubject,
                         body: body,
                         isHtml: true,
                         bcc: new List<string> { "calvarez@abril.pe" }

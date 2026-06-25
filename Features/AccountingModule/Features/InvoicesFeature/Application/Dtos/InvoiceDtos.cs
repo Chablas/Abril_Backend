@@ -1,3 +1,5 @@
+using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Application.Dtos;
+
 namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Dtos
 {
     /// <summary>Fila de la tabla de facturas.</summary>
@@ -5,16 +7,61 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
     {
         public int InvoiceId { get; set; }
         public DateOnly IssueDate { get; set; }
-        public string InvoiceNumber { get; set; } = null!;
+        public string Serie { get; set; } = null!;
+        public string Correlativo { get; set; } = null!;
+        /// <summary>Número completo para mostrar (serie-correlativo).</summary>
+        public string InvoiceNumber => $"{Serie}-{Correlativo}";
         public int ContributorId { get; set; }
         public string ContributorRuc { get; set; } = null!;
         public string ContributorName { get; set; } = null!;
+        public int? AbrilContributorId { get; set; }
+        public string? AbrilContributorName { get; set; }
         public string Description { get; set; } = null!;
         public int InvoicePaymentFormId { get; set; }
         public string InvoicePaymentFormDescription { get; set; } = null!;
         public decimal Total { get; set; }
+        public int? CurrencyId { get; set; }
+        public string? CurrencyCode { get; set; }
+        public string? CurrencySymbol { get; set; }
         public string? DocumentUrl { get; set; }
         public DateTime CreatedDateTime { get; set; }
+    }
+
+    /// <summary>Detalle completo de una factura (modal de ver/editar).</summary>
+    public class InvoiceDetailDto
+    {
+        public int InvoiceId { get; set; }
+        public DateOnly IssueDate { get; set; }
+        public string Serie { get; set; } = null!;
+        public string Correlativo { get; set; } = null!;
+        public string InvoiceNumber => $"{Serie}-{Correlativo}";
+        public int ContributorId { get; set; }
+        public string ContributorRuc { get; set; } = null!;
+        public string ContributorName { get; set; } = null!;
+        public int? AbrilContributorId { get; set; }
+        public string? AbrilContributorName { get; set; }
+        public string? AbrilContributorRuc { get; set; }
+        public string Description { get; set; } = null!;
+        public int InvoicePaymentFormId { get; set; }
+        public string InvoicePaymentFormDescription { get; set; } = null!;
+        public decimal Total { get; set; }
+        public int? CurrencyId { get; set; }
+        public string? CurrencyCode { get; set; }
+        public string? CurrencySymbol { get; set; }
+        public int? InvoiceFolderId { get; set; }
+        public string? InvoiceFolderName { get; set; }
+        public string? DocumentUrl { get; set; }
+        public DateTime CreatedDateTime { get; set; }
+        public DateTime? UpdatedDateTime { get; set; }
+    }
+
+    /// <summary>Moneda para el desplegable del formulario (reusa la tabla currency).</summary>
+    public class InvoiceCurrencyDto
+    {
+        public int CurrencyId { get; set; }
+        public string CurrencyCode { get; set; } = null!;
+        public string CurrencyDescription { get; set; } = null!;
+        public string? CurrencySymbol { get; set; }
     }
 
     /// <summary>Proveedor (contribuyente) para el desplegable del formulario.</summary>
@@ -37,6 +84,11 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
     {
         public List<InvoiceSupplierDto> Suppliers { get; set; } = new();
         public List<InvoicePaymentFormDto> PaymentForms { get; set; } = new();
+        /// <summary>Razones sociales que maneja Abril (contribuyentes con es_abril = true).</summary>
+        public List<InvoiceSupplierDto> AbrilCompanies { get; set; } = new();
+        /// <summary>Carpetas de OneDrive configuradas para guardar facturas.</summary>
+        public List<InvoiceFolderOptionDto> Folders { get; set; } = new();
+        public List<InvoiceCurrencyDto> Currencies { get; set; } = new();
         public Abril_Backend.Application.DTOs.PagedResult<InvoiceDto> Invoices { get; set; } = new();
     }
 
@@ -44,7 +96,21 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
     public class InvoiceFilterDto
     {
         public string? Search { get; set; }
+        public string? Serie { get; set; }
+        public string? Correlativo { get; set; }
+        /// <summary>Razón social del proveedor (contribuyente).</summary>
         public int? ContributorId { get; set; }
+        /// <summary>RUC del proveedor.</summary>
+        public string? ContributorRuc { get; set; }
+        /// <summary>Razón social de Abril (es_abril = true).</summary>
+        public int? AbrilContributorId { get; set; }
+        /// <summary>RUC de la razón social de Abril.</summary>
+        public string? AbrilContributorRuc { get; set; }
+        public int? InvoicePaymentFormId { get; set; }
+        public decimal? TotalMin { get; set; }
+        public decimal? TotalMax { get; set; }
+        public DateOnly? IssueDateFrom { get; set; }
+        public DateOnly? IssueDateTo { get; set; }
         public int Page { get; set; } = 1;
     }
 
@@ -52,11 +118,35 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
     public class InvoiceCreateDto
     {
         public DateOnly IssueDate { get; set; }
-        public string InvoiceNumber { get; set; } = null!;
+        public string Serie { get; set; } = null!;
+        public string Correlativo { get; set; } = null!;
         public int ContributorId { get; set; }
         public string Description { get; set; } = null!;
         public int InvoicePaymentFormId { get; set; }
         public decimal Total { get; set; }
+        public int CurrencyId { get; set; }
+        /// <summary>Carpeta de OneDrive donde se guardará el documento.</summary>
+        public int InvoiceFolderId { get; set; }
+        /// <summary>Razón social de Abril (es_abril = true) a la que pertenece la factura.</summary>
+        public int AbrilContributorId { get; set; }
+        public IFormFile? DocumentFile { get; set; }
+    }
+
+    /// <summary>Datos de edición de una factura (multipart/form-data; documento opcional).</summary>
+    public class InvoiceUpdateDto
+    {
+        public int InvoiceId { get; set; }
+        public DateOnly IssueDate { get; set; }
+        public string Serie { get; set; } = null!;
+        public string Correlativo { get; set; } = null!;
+        public int ContributorId { get; set; }
+        public string Description { get; set; } = null!;
+        public int InvoicePaymentFormId { get; set; }
+        public decimal Total { get; set; }
+        public int CurrencyId { get; set; }
+        public int InvoiceFolderId { get; set; }
+        public int AbrilContributorId { get; set; }
+        /// <summary>Si se adjunta, reemplaza el documento (se vuelve a subir a OneDrive).</summary>
         public IFormFile? DocumentFile { get; set; }
     }
 

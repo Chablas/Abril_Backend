@@ -8,7 +8,9 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
     {
         Task<InvoiceInitDto> GetInit(InvoiceFilterDto filter);
         Task<PagedResult<InvoiceDto>> GetPaged(InvoiceFilterDto filter);
+        Task<InvoiceDetailDto> GetDetail(int invoiceId);
         Task Create(InvoiceCreateDto dto, int userId);
+        Task Update(InvoiceUpdateDto dto, int userId);
         Task<InvoiceSupplierDto> CreateSupplier(InvoiceSupplierCreateDto dto, int userId);
         Task<SunatContributorDto?> GetByRuc(string ruc);
     }

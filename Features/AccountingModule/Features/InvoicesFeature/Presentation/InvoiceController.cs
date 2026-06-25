@@ -23,11 +23,12 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
 
         /// <summary>Carga inicial: desplegables (proveedores, formas de pago) + primera página de facturas.</summary>
         [HttpGet("init")]
-        public async Task<IActionResult> GetInit([FromQuery] string? search, [FromQuery] int? contributorId, [FromQuery] int page = 1)
+        public async Task<IActionResult> GetInit([FromQuery] InvoiceFilterDto filter)
         {
             try
             {
-                var result = await _service.GetInit(new InvoiceFilterDto { Search = search, ContributorId = contributorId, Page = page < 1 ? 1 : page });
+                if (filter.Page < 1) filter.Page = 1;
+                var result = await _service.GetInit(filter);
                 return Ok(result);
             }
             catch (Exception ex)
@@ -38,16 +39,58 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
         }
 
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] string? search, [FromQuery] int? contributorId, [FromQuery] int page = 1)
+        public async Task<IActionResult> GetPaged([FromQuery] InvoiceFilterDto filter)
         {
             try
             {
-                var result = await _service.GetPaged(new InvoiceFilterDto { Search = search, ContributorId = contributorId, Page = page });
+                var result = await _service.GetPaged(filter);
                 return Ok(result);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR INVOICE PAGED: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("{invoiceId:int}")]
+        public async Task<IActionResult> GetDetail(int invoiceId)
+        {
+            try
+            {
+                var result = await _service.GetDetail(invoiceId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE DETAIL: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPut]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> Update([FromForm] InvoiceUpdateDto dto)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == null) return Unauthorized(new { message = "Inicie sesión." });
+
+                await _service.Update(dto, userId.Value);
+                return Ok(new { message = "Factura actualizada exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE UPDATE: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

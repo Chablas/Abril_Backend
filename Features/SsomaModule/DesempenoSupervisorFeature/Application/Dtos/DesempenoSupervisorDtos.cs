@@ -19,5 +19,9 @@ public record DesempenoSupervisorDto(
     decimal PctOpt,
     decimal PctInspecciones,
     decimal PctCharlas,
-    decimal PctGeneral
+    decimal PctGeneral,
+    // Fecha en que el supervisor completó todos los entregables del mes (todos al 100%)
+    DateTime? FechaLogro100,
+    // true si fue el primero en su proyecto en alcanzar el 100% general
+    bool EsPrimeroEnProyecto
 );

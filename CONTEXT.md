@@ -4588,3 +4588,44 @@ PATCH /api/v1/ssoma-inspeccion/hallazgos/{hallazgoId}/levantar
 **Estados en BD:** "Abierto" (inicial) | "En proceso" (vía LevantarHallazgo) | "Cerrado" (vía LevantarHallazgo o CerrarHallazgo).
 
 > La tabla `ssoma_inspeccion_hallazgo_evidencia_cierre` y la columna `cerrado_por_id` del SQL de la tarea son DDL pendientes de ejecutar manualmente en PostgreSQL — no incluidas en código porque el modelo actual ya tiene `EvidenciaCierreUrl` y `FechaCierre`.
+
+---
+
+## Sesión 2026-06-24
+
+### 1. Fix importación MPP — preservar actividades manuales
+
+Columna nueva: is_manual boolean NOT NULL DEFAULT false en project_activity.
+- Actividades creadas desde POST /{proyectoId}/actividades → is_manual = true
+- Actividades importadas desde MPP → is_manual = false
+
+Cambios en ImportarMppAsync:
+- Solo borra actividades con is_manual = false
+- Actividades manuales huérfanas (parentId ya no existe) → parentId = null, hierarchyLevel = 0
+- Predecesoras de manuales que apunten a IDs borrados → se limpian
+- Manuales van al final con order continuando desde el último del MPP
+
+ImportarMppResultDto extendido: ActividadesManualesConservadas: int
+
+SQL aplicado en VPS Abril Prod:
+ALTER TABLE project_activity ADD COLUMN IF NOT EXISTS is_manual boolean NOT NULL DEFAULT false;
+
+### 2. Fix PercentageComplete en ImportarMppAsync
+
+- Leer PercentageComplete de MPXJ y asignar a ProgressPercentage (cast a int, null → 0)
+- Si pct >= 100 → marcar como culminada con ActualEndDate
+- Si pct < 100 → ActualEndDate = null
+- Math.Min(pct, 100) para valores > 100
+
+### 3. Fix SharePoint CostosYPresupuestos
+
+En appsettings.Development.json agregar bajo SharePoint.Sites:
+"CostosYPresupuestos": { "Hostname": "abrilinmob.sharepoint.com", "SitePath": "/sites/CostosYPresupuestos" }
+Resuelve error al cargar /costs/adjudicaciones.
+
+### 4. Pendientes próxima sesión
+
+- Verificar avance promedio en Dashboard UDP después del fix MPP (reimportar y confirmar %)
+- Fix semáforo gris en SIN ACTIVIDADES del dashboard
+- Endpoint PATCH /actividades/{id}/mover con body { parentId, order } para drag & drop libre desde frontend
+- Definir proceso de deploy frontend a VPS con usuario deploy

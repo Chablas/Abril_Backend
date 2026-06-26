@@ -170,9 +170,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     }
                     else
                     {
-                        // Solo sobreescribir si el estado actual es inferior
-                        // Nunca degradar "Aprobado", "En revision", "En plazo"
-                        if (hab.Estado == "Falta" || hab.Estado == "Rechazado" || string.IsNullOrEmpty(hab.Estado))
+                        // Para empresas Abril siempre actualizar (auto-aprobado, renovación directa).
+                        // Para contratistas solo sobreescribir si el estado es inferior.
+                        if (esAbril || hab.Estado == "Falta" || hab.Estado == "Rechazado" || string.IsNullOrEmpty(hab.Estado))
                         {
                             hab.Estado = estadoHab;
                             hab.Vigencia = vigenciaHab;

@@ -1,5 +1,3 @@
-using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Application.Dtos;
-
 namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Dtos
 {
     /// <summary>Fila de la tabla de facturas.</summary>
@@ -26,6 +24,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public string? CurrencyCode { get; set; }
         public string? CurrencySymbol { get; set; }
         public string? DocumentUrl { get; set; }
+        public string? SignedDocumentUrl { get; set; }
         public DateTime CreatedDateTime { get; set; }
     }
 
@@ -53,6 +52,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public int? InvoiceFolderId { get; set; }
         public string? InvoiceFolderName { get; set; }
         public string? DocumentUrl { get; set; }
+        public string? SignedDocumentUrl { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public DateTime? UpdatedDateTime { get; set; }
     }
@@ -164,8 +164,6 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public List<InvoicePaymentFormDto> PaymentForms { get; set; } = new();
         /// <summary>Razones sociales que maneja Abril (contribuyentes con es_abril = true).</summary>
         public List<InvoiceSupplierDto> AbrilCompanies { get; set; } = new();
-        /// <summary>Carpetas de OneDrive configuradas para guardar facturas.</summary>
-        public List<InvoiceFolderOptionDto> Folders { get; set; } = new();
         public List<InvoiceCurrencyDto> Currencies { get; set; } = new();
         public Abril_Backend.Application.DTOs.PagedResult<InvoiceDto> Invoices { get; set; } = new();
     }
@@ -203,8 +201,6 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public int InvoicePaymentFormId { get; set; }
         public decimal Total { get; set; }
         public int CurrencyId { get; set; }
-        /// <summary>Carpeta de OneDrive donde se guardará el documento.</summary>
-        public int InvoiceFolderId { get; set; }
         /// <summary>Razón social de Abril (es_abril = true) a la que pertenece la factura.</summary>
         public int AbrilContributorId { get; set; }
         public IFormFile? DocumentFile { get; set; }
@@ -222,7 +218,6 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public int InvoicePaymentFormId { get; set; }
         public decimal Total { get; set; }
         public int CurrencyId { get; set; }
-        public int InvoiceFolderId { get; set; }
         public int AbrilContributorId { get; set; }
         /// <summary>Si se adjunta, reemplaza el documento (se vuelve a subir a OneDrive).</summary>
         public IFormFile? DocumentFile { get; set; }

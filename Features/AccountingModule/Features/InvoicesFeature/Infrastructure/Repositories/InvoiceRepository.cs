@@ -5,7 +5,6 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Dtos;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models;
-using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Application.Dtos;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 
 namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Repositories
@@ -46,20 +45,6 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     ContributorId = c.ContributorId,
                     ContributorRuc = c.ContributorRuc,
                     ContributorName = c.ContributorName
-                })
-                .ToListAsync();
-        }
-
-        public async Task<List<InvoiceFolderOptionDto>> GetFolderOptions()
-        {
-            using var ctx = _factory.CreateDbContext();
-            return await ctx.InvoiceFolder
-                .Where(f => f.State && f.Active)
-                .OrderBy(f => f.Name)
-                .Select(f => new InvoiceFolderOptionDto
-                {
-                    InvoiceFolderId = f.InvoiceFolderId,
-                    Name = f.Name
                 })
                 .ToListAsync();
         }
@@ -105,8 +90,9 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     CurrencyCode = i.Currency!.CurrencyCode,
                     CurrencySymbol = i.Currency.CurrencySymbol,
                     InvoiceFolderId = i.InvoiceFolderId,
-                    InvoiceFolderName = i.InvoiceFolder!.Name,
+                    InvoiceFolderName = i.InvoiceFolder!.FolderName,
                     DocumentUrl = i.DocumentUrl,
+                    SignedDocumentUrl = i.SignedDocumentUrl,
                     CreatedDateTime = i.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                     UpdatedDateTime = i.UpdatedDateTime.HasValue
                         ? i.UpdatedDateTime.Value.ToOffset(TimeSpan.FromHours(-5)).DateTime
@@ -115,7 +101,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                 .FirstOrDefaultAsync();
         }
 
-        public async Task Update(InvoiceUpdateDto dto, string? documentUrl, int userId)
+        public async Task Update(InvoiceUpdateDto dto, string? documentUrl, int invoiceFolderId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -140,7 +126,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
             record.InvoiceNumber = $"{serie}-{correlativo}";
             record.ContributorId = dto.ContributorId;
             record.AbrilContributorId = dto.AbrilContributorId;
-            record.InvoiceFolderId = dto.InvoiceFolderId;
+            record.InvoiceFolderId = invoiceFolderId;
             record.Description = dto.Description.Trim();
             record.InvoicePaymentFormId = dto.InvoicePaymentFormId;
             record.Total = dto.Total;
@@ -163,14 +149,26 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
             await ctx.SaveChangesAsync();
         }
 
-        public async Task<(string DriveId, string FolderId)?> GetFolderDestination(int invoiceFolderId)
+        public async Task AttachSignedDocument(int invoiceId, string signedDocumentUrl, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var record = await ctx.Invoice.FirstOrDefaultAsync(i => i.InvoiceId == invoiceId && i.State)
+                ?? throw new AbrilException("La factura no existe.");
+            record.SignedDocumentUrl = signedDocumentUrl;
+            record.UpdatedDateTime = DateTimeOffset.UtcNow;
+            record.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<(int Id, string DriveId, string FolderId)?> GetActiveFolderDestination()
         {
             using var ctx = _factory.CreateDbContext();
             var f = await ctx.InvoiceFolder
-                .Where(x => x.InvoiceFolderId == invoiceFolderId && x.State && x.Active)
-                .Select(x => new { x.DriveId, x.FolderId })
+                .Where(x => x.State && x.Active)
+                .OrderBy(x => x.InvoiceFolderId)
+                .Select(x => new { x.InvoiceFolderId, x.DriveId, x.FolderId })
                 .FirstOrDefaultAsync();
-            return f == null ? null : (f.DriveId, f.FolderId);
+            return f == null ? null : (f.InvoiceFolderId, f.DriveId, f.FolderId);
         }
 
         public async Task<string?> GetContributorName(int contributorId)
@@ -294,6 +292,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     CurrencyCode = i.Currency!.CurrencyCode,
                     CurrencySymbol = i.Currency.CurrencySymbol,
                     DocumentUrl = i.DocumentUrl,
+                    SignedDocumentUrl = i.SignedDocumentUrl,
                     CreatedDateTime = i.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
                 })
                 .ToListAsync();
@@ -418,6 +417,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     CurrencyCode = i.Currency!.CurrencyCode,
                     CurrencySymbol = i.Currency.CurrencySymbol,
                     DocumentUrl = i.DocumentUrl,
+                    SignedDocumentUrl = i.SignedDocumentUrl,
                     CreatedDateTime = i.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
                 })
                 .ToListAsync();
@@ -432,7 +432,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
             };
         }
 
-        public async Task Create(InvoiceCreateDto dto, string? documentUrl, int userId)
+        public async Task Create(InvoiceCreateDto dto, string? documentUrl, int invoiceFolderId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -459,7 +459,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                 Total = dto.Total,
                 CurrencyId = dto.CurrencyId,
                 DocumentUrl = documentUrl,
-                InvoiceFolderId = dto.InvoiceFolderId,
+                InvoiceFolderId = invoiceFolderId,
                 AbrilContributorId = dto.AbrilContributorId,
                 CreatedDateTime = DateTimeOffset.UtcNow,
                 CreatedUserId = userId,

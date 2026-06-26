@@ -1,15 +1,13 @@
 namespace Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Models
 {
     /// <summary>
-    /// Carpeta de OneDrive/SharePoint donde se guardan las facturas. Cada registro tiene un
-    /// nombre identificativo (p. ej. "Facturas urgentes", "Valorizaciones") que se elige al
-    /// registrar una factura.
+    /// Carpeta única (singleton) de OneDrive/SharePoint donde se guardan TODAS las facturas.
+    /// Existe a lo sumo una fila vigente (state = true); al editarla se pega un link, el sistema
+    /// lo resuelve a su ubicación estable (driveId + folderId) y a partir de ahí se sube todo ahí.
     /// </summary>
     public class InvoiceFolder
     {
         public int InvoiceFolderId { get; set; }
-        /// <summary>Nombre identificativo de la carpeta mostrado en el desplegable.</summary>
-        public string Name { get; set; } = null!;
         /// <summary>Link original pegado por el usuario (para mostrar/reabrir).</summary>
         public string LinkUrl { get; set; } = null!;
         /// <summary>Ubicación estable resuelta vía Graph Shares API.</summary>

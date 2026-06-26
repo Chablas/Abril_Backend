@@ -350,6 +350,102 @@ namespace Abril_Backend.Shared.Services.SharePoint.Services
             };
         }
 
+        public async Task<ShareLinkResolveDto?> ResolveSharePointFolderUrlAsync(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return null;
+            var link = url.Trim();
+
+            // 1) Intentar la Graph Shares API: resuelve share links y URLs directas a un driveItem.
+            var shared = await ResolveShareLinkAsync(link);
+            if (shared is { IsFolder: true }) return shared;
+
+            // 2) Fallback: URL de vista de biblioteca de un sitio SharePoint
+            //    (.../sites/{sitio}/{Biblioteca}/Forms/AllItems.aspx o .../sites/{sitio}/{Biblioteca}),
+            //    con ?id=/sites/{sitio}/{Biblioteca}/{Subcarpeta} opcional.
+            if (!Uri.TryCreate(link, UriKind.Absolute, out var uri)) return null;
+
+            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var sitesIdx = Array.FindIndex(segments, s => s.Equals("sites", StringComparison.OrdinalIgnoreCase));
+            if (sitesIdx < 0 || segments.Length < sitesIdx + 3) return null;
+
+            var siteName    = segments[sitesIdx + 1];
+            var libraryName = Uri.UnescapeDataString(segments[sitesIdx + 2]);
+            var site        = new SharePointSiteRef(uri.Host, $"/sites/{siteName}");
+
+            string siteId, driveId;
+            try
+            {
+                var token = await GetAppTokenAsync();
+                siteId  = await EnsureSiteIdAsync(token, site);
+                driveId = await EnsureLibraryDriveAsync(token, siteId, libraryName);
+            }
+            catch
+            {
+                return null;
+            }
+
+            // Subcarpeta indicada en ?id= (ruta relativa al sitio) o, si no, la raíz de la biblioteca.
+            var idParam = GetQueryParam(uri.Query, "id");
+            var relativePath = ExtractLibraryRelativePath(idParam, siteName, libraryName);
+
+            var itemUrl = string.IsNullOrEmpty(relativePath)
+                ? $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root?$select=id,name,webUrl,folder"
+                : $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{EscapePath(relativePath)}:?$select=id,name,webUrl,folder";
+
+            var appToken = await GetAppTokenAsync();
+            var client = _httpClientFactory.CreateClient();
+            var request = new HttpRequestMessage(HttpMethod.Get, itemUrl);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appToken);
+
+            var response = await client.SendAsync(request);
+            if (!response.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+
+            var itemId = root.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            if (string.IsNullOrWhiteSpace(itemId)) return null;
+            if (!root.TryGetProperty("folder", out _)) return null; // debe ser carpeta
+
+            return new ShareLinkResolveDto
+            {
+                DriveId  = driveId,
+                ItemId   = itemId!,
+                Name     = root.TryGetProperty("name", out var n) ? n.GetString() : null,
+                WebUrl   = root.TryGetProperty("webUrl", out var w) ? w.GetString() : null,
+                IsFolder = true,
+            };
+        }
+
+        /// <summary>Lee un parámetro de query string sin depender de System.Web.</summary>
+        private static string? GetQueryParam(string query, string key)
+        {
+            if (string.IsNullOrWhiteSpace(query)) return null;
+            foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var eq = pair.IndexOf('=');
+                if (eq < 0) continue;
+                if (Uri.UnescapeDataString(pair[..eq]).Equals(key, StringComparison.OrdinalIgnoreCase))
+                    return Uri.UnescapeDataString(pair[(eq + 1)..]);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// A partir del <c>?id=</c> (ruta relativa al sitio, p. ej. "/sites/x/Facturas/Sub"),
+        /// devuelve la ruta de la subcarpeta dentro del drive de la biblioteca ("Sub"), o null si
+        /// apunta a la raíz de la biblioteca o no coincide el prefijo.
+        /// </summary>
+        private static string? ExtractLibraryRelativePath(string? idParam, string siteName, string libraryName)
+        {
+            if (string.IsNullOrWhiteSpace(idParam)) return null;
+            var decoded = idParam.Trim();
+            var prefix = $"/sites/{siteName}/{libraryName}";
+            if (!decoded.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+            var rel = decoded[prefix.Length..].Trim('/');
+            return string.IsNullOrWhiteSpace(rel) ? null : rel;
+        }
+
         public async Task<List<ShareLinkResolveDto>> GetChildFoldersByItemIdAsync(string driveId, string itemId)
         {
             var token = await GetAppTokenAsync();

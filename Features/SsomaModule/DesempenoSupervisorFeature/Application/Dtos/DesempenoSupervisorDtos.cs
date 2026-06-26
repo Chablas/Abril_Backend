@@ -28,5 +28,7 @@ public record DesempenoSupervisorDto(
     decimal PctLeccion,
     decimal PctEvalContratista,
     decimal PctEvalResidente,
-    decimal PctGeneral
+    decimal PctGeneral,
+    DateTime? FechaLogro100,
+    bool EsPrimeroEnProyecto
 );

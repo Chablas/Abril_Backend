@@ -32,5 +32,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
         Task ApproveAsync(int lessonId, int currentUserId);
         Task RejectAsync(int lessonId, int currentUserId, string? comment);
+
+        /// <summary>
+        /// Estado de la ventana de subida para hoy (hora Lima): permite al frontend
+        /// deshabilitar el botón "Nuevo registro" durante la ventana de revisión.
+        /// </summary>
+        Task<LessonUploadWindowDTO> GetUploadWindowAsync();
     }
 }

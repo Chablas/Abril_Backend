@@ -42,6 +42,41 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         }
 
         // ──────────────────────────────────────────────────────────────────
+        // FERIADOS (ventana de revisión de fin de mes)
+        // ──────────────────────────────────────────────────────────────────
+
+        // OJO: misma resolución que LessonReminderRepository.GetHolidayDatesAsync
+        // (resuelve recurrentes al año pedido). Se replica aquí para no acoplar la
+        // feature de lecciones con la de recordatorios.
+        public async Task<HashSet<DateOnly>> GetHolidayDatesAsync(int year, int month)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var holidays = await ctx.Holiday
+                .Where(h => h.State && h.Active)
+                .Select(h => new { h.HolidayDate, h.RecurringYearly })
+                .ToListAsync();
+
+            var result = new HashSet<DateOnly>();
+            foreach (var h in holidays)
+            {
+                if (h.RecurringYearly)
+                {
+                    // Se repite cada año: resolvemos al año solicitado por mes/día.
+                    // Guardamos contra fechas inválidas (ej. 29-feb en año no bisiesto).
+                    if (h.HolidayDate.Month != month) continue;
+                    var day = Math.Min(h.HolidayDate.Day, DateTime.DaysInMonth(year, month));
+                    result.Add(new DateOnly(year, month, day));
+                }
+                else if (h.HolidayDate.Year == year && h.HolidayDate.Month == month)
+                {
+                    result.Add(h.HolidayDate);
+                }
+            }
+            return result;
+        }
+
+        // ──────────────────────────────────────────────────────────────────
         // SELECTORES
         // ──────────────────────────────────────────────────────────────────
 

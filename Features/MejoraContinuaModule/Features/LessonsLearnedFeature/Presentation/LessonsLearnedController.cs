@@ -154,6 +154,30 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             }
         }
 
+        /// <summary>
+        /// Estado de la ventana de subida de hoy. El frontend lo consulta al cargar
+        /// la página para deshabilitar "Nuevo registro" durante la ventana de
+        /// revisión de la jefatura (últimos 2 días hábiles del mes + fines de
+        /// semana/feriados intermedios).
+        /// </summary>
+        [Authorize]
+        [HttpGet("upload-window")]
+        public async Task<IActionResult> GetUploadWindow()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
+
+                var window = await _lessonService.GetUploadWindowAsync();
+                return Ok(window);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [Authorize]
         [HttpPost]
         [Consumes("multipart/form-data")]

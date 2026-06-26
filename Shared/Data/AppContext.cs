@@ -23,6 +23,7 @@ using Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models;
+using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -88,6 +89,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<CostosCronogramaActividad> CostosCronogramaActividad { get; set; }
         public DbSet<CostosCronogramaActividadNodo> CostosCronogramaActividadNodo { get; set; }
         public DbSet<ProjectAdjudicacionFolder> ProjectAdjudicacionFolder { get; set; }
+        public DbSet<InvoiceFolder> InvoiceFolder { get; set; }
         public DbSet<WorkSpecialty> WorkSpecialty { get; set; }
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
@@ -382,6 +384,24 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(i => i.InvoicePaymentForm)
                 .WithMany()
                 .HasForeignKey(i => i.InvoicePaymentFormId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Invoice>()
+                .HasOne(i => i.InvoiceFolder)
+                .WithMany()
+                .HasForeignKey(i => i.InvoiceFolderId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Invoice>()
+                .HasOne(i => i.AbrilContributor)
+                .WithMany()
+                .HasForeignKey(i => i.AbrilContributorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Invoice>()
+                .HasOne(i => i.Currency)
+                .WithMany()
+                .HasForeignKey(i => i.CurrencyId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ContractorEmail>()

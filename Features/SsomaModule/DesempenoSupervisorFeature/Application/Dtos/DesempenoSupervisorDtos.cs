@@ -30,5 +30,7 @@ public record DesempenoSupervisorDto(
     decimal PctEvalResidente,
     decimal PctGeneral,
     DateTime? FechaLogro100,
-    bool EsPrimeroEnProyecto
+    bool EsPrimeroEnProyecto,
+    decimal? PctGeneralMesAnterior,
+    bool EsSaludOcupacional
 );

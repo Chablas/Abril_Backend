@@ -385,7 +385,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             if (soloActivas.HasValue && soloActivas.Value)
                 baseQuery = baseQuery.Where(x => x.Actividad.Activo);
 
-            if (esUsuarioAc && userId.HasValue && userId.Value > 0)
+            if (userId.HasValue && userId.Value > 0)
                 baseQuery = baseQuery.Where(x => x.Actividad.UserId == userId || x.Actividad.UserId2 == userId);
 
             int total = await baseQuery.CountAsync();

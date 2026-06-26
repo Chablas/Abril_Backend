@@ -356,14 +356,13 @@ public class CharlaService : ICharlaService
         var cap = await ctx.SsCharlas
             .FirstOrDefaultAsync(c => c.SupervisorId == workerId && c.Fecha >= inicioMes && c.Fecha < finMes && c.State);
 
-        // need a programa_id — use 0 sentinel or get/create for worker's project
-        // find project for worker
-        var hoyLocal = DateOnly.FromDateTime(DateTime.UtcNow);
-        var proyectoId = await ctx.WorkerProyecto
-            .Where(wp => wp.WorkerId == workerId && (wp.FechaFin == null || wp.FechaFin >= hoyLocal))
-            .OrderByDescending(wp => wp.FechaInicio)
-            .Select(wp => wp.ProyectoId)
+        // find project for worker — use WorkerVinculacion (same source as DesempenoSupervisor)
+        var proyectoIdNullable = await ctx.WorkerVinculacion
+            .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+            .OrderByDescending(v => v.Id)
+            .Select(v => (int?)v.ProyectoId)
             .FirstOrDefaultAsync();
+        var proyectoId = proyectoIdNullable ?? 0;
 
         int programaId = 0;
         if (proyectoId > 0)

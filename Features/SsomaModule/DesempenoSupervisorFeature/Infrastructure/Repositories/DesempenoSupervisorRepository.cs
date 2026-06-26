@@ -6,12 +6,15 @@ namespace Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastr
 
 public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> factory)
 {
-    private const int MetaRacs         = 4;
-    private const int MetaOpt          = 2;
-    private const int MetaInspecciones = 2;
-    private const int MetaCharlas      = 2;
+    private const int MetaRacs            = 4;
+    private const int MetaOpt             = 2;
+    private const int MetaInspecciones    = 2;
+    private const int MetaCharlas         = 2;
+    private const int MetaLeccion         = 1;
+    private const int MetaEvalContratista = 1;
+    private const int MetaEvalResidente   = 1;
 
-    public async Task<List<DesempenoSupervisorDto>> GetDesempenoAsync(int mes, int anio)
+    public async Task<List<DesempenoSupervisorDto>> GetDesempenoAsync(int mes, int anio, int? proyectoId)
     {
         await using var ctx = await factory.CreateDbContextAsync();
 
@@ -25,16 +28,38 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .Select(r => r.RoleId)
             .ToListAsync();
 
-        var supervisorUserIds = await ctx.UserRole
+        var todosSupIds = await ctx.UserRole
             .Where(ur => ssomaRoleIds.Contains(ur.RoleId))
             .Select(ur => ur.UserId)
             .Distinct()
             .ToListAsync();
 
+        if (!todosSupIds.Any()) return [];
+
+        List<int> supervisorUserIds;
+        if (proyectoId.HasValue)
+        {
+            var staffDelProyecto = await ctx.Person
+                .Where(p => p.UserId != null)
+                .Join(ctx.Worker.Where(w => w.PersonId != null),
+                    p => p.PersonId,
+                    w => w.PersonId,
+                    (p, w) => new { p.UserId, WorkerId = w.Id })
+                .Join(ctx.WorkerVinculacion.Where(v => v.FechaFin == null && v.ProyectoId == proyectoId.Value),
+                    x => x.WorkerId,
+                    v => v.WorkerId,
+                    (x, v) => x.UserId!.Value)
+                .Distinct()
+                .ToListAsync();
+            supervisorUserIds = staffDelProyecto;
+        }
+        else
+        {
+            supervisorUserIds = todosSupIds;
+        }
         if (!supervisorUserIds.Any()) return [];
 
-        // ── 2. Filtrar solo STAFF: User → Person → Worker (ContributorId IS NULL) ──
-        // Relación: Person.UserId = User.UserId
+        // ── 2. Filtrar solo STAFF: User → Person → Worker (excluye Oficina Central) ──
         var personasPorUser = await ctx.Person
             .Where(p => p.UserId != null && supervisorUserIds.Contains(p.UserId.Value))
             .Select(p => new { UserId = p.UserId!.Value, p.PersonId })
@@ -49,7 +74,6 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .Select(w => new { w.Id, w.PersonId })
             .ToListAsync();
 
-        // UserId → WorkerId (solo staff)
         var userToWorker = personasPorUser
             .Join(staffWorkers,
                   p => p.PersonId,
@@ -72,73 +96,163 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             })
             .ToListAsync();
 
-        // ── 5. Bulk queries con fechas individuales ────────────────────────
-        var racsDetalle = await ctx.SsomaRacs
-            .Where(r => r.CreatedBy != null && supervisorUserIds.Contains(r.CreatedBy.Value)
-                     && r.FechaReporte >= inicio && r.FechaReporte < fin)
-            .Select(r => new { SupId = r.CreatedBy!.Value, r.ProyectoId, Fecha = r.FechaReporte })
+        var supervisorNombres = supervisores.Select(s => s.Nombre.ToUpper().Trim()).ToList();
+        var nombreToSupId     = supervisores.ToDictionary(s => s.Nombre.ToUpper().Trim(), s => s.UserId);
+
+        // ── 4. Queries con fechas para los 4 indicadores core (FechaLogro100) ─
+        var racsRaw = await ctx.SsomaRacs
+            .Where(r => r.FechaReporte >= inicio && r.FechaReporte < fin
+                     && (proyectoId == null || r.ProyectoId == proyectoId)
+                     && (
+                         (r.CreatedBy != null && supervisorUserIds.Contains(r.CreatedBy.Value)) ||
+                         (r.CreatedBy == null && r.ReportanteNombre != null && supervisorNombres.Contains(r.ReportanteNombre.ToUpper().Trim()))
+                     ))
+            .Select(r => new {
+                SupId = r.CreatedBy != null ? r.CreatedBy.Value : -1,
+                r.ReportanteNombre,
+                r.ProyectoId,
+                Fecha = r.FechaReporte
+            })
             .ToListAsync();
 
-        var optDetalle = await ctx.SsomaOpt
-            .Where(o => o.CreatedBy != null && supervisorUserIds.Contains(o.CreatedBy.Value)
-                     && o.Fecha >= inicio && o.Fecha < fin)
-            .Select(o => new { SupId = o.CreatedBy!.Value, o.ProyectoId, Fecha = o.Fecha })
+        var racsDetalle = racsRaw
+            .Select(r => new {
+                SupId = r.SupId > 0
+                    ? r.SupId
+                    : (r.ReportanteNombre != null && nombreToSupId.ContainsKey(r.ReportanteNombre.ToUpper().Trim())
+                        ? nombreToSupId[r.ReportanteNombre.ToUpper().Trim()]
+                        : 0),
+                r.ProyectoId,
+                r.Fecha
+            })
+            .Where(r => r.SupId > 0)
+            .ToList();
+
+        var optRaw = await ctx.SsomaOpt
+            .Where(o => o.Fecha >= inicio && o.Fecha < fin
+                     && (proyectoId == null || o.ProyectoId == proyectoId)
+                     && (
+                         (o.CreatedBy != null && supervisorUserIds.Contains(o.CreatedBy.Value)) ||
+                         (o.CreatedBy == null && o.ObservadorNombre != null && supervisorNombres.Contains(o.ObservadorNombre.ToUpper().Trim()))
+                     ))
+            .Select(o => new {
+                SupId = o.CreatedBy != null ? o.CreatedBy.Value : -1,
+                o.ObservadorNombre,
+                o.ProyectoId,
+                o.Fecha
+            })
             .ToListAsync();
+
+        var optDetalle = optRaw
+            .Select(o => new {
+                SupId = o.SupId > 0
+                    ? o.SupId
+                    : (o.ObservadorNombre != null && nombreToSupId.ContainsKey(o.ObservadorNombre.ToUpper().Trim())
+                        ? nombreToSupId[o.ObservadorNombre.ToUpper().Trim()]
+                        : 0),
+                o.ProyectoId,
+                o.Fecha
+            })
+            .Where(o => o.SupId > 0)
+            .ToList();
 
         var inspDetalle = await ctx.SsomaInspeccion
             .Where(i => i.CreatedBy != null && supervisorUserIds.Contains(i.CreatedBy.Value)
-                     && i.Fecha >= inicio && i.Fecha < fin)
-            .Select(i => new { SupId = i.CreatedBy!.Value, i.ProyectoId, Fecha = i.Fecha })
+                     && i.Fecha >= inicio && i.Fecha < fin
+                     && (proyectoId == null || i.ProyectoId == proyectoId))
+            .Select(i => new { SupId = i.CreatedBy!.Value, i.ProyectoId, i.Fecha })
             .ToListAsync();
 
         var charlasDetalle = await ctx.SsCharlas
             .Where(c => c.CreadoPorId != null && supervisorUserIds.Contains(c.CreadoPorId.Value)
-                     && c.Fecha >= inicio && c.Fecha < fin)
-            .Select(c => new { SupId = c.CreadoPorId!.Value, ProyId = c.ProyectoId ?? 0, Fecha = c.Fecha })
+                     && c.Fecha >= inicio && c.Fecha < fin
+                     && (proyectoId == null || c.ProyectoId == proyectoId))
+            .Select(c => new { SupId = c.CreadoPorId!.Value, ProyId = c.ProyectoId ?? 0, c.Fecha })
             .ToListAsync();
 
-        // ── 6. Proyectos involucrados ──────────────────────────────────────
-        var proyectoIds = racsDetalle.Select(r => r.ProyectoId)
-            .Union(optDetalle        .Select(o => o.ProyectoId))
-            .Union(inspDetalle       .Select(i => i.ProyectoId))
-            .Union(charlasDetalle.Where(c => c.ProyId > 0).Select(c => c.ProyId))
-            .Distinct().ToList();
+        // ── 5. Nuevos indicadores ──────────────────────────────────────────
+        var leccionesPorSupervisor = await ctx.Lesson
+            .Where(l => supervisorUserIds.Contains(l.CreatedUserId)
+                     && l.CreatedDateTime >= inicio && l.CreatedDateTime < fin
+                     && l.Active
+                     && (proyectoId == null || l.ProjectId == proyectoId))
+            .GroupBy(l => new { l.CreatedUserId, l.ProjectId })
+            .Select(g => new { SupId = g.Key.CreatedUserId, ProyId = g.Key.ProjectId ?? 0, N = g.Count() })
+            .ToListAsync();
+
+        var evalContratistaPorSupervisor = await ctx.SsEvalSupervisor
+            .Where(e => e.EvaluadorUserId != null && supervisorUserIds.Contains(e.EvaluadorUserId.Value)
+                     && e.Mes == mes && e.Anio == anio
+                     && (proyectoId == null || e.ProyectoId == proyectoId))
+            .GroupBy(e => new { e.EvaluadorUserId, e.ProyectoId })
+            .Select(g => new { SupId = g.Key.EvaluadorUserId!.Value, g.Key.ProyectoId, N = g.Count() })
+            .ToListAsync();
+
+        var evalResidentePorSupervisor = await ctx.EvEvaluacionesResidente
+            .Where(e => e.EvaluadorUserId != null && supervisorUserIds.Contains(e.EvaluadorUserId.Value)
+                     && e.CreatedAt >= inicio && e.CreatedAt < fin
+                     && (proyectoId == null || e.ProjectId == proyectoId))
+            .GroupBy(e => new { e.EvaluadorUserId, e.ProjectId })
+            .Select(g => new { SupId = g.Key.EvaluadorUserId!.Value, ProyId = g.Key.ProjectId ?? 0, N = g.Count() })
+            .ToListAsync();
+
+        // ── 6. Combinaciones (supervisor, proyecto) con actividad en el mes ─
+        List<(int SupId, int ProyId)> combinaciones;
+        if (proyectoId.HasValue)
+        {
+            combinaciones = supervisorUserIds.Select(sid => (SupId: sid, ProyId: proyectoId.Value)).ToList();
+        }
+        else
+        {
+            combinaciones = racsDetalle.Select(r => (r.SupId, r.ProyectoId))
+                .Concat(optDetalle    .Select(o => (o.SupId, o.ProyectoId)))
+                .Concat(inspDetalle   .Select(i => (i.SupId, i.ProyectoId)))
+                .Concat(charlasDetalle.Where(c => c.ProyId > 0).Select(c => (c.SupId, c.ProyId)))
+                .Concat(leccionesPorSupervisor.Where(l => l.ProyId > 0).Select(l => (l.SupId, l.ProyId)))
+                .Concat(evalContratistaPorSupervisor.Select(e => (SupId: e.SupId, ProyId: e.ProyectoId)))
+                .Concat(evalResidentePorSupervisor.Where(e => e.ProyId > 0).Select(e => (e.SupId, e.ProyId)))
+                .Where(c => c.Item2 > 0)
+                .Distinct().ToList();
+        }
+
+        var proyectoIds = combinaciones.Select(c => c.ProyId).Distinct().ToList();
 
         var proyectos = await ctx.Project
             .Where(p => proyectoIds.Contains(p.ProjectId))
             .Select(p => new { p.ProjectId, Nombre = p.ProjectDescription })
             .ToListAsync();
 
-        // ── 7. Combinaciones (supervisor, proyecto) con actividad en el mes ─
-        // El filtro de staff (paso 2) ya excluye a no-staff como Justiniani.
-        var combinaciones = racsDetalle.Select(r => (r.SupId, r.ProyectoId))
-            .Concat(optDetalle  .Select(o => (o.SupId, o.ProyectoId)))
-            .Concat(inspDetalle .Select(i => (i.SupId, i.ProyectoId)))
-            .Concat(charlasDetalle.Where(c => c.ProyId > 0).Select(c => (c.SupId, c.ProyId)))
-            .Distinct()
-            .ToList();
-
-        // ── 8. Construir resultados ────────────────────────────────────────
+        // ── 7. Construir resultados ────────────────────────────────────────
         var resultado = new List<DesempenoSupervisorDto>();
 
         foreach (var (supId, proyId) in combinaciones)
         {
+            if (proyId == 0) continue;
+
             var sup  = supervisores.FirstOrDefault(s => s.UserId == supId);
-            var proy = proyectos   .FirstOrDefault(p => p.ProjectId == proyId);
+            var proy = proyectos.FirstOrDefault(p => p.ProjectId == proyId);
             if (sup is null || proy is null) continue;
 
             var racs    = racsDetalle   .Count(r => r.SupId == supId && r.ProyectoId == proyId);
             var opt     = optDetalle    .Count(o => o.SupId == supId && o.ProyectoId == proyId);
             var insp    = inspDetalle   .Count(i => i.SupId == supId && i.ProyectoId == proyId);
-            var charlas = charlasDetalle.Count(c => c.SupId == supId && c.ProyId    == proyId);
+            var charlas = charlasDetalle.Count(c => c.SupId == supId && c.ProyId     == proyId);
+            var leccion       = leccionesPorSupervisor.FirstOrDefault(l => l.SupId == supId && l.ProyId == proyId)?.N ?? 0;
+            var evalContrat   = evalContratistaPorSupervisor.FirstOrDefault(e => e.SupId == supId && e.ProyectoId == proyId)?.N ?? 0;
+            var evalResidente = evalResidentePorSupervisor.FirstOrDefault(e => e.SupId == supId && e.ProyId == proyId)?.N ?? 0;
 
-            var pctRacs    = Math.Min(100m, Pct(racs,    MetaRacs));
-            var pctOpt     = Math.Min(100m, Pct(opt,     MetaOpt));
-            var pctInsp    = Math.Min(100m, Pct(insp,    MetaInspecciones));
-            var pctCharlas = Math.Min(100m, Pct(charlas, MetaCharlas));
-            var pctGeneral = (pctRacs + pctOpt + pctInsp + pctCharlas) / 4m;
+            var pctRacs        = Math.Min(100m, Pct(racs,    MetaRacs));
+            var pctOpt         = Math.Min(100m, Pct(opt,     MetaOpt));
+            var pctInsp        = Math.Min(100m, Pct(insp,    MetaInspecciones));
+            var pctCharlas     = Math.Min(100m, Pct(charlas, MetaCharlas));
+            var pctLeccion     = leccion > 0 ? 100m : 0m;
+            var pctEvalContrat = evalContrat > 0 ? 100m : 0m;
+            var pctEvalRes     = evalResidente > 0 ? 100m : 0m;
+            // RAC+OPT+Insp+Charlas = 17.5% c/u (70% total); Leccion+EvalContrat+EvalRes = 10% c/u
+            var pctGeneral = Math.Round(
+                pctRacs * 0.175m + pctOpt * 0.175m + pctInsp * 0.175m + pctCharlas * 0.175m +
+                pctLeccion * 0.10m + pctEvalContrat * 0.10m + pctEvalRes * 0.10m, 1);
 
-            // Fecha del N-ésimo registro de cada componente
             DateTime? fechaRacs = racsDetalle
                 .Where(r => r.SupId == supId && r.ProyectoId == proyId)
                 .OrderBy(r => r.Fecha).Skip(MetaRacs - 1)
@@ -159,37 +273,45 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                 .OrderBy(c => c.Fecha).Skip(MetaCharlas - 1)
                 .Select(c => (DateTime?)c.Fecha).FirstOrDefault();
 
-            // FechaLogro100 = cuando cayó el último componente que faltaba
             DateTime? fechaLogro100 = null;
             if (fechaRacs.HasValue && fechaOpt.HasValue && fechaInsp.HasValue && fechaCharlas.HasValue)
                 fechaLogro100 = new[] { fechaRacs.Value, fechaOpt.Value, fechaInsp.Value, fechaCharlas.Value }.Max();
 
             resultado.Add(new DesempenoSupervisorDto(
-                SupervisorId:       supId,
-                SupervisorNombre:   sup.Nombre,
-                ProyectoId:         proyId,
-                ProyectoNombre:     proy.Nombre ?? $"Proyecto {proyId}",
-                Mes:                mes,
-                Anio:               anio,
-                MetaRacs:           MetaRacs,
-                MetaOpt:            MetaOpt,
-                MetaInspecciones:   MetaInspecciones,
-                MetaCharlas:        MetaCharlas,
-                ActualRacs:         racs,
-                ActualOpt:          opt,
-                ActualInspecciones: insp,
-                ActualCharlas:      charlas,
-                PctRacs:            pctRacs,
-                PctOpt:             pctOpt,
-                PctInspecciones:    pctInsp,
-                PctCharlas:         pctCharlas,
-                PctGeneral:         pctGeneral,
-                FechaLogro100:      fechaLogro100,
-                EsPrimeroEnProyecto: false   // se resuelve abajo
+                SupervisorId:          supId,
+                SupervisorNombre:      sup.Nombre,
+                ProyectoId:            proyId,
+                ProyectoNombre:        proy.Nombre ?? $"Proyecto {proyId}",
+                Mes:                   mes,
+                Anio:                  anio,
+                MetaRacs:              MetaRacs,
+                MetaOpt:               MetaOpt,
+                MetaInspecciones:      MetaInspecciones,
+                MetaCharlas:           MetaCharlas,
+                MetaLeccion:           MetaLeccion,
+                MetaEvalContratista:   MetaEvalContratista,
+                MetaEvalResidente:     MetaEvalResidente,
+                ActualRacs:            racs,
+                ActualOpt:             opt,
+                ActualInspecciones:    insp,
+                ActualCharlas:         charlas,
+                ActualLeccion:         leccion,
+                ActualEvalContratista: evalContrat,
+                ActualEvalResidente:   evalResidente,
+                PctRacs:               pctRacs,
+                PctOpt:                pctOpt,
+                PctInspecciones:       pctInsp,
+                PctCharlas:            pctCharlas,
+                PctLeccion:            pctLeccion,
+                PctEvalContratista:    pctEvalContrat,
+                PctEvalResidente:      pctEvalRes,
+                PctGeneral:            pctGeneral,
+                FechaLogro100:         fechaLogro100,
+                EsPrimeroEnProyecto:   false
             ));
         }
 
-        // ── 9. Marcar al primero en llegar a 100% por proyecto ─────────────
+        // ── 8. Marcar al primero en llegar al 100% por proyecto ────────────
         var primerosPorProyecto = new HashSet<(int SupId, int ProyId)>();
         foreach (var grupo in resultado.Where(r => r.FechaLogro100.HasValue).GroupBy(r => r.ProyectoId))
         {

@@ -11,17 +11,24 @@ public record DesempenoSupervisorDto(
     int MetaOpt,
     int MetaInspecciones,
     int MetaCharlas,
+    int MetaLeccion,
+    int MetaEvalContratista,
+    int MetaEvalResidente,
     int ActualRacs,
     int ActualOpt,
     int ActualInspecciones,
     int ActualCharlas,
+    int ActualLeccion,
+    int ActualEvalContratista,
+    int ActualEvalResidente,
     decimal PctRacs,
     decimal PctOpt,
     decimal PctInspecciones,
     decimal PctCharlas,
+    decimal PctLeccion,
+    decimal PctEvalContratista,
+    decimal PctEvalResidente,
     decimal PctGeneral,
-    // Fecha en que el supervisor completó todos los entregables del mes (todos al 100%)
     DateTime? FechaLogro100,
-    // true si fue el primero en su proyecto en alcanzar el 100% general
     bool EsPrimeroEnProyecto
 );

@@ -152,6 +152,17 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
             await ctx.SaveChangesAsync();
         }
 
+        public async Task AttachDocument(int invoiceId, string documentUrl, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var record = await ctx.Invoice.FirstOrDefaultAsync(i => i.InvoiceId == invoiceId && i.State)
+                ?? throw new AbrilException("La factura no existe.");
+            record.DocumentUrl = documentUrl;
+            record.UpdatedDateTime = DateTimeOffset.UtcNow;
+            record.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task<(string DriveId, string FolderId)?> GetFolderDestination(int invoiceFolderId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -254,6 +265,68 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
             }
 
             return query;
+        }
+
+        public async Task<List<InvoiceBlockGroupDto>> GetBlocks(InvoiceFilterDto filter)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var query = ApplyFilters(ctx.Invoice.Where(i => i.State), filter);
+
+            var items = await query
+                .OrderByDescending(i => i.InvoiceId)
+                .Select(i => new InvoiceDto
+                {
+                    InvoiceId = i.InvoiceId,
+                    IssueDate = i.IssueDate,
+                    Serie = i.Serie,
+                    Correlativo = i.Correlativo,
+                    ContributorId = i.ContributorId,
+                    ContributorRuc = i.Contributor!.ContributorRuc ?? "",
+                    ContributorName = i.ProveedorName ?? i.Contributor!.ContributorName,
+                    AbrilContributorId = i.AbrilContributorId,
+                    AbrilContributorName = i.AbrilName ?? i.AbrilContributor!.ContributorName,
+                    AbrilName = i.AbrilName,
+                    Description = i.Description,
+                    InvoicePaymentFormId = i.InvoicePaymentFormId ?? 0,
+                    InvoicePaymentFormDescription = i.InvoicePaymentForm!.InvoicePaymentFormDescription,
+                    Total = i.Total,
+                    CurrencyId = i.CurrencyId,
+                    CurrencyCode = i.Currency!.CurrencyCode,
+                    CurrencySymbol = i.Currency.CurrencySymbol,
+                    DocumentUrl = i.DocumentUrl,
+                    CreatedDateTime = i.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
+                })
+                .ToListAsync();
+
+            return items
+                .GroupBy(i => AbrilShortLabel(i.AbrilName, i.AbrilContributorName))
+                .Select(g => new InvoiceBlockGroupDto
+                {
+                    AbrilName = g.Key,
+                    Count = g.Count(),
+                    Items = g.ToList()
+                })
+                .OrderBy(g => g.AbrilName)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Nombre corto de la razón social de Abril para el encabezado de bloques.
+        /// Si vino del Excel usa el nombre de la hoja (ya es corto y en mayúsculas, ej. "ALTAMURA").
+        /// Si no, recorta sufijos societarios del nombre del contribuyente
+        /// (ej. "Oporto Inmobiliaria S.A.C" → "OPORTO").
+        /// </summary>
+        private static string AbrilShortLabel(string? abrilName, string? contributorName)
+        {
+            if (!string.IsNullOrWhiteSpace(abrilName))
+                return abrilName.Trim().ToUpper();
+
+            var name = (contributorName ?? "Sin razón social").Trim();
+            var stopWords = new[] { "INMOBILIARIA", "INVERSIONES", "GRUPO", "CORPORACION", "CORPORACIÓN", "INMOBILIARIO", "INMOBILIARIAS", "S.A.C", "S.A.C.", "SAC", "S.A", "E.I.R.L", "EIRL" };
+            var tokens = name.ToUpper().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var kept = tokens.TakeWhile(t => !stopWords.Contains(t)).ToList();
+            var result = kept.Count > 0 ? string.Join(" ", kept) : tokens.FirstOrDefault() ?? name.ToUpper();
+            return result;
         }
 
         public async Task<InvoiceDashboardDto> GetDashboard(InvoiceFilterDto filter)
@@ -493,7 +566,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     ContributorId = contributorId,
                     AbrilContributorId = abrilContributorId,
                     Description = (r.Description ?? "").Trim(),
-                    InvoicePaymentFormId = 0,
+                    InvoicePaymentFormId = null,
                     Total = r.Total,
                     CurrencyId = currencyId,
                     DocumentUrl = documentUrl,

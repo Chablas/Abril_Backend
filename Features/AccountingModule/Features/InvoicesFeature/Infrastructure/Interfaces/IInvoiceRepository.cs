@@ -16,10 +16,13 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         Task<List<InvoiceCurrencyDto>> GetCurrencies();
         Task<PagedResult<InvoiceDto>> GetPaged(InvoiceFilterDto filter);
         Task<InvoiceDashboardDto> GetDashboard(InvoiceFilterDto filter);
+        Task<List<InvoiceBlockGroupDto>> GetBlocks(InvoiceFilterDto filter);
         /// <summary>Detalle completo de una factura. Null si no existe.</summary>
         Task<InvoiceDetailDto?> GetDetail(int invoiceId);
         /// <summary>Actualiza una factura. documentUrl null = conservar el documento actual.</summary>
         Task Update(InvoiceUpdateDto dto, string? documentUrl, int userId);
+        /// <summary>Asocia/actualiza el documento de una factura existente.</summary>
+        Task AttachDocument(int invoiceId, string documentUrl, int userId);
 
         /// <summary>Destino (driveId+folderId) de una carpeta de facturas activa. Null si no existe.</summary>
         Task<(string DriveId, string FolderId)?> GetFolderDestination(int invoiceFolderId);

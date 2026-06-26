@@ -107,6 +107,13 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("worker_lesson_jefe_id")]
         public int? WorkerLessonJefeId { get; set; }
 
+        /// <summary>
+        /// Si true, las lecciones aprendidas creadas por este trabajador se auto-aprueban
+        /// al momento de crear o editar (solo en sus propias lecciones). Sin notificación.
+        /// </summary>
+        [Column("auto_approve_lesson")]
+        public bool AutoApproveLesson { get; set; }
+
         [Column("created_at")]
         public DateTimeOffset? CreatedAt { get; set; }
 

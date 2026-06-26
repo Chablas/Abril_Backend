@@ -671,7 +671,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Jefaturas activas (con correo y usuario para resolver subordinados).
+            // Jefaturas activas con correo. No se exige usuario propio: el conteo de
+            // pendientes se resuelve por worker_id, que siempre existe.
             var jefes = await (
                 from r in ctx.LessonJefeReminder
                 join w in ctx.Worker on r.WorkerId equals w.Id
@@ -682,21 +683,26 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                       && CategoriasJefatura.Contains(c.Name)
                       && w.EmailPersonal != null
                       && w.EmailPersonal != ""
-                      && p.UserId != null
                 select new
                 {
                     WorkerId = w.Id,
                     Email = w.EmailPersonal!,
-                    p.FullName,
-                    UserId = p.UserId!.Value
+                    p.FullName
                 }
             ).ToListAsync();
 
             var result = new List<JefeReviewStatusDTO>();
             foreach (var j in jefes)
             {
-                // Subordinados cuyo jefe más cercano (subiendo el árbol area_scope) es este jefe.
-                var subordinateUserIds = await _jefeResolver.GetSubordinateUserIdsAsync(j.UserId);
+                // Subordinados directos: workers cuyo worker_lesson_jefe_id apunta a este jefe.
+                // Se usan sus user_ids para contar lecciones pendientes.
+                var subordinateUserIds = await (
+                    from w in ctx.Worker
+                    where w.WorkerLessonJefeId == j.WorkerId
+                    join p in ctx.Person on w.PersonId equals p.PersonId
+                    where p.UserId != null
+                    select p.UserId!.Value
+                ).Distinct().ToListAsync();
 
                 var pending = subordinateUserIds.Count == 0
                     ? 0
@@ -734,19 +740,28 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 where w.EmailPersonal != null && w.EmailPersonal.ToLower().Contains("@abril.pe")
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
+                from c in cj.DefaultIfEmpty()
                 join j in ctx.Worker on w.WorkerLessonJefeId equals j.Id into jj
                 from j in jj.DefaultIfEmpty()
                 join jp in ctx.Person on j.PersonId equals jp.PersonId into jpj
                 from jp in jpj.DefaultIfEmpty()
+                join jc in ctx.WorkersCategory on j.WorkerCategoryId equals jc.WorkersCategoryId into jcj
+                from jc in jcj.DefaultIfEmpty()
                 orderby p != null ? p.FullName : ""
                 select new WorkerRevisorItemDTO
                 {
                     WorkerId = w.Id,
                     FullName = p != null ? p.FullName : null,
                     Email = w.EmailPersonal,
+                    CategoryId = w.WorkerCategoryId,
+                    Category = c != null ? c.Name : null,
                     JefeWorkerId = w.WorkerLessonJefeId,
                     JefeFullName = jp != null ? jp.FullName : null,
-                    JefeEmail = j != null ? j.EmailPersonal : null
+                    JefeEmail = j != null ? j.EmailPersonal : null,
+                    JefeCategoryId = j != null ? j.WorkerCategoryId : null,
+                    JefeCategory = jc != null ? jc.Name : null,
+                    AutoApproveLesson = w.AutoApproveLesson
                 }
             ).ToListAsync();
         }
@@ -789,8 +804,34 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             }
 
             worker.WorkerLessonJefeId = jefeWorkerId;
+            // Asignar un revisor desactiva la auto-aprobación (son mutuamente excluyentes).
+            if (jefeWorkerId.HasValue)
+                worker.AutoApproveLesson = false;
             worker.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<ToggleAutoApproveLessonResultDTO> ToggleAutoApproveLessonAsync(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId);
+            if (worker == null)
+                throw new AbrilException("El trabajador no existe.", 404);
+
+            // La auto-aprobación solo aplica a trabajadores SIN revisor asignado.
+            if (worker.WorkerLessonJefeId != null && !worker.AutoApproveLesson)
+                throw new AbrilException("No se puede activar la auto-aprobación: el trabajador tiene un revisor asignado.", 400);
+
+            worker.AutoApproveLesson = !worker.AutoApproveLesson;
+            worker.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+
+            return new ToggleAutoApproveLessonResultDTO
+            {
+                WorkerId = workerId,
+                AutoApproveLesson = worker.AutoApproveLesson
+            };
         }
 
         public async Task<List<UserWithoutLessonsDTO>> GetUsersWithoutLessonsByPeriod(DateTime periodDate)

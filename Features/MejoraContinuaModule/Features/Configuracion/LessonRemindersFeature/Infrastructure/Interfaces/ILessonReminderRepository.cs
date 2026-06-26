@@ -94,5 +94,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
         /// <summary>Asigna (o quita, con null) el jefe directo de un trabajador.</summary>
         Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId);
+
+        /// <summary>Alterna auto_approve_lesson de un trabajador.</summary>
+        Task<ToggleAutoApproveLessonResultDTO> ToggleAutoApproveLessonAsync(int workerId);
     }
 }

@@ -138,15 +138,31 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
             if (registro == null) return null;
 
-            // CanReview: el usuario actual puede aprobar/rechazar si es el revisor
-            // resuelto del autor, la lección está PENDIENTE y —si es Residente— la
-            // lección pertenece a uno de sus proyectos asignados (user_project).
-            if (registro.ApprovalStatus == "PENDIENTE" && registro.CreatedUserId != currentUserId)
+            // CanReview + ReviewedByFullName para lecciones PENDIENTE:
+            // el jefe se obtiene por worker_lesson_jefe_id del autor (sin requerir
+            // que el jefe tenga usuario).
+            if (registro.ApprovalStatus == "PENDIENTE")
             {
-                var jefeUserId = await _jefeResolver.ResolveJefeUserIdAsync(registro.CreatedUserId);
-                registro.CanReview = jefeUserId.HasValue
-                    && jefeUserId.Value == currentUserId
-                    && await _jefeResolver.CanReviewProjectAsync(currentUserId, registro.ProjectId);
+                // Nombre del jefe: autor → worker → worker_lesson_jefe_id → persona del jefe.
+                var jefeInfo = await (
+                    from authorPerson in ctx.Person
+                    join authorWorker in ctx.Worker on authorPerson.PersonId equals authorWorker.PersonId
+                    join jefeWorker in ctx.Worker on authorWorker.WorkerLessonJefeId equals jefeWorker.Id
+                    join jefePerson in ctx.Person on jefeWorker.PersonId equals jefePerson.PersonId
+                    where authorPerson.UserId == registro.CreatedUserId
+                    select new { jefePerson.FullName, jefeWorker.Id, JefeUserId = jefePerson.UserId }
+                ).FirstOrDefaultAsync();
+
+                if (jefeInfo != null)
+                {
+                    registro.ReviewedByFullName = jefeInfo.FullName;
+
+                    if (registro.CreatedUserId != currentUserId && jefeInfo.JefeUserId.HasValue)
+                    {
+                        registro.CanReview = jefeInfo.JefeUserId.Value == currentUserId
+                            && await _jefeResolver.CanReviewProjectAsync(currentUserId, registro.ProjectId);
+                    }
+                }
             }
 
             registro.Images = await (
@@ -615,6 +631,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 if (!exists) return null;
             }
 
+            var autoApprove = await (
+                from p in ctx.Person
+                join w in ctx.Worker on p.PersonId equals w.PersonId
+                where p.UserId == userId
+                select w.AutoApproveLesson
+            ).FirstOrDefaultAsync();
+
             var now = DateTimeOffset.UtcNow;
             var lesson = new Lesson
             {
@@ -629,7 +652,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 CatalogItemId = catalogItemId,
                 LessonAreaId = dto.LessonAreaId,
                 StateId = 2,
-                ApprovalStatus = "PENDIENTE",
+                ApprovalStatus = autoApprove ? "APROBADA" : "PENDIENTE",
+                ReviewedByUserId = autoApprove ? userId : null,
+                ReviewedAt = autoApprove ? now : null,
                 CreatedDateTime = now,
                 CreatedUserId = userId,
                 UpdatedDateTime = null,
@@ -769,13 +794,32 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             lesson.AreaId = dto.AreaId;
             lesson.CatalogItemId = catalogItemId;
             lesson.LessonAreaId = dto.LessonAreaId;
-            // Editar devuelve la lección a revisión.
+            // Editar devuelve la lección a revisión (salvo auto-aprobación propia).
             lesson.ApprovalStatus = "PENDIENTE";
             lesson.ReviewedByUserId = null;
             lesson.ReviewedAt = null;
             lesson.RejectionComment = null;
             lesson.UpdatedDateTime = DateTimeOffset.UtcNow;
             lesson.UpdatedUserId = currentUserId;
+
+            // Auto-aprobar solo si el autor está editando su propia lección.
+            if (lesson.CreatedUserId == currentUserId)
+            {
+                var autoApprove = await (
+                    from p in ctx.Person
+                    join w in ctx.Worker on p.PersonId equals w.PersonId
+                    where p.UserId == currentUserId
+                    select w.AutoApproveLesson
+                ).FirstOrDefaultAsync();
+
+                if (autoApprove)
+                {
+                    lesson.ApprovalStatus = "APROBADA";
+                    lesson.ReviewedByUserId = currentUserId;
+                    lesson.ReviewedAt = DateTimeOffset.UtcNow;
+                }
+            }
+
             await ctx.SaveChangesAsync();
 
             // Imágenes: quitar las marcadas y agregar las nuevas.

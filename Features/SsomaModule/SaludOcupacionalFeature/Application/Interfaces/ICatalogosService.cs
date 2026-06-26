@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Catalogos;
+using Abril_Backend.Shared.Services.Sunat.Dtos;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
 {
@@ -26,6 +27,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task<RestriccionTipoDto> UpdateRestriccionTipo(int id, RestriccionTipoUpsertDto dto);
 
         Task<List<EmpresaCatalogoDto>> ListEmpresas(bool soloActivas);
+        Task<SunatContributorDto?> GetEmpresaByRuc(string ruc);
+        Task<EmpresaCatalogoDto> CreateEmpresa(EmpresaCreateDto dto, int? userId);
 
         // Clinica Emails
         Task<List<ClinicaEmailDto>> ListClinicaEmails(int clinicaId);

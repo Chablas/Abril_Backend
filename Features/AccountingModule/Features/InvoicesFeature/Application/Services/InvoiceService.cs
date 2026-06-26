@@ -71,6 +71,9 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public Task<InvoiceDashboardDto> GetDashboard(InvoiceFilterDto filter)
             => _repository.GetDashboard(filter);
 
+        public Task<List<InvoiceBlockGroupDto>> GetBlocks(InvoiceFilterDto filter)
+            => _repository.GetBlocks(filter);
+
         public async Task<InvoiceDashboardInitDto> GetDashboardInit(InvoiceFilterDto filter)
         {
             var suppliers = await _repository.GetSuppliers();
@@ -264,6 +267,33 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
             }
 
             return await _repository.ImportInvoices(rows, docUrlByIndex, userId);
+        }
+
+        public async Task<string?> UploadDocument(int invoiceId, IFormFile file, int userId)
+        {
+            if (file == null || file.Length == 0)
+                throw new AbrilException("Debe adjuntar un archivo.");
+            if (file.Length > MaxBytes)
+                throw new AbrilException("El documento supera el tamaño máximo permitido (25 MB).");
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!AllowedExtensions.Contains(extension))
+                throw new AbrilException("Formato de documento no válido. Use PDF, PNG, JPG o WEBP.");
+
+            var detail = await _repository.GetDetail(invoiceId)
+                ?? throw new AbrilException("La factura no existe.", 404);
+
+            var baseName = Sanitize($"{detail.ContributorName}-{detail.InvoiceNumber}");
+            var container = _containerResolver.GetInvoicesContainerName();
+            using var stream = file.OpenReadStream();
+            var uploaded = await _fileStorageService.UploadFilesAsync(
+                new[] { (stream, $"{baseName}{extension}") }, container);
+            var url = uploaded.FirstOrDefault();
+
+            if (!string.IsNullOrWhiteSpace(url))
+                await _repository.AttachDocument(invoiceId, url, userId);
+
+            return url;
         }
 
         public Task<InvoiceSupplierDto> CreateSupplier(InvoiceSupplierCreateDto dto, int userId)

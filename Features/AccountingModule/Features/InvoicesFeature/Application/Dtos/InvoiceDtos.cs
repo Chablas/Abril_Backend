@@ -16,6 +16,8 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public string ContributorName { get; set; } = null!;
         public int? AbrilContributorId { get; set; }
         public string? AbrilContributorName { get; set; }
+        /// <summary>Nombre de la hoja del Excel (razón social corta de Abril), si vino de importación.</summary>
+        public string? AbrilName { get; set; }
         public string Description { get; set; } = null!;
         public int InvoicePaymentFormId { get; set; }
         public string InvoicePaymentFormDescription { get; set; } = null!;
@@ -53,6 +55,14 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public string? DocumentUrl { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public DateTime? UpdatedDateTime { get; set; }
+    }
+
+    /// <summary>Grupo de facturas por razón social de Abril (vista de bloques).</summary>
+    public class InvoiceBlockGroupDto
+    {
+        public string AbrilName { get; set; } = null!;
+        public int Count { get; set; }
+        public List<InvoiceDto> Items { get; set; } = new();
     }
 
     // ── Dashboard ────────────────────────────────────────────────────────────

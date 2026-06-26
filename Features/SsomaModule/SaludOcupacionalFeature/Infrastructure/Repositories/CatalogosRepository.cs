@@ -450,5 +450,46 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 })
                 .ToListAsync();
         }
+
+        public async Task<EmpresaCatalogoDto> CreateEmpresa(EmpresaCreateDto dto, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ruc = dto.Ruc.Trim();
+            var exists = await ctx.Contributor.AnyAsync(c => c.ContributorRuc == ruc && c.State);
+            if (exists)
+                throw new AbrilException("Ya existe una razón social registrada con ese RUC.", 409);
+
+            var entity = new Abril_Backend.Features.CostsModule.Shared.Models.Contributor
+            {
+                ContributorRuc = ruc,
+                ContributorName = dto.Nombre.Trim(),
+                ContributorAddress = dto.Direccion.Trim(),
+                ContributorEconomicActivityDescription = dto.TipoActividad.Trim(),
+                ContributorDistrict = dto.Distrito.Trim(),
+                ContributorProvince = dto.Provincia.Trim(),
+                ContributorDepartment = dto.Departamento.Trim(),
+                LegalEntityRegistryNumber = string.IsNullOrWhiteSpace(dto.PartidaRegistral) ? null : dto.PartidaRegistral.Trim(),
+                CreatedDateTime = DateTimeOffset.UtcNow,
+                CreatedUserId = userId,
+                Active = true,
+                State = true,
+                EsAbril = false
+            };
+            ctx.Contributor.Add(entity);
+            await ctx.SaveChangesAsync();
+
+            return new EmpresaCatalogoDto
+            {
+                Id = entity.ContributorId,
+                Nombre = entity.ContributorName,
+                Ruc = entity.ContributorRuc,
+                Direccion = entity.ContributorAddress,
+                PartidaRegistral = entity.LegalEntityRegistryNumber,
+                TipoActividad = entity.ContributorEconomicActivityDescription ?? "",
+                Activo = entity.Active,
+                EsAbril = entity.EsAbril
+            };
+        }
     }
 }

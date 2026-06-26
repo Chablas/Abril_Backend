@@ -54,6 +54,22 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
         }
 
         /// <summary>Carga inicial del dashboard: desplegables de filtros + datos de los gráficos.</summary>
+        /// <summary>Facturas agrupadas por razón social de Abril (vista de bloques).</summary>
+        [HttpGet("blocks")]
+        public async Task<IActionResult> GetBlocks([FromQuery] InvoiceFilterDto filter)
+        {
+            try
+            {
+                var result = await _service.GetBlocks(filter);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE BLOCKS: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet("dashboard/init")]
         public async Task<IActionResult> GetDashboardInit([FromQuery] InvoiceFilterDto filter)
         {
@@ -80,6 +96,30 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR INVOICE DASHBOARD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Sube/asocia el documento de una factura existente (multipart: file).</summary>
+        [HttpPost("{invoiceId:int}/document")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadDocument(int invoiceId, IFormFile file)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == null) return Unauthorized(new { message = "Inicie sesión." });
+
+                var url = await _service.UploadDocument(invoiceId, file, userId.Value);
+                return Ok(new { message = "Documento adjuntado exitosamente.", documentUrl = url });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE UPLOAD DOC: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

@@ -15,6 +15,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         /// <summary>Monedas activas (reusa la tabla currency de Adjudicaciones).</summary>
         Task<List<InvoiceCurrencyDto>> GetCurrencies();
         Task<PagedResult<InvoiceDto>> GetPaged(InvoiceFilterDto filter);
+        Task<InvoiceDashboardDto> GetDashboard(InvoiceFilterDto filter);
         /// <summary>Detalle completo de una factura. Null si no existe.</summary>
         Task<InvoiceDetailDto?> GetDetail(int invoiceId);
         /// <summary>Actualiza una factura. documentUrl null = conservar el documento actual.</summary>
@@ -28,6 +29,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         Task<string?> GetAbrilContributorName(int abrilContributorId);
 
         Task Create(InvoiceCreateDto dto, string? documentUrl, int userId);
+        Task<InvoiceImportResultDto> ImportInvoices(List<InvoiceImportRowDto> rows, Dictionary<int, string?> docUrlByIndex, int userId);
 
         /// <summary>Crea un contribuyente/proveedor. Lanza AbrilException si el RUC ya existe.</summary>
         Task<InvoiceSupplierDto> CreateSupplier(InvoiceSupplierCreateDto dto, int userId);

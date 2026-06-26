@@ -90,6 +90,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<CostosCronogramaActividadNodo> CostosCronogramaActividadNodo { get; set; }
         public DbSet<ProjectAdjudicacionFolder> ProjectAdjudicacionFolder { get; set; }
         public DbSet<InvoiceFolder> InvoiceFolder { get; set; }
+        public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceDocumentType> InvoiceDocumentType { get; set; }
         public DbSet<WorkSpecialty> WorkSpecialty { get; set; }
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
@@ -402,6 +403,12 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(i => i.Currency)
                 .WithMany()
                 .HasForeignKey(i => i.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Invoice>()
+                .HasOne(i => i.InvoiceDocumentType)
+                .WithMany()
+                .HasForeignKey(i => i.InvoiceDocumentTypeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ContractorEmail>()

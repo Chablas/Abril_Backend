@@ -53,6 +53,37 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
             }
         }
 
+        /// <summary>Carga inicial del dashboard: desplegables de filtros + datos de los gráficos.</summary>
+        [HttpGet("dashboard/init")]
+        public async Task<IActionResult> GetDashboardInit([FromQuery] InvoiceFilterDto filter)
+        {
+            try
+            {
+                var result = await _service.GetDashboardInit(filter);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE DASHBOARD INIT: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("dashboard")]
+        public async Task<IActionResult> GetDashboard([FromQuery] InvoiceFilterDto filter)
+        {
+            try
+            {
+                var result = await _service.GetDashboard(filter);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE DASHBOARD: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet("{invoiceId:int}")]
         public async Task<IActionResult> GetDetail(int invoiceId)
         {
@@ -91,6 +122,48 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR INVOICE UPDATE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Importación masiva desde el Excel de órdenes de pago. Recibe los registros ya
+        /// parseados por el frontend (recordsJson) y los archivos arrastrados (files).
+        /// </summary>
+        [HttpPost("import")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> Import([FromForm] string recordsJson, [FromForm] IFormFileCollection files)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == null) return Unauthorized(new { message = "Inicie sesión." });
+
+                List<InvoiceImportRowDto>? rows;
+                try
+                {
+                    rows = System.Text.Json.JsonSerializer.Deserialize<List<InvoiceImportRowDto>>(
+                        recordsJson, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+                catch
+                {
+                    return BadRequest(new { message = "Los registros enviados no son válidos." });
+                }
+
+                var result = await _service.Import(rows ?? new(), files, userId.Value);
+                return Ok(new
+                {
+                    message = $"Se registraron {result.Inserted} facturas ({result.WithFile} con documento, {result.WithoutFile} sin documento).",
+                    result
+                });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE IMPORT: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

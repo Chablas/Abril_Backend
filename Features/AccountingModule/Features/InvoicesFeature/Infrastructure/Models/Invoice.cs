@@ -15,9 +15,21 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         public string Correlativo { get; set; } = null!;
         /// <summary>Número completo legacy (serie-correlativo). Se conserva por auditoría.</summary>
         public string? InvoiceNumber { get; set; }
-        public int ContributorId { get; set; }
+        /// <summary>Proveedor (Socio de Negocio) tal cual viene del Excel. Fuente de verdad.</summary>
+        public string? ProveedorName { get; set; }
+        /// <summary>Razón social de Abril (nombre de la hoja del Excel). Fuente de verdad.</summary>
+        public string? AbrilName { get; set; }
+        /// <summary>N° Orden de Pago (Excel).</summary>
+        public string? PaymentOrderNumber { get; set; }
+        public int? InvoiceDocumentTypeId { get; set; }
+        /// <summary>Monto "Se autoriza" (Excel).</summary>
+        public decimal? AuthorizedAmount { get; set; }
+        /// <summary>Observación del documento (Excel).</summary>
+        public string? Observation { get; set; }
+        /// <summary>Enlace opcional al proveedor en contributor (puede ser null si no se encontró).</summary>
+        public int? ContributorId { get; set; }
         public string Description { get; set; } = null!;
-        public int InvoicePaymentFormId { get; set; }
+        public int? InvoicePaymentFormId { get; set; }
         public decimal Total { get; set; }
         /// <summary>Moneda del total (reusa la tabla currency de Adjudicaciones).</summary>
         public int? CurrencyId { get; set; }
@@ -39,5 +51,6 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         public InvoiceFolder? InvoiceFolder { get; set; }
         public Contributor? AbrilContributor { get; set; }
         public Currency? Currency { get; set; }
+        public InvoiceDocumentType? InvoiceDocumentType { get; set; }
     }
 }

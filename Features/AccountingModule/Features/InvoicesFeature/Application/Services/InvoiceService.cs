@@ -68,6 +68,27 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
             return _repository.GetPaged(filter);
         }
 
+        public Task<InvoiceDashboardDto> GetDashboard(InvoiceFilterDto filter)
+            => _repository.GetDashboard(filter);
+
+        public async Task<InvoiceDashboardInitDto> GetDashboardInit(InvoiceFilterDto filter)
+        {
+            var suppliers = await _repository.GetSuppliers();
+            var paymentForms = await _repository.GetPaymentForms();
+            var abrilCompanies = await _repository.GetAbrilCompanies();
+            var currencies = await _repository.GetCurrencies();
+            var dashboard = await _repository.GetDashboard(filter);
+
+            return new InvoiceDashboardInitDto
+            {
+                Suppliers = suppliers,
+                PaymentForms = paymentForms,
+                AbrilCompanies = abrilCompanies,
+                Currencies = currencies,
+                Dashboard = dashboard
+            };
+        }
+
         public async Task<InvoiceDetailDto> GetDetail(int invoiceId)
         {
             return await _repository.GetDetail(invoiceId)
@@ -201,6 +222,48 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
                 .Trim()
                 .TrimEnd('.', ' ');
             return string.IsNullOrWhiteSpace(cleaned) ? "SIN NOMBRE" : cleaned;
+        }
+
+        public async Task<InvoiceImportResultDto> Import(List<InvoiceImportRowDto> rows, IFormFileCollection files, int userId)
+        {
+            if (rows == null || rows.Count == 0)
+                throw new AbrilException("El Excel no contiene registros.");
+
+            // Indexar archivos por nombre (case-insensitive).
+            var fileByName = new Dictionary<string, IFormFile>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in files)
+                if (!fileByName.ContainsKey(f.FileName)) fileByName[f.FileName] = f;
+
+            var container = _containerResolver.GetInvoicesContainerName();
+            var docUrlByIndex = new Dictionary<int, string?>();
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var r = rows[i];
+                if (string.IsNullOrWhiteSpace(r.MatchedFileName) || !fileByName.TryGetValue(r.MatchedFileName, out var file) || file.Length == 0)
+                    continue;
+
+                if (file.Length > MaxBytes)
+                    throw new AbrilException($"El archivo '{file.FileName}' supera el tamaño máximo permitido (25 MB).");
+
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (!AllowedExtensions.Contains(extension))
+                    throw new AbrilException($"Formato no válido en '{file.FileName}'. Use PDF, PNG, JPG o WEBP.");
+
+                // Renombrado: nombrerazonsocial-numerofactura
+                var serie = (r.Serie ?? "").Trim();
+                var correlativo = (r.Correlativo ?? "").Trim();
+                var number = serie.Length > 0 ? $"{serie}-{correlativo}" : correlativo;
+                var baseName = Sanitize($"{(r.ProveedorName ?? "SIN PROVEEDOR").Trim()}-{number}");
+
+                using var stream = file.OpenReadStream();
+                var uploaded = await _fileStorageService.UploadFilesAsync(
+                    new[] { (stream, $"{baseName}{extension}") },
+                    container);
+                docUrlByIndex[i] = uploaded.FirstOrDefault();
+            }
+
+            return await _repository.ImportInvoices(rows, docUrlByIndex, userId);
         }
 
         public Task<InvoiceSupplierDto> CreateSupplier(InvoiceSupplierCreateDto dto, int userId)

@@ -92,13 +92,13 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     Serie = i.Serie,
                     Correlativo = i.Correlativo,
                     ContributorId = i.ContributorId,
-                    ContributorRuc = i.Contributor!.ContributorRuc,
-                    ContributorName = i.Contributor.ContributorName,
+                    ContributorRuc = i.Contributor!.ContributorRuc ?? "",
+                    ContributorName = i.ProveedorName ?? i.Contributor!.ContributorName,
                     AbrilContributorId = i.AbrilContributorId,
-                    AbrilContributorName = i.AbrilContributor!.ContributorName,
-                    AbrilContributorRuc = i.AbrilContributor.ContributorRuc,
+                    AbrilContributorName = i.AbrilName ?? i.AbrilContributor!.ContributorName,
+                    AbrilContributorRuc = i.AbrilContributor!.ContributorRuc,
                     Description = i.Description,
-                    InvoicePaymentFormId = i.InvoicePaymentFormId,
+                    InvoicePaymentFormId = i.InvoicePaymentFormId ?? 0,
                     InvoicePaymentFormDescription = i.InvoicePaymentForm!.InvoicePaymentFormDescription,
                     Total = i.Total,
                     CurrencyId = i.CurrencyId,
@@ -194,12 +194,9 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                 .ToListAsync();
         }
 
-        public async Task<PagedResult<InvoiceDto>> GetPaged(InvoiceFilterDto filter)
+        /// <summary>Aplica los mismos filtros usados en la tabla y el dashboard.</summary>
+        private static IQueryable<Invoice> ApplyFilters(IQueryable<Invoice> query, InvoiceFilterDto filter)
         {
-            using var ctx = _factory.CreateDbContext();
-
-            var query = ctx.Invoice.Where(i => i.State);
-
             if (filter.ContributorId.HasValue)
                 query = query.Where(i => i.ContributorId == filter.ContributorId.Value);
 
@@ -251,9 +248,77 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                 query = query.Where(i =>
                     i.Serie.ToLower().Contains(s) ||
                     i.Correlativo.ToLower().Contains(s) ||
+                    (i.ProveedorName != null && i.ProveedorName.ToLower().Contains(s)) ||
                     i.Contributor!.ContributorName.ToLower().Contains(s) ||
                     i.Contributor.ContributorRuc.Contains(s));
             }
+
+            return query;
+        }
+
+        public async Task<InvoiceDashboardDto> GetDashboard(InvoiceFilterDto filter)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var query = ApplyFilters(ctx.Invoice.Where(i => i.State), filter);
+
+            var totalCount = await query.CountAsync();
+
+            var byCurrency = await query
+                .GroupBy(i => new { i.CurrencyId, Code = i.Currency!.CurrencyCode, Symbol = i.Currency.CurrencySymbol })
+                .Select(g => new InvoiceCurrencyTotalDto
+                {
+                    CurrencyCode = g.Key.Code ?? "—",
+                    CurrencySymbol = g.Key.Symbol,
+                    Total = g.Sum(x => x.Total),
+                    Count = g.Count()
+                })
+                .ToListAsync();
+
+            var byMonth = await query
+                .GroupBy(i => new { i.IssueDate.Year, i.IssueDate.Month })
+                .Select(g => new InvoiceChartItemDto
+                {
+                    Year = g.Key.Year,
+                    Month = g.Key.Month,
+                    Label = g.Key.Year + "-" + g.Key.Month,
+                    Total = g.Sum(x => x.Total),
+                    Count = g.Count()
+                })
+                .ToListAsync();
+
+            var byPaymentForm = await query
+                .GroupBy(i => i.InvoicePaymentForm!.InvoicePaymentFormDescription)
+                .Select(g => new InvoiceChartItemDto { Label = g.Key, Total = g.Sum(x => x.Total), Count = g.Count() })
+                .ToListAsync();
+
+            var byAbril = await query
+                .GroupBy(i => i.AbrilName ?? i.AbrilContributor!.ContributorName)
+                .Select(g => new InvoiceChartItemDto { Label = g.Key ?? "—", Total = g.Sum(x => x.Total), Count = g.Count() })
+                .ToListAsync();
+
+            var topSuppliers = await query
+                .GroupBy(i => i.ProveedorName ?? i.Contributor!.ContributorName)
+                .Select(g => new InvoiceChartItemDto { Label = g.Key ?? "—", Total = g.Sum(x => x.Total), Count = g.Count() })
+                .OrderByDescending(x => x.Total)
+                .Take(10)
+                .ToListAsync();
+
+            return new InvoiceDashboardDto
+            {
+                TotalCount = totalCount,
+                TotalsByCurrency = byCurrency.OrderByDescending(c => c.Total).ToList(),
+                ByMonth = byMonth.OrderBy(m => m.Year).ThenBy(m => m.Month).ToList(),
+                ByPaymentForm = byPaymentForm.OrderByDescending(p => p.Total).ToList(),
+                ByAbril = byAbril.OrderByDescending(a => a.Total).ToList(),
+                TopSuppliers = topSuppliers
+            };
+        }
+
+        public async Task<PagedResult<InvoiceDto>> GetPaged(InvoiceFilterDto filter)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var query = ApplyFilters(ctx.Invoice.Where(i => i.State), filter);
 
             var totalRecords = await query.CountAsync();
 
@@ -268,12 +333,12 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     Serie = i.Serie,
                     Correlativo = i.Correlativo,
                     ContributorId = i.ContributorId,
-                    ContributorRuc = i.Contributor!.ContributorRuc,
-                    ContributorName = i.Contributor.ContributorName,
+                    ContributorRuc = i.Contributor!.ContributorRuc ?? "",
+                    ContributorName = i.ProveedorName ?? i.Contributor!.ContributorName,
                     AbrilContributorId = i.AbrilContributorId,
-                    AbrilContributorName = i.AbrilContributor!.ContributorName,
+                    AbrilContributorName = i.AbrilName ?? i.AbrilContributor!.ContributorName,
                     Description = i.Description,
-                    InvoicePaymentFormId = i.InvoicePaymentFormId,
+                    InvoicePaymentFormId = i.InvoicePaymentFormId ?? 0,
                     InvoicePaymentFormDescription = i.InvoicePaymentForm!.InvoicePaymentFormDescription,
                     Total = i.Total,
                     CurrencyId = i.CurrencyId,
@@ -329,6 +394,134 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                 State = true
             });
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task<InvoiceImportResultDto> ImportInvoices(
+            List<InvoiceImportRowDto> rows, Dictionary<int, string?> docUrlByIndex, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var now = DateTimeOffset.UtcNow;
+
+            // Catálogos en memoria (pocos roundtrips).
+            var currencyMap = await ctx.Currency
+                .Where(c => c.State && c.Active)
+                .ToDictionaryAsync(c => c.CurrencyCode.ToUpper(), c => c.CurrencyId);
+
+            var abrilList = await ctx.Contributor
+                .Where(c => c.State && c.EsAbril)
+                .Select(c => new { c.ContributorId, c.ContributorName })
+                .ToListAsync();
+            var abrilNorm = abrilList
+                .Select(a => new { a.ContributorId, Norm = RemoveDiacritics(a.ContributorName).ToUpper() })
+                .ToList();
+
+            var contributorMap = new Dictionary<string, int>();
+            foreach (var c in await ctx.Contributor.Where(c => c.State).Select(c => new { c.ContributorId, c.ContributorName }).ToListAsync())
+            {
+                var key = RemoveDiacritics(c.ContributorName).Trim().ToUpper();
+                if (!contributorMap.ContainsKey(key)) contributorMap[key] = c.ContributorId;
+            }
+
+            // Tipos de documento: crear los que falten.
+            var docTypeMap = await ctx.InvoiceDocumentType
+                .Where(t => t.State)
+                .ToDictionaryAsync(t => t.Description.ToUpper(), t => t.InvoiceDocumentTypeId);
+            var newTypes = rows
+                .Select(r => (r.DocumentType ?? "").Trim())
+                .Where(d => d.Length > 0 && !docTypeMap.ContainsKey(d.ToUpper()))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            foreach (var desc in newTypes)
+            {
+                var t = new InvoiceDocumentType { Description = desc, Active = true, State = true, CreatedDateTime = now, CreatedUserId = userId };
+                ctx.InvoiceDocumentType.Add(t);
+            }
+            if (newTypes.Count > 0)
+            {
+                await ctx.SaveChangesAsync();
+                docTypeMap = await ctx.InvoiceDocumentType.Where(t => t.State).ToDictionaryAsync(t => t.Description.ToUpper(), t => t.InvoiceDocumentTypeId);
+            }
+
+            int withFile = 0;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var r = rows[i];
+                var serie = (r.Serie ?? "").Trim();
+                var correlativo = (r.Correlativo ?? "").Trim();
+                var number = serie.Length > 0 ? $"{serie}-{correlativo}" : correlativo;
+
+                int? currencyId = null;
+                if (!string.IsNullOrWhiteSpace(r.CurrencyCode) && currencyMap.TryGetValue(r.CurrencyCode.Trim().ToUpper(), out var cid))
+                    currencyId = cid;
+
+                int? docTypeId = null;
+                if (!string.IsNullOrWhiteSpace(r.DocumentType) && docTypeMap.TryGetValue(r.DocumentType.Trim().ToUpper(), out var dtid))
+                    docTypeId = dtid;
+
+                int? contributorId = null;
+                if (!string.IsNullOrWhiteSpace(r.ProveedorName) &&
+                    contributorMap.TryGetValue(RemoveDiacritics(r.ProveedorName).Trim().ToUpper(), out var coid))
+                    contributorId = coid;
+
+                int? abrilContributorId = null;
+                if (!string.IsNullOrWhiteSpace(r.AbrilName))
+                {
+                    var token = RemoveDiacritics(r.AbrilName).Trim().ToUpper();
+                    var match = abrilNorm.FirstOrDefault(a => a.Norm.Contains(token));
+                    if (match != null) abrilContributorId = match.ContributorId;
+                }
+
+                DateOnly issueDate = default;
+                if (!string.IsNullOrWhiteSpace(r.IssueDate) && DateOnly.TryParse(r.IssueDate, out var parsed))
+                    issueDate = parsed;
+
+                docUrlByIndex.TryGetValue(i, out var documentUrl);
+                if (!string.IsNullOrWhiteSpace(documentUrl)) withFile++;
+
+                ctx.Invoice.Add(new Invoice
+                {
+                    IssueDate = issueDate,
+                    Serie = serie,
+                    Correlativo = correlativo,
+                    InvoiceNumber = number,
+                    ProveedorName = r.ProveedorName?.Trim(),
+                    AbrilName = r.AbrilName?.Trim(),
+                    PaymentOrderNumber = r.PaymentOrderNumber?.Trim(),
+                    InvoiceDocumentTypeId = docTypeId,
+                    AuthorizedAmount = r.AuthorizedAmount,
+                    Observation = r.Observation?.Trim(),
+                    ContributorId = contributorId,
+                    AbrilContributorId = abrilContributorId,
+                    Description = (r.Description ?? "").Trim(),
+                    InvoicePaymentFormId = 0,
+                    Total = r.Total,
+                    CurrencyId = currencyId,
+                    DocumentUrl = documentUrl,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true
+                });
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return new InvoiceImportResultDto
+            {
+                Inserted = rows.Count,
+                WithFile = withFile,
+                WithoutFile = rows.Count - withFile
+            };
+        }
+
+        private static string RemoveDiacritics(string text)
+        {
+            var normalized = text.Normalize(System.Text.NormalizationForm.FormD);
+            var sb = new System.Text.StringBuilder();
+            foreach (var c in normalized)
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                    sb.Append(c);
+            return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
         }
 
         public async Task<InvoiceSupplierDto> CreateSupplier(InvoiceSupplierCreateDto dto, int userId)

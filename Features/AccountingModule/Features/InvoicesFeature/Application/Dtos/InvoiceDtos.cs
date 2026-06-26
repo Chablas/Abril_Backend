@@ -11,7 +11,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public string Correlativo { get; set; } = null!;
         /// <summary>Número completo para mostrar (serie-correlativo).</summary>
         public string InvoiceNumber => $"{Serie}-{Correlativo}";
-        public int ContributorId { get; set; }
+        public int? ContributorId { get; set; }
         public string ContributorRuc { get; set; } = null!;
         public string ContributorName { get; set; } = null!;
         public int? AbrilContributorId { get; set; }
@@ -35,7 +35,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public string Serie { get; set; } = null!;
         public string Correlativo { get; set; } = null!;
         public string InvoiceNumber => $"{Serie}-{Correlativo}";
-        public int ContributorId { get; set; }
+        public int? ContributorId { get; set; }
         public string ContributorRuc { get; set; } = null!;
         public string ContributorName { get; set; } = null!;
         public int? AbrilContributorId { get; set; }
@@ -55,6 +55,74 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public DateTime? UpdatedDateTime { get; set; }
     }
 
+    // ── Dashboard ────────────────────────────────────────────────────────────
+    public class InvoiceChartItemDto
+    {
+        public string Label { get; set; } = null!;
+        public decimal Total { get; set; }
+        public int Count { get; set; }
+        public int Year { get; set; }
+        public int Month { get; set; }
+    }
+
+    public class InvoiceCurrencyTotalDto
+    {
+        public string CurrencyCode { get; set; } = null!;
+        public string? CurrencySymbol { get; set; }
+        public decimal Total { get; set; }
+        public int Count { get; set; }
+    }
+
+    public class InvoiceDashboardDto
+    {
+        public int TotalCount { get; set; }
+        public List<InvoiceCurrencyTotalDto> TotalsByCurrency { get; set; } = new();
+        public List<InvoiceChartItemDto> ByMonth { get; set; } = new();
+        public List<InvoiceChartItemDto> ByPaymentForm { get; set; } = new();
+        public List<InvoiceChartItemDto> ByAbril { get; set; } = new();
+        public List<InvoiceChartItemDto> TopSuppliers { get; set; } = new();
+    }
+
+    /// <summary>Carga inicial del dashboard: desplegables de filtros + datos de los gráficos.</summary>
+    public class InvoiceDashboardInitDto
+    {
+        public List<InvoiceSupplierDto> Suppliers { get; set; } = new();
+        public List<InvoicePaymentFormDto> PaymentForms { get; set; } = new();
+        public List<InvoiceSupplierDto> AbrilCompanies { get; set; } = new();
+        public List<InvoiceCurrencyDto> Currencies { get; set; } = new();
+        public InvoiceDashboardDto Dashboard { get; set; } = new();
+    }
+
+    // ── Importación desde Excel de órdenes de pago ─────────────────────────────
+    /// <summary>Una fila del Excel ya parseada por el frontend.</summary>
+    public class InvoiceImportRowDto
+    {
+        public string? PaymentOrderNumber { get; set; }
+        public string? Description { get; set; }
+        public string? ProveedorName { get; set; }
+        public string? DocumentType { get; set; }
+        public string Serie { get; set; } = "";
+        public string Correlativo { get; set; } = "";
+        /// <summary>Fecha en ISO (yyyy-MM-dd).</summary>
+        public string? IssueDate { get; set; }
+        /// <summary>Código de moneda ya normalizado (PEN / USD).</summary>
+        public string? CurrencyCode { get; set; }
+        public decimal Total { get; set; }
+        public decimal? AuthorizedAmount { get; set; }
+        public string? Observation { get; set; }
+        /// <summary>Razón social de Abril (nombre de la hoja).</summary>
+        public string? AbrilName { get; set; }
+        /// <summary>Nombre del archivo arrastrado que se asoció a esta fila (o null).</summary>
+        public string? MatchedFileName { get; set; }
+    }
+
+    public class InvoiceImportResultDto
+    {
+        public int Inserted { get; set; }
+        public int WithFile { get; set; }
+        public int WithoutFile { get; set; }
+    }
+
     /// <summary>Moneda para el desplegable del formulario (reusa la tabla currency).</summary>
     public class InvoiceCurrencyDto
     {
@@ -67,7 +135,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
     /// <summary>Proveedor (contribuyente) para el desplegable del formulario.</summary>
     public class InvoiceSupplierDto
     {
-        public int ContributorId { get; set; }
+        public int? ContributorId { get; set; }
         public string ContributorRuc { get; set; } = null!;
         public string ContributorName { get; set; } = null!;
     }

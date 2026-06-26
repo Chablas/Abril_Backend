@@ -792,6 +792,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             actividad.InicioEfectivo = dto.InicioEfectivo;
             actividad.FinEfectivo = dto.FinEfectivo;
             actividad.Observaciones = dto.Observaciones;
+            actividad.Activo = dto.InicioProgramado.HasValue;
             actividad.Spi = CalcularSpi(actividad);
 
             await ctx.SaveChangesAsync();
@@ -1360,16 +1361,18 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var tareasPorArquitectoDetalle = workerIds.Select(uid =>
             {
-                var tareas = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
+                var tareas     = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
                 var completadas = tareas.Count(a => a.FinEfectivo != null);
+                // Carga actual = solo las NO culminadas (sin finEfectivo)
+                var pendientes  = tareas.Where(a => a.FinEfectivo == null).ToList();
                 return new TareasPorArquitectoDTO
                 {
                     UserId      = uid,
                     Nombre      = workerNameMap.GetValueOrDefault(uid, $"Worker {uid}"),
-                    Hitos       = tareas.Count(a => a.Tipo == "HITO"),
-                    Entregables = tareas.Count(a => a.Tipo == "ENTREGABLE"),
-                    Consultas   = tareas.Count(a => a.Tipo == "CONSULTA"),
-                    Total       = tareas.Count,
+                    Hitos       = pendientes.Count(a => a.Tipo == "HITO"),
+                    Entregables = pendientes.Count(a => a.Tipo == "ENTREGABLE"),
+                    Consultas   = pendientes.Count(a => a.Tipo == "CONSULTA"),
+                    Total       = pendientes.Count,  // carga actual sin culminadas
                     AvancePct   = tareas.Count > 0 ? Math.Round((decimal)completadas / tareas.Count * 100, 1) : 0m,
                 };
             }).OrderByDescending(t => t.Total).ToList();
@@ -1449,11 +1452,18 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .OrderBy(s => s.Semana)
                 .ToListAsync();
 
-            var semanas = semanaRaw.Select(s => new AvanceSemanalDTO
+            // Fix: programado calculado independientemente — cuántas actividades debían estar cerradas en esa semana
+            var semanas = semanaRaw.Select(s =>
             {
-                Semana     = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
-                Real       = s.Real,
-                Programado = Math.Round(s.Real * 0.9m, 2),
+                var programadoPct = total > 0
+                    ? Math.Round((double)actividades.Count(a => a.FinProgramado.HasValue && a.FinProgramado.Value <= s.Semana) / total * 100, 2)
+                    : 0.0;
+                return new AvanceSemanalDTO
+                {
+                    Semana     = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
+                    Real       = s.Real,
+                    Programado = (decimal)programadoPct,
+                };
             }).ToList();
 
             var spiRaw = await ctx.AcAvanceSemanal
@@ -1548,6 +1558,12 @@ namespace Abril_Backend.Infrastructure.Repositories
                 EficienciaSpi              = [.. eficienciaSpi],
                 Categorias                 = categorias,
                 DistribucionPorCategoria   = distribucionPorCategoria,
+                DistribucionTipos          = new List<ArqComercialChartItemDTO>
+                {
+                    new() { Label = "Hitos",       Value = actividades.Count(a => a.Tipo == "HITO") },
+                    new() { Label = "Entregables", Value = actividades.Count(a => a.Tipo == "ENTREGABLE") },
+                    new() { Label = "Consultas",   Value = actividades.Count(a => a.Tipo == "CONSULTA") },
+                },
             };
         }
 

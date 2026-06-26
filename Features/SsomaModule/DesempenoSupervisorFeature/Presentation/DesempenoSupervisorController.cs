@@ -10,13 +10,13 @@ namespace Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Presenta
 public class DesempenoSupervisorController(DesempenoSupervisorRepository repo) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> Get([FromQuery] int mes, [FromQuery] int anio)
+    public async Task<IActionResult> Get([FromQuery] int mes, [FromQuery] int anio, [FromQuery] int? proyectoId)
     {
         if (mes < 1 || mes > 12 || anio < 2020)
             return BadRequest("Mes o año inválido.");
         try
         {
-            var result = await repo.GetDesempenoAsync(mes, anio);
+            var result = await repo.GetDesempenoAsync(mes, anio, proyectoId);
             return Ok(result);
         }
         catch (Exception ex)

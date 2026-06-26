@@ -1363,8 +1363,11 @@ namespace Abril_Backend.Infrastructure.Repositories
             {
                 var tareas     = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
                 var completadas = tareas.Count(a => a.FinEfectivo != null);
-                // Carga actual = solo las NO culminadas (sin finEfectivo)
-                var pendientes  = tareas.Where(a => a.FinEfectivo == null).ToList();
+                // Carga actual = NO culminadas que ya llegaron a su fecha de inicio
+                var pendientes  = tareas.Where(a => a.FinEfectivo == null
+                    && !(a.InicioEfectivo == null
+                         && a.InicioProgramado.HasValue
+                         && a.InicioProgramado.Value > today)).ToList();
                 return new TareasPorArquitectoDTO
                 {
                     UserId      = uid,

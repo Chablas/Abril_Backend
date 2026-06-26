@@ -248,10 +248,9 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             var pctLeccion     = leccion > 0 ? 100m : 0m;
             var pctEvalContrat = evalContrat > 0 ? 100m : 0m;
             var pctEvalRes     = evalResidente > 0 ? 100m : 0m;
-            // RAC+OPT+Insp+Charlas = 17.5% c/u (70% total); Leccion+EvalContrat+EvalRes = 10% c/u
+            // RAC+OPT+Insp+Charlas = 25% c/u; Leccion/EvalContratista/EvalResidente solo informativo
             var pctGeneral = Math.Round(
-                pctRacs * 0.175m + pctOpt * 0.175m + pctInsp * 0.175m + pctCharlas * 0.175m +
-                pctLeccion * 0.10m + pctEvalContrat * 0.10m + pctEvalRes * 0.10m, 1);
+                pctRacs * 0.25m + pctOpt * 0.25m + pctInsp * 0.25m + pctCharlas * 0.25m, 1);
 
             DateTime? fechaRacs = racsDetalle
                 .Where(r => r.SupId == supId && r.ProyectoId == proyId)

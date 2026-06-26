@@ -107,10 +107,12 @@ namespace Abril_Backend.Controllers
 
             try
             {
-                // Gestor puede filtrar por cualquier userId; usuario solo ve las suyas
-                var userId = esGestor && filtroUserId.HasValue
-                    ? filtroUserId
-                    : int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                int? userId;
+                if (esGestor)
+                    userId = filtroUserId; // null = ve todo; valor = filtra por ese supervisor
+                else
+                    userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+
                 var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina, userId, esUsuarioAc);
                 return Ok(result);
             }

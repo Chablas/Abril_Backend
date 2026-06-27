@@ -255,18 +255,23 @@ public class CharlaService : ICharlaService
         if (!await ctx.SsCharlas.AnyAsync(c => c.Id == charlaId && c.State))
             throw new AbrilException("Charla no encontrada.", 404);
 
-        // soft-delete all existing attendance then re-create from the new list
+        // Cargar todos los registros existentes (activos e inactivos) para evitar violar el unique constraint
         var existentes = await ctx.SsCharlaAsistencias
-            .Where(a => a.CharlaId == charlaId && a.State)
+            .Where(a => a.CharlaId == charlaId)
             .ToListAsync();
 
+        var nuevosIds = dto.WorkerIds.Distinct().ToHashSet();
+
+        // Desactivar los que ya no están en la lista
         foreach (var e in existentes)
         {
-            e.State = false;
+            e.State = nuevosIds.Contains(e.WorkerId);
             e.UpdatedAt = DateTime.UtcNow;
         }
 
-        foreach (var workerId in dto.WorkerIds.Distinct())
+        // Insertar solo los que no tienen registro previo
+        var existentesWorkerIds = existentes.Select(e => e.WorkerId).ToHashSet();
+        foreach (var workerId in nuevosIds.Where(id => !existentesWorkerIds.Contains(id)))
         {
             ctx.SsCharlaAsistencias.Add(new SsCharlaAsistencia
             {

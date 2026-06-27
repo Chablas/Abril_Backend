@@ -162,12 +162,27 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .Where(o => o.SupId > 0)
             .ToList();
 
-        var inspDetalle = await ctx.SsomaInspeccion
-            .Where(i => i.CreatedBy != null && supervisorUserIds.Contains(i.CreatedBy.Value)
-                     && i.Fecha >= inicio && i.Fecha < fin
-                     && i.Estado != "Borrador")
-            .Select(i => new { SupId = i.CreatedBy!.Value, i.Fecha })
+        var inspRaw = await ctx.SsomaInspeccion
+            .Where(i => i.Fecha >= inicio && i.Fecha < fin
+                     && i.Estado != "Borrador"
+                     && (
+                         (i.CreatedBy != null && supervisorUserIds.Contains(i.CreatedBy.Value)) ||
+                         (i.CreatedBy == null && i.InspectorNombre != null && supervisorNombres.Contains(i.InspectorNombre.ToUpper().Trim()))
+                     ))
+            .Select(i => new { i.CreatedBy, i.InspectorNombre, i.Fecha })
             .ToListAsync();
+
+        var inspDetalle = inspRaw
+            .Select(i => new {
+                SupId = i.CreatedBy != null
+                    ? i.CreatedBy.Value
+                    : (i.InspectorNombre != null && nombreToSupId.ContainsKey(i.InspectorNombre.ToUpper().Trim())
+                        ? nombreToSupId[i.InspectorNombre.ToUpper().Trim()]
+                        : 0),
+                i.Fecha
+            })
+            .Where(i => i.SupId > 0)
+            .ToList();
 
         // Charlas: SupervisorId es WorkerId — invertir userToWorker para mapear de vuelta a UserId
         var workerToUser = userToWorker.ToDictionary(kv => kv.Value, kv => kv.Key);
@@ -177,8 +192,7 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .Where(c => c.SupervisorId != null
                      && supWorkerIds.Contains(c.SupervisorId.Value)
                      && c.Fecha >= inicio && c.Fecha < fin
-                     && c.State
-                     && (c.Estado == "Enviado" || c.Estado == "Aprobado"))
+                     && c.State)
             .Select(c => new { c.SupervisorId, c.Fecha })
             .ToListAsync();
 

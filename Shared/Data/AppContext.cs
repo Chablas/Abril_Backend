@@ -38,6 +38,13 @@ namespace Abril_Backend.Infrastructure.Data
         {
             _provider = config["Database:DatabaseProvider"] ?? "SqlServer";
         }
+
+        /// <summary>
+        /// Mapea la función <c>unaccent(text)</c> de PostgreSQL (extensión unaccent) para usarla
+        /// en consultas LINQ y hacer búsquedas insensibles a tildes. Solo se traduce a SQL; el
+        /// cuerpo nunca se ejecuta en memoria. Registrada en <see cref="ConfigurePostgreSQL"/>.
+        /// </summary>
+        public static string Unaccent(string input) => throw new NotSupportedException();
         public DbSet<Area> Area { get; set; }
         public DbSet<SubArea> SubArea { get; set; }
         public DbSet<ConstructionSiteLogbookControl> ConstructionSiteLogbookControl { get;set; }
@@ -796,6 +803,11 @@ namespace Abril_Backend.Infrastructure.Data
 
         private void ConfigurePostgreSQL(ModelBuilder modelBuilder)
         {
+            // Mapea unaccent(text) de la extensión unaccent para búsquedas insensibles a tildes.
+            modelBuilder
+                .HasDbFunction(typeof(AppDbContext).GetMethod(nameof(Unaccent), new[] { typeof(string) })!)
+                .HasName("unaccent");
+
             modelBuilder.Entity<User>(entity =>
             {
                 entity.ToTable("app_user");

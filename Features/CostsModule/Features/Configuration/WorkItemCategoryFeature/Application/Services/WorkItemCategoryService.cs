@@ -46,6 +46,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         public async Task<bool> Delete(int workItemCategoryId, int userId)
             => await _repository.Delete(workItemCategoryId, userId);
 
+        public async Task<List<WorkSpecialtyOptionDto>> GetActiveSpecialties()
+            => await _repository.GetActiveSpecialties();
+
         public async Task UploadInstructivoAsync(int workItemCategoryId, IFormFile file, int userId)
         {
             if (file == null || file.Length == 0)

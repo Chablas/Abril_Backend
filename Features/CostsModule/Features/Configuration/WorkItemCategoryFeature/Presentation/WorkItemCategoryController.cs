@@ -22,6 +22,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         [HttpGet("paged")]
         public async Task<IActionResult> GetPaged(
             [FromQuery] string? description,
+            [FromQuery] bool? hasInstructivo,
+            [FromQuery] bool? hasClause,
+            [FromQuery] int? workSpecialtyId,
             [FromQuery] int page = 1)
         {
             try
@@ -33,10 +36,31 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                 var filter = new WorkItemCategoryFilterDto
                 {
                     Description = description,
+                    HasInstructivo = hasInstructivo,
+                    HasClause = hasClause,
+                    WorkSpecialtyId = workSpecialtyId,
                     Page = page
                 };
 
                 var result = await _service.GetPaged(filter);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("specialties")]
+        public async Task<IActionResult> GetSpecialties()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var result = await _service.GetActiveSpecialties();
                 return Ok(result);
             }
             catch (Exception)

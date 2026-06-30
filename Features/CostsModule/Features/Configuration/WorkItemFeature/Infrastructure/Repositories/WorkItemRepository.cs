@@ -23,11 +23,31 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
 
             var query = _context.WorkItem.Where(x => x.State);
 
+            // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
+            // (alineado con app-search-input del front: "instalacion papel" coincide con
+            // "INSTALACIÓN DE PAPEL MURAL").
             if (!string.IsNullOrWhiteSpace(filter.Description))
             {
-                var descLower = filter.Description.ToLower();
-                query = query.Where(x => x.WorkItemDescription.ToLower().Contains(descLower));
+                foreach (var word in filter.Description.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var pattern = $"%{word}%";
+                    query = query.Where(x => EF.Functions.ILike(
+                        AppDbContext.Unaccent(x.WorkItemDescription), AppDbContext.Unaccent(pattern)));
+                }
             }
+
+            if (filter.HasValorizationForm.HasValue)
+            {
+                if (filter.HasValorizationForm.Value)
+                    query = query.Where(x => _context.WorkItemValorizationForm
+                        .Any(f => f.WorkItemId == x.WorkItemId && f.State));
+                else
+                    query = query.Where(x => !_context.WorkItemValorizationForm
+                        .Any(f => f.WorkItemId == x.WorkItemId && f.State));
+            }
+
+            if (filter.WorkItemCategoryId.HasValue)
+                query = query.Where(x => x.WorkItemCategoryId == filter.WorkItemCategoryId.Value);
 
             var totalRecords = await query.CountAsync();
 
@@ -39,6 +59,11 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                 {
                     WorkItemId = x.WorkItemId,
                     WorkItemDescription = x.WorkItemDescription,
+                    WorkItemCategoryId = x.WorkItemCategoryId,
+                    WorkItemCategoryDescription = _context.WorkItemCategory
+                        .Where(c => c.WorkItemCategoryId == x.WorkItemCategoryId)
+                        .Select(c => c.WorkItemCategoryDescription)
+                        .FirstOrDefault(),
                     CreatedDateTime = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                     CreatedUserId = x.CreatedUserId,
                     UpdatedDateTime = x.UpdatedDateTime.HasValue
@@ -79,9 +104,12 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             if (exists)
                 throw new AbrilException("Ya existe una partida con esa descripción.");
 
+            await ValidateCategory(dto.WorkItemCategoryId);
+
             var record = new WorkItem
             {
                 WorkItemDescription = dto.WorkItemDescription.Trim(),
+                WorkItemCategoryId = dto.WorkItemCategoryId,
                 Active = true,
                 State = true,
                 CreatedDateTime = DateTimeOffset.UtcNow,
@@ -108,7 +136,10 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             if (duplicate)
                 throw new AbrilException("Ya existe una partida con esa descripción.");
 
+            await ValidateCategory(dto.WorkItemCategoryId);
+
             record.WorkItemDescription = dto.WorkItemDescription.Trim();
+            record.WorkItemCategoryId = dto.WorkItemCategoryId;
             record.Active = dto.Active;
             record.UpdatedDateTime = DateTimeOffset.UtcNow;
             record.UpdatedUserId = userId;
@@ -180,6 +211,29 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
 
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        public async Task<List<WorkItemCategoryOptionDto>> GetActiveCategories()
+            => await _context.WorkItemCategory
+                .Where(c => c.State && c.Active)
+                .OrderBy(c => c.WorkItemCategoryDescription)
+                .Select(c => new WorkItemCategoryOptionDto
+                {
+                    WorkItemCategoryId = c.WorkItemCategoryId,
+                    WorkItemCategoryDescription = c.WorkItemCategoryDescription
+                })
+                .ToListAsync();
+
+        // La partida de control es obligatoria y debe existir y estar activa.
+        private async Task ValidateCategory(int? workItemCategoryId)
+        {
+            if (!workItemCategoryId.HasValue)
+                throw new AbrilException("Debe seleccionar una partida de control.");
+
+            var ok = await _context.WorkItemCategory
+                .AnyAsync(c => c.WorkItemCategoryId == workItemCategoryId.Value && c.State && c.Active);
+            if (!ok)
+                throw new AbrilException("La partida de control seleccionada no existe.");
         }
 
         public async Task<List<AdjudicacionFolderRootDto>> GetActiveAdjudicacionFolderRoots()

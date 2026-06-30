@@ -48,6 +48,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             return await _repository.Delete(workItemId, userId);
         }
 
+        public async Task<List<WorkItemCategoryOptionDto>> GetActiveCategories()
+            => await _repository.GetActiveCategories();
+
         public async Task<WorkItemSyncResultDto> SyncPartidasAsync(int userId)
         {
             var result = new WorkItemSyncResultDto();

@@ -4,6 +4,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
     {
         public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; } = null!;
+        public int? WorkItemCategoryId { get; set; }
+        public string? WorkItemCategoryDescription { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }
@@ -12,6 +14,13 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
 
         /// <summary>Formas de valorización (cláusula 5.1), ordenadas por SortOrder.</summary>
         public List<WorkItemValorizationFormDto> ValorizationForms { get; set; } = [];
+    }
+
+    /// <summary>Opción para el desplegable de partidas de control en el formulario.</summary>
+    public class WorkItemCategoryOptionDto
+    {
+        public int WorkItemCategoryId { get; set; }
+        public string WorkItemCategoryDescription { get; set; } = null!;
     }
 
     /// <summary>Una línea de la forma de valorización (porcentaje + concepto) de la partida.</summary>

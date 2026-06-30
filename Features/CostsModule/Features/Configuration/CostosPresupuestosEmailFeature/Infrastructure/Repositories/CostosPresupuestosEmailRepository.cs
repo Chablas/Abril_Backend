@@ -23,8 +23,17 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.CostosPresup
 
             var query = _context.CostosPresupuestosEmail.Where(x => x.State);
 
+            // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
+            // (alineado con app-search-input del front).
             if (!string.IsNullOrWhiteSpace(filter.Email))
-                query = query.Where(x => x.Email.Contains(filter.Email));
+            {
+                foreach (var word in filter.Email.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var pattern = $"%{word}%";
+                    query = query.Where(x => EF.Functions.ILike(
+                        AppDbContext.Unaccent(x.Email), AppDbContext.Unaccent(pattern)));
+                }
+            }
 
             var totalRecords = await query.CountAsync();
 

@@ -32,4 +32,8 @@ public interface IIndicadoresProactivosRepository
     Task<PuntajeMesDto> GetPuntajeMesAsync(int proyectoId, int mes, int anio);
 
     Task<List<PuntajeMesDto>> GetPuntajeTodosProyectosAsync(int mes, int anio);
+
+    // ── Indicadores reactivos IF / IG / IA ───────────────────────────────────
+    Task<IndicadorReactivoProyectoDto> GetIndicadoresReactivosAsync(int proyectoId, int mes, int anio);
+    Task<List<IndicadorReactivoProyectoDto>> GetIndicadoresReactivosTodosAsync(int mes, int anio);
 }

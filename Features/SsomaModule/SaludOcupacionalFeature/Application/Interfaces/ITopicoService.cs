@@ -7,8 +7,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
     {
         Task<PagedResult<TopicoListItemDto>> ListPaged(TopicoFilterDto filter);
         Task<TopicoDetalleDto> GetById(int id);
+        Task<List<TopicoListItemDto>> GetHoy();
+        Task<List<TopicoTipoAtencionDto>> GetTiposAtencion();
         Task<int> Create(TopicoCreateDto dto, int? userId);
         Task Update(int id, TopicoUpdateDto dto);
         Task Delete(int id);
+        Task<List<TopicoEvolucionDto>> GetEvoluciones(int topicoId);
+        Task<int> CreateEvolucion(int topicoId, TopicoEvolucionCreateDto dto, int? userId);
+        Task DeleteEvolucion(int evolucionId);
     }
 }

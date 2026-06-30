@@ -5,6 +5,7 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
 using System.Globalization;
 
 namespace Abril_Backend.Application.Services
@@ -48,6 +49,8 @@ namespace Abril_Backend.Application.Services
         // Buzón visible como destinatario/remitente del aviso masivo; también
         // recibe cada lote como copia de auditoría. Cambiar por el correo
         // institucional (ej. comunicaciones@abril.pe) cuando se defina.
+        private readonly ISsomaReminderService _ssomaReminderService;
+
         private readonly List<string> _publicationAnnouncementTo = new List<string>
         {
             "calvarez@abril.pe"
@@ -62,7 +65,8 @@ namespace Abril_Backend.Application.Services
             IMilestoneScheduleHistoryRepository milestoneScheduleHistoryRepository,
             ILessonReminderRepository lessonReminderRepository,
             IEmailGroupResolver emailGroupResolver,
-            IConfiguration configuration
+            IConfiguration configuration,
+            ISsomaReminderService ssomaReminderService
         )
         {
             _emailService = emailService;
@@ -71,6 +75,7 @@ namespace Abril_Backend.Application.Services
             _lessonReminderRepository = lessonReminderRepository;
             _emailGroupResolver = emailGroupResolver;
             _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            _ssomaReminderService = ssomaReminderService;
         }
 
         /// <summary>
@@ -168,6 +173,14 @@ namespace Abril_Backend.Application.Services
             {
                 Console.WriteLine("Hoy no corresponde enviar recordatorios de lecciones");
             }
+
+            // Alertas SSOMA diarias (se ejecutan todos los días)
+            Console.WriteLine("⏰ Procesando alertas SSOMA (accidentes, descansos, reinducción, casos sociales)…");
+            var ssomaResult = await _ssomaReminderService.ProcesarAlertasAsync();
+            Console.WriteLine($"📧 SSOMA: {ssomaResult.TotalEnviados} enviados, {ssomaResult.TotalErrores} errores.");
+            foreach (var detalle in ssomaResult.Detalles)
+                Console.WriteLine($"   · {detalle}");
+
             return false;
         }
 

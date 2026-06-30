@@ -1,3 +1,8 @@
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.AltaMedica;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.CitaMedica;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.EquipoPrestado;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMedico;
+
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.AccidenteTrabajo
 {
     public class AccidenteTrabajoListItemDto
@@ -14,6 +19,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Acciden
         public string Estado { get; set; } = string.Empty;
         public bool NotificadoSunafil { get; set; }
         public int TotalSeguimientos { get; set; }
+        public int? FlashReportId { get; set; }
+        public bool TieneAlta { get; set; }
+        public bool RequiereReinduccion { get; set; }
+        public bool ReinduccionCompletada { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 
@@ -23,6 +32,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Acciden
         public int WorkerId { get; set; }
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }
+        public string? WorkerTelefono { get; set; }
         public int? ProyectoId { get; set; }
         public string? ProyectoNombre { get; set; }
         public int? EmpresaId { get; set; }
@@ -47,11 +57,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Acciden
         public DateOnly? FechaNotificacionSunafil { get; set; }
         public string? NumeroNotificacionSunafil { get; set; }
         public string? UrlInforme { get; set; }
+        public bool RequiereReinduccion { get; set; }
+        public bool ReinduccionCompletada { get; set; }
+        public DateOnly? FechaReinduccion { get; set; }
+        public int? FlashReportId { get; set; }
+        public bool TieneAlta { get; set; }
+        public Guid? CasoSocialId { get; set; }
         public int RegistradoPorId { get; set; }
         public int? CerradoPorId { get; set; }
         public DateTimeOffset? FechaCierre { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
+
         public List<AccidenteSeguimientoDto> Seguimientos { get; set; } = [];
+        public List<DescansoMedicoListItemDto> Descansos { get; set; } = [];
+        public List<CitaMedicaListItemDto> Citas { get; set; } = [];
+        public List<EquipoPrestadoListItemDto> Equipos { get; set; } = [];
+        public AltaMedicaDto? AltaMedica { get; set; }
     }
 
     public class AccidenteSeguimientoDto

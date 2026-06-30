@@ -81,7 +81,7 @@ public class AmonestacionRepository : IAmonestacionRepository
         return $"{abbrev}-AMON-{correlativo}";
     }
 
-    public async Task<int> CrearAsync(AmonestacionDetalleDto detalle, List<(string Base64, string NombreArchivo)> fotos)
+    public async Task<int> CrearAsync(AmonestacionDetalleDto detalle, List<(string Base64, string NombreArchivo, string Url)> fotos)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -98,27 +98,28 @@ public class AmonestacionRepository : IAmonestacionRepository
             AplicaPenalizacion   = detalle.AplicaPenalizacion,
             SancionInfraccionId  = detalle.SancionInfraccionId,
             MontoCalculado       = detalle.MontoCalculado,
-            UitReferencia        = detalle.AplicaPenalizacion ? detalle.MontoCalculado : 0m,
+            UitReferencia        = 0m,
             PuntosInfraccion     = detalle.PuntosInfraccion,
             DiasSuspension       = detalle.DiasSuspension,
             FechaInicioSuspension = detalle.FechaInicioSuspension,
             FechaFinSuspension   = detalle.FechaFinSuspension,
             PersonaReportaId     = detalle.PersonaReportaId,
-            CreatedBy            = null,
+            Estado               = detalle.Estado,
+            CreatedBy            = detalle.PersonaReportaId,
             State                = true
         };
 
         ctx.SsomaAmonestaciones.Add(entity);
         await ctx.SaveChangesAsync();
 
-        // Guardar fotos como URLs vacías por ahora (se pueden subir a SharePoint después)
         for (int i = 0; i < fotos.Count; i++)
         {
             ctx.SsomaAmonestacionFotos.Add(new SsomaAmonestacionFoto
             {
                 AmonestacionId = entity.Id,
-                Url            = "",
+                Url            = fotos[i].Url,
                 NombreArchivo  = fotos[i].NombreArchivo,
+                Base64Data     = fotos[i].Base64,   // solo se guarda en borradores; null en registradas
                 Orden          = i + 1
             });
         }
@@ -139,6 +140,21 @@ public class AmonestacionRepository : IAmonestacionRepository
         if (q.TipoSancionId.HasValue){ where.Add("a.tipo_sancion_id = @tsid"); p.Add("tsid", q.TipoSancionId); }
         if (q.FechaDesde.HasValue)   { where.Add("a.fecha >= @fd"); p.Add("fd", q.FechaDesde.Value.Date); }
         if (q.FechaHasta.HasValue)   { where.Add("a.fecha <= @fh"); p.Add("fh", q.FechaHasta.Value.Date); }
+        if (!string.IsNullOrWhiteSpace(q.WorkerSearch))
+        {
+            where.Add("(pe.document_identity_code ILIKE @ws OR pe.full_name ILIKE @ws)");
+            p.Add("ws", $"%{q.WorkerSearch.Trim()}%");
+        }
+        if (!string.IsNullOrWhiteSpace(q.EmpresaNombre))
+        {
+            where.Add("c.contributor_name ILIKE @en");
+            p.Add("en", $"%{q.EmpresaNombre.Trim()}%");
+        }
+        if (!string.IsNullOrWhiteSpace(q.Estado))
+        {
+            where.Add("a.estado = @estado");
+            p.Add("estado", q.Estado.Trim());
+        }
 
         var whereClause = "WHERE " + string.Join(" AND ", where);
 
@@ -152,9 +168,11 @@ public class AmonestacionRepository : IAmonestacionRepository
                 c.contributor_name AS empresaNombre,
                 ts.nombre AS tipoSancionNombre,
                 ts.nivel_gravedad AS nivelGravedad,
+                it.nombre AS infraccionTipoNombre,
                 a.puntos_infraccion AS puntosInfraccion,
                 a.aplica_penalizacion AS aplicaPenalizacion,
-                a.monto_calculado AS montoCalculado
+                a.monto_calculado AS montoCalculado,
+                a.estado
             FROM ssoma_amonestaciones a
             JOIN project pr ON pr.project_id = a.proyecto_id
             JOIN workers w ON w.id = a.worker_id
@@ -163,11 +181,18 @@ public class AmonestacionRepository : IAmonestacionRepository
                 AND (wv.fecha_fin IS NULL OR wv.fecha_fin >= CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
             JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
+            LEFT JOIN ssoma_amonestacion_infraccion_tipos it ON it.id = a.infraccion_tipo_id
             {whereClause}
             ORDER BY a.fecha DESC, a.id DESC
             LIMIT @limit OFFSET @offset;
 
-            SELECT COUNT(*) FROM ssoma_amonestaciones a {whereClause};
+            SELECT COUNT(*) FROM ssoma_amonestaciones a
+            JOIN workers w ON w.id = a.worker_id
+            JOIN person pe ON pe.person_id = w.person_id
+            LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
+                AND (wv.fecha_fin IS NULL OR wv.fecha_fin >= CURRENT_DATE)
+            LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
+            {whereClause};
             """;
 
         await using var conn = Conn();
@@ -215,6 +240,9 @@ public class AmonestacionRepository : IAmonestacionRepository
                 a.fecha_fin_suspension AS fechaFinSuspension,
                 up.full_name AS personaReportaNombre,
                 a.pdf_url AS pdfUrl,
+                a.estado,
+                a.documento_firmado_url AS documentoFirmadoUrl,
+                a.fecha_cierre AS fechaCierre,
                 a.created_at AS createdAt,
                 COALESCE((SELECT SUM(a2.puntos_infraccion) FROM ssoma_amonestaciones a2
                            WHERE a2.worker_id = a.worker_id AND a2.state = true), 0)::int AS puntosAcumulados
@@ -234,7 +262,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             LEFT JOIN person up ON LOWER(up.email) = LOWER(au.email)
             WHERE a.id = @id AND a.state = true;
 
-            SELECT id, url, nombre_archivo AS nombreArchivo, orden
+            SELECT id, url, nombre_archivo AS nombreArchivo, orden, base64data AS base64Data
             FROM ssoma_amonestacion_fotos WHERE amonestacion_id = @id ORDER BY orden;
             """;
 
@@ -254,35 +282,76 @@ public class AmonestacionRepository : IAmonestacionRepository
     public async Task<AmonestacionDashboardDto> GetDashboardAsync()
     {
         const string sql = """
+            -- 1) KPIs
             SELECT
                 COUNT(*)::int AS totalAmonestaciones,
                 COUNT(CASE WHEN puntos_acc >= 5 AND puntos_acc < 10 THEN 1 END)::int AS trabajadoresConMas5Puntos,
                 COUNT(CASE WHEN puntos_acc >= 10 THEN 1 END)::int AS trabajadoresInhabilitados,
                 COUNT(CASE WHEN EXTRACT(MONTH FROM fecha_mes) = EXTRACT(MONTH FROM CURRENT_DATE)
-                            AND EXTRACT(YEAR FROM fecha_mes) = EXTRACT(YEAR FROM CURRENT_DATE) THEN 1 END)::int AS amonestacionesMesActual
+                            AND EXTRACT(YEAR FROM fecha_mes) = EXTRACT(YEAR FROM CURRENT_DATE) THEN 1 END)::int AS amonestacionesMesActual,
+                COUNT(CASE WHEN estado_a = 'Borrador' THEN 1 END)::int AS borradorPendientes,
+                COUNT(CASE WHEN estado_a = 'Registrada' THEN 1 END)::int AS pendientesCierre,
+                COUNT(CASE WHEN estado_a = 'Registrada' THEN 1 END)::int AS amonestacionesRegistradas,
+                COUNT(CASE WHEN estado_a = 'Cerrada' THEN 1 END)::int AS amonestacionesCerradas
             FROM (
-                SELECT a.id, a.fecha AS fecha_mes,
+                SELECT a.id, a.fecha AS fecha_mes, a.estado AS estado_a,
                     SUM(a2.puntos_infraccion) OVER (PARTITION BY a.worker_id) AS puntos_acc
                 FROM ssoma_amonestaciones a
                 JOIN ssoma_amonestaciones a2 ON a2.worker_id = a.worker_id AND a2.state = true
                 WHERE a.state = true
             ) sub;
 
+            -- 2) Por tipo
             SELECT ts.nombre AS tipoNombre, COUNT(*)::int AS total
             FROM ssoma_amonestaciones a
             JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
             WHERE a.state = true
-            GROUP BY ts.nombre ORDER BY total DESC LIMIT 10;
+            GROUP BY ts.nombre ORDER BY total DESC;
 
-            SELECT pr.project_description AS proyectoNombre, COUNT(*)::int AS total
+            -- 3) Matriz proyecto × tipo (filas planas, se agrupa en C#)
+            SELECT pr.project_description AS proyectoNombre,
+                   ts.nombre AS tipoNombre,
+                   COUNT(*)::int AS total
+            FROM ssoma_amonestaciones a
+            JOIN project pr ON pr.project_id = a.proyecto_id
+            JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
+            WHERE a.state = true
+            GROUP BY pr.project_description, ts.nombre
+            ORDER BY pr.project_description, total DESC;
+
+            -- 4) Tendencia por proyecto (12 meses año actual)
+            SELECT EXTRACT(MONTH FROM a.fecha)::int AS mes,
+                   pr.project_description AS tipoNombre,
+                   COUNT(*)::int AS total
             FROM ssoma_amonestaciones a
             JOIN project pr ON pr.project_id = a.proyecto_id
             WHERE a.state = true
-            GROUP BY pr.project_description ORDER BY total DESC LIMIT 10;
+              AND EXTRACT(YEAR FROM a.fecha) = EXTRACT(YEAR FROM CURRENT_DATE)::int
+            GROUP BY mes, pr.project_description
+            ORDER BY mes, total DESC;
 
-            SELECT EXTRACT(YEAR FROM fecha)::int AS anio, EXTRACT(MONTH FROM fecha)::int AS mes, COUNT(*)::int AS total
-            FROM ssoma_amonestaciones WHERE state = true
-            GROUP BY anio, mes ORDER BY anio, mes;
+            -- 5) Últimos 8 sancionados
+            SELECT a.id, a.codigo,
+                   pe.full_name AS workerNombre,
+                   pe.document_identity_code AS workerDni,
+                   COALESCE(c.contributor_name, '') AS empresaNombre,
+                   pr.project_description AS proyectoNombre,
+                   ts.nombre AS tipoSancionNombre,
+                   ts.nivel_gravedad AS nivelGravedad,
+                   a.puntos_infraccion AS puntosInfraccion,
+                   a.fecha,
+                   a.estado
+            FROM ssoma_amonestaciones a
+            JOIN project pr ON pr.project_id = a.proyecto_id
+            JOIN workers w ON w.id = a.worker_id
+            JOIN person pe ON pe.person_id = w.person_id
+            LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
+                AND (wv.fecha_fin IS NULL OR wv.fecha_fin >= CURRENT_DATE)
+            LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
+            JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
+            WHERE a.state = true
+            ORDER BY a.fecha DESC, a.id DESC
+            LIMIT 8;
             """;
 
         await using var conn = Conn();
@@ -291,8 +360,35 @@ public class AmonestacionRepository : IAmonestacionRepository
 
         var resumen = await multi.ReadFirstAsync<AmonestacionDashboardDto>();
         resumen.PorTipoSancion = (await multi.ReadAsync<AmonPorTipoDto>()).ToList();
-        resumen.PorProyecto    = (await multi.ReadAsync<AmonPorProyectoDto>()).ToList();
-        resumen.Tendencia      = (await multi.ReadAsync<AmonTendenciaDto>()).ToList();
+
+        // Agrupar filas planas en matriz proyecto × tipo
+        var matrizRaw = (await multi.ReadAsync<(string ProyectoNombre, string TipoNombre, int Total)>()).ToList();
+        resumen.MatrizProyecto = matrizRaw
+            .GroupBy(r => r.ProyectoNombre)
+            .Select(g => new AmonMatrizProyectoDto
+            {
+                ProyectoNombre = g.Key,
+                Total          = g.Sum(r => r.Total),
+                PorTipo        = g.Select(r => new AmonCeldaTipoDto { TipoNombre = r.TipoNombre, Total = r.Total }).ToList()
+            })
+            .OrderByDescending(p => p.Total)
+            .ToList();
+
+        // Tendencia por proyecto — 12 meses fijos
+        var tendRaw = (await multi.ReadAsync<(int Mes, string TipoNombre, int Total)>()).ToList();
+        resumen.TendenciaMeses = Enumerable.Range(1, 12).Select(mes =>
+        {
+            var filas = tendRaw.Where(r => r.Mes == mes).ToList();
+            return new AmonTendenciaMesDto
+            {
+                Mes         = mes,
+                Total       = filas.Sum(r => r.Total),
+                PorProyecto = filas.Select(r => new AmonCeldaTipoDto { TipoNombre = r.TipoNombre, Total = r.Total }).ToList()
+            };
+        }).ToList();
+
+        // Últimos sancionados
+        resumen.UltimosSancionados = (await multi.ReadAsync<AmonUltimoSancionadoDto>()).ToList();
 
         return resumen;
     }
@@ -336,6 +432,60 @@ public class AmonestacionRepository : IAmonestacionRepository
         var entity = await ctx.SsomaAmonestaciones.FindAsync(id);
         if (entity is null) return;
         entity.PdfUrl = url;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task CerrarAsync(int id, string documentoFirmadoUrl)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = await ctx.SsomaAmonestaciones.FindAsync(id)
+            ?? throw new Exception("Amonestación no encontrada.");
+        entity.Estado = "Cerrada";
+        entity.DocumentoFirmadoUrl = documentoFirmadoUrl;
+        entity.FechaCierre = DateTime.UtcNow;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<List<(byte[] Bytes, string Nombre)>> GetFotosBytesAsync(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var fotos = await ctx.SsomaAmonestacionFotos
+            .Where(f => f.AmonestacionId == id && f.Base64Data != null)
+            .OrderBy(f => f.Orden)
+            .ToListAsync();
+
+        var result = new List<(byte[] Bytes, string Nombre)>();
+        foreach (var f in fotos)
+        {
+            try
+            {
+                var b64 = f.Base64Data!.Contains(',') ? f.Base64Data.Split(',')[1] : f.Base64Data;
+                result.Add((Convert.FromBase64String(b64), f.NombreArchivo ?? "foto.jpg"));
+            }
+            catch { /* foto corrupta, ignorar */ }
+        }
+        return result;
+    }
+
+    public async Task LimpiarBase64FotosAsync(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var fotos = await ctx.SsomaAmonestacionFotos
+            .Where(f => f.AmonestacionId == id)
+            .ToListAsync();
+        foreach (var f in fotos)
+            f.Base64Data = null;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task ConfirmarEstadoAsync(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = await ctx.SsomaAmonestaciones.FindAsync(id)
+            ?? throw new Exception("Amonestación no encontrada.");
+        entity.Estado = "Registrada";
         entity.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
     }

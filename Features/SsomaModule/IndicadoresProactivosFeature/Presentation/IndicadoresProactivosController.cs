@@ -168,4 +168,50 @@ public class IndicadoresProactivosController : ControllerBase
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch { return StatusCode(500, new { message = "Error al calcular los puntajes." }); }
     }
+
+    // ── INDICADORES REACTIVOS IF / IG / IA ────────────────────────────────────
+
+    /// <summary>
+    /// Indicadores reactivos (IF, IG, IA) para un proyecto y período.
+    /// IF = accidentes × 10⁶ / HHT  |  IG = días perdidos × 10⁶ / HHT  |  IA = IF × IG / 1000
+    /// </summary>
+    [HttpGet("reactivos/{proyectoId:int}")]
+    public async Task<IActionResult> GetReactivosProyecto(
+        int proyectoId,
+        [FromQuery] int mes,
+        [FromQuery] int anio)
+    {
+        try
+        {
+            var key = $"ind_reactivos_{proyectoId}_{mes}_{anio}";
+            var result = await _cache.GetOrCreateAsync(key, async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = CacheTtl;
+                return await _service.GetIndicadoresReactivosAsync(proyectoId, mes, anio);
+            });
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al calcular indicadores reactivos." }); }
+    }
+
+    /// <summary>Indicadores reactivos de todos los proyectos activos para el período.</summary>
+    [HttpGet("reactivos")]
+    public async Task<IActionResult> GetReactivosTodos(
+        [FromQuery] int mes,
+        [FromQuery] int anio)
+    {
+        try
+        {
+            var key = $"ind_reactivos_todos_{mes}_{anio}";
+            var result = await _cache.GetOrCreateAsync(key, async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = CacheTtl;
+                return await _service.GetIndicadoresReactivosTodosAsync(mes, anio);
+            });
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al calcular indicadores reactivos." }); }
+    }
 }

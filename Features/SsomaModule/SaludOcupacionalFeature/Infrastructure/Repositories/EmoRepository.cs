@@ -272,6 +272,49 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     UrlDocumento = cv.UrlDocumento
                 }).ToListAsync();
 
+            var programacion = await (
+                from p in ctx.SsProgramacionEmo
+                join c in ctx.SsClinica on p.ClinicaId equals c.Id into cj
+                from c in cj.DefaultIfEmpty()
+                join m in ctx.SsMedicoOcupacional on p.MedicoId equals m.Id into mj
+                from m in mj.DefaultIfEmpty()
+                where p.EmoResultadoId == id
+                orderby p.FechaProgramada descending
+                select new EmoProgramacionDetalleDto
+                {
+                    Id = p.Id,
+                    FechaProgramada = p.FechaProgramada,
+                    HoraProgramada = p.HoraProgramada,
+                    CheckInHora = p.CheckInHora,
+                    ClinicaNombre = c != null ? c.Nombre : null,
+                    MedicoNombre = m != null ? m.ApellidoNombre : null,
+                    Estado = p.Estado,
+                    Origen = p.Origen,
+                    MotivoRechazo = p.MotivoRechazo
+                }).FirstOrDefaultAsync();
+
+            var interconsulta = await (
+                from i in ctx.SsInterconsulta
+                join m in ctx.SsMedicoOcupacional on i.MedicoDerivaId equals m.Id into mj
+                from m in mj.DefaultIfEmpty()
+                where i.EmoId == id
+                orderby i.CreatedAt descending
+                select new EmoInterconsultaResumenDto
+                {
+                    Id = i.Id,
+                    Especialidad = i.Especialidad,
+                    MedicoDeriva = m != null ? m.ApellidoNombre : null,
+                    FechaDerivacion = i.FechaDerivacion,
+                    FechaAtencion = i.FechaAtencion,
+                    CentroAtencion = i.CentroAtencion,
+                    Diagnostico = i.Diagnostico,
+                    Cie10 = i.Cie10,
+                    Resultado = i.Resultado,
+                    Estado = i.Estado,
+                    RequiereSeguimiento = i.RequiereSeguimiento,
+                    UrlInforme = i.UrlInforme
+                }).FirstOrDefaultAsync();
+
             var fechaVenc = row.e.FechaVencimientoCalculada ?? row.e.FechaVencimiento;
 
             return new EmoDetalleDto
@@ -301,7 +344,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 DiasParaVencer = fechaVenc.HasValue ? fechaVenc.Value.DayNumber - hoy.DayNumber : (int?)null,
                 Examenes = examenes,
                 Restricciones = restricciones,
-                Convalidaciones = convalidaciones
+                Convalidaciones = convalidaciones,
+                Programacion = programacion,
+                Interconsulta = interconsulta
             };
         }
 

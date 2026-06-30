@@ -4,6 +4,7 @@ using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
+using Microsoft.AspNetCore.Hosting;
 
 namespace Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Services;
 
@@ -14,7 +15,6 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
     private readonly IEmailService _email;
     private readonly ILogger<AccidenteIncidenteService> _logger;
     private readonly IConfiguration _config;
-
     public AccidenteIncidenteService(
         IAccidenteIncidenteRepository repo,
         ISharePointHabService sp,
@@ -56,7 +56,12 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         var urlFoto1 = await SubirFotoAsync(request.Foto1Base64, codigo, "foto1");
         var urlFoto2 = await SubirFotoAsync(request.Foto2Base64, codigo, "foto2");
 
-        return await _repo.CrearAsync(request, codigo, urlFoto1, urlFoto2, usuarioId);
+        // Generar entregables solo si: no es incidente, O es incidente con potencial N5/N6 (Alto Riesgo)
+        var esIncidente = (tipo.Codigo ?? "").Equals("IN", StringComparison.OrdinalIgnoreCase);
+        var potencial = request.ConsecuenciaPotencialPersonal ?? 0;
+        var generarEntregables = !esIncidente || potencial >= 5;
+
+        return await _repo.CrearAsync(request, codigo, urlFoto1, urlFoto2, usuarioId, generarEntregables);
     }
 
     public async Task ActualizarAsync(int id, ActualizarFlashReportRequest request)
@@ -90,7 +95,7 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         if (!string.IsNullOrEmpty(fr.UrlFoto2))
             foto2Bytes = await DescargarArchivoAsync(fr.UrlFoto2);
 
-        // Generar PDF
+        // Generar PDF (el logo se carga internamente en FlashReportPdfService)
         var pdfBytes = FlashReportPdfService.Generar(fr, foto1Bytes, foto2Bytes);
 
         // Subir PDF a SharePoint
@@ -101,6 +106,13 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
 
         // Marcar como enviado
         await _repo.MarcarEnviadoAsync(id, urlPdf ?? "");
+
+        // Auto-crear Accidente de Trabajo vinculado si tipo = Accidente (AC)
+        if (fr.TipoCodigo.Equals("AC", StringComparison.OrdinalIgnoreCase))
+        {
+            var usuarioId = int.TryParse(_config["System:BotUserId"], out var uid) ? uid : 1;
+            await _repo.CrearAccidenteTrabajoVinculadoAsync(fr, usuarioId);
+        }
 
         // Enviar email
         await EnviarEmailAsync(fr, pdfBytes, pdfNombre);
@@ -113,6 +125,76 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         if (fr.Enviado)
             throw new AbrilException("No se puede eliminar un Flash Report ya enviado.", 400);
         await _repo.EliminarAsync(id);
+    }
+
+    // ── PDF y fotos on-demand ────────────────────────────────────────────────
+
+    public async Task<byte[]> GenerarPdfAsync(int id)
+    {
+        var fr = await _repo.GetDetalleAsync(id)
+            ?? throw new AbrilException("Flash Report no encontrado.", 404);
+
+        byte[]? foto1 = null;
+        byte[]? foto2 = null;
+        if (!string.IsNullOrEmpty(fr.UrlFoto1)) foto1 = await DescargarArchivoAsync(fr.UrlFoto1);
+        if (!string.IsNullOrEmpty(fr.UrlFoto2)) foto2 = await DescargarArchivoAsync(fr.UrlFoto2);
+
+        return FlashReportPdfService.Generar(fr, foto1, foto2);
+    }
+
+    public async Task<(byte[] Bytes, string ContentType, string FileName)> ObtenerFotoAsync(int id, int slot)
+    {
+        var fr = await _repo.GetDetalleAsync(id)
+            ?? throw new AbrilException("Flash Report no encontrado.", 404);
+
+        var url = slot == 1 ? fr.UrlFoto1 : fr.UrlFoto2;
+        if (string.IsNullOrEmpty(url))
+            throw new AbrilException("Foto no disponible.", 404);
+
+        var bytes = await DescargarArchivoAsync(url);
+        if (bytes == null || bytes.Length == 0)
+            throw new AbrilException("No se pudo obtener la foto.", 502);
+
+        var ext = Path.GetExtension(url).ToLowerInvariant();
+        var contentType = ext switch
+        {
+            ".png"  => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => "application/octet-stream"
+        };
+        var fileName = $"foto{slot}_{fr.Codigo}{ext}";
+        return (bytes, contentType, fileName);
+    }
+
+    // ── Acciones vencidas ────────────────────────────────────────────────────
+
+    public async Task<List<AccionCorrectivaVencidaDto>> GetAccionesVencidasAsync()
+    {
+        return await _repo.GetAccionesVencidasAsync();
+    }
+
+    // ── Medidas de control ────────────────────────────────────────────────────
+
+    public async Task<List<AccionCorrectivaDto>> GetMedidasAsync(int accidenteId)
+        => await _repo.GetMedidasAsync(accidenteId);
+
+    public async Task<int> AddMedidaAsync(int accidenteId, GuardarAccionCorrectivaRequest req)
+        => await _repo.AddMedidaAsync(accidenteId, req);
+
+    public async Task UpdateMedidaAsync(int accionId, GuardarAccionCorrectivaRequest req)
+        => await _repo.UpdateMedidaAsync(accionId, req);
+
+    public async Task DeleteMedidaAsync(int accionId)
+        => await _repo.DeleteMedidaAsync(accionId);
+
+    // ── MINTRA ────────────────────────────────────────────────────────────────
+
+    public async Task<byte[]> GenerarMintraAsync(int id)
+    {
+        var fr = await _repo.GetDetalleAsync(id)
+            ?? throw new AbrilException("Flash Report no encontrado.", 404);
+        return MintraPdfService.Generar(fr);
     }
 
     // ── Privados ─────────────────────────────────────────────────────────────
@@ -141,10 +223,8 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
     {
         try
         {
-            var downloadUrl = await _sp.GetDownloadUrlAsync(url, "flash-report");
-            if (string.IsNullOrEmpty(downloadUrl)) return null;
-            using var http = new HttpClient();
-            return await http.GetByteArrayAsync(downloadUrl);
+            // Usar DescargarContenidoAsync que usa Graph API con token directamente
+            return await _sp.DescargarContenidoAsync(url, "flash-report");
         }
         catch (Exception ex)
         {
@@ -163,8 +243,15 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         }
         else
         {
-            destinatarios = ["ssoma@abril.pe", "proyectos@abril.pe"];
-            if (!string.IsNullOrWhiteSpace(fr.ElaboradoPorEmail))
+            // Fijos siempre
+            destinatarios = ["rvera@abril.pe", "fftoratto@abril.pe"];
+
+            // Dinámicos: área Proyectos + GTH + Médico Ocupacional
+            var dinamicos = await _repo.GetDestinatariosFlashReportAsync();
+            destinatarios.AddRange(dinamicos.Where(e => !destinatarios.Contains(e)));
+
+            if (!string.IsNullOrWhiteSpace(fr.ElaboradoPorEmail)
+                && !destinatarios.Contains(fr.ElaboradoPorEmail))
                 destinatarios.Add(fr.ElaboradoPorEmail);
         }
 
@@ -230,4 +317,34 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
 
     public Task GuardarRm050Async(int accidenteId, GuardarRm050Request req)
         => _repo.GuardarRm050Async(accidenteId, req);
+
+    // ── Reclasificar ─────────────────────────────────────────────────────────
+
+    public async Task<int> ReclasificarComoAccidenteAsync(int id, int? usuarioId)
+    {
+        var fr = await _repo.GetDetalleAsync(id)
+            ?? throw new AbrilException("Flash Report no encontrado.", 404);
+
+        if (fr.TipoCodigo.Equals("AC", StringComparison.OrdinalIgnoreCase))
+            throw new AbrilException("El Flash Report ya está clasificado como Accidente.", 400);
+
+        // Obtener el tipo "AC" del catálogo
+        var init = await _repo.GetInicializarAsync();
+        var tipoAC = init.Tipos.FirstOrDefault(t => (t.Codigo ?? "").Equals("AC", StringComparison.OrdinalIgnoreCase))
+            ?? throw new AbrilException("Tipo de Accidente (AC) no encontrado en catálogo.", 500);
+
+        // Cambiar el tipo del flash report
+        await _repo.ReclasificarTipoAsync(id, tipoAC.Id, tipoAC.Codigo ?? "AC", tipoAC.Nombre);
+
+        // Si ya fue enviado, generar entregables de accidente y crear AccidenteTrabajo vinculado
+        if (fr.Enviado)
+        {
+            var uid = usuarioId ?? (int.TryParse(_config["System:BotUserId"], out var uid2) ? uid2 : 1);
+            var frActualizado = await _repo.GetDetalleAsync(id)!;
+            var accidenteId = await _repo.CrearAccidenteTrabajoVinculadoAsync(frActualizado!, uid);
+            return accidenteId ?? 0;
+        }
+
+        return 0;
+    }
 }

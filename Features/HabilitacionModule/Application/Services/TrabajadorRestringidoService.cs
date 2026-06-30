@@ -24,5 +24,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
         public Task DesactivarAsync(int id) =>
             _repo.DesactivarAsync(id);
+
+        public Task DesactivarPorWorkerIdAsync(int workerId) =>
+            _repo.DesactivarPorWorkerIdAsync(workerId);
     }
 }

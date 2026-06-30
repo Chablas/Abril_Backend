@@ -1,3 +1,4 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interconsulta;
@@ -17,9 +18,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             _factory = factory;
         }
 
-        public async Task<List<InterconsultaListDto>> List(InterconsultaFilterDto filter)
+        public async Task<PagedResult<InterconsultaListDto>> List(InterconsultaFilterDto filter)
         {
             using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
 
             var q =
                 from i in ctx.SsInterconsulta
@@ -32,9 +34,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.i.Estado == filter.Estado);
             if (filter.WorkerId.HasValue)
                 q = q.Where(x => x.i.WorkerId == filter.WorkerId.Value);
+            if (!string.IsNullOrWhiteSpace(filter.Search))
+            {
+                var term = filter.Search.Trim();
+                q = q.Where(x =>
+                    (x.w.Person != null && x.w.Person.FullName != null &&
+                     EF.Functions.ILike(x.w.Person.FullName, $"%{term}%"))
+                    || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null &&
+                     EF.Functions.ILike(x.w.Person.DocumentIdentityCode, $"%{term}%")));
+            }
 
-            return await q
+            var total = await q.CountAsync();
+            var page = filter.Page < 1 ? 1 : filter.Page;
+            var pageSize = filter.PageSize <= 0 ? 15 : Math.Min(filter.PageSize, 100);
+
+            var items = await q
                 .OrderByDescending(x => x.i.FechaDerivacion)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .Select(x => new InterconsultaListDto
                 {
                     Id = x.i.Id,
@@ -54,6 +71,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     UrlInforme = x.i.UrlInforme
                 })
                 .ToListAsync();
+
+            foreach (var it in items)
+                if (it.Estado == "Pendiente")
+                    it.DiasPendiente = hoy.DayNumber - it.FechaDerivacion.DayNumber;
+
+            return new PagedResult<InterconsultaListDto>
+            {
+                Page = page,
+                PageSize = pageSize,
+                TotalRecords = total,
+                TotalPages = (int)Math.Ceiling(total / (double)pageSize),
+                Data = items
+            };
         }
 
         public async Task<int> Create(InterconsultaCreateDto dto, int? userId)

@@ -2,8 +2,12 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
+using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Presentation;
 
@@ -14,12 +18,15 @@ public class AccidenteIncidenteController : ControllerBase
 {
     private readonly IAccidenteIncidenteService _service;
     private readonly ILogger<AccidenteIncidenteController> _logger;
+    private readonly IDbContextFactory<AppDbContext> _factory;
 
     public AccidenteIncidenteController(IAccidenteIncidenteService service,
-        ILogger<AccidenteIncidenteController> logger)
+        ILogger<AccidenteIncidenteController> logger,
+        IDbContextFactory<AppDbContext> factory)
     {
         _service = service;
         _logger = logger;
+        _factory = factory;
     }
 
     [HttpGet("inicializar")]
@@ -149,6 +156,169 @@ public class AccidenteIncidenteController : ControllerBase
         try { await _service.GuardarRm050Async(id, req); return Ok(new { message = "Investigación RM-050 guardada." }); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error guardar rm050 {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpGet("{id:int}/pdf")]
+    public async Task<IActionResult> GenerarPdf(int id)
+    {
+        try
+        {
+            var bytes = await _service.GenerarPdfAsync(id);
+            var fr = await _service.GetDetalleAsync(id);
+            var fileName = $"FlashReport_{fr.Codigo}.pdf";
+            // inline → el browser abre el visor de PDF en lugar de forzar descarga
+            Response.Headers.Append("Content-Disposition", $"inline; filename=\"{fileName}\"");
+            return File(bytes, "application/pdf");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error generando PDF flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpGet("{id:int}/foto/{slot:int}")]
+    public async Task<IActionResult> ObtenerFoto(int id, int slot)
+    {
+        try
+        {
+            var (bytes, contentType, fileName) = await _service.ObtenerFotoAsync(id, slot);
+            Response.Headers.Append("Content-Disposition", $"inline; filename=\"{fileName}\"");
+            return File(bytes, contentType);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error obteniendo foto {Slot} flash report {Id}", slot, id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpGet("acciones-correctivas/vencidas")]
+    public async Task<IActionResult> GetAccionesVencidas()
+    {
+        try { return Ok(await _service.GetAccionesVencidasAsync()); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error obteniendo acciones correctivas vencidas"); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPost("acciones-correctivas/{accionId:int}/leccion")]
+    public async Task<IActionResult> CrearLeccionDesdeAccion(int accionId, [FromBody] CrearLeccionDesdeAccionRequest req)
+    {
+        try
+        {
+            using var ctx = _factory.CreateDbContext();
+            var accion = await ctx.Set<SsomaAccionCorrectiva>().FindAsync(accionId)
+                ?? throw new AbrilException("Acción correctiva no encontrada.", 404);
+
+            var today = DateTime.UtcNow;
+            var period = $"{today.Month:D2}-{today.Year}";
+
+            var lesson = new Lesson
+            {
+                Period = period,
+                PeriodDate = new DateTimeOffset(today.Year, today.Month, 1, 0, 0, 0, TimeSpan.Zero),
+                ProblemDescription = accion.Descripcion,
+                ReasonDescription = accion.Tipo ?? "Acción correctiva derivada de accidente/incidente",
+                LessonDescription = req.ImpactDescription ?? accion.Descripcion,
+                ImpactDescription = req.ImpactDescription ?? string.Empty,
+                ProjectId = req.ProyectoId,
+                AreaId = req.AreaId,
+                StateId = 1,
+                ApprovalStatus = "PENDIENTE",
+                CreatedDateTime = DateTimeOffset.UtcNow,
+                CreatedUserId = ObtenerUsuarioId() ?? 0,
+                Active = true,
+                State = true,
+            };
+
+            ctx.Set<Lesson>().Add(lesson);
+            await ctx.SaveChangesAsync();
+
+            return Ok(new { message = "Lección aprendida creada correctamente.", lessonId = lesson.LessonId });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error creando lección desde acción {AccionId}", accionId); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPost("{id:int}/reclasificar-accidente")]
+    public async Task<IActionResult> ReclasificarComoAccidente(int id)
+    {
+        try
+        {
+            var accidenteId = await _service.ReclasificarComoAccidenteAsync(id, ObtenerUsuarioId());
+            var msg = accidenteId > 0
+                ? $"Flash Report reclasificado como Accidente. AccidenteTrabajo ID: {accidenteId}."
+                : "Flash Report reclasificado como Accidente.";
+            return Ok(new { accidenteTrabajoId = accidenteId > 0 ? accidenteId : (int?)null, message = msg });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error reclasificando flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpGet("{id:int}/mintra")]
+    public async Task<IActionResult> GenerarMintra(int id)
+    {
+        try
+        {
+            var bytes = await _service.GenerarMintraAsync(id);
+            var fr = await _service.GetDetalleAsync(id);
+            Response.Headers.Append("Content-Disposition", $"inline; filename=\"MINTRA_{fr.Codigo}.pdf\"");
+            return File(bytes, "application/pdf");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error generando MINTRA {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPost("{id:int}/reclasificar")]
+    public async Task<IActionResult> Reclasificar(int id)
+    {
+        try
+        {
+            var nuevoId = await _service.ReclasificarComoAccidenteAsync(id, ObtenerUsuarioId());
+            return Ok(new { message = "Incidente reclasificado como Accidente correctamente.", accidenteTrabajoId = nuevoId });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error reclasificando flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    // ── Medidas de control (acciones correctivas bidireccionales) ────────────
+
+    [HttpGet("{id:int}/medidas")]
+    public async Task<IActionResult> GetMedidas(int id)
+    {
+        try { return Ok(await _service.GetMedidasAsync(id)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error get medidas {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPost("{id:int}/medidas")]
+    public async Task<IActionResult> AddMedida(int id, [FromBody] GuardarAccionCorrectivaRequest req)
+    {
+        try
+        {
+            var accionId = await _service.AddMedidaAsync(id, req);
+            return Ok(new { id = accionId, message = "Medida de control añadida." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error add medida {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPatch("medidas/{accionId:int}")]
+    public async Task<IActionResult> UpdateMedida(int accionId, [FromBody] GuardarAccionCorrectivaRequest req)
+    {
+        try
+        {
+            await _service.UpdateMedidaAsync(accionId, req);
+            return Ok(new { message = "Medida de control actualizada." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error update medida {AccionId}", accionId); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpDelete("medidas/{accionId:int}")]
+    public async Task<IActionResult> DeleteMedida(int accionId)
+    {
+        try
+        {
+            await _service.DeleteMedidaAsync(accionId);
+            return Ok(new { message = "Medida de control eliminada." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error delete medida {AccionId}", accionId); return StatusCode(500, new { message = "Error del servidor." }); }
     }
 
     private int? ObtenerUsuarioId()

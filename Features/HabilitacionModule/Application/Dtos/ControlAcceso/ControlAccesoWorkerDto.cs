@@ -12,5 +12,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.ControlAcceso
         public List<string> DocumentosFaltantes { get; set; } = [];
         public List<string> DocumentosPorVencer { get; set; } = [];
         public List<EntregableResumenDto> Entregables { get; set; } = [];
+        public bool Restringido { get; set; }
     }
 }

@@ -91,8 +91,10 @@ public class AmonestacionController : ControllerBase
     {
         try
         {
-            var bytes = await _service.GetPdfAsync(id);
-            return File(bytes, "application/pdf", $"Amonestacion-{id}.pdf");
+            var result = await _service.GetPdfAsync(id);
+            if (result.RedirectUrl != null)
+                return Redirect(result.RedirectUrl);
+            return File(result.Bytes!, "application/pdf", $"Amonestacion-{id}.pdf");
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.GetPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

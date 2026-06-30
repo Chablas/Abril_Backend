@@ -362,6 +362,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsPresupuestoItemMetrado> SsPresupuestoItemMetrado => Set<SsPresupuestoItemMetrado>();
         public DbSet<SsPresupuestoPersonalHito> SsPresupuestoPersonalHito => Set<SsPresupuestoPersonalHito>();
         public DbSet<SsControlSemana> SsControlSemana => Set<SsControlSemana>();
+        public DbSet<SsControlSemanaLinea> SsControlSemanaLinea => Set<SsControlSemanaLinea>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -1023,6 +1024,19 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsPresupuestoSeleccionRatio>(e =>
             {
                 e.HasKey(x => new { x.PresupuestoId, x.FamiliaId, x.ProjectId });
+            });
+            modelBuilder.Entity<SsControlSemanaLinea>(e =>
+            {
+                e.Property(x => x.TotalReal)
+                 .HasComputedColumnSql("cantidad_real * COALESCE(precio_unitario, 0)", stored: true);
+                e.HasOne<SsControlSemana>()
+                 .WithMany()
+                 .HasForeignKey(x => x.ControlId)
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne<SsMaterialFamilia>()
+                 .WithMany()
+                 .HasForeignKey(x => x.FamiliaId)
+                 .OnDelete(DeleteBehavior.Restrict);
             });
 
         }

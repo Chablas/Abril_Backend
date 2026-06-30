@@ -53,8 +53,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 // La clínica no puede procesar trabajadores con interconsulta pendiente.
                 // El médico SSOMA (IncluirConInterconsulta = true) ve todas sin excepción.
                 if (!filter.IncluirConInterconsulta)
+                {
+                    // Excluir programaciones "En Interconsulta": la clínica las gestiona
+                    // desde la sección de interconsultas, no desde la agenda/programaciones.
+                    q = q.Where(x => x.p.Estado != "En Interconsulta");
+                    // También filtrar datos históricos que pudieran tener interconsulta
+                    // pendiente sin el estado actualizado.
                     q = q.Where(x => !ctx.SsInterconsulta
                         .Any(i => i.WorkerId == x.p.WorkerId && i.Estado == "Pendiente"));
+                }
 
                 if (filter.FechaDesde.HasValue)
                     q = q.Where(x => x.p.FechaProgramada >= filter.FechaDesde.Value);
@@ -104,11 +111,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                                 ? "Staff Obra"
                                 : "Obrero",
                         FechaVencimientoEmo = ctx.WorkerEmo
-                            .Where(e => e.WorkerId == x.p.WorkerId
-                                     && e.TipoEmoId == x.p.TipoEmoId
-                                     && e.Activo)
-                            .OrderByDescending(e => e.FechaVencimiento)
-                            .Select(e => (DateOnly?)e.FechaVencimiento)
+                            .Where(e => e.WorkerId == x.p.WorkerId && e.Activo)
+                            .OrderByDescending(e => e.FechaVencimientoCalculada ?? e.FechaVencimiento)
+                            .Select(e => (DateOnly?)(e.FechaVencimientoCalculada ?? e.FechaVencimiento))
                             .FirstOrDefault(),
                         InterconsultaEstado = ctx.SsInterconsulta
                             .Where(i => i.WorkerId == x.p.WorkerId)
@@ -662,7 +667,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task<List<ProgramacionHabilitacionDto>> GetHabilitacionAsync(ProgramacionHabilitacionFiltrosDto f)
         {
             using var ctx = _factory.CreateDbContext();
-            var estados = new[] { "Programado", "Aceptado por Clínica", "En Atención", "Aceptado" };
+            var estados = new[] { "Programado", "Aceptado por Clínica", "En Atención", "En Interconsulta", "Aceptado" };
 
             var q = ctx.SsProgramacionEmo
                 .Where(p => estados.Contains(p.Estado))

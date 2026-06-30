@@ -112,6 +112,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
             ctx.SsInterconsulta.Add(ent);
 
+            // Mover la programación activa a "En Interconsulta" para que
+            // no aparezca en la agenda normal hasta que la clínica suba el levantamiento.
+            var prog = await ctx.SsProgramacionEmo
+                .Where(p => p.WorkerId == dto.WorkerId
+                         && p.Estado != "Completado"
+                         && p.Estado != "Cancelado"
+                         && p.Estado != "Rechazado por Clínica"
+                         && p.Estado != "En Interconsulta")
+                .OrderByDescending(p => p.FechaProgramada)
+                .FirstOrDefaultAsync();
+            if (prog != null)
+            {
+                prog.Estado = "En Interconsulta";
+                prog.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
             var lecturaEmo = await ctx.SsHabTrabajador
                 .FirstOrDefaultAsync(h => h.WorkerId == dto.WorkerId && h.ItemId == 25);
             if (lecturaEmo != null)

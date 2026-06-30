@@ -47,6 +47,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPost]
+        [Authorize(Roles = "CLINICA")]
         public async Task<IActionResult> Create([FromBody] InterconsultaCreateDto dto)
         {
             try
@@ -59,6 +60,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPut("{id:int}")]
+        [Authorize(Roles = "CLINICA")]
         public async Task<IActionResult> Update(int id, [FromBody] InterconsultaUpdateDto dto)
         {
             try
@@ -70,8 +72,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en InterconsultaController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Sube el levantamiento (informe) de la interconsulta.
+        /// Solo la clínica puede hacer esto. Al subir el documento,
+        /// la interconsulta pasa a "Atendida" y la programación a "En Atención".
+        /// </summary>
         [HttpPost("{id}/documentos")]
         [Consumes("multipart/form-data")]
+        [Authorize(Roles = "CLINICA")]
         public async Task<IActionResult> SubirDocumento(int id, [FromForm] IFormFile file)
         {
             try
@@ -80,14 +88,27 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                     return BadRequest(new { message = "Archivo requerido." });
 
                 using var ctx = _factory.CreateDbContext();
-                var interconsulta = await ctx.SsInterconsulta.FindAsync(id);
-                if (interconsulta == null)
-                    return NotFound(new { message = "Interconsulta no encontrada." });
+                var interconsulta = await ctx.SsInterconsulta.FindAsync(id)
+                    ?? throw new AbrilException("Interconsulta no encontrada.", 404);
 
                 using var stream = file.OpenReadStream();
                 var path = await _sharePoint.SubirArchivoAsync(stream, file.FileName, "interconsulta");
                 interconsulta.UrlInforme = path;
+                interconsulta.Estado = "Atendida";
                 interconsulta.UpdatedAt = DateTimeOffset.UtcNow;
+
+                // Retornar la programación a "En Atención" para que la clínica pueda completar el proceso
+                var prog = await ctx.SsProgramacionEmo
+                    .Where(p => p.WorkerId == interconsulta.WorkerId
+                             && p.Estado == "En Interconsulta")
+                    .OrderByDescending(p => p.FechaProgramada)
+                    .FirstOrDefaultAsync();
+                if (prog != null)
+                {
+                    prog.Estado = "En Atención";
+                    prog.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+
                 await ctx.SaveChangesAsync();
 
                 return Ok(new { url = path });
@@ -97,6 +118,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPatch("{id:int}/resultado")]
+        [Authorize(Roles = "CLINICA")]
         public async Task<IActionResult> PatchResultado(int id, [FromBody] InterconsultaResultadoPatchDto dto)
         {
             try

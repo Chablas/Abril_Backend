@@ -303,17 +303,23 @@ public class AmonestacionService : IAmonestacionService
     public Task<WorkerPuntajeDto?> GetPuntajeWorkerAsync(int workerId) =>
         _repo.GetPuntajeWorkerAsync(workerId);
 
-    public async Task<byte[]> GetPdfAsync(int id)
+    public async Task<(byte[]? Bytes, string? RedirectUrl)> GetPdfAsync(int id)
     {
         var detalle = await _repo.GetDetalleAsync(id)
             ?? throw new AbrilException("Amonestación no encontrada.", 404);
 
-        var logoBytes = await ResolveLogoAsync(detalle);
+        // Si ya existe PDF generado en SharePoint, redirigir directamente (no regenerar)
+        if (!string.IsNullOrEmpty(detalle.PdfUrl))
+        {
+            var downloadUrl = await _sharePoint.GetDownloadUrlAsync(detalle.PdfUrl, "amonestacion-pdf");
+            if (!string.IsNullOrEmpty(downloadUrl))
+                return (null, downloadUrl);
+        }
 
-        // 1. Intentar obtener fotos desde base64 en BD (disponible para Registradas y Borradores)
+        // Fallback: generar en memoria
+        var logoBytes = await ResolveLogoAsync(detalle);
         var fotosConNombre = await _repo.GetFotosBytesAsync(id);
 
-        // 2. Fallback: descargar desde SharePoint (para borradores confirmados donde se limpió base64)
         if (fotosConNombre.Count == 0)
         {
             using var http = new System.Net.Http.HttpClient();
@@ -335,7 +341,7 @@ public class AmonestacionService : IAmonestacionService
             }
         }
 
-        return AmonestacionPdfService.GenerarPdf(detalle, fotosConNombre.Select(f => f.Bytes).ToList(), logoBytes);
+        return (AmonestacionPdfService.GenerarPdf(detalle, fotosConNombre.Select(f => f.Bytes).ToList(), logoBytes), null);
     }
 
     public async Task CerrarAsync(int id, AmonestacionCerrarRequest req)

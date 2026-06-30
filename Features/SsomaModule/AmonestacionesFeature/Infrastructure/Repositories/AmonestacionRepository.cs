@@ -178,7 +178,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             JOIN workers w ON w.id = a.worker_id
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
-                AND (wv.fecha_fin IS NULL OR wv.fecha_fin >= CURRENT_DATE)
+                AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
             JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
             LEFT JOIN ssoma_amonestacion_infraccion_tipos it ON it.id = a.infraccion_tipo_id
@@ -190,7 +190,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             JOIN workers w ON w.id = a.worker_id
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
-                AND (wv.fecha_fin IS NULL OR wv.fecha_fin >= CURRENT_DATE)
+                AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
             {whereClause};
             """;
@@ -251,7 +251,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             JOIN workers w ON w.id = a.worker_id
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
-                AND (wv.fecha_fin IS NULL OR wv.fecha_fin >= CURRENT_DATE)
+                AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
             LEFT JOIN contractor ct ON ct.contractor_id = c.contributor_id
             LEFT JOIN partida pt ON pt.partida_id = a.partida_id
@@ -346,7 +346,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             JOIN workers w ON w.id = a.worker_id
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
-                AND (wv.fecha_fin IS NULL OR wv.fecha_fin >= CURRENT_DATE)
+                AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
             JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
             WHERE a.state = true
@@ -404,7 +404,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             FROM workers w
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
-                AND (wv.fecha_fin IS NULL OR wv.fecha_fin >= CURRENT_DATE)
+                AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
             LEFT JOIN ssoma_amonestaciones a ON a.worker_id = w.id AND a.state = true
             WHERE w.id = @wid

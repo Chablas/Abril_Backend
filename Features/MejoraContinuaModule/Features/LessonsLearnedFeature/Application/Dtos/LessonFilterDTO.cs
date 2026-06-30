@@ -16,6 +16,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         public List<int>? LessonAreaIds { get; set; }
         public int? UserId { get; set; }
         /// <summary>
+        /// Filtro por revisor de la lección = jefe asignado al autor
+        /// (worker.worker_lesson_jefe_id). Es el workerId del revisor; matchea las
+        /// lecciones cuyos autores tienen asignado a ese revisor.
+        /// </summary>
+        public int? ReviewerWorkerId { get; set; }
+        /// <summary>
         /// IDs de catalog_item seleccionados en los filtros por categoría
         /// (uno por catalog_type). Una lección matchea si TODOS estos IDs
         /// aparecen en el ancestor chain (scope_item) de su catalog_item.

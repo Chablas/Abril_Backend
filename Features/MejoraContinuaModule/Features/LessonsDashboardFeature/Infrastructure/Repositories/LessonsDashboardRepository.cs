@@ -25,7 +25,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             _factory = factory;
         }
 
-        public async Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, List<int>? lessonAreaIds, List<int>? projectIds)
+        public async Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, List<int>? lessonAreaIds, List<int>? projectIds, string? approvalStatus)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -49,6 +49,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             if (userId.HasValue)
                 q = q.Where(l => l.CreatedUserId == userId.Value);
 
+            // Filtro por estado de aprobación (PENDIENTE | APROBADA | RECHAZADA).
+            // El front envía "APROBADA" por defecto para que el dashboard muestre solo
+            // lecciones aprobadas al cargar; null/"" = todos los estados.
+            if (!string.IsNullOrWhiteSpace(approvalStatus))
+                q = q.Where(l => l.ApprovalStatus == approvalStatus);
+
             if (effectiveAreaIds != null)
                 q = q.Where(l => l.LessonAreaId != null && effectiveAreaIds.Contains(l.LessonAreaId.Value));
 
@@ -67,8 +73,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 .ToListAsync();
 
             // Tendencia mensual: ignora el filtro de período para mostrar la evolución
-            // completa en el tiempo, respetando los filtros de usuario, área y proyectos.
-            var lessonsByMonth = await BuildMonthlyTrendAsync(ctx, userId, effectiveAreaIds, projectIds);
+            // completa en el tiempo, respetando los filtros de usuario, área, proyectos y estado.
+            var lessonsByMonth = await BuildMonthlyTrendAsync(ctx, userId, effectiveAreaIds, projectIds, approvalStatus);
 
             // Usuarios pendientes (de registrar lecciones) del período seleccionado o del mes actual.
             var (pendingLabel, pendingUsers) = await BuildPendingUsersAsync(ctx, periodDate);
@@ -331,10 +337,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
         /// Tendencia mensual: lecciones agrupadas por mes (period_date), en orden cronológico.
         /// No aplica el filtro de período (para ver la evolución completa); sí usuario, área y proyectos.
         /// </summary>
-        private async Task<List<ChartItemDTO>> BuildMonthlyTrendAsync(AppDbContext ctx, int? userId, List<int>? areaIds, List<int>? projectIds)
+        private async Task<List<ChartItemDTO>> BuildMonthlyTrendAsync(AppDbContext ctx, int? userId, List<int>? areaIds, List<int>? projectIds, string? approvalStatus)
         {
             var q = ctx.Lesson.Where(l => l.Active && l.State && l.PeriodDate != null);
             if (userId.HasValue) q = q.Where(l => l.CreatedUserId == userId.Value);
+            if (!string.IsNullOrWhiteSpace(approvalStatus)) q = q.Where(l => l.ApprovalStatus == approvalStatus);
             if (areaIds != null) q = q.Where(l => l.LessonAreaId != null && areaIds.Contains(l.LessonAreaId.Value));
             if (projectIds != null && projectIds.Count > 0)
                 q = q.Where(l => l.ProjectId != null && projectIds.Contains(l.ProjectId.Value));

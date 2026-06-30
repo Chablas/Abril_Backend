@@ -52,6 +52,16 @@ namespace Abril_Backend.Shared.Services.SharePoint.Interfaces
         /// </summary>
         Task<ShareLinkResolveDto?> ResolveShareLinkAsync(string link);
 
+        /// <summary>
+        /// Resuelve a una carpeta (driveId + itemId) un link pegado por el usuario que apunta a una
+        /// carpeta de SharePoint/OneDrive. Primero intenta la Graph Shares API; si esa falla y la URL
+        /// es de una biblioteca de un sitio (p. ej. ".../sites/{sitio}/{Biblioteca}/Forms/AllItems.aspx",
+        /// con <c>?id=</c> opcional para una subcarpeta), parsea sitio + biblioteca y resuelve vía
+        /// site → drive → carpeta raíz (o la subcarpeta del <c>?id=</c>). Devuelve null si no se puede
+        /// resolver o si el item resuelto no es una carpeta.
+        /// </summary>
+        Task<ShareLinkResolveDto?> ResolveSharePointFolderUrlAsync(string url);
+
         /// <summary>Lista las subcarpetas directas (id + nombre) de un item por su driveId+itemId.</summary>
         Task<List<ShareLinkResolveDto>> GetChildFoldersByItemIdAsync(string driveId, string itemId);
 

@@ -2,24 +2,24 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Application.Dtos;
-using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Application.Interfaces;
+using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Application.Dtos;
+using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Application.Interfaces;
 
-namespace Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Presentation
+namespace Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Presentation
 {
     [ApiController]
     [Route("api/v1/[controller]")]
     [Authorize]
-    public class InvoiceFolderController : ControllerBase
+    public class ManagerSignatureController : ControllerBase
     {
-        private readonly IInvoiceFolderService _service;
+        private readonly IManagerSignatureService _service;
 
-        public InvoiceFolderController(IInvoiceFolderService service)
+        public ManagerSignatureController(IManagerSignatureService service)
         {
             _service = service;
         }
 
-        /// <summary>Carpeta única configurada para guardar las facturas (null si aún no se configuró).</summary>
+        /// <summary>Firma del Gerente General configurada (null si aún no se configuró).</summary>
         [HttpGet]
         public async Task<IActionResult> Get()
         {
@@ -36,9 +36,9 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Invoice
             }
         }
 
-        /// <summary>Configura/actualiza la carpeta única: recibe el link, lo detecta y lo guarda.</summary>
+        /// <summary>Guarda/actualiza la firma del Gerente General (PNG dibujado en el canvas).</summary>
         [HttpPut]
-        public async Task<IActionResult> Save([FromBody] InvoiceFolderSaveDto dto)
+        public async Task<IActionResult> Save([FromBody] ManagerSignatureSaveDto dto)
         {
             try
             {

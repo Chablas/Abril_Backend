@@ -133,8 +133,9 @@ namespace Abril_Backend.Application.Services
             // Ventana de los últimos 5 días hábiles del mes:
             //   • Días 1–3: recordatorio para subir lecciones.
             //   • Día 4: reporte de quién NO subió su lección (antes salía el 1er día del mes).
-            //   • Días 4–5: ventana de revisión de la jefatura (Aprobar/Rechazar en la app;
-            //     no hay correo automático adicional — esos correos los dispara la acción del jefe).
+            //   • Días 4–5: ventana de revisión de la jefatura. En AMBOS días se envía
+            //     el aviso de revisión a las jefaturas (Aprobar/Rechazar en la app); los
+            //     correos de aprobación/rechazo en sí los dispara la acción del jefe.
             // Los feriados/días no laborables NO cuentan como días hábiles (igual que sábados/domingos).
             var holidays = await _lessonReminderRepository.GetHolidayDatesAsync(today.Year, today.Month);
             var ordinal = LastFiveBusinessDayOrdinal(today, holidays);
@@ -161,7 +162,12 @@ namespace Abril_Backend.Application.Services
             }
             else if (ordinal == 5)
             {
-                Console.WriteLine("⏰ Día 5/5 hábil final: ventana de revisión de jefatura (sin correo automático)");
+                // 2.º día de la ventana de revisión: se reitera el aviso a las
+                // jefaturas (el reporte de pendientes a supervisores sigue siendo
+                // solo del día 4, no se repite aquí).
+                Console.WriteLine("⏰ Día 5/5 hábil final: aviso de revisión a jefaturas (2.º día de la ventana)");
+                await SendJefesReviewWindowReminderAsync(today);
+                Console.WriteLine("📧 Aviso de revisión enviado correctamente");
             }
             else
             {
@@ -310,10 +316,18 @@ namespace Abril_Backend.Application.Services
             // van solo al destinatario, sin copia a nadie más).
             var activeStaffEmails = await _lessonReminderRepository.GetActiveStaffEmailsAsync();
 
-            // Para deduplicar entre canal 1 y canal 2: si ya mandé al user X
-            // por el canal 1 (porque está en user_project), no le mando otra
-            // vez por el canal 2 aunque sea miembro del staff_email.
-            var emailedThisRun = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Para deduplicar se usa la pareja (correo, proyecto), NO solo el
+            // correo: el recordatorio es POR PROYECTO (cada proyecto requiere su
+            // propia lección). Un trabajador pendiente en varios proyectos debe
+            // recibir un recordatorio por cada uno. Solo evitamos enviar dos veces
+            // el MISMO proyecto al MISMO correo (p. ej. si aparece tanto en
+            // user_project como en el staff_email de ese proyecto, o si está en el
+            // staff de dos grupos que apuntan al mismo proyecto).
+            var emailedThisRun = new HashSet<(string Email, int ProjectId)>();
+
+            // Clave de dedup normalizada (correo en minúsculas/trim + proyecto).
+            static (string, int) DedupKey(string? email, int projectId) =>
+                (email?.Trim().ToLowerInvariant() ?? string.Empty, projectId);
 
             foreach (var item in pendingUserProjects)
             {
@@ -388,8 +402,14 @@ namespace Abril_Backend.Application.Services
                     bcc: new List<string> {"calvarez@abril.pe"}
                 );
 
-                if (!string.IsNullOrWhiteSpace(item.Email))
-                    emailedThisRun.Add(item.Email.Trim());
+                // Este correo (canal 1) ya cubre TODOS los proyectos pendientes del
+                // trabajador en user_project; marcamos cada pareja (correo, proyecto)
+                // para que el canal 2 no reenvíe esos mismos proyectos.
+                if (!string.IsNullOrWhiteSpace(item.Email) && item.Projects != null)
+                {
+                    foreach (var p in item.Projects)
+                        emailedThisRun.Add(DedupKey(item.Email, p.ProjectId));
+                }
             }
 
             // ─────────────────────────────────────────────────────────────────
@@ -426,8 +446,11 @@ namespace Abril_Backend.Application.Services
 
                 foreach (var m in pendingMembers)
                 {
-                    // Dedup: no mandar dos veces si ya recibió correo por el canal 1
-                    if (emailedThisRun.Contains(m.Email)) continue;
+                    // Dedup POR PROYECTO: solo se omite si a este correo ya se le
+                    // recordó ESTE MISMO proyecto (por canal 1 o por otro grupo de
+                    // staff que apunta al mismo proyecto). Si es otro proyecto, se
+                    // envía igual: cada proyecto necesita su propia lección.
+                    if (emailedThisRun.Contains(DedupKey(m.Email, staffProject.ProjectId))) continue;
 
                     var greeting = !string.IsNullOrWhiteSpace(m.FullName)
                         ? $"Estimado(a) <strong>{m.FullName}</strong>,"
@@ -485,7 +508,7 @@ namespace Abril_Backend.Application.Services
                         bcc: new List<string> { "calvarez@abril.pe" }
                     );
 
-                    emailedThisRun.Add(m.Email);
+                    emailedThisRun.Add(DedupKey(m.Email, staffProject.ProjectId));
                 }
             }
         }
@@ -562,9 +585,10 @@ namespace Abril_Backend.Application.Services
         }
 
         /// <summary>
-        /// Aviso del 4.º día hábil a las jefaturas ACTIVAS en la sección
-        /// "Jefaturas" (lesson_jefe_reminder.active=true): las lecciones del mes ya
-        /// están listas y se abre la ventana de revisión (Aprobar/Rechazar). Es
+        /// Aviso a las jefaturas ACTIVAS en la sección "Jefaturas"
+        /// (lesson_jefe_reminder.active=true) durante la ventana de revisión (4.º y
+        /// 5.º día hábil final del mes): las lecciones del mes ya están listas y se
+        /// abre la ventana de revisión (Aprobar/Rechazar). Se envía en ambos días y es
         /// independiente del reporte de pendientes — sale aunque no haya pendientes.
         /// </summary>
         public async Task SendJefesReviewWindowReminderAsync(DateTime executionDate)
@@ -591,8 +615,9 @@ namespace Abril_Backend.Application.Services
 
                 var pieHtml = @"
                 <p style='font-size: 12px; color: #666;'>
-                    Este aviso se envía automáticamente el 4.º día hábil final del mes a las
-                    jefaturas habilitadas en la configuración de recordatorios.
+                    Este aviso se envía automáticamente durante la ventana de revisión (los
+                    2 últimos días hábiles del mes) a las jefaturas habilitadas en la
+                    configuración de recordatorios.
                 </p>";
 
                 string subject;

@@ -35,6 +35,8 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         public int? CurrencyId { get; set; }
         /// <summary>URL del documento/factura (OneDrive/SharePoint o, en pruebas, Azure Blob).</summary>
         public string? DocumentUrl { get; set; }
+        /// <summary>URL del documento firmado (PDF con la firma estampada). Se genera aparte del original.</summary>
+        public string? SignedDocumentUrl { get; set; }
         /// <summary>Carpeta de OneDrive donde se guardó el documento.</summary>
         public int? InvoiceFolderId { get; set; }
         /// <summary>Razón social de Abril (contribuyente con es_abril = true) a la que pertenece la factura.</summary>

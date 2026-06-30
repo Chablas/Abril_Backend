@@ -1,8 +1,10 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Dtos;
+using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Helpers;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Interfaces;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.Sunat.Dtos;
@@ -26,19 +28,25 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         private readonly IStorageContainerResolver _containerResolver;
         private readonly ISunatService _sunatService;
         private readonly IGraphSharePointService _sharePointService;
+        private readonly IManagerSignatureRepository _signatureRepository;
+        private readonly IHttpClientFactory _httpClientFactory;
 
         public InvoiceService(
             IInvoiceRepository repository,
             IFileStorageService fileStorageService,
             IStorageContainerResolver containerResolver,
             ISunatService sunatService,
-            IGraphSharePointService sharePointService)
+            IGraphSharePointService sharePointService,
+            IManagerSignatureRepository signatureRepository,
+            IHttpClientFactory httpClientFactory)
         {
             _repository = repository;
             _fileStorageService = fileStorageService;
             _containerResolver = containerResolver;
             _sunatService = sunatService;
             _sharePointService = sharePointService;
+            _signatureRepository = signatureRepository;
+            _httpClientFactory = httpClientFactory;
         }
 
         public async Task<InvoiceInitDto> GetInit(InvoiceFilterDto filter)
@@ -47,7 +55,6 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
             var suppliers = await _repository.GetSuppliers();
             var paymentForms = await _repository.GetPaymentForms();
             var abrilCompanies = await _repository.GetAbrilCompanies();
-            var folders = await _repository.GetFolderOptions();
             var currencies = await _repository.GetCurrencies();
             var invoices = await _repository.GetPaged(filter);
 
@@ -56,7 +63,6 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
                 Suppliers = suppliers,
                 PaymentForms = paymentForms,
                 AbrilCompanies = abrilCompanies,
-                Folders = folders,
                 Currencies = currencies,
                 Invoices = invoices
             };
@@ -116,16 +122,18 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
                 throw new AbrilException("El total de la factura debe ser mayor a cero.");
             if (dto.AbrilContributorId <= 0)
                 throw new AbrilException("Debe seleccionar la razón social de Abril.");
-            if (dto.InvoiceFolderId <= 0)
-                throw new AbrilException("Debe seleccionar la carpeta donde se guardará la factura.");
             if (dto.CurrencyId <= 0)
                 throw new AbrilException("Debe seleccionar la moneda.");
 
+            var destination = await _repository.GetActiveFolderDestination()
+                ?? throw new AbrilException("No hay una carpeta de facturas configurada. Configúrela en Contabilidad → Configuración.");
+
             var documentUrl = await ResolveDocumentUrlAsync(
-                dto.DocumentFile, dto.InvoiceFolderId, dto.ContributorId, dto.AbrilContributorId,
+                dto.DocumentFile, destination.DriveId, destination.FolderId,
+                dto.ContributorId, dto.AbrilContributorId,
                 dto.Serie, dto.Correlativo, dto.IssueDate);
 
-            await _repository.Create(dto, documentUrl, userId);
+            await _repository.Create(dto, documentUrl, destination.Id, userId);
         }
 
         public async Task Update(InvoiceUpdateDto dto, int userId)
@@ -148,17 +156,19 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
                 throw new AbrilException("El total de la factura debe ser mayor a cero.");
             if (dto.AbrilContributorId <= 0)
                 throw new AbrilException("Debe seleccionar la razón social de Abril.");
-            if (dto.InvoiceFolderId <= 0)
-                throw new AbrilException("Debe seleccionar la carpeta donde se guardará la factura.");
             if (dto.CurrencyId <= 0)
                 throw new AbrilException("Debe seleccionar la moneda.");
 
+            var destination = await _repository.GetActiveFolderDestination()
+                ?? throw new AbrilException("No hay una carpeta de facturas configurada. Configúrela en Contabilidad → Configuración.");
+
             // Solo se vuelve a subir si se adjunta un documento nuevo; si no, se conserva el actual.
             var documentUrl = await ResolveDocumentUrlAsync(
-                dto.DocumentFile, dto.InvoiceFolderId, dto.ContributorId, dto.AbrilContributorId,
+                dto.DocumentFile, destination.DriveId, destination.FolderId,
+                dto.ContributorId, dto.AbrilContributorId,
                 dto.Serie, dto.Correlativo, dto.IssueDate);
 
-            await _repository.Update(dto, documentUrl, userId);
+            await _repository.Update(dto, documentUrl, destination.Id, userId);
         }
 
         /// <summary>
@@ -167,7 +177,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         /// devolviendo su webUrl. Si no hay documento, devuelve null.
         /// </summary>
         private async Task<string?> ResolveDocumentUrlAsync(
-            IFormFile? file, int invoiceFolderId, int contributorId, int abrilContributorId,
+            IFormFile? file, string driveId, string folderId, int contributorId, int abrilContributorId,
             string serie, string correlativo, DateOnly issueDate)
         {
             // Validaciones de dependencias (también para mensajes claros aunque no haya archivo).
@@ -175,8 +185,6 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
                 ?? throw new AbrilException("La razón social de Abril seleccionada no es válida.");
             var supplierName = await _repository.GetContributorName(contributorId)
                 ?? throw new AbrilException("El proveedor seleccionado no es válido.");
-            var destination = await _repository.GetFolderDestination(invoiceFolderId)
-                ?? throw new AbrilException("La carpeta seleccionada no existe o está inactiva.");
 
             if (file == null || file.Length == 0)
                 return null;
@@ -189,6 +197,28 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
                 throw new AbrilException("Formato de documento no válido. Use PDF, PNG, JPG o WEBP.");
 
             var invoiceNumber = $"{serie.Trim()}-{correlativo.Trim()}";
+            var currentFolderId = await EnsureInvoiceFolderPathAsync(
+                driveId, folderId, abrilName, supplierName, invoiceNumber, issueDate);
+
+            var fileName = $"{Sanitize(invoiceNumber)}{extension}";
+            using var stream = file.OpenReadStream();
+            var uploaded = await _sharePointService.UploadToOneDriveFolderAsync(
+                driveId, currentFolderId, fileName, stream,
+                contentType: file.ContentType ?? "application/octet-stream",
+                autoRenameOnLock: true);
+
+            return uploaded?.WebUrl;
+        }
+
+        /// <summary>
+        /// Asegura la cadena de subcarpetas AÑO / MES / dd-MM-yyyy / RAZÓN SOCIAL ABRIL / PROVEEDOR /
+        /// N° FACTURA bajo la carpeta raíz indicada y devuelve el itemId de la última (donde se sube
+        /// el archivo). Reutilizado por el alta de facturas y por la firma.
+        /// </summary>
+        private async Task<string> EnsureInvoiceFolderPathAsync(
+            string driveId, string rootFolderId, string abrilName, string supplierName,
+            string invoiceNumber, DateOnly issueDate)
+        {
             var segments = new[]
             {
                 issueDate.Year.ToString(),
@@ -199,18 +229,81 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
                 Sanitize(invoiceNumber),
             };
 
-            var currentFolderId = destination.FolderId;
+            var currentFolderId = rootFolderId;
             foreach (var segment in segments)
-                currentFolderId = await _sharePointService.EnsureChildFolderAsync(destination.DriveId, currentFolderId, segment);
+                currentFolderId = await _sharePointService.EnsureChildFolderAsync(driveId, currentFolderId, segment);
 
-            var fileName = $"{Sanitize(invoiceNumber)}{extension}";
-            using var stream = file.OpenReadStream();
+            return currentFolderId;
+        }
+
+        public async Task<string> Sign(int invoiceId, int userId)
+        {
+            var detail = await _repository.GetDetail(invoiceId)
+                ?? throw new AbrilException("La factura no existe.", 404);
+
+            if (string.IsNullOrWhiteSpace(detail.DocumentUrl))
+                throw new AbrilException("La factura no tiene un documento para firmar.");
+
+            var signature = await _signatureRepository.GetActiveBytes()
+                ?? throw new AbrilException("No hay una firma configurada. Configúrela en Contabilidad → Configuración → Firma de Gerente General.");
+
+            var destination = await _repository.GetActiveFolderDestination()
+                ?? throw new AbrilException("No hay una carpeta de facturas configurada.");
+
+            byte[] original;
+            try
+            {
+                original = await DownloadOriginalAsync(detail.DocumentUrl!);
+            }
+            catch (Exception)
+            {
+                throw new AbrilException("No se pudo descargar el documento original de la factura para firmarlo.");
+            }
+
+            byte[] signedPdf;
+            try
+            {
+                signedPdf = SignaturePdfStamper.Stamp(original, signature.Bytes);
+            }
+            catch (Exception)
+            {
+                throw new AbrilException("No se pudo generar el documento firmado a partir del documento original.");
+            }
+
+            var folderId = await EnsureInvoiceFolderPathAsync(
+                destination.DriveId, destination.FolderId,
+                detail.AbrilContributorName ?? "SIN RAZON SOCIAL",
+                detail.ContributorName, detail.InvoiceNumber, detail.IssueDate);
+
+            var fileName = $"{Sanitize(detail.InvoiceNumber)}-FIRMADO.pdf";
+            using var stream = new MemoryStream(signedPdf);
             var uploaded = await _sharePointService.UploadToOneDriveFolderAsync(
-                destination.DriveId, currentFolderId, fileName, stream,
-                contentType: file.ContentType ?? "application/octet-stream",
-                autoRenameOnLock: true);
+                destination.DriveId, folderId, fileName, stream,
+                contentType: "application/pdf", autoRenameOnLock: true)
+                ?? throw new AbrilException("No se pudo subir el documento firmado.", 500);
 
-            return uploaded?.WebUrl;
+            if (string.IsNullOrWhiteSpace(uploaded.WebUrl))
+                throw new AbrilException("No se pudo obtener la URL del documento firmado.", 500);
+
+            await _repository.AttachSignedDocument(invoiceId, uploaded.WebUrl!, userId);
+            return uploaded.WebUrl!;
+        }
+
+        /// <summary>
+        /// Descarga el documento original de una factura a partir de su URL. Si la URL es de
+        /// SharePoint/OneDrive se usa Graph (permisos de aplicación); en otro caso (p. ej. Azure Blob
+        /// público) se descarga por HTTP directo.
+        /// </summary>
+        private async Task<byte[]> DownloadOriginalAsync(string documentUrl)
+        {
+            if (Uri.TryCreate(documentUrl, UriKind.Absolute, out var uri) &&
+                uri.Host.Contains("sharepoint.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return await _sharePointService.DownloadOneDriveFileByWebUrlAsync(documentUrl);
+            }
+
+            var client = _httpClientFactory.CreateClient();
+            return await client.GetByteArrayAsync(documentUrl);
         }
 
         /// <summary>

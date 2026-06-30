@@ -6,6 +6,10 @@ using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFold
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Application.Services;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Application.Interfaces;
+using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Application.Services;
+using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Repositories;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Services;
 
@@ -26,6 +30,10 @@ namespace Abril_Backend.Features.AccountingModule
             // Feature: Configuración → Carpeta de facturas (OneDrive/SharePoint)
             services.AddScoped<IInvoiceFolderRepository, InvoiceFolderRepository>();
             services.AddScoped<IInvoiceFolderService, InvoiceFolderService>();
+
+            // Feature: Configuración → Firma del Gerente General
+            services.AddScoped<IManagerSignatureRepository, ManagerSignatureRepository>();
+            services.AddScoped<IManagerSignatureService, ManagerSignatureService>();
 
             return services;
         }

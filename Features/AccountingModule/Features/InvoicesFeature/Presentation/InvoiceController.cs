@@ -124,6 +124,28 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
             }
         }
 
+        [HttpPost("{invoiceId:int}/sign")]
+        public async Task<IActionResult> Sign(int invoiceId)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == null) return Unauthorized(new { message = "Inicie sesión." });
+
+                var signedDocumentUrl = await _service.Sign(invoiceId, userId.Value);
+                return Ok(new { message = "Documento firmado generado exitosamente.", signedDocumentUrl });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE SIGN: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet("{invoiceId:int}")]
         public async Task<IActionResult> GetDetail(int invoiceId)
         {

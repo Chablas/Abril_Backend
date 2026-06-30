@@ -1,5 +1,3 @@
-using Abril_Backend.Application.DTOs;
-using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Application.Dtos;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Interfaces;
@@ -10,7 +8,6 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Invoice
 {
     public class InvoiceFolderRepository : IInvoiceFolderRepository
     {
-        private const int PageSize = 10;
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public InvoiceFolderRepository(IDbContextFactory<AppDbContext> factory)
@@ -18,22 +15,16 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Invoice
             _factory = factory;
         }
 
-        public async Task<PagedResult<InvoiceFolderDto>> GetPaged(InvoiceFolderFilterDto filter)
+        public async Task<InvoiceFolderDto?> GetSingleton()
         {
             using var ctx = _factory.CreateDbContext();
 
-            var query = ctx.InvoiceFolder.Where(x => x.State);
-
-            var totalRecords = await query.CountAsync();
-
-            var data = await query
-                .OrderByDescending(f => f.InvoiceFolderId)
-                .Skip((filter.Page - 1) * PageSize)
-                .Take(PageSize)
+            return await ctx.InvoiceFolder
+                .Where(f => f.State)
+                .OrderBy(f => f.InvoiceFolderId)
                 .Select(f => new InvoiceFolderDto
                 {
                     InvoiceFolderId = f.InvoiceFolderId,
-                    Name = f.Name,
                     LinkUrl = f.LinkUrl,
                     DriveId = f.DriveId,
                     FolderId = f.FolderId,
@@ -43,91 +34,59 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Invoice
                     CreatedDateTime = f.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                     CreatedUserId = f.CreatedUserId
                 })
-                .ToListAsync();
-
-            return new PagedResult<InvoiceFolderDto>
-            {
-                Page = filter.Page,
-                PageSize = PageSize,
-                TotalRecords = totalRecords,
-                TotalPages = (int)Math.Ceiling(totalRecords / (double)PageSize),
-                Data = data
-            };
+                .FirstOrDefaultAsync();
         }
 
-        public async Task<bool> NameExistsAsync(string name, int? excludeId = null)
-        {
-            using var ctx = _factory.CreateDbContext();
-            var normalized = name.Trim().ToLower();
-            return await ctx.InvoiceFolder.AnyAsync(x =>
-                x.State &&
-                x.Name.ToLower() == normalized &&
-                (excludeId == null || x.InvoiceFolderId != excludeId.Value));
-        }
-
-        public async Task<bool> ExistsAsync(int invoiceFolderId)
-        {
-            using var ctx = _factory.CreateDbContext();
-            return await ctx.InvoiceFolder.AnyAsync(x => x.InvoiceFolderId == invoiceFolderId && x.State);
-        }
-
-        public async Task Create(InvoiceFolderCreateDto dto, string driveId, string folderId, string? folderName, string? webUrl, int userId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            ctx.InvoiceFolder.Add(new InvoiceFolder
-            {
-                Name = dto.Name.Trim(),
-                LinkUrl = dto.LinkUrl.Trim(),
-                DriveId = driveId,
-                FolderId = folderId,
-                FolderName = folderName,
-                WebUrl = webUrl,
-                Active = true,
-                State = true,
-                CreatedDateTime = DateTimeOffset.UtcNow,
-                CreatedUserId = userId
-            });
-            await ctx.SaveChangesAsync();
-        }
-
-        public async Task Update(InvoiceFolderUpdateDto dto, string driveId, string folderId, string? folderName, string? webUrl, int userId)
+        public async Task Upsert(string linkUrl, string driveId, string folderId, string? folderName, string? webUrl, int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
             var record = await ctx.InvoiceFolder
-                .FirstOrDefaultAsync(x => x.InvoiceFolderId == dto.InvoiceFolderId && x.State)
-                ?? throw new AbrilException("La carpeta no existe.");
+                .Where(f => f.State)
+                .OrderBy(f => f.InvoiceFolderId)
+                .FirstOrDefaultAsync();
 
-            record.Name = dto.Name.Trim();
-            record.LinkUrl = dto.LinkUrl.Trim();
-            record.DriveId = driveId;
-            record.FolderId = folderId;
-            record.FolderName = folderName;
-            record.WebUrl = webUrl;
-            record.Active = dto.Active;
-            record.UpdatedDateTime = DateTimeOffset.UtcNow;
-            record.UpdatedUserId = userId;
+            if (record == null)
+            {
+                ctx.InvoiceFolder.Add(new InvoiceFolder
+                {
+                    LinkUrl = linkUrl,
+                    DriveId = driveId,
+                    FolderId = folderId,
+                    FolderName = folderName,
+                    WebUrl = webUrl,
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = DateTimeOffset.UtcNow,
+                    CreatedUserId = userId
+                });
+            }
+            else
+            {
+                record.LinkUrl = linkUrl;
+                record.DriveId = driveId;
+                record.FolderId = folderId;
+                record.FolderName = folderName;
+                record.WebUrl = webUrl;
+                record.Active = true;
+                record.UpdatedDateTime = DateTimeOffset.UtcNow;
+                record.UpdatedUserId = userId;
+            }
 
             await ctx.SaveChangesAsync();
         }
 
-        public async Task<bool> Delete(int invoiceFolderId, int userId)
+        public async Task<(int Id, string DriveId, string FolderId)?> GetActiveDestination()
         {
             using var ctx = _factory.CreateDbContext();
 
-            var record = await ctx.InvoiceFolder
-                .FirstOrDefaultAsync(x => x.InvoiceFolderId == invoiceFolderId && x.State);
+            var f = await ctx.InvoiceFolder
+                .Where(x => x.State && x.Active)
+                .OrderBy(x => x.InvoiceFolderId)
+                .Select(x => new { x.InvoiceFolderId, x.DriveId, x.FolderId })
+                .FirstOrDefaultAsync();
 
-            if (record == null) return false;
-
-            record.State = false;
-            record.Active = false;
-            record.UpdatedDateTime = DateTimeOffset.UtcNow;
-            record.UpdatedUserId = userId;
-
-            await ctx.SaveChangesAsync();
-            return true;
+            return f == null ? null : (f.InvoiceFolderId, f.DriveId, f.FolderId);
         }
     }
 }

@@ -202,7 +202,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? userId,
             int page,
             int pageSize)
-            => GetLessonsFilterPagedInternal(periodDate, stateId, projectId, areaId, null, userId, null, null, false, 0, page, pageSize);
+            => GetLessonsFilterPagedInternal(periodDate, stateId, projectId, areaId, null, userId, null, null, null, false, 0, page, pageSize);
 
         private async Task<PagedResult<LessonListDTO>> GetLessonsFilterPagedInternal(
             DateTimeOffset? periodDate,
@@ -211,6 +211,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? areaId,
             List<int>? lessonAreaIds,
             int? userId,
+            int? reviewerWorkerId,
             List<int>? catalogItemIds,
             string? approvalStatus,
             bool onlyMyPendingReview,
@@ -231,6 +232,25 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             else if (areaId.HasValue)
                 query = query.Where(x => x.LessonAreaId == areaId.Value);
             if (userId.HasValue) query = query.Where(x => x.CreatedUserId == userId.Value);
+
+            // Filtro por revisor: la lección matchea si su AUTOR tiene asignado a este
+            // worker como revisor (worker.worker_lesson_jefe_id). Resolvemos primero los
+            // user_id de los autores cuyo revisor asignado es el seleccionado.
+            if (reviewerWorkerId.HasValue)
+            {
+                var revieweeUserIds = await (
+                    from w in ctx.Worker
+                    join p in ctx.Person on w.PersonId equals p.PersonId
+                    where w.WorkerLessonJefeId == reviewerWorkerId.Value && p.UserId != null
+                    select p.UserId!.Value
+                ).Distinct().ToListAsync();
+
+                if (revieweeUserIds.Count == 0)
+                    return new PagedResult<LessonListDTO> { Page = page, PageSize = pageSize, TotalRecords = 0, TotalPages = 0, Data = new List<LessonListDTO>() };
+
+                query = query.Where(x => revieweeUserIds.Contains(x.CreatedUserId));
+            }
+
             if (!string.IsNullOrWhiteSpace(approvalStatus)) query = query.Where(x => x.ApprovalStatus == approvalStatus);
 
             // "Pendientes de mi revisión": lecciones PENDIENTES de los subordinados
@@ -369,9 +389,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             // Lecciones paginadas + enriched (incluye filtro por catalog_item_ids)
             var paged = await GetLessonsFilterPagedInternal(
                 filter.PeriodDate, filter.StateId, filter.ProjectId,
-                filter.AreaId, filter.LessonAreaIds, filter.UserId, filter.CatalogItemIds,
-                filter.ApprovalStatus, filter.OnlyMyPendingReview, filter.CurrentUserId,
-                filter.Page, pageSize);
+                filter.AreaId, filter.LessonAreaIds, filter.UserId, filter.ReviewerWorkerId,
+                filter.CatalogItemIds, filter.ApprovalStatus, filter.OnlyMyPendingReview,
+                filter.CurrentUserId, filter.Page, pageSize);
 
             // ── Filters dropdowns ───────────────────────────────────────────
             // Áreas: solo las ramas ACTIVAS de lesson_area (lo que aparece en
@@ -449,6 +469,24 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 }
             ).ToListAsync();
 
+            // Revisores: workers asignados como revisor (worker_lesson_jefe_id) de
+            // algún autor que tenga lecciones. Solo se listan los que realmente
+            // aplican, para que el filtro no muestre revisores sin resultados.
+            var reviewersRaw = await (
+                from l in ctx.Lesson
+                where l.State
+                join p in ctx.Person on l.CreatedUserId equals p.UserId
+                join w in ctx.Worker on p.PersonId equals w.PersonId
+                join jw in ctx.Worker on w.WorkerLessonJefeId equals jw.Id
+                join jp in ctx.Person on jw.PersonId equals jp.PersonId
+                select new { jw.Id, jp.FullName }
+            ).Distinct().ToListAsync();
+
+            var reviewers = reviewersRaw
+                .Select(r => new LessonReviewerFilterDTO { WorkerId = r.Id, FullName = r.FullName })
+                .OrderBy(r => r.FullName)
+                .ToList();
+
             // Filtros dinámicos por catalog_type: solo catalog_items que existen
             // en scope_item activo (es decir, que están realmente en uso).
             var categories = await (
@@ -493,6 +531,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     Projects = projects,
                     Periods = periods,
                     Users = users,
+                    Reviewers = reviewers,
                     Categories = categoryGroups
                 }
             };

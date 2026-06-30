@@ -23,7 +23,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             [FromQuery] DateTimeOffset? periodDate,
             [FromQuery] int? userId,
             [FromQuery] List<int>? lessonAreaIds,
-            [FromQuery] List<int>? projectIds)
+            [FromQuery] List<int>? projectIds,
+            [FromQuery] string? approvalStatus)
         {
             try
             {
@@ -31,7 +32,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetData(periodDate, userId, lessonAreaIds, projectIds);
+                var result = await _service.GetData(periodDate, userId, lessonAreaIds, projectIds, approvalStatus);
                 return Ok(result);
             }
             catch (Exception)

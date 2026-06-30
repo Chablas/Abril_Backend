@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.ControlAcceso;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
@@ -13,11 +14,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IConfiguration _configuration;
+        private readonly ITrabajadorRestringidoService _restringidoService;
         private const int ItemSctr = 11;
 
-        public ControlAccesoRepository(IDbContextFactory<AppDbContext> factory, IConfiguration configuration)
+        public ControlAccesoRepository(
+            IDbContextFactory<AppDbContext> factory,
+            IConfiguration configuration,
+            ITrabajadorRestringidoService restringidoService)
         {
             _factory = factory;
+            _restringidoService = restringidoService;
             _configuration = configuration;
         }
 
@@ -189,6 +195,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var induccion = await ctx.SsInduccion.FirstOrDefaultAsync(i => i.Id == induccionId)
                 ?? throw new AbrilException("Inducción no encontrada.", 404);
 
+            // Verificar que el trabajador no está en lista negra antes de confirmar ingreso físico
+            var dni = await ctx.Worker
+                .Where(w => w.Id == induccion.WorkerId)
+                .Select(w => w.Person != null ? w.Person.DocumentIdentityCode : null)
+                .FirstOrDefaultAsync();
+
+            if (await _restringidoService.EstaRestringidoPorDniAsync(dni))
+                throw new AbrilException("Trabajador restringido. No puede ingresar al proyecto.", 403);
+
             induccion.IngresoConfirmado = true;
             induccion.FechaIngreso = DateTime.UtcNow;
             induccion.UpdatedAt = DateTime.UtcNow;
@@ -357,12 +372,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             DetallesContratista = detallesContratista ?? []
         };
 
-        private static async Task<List<ControlAccesoWorkerDto>> BuildDtosAsync(
+        private async Task<List<ControlAccesoWorkerDto>> BuildDtosAsync(
             AppDbContext ctx, List<Worker> workers, bool esOficinaCentral = false)
         {
             if (workers.Count == 0) return [];
 
             var workerIds = workers.Select(w => w.Id).ToList();
+
+            // Cargar DNIs restringidos activos para marcar el flag en el resultado
+            var dnisList = workers
+                .Where(w => w.Person?.DocumentIdentityCode != null)
+                .Select(w => w.Person!.DocumentIdentityCode!)
+                .Distinct()
+                .ToList();
+            var restringidosDnis = await ctx.SsTrabajadorRestringido
+                .Where(r => r.Activo && r.Dni != null && dnisList.Contains(r.Dni))
+                .Select(r => r.Dni!)
+                .ToHashSetAsync();
 
             var allVincs = await ctx.WorkerVinculacion
                 .Where(v => workerIds.Contains(v.WorkerId) && v.FechaFin == null)
@@ -526,18 +552,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     }
                 }
 
+                var dni = w.Person?.DocumentIdentityCode ?? "";
                 return new ControlAccesoWorkerDto
                 {
                     WorkerId = w.Id,
                     ApellidoNombre = w.Person?.FullName ?? "",
-                    Dni = w.Person?.DocumentIdentityCode ?? "",
+                    Dni = dni,
                     EmpresaNombre = empresaNombre,
                     ProyectoNombre = proyectoNombre,
                     EstadoHabilitacion = hasPendientes ? "No Autorizado" : "Habilitado",
                     EmpresaActiva = empresaActiva,
                     DocumentosFaltantes = faltantes,
                     DocumentosPorVencer = porVencer,
-                    Entregables = entregables
+                    Entregables = entregables,
+                    Restringido = !string.IsNullOrEmpty(dni) && restringidosDnis.Contains(dni),
                 };
             }).ToList();
         }

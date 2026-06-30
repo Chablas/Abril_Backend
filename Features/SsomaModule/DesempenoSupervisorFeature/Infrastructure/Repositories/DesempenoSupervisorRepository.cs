@@ -22,25 +22,14 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
         var fin    = inicio.AddMonths(1);
 
         // ── 1. Supervisores SSOMA ──────────────────────────────────────────
-        var rolesMap = await ctx.Role
+        var ssomaRoleIds = await ctx.Role
             .Where(r => r.RoleDescription == "ADMINISTRADOR SSOMA" ||
                         r.RoleDescription == "SALUD OCUPACIONAL")
-            .Select(r => new { r.RoleId, r.RoleDescription })
+            .Select(r => r.RoleId)
             .ToListAsync();
-
-        var ssomaRoleIds = rolesMap.Select(r => r.RoleId).ToList();
-        var saludRoleIds = rolesMap
-            .Where(r => r.RoleDescription == "SALUD OCUPACIONAL")
-            .Select(r => r.RoleId).ToList();
 
         var todosSupIds = await ctx.UserRole
             .Where(ur => ssomaRoleIds.Contains(ur.RoleId))
-            .Select(ur => ur.UserId)
-            .Distinct()
-            .ToListAsync();
-
-        var saludOcupacionalUserIds = await ctx.UserRole
-            .Where(ur => saludRoleIds.Contains(ur.RoleId))
             .Select(ur => ur.UserId)
             .Distinct()
             .ToListAsync();
@@ -83,7 +72,7 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                      && personIds.Contains(w.PersonId.Value)
                      && w.ObraOficina != "Oficina Central"
                      && w.Estado == "ACTIVO")
-            .Select(w => new { w.Id, w.PersonId })
+            .Select(w => new { w.Id, w.PersonId, w.Ocupacion })
             .ToListAsync();
 
         var userToWorker = personasPorUser
@@ -92,6 +81,13 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                   w => w.PersonId,
                   (p, w) => new { p.UserId, WorkerId = w.Id })
             .ToDictionary(x => x.UserId, x => x.WorkerId);
+
+        var residenteUserIds = personasPorUser
+            .Join(staffWorkers.Where(w => string.Equals(w.Ocupacion, "Residencia", StringComparison.OrdinalIgnoreCase)),
+                  p => p.PersonId,
+                  w => w.PersonId,
+                  (p, w) => p.UserId)
+            .ToHashSet();
 
         supervisorUserIds = supervisorUserIds.Where(uid => userToWorker.ContainsKey(uid)).ToList();
         if (!supervisorUserIds.Any()) return [];
@@ -162,12 +158,27 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .Where(o => o.SupId > 0)
             .ToList();
 
-        var inspDetalle = await ctx.SsomaInspeccion
-            .Where(i => i.CreatedBy != null && supervisorUserIds.Contains(i.CreatedBy.Value)
-                     && i.Fecha >= inicio && i.Fecha < fin
-                     && i.Estado != "Borrador")
-            .Select(i => new { SupId = i.CreatedBy!.Value, i.Fecha })
+        var inspRaw = await ctx.SsomaInspeccion
+            .Where(i => i.Fecha >= inicio && i.Fecha < fin
+                     && i.Estado != "Borrador"
+                     && (
+                         (i.CreatedBy != null && supervisorUserIds.Contains(i.CreatedBy.Value)) ||
+                         (i.CreatedBy == null && i.InspectorNombre != null && supervisorNombres.Contains(i.InspectorNombre.ToUpper().Trim()))
+                     ))
+            .Select(i => new { i.CreatedBy, i.InspectorNombre, i.Fecha })
             .ToListAsync();
+
+        var inspDetalle = inspRaw
+            .Select(i => new {
+                SupId = i.CreatedBy != null
+                    ? i.CreatedBy.Value
+                    : (i.InspectorNombre != null && nombreToSupId.ContainsKey(i.InspectorNombre.ToUpper().Trim())
+                        ? nombreToSupId[i.InspectorNombre.ToUpper().Trim()]
+                        : 0),
+                i.Fecha
+            })
+            .Where(i => i.SupId > 0)
+            .ToList();
 
         // Charlas: SupervisorId es WorkerId — invertir userToWorker para mapear de vuelta a UserId
         var workerToUser = userToWorker.ToDictionary(kv => kv.Value, kv => kv.Key);
@@ -177,8 +188,7 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .Where(c => c.SupervisorId != null
                      && supWorkerIds.Contains(c.SupervisorId.Value)
                      && c.Fecha >= inicio && c.Fecha < fin
-                     && c.State
-                     && (c.Estado == "Enviado" || c.Estado == "Aprobado"))
+                     && c.State)
             .Select(c => new { c.SupervisorId, c.Fecha })
             .ToListAsync();
 
@@ -332,7 +342,7 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                 FechaLogro100:            fechaLogro100,
                 EsPrimeroEnProyecto:      false,
                 PctGeneralMesAnterior:    null,
-                EsSaludOcupacional:       saludOcupacionalUserIds.Contains(supId)
+                EsResidente:              residenteUserIds.Contains(supId)
             ));
         }
 

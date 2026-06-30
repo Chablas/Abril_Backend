@@ -7,232 +7,270 @@ namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.S
 
 public static class AmonestacionPdfService
 {
-    private static readonly string AbrilLogoPath =
-        Path.Combine(AppContext.BaseDirectory, "Templates", "logo-abril.jpg");
+    // ── Paleta corporativa ─────────────────────────────────────────────
+    private static readonly string Navy      = "#0D1F3C";   // título, sección headers
+    private static readonly string NavyLight = "#1E3A5F";   // acento secundario
+    private static readonly string Gold      = "#C9A84C";   // línea de acento
+    private static readonly string BgRow     = "#F5F6F8";   // fondo filas etiqueta
+    private static readonly string Border    = "#D8DBE2";   // bordes suaves
+    private static readonly string TextMain  = "#1A1A2E";   // texto principal
+    private static readonly string TextMuted = "#5A6275";   // texto secundario
 
     public static byte[] GenerarPdf(AmonestacionDetalleDto a, List<byte[]> fotoBytes, byte[]? logoBytes)
     {
-        var doc = Document.Create(container =>
+        return Document.Create(container =>
         {
-            // Imprimimos 2 copias idénticas en una sola hoja A4 con línea de corte en el centro
-            for (int copia = 0; copia < 2; copia++)
+            container.Page(page =>
             {
-                container.Page(page =>
+                page.Size(PageSizes.A4.Landscape());
+                page.MarginHorizontal(0.6f, Unit.Centimetre);
+                page.MarginVertical(0.5f, Unit.Centimetre);
+                page.DefaultTextStyle(x => x.FontSize(8).FontFamily("Arial").FontColor(TextMain));
+
+                page.Content().Element(c => ComposeBody(c, a, fotoBytes, logoBytes));
+            });
+        }).GeneratePdf();
+    }
+
+    // ── Dos copias lado a lado — cada una con su propio header ──────
+    private static void ComposeBody(IContainer c, AmonestacionDetalleDto a,
+        List<byte[]> fotos, byte[]? logoBytes)
+    {
+        c.Row(row =>
+        {
+            row.RelativeItem().Element(cell => RenderCopia(cell, a, fotos, logoBytes, "COPIA EMPRESA"));
+
+            // Separador de corte centrado
+            row.ConstantItem(14).Layers(layers =>
+            {
+                layers.Layer().AlignCenter().Width(1).Background(Border).ExtendVertical();
+                layers.PrimaryLayer().AlignCenter().AlignMiddle()
+                    .Background(Colors.White).PaddingVertical(2)
+                    .Text("✂").FontSize(9).FontColor(TextMuted);
+            });
+
+            row.RelativeItem().Element(cell => RenderCopia(cell, a, fotos, logoBytes, "COPIA TRABAJADOR"));
+        });
+    }
+
+    private static void RenderCopia(IContainer container, AmonestacionDetalleDto a,
+        List<byte[]> fotos, byte[]? logoBytes, string etiquetaCopia)
+    {
+        container.Border(0.5f).BorderColor(Border).Column(col =>
+        {
+            // ── Header: Logo | Título | Metadatos (estructura Flash Report) ──
+            col.Item().Border(0.5f).BorderColor(Border).Row(row =>
+            {
+                // Logo — centrado H y V dentro del área fija
+                row.ConstantItem(90).AlignMiddle().AlignCenter().Padding(4).Element(logoEl =>
                 {
-                    page.Size(PageSizes.A4);
-                    page.Margin(20);
-                    page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(9));
+                    if (logoBytes != null)
+                        logoEl.AlignMiddle().AlignCenter().Image(logoBytes).FitArea();
+                    else
+                        // Sin logo: muestra nombre de empresa centrado
+                        logoEl.AlignMiddle().AlignCenter()
+                            .Text(a.EsEmpresaAbril ? "ABRIL" : a.EmpresaNombre)
+                            .Bold().FontSize(8).AlignCenter();
+                });
 
-                    page.Content().Column(col =>
+                row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);
+
+                // Título centrado
+                row.RelativeItem().AlignMiddle().AlignCenter()
+                    .Text("PAPELETA DE AMONESTACIÓN Y NOTIFICACIÓN DE RIESGO")
+                    .Bold().FontSize(10);
+
+                row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);
+
+                // Columna derecha — Código/Versión/Fecha al mismo nivel, Elab en una sola línea
+                row.ConstantItem(110).Column(metaCol =>
+                {
+                    // Filas de metadatos — todas igual, Código a la misma altura que Versión y Fecha
+                    void MetaRow(string label, string valor, bool last = false)
                     {
-                        // ── Contenido de la papeleta ─────────────────────
-                        col.Item().Element(c => RenderPapeleta(c, a, fotoBytes, logoBytes));
-
-                        // Separador con línea de corte
-                        if (copia == 0)
+                        metaCol.Item()
+                            .BorderBottom(last ? 0f : 0.5f)
+                            .Padding(2).Row(r =>
                         {
-                            col.Item().PaddingVertical(6).Row(row =>
+                            r.AutoItem().Text(label).Bold().FontSize(7);
+                            r.ConstantItem(2);
+                            r.RelativeItem().Text(valor).FontSize(7);
+                        });
+                    }
+                    MetaRow("Código:",  "SSO-F-107");
+                    MetaRow("Versión:", "01");
+                    MetaRow("Fecha:",   "01/01/2025");
+
+                    // Elab / Rev / Apro — cada uno en UNA sola línea: "Label: Valor"
+                    metaCol.Item().BorderTop(0.5f).Row(subRow =>
+                    {
+                        foreach (var (lbl, val, last) in new[]
+                        {
+                            ("Elab.:", "SSOMA",  false),
+                            ("Rev.:",  "JSSOMA", false),
+                            ("Apro.:", "GP",     true ),
+                        })
+                        {
+                            var cell = subRow.RelativeItem().Padding(2);
+                            if (!last) cell = cell.BorderRight(0.5f);
+                            cell.Text(t =>
                             {
-                                row.RelativeItem().Height(0.5f).Background(Colors.Grey.Lighten1);
-                                row.ConstantItem(60).AlignCenter().PaddingHorizontal(6)
-                                    .Text("✂ CORTAR").FontSize(7).FontColor(Colors.Grey.Darken1);
-                                row.RelativeItem().Height(0.5f).Background(Colors.Grey.Lighten1);
+                                t.Span(lbl + " ").Bold().FontSize(5.5f);
+                                t.Span(val).FontSize(5.5f);
                             });
-                            col.Item().Element(c => RenderPapeleta(c, a, fotoBytes, logoBytes));
                         }
                     });
                 });
-            }
-        });
-
-        return doc.GeneratePdf();
-    }
-
-    private static void RenderPapeleta(IContainer container, AmonestacionDetalleDto a,
-        List<byte[]> fotos, byte[]? logoBytes)
-    {
-        container.Border(1).BorderColor(Colors.Grey.Medium).Padding(10).Column(col =>
-        {
-            // ── HEADER ────────────────────────────────────────────
-            col.Item().Row(row =>
-            {
-                // Logo
-                row.ConstantItem(60).AlignMiddle().Column(logoCol =>
-                {
-                    if (a.EsEmpresaAbril && logoBytes != null)
-                        logoCol.Item().Image(logoBytes).FitWidth();
-                    else if (!a.EsEmpresaAbril && logoBytes != null)
-                        logoCol.Item().Image(logoBytes).FitWidth();
-                    else
-                        logoCol.Item().Height(40).Background(Colors.Grey.Lighten3);
-                });
-
-                // Título
-                row.RelativeItem().PaddingLeft(8).AlignMiddle().Column(titleCol =>
-                {
-                    titleCol.Item().Text("PAPELETA DE AMONESTACIÓN Y\nNOTIFICACIÓN DE RIESGO")
-                        .Bold().FontSize(11).AlignCenter();
-                });
-
-                // Info documento
-                row.ConstantItem(80).AlignMiddle().Column(infoCol =>
-                {
-                    infoCol.Item().Text("SSO-F-107").FontSize(7).Bold();
-                    infoCol.Item().Text("Versión: 01").FontSize(7);
-                    infoCol.Item().Text($"Fecha: {DateTime.UtcNow:dd/MM/yyyy}").FontSize(7);
-                    infoCol.Item().Text($"Aprobó: GP").FontSize(7);
-                });
             });
 
-            col.Item().PaddingVertical(4).Height(0.5f).Background(Colors.Grey.Medium);
-
-            // ── FILA 1: Puntaje, Código, Fecha, Proyecto, Penalización ──
-            col.Item().Table(table =>
+            // ── Banner copia ──
+            col.Item().Background(Colors.Grey.Darken2)
+                .PaddingVertical(2).PaddingHorizontal(6).Row(r =>
             {
-                table.ColumnsDefinition(c =>
-                {
-                    c.RelativeColumn(1.2f); c.RelativeColumn(1.5f); c.RelativeColumn(1);
-                    c.RelativeColumn(2.5f); c.RelativeColumn(1); c.RelativeColumn(1);
-                });
-
-                void CeldaLabel(string t) => table.Cell().Padding(3).Background(Colors.Grey.Lighten3).Text(t).Bold().FontSize(8);
-                void CeldaValor(string t) => table.Cell().Padding(3).Text(t).FontSize(8);
-
-                CeldaLabel("Puntaje acumulado");
-                table.Cell().Padding(3).Background(
-                    a.Inhabilitado ? Colors.Red.Lighten2 : Colors.Yellow.Lighten2)
-                    .Text($"{a.PuntosAcumulados}/10")
-                    .Bold().FontSize(10).FontColor(a.Inhabilitado ? Colors.Red.Darken2 : Colors.Grey.Darken2);
-
-                CeldaLabel("Código");
-                CeldaValor(a.Codigo);
-                CeldaLabel("Fecha");
-                CeldaValor(a.Fecha.ToString("dd/MM/yyyy"));
+                r.RelativeItem().Text(etiquetaCopia).Bold().FontSize(7.5f).FontColor(Colors.White);
+                if (a.Inhabilitado)
+                    r.AutoItem().Text("⚠ INHABILITADO").Bold().FontSize(7).FontColor("#F59E0B");
             });
 
-            // ── FILA 2: Proyecto, Penalización ──
-            col.Item().Table(table =>
-            {
-                table.ColumnsDefinition(c =>
-                {
-                    c.RelativeColumn(1); c.RelativeColumn(3); c.RelativeColumn(1); c.RelativeColumn(1);
-                });
-
-                table.Cell().Padding(3).Background(Colors.Grey.Lighten3).Text("Proyecto").Bold().FontSize(8);
-                table.Cell().Padding(3).Text(a.ProyectoNombre).FontSize(8);
-                table.Cell().Padding(3).Background(Colors.Grey.Lighten3).Text("Penalización").Bold().FontSize(8);
-                table.Cell().Padding(3).Text(a.AplicaPenalizacion ? "Sí" : "No").FontSize(8);
-            });
-
-            // ── FILA 3: Sanción, Monto ──
-            if (a.AplicaPenalizacion)
-            {
-                col.Item().Table(table =>
-                {
-                    table.ColumnsDefinition(c =>
-                    {
-                        c.RelativeColumn(1); c.RelativeColumn(3); c.RelativeColumn(1); c.RelativeColumn(1);
-                    });
-
-                    table.Cell().Padding(3).Background(Colors.Grey.Lighten3).Text("Sanción").Bold().FontSize(8);
-                    table.Cell().Padding(3).Text(a.SancionInfraccionNombre ?? "-").FontSize(8);
-                    table.Cell().Padding(3).Background(Colors.Grey.Lighten3).Text("Monto (S/)").Bold().FontSize(8);
-                    table.Cell().Padding(3).Text(a.MontoCalculado > 0 ? $"S/ {a.MontoCalculado:N2}" : "-").FontSize(8).Bold();
-                });
-            }
-
-            // ── SECCIÓN: Datos del trabajador ──
-            col.Item().PaddingTop(6).Background(Colors.Grey.Darken2).Padding(4)
-                .Text("Datos del trabajador notificado").Bold().FontSize(9).FontColor(Colors.White);
-
-            col.Item().Table(table =>
-            {
-                table.ColumnsDefinition(c =>
-                {
-                    c.RelativeColumn(2); c.RelativeColumn(1); c.RelativeColumn(1); c.RelativeColumn(1);
-                });
-
-                table.Cell().ColumnSpan(4).Padding(3).Text(a.WorkerNombre).FontSize(9).Bold();
-
-                void Label(string t) => table.Cell().Padding(3).Background(Colors.Grey.Lighten3).Text(t).Bold().FontSize(8);
-                void Valor(string t) => table.Cell().Padding(3).Text(t).FontSize(8);
-
-                Label("Edad"); Valor(a.WorkerEdad?.ToString() ?? "-");
-                Label("DNI"); Valor(a.WorkerDni);
-                Label("Categoría"); Valor(a.WorkerCargo ?? "-");
-
-                Label("Partida"); Valor(a.PartidaNombre ?? "-");
-                Label("Empresa"); Valor(a.EmpresaNombre);
-                table.Cell().ColumnSpan(2).Padding(3).Text("").FontSize(8);
-            });
-
-            // Tipo de sanción
-            col.Item().Table(table =>
-            {
-                table.ColumnsDefinition(c => { c.RelativeColumn(1); c.RelativeColumn(3); });
-                table.Cell().Padding(3).Background(Colors.Grey.Lighten3).Text("Tipo de sanción").Bold().FontSize(8);
-                table.Cell().Padding(3).Text(a.TipoSancionNombre).FontSize(8);
-                table.Cell().Padding(3).Background(Colors.Grey.Lighten3).Text("Infracción aplicada al trabajador amonestado").Bold().FontSize(8);
-                table.Cell().Padding(3).Text(a.InfraccionTipoNombre).FontSize(8);
-            });
-
-            // ── SECCIÓN: Descripción ──
-            col.Item().PaddingTop(4).Background(Colors.Grey.Lighten3).Padding(3)
-                .Text("Descripción de lo ocurrido").Bold().FontSize(8);
-            col.Item().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(5).MinHeight(40)
-                .Text(a.Descripcion).FontSize(8);
-
-            // ── FILA: Puntos, Días suspensión, Fechas ──
-            col.Item().PaddingTop(4).Table(table =>
-            {
-                table.ColumnsDefinition(c =>
-                {
-                    c.RelativeColumn(1); c.RelativeColumn(1); c.RelativeColumn(1); c.RelativeColumn(1);
-                    c.RelativeColumn(1); c.RelativeColumn(1);
-                });
-
-                void Label(string t) => table.Cell().Padding(3).Background(Colors.Grey.Lighten3).Text(t).Bold().FontSize(8);
-                void Valor(string t) => table.Cell().Padding(3).Text(t).FontSize(8);
-
-                Label("Puntos por Infracción"); Valor(a.PuntosInfraccion.ToString());
-                Label("Total días de suspensión"); Valor(a.DiasSuspension?.ToString() ?? "-");
-                table.Cell().ColumnSpan(2).Padding(3).Text("").FontSize(8);
-
-                Label("Fecha de Inicio"); Valor(a.FechaInicioSuspension?.ToString("dd/MM/yyyy") ?? "-");
-                Label("Fecha de Término"); Valor(a.FechaFinSuspension?.ToString("dd/MM/yyyy") ?? "-");
-                Label("Persona que reporta"); Valor(a.PersonaReportaNombre ?? "-");
-                table.Cell().Padding(3).Text("").FontSize(8);
-            });
-
-            // ── Fotos ──
+            // ── Fotos en la parte superior (si existen) ──
             if (fotos.Count > 0)
             {
-                col.Item().PaddingTop(6).Grid(grid =>
+                var fotoList = fotos.Take(3).ToList();
+                float photoW = fotoList.Count == 1 ? 200f : fotoList.Count == 2 ? 155f : 118f;
+                col.Item().BorderBottom(0.5f).BorderColor(Border).Padding(6).Row(r =>
                 {
-                    grid.Columns(2);
-                    grid.Spacing(4);
-                    foreach (var fb in fotos)
-                        grid.Item().MaxHeight(80).Image(fb).FitWidth();
-                });
-            }
-            else
-            {
-                col.Item().PaddingTop(4).Row(row =>
-                {
-                    for (int i = 0; i < 2; i++)
-                        row.RelativeItem().Height(60).Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                            .Background(Colors.Grey.Lighten4).AlignCenter().AlignMiddle()
-                            .Text("Sin imagen").FontSize(7).FontColor(Colors.Grey.Medium);
+                    r.RelativeItem(); // spacer izquierdo
+                    for (int i = 0; i < fotoList.Count; i++)
+                    {
+                        if (i > 0) r.ConstantItem(6);
+                        r.ConstantItem(photoW).Height(150).Image(fotoList[i]).FitArea();
+                    }
+                    r.RelativeItem(); // spacer derecho
                 });
             }
 
-            // Inhabilitado
-            if (a.Inhabilitado)
+            col.Item().Padding(4).Column(inner =>
             {
-                col.Item().PaddingTop(4).Background(Colors.Red.Lighten2).Padding(4)
-                    .Text("⚠ TRABAJADOR INHABILITADO — Ha acumulado 10 o más puntos de infracción.")
-                    .Bold().FontSize(8).FontColor(Colors.Red.Darken3).AlignCenter();
-            }
+                // Código / Fecha / Puntaje / Proyecto / Penalización en una sola tabla
+                inner.Item().Table(t =>
+                {
+                    t.ColumnsDefinition(c =>
+                    {
+                        c.RelativeColumn(0.7f); c.RelativeColumn(1.1f);
+                        c.RelativeColumn(0.7f); c.RelativeColumn(0.9f);
+                        c.RelativeColumn(0.8f); c.RelativeColumn(0.7f);
+                        c.RelativeColumn(0.9f); c.RelativeColumn(1.5f);
+                    });
+                    void L(string v) => t.Cell().BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2f).Background(BgRow).Text(v).Bold().FontSize(6.5f).FontColor(TextMuted);
+                    void V(string v) => t.Cell().BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2f).Text(v).FontSize(7f);
+
+                    L("Código"); V(a.Codigo);
+                    L("Fecha"); V(a.Fecha.ToString("dd/MM/yyyy"));
+                    L("Puntaje acum.");
+                    t.Cell().BorderBottom(0.5f).BorderColor(Border).Padding(2f)
+                        .Background(a.PuntosAcumulados >= 7 ? "#FEF3C7" : "#F0FDF4")
+                        .Text($"{a.PuntosAcumulados}/10").Bold().FontSize(8)
+                        .FontColor(a.Inhabilitado ? "#DC2626" : a.PuntosAcumulados >= 7 ? "#92400E" : "#166534");
+                    L("Proyecto"); t.Cell().ColumnSpan(3).BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2f).Text(a.ProyectoNombre).FontSize(7f);
+                    L("Penalización"); V(a.AplicaPenalizacion ? $"Sí — S/ {a.MontoCalculado:N2}" : "No aplica");
+                });
+
+                inner.Item().PaddingTop(3);
+                SectionHeader(inner, "DATOS DEL TRABAJADOR NOTIFICADO");
+
+                inner.Item().Table(t =>
+                {
+                    t.ColumnsDefinition(c =>
+                    {
+                        c.RelativeColumn(2); c.RelativeColumn(1.2f);
+                        c.RelativeColumn(0.9f); c.RelativeColumn(1.5f);
+                    });
+                    t.Cell().ColumnSpan(4).BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2.5f).Text(a.WorkerNombre).Bold().FontSize(8.5f);
+
+                    void L(string v) => t.Cell().BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2f).Background(BgRow).Text(v).Bold().FontSize(6.5f).FontColor(TextMuted);
+                    void V(string v) => t.Cell().BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2f).Text(v).FontSize(7f);
+
+                    L("DNI"); V(a.WorkerDni);
+                    L("Empresa"); V(a.EmpresaNombre);
+                    L("Cargo / Categoría"); V(a.WorkerCargo ?? a.WorkerCategoria ?? "—");
+                    L("Partida"); V(a.PartidaNombre ?? "—");
+                });
+
+                inner.Item().PaddingTop(3);
+                SectionHeader(inner, "TIPO DE SANCIÓN E INFRACCIÓN");
+
+                inner.Item().Table(t =>
+                {
+                    t.ColumnsDefinition(c => { c.RelativeColumn(1); c.RelativeColumn(2); });
+                    void L(string v) => t.Cell().BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2f).Background(BgRow).Text(v).Bold().FontSize(6.5f).FontColor(TextMuted);
+                    void V(string v) => t.Cell().BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2f).Text(v).FontSize(7f);
+                    L("Tipo de sanción"); V(a.TipoSancionNombre);
+                    L("Infracción aplicada"); V(a.InfraccionTipoNombre);
+                });
+
+                inner.Item().PaddingTop(3);
+                SectionHeader(inner, "DESCRIPCIÓN DE LO OCURRIDO");
+                inner.Item().Border(0.5f).BorderColor(Border).Padding(3).MinHeight(18)
+                    .Text(a.Descripcion).FontSize(7f).LineHeight(1.3f);
+
+                inner.Item().PaddingTop(3);
+                inner.Item().Table(t =>
+                {
+                    t.ColumnsDefinition(c =>
+                    {
+                        c.RelativeColumn(1.3f); c.RelativeColumn(0.6f);
+                        c.RelativeColumn(1.2f); c.RelativeColumn(0.8f);
+                        c.RelativeColumn(1.2f); c.RelativeColumn(0.8f);
+                    });
+                    void L(string v) => t.Cell().BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2f).Background(BgRow).Text(v).Bold().FontSize(6.5f).FontColor(TextMuted);
+                    void V(string v) => t.Cell().BorderBottom(0.5f).BorderColor(Border)
+                        .Padding(2f).Text(v).FontSize(7f);
+
+                    L("Pts. por infracción"); V(a.PuntosInfraccion.ToString());
+                    L("Días suspensión"); V(a.DiasSuspension?.ToString() ?? "—");
+                    L("Fecha inicio"); V(a.FechaInicioSuspension?.ToString("dd/MM/yyyy") ?? "—");
+                    L("Fecha término"); V(a.FechaFinSuspension?.ToString("dd/MM/yyyy") ?? "—");
+                });
+
+                // ── Firmas
+                inner.Item().PaddingTop(6).Row(row =>
+                {
+                    row.Spacing(8);
+                    foreach (var label in new[] { "Firma del trabajador", "Firma del supervisor", "Persona que reporta" })
+                    {
+                        row.RelativeItem().Column(c =>
+                        {
+                            c.Item().Height(20).BorderBottom(1f).BorderColor(NavyLight);
+                            c.Item().PaddingTop(2).Text(label).FontSize(6.5f).FontColor(TextMuted).AlignCenter();
+                        });
+                    }
+                });
+
+                inner.Item().PaddingTop(2)
+                    .Text($"Reportado por: {a.PersonaReportaNombre ?? "—"}")
+                    .FontSize(6.5f).FontColor(TextMuted);
+            });
         });
+    }
+
+    private static void SectionHeader(ColumnDescriptor col, string title)
+    {
+        col.Item().Row(r =>
+        {
+            r.ConstantItem(3).Background(Gold);
+            r.ConstantItem(4);
+            r.RelativeItem().PaddingVertical(2)
+                .Text(title).Bold().FontSize(7.5f).FontColor(Navy);
+        });
+        col.Item().Height(0.5f).Background(Border);
     }
 }

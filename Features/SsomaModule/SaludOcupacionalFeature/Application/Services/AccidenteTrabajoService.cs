@@ -2,6 +2,7 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.AccidenteTrabajo;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
@@ -14,10 +15,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         };
 
         private readonly IAccidenteTrabajoRepository _repo;
+        private readonly ITrabajadorRestringidoService _restringido;
 
-        public AccidenteTrabajoService(IAccidenteTrabajoRepository repo)
+        public AccidenteTrabajoService(IAccidenteTrabajoRepository repo, ITrabajadorRestringidoService restringido)
         {
             _repo = repo;
+            _restringido = restringido;
         }
 
         public Task<PagedResult<AccidenteTrabajoListItemDto>> ListPaged(AccidenteFilterDto filter) =>
@@ -38,7 +41,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task Update(int id, AccidenteTrabajoUpdateDto dto) => _repo.Update(id, dto);
 
-        public Task Cerrar(int id, AccidenteCerrarDto dto, int? userId) => _repo.Cerrar(id, dto, userId);
+        public async Task Cerrar(int id, AccidenteCerrarDto dto, int? userId)
+        {
+            var accidente = await _repo.GetById(id);
+            await _repo.Cerrar(id, dto, userId);
+
+            // Desbloquear en control de acceso al dar el alta médica
+            await _restringido.DesactivarPorWorkerIdAsync(accidente.WorkerId);
+        }
 
         public Task Delete(int id) => _repo.Delete(id);
 
@@ -50,5 +60,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         }
 
         public Task DeleteSeguimiento(int seguimientoId) => _repo.DeleteSeguimiento(seguimientoId);
+
+        public Task MarcarReinduccionAsync(int accidenteId, int? userId) =>
+            _repo.MarcarReinduccionAsync(accidenteId, userId ?? 0);
     }
 }

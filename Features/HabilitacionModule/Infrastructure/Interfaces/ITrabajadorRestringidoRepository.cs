@@ -8,5 +8,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<TrabajadorRestringidoListDto>> GetAllAsync(bool soloActivos = true, string? dni = null);
         Task<TrabajadorRestringidoListDto> CreateAsync(TrabajadorRestringidoCreateDto dto);
         Task DesactivarAsync(int id);
+        Task DesactivarPorWorkerIdAsync(int workerId);
     }
 }

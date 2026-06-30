@@ -187,9 +187,9 @@ LEFT JOIN person per ON per.person_id = w.person_id
 JOIN contributor c ON c.contributor_id = i.empresa_id
 JOIN project p ON p.project_id = i.proyecto_id
 WHERE i.estado = 'PROGRAMADA'
+  AND @Tipo = 'INDUCCION'
   AND (@ProyectoId IS NULL OR i.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR i.empresa_id = @EmpresaId)
-  AND (@Tipo IS NULL OR @Tipo = 'INDUCCION')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
 ";

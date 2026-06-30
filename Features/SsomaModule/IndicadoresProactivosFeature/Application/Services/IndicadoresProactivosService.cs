@@ -59,4 +59,10 @@ public class IndicadoresProactivosService : IIndicadoresProactivosService
 
     public Task<List<PuntajeMesDto>> GetPuntajeTodosProyectosAsync(int mes, int anio)
         => _repo.GetPuntajeTodosProyectosAsync(mes, anio);
+
+    public Task<IndicadorReactivoProyectoDto> GetIndicadoresReactivosAsync(int proyectoId, int mes, int anio)
+        => _repo.GetIndicadoresReactivosAsync(proyectoId, mes, anio);
+
+    public Task<List<IndicadorReactivoProyectoDto>> GetIndicadoresReactivosTodosAsync(int mes, int anio)
+        => _repo.GetIndicadoresReactivosTodosAsync(mes, anio);
 }

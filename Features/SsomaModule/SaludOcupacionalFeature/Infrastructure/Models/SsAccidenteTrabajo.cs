@@ -92,6 +92,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("fecha_cierre")]
         public DateTimeOffset? FechaCierre { get; set; }
 
+        [Column("flash_report_id")]
+        public int? FlashReportId { get; set; }
+
+        [Column("caso_social_id")]
+        public Guid? CasoSocialId { get; set; }
+
+        [Column("requiere_reinduccion")]
+        public bool RequiereReinduccion { get; set; } = true;
+
+        [Column("reinduccion_completada")]
+        public bool ReinduccionCompletada { get; set; } = false;
+
+        [Column("fecha_reinduccion")]
+        public DateOnly? FechaReinduccion { get; set; }
+
+        [Column("reinduccion_por_id")]
+        public int? ReinduccionPorId { get; set; }
+
         [Column("created_at")]
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

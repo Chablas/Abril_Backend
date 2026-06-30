@@ -50,8 +50,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 q = q.Where(x => x.em != null && x.em.EsAbril);
 
-                q = q.Where(x => !ctx.SsInterconsulta
-                    .Any(i => i.WorkerId == x.p.WorkerId && i.Estado == "Pendiente"));
+                // La clínica no puede procesar trabajadores con interconsulta pendiente.
+                // El médico SSOMA (IncluirConInterconsulta = true) ve todas sin excepción.
+                if (!filter.IncluirConInterconsulta)
+                    q = q.Where(x => !ctx.SsInterconsulta
+                        .Any(i => i.WorkerId == x.p.WorkerId && i.Estado == "Pendiente"));
 
                 if (filter.FechaDesde.HasValue)
                     q = q.Where(x => x.p.FechaProgramada >= filter.FechaDesde.Value);

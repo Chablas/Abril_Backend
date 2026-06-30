@@ -8,6 +8,9 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFold
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
@@ -210,6 +213,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<EvNoAplica> EvNoAplica => Set<EvNoAplica>();
         public DbSet<EvRecordatorioLog> EvRecordatorioLogs => Set<EvRecordatorioLog>();
         public DbSet<EvAsignacionSupervisor> EvAsignacionesSupervisor => Set<EvAsignacionSupervisor>();
+        public DbSet<EvContratistaPlantilla> EvContratistaPlantillas => Set<EvContratistaPlantilla>();
+        public DbSet<EvEvaluacionContratista> EvEvaluacionesContratista => Set<EvEvaluacionContratista>();
+        public DbSet<EvEvaluacionContratistaDetalle> EvEvaluacionesContratistaDetalle => Set<EvEvaluacionContratistaDetalle>();
         public DbSet<SsomaPasoCategoria> SsomaPasoCategorias { get; set; }
         public DbSet<SsomaPaso> SsomaPasos { get; set; }
         public DbSet<SsomaPasoActividad> SsomaPasoActividades { get; set; }
@@ -307,9 +313,47 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoTipoAtencion> SsTopicoTipoAtencion => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoTipoAtencion>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo>     SsAccidenteTrabajo     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteSeguimiento> SsAccidenteSeguimiento => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteSeguimiento>();
-        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedico>       SsDescansoMedico       => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedico>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedico>          SsDescansoMedico          => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedico>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoSeguimiento>    SsDescansoSeguimiento     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoSeguimiento>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsTopicoEvolucion>        SsTopicoEvolucion         => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsTopicoEvolucion>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocial>            SsCasoSocial            => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocial>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocialSeguimiento> SsCasoSocialSeguimiento => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocialSeguimiento>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCitaTipo>       SsCitaTipo       => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCitaTipo>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEquipoTipo>     SsEquipoTipo     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEquipoTipo>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAltaTipo>       SsAltaTipo       => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAltaTipo>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsSctrEstado>     SsSctrEstado     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsSctrEstado>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAlertaSsoma>   SsAlertaSsoma    => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAlertaSsoma>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCitaMedica>     SsCitaMedica     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCitaMedica>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEquipoPrestado> SsEquipoPrestado => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEquipoPrestado>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAltaMedica>     SsAltaMedica     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAltaMedica>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsSctrGestion>       SsSctrGestion       => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsSctrGestion>();
+
+        // Amonestaciones e Inhabilitaciones
+        public DbSet<SsomaInhabilitacion> SsomaInhabilitaciones => Set<SsomaInhabilitacion>();
+        public DbSet<SsomaEscuelita> SsomaEscuelitas => Set<SsomaEscuelita>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaAccidenteTrabajador> SsomaAccidenteTrabajador => Set<Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models.SsomaAccidenteTrabajador>();
+
+        // Checklist SSOMA
+        public DbSet<SsChecklistPlantilla> SsChecklistPlantilla => Set<SsChecklistPlantilla>();
+        public DbSet<SsChecklistPlantillaItem> SsChecklistPlantillaItem => Set<SsChecklistPlantillaItem>();
+        public DbSet<SsChecklistProyecto> SsChecklistProyecto => Set<SsChecklistProyecto>();
+        public DbSet<SsChecklistProyectoItem> SsChecklistProyectoItem => Set<SsChecklistProyectoItem>();
+
+        // ── Presupuesto de Materiales SSOMA ───────────────────────────────────
+        public DbSet<SsMaterialTipo> SsMaterialTipo => Set<SsMaterialTipo>();
+        public DbSet<SsMaterialHito> SsMaterialHito => Set<SsMaterialHito>();
+        public DbSet<SsMaterialFamilia> SsMaterialFamilia => Set<SsMaterialFamilia>();
+        public DbSet<SsMaterialItem> SsMaterialItem => Set<SsMaterialItem>();
+        public DbSet<SsMaterialAlias> SsMaterialAlias => Set<SsMaterialAlias>();
+        public DbSet<SsConsumoCarga> SsConsumoCarga => Set<SsConsumoCarga>();
+        public DbSet<SsConsumoLinea> SsConsumoLinea => Set<SsConsumoLinea>();
+        public DbSet<SsRatioProyecto> SsRatioProyecto => Set<SsRatioProyecto>();
+        public DbSet<SsPresupuesto> SsPresupuesto => Set<SsPresupuesto>();
+        public DbSet<SsPresupuestoDetalle> SsPresupuestoDetalle => Set<SsPresupuestoDetalle>();
+        public DbSet<SsPresupuestoSeleccionRatio> SsPresupuestoSeleccionRatio => Set<SsPresupuestoSeleccionRatio>();
+        public DbSet<SsPresupuestoItemMetrado> SsPresupuestoItemMetrado => Set<SsPresupuestoItemMetrado>();
+        public DbSet<SsPresupuestoPersonalHito> SsPresupuestoPersonalHito => Set<SsPresupuestoPersonalHito>();
+        public DbSet<SsControlSemana> SsControlSemana => Set<SsControlSemana>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -718,6 +762,11 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaEntregableResponsable>().ToTable("ss_entregable_responsable");
             modelBuilder.Entity<SsomaInvestigacionRm050>().ToTable("ss_investigacion_rm050");
             modelBuilder.Entity<SsomaAccionCorrectiva>().ToTable("ss_accion_correctiva");
+            modelBuilder.Entity<SsomaAccionCorrectiva>()
+                .HasOne<SsomaInvestigacionRm050>()
+                .WithMany(i => i.AccionesCorrectivas)
+                .HasForeignKey(a => a.InvestigacionId)
+                .HasConstraintName("fk_ss_accion_correctiva_investigacion_id");
             // ── Inspecciones — tablas y nombres explícitos ────────────────────
             modelBuilder.Entity<SsomaInspeccionTipo>().ToTable("ssoma_inspeccion_tipo");
             modelBuilder.Entity<SsomaInspeccionChecklistItem>().ToTable("ssoma_inspeccion_checklist_item");
@@ -944,6 +993,25 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithOne(f => f.Amonestacion)
                  .HasForeignKey(f => f.AmonestacionId);
             });
+
+            // ── Presupuesto Materiales SSOMA ────────────────────────────────────
+            modelBuilder.Entity<SsMaterialAlias>(e =>
+            {
+                e.HasIndex(x => x.TextoCrudoNorm).IsUnique();
+            });
+            modelBuilder.Entity<SsRatioProyecto>(e =>
+            {
+                e.HasIndex(x => new { x.FamiliaId, x.ProjectId }).IsUnique();
+            });
+            modelBuilder.Entity<SsPresupuesto>(e =>
+            {
+                e.HasIndex(x => new { x.ProjectId, x.Version }).IsUnique();
+            });
+            modelBuilder.Entity<SsPresupuestoSeleccionRatio>(e =>
+            {
+                e.HasKey(x => new { x.PresupuestoId, x.FamiliaId, x.ProjectId });
+            });
+
         }
     }
 }

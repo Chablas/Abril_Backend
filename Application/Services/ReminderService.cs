@@ -128,8 +128,9 @@ namespace Abril_Backend.Application.Services
             // Ventana de los últimos 5 días hábiles del mes:
             //   • Días 1–3: recordatorio para subir lecciones.
             //   • Día 4: reporte de quién NO subió su lección (antes salía el 1er día del mes).
-            //   • Días 4–5: ventana de revisión de la jefatura (Aprobar/Rechazar en la app;
-            //     no hay correo automático adicional — esos correos los dispara la acción del jefe).
+            //   • Días 4–5: ventana de revisión de la jefatura. En AMBOS días se envía
+            //     el aviso de revisión a las jefaturas (Aprobar/Rechazar en la app); los
+            //     correos de aprobación/rechazo en sí los dispara la acción del jefe.
             // Los feriados/días no laborables NO cuentan como días hábiles (igual que sábados/domingos).
             var holidays = await _lessonReminderRepository.GetHolidayDatesAsync(today.Year, today.Month);
             var ordinal = LastFiveBusinessDayOrdinal(today, holidays);
@@ -156,7 +157,12 @@ namespace Abril_Backend.Application.Services
             }
             else if (ordinal == 5)
             {
-                Console.WriteLine("⏰ Día 5/5 hábil final: ventana de revisión de jefatura (sin correo automático)");
+                // 2.º día de la ventana de revisión: se reitera el aviso a las
+                // jefaturas (el reporte de pendientes a supervisores sigue siendo
+                // solo del día 4, no se repite aquí).
+                Console.WriteLine("⏰ Día 5/5 hábil final: aviso de revisión a jefaturas (2.º día de la ventana)");
+                await SendJefesReviewWindowReminderAsync(today);
+                Console.WriteLine("📧 Aviso de revisión enviado correctamente");
             }
             else
             {
@@ -566,9 +572,10 @@ namespace Abril_Backend.Application.Services
         }
 
         /// <summary>
-        /// Aviso del 4.º día hábil a las jefaturas ACTIVAS en la sección
-        /// "Jefaturas" (lesson_jefe_reminder.active=true): las lecciones del mes ya
-        /// están listas y se abre la ventana de revisión (Aprobar/Rechazar). Es
+        /// Aviso a las jefaturas ACTIVAS en la sección "Jefaturas"
+        /// (lesson_jefe_reminder.active=true) durante la ventana de revisión (4.º y
+        /// 5.º día hábil final del mes): las lecciones del mes ya están listas y se
+        /// abre la ventana de revisión (Aprobar/Rechazar). Se envía en ambos días y es
         /// independiente del reporte de pendientes — sale aunque no haya pendientes.
         /// </summary>
         public async Task SendJefesReviewWindowReminderAsync(DateTime executionDate)
@@ -595,8 +602,9 @@ namespace Abril_Backend.Application.Services
 
                 var pieHtml = @"
                 <p style='font-size: 12px; color: #666;'>
-                    Este aviso se envía automáticamente el 4.º día hábil final del mes a las
-                    jefaturas habilitadas en la configuración de recordatorios.
+                    Este aviso se envía automáticamente durante la ventana de revisión (los
+                    2 últimos días hábiles del mes) a las jefaturas habilitadas en la
+                    configuración de recordatorios.
                 </p>";
 
                 string subject;

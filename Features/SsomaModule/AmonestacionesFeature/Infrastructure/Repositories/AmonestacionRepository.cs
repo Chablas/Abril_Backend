@@ -159,7 +159,7 @@ public class AmonestacionRepository : IAmonestacionRepository
         var whereClause = "WHERE " + string.Join(" AND ", where);
 
         var sql = $"""
-            SELECT
+            SELECT DISTINCT ON (a.id)
                 a.id, a.codigo,
                 pr.project_description AS proyectoNombre,
                 a.fecha,
@@ -183,7 +183,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
             LEFT JOIN ssoma_amonestacion_infraccion_tipos it ON it.id = a.infraccion_tipo_id
             {whereClause}
-            ORDER BY a.fecha DESC, a.id DESC
+            ORDER BY a.id DESC, a.fecha DESC
             LIMIT @limit OFFSET @offset;
 
             SELECT COUNT(*) FROM ssoma_amonestaciones a

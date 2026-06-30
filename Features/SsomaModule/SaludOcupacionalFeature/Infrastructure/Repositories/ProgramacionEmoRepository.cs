@@ -7,6 +7,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
@@ -29,7 +30,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             _logger = logger;
         }
 
-        public async Task<List<ProgramacionListDto>> List(ProgramacionFilterDto filter)
+        public async Task<PagedResponseDto<ProgramacionListDto>> List(ProgramacionFilterDto filter)
         {
             try
             {
@@ -38,6 +39,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var q =
                     from p in ctx.SsProgramacionEmo
                     join w in ctx.Worker on p.WorkerId equals w.Id
+                    join per in ctx.Person on w.PersonId equals per.PersonId into perj
+                    from per in perj.DefaultIfEmpty()
                     join em in ctx.Contributor on p.EmpresaId equals em.ContributorId into ej
                     from em in ej.DefaultIfEmpty()
                     join t in ctx.SsEmoTipo on p.TipoEmoId equals t.Id into tj
@@ -46,7 +49,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     from c in cj.DefaultIfEmpty()
                     join m in ctx.SsMedicoOcupacional on p.MedicoId equals m.Id into mj
                     from m in mj.DefaultIfEmpty()
-                    select new { p, w, em, t, c, m };
+                    select new { p, w, per, em, t, c, m };
 
                 q = q.Where(x => x.em != null && x.em.EsAbril);
 
@@ -54,35 +57,45 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 // El médico SSOMA (IncluirConInterconsulta = true) ve todas sin excepción.
                 if (!filter.IncluirConInterconsulta)
                 {
-                    // Excluir programaciones "En Interconsulta": la clínica las gestiona
-                    // desde la sección de interconsultas, no desde la agenda/programaciones.
                     q = q.Where(x => x.p.Estado != "En Interconsulta");
-                    // También filtrar datos históricos que pudieran tener interconsulta
-                    // pendiente sin el estado actualizado.
                     q = q.Where(x => !ctx.SsInterconsulta
                         .Any(i => i.WorkerId == x.p.WorkerId && i.Estado == "Pendiente"));
                 }
 
-                if (filter.FechaDesde.HasValue)
-                    q = q.Where(x => x.p.FechaProgramada >= filter.FechaDesde.Value);
-                if (filter.FechaHasta.HasValue)
-                    q = q.Where(x => x.p.FechaProgramada <= filter.FechaHasta.Value);
+                if (filter.Desde.HasValue)
+                    q = q.Where(x => x.p.FechaProgramada >= filter.Desde.Value);
+                if (filter.Hasta.HasValue)
+                    q = q.Where(x => x.p.FechaProgramada <= filter.Hasta.Value);
                 if (!string.IsNullOrWhiteSpace(filter.Estado))
                     q = q.Where(x => x.p.Estado == filter.Estado);
                 if (filter.WorkerId.HasValue)
                     q = q.Where(x => x.p.WorkerId == filter.WorkerId.Value);
                 if (filter.ClinicaId.HasValue)
                     q = q.Where(x => x.p.ClinicaId == filter.ClinicaId.Value);
+                if (!string.IsNullOrWhiteSpace(filter.Search))
+                {
+                    var term = filter.Search.Trim().ToLower();
+                    q = q.Where(x =>
+                        (x.per != null && x.per.FullName != null && x.per.FullName.ToLower().Contains(term)) ||
+                        (x.per != null && x.per.DocumentIdentityCode != null && x.per.DocumentIdentityCode.Contains(term)));
+                }
 
-                return await q
+                var totalRecords = await q.CountAsync();
+                var page = Math.Max(filter.Page, 1);
+                var pageSize = Math.Clamp(filter.PageSize, 1, 200);
+                var totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize);
+
+                var data = await q
                     .OrderBy(x => x.p.FechaProgramada)
                     .ThenBy(x => x.p.HoraProgramada)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
                     .Select(x => new ProgramacionListDto
                     {
                         Id = x.p.Id,
                         WorkerId = x.p.WorkerId,
-                        WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
-                        WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
+                        WorkerNombre = x.per != null ? x.per.FullName : null,
+                        WorkerDni = x.per != null ? x.per.DocumentIdentityCode : null,
                         Empresa = x.em != null ? x.em.ContributorName : null,
                         Proyecto = (from v in ctx.WorkerVinculacion
                                     join pr in ctx.Project on v.ProyectoId equals (int?)pr.ProjectId
@@ -124,6 +137,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                             .Any(i => i.WorkerId == x.p.WorkerId && i.Estado == "Pendiente")
                     })
                     .ToListAsync();
+
+                return new PagedResponseDto<ProgramacionListDto>
+                {
+                    Page = page,
+                    PageSize = pageSize,
+                    TotalRecords = totalRecords,
+                    TotalPages = totalPages == 0 ? 1 : totalPages,
+                    Data = data
+                };
             }
             catch (Exception ex)
             {

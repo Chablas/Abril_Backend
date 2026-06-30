@@ -19,6 +19,7 @@ namespace Abril_Backend.Shared.Models
         public DateTime? UpdatedDateTime { get; set; }
         public int? UpdatedUserId { get; set; }
         public bool IsManual { get; set; } = false;
+        public string TipoCronograma { get; set; } = "ANTEPROYECTO";
         public bool Active { get; set; }
         public bool State { get; set; }
     }

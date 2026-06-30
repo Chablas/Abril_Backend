@@ -50,11 +50,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         // GET /api/v1/cronograma-actividades/{proyectoId}/actividades
         [HttpGet("{proyectoId:int}/actividades")]
-        public async Task<IActionResult> GetActividades(int proyectoId)
+        public async Task<IActionResult> GetActividades(int proyectoId, [FromQuery] string tipoCronograma = "ANTEPROYECTO")
         {
             try
             {
-                var result = await _service.GetActividadesAsync(proyectoId);
+                var result = await _service.GetActividadesAsync(proyectoId, tipoCronograma);
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -276,11 +276,24 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         // POST /api/v1/cronograma-actividades/{proyectoId}/importar-mpp
         [HttpPost("{proyectoId:int}/importar-mpp")]
         [RequestSizeLimit(52_428_800)] // 50 MB
-        public async Task<IActionResult> ImportarMpp(int proyectoId, IFormFile archivo)
+        public async Task<IActionResult> ImportarMpp(int proyectoId, IFormFile archivo, [FromQuery] string tipoCronograma = "ANTEPROYECTO")
         {
             try
             {
-                var result = await _service.ImportarMppAsync(proyectoId, archivo, GetUserId());
+                var result = await _service.ImportarMppAsync(proyectoId, archivo, GetUserId(), tipoCronograma);
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // POST /api/v1/cronograma-actividades/{proyectoId}/actividades-masivo
+        [HttpPost("{proyectoId:int}/actividades-masivo")]
+        public async Task<IActionResult> CrearActividadesMasivo(int proyectoId, [FromBody] CrearActividadesMasivoRequest request)
+        {
+            try
+            {
+                var result = await _service.CrearActividadesMasivoAsync(proyectoId, request, GetUserId());
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

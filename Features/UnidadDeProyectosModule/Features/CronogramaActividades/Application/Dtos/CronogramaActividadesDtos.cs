@@ -6,8 +6,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public string ProjectDescription { get; set; } = string.Empty;
         public string? ResponsableUdp { get; set; }
         public int TotalActividades { get; set; }
-        /// <summary>Avance del/los nodo(s) de nivel 0 (promedio recursivo de hijos; hoja = 100 si culminada, si no su progreso).</summary>
-        public int Avance { get; set; }
+        public double AvanceAnteproyecto { get; set; }
+        public double AvanceProyecto { get; set; }
+        public double AvanceProyectoActualizacion { get; set; }
     }
 
     public class ActividadDto
@@ -28,6 +29,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public List<int> Predecesoras { get; set; } = new();
         /// <summary>True si la actividad tiene hijos (es nodo padre, fechas calculadas).</summary>
         public bool EsPadre { get; set; }
+        public string TipoCronograma { get; set; } = "ANTEPROYECTO";
     }
 
     public class ActualizarLineaBaseRequest
@@ -44,6 +46,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public int ProgressPercentage { get; set; } = 0;
         public int HierarchyLevel { get; set; } = 0;
         public int? ParentId { get; set; }
+        public string TipoCronograma { get; set; } = "ANTEPROYECTO";
     }
 
     public class ReordenarItem
@@ -154,6 +157,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public int DiasRetraso { get; set; }
         public string Semaforo { get; set; } = "VERDE";
         public string Estado { get; set; } = "AL_DIA";
+        public decimal Spi { get; set; } = 1.0m;
     }
 
     public class CronogramaDashboardResponsableDto
@@ -224,5 +228,25 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     {
         public bool HayCambios { get; set; }
         public List<CascadaCambioDto> Cambios { get; set; } = new();
+    }
+
+    // ─────────────────────────── Creación masiva ───────────────────────────
+
+    public class CrearActividadMasivoItem
+    {
+        public string Nombre { get; set; } = string.Empty;
+        public DateOnly? InicioProgramado { get; set; }
+        public DateOnly? FinProgramado { get; set; }
+        public string TipoCronograma { get; set; } = "ANTEPROYECTO";
+    }
+
+    public class CrearActividadesMasivoRequest
+    {
+        public List<CrearActividadMasivoItem> Actividades { get; set; } = new();
+    }
+
+    public class CrearActividadesMasivoResultDto
+    {
+        public int ActividadesCreadas { get; set; }
     }
 }

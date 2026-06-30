@@ -805,6 +805,7 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.Order).HasColumnName("project_activity_order");
                 entity.Property(e => e.ActivityDescription).IsRequired().HasMaxLength(500);
                 entity.Property(e => e.ProgressPercentage).HasDefaultValue(0);
+                entity.Property(e => e.TipoCronograma).IsRequired().HasMaxLength(30).HasDefaultValue("ANTEPROYECTO");
                 entity.HasOne<ProjectActivity>()
                     .WithMany()
                     .HasForeignKey(e => e.ParentId)

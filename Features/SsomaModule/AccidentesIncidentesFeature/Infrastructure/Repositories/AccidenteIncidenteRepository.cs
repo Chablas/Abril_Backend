@@ -151,7 +151,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             SELECT t.id, t.worker_id, t.trabajador_nombre, t.puesto_trabajo, t.edad,
                    t.anios_experiencia, t.celular_trabajador, t.parte_afectada_id,
                    paf.nombre AS parte_afectada_nombre
-            FROM ss_accidente_trabajador t
+            FROM ssoma_accidente_trabajador t
             LEFT JOIN ssoma_flash_parte_afectada paf ON paf.id = t.parte_afectada_id
             WHERE t.accidente_incidente_id = @id
             ORDER BY t.id;

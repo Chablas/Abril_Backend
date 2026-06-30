@@ -22,25 +22,14 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
         var fin    = inicio.AddMonths(1);
 
         // ── 1. Supervisores SSOMA ──────────────────────────────────────────
-        var rolesMap = await ctx.Role
+        var ssomaRoleIds = await ctx.Role
             .Where(r => r.RoleDescription == "ADMINISTRADOR SSOMA" ||
                         r.RoleDescription == "SALUD OCUPACIONAL")
-            .Select(r => new { r.RoleId, r.RoleDescription })
+            .Select(r => r.RoleId)
             .ToListAsync();
-
-        var ssomaRoleIds = rolesMap.Select(r => r.RoleId).ToList();
-        var saludRoleIds = rolesMap
-            .Where(r => r.RoleDescription == "SALUD OCUPACIONAL")
-            .Select(r => r.RoleId).ToList();
 
         var todosSupIds = await ctx.UserRole
             .Where(ur => ssomaRoleIds.Contains(ur.RoleId))
-            .Select(ur => ur.UserId)
-            .Distinct()
-            .ToListAsync();
-
-        var saludOcupacionalUserIds = await ctx.UserRole
-            .Where(ur => saludRoleIds.Contains(ur.RoleId))
             .Select(ur => ur.UserId)
             .Distinct()
             .ToListAsync();

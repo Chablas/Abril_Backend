@@ -297,10 +297,18 @@ namespace Abril_Backend.Application.Services
             // van solo al destinatario, sin copia a nadie más).
             var activeStaffEmails = await _lessonReminderRepository.GetActiveStaffEmailsAsync();
 
-            // Para deduplicar entre canal 1 y canal 2: si ya mandé al user X
-            // por el canal 1 (porque está en user_project), no le mando otra
-            // vez por el canal 2 aunque sea miembro del staff_email.
-            var emailedThisRun = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Para deduplicar se usa la pareja (correo, proyecto), NO solo el
+            // correo: el recordatorio es POR PROYECTO (cada proyecto requiere su
+            // propia lección). Un trabajador pendiente en varios proyectos debe
+            // recibir un recordatorio por cada uno. Solo evitamos enviar dos veces
+            // el MISMO proyecto al MISMO correo (p. ej. si aparece tanto en
+            // user_project como en el staff_email de ese proyecto, o si está en el
+            // staff de dos grupos que apuntan al mismo proyecto).
+            var emailedThisRun = new HashSet<(string Email, int ProjectId)>();
+
+            // Clave de dedup normalizada (correo en minúsculas/trim + proyecto).
+            static (string, int) DedupKey(string? email, int projectId) =>
+                (email?.Trim().ToLowerInvariant() ?? string.Empty, projectId);
 
             foreach (var item in pendingUserProjects)
             {
@@ -375,8 +383,14 @@ namespace Abril_Backend.Application.Services
                     bcc: new List<string> {"calvarez@abril.pe"}
                 );
 
-                if (!string.IsNullOrWhiteSpace(item.Email))
-                    emailedThisRun.Add(item.Email.Trim());
+                // Este correo (canal 1) ya cubre TODOS los proyectos pendientes del
+                // trabajador en user_project; marcamos cada pareja (correo, proyecto)
+                // para que el canal 2 no reenvíe esos mismos proyectos.
+                if (!string.IsNullOrWhiteSpace(item.Email) && item.Projects != null)
+                {
+                    foreach (var p in item.Projects)
+                        emailedThisRun.Add(DedupKey(item.Email, p.ProjectId));
+                }
             }
 
             // ─────────────────────────────────────────────────────────────────
@@ -413,8 +427,11 @@ namespace Abril_Backend.Application.Services
 
                 foreach (var m in pendingMembers)
                 {
-                    // Dedup: no mandar dos veces si ya recibió correo por el canal 1
-                    if (emailedThisRun.Contains(m.Email)) continue;
+                    // Dedup POR PROYECTO: solo se omite si a este correo ya se le
+                    // recordó ESTE MISMO proyecto (por canal 1 o por otro grupo de
+                    // staff que apunta al mismo proyecto). Si es otro proyecto, se
+                    // envía igual: cada proyecto necesita su propia lección.
+                    if (emailedThisRun.Contains(DedupKey(m.Email, staffProject.ProjectId))) continue;
 
                     var greeting = !string.IsNullOrWhiteSpace(m.FullName)
                         ? $"Estimado(a) <strong>{m.FullName}</strong>,"
@@ -472,7 +489,7 @@ namespace Abril_Backend.Application.Services
                         bcc: new List<string> { "calvarez@abril.pe" }
                     );
 
-                    emailedThisRun.Add(m.Email);
+                    emailedThisRun.Add(DedupKey(m.Email, staffProject.ProjectId));
                 }
             }
         }

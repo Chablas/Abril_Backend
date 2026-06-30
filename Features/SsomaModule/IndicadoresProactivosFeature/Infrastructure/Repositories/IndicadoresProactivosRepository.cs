@@ -124,8 +124,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             var diasCasa = tareoCasa.Count(d => d.Total > 0);
             var promCasa = diasCasa > 0 ? (decimal)tareoCasa.Where(d => d.Total > 0).Sum(d => d.Total) / diasCasa : 0;
 
-            var metaCasaInsp = await ctx.SsomaProgInspeccionEmpresa
-                .CountAsync(p => p.ProyectoId == proyectoId && p.EmpresaTipo == "Casa" && p.Mes == mes && p.Anio == anio);
+            const int metaCasaInsp = 20;
 
             var fechasCasaPresencia = tareoCasa.Where(d => d.Total > 0).Select(d => d.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
             var metaCasaCharlas = ContarDiasHabilesConPresenciaDateTime(fechasCasaPresencia, mes, anio);
@@ -184,9 +183,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             var diasEmp = tareoEmp.Count;
             var promEmp = diasEmp > 0 ? (decimal)tareoEmp.Sum(d => d.CantidadPersonas) / diasEmp : 0;
 
-            var metaInsp = await ctx.SsomaProgInspeccionEmpresa
-                .CountAsync(p => p.ProyectoId == proyectoId && p.EmpresaTipo == "Contratista"
-                               && p.EmpresaId == emp.EmpresaId && p.Mes == mes && p.Anio == anio);
+            const int metaInsp = 15;
 
             var fechasPresencia = tareoEmp.Select(d => d.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
             var metaCharlas = ContarDiasHabilesConPresenciaDateTime(fechasPresencia, mes, anio);
@@ -255,7 +252,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var corteOnly   = DateOnly.FromDateTime(fechaCorte);
 
         var proyectos = await ctx.Project
-            .Where(p => p.Active)
+            .Where(p => p.Active && p.Estado == "ACTIVO")
             .Select(p => new { p.ProjectId, p.ProjectDescription })
             .ToListAsync();
         var proyIds = proyectos.Select(p => p.ProjectId).ToList();
@@ -316,15 +313,12 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Select(i => new { i.ProyectoId, i.EmpresaId })
             .ToListAsync();
 
-        // 8. Meta inspecciones programadas por proyecto/empresa
-        var metaInspBulk = await ctx.SsomaProgInspeccionEmpresa
-            .Where(p => proyIds.Contains(p.ProyectoId) && p.Mes == mes && p.Anio == anio)
-            .GroupBy(p => new { p.ProyectoId, p.EmpresaId, p.EmpresaTipo })
-            .Select(g => new { g.Key.ProyectoId, g.Key.EmpresaId, g.Key.EmpresaTipo, Count = g.Count() })
-            .ToListAsync();
+        // 8. Meta inspecciones: fijas por tipo de empresa
+        const int metaInspCasa = 20;
+        const int metaInspContratista = 15;
 
         // Workers por empresa (solo los que aparecen en el tareo)
-        var empresaIds = tareoContrBulk.Select(t => t.EmpresaId).Where(e => e != null).Distinct().ToList();
+        var empresaIds = tareoContrBulk.Select(t => t.EmpresaId).Distinct().ToList();
         var workersPorEmpresa = await ctx.Worker
             .Where(w => w.ContributorId != null && empresaIds.Contains(w.ContributorId!.Value))
             .Select(w => new { w.Id, ContributorId = w.ContributorId!.Value })
@@ -355,7 +349,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             {
                 var diasC = tcCasa.Count;
                 var promC = (decimal)tcCasa.Sum(d => d.Total) / diasC;
-                var metaInspC = metaInspBulk.FirstOrDefault(m => m.ProyectoId == pid && m.EmpresaTipo == "Casa")?.Count ?? 0;
+                var metaInspC = metaInspCasa;
                 var fechasC = tcCasa.Select(d => d.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
                 var metaCharlasC = ContarDiasHabilesConPresenciaDateTime(fechasC, mes, anio);
                 var racsC = racsBulk.Where(r => r.ProyectoId == pid && r.EmpresaReportadaId == null);
@@ -376,7 +370,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 var diasE = te.Count;
                 var promE = diasE > 0 ? (decimal)te.Sum(t => t.CantidadPersonas) / diasE : 0;
                 var wSet = empWorkerMap.GetValueOrDefault(emp.EmpresaId) ?? new HashSet<int>();
-                var metaInspE = metaInspBulk.FirstOrDefault(m => m.ProyectoId == pid && m.EmpresaId == emp.EmpresaId && m.EmpresaTipo == "Contratista")?.Count ?? 0;
+                var metaInspE = metaInspContratista;
                 var fechasE = te.Select(t => t.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
                 var metaCharlasE = ContarDiasHabilesConPresenciaDateTime(fechasE, mes, anio);
                 var racsE = racsBulk.Where(r => r.ProyectoId == pid && r.EmpresaReportadaId == emp.EmpresaId);
@@ -391,14 +385,16 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                     racsE.Count(), racsE.Count(r => r.Estado == "Cerrado"), optE, atsE, charlasE, inspE));
             }
 
-            var activas = empresasDtos.Where(e => e.EsActiva).ToList();
-            if (!activas.Any()) continue;
+            if (!empresasDtos.Any()) continue;
 
+            // Usar todas las empresas con tareo (no filtrar por EsActiva = 10 días)
+            // El umbral de 10 días solo afecta las metas proporcionales dentro de BuildMetaDto
+            var activas = empresasDtos;
             result.Add(new IndicadorProactivoProyectoDto
             {
                 ProyectoId = pid,
                 ProyectoNombre = proy.ProjectDescription ?? "",
-                TotalEmpresasActivas = activas.Count,
+                TotalEmpresasActivas = activas.Count(e => e.EsActiva),
                 MetaRacsTotal = activas.Sum(e => e.MetaRacs),
                 MetaOptTotal = activas.Sum(e => e.MetaOpt),
                 MetaAtsTotal = activas.Sum(e => e.MetaAts),
@@ -416,7 +412,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 PctAts = Pct(activas.Sum(e => e.ActualAts), activas.Sum(e => e.MetaAts)),
                 PctCharlas = Pct(activas.Sum(e => e.ActualCharlas), activas.Sum(e => e.MetaCharlas)),
                 PctInspecciones = Pct(activas.Sum(e => e.ActualInspecciones), activas.Sum(e => e.MetaInspecciones)),
-                PctProactivoGeneral = Math.Round(activas.Average(e => e.PctProactivoGeneral), 1),
+                PctProactivoGeneral = activas.Any() ? Math.Round(activas.Average(e => e.PctProactivoGeneral), 1) : 0,
                 Empresas = activas
             });
         }
@@ -559,7 +555,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var finOnly    = DateOnly.FromDateTime(fechaFin);
 
         var proyectos = await ctx.Project
-            .Where(p => p.Active)
+            .Where(p => p.Active && p.Estado == "ACTIVO")
             .Select(p => new { p.ProjectId, p.ProjectDescription })
             .ToListAsync();
         var proyIds = proyectos.Select(p => p.ProjectId).ToList();
@@ -763,5 +759,98 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Select(f => f.Date)
             .Distinct()
             .Count();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // INDICADORES REACTIVOS IF / IG / IA
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public async Task<IndicadorReactivoProyectoDto> GetIndicadoresReactivosAsync(int proyectoId, int mes, int anio)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await CalcularReactivosAsync(ctx, proyectoId, mes, anio);
+    }
+
+    public async Task<List<IndicadorReactivoProyectoDto>> GetIndicadoresReactivosTodosAsync(int mes, int anio)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var proyectos = await ctx.Project
+            .Where(p => p.Active && p.Estado == "ACTIVO")
+            .Select(p => new { p.ProjectId, p.ProjectDescription })
+            .ToListAsync();
+
+        var resultado = new List<IndicadorReactivoProyectoDto>();
+        foreach (var p in proyectos)
+        {
+            var ind = await CalcularReactivosAsync(ctx, p.ProjectId, mes, anio);
+            resultado.Add(ind with { ProyectoNombre = p.ProjectDescription ?? "" });
+        }
+        return resultado;
+    }
+
+    private static async Task<IndicadorReactivoProyectoDto> CalcularReactivosAsync(
+        AppDbContext ctx, int proyectoId, int mes, int anio)
+    {
+        // ── 1. Nombre del proyecto ────────────────────────────────────────────
+        var proyectoNombre = await ctx.Project
+            .Where(p => p.ProjectId == proyectoId)
+            .Select(p => p.ProjectDescription ?? "")
+            .FirstOrDefaultAsync() ?? "";
+
+        // ── 2. Horas Hombre Trabajadas (HHT) ─────────────────────────────────
+        // Personas-día registradas en tareo × 8 h/día
+        var personasDiaCasa = await ctx.SsTareoDetalleCasa
+            .Where(d => d.Tareo!.ProyectoId == proyectoId
+                     && d.Tareo.Fecha.Month == mes
+                     && d.Tareo.Fecha.Year == anio
+                     && d.CantidadPersonas > 0)
+            .SumAsync(d => (long)d.CantidadPersonas);
+
+        var personasDiaContr = await ctx.SsTareoDetalleContratista
+            .Where(d => d.Tareo!.ProyectoId == proyectoId
+                     && d.Tareo.Fecha.Month == mes
+                     && d.Tareo.Fecha.Year == anio
+                     && d.CantidadPersonas > 0)
+            .SumAsync(d => (long)d.CantidadPersonas);
+
+        var hht = (personasDiaCasa + personasDiaContr) * 8L;
+
+        // ── 3. Accidentes con lesión en el período ────────────────────────────
+        // Solo tipos que generan AT: código "AC" (Accidente)
+        var totalAccidentes = await ctx.SsAccidenteTrabajo
+            .CountAsync(a => a.ProyectoId == proyectoId
+                          && a.FechaAccidente.Month == mes
+                          && a.FechaAccidente.Year == anio);
+
+        // ── 4. Días perdidos ─────────────────────────────────────────────────
+        var totalDiasPerdidos = await ctx.SsAccidenteTrabajo
+            .Where(a => a.ProyectoId == proyectoId
+                     && a.FechaAccidente.Month == mes
+                     && a.FechaAccidente.Year == anio)
+            .SumAsync(a => (int?)(a.DiasDescansoReales ?? a.DiasDescansoEstimados) ?? 0);
+
+        // ── 5. Cálculo de índices ─────────────────────────────────────────────
+        decimal if_ = 0, ig = 0, ia = 0;
+        if (hht > 0)
+        {
+            if_ = Math.Round((decimal)totalAccidentes * 1_000_000m / hht, 2);
+            ig  = Math.Round((decimal)totalDiasPerdidos * 1_000_000m / hht, 2);
+            ia  = Math.Round(if_ * ig / 1000m, 2);
+        }
+
+        return new IndicadorReactivoProyectoDto
+        {
+            ProyectoId = proyectoId,
+            ProyectoNombre = proyectoNombre,
+            Mes = mes,
+            Anio = anio,
+            HorasHombreTrabajadas = hht,
+            TotalAccidentes = totalAccidentes,
+            TotalDiasPerdidos = totalDiasPerdidos,
+            IndiceFrecuencia = if_,
+            IndiceGravedad = ig,
+            IndiceAccidentabilidad = ia,
+        };
     }
 }

@@ -616,6 +616,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
+            if (worker.Estado == "INHABILITADO_SSOMA")
+                throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
+
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -815,6 +818,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
+
+            if (worker.Estado == "INHABILITADO_SSOMA")
+                throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
             await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId);
 
@@ -1576,6 +1582,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
+            if (worker.Estado == "INHABILITADO_SSOMA")
+                throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
+
             bool esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
 
             if (esContratista)
@@ -1721,6 +1730,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task MarcarInduccionAsync(int workerId, int proyectoId)
         {
             using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker.Include(w => w.Person)
+                .FirstOrDefaultAsync(w => w.Id == workerId)
+                ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
+                throw new AbrilException(MensajeRestriccion, 400);
 
             var asignacion = await ctx.WorkerProyecto
                 .Where(wp => wp.WorkerId == workerId && wp.ProyectoId == proyectoId && wp.FechaFin == null)

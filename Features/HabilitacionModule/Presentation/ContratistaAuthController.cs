@@ -9,7 +9,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
 {
     [ApiController]
     [Route("api/v1/habilitacion/auth")]
-    [AllowAnonymous]
     public class ContratistaAuthController : ControllerBase
     {
         private readonly IContratistaAuthService _service;
@@ -22,6 +21,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPost("login")]
+        [AllowAnonymous]
         public async Task<IActionResult> Login([FromBody] ContratistaLoginDto dto)
         {
             try { return Ok(await _service.LoginAsync(dto)); }
@@ -30,6 +30,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpGet("empresas")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetEmpresas()
         {
             try { return Ok(await _service.GetEmpresasParaLoginAsync()); }
@@ -38,6 +39,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPost("activar")]
+        [AllowAnonymous]
         public async Task<IActionResult> Activar([FromBody] ActivarCuentaDto dto)
         {
             try { return Ok(await _service.ActivarCuentaAsync(dto)); }
@@ -46,6 +48,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPost("solicitar-reset")]
+        [AllowAnonymous]
         public async Task<IActionResult> SolicitarReset([FromBody] SolicitarResetDto dto)
         {
             try
@@ -58,6 +61,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPost("reset-password")]
+        [AllowAnonymous]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
         {
             try
@@ -70,6 +74,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPost("validar-migracion")]
+        [AllowAnonymous]
         public async Task<IActionResult> ValidarMigracion([FromBody] ValidarMigracionDto dto)
         {
             try { return Ok(await _service.ValidarMigracionAsync(dto)); }
@@ -78,6 +83,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPost("activar-migracion")]
+        [AllowAnonymous]
         public async Task<IActionResult> ActivarMigracion([FromBody] ActivarMigracionDto dto)
         {
             try

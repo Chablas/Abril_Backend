@@ -17,5 +17,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interco
         public string Estado { get; set; } = string.Empty;
         public bool RequiereSeguimiento { get; set; }
         public string? UrlInforme { get; set; }
+        public int DiasPendiente { get; set; }
     }
 }

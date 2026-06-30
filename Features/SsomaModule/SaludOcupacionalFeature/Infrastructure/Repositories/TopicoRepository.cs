@@ -31,6 +31,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from em in emj.DefaultIfEmpty()
                 join p in ctx.Project on t.ProyectoId equals p.ProjectId into pj
                 from p in pj.DefaultIfEmpty()
+                where t.State
                 select new { t, w, ta, em, p };
 
             if (filter.WorkerId.HasValue)
@@ -71,6 +72,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     DerivadoClinica = x.t.DerivadoClinica,
                     GeneraDescanso = x.t.GeneraDescanso,
                     GeneraAccidente = x.t.GeneraAccidente,
+                    SctrActivado = x.t.SctrActivado,
+                    UrlInforme = x.t.UrlInforme,
+                    DescansoGeneradoId = x.t.DescansoGeneradoId,
                     CreatedAt = x.t.CreatedAt
                 })
                 .ToListAsync();
@@ -91,7 +95,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var row = await (
                 from t in ctx.SsTopicoAtencion
-                where t.Id == id
+                where t.Id == id && t.State
                 join w in ctx.Worker on t.WorkerId equals w.Id
                 join ta in ctx.SsTopicoTipoAtencion on t.TipoAtencionId equals ta.Id into taj
                 from ta in taj.DefaultIfEmpty()
@@ -134,6 +138,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 GeneraAccidente = row.t.GeneraAccidente,
                 AccidenteId = row.t.AccidenteId,
                 Observaciones = row.t.Observaciones,
+                SctrActivado = row.t.SctrActivado,
+                TipoCasoSctr = row.t.TipoCasoSctr,
+                UrlInforme = row.t.UrlInforme,
+                DescansoGeneradoId = row.t.DescansoGeneradoId,
                 RegistradoPorId = row.t.RegistradoPorId,
                 CreatedAt = row.t.CreatedAt,
                 UpdatedAt = row.t.UpdatedAt
@@ -168,6 +176,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ProyectoId = dto.ProyectoId,
                 EmpresaId = dto.EmpresaId,
                 Observaciones = dto.Observaciones,
+                SctrActivado = dto.SctrActivado,
+                TipoCasoSctr = dto.TipoCasoSctr,
+                UrlInforme = dto.UrlInforme,
+                State = true,
                 RegistradoPorId = registradoPorId,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
@@ -182,7 +194,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
-            var entity = await ctx.SsTopicoAtencion.FirstOrDefaultAsync(t => t.Id == id)
+            var entity = await ctx.SsTopicoAtencion.FirstOrDefaultAsync(t => t.Id == id && t.State)
                 ?? throw new AbrilException("Atención de tópico no encontrada.", 404);
 
             entity.TipoAtencionId = dto.TipoAtencionId;
@@ -204,6 +216,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             entity.ProyectoId = dto.ProyectoId;
             entity.EmpresaId = dto.EmpresaId;
             entity.Observaciones = dto.Observaciones;
+            entity.SctrActivado = dto.SctrActivado;
+            entity.TipoCasoSctr = dto.TipoCasoSctr;
+            if (dto.UrlInforme != null)
+                entity.UrlInforme = dto.UrlInforme;
             entity.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();
@@ -213,10 +229,141 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
-            var entity = await ctx.SsTopicoAtencion.FirstOrDefaultAsync(t => t.Id == id)
+            var entity = await ctx.SsTopicoAtencion.FirstOrDefaultAsync(t => t.Id == id && t.State)
                 ?? throw new AbrilException("Atención de tópico no encontrada.", 404);
 
-            ctx.SsTopicoAtencion.Remove(entity);
+            entity.State = false;
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<TopicoListItemDto>> GetHoy()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            return await (
+                from t in ctx.SsTopicoAtencion
+                where t.Fecha == hoy && t.State
+                join w in ctx.Worker on t.WorkerId equals w.Id
+                join tipo in ctx.SsTopicoTipoAtencion on t.TipoAtencionId equals tipo.Id into tipoj
+                from tipo in tipoj.DefaultIfEmpty()
+                join em in ctx.Contributor on t.EmpresaId equals em.ContributorId into emj
+                from em in emj.DefaultIfEmpty()
+                join p in ctx.Project on t.ProyectoId equals p.ProjectId into pj
+                from p in pj.DefaultIfEmpty()
+                orderby t.Hora descending
+                select new TopicoListItemDto
+                {
+                    Id = t.Id,
+                    WorkerId = t.WorkerId,
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                    EmpresaNombre = em != null ? em.ContributorName : null,
+                    ProyectoNombre = p != null ? p.ProjectDescription : null,
+                    Fecha = t.Fecha,
+                    Hora = t.Hora,
+                    TipoAtencionId = t.TipoAtencionId,
+                    TipoAtencionNombre = tipo != null ? tipo.Nombre : null,
+                    Motivo = t.Motivo,
+                    Diagnostico = t.Diagnostico,
+                    DerivadoClinica = t.DerivadoClinica,
+                    GeneraDescanso = t.GeneraDescanso,
+                    GeneraAccidente = t.GeneraAccidente,
+                    SctrActivado = t.SctrActivado,
+                    UrlInforme = t.UrlInforme,
+                    DescansoGeneradoId = t.DescansoGeneradoId,
+                    CreatedAt = t.CreatedAt
+                }
+            ).ToListAsync();
+        }
+
+        public async Task<List<TopicoTipoAtencionDto>> GetTiposAtencion()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsTopicoTipoAtencion
+                .Where(t => t.State)
+                .OrderBy(t => t.Nombre)
+                .Select(t => new TopicoTipoAtencionDto
+                {
+                    Id = t.Id,
+                    Nombre = t.Nombre
+                })
+                .ToListAsync();
+        }
+
+        public async Task SetDescansoGenerado(int topicoId, int descansoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.SsTopicoAtencion.FindAsync(topicoId);
+            if (entity is null) return;
+            entity.DescansoGeneradoId = descansoId;
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<TopicoEvolucionDto>> GetEvoluciones(int topicoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Verificar que el tópico existe
+            var exists = await ctx.SsTopicoAtencion.AnyAsync(t => t.Id == topicoId && t.State);
+            if (!exists) throw new AbrilException("Atención de tópico no encontrada.", 404);
+
+            return await (
+                from ev in ctx.SsTopicoEvolucion
+                join u in ctx.User on ev.RegistradoPorId equals u.UserId into uj
+                from u in uj.DefaultIfEmpty()
+                join p in ctx.Person on u.UserId equals p.UserId into pj
+                from p in pj.DefaultIfEmpty()
+                where ev.AtencionId == topicoId && ev.State
+                orderby ev.FechaEvolucion descending
+                select new TopicoEvolucionDto
+                {
+                    Id                  = ev.Id,
+                    AtencionId          = ev.AtencionId,
+                    FechaEvolucion      = ev.FechaEvolucion,
+                    NotaEvolucion       = ev.NotaEvolucion,
+                    RegistradoPorId     = ev.RegistradoPorId,
+                    RegistradoPorNombre = p != null ? p.FullName : null,
+                    UrlEvidencia        = ev.UrlEvidencia,
+                    CreatedAt           = ev.CreatedAt,
+                }
+            ).ToListAsync();
+        }
+
+        public async Task<int> CreateEvolucion(int topicoId, TopicoEvolucionCreateDto dto, int registradoPorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var exists = await ctx.SsTopicoAtencion.AnyAsync(t => t.Id == topicoId && t.State);
+            if (!exists) throw new AbrilException("Atención de tópico no encontrada.", 404);
+
+            if (string.IsNullOrWhiteSpace(dto.NotaEvolucion))
+                throw new AbrilException("La nota de evolución es requerida.", 400);
+
+            var entity = new SsTopicoEvolucion
+            {
+                AtencionId      = topicoId,
+                FechaEvolucion  = DateTimeOffset.UtcNow,
+                NotaEvolucion   = dto.NotaEvolucion.Trim(),
+                RegistradoPorId = registradoPorId,
+                UrlEvidencia    = dto.UrlEvidencia,
+                State           = true,
+                CreatedAt       = DateTimeOffset.UtcNow,
+            };
+
+            ctx.SsTopicoEvolucion.Add(entity);
+            await ctx.SaveChangesAsync();
+            return entity.Id;
+        }
+
+        public async Task DeleteEvolucion(int evolucionId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.SsTopicoEvolucion.FindAsync(evolucionId)
+                ?? throw new AbrilException("Evolución no encontrada.", 404);
+            entity.State = false;
             await ctx.SaveChangesAsync();
         }
     }

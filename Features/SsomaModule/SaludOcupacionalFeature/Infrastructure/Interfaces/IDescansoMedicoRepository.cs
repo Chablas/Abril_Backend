@@ -11,6 +11,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task Update(int id, DescansoMedicoUpdateDto dto);
         Task Aprobar(int id, DescansoAprobarDto dto, int? userId);
         Task Rechazar(int id, DescansoRechazarDto dto, int? userId);
+        Task DarAlta(int id, DarAltaDto dto, int? userId);
+        Task<List<DescansoSeguimientoDto>> GetSeguimientos(int descansoId);
+        Task<int> CreateSeguimiento(int descansoId, DescansoSeguimientoCreateDto dto, int registradoPorId, string? rolUsuario);
         Task Delete(int id);
     }
 }

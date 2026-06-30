@@ -433,9 +433,60 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             // paths guardados por DossierService: "{contributorId}/{proyectoId}/Sem{n}_{yyyyMMdd}/archivo"
             if (System.Text.RegularExpressions.Regex.IsMatch(c, @"^\d+/\d+/sem\d+_\d{8}/"))
                 return _configuration["SharePoint:Sites:SSOMAApps:DossierSemanal2026"];
-            if (c.Contains("charlas-evidencias")) return _configuration["SharePoint:Sites:SSOMAApps:CharlasLibraryId"];
-            if (c.Contains("flash-report"))        return _configuration["SharePoint:Sites:SSOMAApps:EvidenciaAccidentesLibraryId"];
+            if (c.Contains("charlas-evidencias"))  return _configuration["SharePoint:Sites:SSOMAApps:CharlasLibraryId"];
+            if (c.Contains("flash-report"))         return _configuration["SharePoint:Sites:SSOMAApps:EvidenciaAccidentesLibraryId"];
+            if (c.Contains("amonestacion-pdf"))     return _configuration["SharePoint:Sites:SSOMAApps:AmonestacionesPdfLibraryId"];
             return null;
+        }
+
+        public async Task<byte[]?> DescargarContenidoAsync(string path, string libraryContexto)
+        {
+            try
+            {
+                var siteId = ResolverSiteId(libraryContexto);
+                if (string.IsNullOrWhiteSpace(siteId)) return null;
+
+                var token = await GetAccessTokenAsync();
+                if (string.IsNullOrWhiteSpace(token)) return null;
+
+                var libraryId = ResolverLibraryId(libraryContexto);
+                var driveId = await GetDriveIdAsync(siteId, token, libraryId);
+                if (string.IsNullOrWhiteSpace(driveId)) return null;
+
+                var normalizado = path.Trim().TrimStart('/');
+                var encoded = Uri.EscapeDataString(normalizado).Replace("%2F", "/");
+                var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
+
+                var client = _httpClientFactory.CreateClient();
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+                var response = await client.GetAsync(url);
+                if (response.IsSuccessStatusCode)
+                    return await response.Content.ReadAsByteArrayAsync();
+
+                // Graph devuelve 302 redirect → seguir la redirección
+                if (response.StatusCode == System.Net.HttpStatusCode.Found ||
+                    response.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
+                {
+                    var location = response.Headers.Location?.ToString();
+                    if (!string.IsNullOrWhiteSpace(location))
+                    {
+                        var redirectClient = _httpClientFactory.CreateClient();
+                        var redirectResponse = await redirectClient.GetAsync(location);
+                        if (redirectResponse.IsSuccessStatusCode)
+                            return await redirectResponse.Content.ReadAsByteArrayAsync();
+                    }
+                }
+
+                _logger.LogWarning("DescargarContenidoAsync falló ({Status}) para {Path}", response.StatusCode, path);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "DescargarContenidoAsync excepción para {Path}", path);
+                return null;
+            }
         }
 
         private async Task<string?> GetDriveIdAsync(string siteId, string token, string? libraryId = null)

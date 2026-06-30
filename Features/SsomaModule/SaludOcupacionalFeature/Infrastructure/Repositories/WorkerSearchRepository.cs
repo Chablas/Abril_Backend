@@ -102,7 +102,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                              && b.Estado.Trim().Equals("ACTIVO", StringComparison.OrdinalIgnoreCase),
                     AniosExperiencia = b.AniosExperiencia,
                     FechaIngreso = b.FechaIngreso,
-                    InhabilitadoSsoma = inhabilitadosSet.Contains(b.Id),
+                    InhabilitadoSsoma = inhabilitadosSet.Contains(b.Id)
+                                     || b.Estado == "INHABILITADO_SSOMA",
                     EsAbril = vin?.EmpresaId.HasValue == true
                         && esAbrilPorEmpresa.TryGetValue(vin!.EmpresaId!.Value, out var ea) && ea
                 };

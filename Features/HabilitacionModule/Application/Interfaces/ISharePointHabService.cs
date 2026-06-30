@@ -6,5 +6,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Interfaces
         Task<string> SubirArchivoAsync(Stream fileStream, string fileName, string contexto);
         Task<string> SubirArchivoEnRutaAsync(Stream fileStream, string fileName, string libraryContexto, string carpetaPath);
         Task<string> SubirArchivoYObtenerUrlAsync(Stream fileStream, string fileName, string libraryContexto, string carpetaPath);
+        Task<byte[]?> DescargarContenidoAsync(string path, string libraryContexto);
     }
 }

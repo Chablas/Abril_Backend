@@ -19,4 +19,23 @@ public interface IAccidenteIncidenteService
     // RM-050
     Task<Rm050Dto> GetRm050Async(int accidenteId);
     Task GuardarRm050Async(int accidenteId, GuardarRm050Request req);
+
+    // PDF y fotos on-demand
+    Task<byte[]> GenerarPdfAsync(int id);
+    Task<(byte[] Bytes, string ContentType, string FileName)> ObtenerFotoAsync(int id, int slot);
+
+    // Acciones vencidas
+    Task<List<AccionCorrectivaVencidaDto>> GetAccionesVencidasAsync();
+
+    // Medidas de control (bidireccional con RM-050)
+    Task<List<AccionCorrectivaDto>> GetMedidasAsync(int accidenteId);
+    Task<int> AddMedidaAsync(int accidenteId, GuardarAccionCorrectivaRequest req);
+    Task UpdateMedidaAsync(int accionId, GuardarAccionCorrectivaRequest req);
+    Task DeleteMedidaAsync(int accionId);
+
+    // MINTRA
+    Task<byte[]> GenerarMintraAsync(int id);
+
+    // Reclasificar
+    Task<int> ReclasificarComoAccidenteAsync(int id, int? usuarioId);
 }

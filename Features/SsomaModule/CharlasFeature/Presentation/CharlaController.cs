@@ -131,7 +131,7 @@ public class CharlaController : ControllerBase
     // ── Tab 2: Capacitaciones Staff ───────────────────────────────────────────
 
     [HttpGet("capacitaciones")]
-    public async Task<IActionResult> GetCapacitaciones([FromQuery] int proyectoId, [FromQuery] int mes, [FromQuery] int anio)
+    public async Task<IActionResult> GetCapacitaciones([FromQuery] int proyectoId, [FromQuery] int? mes = null, [FromQuery] int? anio = null)
     {
         try
         {
@@ -308,17 +308,17 @@ public class CharlaController : ControllerBase
     }
 
     [HttpGet("dashboard-personal")]
-    public async Task<IActionResult> GetDashPersonal([FromQuery] int proyectoId, [FromQuery] int semana, [FromQuery] int anio)
+    public async Task<IActionResult> GetDashPersonal([FromQuery] int proyectoId, [FromQuery] int mes, [FromQuery] int anio)
     {
-        try { return Ok(await _svc.GetDashPersonalAsync(proyectoId, semana, anio)); }
+        try { return Ok(await _svc.GetDashPersonalAsync(proyectoId, mes, anio)); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch { return StatusCode(500, new { message = "Error al obtener dashboard personal." }); }
     }
 
     [HttpGet("dashboard-proyectos")]
-    public async Task<IActionResult> GetDashProyectos([FromQuery] int semana, [FromQuery] int anio)
+    public async Task<IActionResult> GetDashProyectos([FromQuery] int mes, [FromQuery] int anio)
     {
-        try { return Ok(await _svc.GetDashProyectosAsync(semana, anio)); }
+        try { return Ok(await _svc.GetDashProyectosAsync(mes, anio)); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch { return StatusCode(500, new { message = "Error al obtener dashboard proyectos." }); }
     }

@@ -1,5 +1,6 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMedico;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
@@ -63,6 +64,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     FechaFin = x.d.FechaFin,
                     Dias = x.d.Dias,
                     Estado = x.d.Estado,
+                    TopicoOrigenId = x.d.TopicoOrigenId,
+                    TrabajadorBloqueado = ctx.SsTrabajadorRestringido.Any(r => r.WorkerId == x.d.WorkerId && r.Activo),
                     ReportadoPorTrabajador = x.d.ReportadoPorTrabajador,
                     CreatedAt = x.d.CreatedAt
                 })
@@ -117,10 +120,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 AprobadoPorId = row.d.AprobadoPorId,
                 FechaAprobacion = row.d.FechaAprobacion,
                 AccidenteId = row.d.AccidenteId,
+                EsRecaida = row.d.EsRecaida,
                 NotificadoGth = row.d.NotificadoGth,
                 NotificadoJefe = row.d.NotificadoJefe,
                 ReportadoPorTrabajador = row.d.ReportadoPorTrabajador,
                 Observaciones = row.d.Observaciones,
+                TopicoOrigenId = row.d.TopicoOrigenId,
+                ProrrogaDelId = row.d.ProrrogaDelId,
+                FechaAlta = row.d.FechaAlta,
+                AltaPorId = row.d.AltaPorId,
+                AltaObservaciones = row.d.AltaObservaciones,
                 RegistradoPorId = row.d.RegistradoPorId,
                 CreatedAt = row.d.CreatedAt,
                 UpdatedAt = row.d.UpdatedAt
@@ -145,9 +154,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 DiagnosticoCie10 = dto.DiagnosticoCie10,
                 MedicoCertifica = dto.MedicoCertifica,
                 Establecimiento = dto.Establecimiento,
-                UrlCertificado = urlCertificado,
+                UrlCertificado = dto.UrlCertificado ?? urlCertificado,
                 Estado = "Pendiente",
+                ReportadoPorTrabajador = dto.ReportadoPorTrabajador,
                 AccidenteId = dto.AccidenteId,
+                EsRecaida = dto.EsRecaida,
+                TopicoOrigenId = dto.TopicoOrigenId,
+                ProrrogaDelId = dto.ProrrogaDelId,
                 ProyectoId = dto.ProyectoId,
                 EmpresaId = dto.EmpresaId,
                 Observaciones = dto.Observaciones,
@@ -190,7 +203,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
-            var entity = await ctx.SsDescansoMedico.FirstOrDefaultAsync(d => d.Id == id && d.State)
+            var entity = await ctx.SsDescansoMedico
+                .Include(d => d.Worker)
+                    .ThenInclude(w => w!.Person)
+                .FirstOrDefaultAsync(d => d.Id == id && d.State)
                 ?? throw new AbrilException("Descanso médico no encontrado.", 404);
 
             if (entity.Estado == "Aprobado")
@@ -203,7 +219,59 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 entity.Observaciones = dto.Observaciones;
             entity.UpdatedAt = DateTimeOffset.UtcNow;
 
+            // Bloqueo automático en Control de Acceso para TODOS los descansos aprobados
+            {
+                var dni = entity.Worker?.Person?.DocumentIdentityCode;
+                var nombre = entity.Worker?.Person?.FullName;
+
+                var yaRestringido = await ctx.SsTrabajadorRestringido
+                    .AnyAsync(r => r.WorkerId == entity.WorkerId && r.Activo);
+
+                if (!yaRestringido)
+                {
+                    var anterior = await ctx.SsTrabajadorRestringido
+                        .FirstOrDefaultAsync(r => r.WorkerId == entity.WorkerId && !r.Activo);
+
+                    if (anterior is not null)
+                    {
+                        anterior.Activo = true;
+                        anterior.Motivo = $"Descanso médico aprobado (ID {id})";
+                        anterior.UpdatedAt = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        ctx.SsTrabajadorRestringido.Add(new SsTrabajadorRestringido
+                        {
+                            WorkerId = entity.WorkerId,
+                            Dni = dni,
+                            ApellidoNombre = nombre,
+                            Motivo = $"Descanso médico aprobado (ID {id})",
+                            FechaRestriccion = DateOnly.FromDateTime(DateTime.UtcNow),
+                            Activo = true,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+            }
+
             await ctx.SaveChangesAsync();
+
+            // Recalcular dias_descanso_reales en ss_accidente_trabajo
+            if (entity.AccidenteId.HasValue)
+            {
+                using var ctx2 = _factory.CreateDbContext();
+                var totalDias = await ctx2.SsDescansoMedico
+                    .Where(d => d.AccidenteId == entity.AccidenteId && d.Estado == "Aprobado" && d.State)
+                    .SumAsync(d => d.Dias);
+
+                var accidente = await ctx2.SsAccidenteTrabajo.FindAsync(entity.AccidenteId.Value);
+                if (accidente != null)
+                {
+                    accidente.DiasDescansoReales = totalDias;
+                    accidente.UpdatedAt = DateTimeOffset.UtcNow;
+                    await ctx2.SaveChangesAsync();
+                }
+            }
         }
 
         public async Task Rechazar(int id, DescansoRechazarDto dto, int? userId)
@@ -221,6 +289,82 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             entity.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task DarAlta(int id, DarAltaDto dto, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entity = await ctx.SsDescansoMedico.FirstOrDefaultAsync(d => d.Id == id && d.State)
+                ?? throw new AbrilException("Descanso médico no encontrado.", 404);
+
+            if (entity.Estado != "Aprobado")
+                throw new AbrilException("Solo se puede dar de alta un descanso en estado Aprobado.", 400);
+
+            entity.Estado = "Completado";
+            entity.FechaAlta = DateOnly.FromDateTime(DateTime.UtcNow);
+            entity.AltaPorId = userId;
+            if (!string.IsNullOrWhiteSpace(dto.Observaciones))
+                entity.AltaObservaciones = dto.Observaciones;
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
+
+            // Desbloquear al trabajador en Control de Acceso
+            var restriccion = await ctx.SsTrabajadorRestringido
+                .FirstOrDefaultAsync(r => r.WorkerId == entity.WorkerId && r.Activo);
+            if (restriccion is not null)
+            {
+                restriccion.Activo = false;
+                restriccion.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<List<DescansoSeguimientoDto>> GetSeguimientos(int descansoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsDescansoSeguimiento
+                .Where(s => s.DescansoId == descansoId && s.State)
+                .OrderByDescending(s => s.FechaSeguimiento)
+                .Select(s => new DescansoSeguimientoDto
+                {
+                    Id = s.Id,
+                    DescansoId = s.DescansoId,
+                    FechaSeguimiento = s.FechaSeguimiento,
+                    Tipo = s.Tipo,
+                    RealizadoPorRol = s.RealizadoPorRol,
+                    RealizadoPorId = s.RealizadoPorId,
+                    Nota = s.Nota,
+                    ProximaCita = s.ProximaCita,
+                    UrlEvidencia = s.UrlEvidencia,
+                    CreatedAt = s.CreatedAt
+                })
+                .ToListAsync();
+        }
+
+        public async Task<int> CreateSeguimiento(int descansoId, DescansoSeguimientoCreateDto dto, int registradoPorId, string? rolUsuario)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var existe = await ctx.SsDescansoMedico.AnyAsync(d => d.Id == descansoId && d.State);
+            if (!existe) throw new AbrilException("Descanso médico no encontrado.", 404);
+
+            var entity = new SsDescansoSeguimiento
+            {
+                DescansoId = descansoId,
+                FechaSeguimiento = DateTimeOffset.UtcNow,
+                Tipo = dto.Tipo,
+                RealizadoPorRol = rolUsuario,
+                RealizadoPorId = registradoPorId,
+                Nota = dto.Nota,
+                ProximaCita = dto.ProximaCita,
+                UrlEvidencia = dto.UrlEvidencia,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+
+            ctx.SsDescansoSeguimiento.Add(entity);
+            await ctx.SaveChangesAsync();
+            return entity.Id;
         }
 
         public async Task Delete(int id)

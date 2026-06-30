@@ -13,5 +13,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task Delete(int id);
         Task<int> CreateSeguimiento(int accidenteId, AccidenteSeguimientoCreateDto dto, int? userId);
         Task DeleteSeguimiento(int seguimientoId);
+        Task MarcarReinduccionAsync(int accidenteId, int? userId);
     }
 }

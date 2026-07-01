@@ -1,6 +1,7 @@
 using Abril_Backend.Shared.Services.Graph.Dtos;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 
 namespace Abril_Backend.Shared.Services.Graph.Services
@@ -262,9 +263,14 @@ namespace Abril_Backend.Shared.Services.Graph.Services
             }
         }
 
+        // Graph $batch admite como máximo 20 peticiones por lote.
+        private const int BatchSize = 20;
+
         /// <summary>
-        /// Descarga las fotos de perfil de varios usuarios por email (permiso de aplicación).
-        /// Las peticiones se lanzan en paralelo (limitadas por un semáforo para no saturar Graph).
+        /// Descarga las fotos de perfil de varios usuarios por email (permiso de aplicación)
+        /// usando Graph <c>$batch</c>: agrupa hasta 20 fotos por petición, reduciendo N round-trips
+        /// a ceil(N/20). Los lotes se lanzan en paralelo (limitados por un semáforo). El binario
+        /// llega ya en base64 dentro del batch, así que se arma el data URI directamente.
         /// </summary>
         public async Task<Dictionary<string, string?>> GetPhotosByEmailsAsync(List<string> emails)
         {
@@ -285,55 +291,117 @@ namespace Abril_Backend.Shared.Services.Graph.Services
                                  .ToList();
 
             var client = BuildClient(appToken);
-            using var gate = new SemaphoreSlim(8);
+            using var gate = new SemaphoreSlim(4); // nº de lotes en paralelo
 
-            var tasks = distinct.Select(async email =>
+            var tasks = distinct.Chunk(BatchSize).Select(async chunk =>
             {
                 await gate.WaitAsync();
-                try { return (email, foto: await FetchPhotoAsync(client, email)); }
+                try { return await FetchPhotoBatchAsync(client, chunk); }
                 finally { gate.Release(); }
             });
 
-            foreach (var (email, foto) in await Task.WhenAll(tasks))
-                result[email] = foto;
+            foreach (var lote in await Task.WhenAll(tasks))
+                foreach (var (email, foto) in lote)
+                    result[email] = foto;
 
             return result;
         }
 
         /// <summary>
-        /// Descarga la foto de un usuario como data URI base64. Intenta primero una versión
-        /// mediana (240x240) para aligerar el payload y cae a la original si no existe.
-        /// Devuelve <c>null</c> si el usuario no tiene foto o no se pudo obtener.
+        /// Resuelve las fotos de un lote (≤20) con una sola llamada a <c>POST /$batch</c>.
+        /// Devuelve cada email con su data URI base64 o <c>null</c> si no tiene foto.
         /// </summary>
-        private static async Task<string?> FetchPhotoAsync(HttpClient client, string email)
+        private static async Task<List<(string email, string? foto)>> FetchPhotoBatchAsync(HttpClient client, string[] chunk)
         {
-            var key = Uri.EscapeDataString(email);
-            var urls = new[]
+            var salida = new List<(string, string?)>(chunk.Length);
+
+            try
             {
-                $"https://graph.microsoft.com/v1.0/users/{key}/photos/240x240/$value",
-                $"https://graph.microsoft.com/v1.0/users/{key}/photo/$value",
-            };
+                var requests = chunk.Select((email, i) => new
+                {
+                    id = i.ToString(),
+                    method = "GET",
+                    url = $"/users/{Uri.EscapeDataString(email)}/photo/$value",
+                });
 
-            foreach (var url in urls)
+                var payload = JsonSerializer.Serialize(new { requests });
+                using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+                var resp = await client.PostAsync("https://graph.microsoft.com/v1.0/$batch", content);
+                var json = await resp.Content.ReadAsStringAsync();
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"[GraphUserService] $batch de fotos falló: {(int)resp.StatusCode}");
+                    foreach (var email in chunk) salida.Add((email, null));
+                    return salida;
+                }
+
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("responses", out var responses))
+                {
+                    foreach (var email in chunk) salida.Add((email, null));
+                    return salida;
+                }
+
+                // Las respuestas pueden venir desordenadas → se mapean por 'id' (índice del chunk).
+                var porEmail = new Dictionary<string, string?>();
+                foreach (var r in responses.EnumerateArray())
+                {
+                    if (!r.TryGetProperty("id", out var idProp)) continue;
+                    if (!int.TryParse(idProp.GetString(), out var idx) || idx < 0 || idx >= chunk.Length) continue;
+
+                    var email = chunk[idx];
+                    var status = r.TryGetProperty("status", out var stProp) ? stProp.GetInt32() : 0;
+
+                    if (status != 200 ||
+                        !r.TryGetProperty("body", out var bodyProp) ||
+                        bodyProp.ValueKind != JsonValueKind.String)
+                    {
+                        porEmail[email] = null;
+                        continue;
+                    }
+
+                    var base64 = bodyProp.GetString();
+                    if (string.IsNullOrEmpty(base64))
+                    {
+                        porEmail[email] = null;
+                        continue;
+                    }
+
+                    porEmail[email] = $"data:{ContentTypeDe(r)};base64,{base64}";
+                }
+
+                foreach (var email in chunk)
+                    salida.Add((email, porEmail.TryGetValue(email, out var f) ? f : null));
+            }
+            catch (Exception ex)
             {
-                try
-                {
-                    var resp = await client.GetAsync(url);
-                    if (!resp.IsSuccessStatusCode) continue;
-
-                    var bytes = await resp.Content.ReadAsByteArrayAsync();
-                    if (bytes.Length == 0) continue;
-
-                    var contentType = resp.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
-                    return $"data:{contentType};base64,{Convert.ToBase64String(bytes)}";
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[GraphUserService] Error obteniendo foto de '{email}': {ex.Message}");
-                }
+                Console.WriteLine($"[GraphUserService] EXCEPCIÓN en $batch de fotos: {ex.Message}");
+                salida.Clear();
+                foreach (var email in chunk) salida.Add((email, null));
             }
 
-            return null;
+            return salida;
+        }
+
+        /// <summary>Lee el Content-Type de una respuesta de $batch (headers, case-insensitive).</summary>
+        private static string ContentTypeDe(JsonElement respuesta)
+        {
+            if (respuesta.TryGetProperty("headers", out var headers) &&
+                headers.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var h in headers.EnumerateObject())
+                {
+                    if (string.Equals(h.Name, "Content-Type", StringComparison.OrdinalIgnoreCase) &&
+                        h.Value.ValueKind == JsonValueKind.String)
+                    {
+                        var ct = h.Value.GetString();
+                        if (!string.IsNullOrWhiteSpace(ct)) return ct!;
+                    }
+                }
+            }
+            return "image/jpeg";
         }
 
         // ── Helpers privados ─────────────────────────────────────────────────

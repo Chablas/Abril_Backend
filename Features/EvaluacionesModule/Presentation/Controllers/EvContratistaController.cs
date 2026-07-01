@@ -130,5 +130,49 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        /// <summary>Marcar que este período no corresponde evaluar contratistas (sin contratistas asignados, etc).</summary>
+        [HttpPost("no-aplica")]
+        public async Task<IActionResult> MarcarNoAplica([FromBody] EvContratistaNoAplicaCreateDto dto)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(dto.Motivo))
+                    throw new AbrilException("Debe indicar el motivo.", 400);
+
+                var periodo = await _periodoRepo.GetActivoAsync()
+                    ?? throw new AbrilException("No hay período de evaluación activo.", 400);
+
+                var inicio = await _repo.GetInicioAsync(GetUserId());
+                var areaNombre = inicio.MiAreaNombre
+                    ?? throw new AbrilException("No se pudo determinar su área evaluadora. Verifique su perfil de trabajador.", 400);
+
+                bool esEspecifico = dto.ProyectoId.HasValue && dto.ContributorId.HasValue;
+
+                if (esEspecifico)
+                {
+                    var existeEspecifico = await _repo.ExisteAsync(
+                        periodo.Id, dto.ProyectoId!.Value, dto.ContributorId!.Value, areaNombre, GetUserId());
+                    if (existeEspecifico)
+                        throw new AbrilException("Ya registró una evaluación para este contratista en este período.", 409);
+                }
+                else
+                {
+                    var yaMarco = await _repo.ExisteNoAplicaAsync(periodo.Id, GetUserId());
+                    if (yaMarco)
+                        throw new AbrilException("Ya marcó que no corresponde evaluar contratistas este período.", 409);
+                }
+
+                await _repo.RegistrarNoAplicaAsync(
+                    periodo.Id, GetUserId(), areaNombre, dto.Motivo, dto.ProyectoId, dto.ContributorId);
+                return StatusCode(201, new { message = "Registrado correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en EvContratistaController.MarcarNoAplica");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

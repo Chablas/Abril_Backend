@@ -28,7 +28,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 join w in ctx.Worker on i.WorkerId equals w.Id
                 join m in ctx.SsMedicoOcupacional on i.MedicoDerivaId equals m.Id into mj
                 from m in mj.DefaultIfEmpty()
-                select new { i, w, m };
+                select new
+                {
+                    i,
+                    w,
+                    m,
+                    VincActiva = ctx.WorkerVinculacion
+                        .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                        .OrderByDescending(v => v.CreatedAt)
+                        .ThenByDescending(v => v.Id)
+                        .FirstOrDefault()
+                };
 
             if (!string.IsNullOrWhiteSpace(filter.Estado))
                 q = q.Where(x => x.i.Estado == filter.Estado);
@@ -48,29 +58,62 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var page = filter.Page < 1 ? 1 : filter.Page;
             var pageSize = filter.PageSize <= 0 ? 15 : Math.Min(filter.PageSize, 100);
 
-            var items = await q
+            var raw = await q
                 .OrderByDescending(x => x.i.FechaDerivacion)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
-                .Select(x => new InterconsultaListDto
+                .Select(x => new
                 {
-                    Id = x.i.Id,
-                    EmoId = x.i.EmoId,
-                    WorkerId = x.i.WorkerId,
+                    x.i.Id,
+                    x.i.EmoId,
+                    x.i.WorkerId,
                     WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
                     WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
-                    Especialidad = x.i.Especialidad,
+                    x.i.Especialidad,
                     MedicoDeriva = x.m != null ? x.m.ApellidoNombre : null,
-                    FechaDerivacion = x.i.FechaDerivacion,
-                    FechaAtencion = x.i.FechaAtencion,
-                    CentroAtencion = x.i.CentroAtencion,
-                    Diagnostico = x.i.Diagnostico,
-                    Resultado = x.i.Resultado,
-                    Estado = x.i.Estado,
-                    RequiereSeguimiento = x.i.RequiereSeguimiento,
-                    UrlInforme = x.i.UrlInforme
+                    x.i.FechaDerivacion,
+                    x.i.FechaAtencion,
+                    x.i.CentroAtencion,
+                    x.i.Diagnostico,
+                    x.i.Resultado,
+                    x.i.Estado,
+                    x.i.RequiereSeguimiento,
+                    x.i.UrlInforme,
+                    ProyectoId = x.VincActiva != null ? (int?)x.VincActiva.ProyectoId : null,
+                    EmpresaId = x.VincActiva != null ? x.VincActiva.EmpresaId : null
                 })
                 .ToListAsync();
+
+            var proyectoIds = raw.Where(x => x.ProyectoId.HasValue).Select(x => x.ProyectoId!.Value).Distinct().ToList();
+            var empresaIds = raw.Where(x => x.EmpresaId.HasValue).Select(x => x.EmpresaId!.Value).Distinct().ToList();
+
+            var proyectoMap = await ctx.Project
+                .Where(p => proyectoIds.Contains(p.ProjectId))
+                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
+
+            var items = raw.Select(x => new InterconsultaListDto
+            {
+                Id = x.Id,
+                EmoId = x.EmoId,
+                WorkerId = x.WorkerId,
+                WorkerNombre = x.WorkerNombre,
+                WorkerDni = x.WorkerDni,
+                ProyectoNombre = x.ProyectoId.HasValue && proyectoMap.TryGetValue(x.ProyectoId.Value, out var pNombre) ? pNombre : null,
+                RazonSocial = x.EmpresaId.HasValue && empresaMap.TryGetValue(x.EmpresaId.Value, out var eNombre) ? eNombre : null,
+                Especialidad = x.Especialidad,
+                MedicoDeriva = x.MedicoDeriva,
+                FechaDerivacion = x.FechaDerivacion,
+                FechaAtencion = x.FechaAtencion,
+                CentroAtencion = x.CentroAtencion,
+                Diagnostico = x.Diagnostico,
+                Resultado = x.Resultado,
+                Estado = x.Estado,
+                RequiereSeguimiento = x.RequiereSeguimiento,
+                UrlInforme = x.UrlInforme
+            }).ToList();
 
             foreach (var it in items)
                 if (it.Estado == "Pendiente")

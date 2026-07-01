@@ -683,6 +683,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ? (DateOnly?)dto.FechaEmo.AddMonths(vigenciaMesesUpd)
                 : null;
 
+            var esApto = !string.Equals(dto.Aptitud, "Observado", StringComparison.OrdinalIgnoreCase)
+                      && !string.Equals(dto.Aptitud, "No Apto", StringComparison.OrdinalIgnoreCase);
+
             emo.TipoEmoId = dto.TipoEmoId;
             emo.EmpresaOrigenId = dto.EmpresaOrigenId;
             emo.FechaEmo = dto.FechaEmo;
@@ -695,6 +698,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             emo.NumeroInforme = dto.NumeroInforme;
             emo.UrlResultado = dto.UrlResultado;
             emo.Notas = dto.Notas;
+            emo.Estado = esApto ? "Vigente" : "Observado";
             emo.UpdatedAt = DateTimeOffset.UtcNow;
 
             var examenesExistentes = await ctx.SsEmoExamenDetalle.Where(x => x.EmoId == id).ToListAsync();

@@ -7,6 +7,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interco
         public int WorkerId { get; set; }
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }
+        public string? ProyectoNombre { get; set; }
+        public string? RazonSocial { get; set; }
         public string Especialidad { get; set; } = string.Empty;
         public string? MedicoDeriva { get; set; }
         public DateOnly FechaDerivacion { get; set; }

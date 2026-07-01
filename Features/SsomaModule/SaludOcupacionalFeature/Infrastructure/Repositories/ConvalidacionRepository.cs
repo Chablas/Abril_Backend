@@ -78,7 +78,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Resultado = x.cv.Resultado,
                     FechaVencimiento = x.cv.FechaVencimiento,
                     Notas = x.cv.Observaciones,
-                    UrlDocumento = x.cv.UrlDocumento
+                    UrlDocumento = x.cv.UrlDocumento,
+                    EmoFechaVencimiento = x.e.FechaVencimientoCalculada ?? x.e.FechaVencimiento,
+                    UrlResultado = x.e.UrlResultado,
+                    UrlAptitud = x.e.UrlAptitud,
+                    UrlEmoCompleto = x.e.UrlEmoCompleto,
+                    InterconsultaEstado = ctx.SsInterconsulta
+                        .Where(i => i.EmoId == x.e.Id)
+                        .OrderByDescending(i => i.FechaDerivacion)
+                        .Select(i => (string?)i.Estado)
+                        .FirstOrDefault(),
+                    InterconsultaEspecialidad = ctx.SsInterconsulta
+                        .Where(i => i.EmoId == x.e.Id)
+                        .OrderByDescending(i => i.FechaDerivacion)
+                        .Select(i => (string?)i.Especialidad)
+                        .FirstOrDefault(),
+                    InterconsultaUrlInforme = ctx.SsInterconsulta
+                        .Where(i => i.EmoId == x.e.Id)
+                        .OrderByDescending(i => i.FechaDerivacion)
+                        .Select(i => (string?)i.UrlInforme)
+                        .FirstOrDefault()
                 })
                 .ToListAsync();
 

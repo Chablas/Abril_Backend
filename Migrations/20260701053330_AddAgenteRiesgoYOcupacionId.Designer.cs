@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260701053330_AddAgenteRiesgoYOcupacionId")]
+    partial class AddAgenteRiesgoYOcupacionId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3638,10 +3641,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("criterio");
 
-                    b.Property<bool>("EsNa")
-                        .HasColumnType("boolean")
-                        .HasColumnName("es_na");
-
                     b.Property<int>("EvaluacionId")
                         .HasColumnType("integer")
                         .HasColumnName("evaluacion_id");
@@ -3650,7 +3649,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("plantilla_id");
 
-                    b.Property<int?>("Puntaje")
+                    b.Property<int>("Puntaje")
                         .HasColumnType("integer")
                         .HasColumnName("puntaje");
 

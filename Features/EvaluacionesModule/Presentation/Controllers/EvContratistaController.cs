@@ -90,7 +90,7 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                 if (string.IsNullOrWhiteSpace(dto.Comentario) == false && dto.Detalles.Count == 0)
                     throw new AbrilException("Debe calificar al menos un criterio.", 400);
 
-                if (dto.Detalles.Any(d => d.Puntaje < 0 || d.Puntaje > 4))
+                if (dto.Detalles.Any(d => !d.EsNa && (d.Puntaje is null or < 0 or > 4)))
                     throw new AbrilException("El puntaje debe estar entre 0 y 4.", 400);
 
                 // Determinar el área del evaluador en el repositorio
@@ -116,7 +116,8 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                 {
                     PlantillaId = d.PlantillaId,
                     Criterio = d.Criterio,
-                    Puntaje = d.Puntaje
+                    Puntaje = d.EsNa ? null : d.Puntaje,
+                    EsNa = d.EsNa
                 }).ToList();
 
                 var result = await _repo.CreateAsync(eval, detalles);

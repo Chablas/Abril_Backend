@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260701044600_SyncTopicoCierreYWorkItemPendiente")]
+    partial class SyncTopicoCierreYWorkItemPendiente
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3638,10 +3641,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("criterio");
 
-                    b.Property<bool>("EsNa")
-                        .HasColumnType("boolean")
-                        .HasColumnName("es_na");
-
                     b.Property<int>("EvaluacionId")
                         .HasColumnType("integer")
                         .HasColumnName("evaluacion_id");
@@ -3650,7 +3649,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("plantilla_id");
 
-                    b.Property<int?>("Puntaje")
+                    b.Property<int>("Puntaje")
                         .HasColumnType("integer")
                         .HasColumnName("puntaje");
 
@@ -7055,10 +7054,6 @@ namespace Abril_Backend.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("AgenteRiesgoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("agente_riesgo_id");
-
                     b.Property<int?>("AtencionTopicoId")
                         .HasColumnType("integer")
                         .HasColumnName("atencion_topico_id");
@@ -7208,42 +7203,10 @@ namespace Abril_Backend.Migrations
                     b.HasKey("Id")
                         .HasName("pk_ss_accidente_trabajo");
 
-                    b.HasIndex("AgenteRiesgoId")
-                        .HasDatabaseName("ix_ss_accidente_trabajo_agente_riesgo_id");
-
                     b.HasIndex("WorkerId")
                         .HasDatabaseName("ix_ss_accidente_trabajo_worker_id");
 
                     b.ToTable("ss_accidente_trabajo", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAgenteRiesgo", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("Activo")
-                        .HasColumnType("boolean")
-                        .HasColumnName("activo");
-
-                    b.Property<string>("Nombre")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("nombre");
-
-                    b.Property<string>("Tipo")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tipo");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_agente_riesgo");
-
-                    b.ToTable("ss_agente_riesgo", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAlertaEmo", b =>
@@ -15353,10 +15316,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ocupacion");
 
-                    b.Property<int?>("OcupacionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("ocupacion_id");
-
                     b.Property<int?>("PersonId")
                         .HasColumnType("integer")
                         .HasColumnName("person_id");
@@ -15394,9 +15353,6 @@ namespace Abril_Backend.Migrations
 
                     b.HasIndex("ContributorId")
                         .HasDatabaseName("ix_workers_contributor_id");
-
-                    b.HasIndex("OcupacionId")
-                        .HasDatabaseName("ix_workers_ocupacion_id");
 
                     b.HasIndex("PersonId")
                         .HasDatabaseName("ix_workers_person_id");
@@ -17314,19 +17270,12 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo", b =>
                 {
-                    b.HasOne("Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAgenteRiesgo", "AgenteRiesgo")
-                        .WithMany()
-                        .HasForeignKey("AgenteRiesgoId")
-                        .HasConstraintName("fk_ss_accidente_trabajo_ss_agente_riesgo_agente_riesgo_id");
-
                     b.HasOne("Abril_Backend.Infrastructure.Models.Worker", "Worker")
                         .WithMany()
                         .HasForeignKey("WorkerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_ss_accidente_trabajo_workers_worker_id");
-
-                    b.Navigation("AgenteRiesgo");
 
                     b.Navigation("Worker");
                 });
@@ -18870,19 +18819,12 @@ namespace Abril_Backend.Migrations
                         .HasForeignKey("ContributorId")
                         .HasConstraintName("fk_workers_contributor_contributor_id");
 
-                    b.HasOne("Abril_Backend.Features.Habilitacion.Infrastructure.Models.CatOcupacion", "OcupacionCatalogo")
-                        .WithMany()
-                        .HasForeignKey("OcupacionId")
-                        .HasConstraintName("fk_workers_cat_ocupacion_ocupacion_id");
-
                     b.HasOne("Abril_Backend.Infrastructure.Models.Person", "Person")
                         .WithMany()
                         .HasForeignKey("PersonId")
                         .HasConstraintName("fk_workers_person_person_id");
 
                     b.Navigation("Contributor");
-
-                    b.Navigation("OcupacionCatalogo");
 
                     b.Navigation("Person");
                 });

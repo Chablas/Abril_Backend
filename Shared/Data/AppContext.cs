@@ -144,6 +144,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsEmoTipo> SsEmoTipo { get; set; }
         public DbSet<SsExamenTipo> SsExamenTipo { get; set; }
         public DbSet<SsRestriccionTipo> SsRestriccionTipo { get; set; }
+        public DbSet<SsAgenteRiesgo> SsAgenteRiesgo => Set<SsAgenteRiesgo>();
         public DbSet<SsEmoExamenDetalle> SsEmoExamenDetalle { get; set; }
         public DbSet<SsEmoRestriccion> SsEmoRestriccion { get; set; }
         public DbSet<SsInterconsulta> SsInterconsulta { get; set; }

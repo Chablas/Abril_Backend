@@ -9,7 +9,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Models
         public int EvaluacionId { get; set; }
         public int? PlantillaId { get; set; }
         public string Criterio { get; set; } = string.Empty;
-        public int Puntaje { get; set; }
+        public int? Puntaje { get; set; }
+        public bool EsNa { get; set; } = false;
 
         [ForeignKey(nameof(EvaluacionId))]
         public EvEvaluacionContratista? Evaluacion { get; set; }

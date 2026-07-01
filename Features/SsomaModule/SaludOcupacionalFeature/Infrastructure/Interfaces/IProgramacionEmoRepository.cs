@@ -13,5 +13,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task<List<ProgramacionHabilitacionDto>> GetHabilitacionAsync(ProgramacionHabilitacionFiltrosDto filtros);
         Task PatchNotificadoAsync(int id, bool notificado);
         Task UndoCheckInAsync(int id);
+        Task<ProgramacionResumenDto> GetResumen(ProgramacionFilterDto filter);
     }
 }

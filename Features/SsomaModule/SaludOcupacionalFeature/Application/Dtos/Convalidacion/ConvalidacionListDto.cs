@@ -18,5 +18,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convali
         public int? DiasParaVencer { get; set; }
         public string? Notas { get; set; }
         public string? UrlDocumento { get; set; }
+
+        // Datos del EMO origen, para que el médico pueda revisarlos antes de resolver.
+        public DateOnly? EmoFechaVencimiento { get; set; }
+        public string? UrlResultado { get; set; }
+        public string? UrlAptitud { get; set; }
+        public string? UrlEmoCompleto { get; set; }
+        public string? InterconsultaEstado { get; set; }
+        public string? InterconsultaEspecialidad { get; set; }
+        public string? InterconsultaUrlInforme { get; set; }
     }
 }

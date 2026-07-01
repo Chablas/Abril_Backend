@@ -19,6 +19,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<PagedResult<InterconsultaListDto>> List(InterconsultaFilterDto filter) => _repo.List(filter);
 
+        public Task<InterconsultaDetalleDto> GetById(int id) => _repo.GetById(id);
+
         public Task<int> Create(InterconsultaCreateDto dto, int? userId)
         {
             if (dto.EmoId <= 0) throw new AbrilException("El EMO es obligatorio.", 400);

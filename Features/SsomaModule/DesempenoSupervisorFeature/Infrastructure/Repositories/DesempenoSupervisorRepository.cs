@@ -214,9 +214,12 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .Select(g => new { SupId = g.Key!.Value, N = g.Count() })
             .ToListAsync();
 
+        // Se filtra por el mes/año del período de evaluación (ev_periodo), no por CreatedAt:
+        // el período de junio cierra el 4 de julio, así que evaluaciones de junio creadas
+        // en esos primeros días de julio quedaban contadas como "julio" y no marcaban el check.
         var evalResidentePorSupervisor = await ctx.EvEvaluacionesResidente
             .Where(e => e.EvaluadorUserId != null && supervisorUserIds.Contains(e.EvaluadorUserId.Value)
-                     && e.CreatedAt >= inicio && e.CreatedAt < fin
+                     && e.Periodo!.Mes == mes && e.Periodo!.Anio == anio
                      && !e.NoAplica)
             .GroupBy(e => e.EvaluadorUserId)
             .Select(g => new { SupId = g.Key!.Value, N = g.Count() })

@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace Abril_Backend.Shared.Services.Graph.Services
 {
-    public class GraphUserService : IGraphUserService, IEmailGroupResolver
+    public class GraphUserService : IGraphUserService, IEmailGroupResolver, IUserPhotoService
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
@@ -260,6 +260,80 @@ namespace Abril_Backend.Shared.Services.Graph.Services
                 Console.WriteLine($"[GraphUserService] EXCEPCIÓN en GetCurrentUserProfileAsync: {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Descarga las fotos de perfil de varios usuarios por email (permiso de aplicación).
+        /// Las peticiones se lanzan en paralelo (limitadas por un semáforo para no saturar Graph).
+        /// </summary>
+        public async Task<Dictionary<string, string?>> GetPhotosByEmailsAsync(List<string> emails)
+        {
+            var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            if (emails == null || emails.Count == 0)
+                return result;
+
+            var appToken = await GetAppTokenAsync();
+            if (string.IsNullOrEmpty(appToken))
+            {
+                Console.WriteLine("[GraphUserService] No se pudo obtener el token de aplicación para fotos.");
+                return result;
+            }
+
+            var distinct = emails.Where(e => !string.IsNullOrWhiteSpace(e))
+                                 .Select(e => e.Trim())
+                                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                                 .ToList();
+
+            var client = BuildClient(appToken);
+            using var gate = new SemaphoreSlim(8);
+
+            var tasks = distinct.Select(async email =>
+            {
+                await gate.WaitAsync();
+                try { return (email, foto: await FetchPhotoAsync(client, email)); }
+                finally { gate.Release(); }
+            });
+
+            foreach (var (email, foto) in await Task.WhenAll(tasks))
+                result[email] = foto;
+
+            return result;
+        }
+
+        /// <summary>
+        /// Descarga la foto de un usuario como data URI base64. Intenta primero una versión
+        /// mediana (240x240) para aligerar el payload y cae a la original si no existe.
+        /// Devuelve <c>null</c> si el usuario no tiene foto o no se pudo obtener.
+        /// </summary>
+        private static async Task<string?> FetchPhotoAsync(HttpClient client, string email)
+        {
+            var key = Uri.EscapeDataString(email);
+            var urls = new[]
+            {
+                $"https://graph.microsoft.com/v1.0/users/{key}/photos/240x240/$value",
+                $"https://graph.microsoft.com/v1.0/users/{key}/photo/$value",
+            };
+
+            foreach (var url in urls)
+            {
+                try
+                {
+                    var resp = await client.GetAsync(url);
+                    if (!resp.IsSuccessStatusCode) continue;
+
+                    var bytes = await resp.Content.ReadAsByteArrayAsync();
+                    if (bytes.Length == 0) continue;
+
+                    var contentType = resp.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+                    return $"data:{contentType};base64,{Convert.ToBase64String(bytes)}";
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[GraphUserService] Error obteniendo foto de '{email}': {ex.Message}");
+                }
+            }
+
+            return null;
         }
 
         // ── Helpers privados ─────────────────────────────────────────────────

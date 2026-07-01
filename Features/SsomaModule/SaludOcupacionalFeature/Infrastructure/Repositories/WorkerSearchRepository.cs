@@ -110,6 +110,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }).ToList();
         }
 
+        public async Task<List<DocumentTypeDto>> GetDocumentTypes()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.DocumentIdentityType
+                .Where(t => t.Active && t.State)
+                .OrderBy(t => t.DocumentIdentityTypeId)
+                .Select(t => new DocumentTypeDto
+                {
+                    Id = t.DocumentIdentityTypeId,
+                    Abreviatura = t.DocumentIdentityTypeAbbreviation,
+                    Descripcion = t.DocumentIdentityTypeDescription,
+                })
+                .ToListAsync();
+        }
+
         public async Task<int> Create(WorkerCreateDto dto)
         {
             using var ctx = _factory.CreateDbContext();
@@ -256,6 +271,45 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     });
                 }
             }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == id);
+            if (worker == null)
+                throw new AbrilException("Trabajador no encontrado.", 404);
+            if (worker.Person == null)
+                throw new AbrilException("El trabajador no tiene datos de persona asociados.", 400);
+
+            if (string.IsNullOrWhiteSpace(dto.NombreCompleto))
+                throw new AbrilException("El nombre completo es obligatorio.", 400);
+
+            worker.Person.FullName = dto.NombreCompleto.Trim();
+
+            if (dto.DocumentIdentityTypeId.HasValue)
+                worker.Person.DocumentIdentityTypeId = dto.DocumentIdentityTypeId;
+
+            if (!string.IsNullOrWhiteSpace(dto.NumeroDocumento))
+            {
+                var nuevoDoc = dto.NumeroDocumento.Trim().ToUpper();
+                if (!string.Equals(nuevoDoc, worker.Person.DocumentIdentityCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    var duplicado = await ctx.Person.AnyAsync(p =>
+                        p.PersonId != worker.Person.PersonId
+                        && p.DocumentIdentityCode != null
+                        && p.DocumentIdentityCode.ToUpper() == nuevoDoc);
+                    if (duplicado)
+                        throw new AbrilException("Ya existe otra persona con ese número de documento.", 409);
+                    worker.Person.DocumentIdentityCode = nuevoDoc;
+                }
+            }
+
+            worker.Person.Cumpleanos = dto.Cumpleanos;
+            worker.Person.UpdatedDateTime = DateTime.UtcNow;
 
             await ctx.SaveChangesAsync();
         }

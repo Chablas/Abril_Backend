@@ -46,18 +46,20 @@ namespace Abril_Backend.Application.Services
         };
 
         // ── Aviso mensual de publicación de lecciones (1er día del mes) ─────────
-        // Buzón visible como destinatario/remitente del aviso masivo; también
-        // recibe cada lote como copia de auditoría. Cambiar por el correo
-        // institucional (ej. comunicaciones@abril.pe) cuando se defina.
         private readonly ISsomaReminderService _ssomaReminderService;
 
-        private readonly List<string> _publicationAnnouncementTo = new List<string>
+        // Buzón institucional remitente (aprobaciones@abril.pe). Va como único
+        // destinatario visible (To) del aviso masivo para no exponer a ningún
+        // trabajador —ni a la copia de auditoría— como destinatario principal.
+        // La audiencia real viaja siempre en BCC.
+        private readonly List<string> _publicationAnnouncementTo;
+
+        // Copia de auditoría del aviso: viaja en BCC (nunca en To) para que quien
+        // administra el envío reciba una copia oculta sin figurar como principal.
+        private readonly List<string> _publicationAuditBcc = new List<string>
         {
             "calvarez@abril.pe"
         };
-        // Tamaño de lote para el BCC: evita topes del proveedor (Outlook/365 ~500
-        // destinatarios por mensaje) y reduce el riesgo de marcas de spam.
-        private const int PublicationBatchSize = 90;
 
         public ReminderService(
             IEmailService emailService,
@@ -76,6 +78,14 @@ namespace Abril_Backend.Application.Services
             _emailGroupResolver = emailGroupResolver;
             _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
             _ssomaReminderService = ssomaReminderService;
+
+            // Remitente institucional configurado (el mismo buzón desde el que se
+            // envían los correos). Sirve de único To visible del aviso masivo.
+            var fromEmail = configuration["Email:EmailSettings:FromEmail"];
+            _publicationAnnouncementTo = new List<string>
+            {
+                string.IsNullOrWhiteSpace(fromEmail) ? "aprobaciones@abril.pe" : fromEmail
+            };
         }
 
         /// <summary>
@@ -214,9 +224,14 @@ namespace Abril_Backend.Application.Services
 
         /// <summary>
         /// Aviso mensual (1er día del mes) de que las lecciones aprendidas del mes
-        /// anterior ya están publicadas. Va a todos los trabajadores cuyo correo
-        /// corporativo @abril (worker.email_personal) tiene un usuario registrado.
-        /// Los destinatarios viajan en BCC por lotes para no exponer sus correos.
+        /// anterior ya están publicadas. La audiencia es EXACTAMENTE la misma que
+        /// recibe el recordatorio de subida (días 1–3 de la ventana de fin de mes):
+        /// los trabajadores asignados a proyectos vía user_project + los miembros del
+        /// staff de proyectos con recordatorio activo. A diferencia del recordatorio,
+        /// aquí NO importa si subieron o no su lección: se avisa a todos ellos que ya
+        /// están publicadas. Se envía en UN solo correo con la audiencia en BCC (no se
+        /// exponen entre sí) junto con la copia de auditoría; el único To visible es el
+        /// buzón institucional remitente.
         /// </summary>
         public async Task SendLessonsLearnedPublicationAsync(DateTime executionDate)
         {
@@ -227,8 +242,34 @@ namespace Abril_Backend.Application.Services
             var periodLabel = target.ToString("MMMM yyyy", es);        // "marzo 2026"
             var periodLabelTitle = es.TextInfo.ToTitleCase(periodLabel); // "Marzo 2026"
 
-            var recipients = await _lessonReminderRepository.GetAbrilWorkerEmailsWithUserAsync();
-            Console.WriteLine($"📊 [publicación lecciones] destinatarios @abril con usuario: {recipients.Count}");
+            // CANAL 1 — user_project: trabajadores asignados a proyectos con
+            // recordatorio vivo y activo (independiente de si subieron lección).
+            var userProjectEmails = await _lessonReminderRepository.GetLessonReminderUserProjectEmailsAsync();
+
+            // CANAL 2 — project_staff_reminder: expandir los grupos de staff activos
+            // a sus miembros individuales (igual que el recordatorio de subida).
+            var staffProjects = await _lessonReminderRepository.GetActiveStaffEmailsAsync();
+            var staffEmails = new List<string>();
+            foreach (var sp in staffProjects)
+            {
+                var members = await _emailGroupResolver.ExpandAsync(
+                    new List<string> { sp.StaffEmail });
+                if (members == null || members.Count == 0)
+                    members = new List<string> { sp.StaffEmail };
+                staffEmails.AddRange(members);
+            }
+
+            // Unión de ambos canales, deduplicada case-insensitive. Esta es la MISMA
+            // audiencia que recibe el recordatorio, sin filtrar por cumplimiento.
+            var recipients = userProjectEmails
+                .Concat(staffEmails)
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e.Trim())
+                .GroupBy(e => e.ToLowerInvariant())
+                .Select(g => g.First())
+                .ToList();
+
+            Console.WriteLine($"📊 [publicación lecciones] audiencia del recordatorio (user_project + staff): {recipients.Count}");
             if (recipients.Count == 0)
             {
                 Console.WriteLine("   • Sin destinatarios; no se envía el aviso de publicación.");
@@ -274,22 +315,26 @@ namespace Abril_Backend.Application.Services
             </p>
             ";
 
-            // Envío masivo: trabajadores en BCC por lotes (no se exponen entre sí).
-            // El To lleva el buzón institucional, que también queda como auditoría.
-            var batches = 0;
-            foreach (var batch in recipients.Chunk(PublicationBatchSize))
-            {
-                await _emailService.SendAsync(
-                    to: _publicationAnnouncementTo,
-                    subject: subject,
-                    body: body,
-                    isHtml: true,
-                    bcc: batch.ToList()
-                );
-                batches++;
-            }
+            // Un solo correo: la audiencia + la copia de auditoría viajan en BCC (no
+            // se exponen entre sí). El único To visible es el buzón institucional
+            // remitente, para que nadie figure como destinatario principal.
+            var bcc = recipients
+                .Concat(_publicationAuditBcc)
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e.Trim())
+                .GroupBy(e => e.ToLowerInvariant())
+                .Select(g => g.First())
+                .ToList();
 
-            Console.WriteLine($"📧 Aviso de publicación enviado en {batches} lote(s) a {recipients.Count} destinatario(s).");
+            await _emailService.SendAsync(
+                to: _publicationAnnouncementTo,
+                subject: subject,
+                body: body,
+                isHtml: true,
+                bcc: bcc
+            );
+
+            Console.WriteLine($"📧 Aviso de publicación enviado en 1 correo a {recipients.Count} destinatario(s) en BCC.");
         }
 
         /// <summary>

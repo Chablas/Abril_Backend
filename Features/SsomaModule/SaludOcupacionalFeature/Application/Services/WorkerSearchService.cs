@@ -23,9 +23,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             return _repo.Search(q, limit);
         }
 
+        public Task<List<DocumentTypeDto>> GetDocumentTypes() => _repo.GetDocumentTypes();
+
         public Task<int> Create(WorkerCreateDto dto) => _repo.Create(dto);
 
         public Task Update(int id, WorkerUpdateDto dto) => _repo.Update(id, dto);
+
+        public Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto) => _repo.UpdateDatosBasicos(id, dto);
 
         public Task Retirar(int id) => _repo.Retirar(id);
     }

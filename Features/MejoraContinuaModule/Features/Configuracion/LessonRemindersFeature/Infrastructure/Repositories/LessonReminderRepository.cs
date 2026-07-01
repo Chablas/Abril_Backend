@@ -581,6 +581,32 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 .ToList();
         }
 
+        public async Task<List<string>> GetLessonReminderUserProjectEmailsAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Misma base que el CANAL 1 del recordatorio de subida
+            // (GetUsersWithoutLessonsThisMonth) pero SIN el filtro de cumplimiento:
+            // aquí queremos a todos los asignados vía user_project vivos y activos,
+            // hayan subido o no su lección.
+            var emails = await (
+                from up in ctx.UserProject
+                join w in ctx.Worker on up.WorkerId equals w.Id
+                where up.State == true
+                      && up.Active == true
+                      && w.EmailPersonal != null
+                      && w.EmailPersonal != ""
+                select w.EmailPersonal!
+            ).ToListAsync();
+
+            return emails
+                .Select(e => e.Trim())
+                .Where(e => e.Length > 0)
+                .GroupBy(e => e.ToLowerInvariant())
+                .Select(g => g.First())
+                .ToList();
+        }
+
         // ─────────────────────────────────────────────────────────────────────
         // Jefaturas (lesson_jefe_reminder) — recordatorio del 4.º día
         // ─────────────────────────────────────────────────────────────────────

@@ -169,6 +169,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerId = x.w.Id,
                     NombreCompleto = (x.w.Person != null ? x.w.Person.FullName : null) ?? string.Empty,
                     Dni = (x.w.Person != null ? x.w.Person.DocumentIdentityCode : null) ?? string.Empty,
+                    DocumentIdentityTypeId = x.w.Person != null ? x.w.Person.DocumentIdentityTypeId : null,
+                    Cumpleanos = x.w.Person != null ? x.w.Person.Cumpleanos : null,
                     EmpresaId = x.vv != null ? x.vv.EmpresaId : null,
                     Empresa = x.em != null ? x.em.ContributorName : null,
                     EmpresaOrigenNombre = x.eop != null ? x.eop.ContributorName : null,

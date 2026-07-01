@@ -12,6 +12,11 @@ namespace Abril_Backend.Infrastructure.Models {
         public string? FullName {get; set;}
         public string? Sexo {get; set;}
         public int? PhoneNumber {get;set;}
+        /// <summary>
+        /// Fecha de cumpleaños del trabajador (columna <c>cumpleanos</c>). Solo interesa
+        /// el día y mes para el calendario del boletín, pero se guarda fecha completa.
+        /// </summary>
+        public DateOnly? Cumpleanos {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int? CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

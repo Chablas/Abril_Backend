@@ -62,10 +62,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p    ON p.person_id = w.person_id
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_personal)
-                  JOIN project pr  ON pr.contributor_id = w.contributor_id
                   WHERE w.email_personal IS NOT NULL
                     AND w.email_personal != ''
-                    AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)");
+                    AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)
+                    AND EXISTS (
+                        SELECT 1 FROM worker_vinculaciones wv
+                        WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                    )");
 
             // Reutiliza ResolverArea (misma regla que usa GetInicioAsync) para no duplicar
             // el mapeo subárea -> área evaluadora en dos lugares distintos.
@@ -129,16 +132,17 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 new { Puesto = $"%{puestoMatch}%" });
 
             // Proyectos del evaluador: el/los proyecto(s) donde está actualmente destacado
-            // (mismo criterio que usa Residentes en GetResidentesEvaluablesAsync), no user_project.
+            // según su vinculación vigente (worker_vinculaciones.fecha_fin IS NULL), no
+            // el contributor_id de onboarding (queda desactualizado si cambia de obra) ni user_project.
             // Los Jefes de área (puedeVerTodos) no se filtran por su propio proyecto: ven todos.
             List<int> proyectoIds = [];
             if (!puedeVerTodos)
             {
                 var proyectosEvaluador = await conn.QueryAsync<int>(
-                    @"SELECT pr.project_id
+                    @"SELECT DISTINCT wv.proyecto_id
                       FROM workers w
                       JOIN person p ON p.person_id = w.person_id
-                      JOIN project pr ON pr.contributor_id = w.contributor_id
+                      JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                       WHERE p.user_id = @UserId",
                     new { UserId = userId });
 

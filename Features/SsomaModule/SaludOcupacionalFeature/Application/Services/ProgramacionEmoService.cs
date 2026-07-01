@@ -66,5 +66,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task UndoCheckInAsync(int id)
             => _repo.UndoCheckInAsync(id);
+
+        public Task<ProgramacionResumenDto> GetResumen(ProgramacionFilterDto filter)
+            => _repo.GetResumen(filter);
     }
 }

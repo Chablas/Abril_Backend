@@ -44,6 +44,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("descripcion_lesion")]
         public string? DescripcionLesion { get; set; }
 
+        [Column("diagnostico_cie10")]
+        public string? DiagnosticoCie10 { get; set; }
+
         [Column("requiere_hospitalizacion")]
         public bool RequiereHospitalizacion { get; set; } = false;
 

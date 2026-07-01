@@ -1450,6 +1450,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             EmailPersonal = w.EmailPersonal,
             EmailCorporativo = null,  // columna en BD ya no se usa; mantener el campo en DTO por compat. de API.
             FechaNacimiento = w.FechaNacimiento,
+            Sexo = w.Person?.Sexo,
             FechaIngreso = w.FechaIngreso,
             FechaRetiro = w.FechaRetiro,
             Categoria = w.Categoria,

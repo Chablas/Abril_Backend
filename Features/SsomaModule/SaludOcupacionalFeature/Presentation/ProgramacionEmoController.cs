@@ -85,6 +85,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("resumen")]
+        public async Task<IActionResult> GetResumen([FromQuery] ProgramacionFilterDto filter)
+        {
+            filter.IncluirConInterconsulta = !User.IsInRole("CLINICA");
+            try { return Ok(await _service.GetResumen(filter)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController.GetResumen"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("habilitacion")]
         public async Task<IActionResult> GetHabilitacion(
             [FromQuery] string? estado,

@@ -220,6 +220,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ParteCuerpoAfectada = row.a.ParteCuerpoAfectada,
                 Descripcion = row.a.Descripcion,
                 DescripcionLesion = row.a.DescripcionLesion,
+                DiagnosticoCie10 = row.a.DiagnosticoCie10,
                 RequiereHospitalizacion = row.a.RequiereHospitalizacion,
                 HospitalNombre = row.a.HospitalNombre,
                 AtencionTopicoId = row.a.AtencionTopicoId,
@@ -267,6 +268,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ParteCuerpoAfectada = dto.ParteCuerpoAfectada,
                 Descripcion = dto.Descripcion,
                 DescripcionLesion = dto.DescripcionLesion,
+                DiagnosticoCie10 = dto.DiagnosticoCie10,
                 RequiereHospitalizacion = dto.RequiereHospitalizacion,
                 HospitalNombre = dto.HospitalNombre,
                 DiasDescansoEstimados = dto.DiasDescansoEstimados,
@@ -294,6 +296,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             entity.ParteCuerpoAfectada = dto.ParteCuerpoAfectada;
             entity.Descripcion = dto.Descripcion;
             entity.DescripcionLesion = dto.DescripcionLesion;
+            entity.DiagnosticoCie10 = dto.DiagnosticoCie10;
             entity.RequiereHospitalizacion = dto.RequiereHospitalizacion;
             entity.HospitalNombre = dto.HospitalNombre;
             entity.DiasDescansoEstimados = dto.DiasDescansoEstimados;

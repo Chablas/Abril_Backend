@@ -154,6 +154,68 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
         }
 
+        public async Task<ProgramacionResumenDto> GetResumen(ProgramacionFilterDto filter)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var q =
+                from p in ctx.SsProgramacionEmo
+                join w in ctx.Worker on p.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals per.PersonId into perj
+                from per in perj.DefaultIfEmpty()
+                join em in ctx.Contributor on p.EmpresaId equals em.ContributorId into ej
+                from em in ej.DefaultIfEmpty()
+                select new { p, per, em };
+
+            q = q.Where(x => x.em != null && x.em.EsAbril);
+
+            if (!filter.IncluirConInterconsulta)
+            {
+                q = q.Where(x => x.p.Estado != "En Interconsulta");
+                q = q.Where(x => !ctx.SsInterconsulta
+                    .Any(i => i.WorkerId == x.p.WorkerId && i.Estado == "Pendiente"));
+            }
+
+            // El resumen ignora filter.Estado a propósito: debe mostrar el desglose
+            // por estado sobre el resto de filtros, no solo el estado seleccionado.
+            if (filter.Desde.HasValue)
+                q = q.Where(x => x.p.FechaProgramada >= filter.Desde.Value);
+            if (filter.Hasta.HasValue)
+                q = q.Where(x => x.p.FechaProgramada <= filter.Hasta.Value);
+            if (filter.WorkerId.HasValue)
+                q = q.Where(x => x.p.WorkerId == filter.WorkerId.Value);
+            if (filter.ClinicaId.HasValue)
+                q = q.Where(x => x.p.ClinicaId == filter.ClinicaId.Value);
+            if (!string.IsNullOrWhiteSpace(filter.Search))
+            {
+                var term = filter.Search.Trim().ToLower();
+                q = q.Where(x =>
+                    (x.per != null && x.per.FullName != null && x.per.FullName.ToLower().Contains(term)) ||
+                    (x.per != null && x.per.DocumentIdentityCode != null && x.per.DocumentIdentityCode.Contains(term)));
+            }
+
+            var estadoCounts = await q
+                .GroupBy(x => x.p.Estado)
+                .Select(g => new { Estado = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var automaticos = await q.CountAsync(x => x.p.Origen == "Automatico");
+
+            int CountFor(string estado) => estadoCounts.FirstOrDefault(e => e.Estado == estado)?.Count ?? 0;
+
+            return new ProgramacionResumenDto
+            {
+                Programados = CountFor("Programado"),
+                Aceptados = CountFor("Aceptado por Clínica"),
+                EnAtencion = CountFor("En Atención"),
+                Completados = CountFor("Completado"),
+                Rechazados = CountFor("Rechazado por Clínica"),
+                NoPresento = CountFor("No se presentó"),
+                Automaticos = automaticos,
+                Total = estadoCounts.Sum(e => e.Count),
+            };
+        }
+
         public async Task<int> Create(ProgramacionCreateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();

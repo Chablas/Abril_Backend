@@ -151,6 +151,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ctx.Person.Add(person);
                 await ctx.SaveChangesAsync();
             }
+            if (!string.IsNullOrWhiteSpace(dto.Sexo)) person.Sexo = dto.Sexo;
 
             var worker = new Worker
             {
@@ -207,6 +208,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 worker.Person.FullName      = dto.ApellidoNombre;
                 worker.Person.PhoneNumber   = int.TryParse(dto.Celular, out var ph2) ? ph2 : (int?)null;
+                if (!string.IsNullOrWhiteSpace(dto.Sexo)) worker.Person.Sexo = dto.Sexo;
             }
             worker.EmailPersonal = dto.EmailPersonal ?? dto.EmailCorporativo;
             worker.FechaNacimiento = dto.FechaNacimiento;

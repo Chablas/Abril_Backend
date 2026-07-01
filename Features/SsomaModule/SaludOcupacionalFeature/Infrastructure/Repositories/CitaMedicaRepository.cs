@@ -68,6 +68,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Cita médica no encontrada.", 404);
         }
 
+        public async Task<List<(int Id, string Nombre)>> GetTipos()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsCitaTipo
+                .Where(t => t.Active)
+                .OrderBy(t => t.Nombre)
+                .Select(t => new { t.Id, t.Nombre })
+                .ToListAsync()
+                .ContinueWith(r => r.Result.Select(x => (x.Id, x.Nombre)).ToList());
+        }
+
         public async Task<int> Create(int accidenteId, CitaMedicaCreateDto dto, int registradoPorId)
         {
             using var ctx = _factory.CreateDbContext();

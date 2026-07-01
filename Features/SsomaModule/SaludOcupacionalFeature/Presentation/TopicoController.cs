@@ -107,6 +107,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en TopicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPatch("topico/{id:int}/cerrar")]
+        public async Task<IActionResult> Cerrar(int id)
+        {
+            try
+            {
+                await _service.Cerrar(id, CurrentUserId());
+                return Ok(new { message = "Atención de tópico cerrada exitosamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en TopicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpDelete("topico/{id:int}")]
         public async Task<IActionResult> Delete(int id)
         {

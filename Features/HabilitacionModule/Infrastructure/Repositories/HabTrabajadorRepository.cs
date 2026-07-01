@@ -801,6 +801,54 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CreatedAt = nowUtc
                 });
 
+            // Auto-crear convalidación pendiente si el trabajador cambia de empresa y tiene un EMO activo.
+            _logger.LogInformation("[Convalidacion] esCambioEmpresa={EsCambioEmpresa} workerId={WorkerId} NuevaEmpresaId={NuevaEmpresaId} currentEmpresaId={CurrentEmpresaId} esContratista={EsContratista}",
+                esCambioEmpresa, workerId, dto.NuevaEmpresaId, currentEmpresaId, esContratista);
+
+            if (esCambioEmpresa)
+            {
+                var ultimoEmo = await ctx.WorkerEmo
+                    .Where(e => e.WorkerId == workerId && e.Activo)
+                    .OrderByDescending(e => e.FechaEmo)
+                    .ThenByDescending(e => e.Id)
+                    .FirstOrDefaultAsync();
+
+                _logger.LogInformation("[Convalidacion] ultimoEmo={UltimoEmoId}", ultimoEmo?.Id);
+
+                if (ultimoEmo != null)
+                {
+                    ctx.WorkerEmoConvalidacion.Add(new WorkerEmoConvalidacion
+                    {
+                        EmoId = ultimoEmo.Id,
+                        EmpresaDestinoId = dto.NuevaEmpresaId,
+                        FechaConvalidacion = fechaCambio,
+                        Resultado = "Pendiente",
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow
+                    });
+
+                    // Marcar CertAptitud como Pendiente (override del "Falta" ya asignado arriba)
+                    var habCert = await ctx.SsHabTrabajador
+                        .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.CertAptitud);
+                    if (habCert != null)
+                    {
+                        habCert.Estado = "Pendiente";
+                        habCert.UpdatedAt = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        ctx.SsHabTrabajador.Add(new SsHabTrabajador
+                        {
+                            WorkerId = workerId,
+                            ItemId = HabItemIds.CertAptitud,
+                            Estado = "Pendiente",
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+            }
+
             await ctx.SaveChangesAsync();
 
             foreach (var (to, subject, body) in pendingEmails)

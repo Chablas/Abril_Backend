@@ -27,6 +27,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public bool SctrActivado { get; set; }
         public string? UrlInforme { get; set; }
         public int? DescansoGeneradoId { get; set; }
+        public string Estado { get; set; } = "Abierta";
+        public DateTimeOffset? FechaCierre { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 
@@ -65,6 +67,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public string? TipoCasoSctr { get; set; }
         public string? UrlInforme { get; set; }
         public int? DescansoGeneradoId { get; set; }
+        public string Estado { get; set; } = "Abierta";
+        public int? CerradoPorId { get; set; }
+        public DateTimeOffset? FechaCierre { get; set; }
         public int RegistradoPorId { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
@@ -153,6 +158,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public int? TipoAtencionId { get; set; }
         public int? EmpresaId { get; set; }
         public int? ProyectoId { get; set; }
+        public string? Estado { get; set; }
         public int Page { get; set; } = 1;
     }
 }

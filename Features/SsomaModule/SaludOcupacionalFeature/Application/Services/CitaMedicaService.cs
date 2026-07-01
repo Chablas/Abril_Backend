@@ -17,6 +17,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         public Task<List<CitaMedicaListItemDto>> GetByAccidenteId(int accidenteId) =>
             _repo.GetByAccidenteId(accidenteId);
 
+        public Task<List<(int Id, string Nombre)>> GetTipos() => _repo.GetTipos();
+
         public Task<int> Create(int accidenteId, CitaMedicaCreateDto dto, int? userId)
         {
             if (dto.TipoId <= 0)

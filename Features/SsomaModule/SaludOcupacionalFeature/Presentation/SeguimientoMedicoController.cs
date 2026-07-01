@@ -37,6 +37,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             return int.TryParse(val, out var id) ? id : (int?)null;
         }
 
+        // ── CATÁLOGOS ──────────────────────────────────────────────────
+
+        [HttpGet("accidentes/tipos-seguimiento")]
+        public async Task<IActionResult> GetTiposSeguimiento()
+        {
+            try
+            {
+                var tiposCita = await _citas.GetTipos();
+                var tiposEquipo = await _equipos.GetTipos();
+                var tiposAlta = await _alta.GetTipos();
+                return Ok(new
+                {
+                    tiposCita = tiposCita.Select(t => new { t.Id, t.Nombre }),
+                    tiposEquipo = tiposEquipo.Select(t => new { t.Id, t.Nombre }),
+                    tiposAlta = tiposAlta.Select(t => new { t.Id, t.Nombre }),
+                });
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Error en SeguimientoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // ── CITAS MÉDICAS ──────────────────────────────────────────────
 
         [HttpGet("accidentes/{accidenteId:int}/citas")]

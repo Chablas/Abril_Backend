@@ -101,6 +101,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("descanso_generado_id")]
         public int? DescansoGeneradoId { get; set; }
 
+        [Column("estado")]
+        public string Estado { get; set; } = "Abierta";
+
+        [Column("cerrado_por_id")]
+        public int? CerradoPorId { get; set; }
+
+        [Column("fecha_cierre")]
+        public DateTimeOffset? FechaCierre { get; set; }
+
         [Column("created_at")]
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

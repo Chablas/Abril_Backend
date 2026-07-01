@@ -5,9 +5,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convali
         public int? EmpresaDestinoId { get; set; }
         public DateOnly FechaConvalidacion { get; set; }
         public int? MedicoId { get; set; }
-        public string Resultado { get; set; } = "Aprobada";
+        public string Resultado { get; set; } = "Pendiente";
         public DateOnly? FechaVencimiento { get; set; }
         public string? UrlDocumento { get; set; }
-        public string? Observaciones { get; set; }
+        public string? Notas { get; set; }
     }
 }

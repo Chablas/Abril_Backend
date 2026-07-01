@@ -13,6 +13,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task SetDescansoGenerado(int topicoId, int descansoId);
         Task Update(int id, TopicoUpdateDto dto);
         Task Delete(int id);
+        Task Cerrar(int id, int? userId);
         Task<List<TopicoEvolucionDto>> GetEvoluciones(int topicoId);
         Task<int> CreateEvolucion(int topicoId, TopicoEvolucionCreateDto dto, int registradoPorId);
         Task DeleteEvolucion(int evolucionId);

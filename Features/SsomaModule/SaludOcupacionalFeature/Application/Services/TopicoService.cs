@@ -70,6 +70,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             return _repo.Update(id, dto);
         }
 
+        public Task Cerrar(int id, int? userId) => _repo.Cerrar(id, userId);
+
         public Task Delete(int id) => _repo.Delete(id);
 
         public Task<List<TopicoEvolucionDto>> GetEvoluciones(int topicoId) =>

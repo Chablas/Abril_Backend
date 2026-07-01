@@ -46,6 +46,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.t.Fecha >= filter.FechaDesde.Value);
             if (filter.FechaHasta.HasValue)
                 q = q.Where(x => x.t.Fecha <= filter.FechaHasta.Value);
+            if (!string.IsNullOrEmpty(filter.Estado))
+                q = q.Where(x => x.t.Estado == filter.Estado);
 
             var total = await q.CountAsync();
             var page = filter.Page < 1 ? 1 : filter.Page;
@@ -75,6 +77,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     SctrActivado = x.t.SctrActivado,
                     UrlInforme = x.t.UrlInforme,
                     DescansoGeneradoId = x.t.DescansoGeneradoId,
+                    Estado = x.t.Estado,
+                    FechaCierre = x.t.FechaCierre,
                     CreatedAt = x.t.CreatedAt
                 })
                 .ToListAsync();
@@ -142,6 +146,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 TipoCasoSctr = row.t.TipoCasoSctr,
                 UrlInforme = row.t.UrlInforme,
                 DescansoGeneradoId = row.t.DescansoGeneradoId,
+                Estado = row.t.Estado,
+                CerradoPorId = row.t.CerradoPorId,
+                FechaCierre = row.t.FechaCierre,
                 RegistradoPorId = row.t.RegistradoPorId,
                 CreatedAt = row.t.CreatedAt,
                 UpdatedAt = row.t.UpdatedAt
@@ -222,6 +229,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 entity.UrlInforme = dto.UrlInforme;
             entity.UpdatedAt = DateTimeOffset.UtcNow;
 
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task Cerrar(int id, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var entity = await ctx.SsTopicoAtencion.FirstOrDefaultAsync(t => t.Id == id && t.State)
+                ?? throw new AbrilException("Atención de tópico no encontrada.", 404);
+
+            if (entity.Estado == "Cerrada")
+                throw new AbrilException("La atención ya está cerrada.", 400);
+
+            entity.Estado = "Cerrada";
+            entity.CerradoPorId = userId;
+            entity.FechaCierre = DateTimeOffset.UtcNow;
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }
 

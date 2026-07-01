@@ -101,10 +101,10 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   {(soloSinEvaluar ? @"AND EXISTS (
                       SELECT 1
                       FROM workers rw
-                      JOIN person rp  ON rp.person_id       = rw.person_id
-                      JOIN project pr ON pr.contributor_id  = rw.contributor_id
+                      JOIN person rp ON rp.person_id = rw.person_id
+                      JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
                       JOIN ev_asignacion_supervisor eas
-                                     ON eas.project_id           = pr.project_id
+                                     ON eas.project_id           = wv_r.proyecto_id
                                     AND eas.supervisor_worker_id = w.id
                                     AND eas.activo              = true
                       WHERE rw.ocupacion = 'Residencia'
@@ -137,21 +137,21 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   AND EXISTS (
                       SELECT 1
                       FROM workers rw
-                      JOIN project pr_r ON pr_r.contributor_id = rw.contributor_id
-                      JOIN project pr_e ON pr_e.contributor_id = w.contributor_id
+                      JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
+                      JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       WHERE rw.ocupacion    = 'Residencia'
                         AND rw.estado      != 'Retirado'
-                        AND pr_r.project_id = pr_e.project_id
+                        AND wv_r.proyecto_id = wv_e.proyecto_id
                   )
                   {(soloSinEvaluar ? @"AND EXISTS (
                       SELECT 1
                       FROM workers rw
-                      JOIN person rp    ON rp.person_id       = rw.person_id
-                      JOIN project pr_r ON pr_r.contributor_id = rw.contributor_id
-                      JOIN project pr_e ON pr_e.contributor_id = w.contributor_id
+                      JOIN person rp   ON rp.person_id = rw.person_id
+                      JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
+                      JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       WHERE rw.ocupacion    = 'Residencia'
                         AND rw.estado      != 'Retirado'
-                        AND pr_r.project_id = pr_e.project_id
+                        AND wv_r.proyecto_id = wv_e.proyecto_id
                         AND NOT EXISTS (
                             SELECT 1 FROM ev_evaluacion_residente er
                             WHERE er.evaluado_user_id  = rp.user_id

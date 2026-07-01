@@ -376,15 +376,26 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
             var detail = await _repository.GetDetail(invoiceId)
                 ?? throw new AbrilException("La factura no existe.", 404);
 
-            var baseName = Sanitize($"{detail.ContributorName}-{detail.InvoiceNumber}");
-            var container = _containerResolver.GetInvoicesContainerName();
-            using var stream = file.OpenReadStream();
-            var uploaded = await _fileStorageService.UploadFilesAsync(
-                new[] { (stream, $"{baseName}{extension}") }, container);
-            var url = uploaded.FirstOrDefault();
+            // Se sube a la misma Carpeta facturas configurada (OneDrive) que el alta/edición,
+            // respetando la estructura AÑO / MES / dd-MM-yyyy / RAZÓN SOCIAL ABRIL / PROVEEDOR / N° FACTURA.
+            var destination = await _repository.GetActiveFolderDestination()
+                ?? throw new AbrilException("No hay una carpeta de facturas configurada. Configúrela en Contabilidad → Configuración.");
 
+            var folderId = await EnsureInvoiceFolderPathAsync(
+                destination.DriveId, destination.FolderId,
+                detail.AbrilContributorName ?? "SIN RAZON SOCIAL",
+                detail.ContributorName, detail.InvoiceNumber, detail.IssueDate);
+
+            var fileName = $"{Sanitize(detail.InvoiceNumber)}{extension}";
+            using var stream = file.OpenReadStream();
+            var uploaded = await _sharePointService.UploadToOneDriveFolderAsync(
+                destination.DriveId, folderId, fileName, stream,
+                contentType: file.ContentType ?? "application/octet-stream",
+                autoRenameOnLock: true);
+
+            var url = uploaded?.WebUrl;
             if (!string.IsNullOrWhiteSpace(url))
-                await _repository.AttachDocument(invoiceId, url, userId);
+                await _repository.AttachDocument(invoiceId, url!, userId);
 
             return url;
         }

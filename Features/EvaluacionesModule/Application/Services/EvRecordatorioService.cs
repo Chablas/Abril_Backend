@@ -79,7 +79,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                     continue;
 
                 var asunto = $"[Evaluación Residentes] Recordatorio — {mesAnio}";
-                var cuerpo = BuildCuerpoRecordatorio(ev, mesAnio, esPrimerDia);
+                var cuerpo = BuildCuerpoRecordatorio(ev, mesAnio, esPrimerDia, periodo.FechaCierre);
 
                 try
                 {
@@ -217,7 +217,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
             return new { recordatorios, descargo };
         }
 
-        private string BuildCuerpoRecordatorio(EvaluadorDto ev, string mesAnio, bool esPrimerDia)
+        private string BuildCuerpoRecordatorio(EvaluadorDto ev, string mesAnio, bool esPrimerDia, DateOnly fechaCierre)
         {
             var saludo = esPrimerDia
                 ? "Se inicia el período de evaluación de residentes."
@@ -240,7 +240,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
       </a>
     </div>
     <p style='color:#64748b;font-size:0.85rem'>
-      El período cierra el {ev.Subarea}. Si tienes consultas, contacta a tu jefe directo.
+      El período cierra el {fechaCierre:dd/MM/yyyy}. Si tienes consultas, contacta a tu jefe directo.
     </p>
   </div>
 </div>";

@@ -13,7 +13,8 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
     {
         public int? PlantillaId { get; set; }
         public string Criterio { get; set; } = string.Empty;
-        public int Puntaje { get; set; }
+        public int? Puntaje { get; set; }
+        public bool EsNa { get; set; } = false;
     }
 
     // ─── INICIO (pantalla evaluar) ──────────────────────────────────────────────
@@ -24,6 +25,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public string? MiPuestoEvaluador { get; set; }
         public List<EvContratistaCriterioDto> Plantilla { get; set; } = [];
         public List<EvContratistaAEvaluarDto> ContratistasAEvaluar { get; set; } = [];
+        public bool PuedeVerTodos { get; set; }
     }
 
     public class EvContratistaCriterioDto

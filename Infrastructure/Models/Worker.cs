@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Models
 {
@@ -53,6 +54,18 @@ namespace Abril_Backend.Infrastructure.Models
 
         [Column("ocupacion")]
         public string? Ocupacion { get; set; }
+
+        /// <summary>
+        /// FK a <c>cat_ocupacion</c> (puesto de trabajo normalizado). Complementa a
+        /// <see cref="Ocupacion"/> (texto libre, se conserva por compatibilidad) para
+        /// permitir tabular accidentes/enfermedades por puesto en reportes como el
+        /// informe anual DIGESA.
+        /// </summary>
+        [Column("ocupacion_id")]
+        public int? OcupacionId { get; set; }
+
+        [ForeignKey(nameof(OcupacionId))]
+        public CatOcupacion? OcupacionCatalogo { get; set; }
 
         [Column("area")]
         public string? Area { get; set; }

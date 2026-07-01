@@ -43,6 +43,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Acciden
         public string? TipoAccidente { get; set; }
         public string? Mecanismo { get; set; }
         public string? ParteCuerpoAfectada { get; set; }
+        public int? AgenteRiesgoId { get; set; }
+        public string? AgenteRiesgoNombre { get; set; }
         public string Descripcion { get; set; } = string.Empty;
         public string? DescripcionLesion { get; set; }
         public string? DiagnosticoCie10 { get; set; }
@@ -99,6 +101,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Acciden
         public string? TipoAccidente { get; set; }
         public string? Mecanismo { get; set; }
         public string? ParteCuerpoAfectada { get; set; }
+        public int? AgenteRiesgoId { get; set; }
         public string Descripcion { get; set; } = string.Empty;
         public string? DescripcionLesion { get; set; }
         public string? DiagnosticoCie10 { get; set; }
@@ -113,6 +116,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Acciden
         public string? TipoAccidente { get; set; }
         public string? Mecanismo { get; set; }
         public string? ParteCuerpoAfectada { get; set; }
+        public int? AgenteRiesgoId { get; set; }
         public string Descripcion { get; set; } = string.Empty;
         public string? DescripcionLesion { get; set; }
         public string? DiagnosticoCie10 { get; set; }

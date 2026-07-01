@@ -817,18 +817,45 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var hht = (personasDiaCasa + personasDiaContr) * 8L;
 
         // ── 3. Accidentes con lesión en el período ────────────────────────────
-        // Solo tipos que generan AT: código "AC" (Accidente)
-        var totalAccidentes = await ctx.SsAccidenteTrabajo
+        // Solo tipos que generan AT: código "AC" (Accidente).
+        // Se cuentan los de SsAccidenteTrabajo (originados en Tópico) más los
+        // Flash Report tipo "AC" que NO estén ya vinculados a uno de esos (evita duplicar).
+        var totalAccidentesTopico = await ctx.SsAccidenteTrabajo
             .CountAsync(a => a.ProyectoId == proyectoId
                           && a.FechaAccidente.Month == mes
                           && a.FechaAccidente.Year == anio);
 
+        var flashIdsYaVinculados = await ctx.SsAccidenteTrabajo
+            .Where(a => a.FlashReportId != null)
+            .Select(a => a.FlashReportId!.Value)
+            .ToListAsync();
+
+        var flashAccidentesSinVincular = await (
+            from fr in ctx.SsomaAccidenteIncidente
+            join t in ctx.SsomaFlashTipo on fr.TipoId equals t.Id
+            where fr.ProyectoId == proyectoId
+               && fr.Fecha.Month == mes && fr.Fecha.Year == anio
+               && t.Codigo == "AC"
+               && !flashIdsYaVinculados.Contains(fr.Id)
+            select fr.Id
+        ).ToListAsync();
+
+        var totalAccidentes = totalAccidentesTopico + flashAccidentesSinVincular.Count;
+
         // ── 4. Días perdidos ─────────────────────────────────────────────────
-        var totalDiasPerdidos = await ctx.SsAccidenteTrabajo
+        var diasPerdidosTopico = await ctx.SsAccidenteTrabajo
             .Where(a => a.ProyectoId == proyectoId
                      && a.FechaAccidente.Month == mes
                      && a.FechaAccidente.Year == anio)
             .SumAsync(a => (int?)(a.DiasDescansoReales ?? a.DiasDescansoEstimados) ?? 0);
+
+        var diasPerdidosFlash = flashAccidentesSinVincular.Count == 0
+            ? 0
+            : await ctx.SsomaInvestigacionRm050
+                .Where(inv => flashAccidentesSinVincular.Contains(inv.AccidenteIncidenteId))
+                .SumAsync(inv => (int?)inv.DiasPerdidos ?? 0);
+
+        var totalDiasPerdidos = diasPerdidosTopico + diasPerdidosFlash;
 
         // ── 5. Cálculo de índices ─────────────────────────────────────────────
         decimal if_ = 0, ig = 0, ia = 0;

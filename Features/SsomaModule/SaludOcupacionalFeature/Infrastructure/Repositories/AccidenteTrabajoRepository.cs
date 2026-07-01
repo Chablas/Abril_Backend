@@ -102,7 +102,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from em in emj.DefaultIfEmpty()
                 join p in ctx.Project on a.ProyectoId equals p.ProjectId into pj
                 from p in pj.DefaultIfEmpty()
-                select new { a, w, em, p }
+                join ag in ctx.SsAgenteRiesgo on a.AgenteRiesgoId equals ag.Id into agj
+                from ag in agj.DefaultIfEmpty()
+                select new { a, w, em, p, ag }
             ).FirstOrDefaultAsync()
               ?? throw new AbrilException("Accidente de trabajo no encontrado.", 404);
 
@@ -218,6 +220,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 TipoAccidente = row.a.TipoAccidente,
                 Mecanismo = row.a.Mecanismo,
                 ParteCuerpoAfectada = row.a.ParteCuerpoAfectada,
+                AgenteRiesgoId = row.a.AgenteRiesgoId,
+                AgenteRiesgoNombre = row.ag != null ? row.ag.Nombre : null,
                 Descripcion = row.a.Descripcion,
                 DescripcionLesion = row.a.DescripcionLesion,
                 DiagnosticoCie10 = row.a.DiagnosticoCie10,
@@ -266,6 +270,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 TipoAccidente = dto.TipoAccidente,
                 Mecanismo = dto.Mecanismo,
                 ParteCuerpoAfectada = dto.ParteCuerpoAfectada,
+                AgenteRiesgoId = dto.AgenteRiesgoId,
                 Descripcion = dto.Descripcion,
                 DescripcionLesion = dto.DescripcionLesion,
                 DiagnosticoCie10 = dto.DiagnosticoCie10,
@@ -294,6 +299,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             entity.TipoAccidente = dto.TipoAccidente;
             entity.Mecanismo = dto.Mecanismo;
             entity.ParteCuerpoAfectada = dto.ParteCuerpoAfectada;
+            entity.AgenteRiesgoId = dto.AgenteRiesgoId;
             entity.Descripcion = dto.Descripcion;
             entity.DescripcionLesion = dto.DescripcionLesion;
             entity.DiagnosticoCie10 = dto.DiagnosticoCie10;

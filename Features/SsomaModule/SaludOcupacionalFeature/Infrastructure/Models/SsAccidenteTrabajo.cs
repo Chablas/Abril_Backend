@@ -38,6 +38,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("parte_cuerpo_afectada")]
         public string? ParteCuerpoAfectada { get; set; }
 
+        [Column("agente_riesgo_id")]
+        public int? AgenteRiesgoId { get; set; }
+
+        [ForeignKey(nameof(AgenteRiesgoId))]
+        public SsAgenteRiesgo? AgenteRiesgo { get; set; }
+
         [Column("descripcion")]
         public string Descripcion { get; set; } = string.Empty;
 

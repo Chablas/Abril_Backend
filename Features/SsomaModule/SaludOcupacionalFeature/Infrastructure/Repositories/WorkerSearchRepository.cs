@@ -161,6 +161,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 FechaIngreso = dto.FechaIngreso,
                 Categoria = dto.Categoria,
                 Ocupacion = dto.Ocupacion,
+                OcupacionId = dto.OcupacionId,
                 Area = dto.Area,
                 Subarea = dto.Subarea,
                 ContrataCasa = dto.ContrataCasa,
@@ -215,6 +216,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.FechaIngreso = dto.FechaIngreso;
             worker.Categoria = dto.Categoria;
             worker.Ocupacion = dto.Ocupacion;
+            worker.OcupacionId = dto.OcupacionId;
             worker.Area = dto.Area;
             worker.Subarea = dto.Subarea;
             worker.ContrataCasa = dto.ContrataCasa;

@@ -1318,6 +1318,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
             if (dto.Categoria is not null) w.Categoria = dto.Categoria;
             if (dto.Ocupacion is not null) w.Ocupacion = dto.Ocupacion;
+            if (dto.OcupacionId.HasValue) w.OcupacionId = dto.OcupacionId;
             if (dto.Area is not null) w.Area = dto.Area;
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
             if (dto.ContrataCasa is not null) w.ContrataCasa = dto.ContrataCasa;
@@ -1455,6 +1456,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             FechaRetiro = w.FechaRetiro,
             Categoria = w.Categoria,
             Ocupacion = w.Ocupacion,
+            OcupacionId = w.OcupacionId,
             Area = w.Area,
             Subarea = w.Subarea,
             ContrataCasa = w.ContrataCasa,

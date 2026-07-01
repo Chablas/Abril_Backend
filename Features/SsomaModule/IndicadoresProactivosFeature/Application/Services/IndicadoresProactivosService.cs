@@ -1,3 +1,4 @@
+using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Interfaces;
 
@@ -6,9 +7,15 @@ namespace Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Applic
 public class IndicadoresProactivosService : IIndicadoresProactivosService
 {
     private readonly IIndicadoresProactivosRepository _repo;
+    private readonly IChecklistRepository _checklistRepo;
 
-    public IndicadoresProactivosService(IIndicadoresProactivosRepository repo)
-        => _repo = repo;
+    public IndicadoresProactivosService(
+        IIndicadoresProactivosRepository repo,
+        IChecklistRepository checklistRepo)
+    {
+        _repo = repo;
+        _checklistRepo = checklistRepo;
+    }
 
     public Task<List<InspeccionTipoDto>> GetTiposInspeccionAsync()
         => _repo.GetTiposInspeccionAsync();
@@ -23,6 +30,17 @@ public class IndicadoresProactivosService : IIndicadoresProactivosService
     {
         var empresas = await _repo.GetMetasEmpresaAsync(proyectoId, mes, anio);
         var activas = empresas.Where(e => e.EsActiva).ToList();
+
+        var resumenChecklists = await _checklistRepo.GetResumenProyectoAsync(proyectoId);
+        var checklists = resumenChecklists.Checklists.Select(c => new ChecklistResumenDto(
+            c.ChecklistProyectoId,
+            c.NombrePlantilla,
+            c.PorcentajeCompletado,
+            c.Estado,
+            c.EsObligatorio,
+            c.TotalItems,
+            c.ItemsCompletados
+        )).ToList();
 
         return new IndicadorProactivoProyectoDto
         {
@@ -47,7 +65,8 @@ public class IndicadoresProactivosService : IIndicadoresProactivosService
             PctCharlas = activas.Any() ? activas.Average(e => e.PctCharlas) : 0,
             PctInspecciones = activas.Any() ? activas.Average(e => e.PctInspecciones) : 0,
             PctProactivoGeneral = activas.Any() ? activas.Average(e => e.PctProactivoGeneral) : 0,
-            Empresas = activas
+            Empresas = activas,
+            Checklists = checklists
         };
     }
 

@@ -22,10 +22,11 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Calcular nota normalizada a 20
+            // Calcular nota normalizada a 20, excluyendo criterios marcados como No Aplica
             int maxPorCriterio = 4;
-            int totalMax = detalles.Count * maxPorCriterio;
-            decimal sumPuntajes = detalles.Sum(d => d.Puntaje);
+            var puntajesValidos = detalles.Where(d => !d.EsNa && d.Puntaje.HasValue).Select(d => d.Puntaje!.Value).ToList();
+            int totalMax = puntajesValidos.Count * maxPorCriterio;
+            decimal sumPuntajes = puntajesValidos.Sum();
             eval.Nota = totalMax > 0 ? Math.Round((sumPuntajes / totalMax) * 20m, 2) : 0;
             eval.Detalles = detalles;
 
@@ -46,6 +47,43 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 e.EvaluadorUserId == evaluadorUserId);
         }
 
+        public async Task<List<EvaluadorDto>> GetEvaluadoresCandidatosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+
+            var workers = await conn.QueryAsync<CandidatoRaw>(
+                @"SELECT DISTINCT
+                    au.user_id       AS UserId,
+                    p.full_name      AS NombreCompleto,
+                    w.email_personal AS EmailPersonal,
+                    w.subarea        AS Subarea
+                  FROM workers w
+                  JOIN person p    ON p.person_id = w.person_id
+                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_personal)
+                  WHERE w.email_personal IS NOT NULL
+                    AND w.email_personal != ''
+                    AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)
+                    AND EXISTS (
+                        SELECT 1 FROM worker_vinculaciones wv
+                        WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                    )");
+
+            // Reutiliza ResolverArea (misma regla que usa GetInicioAsync) para no duplicar
+            // el mapeo subárea -> área evaluadora en dos lugares distintos.
+            return workers
+                .Where(w => ResolverArea(w.Subarea ?? "").AreaNombre != null)
+                .Select(w => new EvaluadorDto
+                {
+                    UserId = w.UserId,
+                    NombreCompleto = w.NombreCompleto,
+                    EmailPersonal = w.EmailPersonal,
+                    Subarea = w.Subarea ?? string.Empty
+                })
+                .ToList();
+        }
+
         public async Task<EvContratistaInicioDto> GetInicioAsync(int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -61,12 +99,15 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
             // Subarea del evaluador (para saber qué área evalúa)
             var evaluador = await conn.QueryFirstOrDefaultAsync<EvaluadorInfo>(
-                @"SELECT w.subarea AS Subarea, w.area AS Area
+                @"SELECT w.subarea AS Subarea, w.area AS Area, w.categoria AS Categoria
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   WHERE p.user_id = @UserId
                   LIMIT 1",
                 new { UserId = userId });
+
+            // Jefes de área ven contratistas de TODOS los proyectos (no solo el suyo propio).
+            bool puedeVerTodos = evaluador?.Categoria?.Contains("JEFE", StringComparison.OrdinalIgnoreCase) == true;
 
             // Determinar área según subarea del worker
             string? areaMatch = null;
@@ -90,25 +131,34 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   ORDER BY orden",
                 new { Puesto = $"%{puestoMatch}%" });
 
-            // Proyectos del evaluador
-            var proyectosEvaluador = await conn.QueryAsync<int>(
-                @"SELECT up.project_id
-                  FROM user_project up
-                  WHERE up.user_id = @UserId",
-                new { UserId = userId });
+            // Proyectos del evaluador: el/los proyecto(s) donde está actualmente destacado
+            // según su vinculación vigente (worker_vinculaciones.fecha_fin IS NULL), no
+            // el contributor_id de onboarding (queda desactualizado si cambia de obra) ni user_project.
+            // Los Jefes de área (puedeVerTodos) no se filtran por su propio proyecto: ven todos.
+            List<int> proyectoIds = [];
+            if (!puedeVerTodos)
+            {
+                var proyectosEvaluador = await conn.QueryAsync<int>(
+                    @"SELECT DISTINCT wv.proyecto_id
+                      FROM workers w
+                      JOIN person p ON p.person_id = w.person_id
+                      JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                      WHERE p.user_id = @UserId",
+                    new { UserId = userId });
 
-            var proyectoIds = proyectosEvaluador.ToList();
-            if (!proyectoIds.Any())
-                return new EvContratistaInicioDto
-                {
-                    Periodo = MapPeriodo(periodo),
-                    MiAreaNombre = areaMatch,
-                    MiPuestoEvaluador = puestoMatch,
-                    Plantilla = plantilla.ToList()
-                };
+                proyectoIds = proyectosEvaluador.ToList();
+                if (!proyectoIds.Any())
+                    return new EvContratistaInicioDto
+                    {
+                        Periodo = MapPeriodo(periodo),
+                        MiAreaNombre = areaMatch,
+                        MiPuestoEvaluador = puestoMatch,
+                        Plantilla = plantilla.ToList()
+                    };
+            }
 
-            // Contratistas que tuvieron tareo en el mes/año del período activo
-            // filtrados por los proyectos del evaluador
+            // Contratistas que tuvieron tareo en el mes/año del período activo,
+            // filtrados por los proyectos del evaluador (o todos, si es Jefe de área).
             var contratistas = await conn.QueryAsync<ContratistaRaw>(
                 @"SELECT
                     c.contributor_id    AS ContributorId,
@@ -116,18 +166,18 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     c.contributor_ruc   AS ContributorRuc,
                     t.proyecto_id       AS ProyectoId,
                     pr.project_description AS ProyectoNombre,
-                    COUNT(DISTINCT t.fecha) AS DiasLaborados
+                    COUNT(DISTINCT t.fecha)::int AS DiasLaborados
                   FROM ss_tareo_detalle_contratista tdc
                   JOIN ss_tareo t ON t.id = tdc.tareo_id
                   JOIN contributor c ON c.contributor_id = tdc.empresa_id
                   JOIN project pr ON pr.project_id = t.proyecto_id
                   WHERE EXTRACT(MONTH FROM t.fecha) = @Mes
                     AND EXTRACT(YEAR  FROM t.fecha) = @Anio
-                    AND t.proyecto_id = ANY(@ProyectoIds)
+                    AND (@VerTodos OR t.proyecto_id = ANY(@ProyectoIds))
                   GROUP BY c.contributor_id, c.contributor_name, c.contributor_ruc,
                            t.proyecto_id, pr.project_description
                   ORDER BY c.contributor_name",
-                new { Mes = periodo.Mes, Anio = periodo.Anio, ProyectoIds = proyectoIds.ToArray() });
+                new { Mes = periodo.Mes, Anio = periodo.Anio, VerTodos = puedeVerTodos, ProyectoIds = proyectoIds.ToArray() });
 
             // Verificar cuáles ya fueron evaluadas por este usuario en esta área
             var yaEvaluadas = await conn.QueryAsync<(int ContributorId, int ProyectoId, decimal Nota)>(
@@ -165,7 +215,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 MiAreaNombre = areaMatch,
                 MiPuestoEvaluador = puestoMatch,
                 Plantilla = plantilla.ToList(),
-                ContratistasAEvaluar = aEvaluar
+                ContratistasAEvaluar = aEvaluar,
+                PuedeVerTodos = puedeVerTodos
             };
         }
 
@@ -354,6 +405,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                         NotaProduccion = NotaDeArea("Producción"),
                         NotaResidencia = NotaDeArea("Residencia"),
                         NotaCalidad = NotaDeArea("Calidad"),
+                        NotaAdministracion = NotaDeArea("Administración de Obra"),
                         NotaTotal = total,
                         Estado = estado
                     };
@@ -367,8 +419,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         {
             if (string.IsNullOrWhiteSpace(subarea)) return (null, null);
             var s = subarea.ToUpperInvariant();
+            if (s.Contains("ADMINISTRACI") && s.Contains("OBRA")) return ("Administración de Obra", "Administrador de Obra");
             if (s.Contains("SSOMA")) return ("SSOMA", "Responsable SSOMA");
-            if (s.Contains("OFICINA") || s.Contains("TÉCNICA") || s.Contains("TECNICA") || s.Contains("OT")) return ("Oficina Técnica", "Jefe de Oficina Técnica");
+            if (s.Contains("OFICINA") || s.Contains("TÉCNICA") || s.Contains("TECNICA") || s.Contains("COSTOS Y PRESUPUESTOS")) return ("Oficina Técnica", "Jefe de Oficina Técnica");
             if (s.Contains("PRODUCCI") || s.Contains("ING.PROD") || s.Contains("ING. PROD")) return ("Producción", "Residente / Ingeniero de Producción");
             if (s.Contains("CALIDAD")) return ("Calidad", "Responsable de Calidad");
             if (s.Contains("RESIDEN")) return ("Residencia", "Residente de Obra");
@@ -386,8 +439,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         };
 
         // ─── Raw helpers ───────────────────────────────────────────────────────
+        private record CandidatoRaw(int UserId, string NombreCompleto, string EmailPersonal, string? Subarea);
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
-        private record EvaluadorInfo(string? Subarea, string? Area);
+        private record EvaluadorInfo(string? Subarea, string? Area, string? Categoria);
         private record ContratistaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, int DiasLaborados);
         private record NotaAreaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, string AreaNombre, decimal? Nota);
         private record EvContratistaTendenciaRaw(int Mes, int Anio, int ContributorId, string ContributorNombre, decimal? NotaTotal);

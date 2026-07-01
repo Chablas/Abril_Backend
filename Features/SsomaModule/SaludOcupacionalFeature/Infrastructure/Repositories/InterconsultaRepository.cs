@@ -86,6 +86,44 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
         }
 
+        public async Task<InterconsultaDetalleDto> GetById(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            var row = await (
+                from i in ctx.SsInterconsulta
+                join w in ctx.Worker on i.WorkerId equals w.Id
+                join m in ctx.SsMedicoOcupacional on i.MedicoDerivaId equals m.Id into mj
+                from m in mj.DefaultIfEmpty()
+                where i.Id == id
+                select new InterconsultaDetalleDto
+                {
+                    Id = i.Id,
+                    EmoId = i.EmoId,
+                    WorkerId = i.WorkerId,
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                    Especialidad = i.Especialidad,
+                    Medico = m != null ? m.ApellidoNombre : null,
+                    FechaDerivacion = i.FechaDerivacion,
+                    FechaAtencion = i.FechaAtencion,
+                    CentroAtencion = i.CentroAtencion,
+                    Diagnostico = i.Diagnostico,
+                    Cie10 = i.Cie10,
+                    Resultado = i.Resultado,
+                    UrlInforme = i.UrlInforme,
+                    Estado = i.Estado,
+                    RequiereSeguimiento = i.RequiereSeguimiento
+                }
+            ).FirstOrDefaultAsync() ?? throw new AbrilException("Interconsulta no encontrada.", 404);
+
+            if (row.Estado == "Pendiente")
+                row.DiasPendiente = hoy.DayNumber - row.FechaDerivacion.DayNumber;
+
+            return row;
+        }
+
         public async Task<int> Create(InterconsultaCreateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -111,6 +149,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             ctx.SsInterconsulta.Add(ent);
+
+            // Mover la programación activa a "En Interconsulta" para que
+            // no aparezca en la agenda normal hasta que la clínica suba el levantamiento.
+            var prog = await ctx.SsProgramacionEmo
+                .Where(p => p.WorkerId == dto.WorkerId
+                         && p.Estado != "Completado"
+                         && p.Estado != "Cancelado"
+                         && p.Estado != "Rechazado por Clínica"
+                         && p.Estado != "En Interconsulta")
+                .OrderByDescending(p => p.FechaProgramada)
+                .FirstOrDefaultAsync();
+            if (prog != null)
+            {
+                prog.Estado = "En Interconsulta";
+                prog.UpdatedAt = DateTimeOffset.UtcNow;
+            }
 
             var lecturaEmo = await ctx.SsHabTrabajador
                 .FirstOrDefaultAsync(h => h.WorkerId == dto.WorkerId && h.ItemId == 25);

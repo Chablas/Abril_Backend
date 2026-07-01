@@ -107,7 +107,20 @@ public record IndicadorProactivoProyectoDto
 
     // Desglose por empresa (para la pantalla de programación/seguimiento interno)
     public List<MetaEmpresaDto> Empresas { get; init; } = [];
+
+    // Checklists del proyecto (para dashboard-proyecto)
+    public List<ChecklistResumenDto> Checklists { get; init; } = [];
 }
+
+public record ChecklistResumenDto(
+    int Id,
+    string Nombre,
+    decimal Porcentaje,
+    string Estado,
+    bool EsObligatorio,
+    int TotalItems,
+    int ItemsCompletados
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUNTAJE DEL MES

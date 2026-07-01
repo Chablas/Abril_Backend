@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
@@ -20,7 +21,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             _repo = repo;
         }
 
-        public Task<List<ProgramacionListDto>> List(ProgramacionFilterDto filter) => _repo.List(filter);
+        public Task<PagedResponseDto<ProgramacionListDto>> List(ProgramacionFilterDto filter) => _repo.List(filter);
 
         public Task<int> Create(ProgramacionCreateDto dto, int? userId)
         {
@@ -65,5 +66,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task UndoCheckInAsync(int id)
             => _repo.UndoCheckInAsync(id);
+
+        public Task<ProgramacionResumenDto> GetResumen(ProgramacionFilterDto filter)
+            => _repo.GetResumen(filter);
     }
 }

@@ -23,5 +23,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? Aptitud { get; set; }
         public string? Estado { get; set; }
         public int? DiasRestantes { get; set; }
+        public string? UrlAptitud { get; set; }
+        public string? UrlEmoCompleto { get; set; }
+        public string? UrlResultado { get; set; }
+        public bool RequiereInterconsulta { get; set; }
+        public int? InterconsultaId { get; set; }
+        public string? InterconsultaEspecialidad { get; set; }
+        public string? InterconsultaEstado { get; set; }
+        public string? InterconsultaUrlInforme { get; set; }
     }
 }

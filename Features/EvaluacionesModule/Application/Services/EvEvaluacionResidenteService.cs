@@ -27,6 +27,9 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                 DateTime.Today > periodo.FechaCierre.ToDateTime(TimeOnly.MinValue))
                 throw new AbrilException("El período de evaluación no está activo.", 400);
 
+            if (!dto.NoAplica && dto.Detalles.Any(d => !d.EsNa && (d.Puntaje is null or < 1 or > 5)))
+                throw new AbrilException("El puntaje debe estar entre 1 y 5.", 400);
+
             var existe = await _repo.ExisteAsync(periodo.Id, evaluadorUserId, dto.EvaluadoUserId, dto.AreaNombre);
             if (existe)
                 throw new AbrilException("Ya evaluaste a este residente en esta área este período.", 409);

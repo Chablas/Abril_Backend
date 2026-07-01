@@ -10,6 +10,7 @@ namespace Abril_Backend.Infrastructure.Models {
         public string? FirstLastName {get; set;}
         public string? SecondLastName {get; set;}
         public string? FullName {get; set;}
+        public string? Sexo {get; set;}
         public int? PhoneNumber {get;set;}
         /// <summary>
         /// Fecha de cumpleaños del trabajador (columna <c>cumpleanos</c>). Solo interesa

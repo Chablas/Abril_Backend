@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
     public interface IInterconsultaService
     {
         Task<PagedResult<InterconsultaListDto>> List(InterconsultaFilterDto filter);
+        Task<InterconsultaDetalleDto> GetById(int id);
         Task<int> Create(InterconsultaCreateDto dto, int? userId);
         Task Update(int id, InterconsultaUpdateDto dto, int? userId);
         Task UpdateResultado(int id, InterconsultaResultadoPatchDto dto, int? userId);

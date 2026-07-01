@@ -13,5 +13,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? Aptitud { get; set; }
         public string Estado { get; set; } = string.Empty;
         public int? DiasParaVencer { get; set; }
+        public string? UrlResultado { get; set; }
+        public string? UrlAptitud { get; set; }
+        public string? UrlEmoCompleto { get; set; }
     }
 }

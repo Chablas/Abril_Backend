@@ -801,6 +801,54 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CreatedAt = nowUtc
                 });
 
+            // Auto-crear convalidación pendiente si el trabajador cambia de empresa y tiene un EMO activo.
+            _logger.LogInformation("[Convalidacion] esCambioEmpresa={EsCambioEmpresa} workerId={WorkerId} NuevaEmpresaId={NuevaEmpresaId} currentEmpresaId={CurrentEmpresaId} esContratista={EsContratista}",
+                esCambioEmpresa, workerId, dto.NuevaEmpresaId, currentEmpresaId, esContratista);
+
+            if (esCambioEmpresa)
+            {
+                var ultimoEmo = await ctx.WorkerEmo
+                    .Where(e => e.WorkerId == workerId && e.Activo)
+                    .OrderByDescending(e => e.FechaEmo)
+                    .ThenByDescending(e => e.Id)
+                    .FirstOrDefaultAsync();
+
+                _logger.LogInformation("[Convalidacion] ultimoEmo={UltimoEmoId}", ultimoEmo?.Id);
+
+                if (ultimoEmo != null)
+                {
+                    ctx.WorkerEmoConvalidacion.Add(new WorkerEmoConvalidacion
+                    {
+                        EmoId = ultimoEmo.Id,
+                        EmpresaDestinoId = dto.NuevaEmpresaId,
+                        FechaConvalidacion = fechaCambio,
+                        Resultado = "Pendiente",
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow
+                    });
+
+                    // Marcar CertAptitud como Pendiente (override del "Falta" ya asignado arriba)
+                    var habCert = await ctx.SsHabTrabajador
+                        .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.CertAptitud);
+                    if (habCert != null)
+                    {
+                        habCert.Estado = "Pendiente";
+                        habCert.UpdatedAt = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        ctx.SsHabTrabajador.Add(new SsHabTrabajador
+                        {
+                            WorkerId = workerId,
+                            ItemId = HabItemIds.CertAptitud,
+                            Estado = "Pendiente",
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+            }
+
             await ctx.SaveChangesAsync();
 
             foreach (var (to, subject, body) in pendingEmails)
@@ -1270,6 +1318,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
             if (dto.Categoria is not null) w.Categoria = dto.Categoria;
             if (dto.Ocupacion is not null) w.Ocupacion = dto.Ocupacion;
+            if (dto.OcupacionId.HasValue) w.OcupacionId = dto.OcupacionId;
             if (dto.Area is not null) w.Area = dto.Area;
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
             if (dto.ContrataCasa is not null) w.ContrataCasa = dto.ContrataCasa;
@@ -1402,10 +1451,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             EmailPersonal = w.EmailPersonal,
             EmailCorporativo = null,  // columna en BD ya no se usa; mantener el campo en DTO por compat. de API.
             FechaNacimiento = w.FechaNacimiento,
+            Sexo = w.Person?.Sexo,
             FechaIngreso = w.FechaIngreso,
             FechaRetiro = w.FechaRetiro,
             Categoria = w.Categoria,
             Ocupacion = w.Ocupacion,
+            OcupacionId = w.OcupacionId,
             Area = w.Area,
             Subarea = w.Subarea,
             ContrataCasa = w.ContrataCasa,

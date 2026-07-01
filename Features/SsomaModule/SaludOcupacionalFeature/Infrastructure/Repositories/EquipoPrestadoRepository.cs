@@ -39,6 +39,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .ToListAsync();
         }
 
+        public async Task<List<(int Id, string Nombre)>> GetTipos()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsEquipoTipo
+                .Where(t => t.Active)
+                .OrderBy(t => t.Nombre)
+                .Select(t => new { t.Id, t.Nombre })
+                .ToListAsync()
+                .ContinueWith(r => r.Result.Select(x => (x.Id, x.Nombre)).ToList());
+        }
+
         public async Task<int> Create(int accidenteId, EquipoPrestadoCreateDto dto, int registradoPorId)
         {
             using var ctx = _factory.CreateDbContext();

@@ -3652,7 +3652,7 @@ namespace Abril_Backend.Migrations
 
                     b.Property<int>("EvaluacionId")
                         .HasColumnType("integer")
-                        .HasColumnName("evaluacion_id");
+                        .HasColumnName("evaluacion_contratista_id");
 
                     b.Property<int?>("PlantillaId")
                         .HasColumnType("integer")

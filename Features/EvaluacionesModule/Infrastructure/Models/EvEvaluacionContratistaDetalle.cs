@@ -6,6 +6,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Models
     public class EvEvaluacionContratistaDetalle
     {
         public int Id { get; set; }
+
+        [Column("evaluacion_contratista_id")]
         public int EvaluacionId { get; set; }
         public int? PlantillaId { get; set; }
         public string Criterio { get; set; } = string.Empty;

@@ -5,6 +5,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public int WorkerId { get; set; }
         public string NombreCompleto { get; set; } = string.Empty;
         public string Dni { get; set; } = string.Empty;
+        /// <summary>FK al tipo de documento (para prellenar el modal de edición).</summary>
+        public int? DocumentIdentityTypeId { get; set; }
+        /// <summary>Cumpleaños del trabajador (para prellenar el modal de edición).</summary>
+        public DateOnly? Cumpleanos { get; set; }
         public int? EmpresaId { get; set; }
         public string? Empresa { get; set; }
         public string? EmpresaOrigenNombre { get; set; }

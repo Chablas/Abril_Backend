@@ -522,11 +522,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         string emoEstado;
                         DateTime? emoVigencia = null;
 
-                        if (emo != null && string.Equals(emo.Aptitud, "Apto", StringComparison.OrdinalIgnoreCase))
+                        var emoVigente = emo != null
+                            && (emo.Estado == "Vigente" || emo.Estado == "Convalidado")
+                            && !(emo.RequiereInterconsulta == true && emo.InterconsultaResuelta == false);
+
+                        if (emoVigente)
                         {
                             emoEstado = "Aprobado";
-                            if (emo.FechaVencimiento.HasValue)
-                                emoVigencia = emo.FechaVencimiento.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+                            var fechaVenc = emo!.FechaVencimientoCalculada ?? emo.FechaVencimiento;
+                            if (fechaVenc.HasValue)
+                                emoVigencia = fechaVenc.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
                         }
                         else
                         {

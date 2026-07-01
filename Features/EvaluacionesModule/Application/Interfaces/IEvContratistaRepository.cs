@@ -11,7 +11,9 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         Task<EvEvaluacionContratista> CreateAsync(EvEvaluacionContratista eval, List<EvEvaluacionContratistaDetalle> detalles);
         Task<bool> ExisteAsync(int periodoId, int proyectoId, int contributorId, string areaNombre, int evaluadorUserId);
         Task<bool> ExisteNoAplicaAsync(int periodoId, int evaluadorUserId);
-        Task RegistrarNoAplicaAsync(int periodoId, int evaluadorUserId, string areaNombre, string motivo);
+        Task RegistrarNoAplicaAsync(
+            int periodoId, int evaluadorUserId, string areaNombre, string motivo,
+            int? proyectoId = null, int? contributorId = null);
 
         /// <summary>
         /// Todos los trabajadores activos cuya subárea corresponde a un área evaluadora de

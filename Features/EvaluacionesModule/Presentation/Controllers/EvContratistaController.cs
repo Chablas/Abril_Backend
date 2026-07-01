@@ -147,11 +147,24 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                 var areaNombre = inicio.MiAreaNombre
                     ?? throw new AbrilException("No se pudo determinar su área evaluadora. Verifique su perfil de trabajador.", 400);
 
-                var yaMarco = await _repo.ExisteNoAplicaAsync(periodo.Id, GetUserId());
-                if (yaMarco)
-                    throw new AbrilException("Ya marcó que no corresponde evaluar contratistas este período.", 409);
+                bool esEspecifico = dto.ProyectoId.HasValue && dto.ContributorId.HasValue;
 
-                await _repo.RegistrarNoAplicaAsync(periodo.Id, GetUserId(), areaNombre, dto.Motivo);
+                if (esEspecifico)
+                {
+                    var existeEspecifico = await _repo.ExisteAsync(
+                        periodo.Id, dto.ProyectoId!.Value, dto.ContributorId!.Value, areaNombre, GetUserId());
+                    if (existeEspecifico)
+                        throw new AbrilException("Ya registró una evaluación para este contratista en este período.", 409);
+                }
+                else
+                {
+                    var yaMarco = await _repo.ExisteNoAplicaAsync(periodo.Id, GetUserId());
+                    if (yaMarco)
+                        throw new AbrilException("Ya marcó que no corresponde evaluar contratistas este período.", 409);
+                }
+
+                await _repo.RegistrarNoAplicaAsync(
+                    periodo.Id, GetUserId(), areaNombre, dto.Motivo, dto.ProyectoId, dto.ContributorId);
                 return StatusCode(201, new { message = "Registrado correctamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

@@ -187,23 +187,24 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   ORDER BY c.contributor_name",
                 new { Mes = periodo.Mes, Anio = periodo.Anio, VerTodos = puedeVerTodos, ProyectoIds = proyectoIds.ToArray() });
 
-            // Verificar cuáles ya fueron evaluadas por este usuario en esta área
-            var yaEvaluadas = await conn.QueryAsync<(int ContributorId, int ProyectoId, decimal Nota)>(
-                @"SELECT contributor_id AS ContributorId, proyecto_id AS ProyectoId, nota AS Nota
+            // Verificar cuáles ya fueron evaluadas (o marcadas No Aplica) por este usuario en esta área
+            var yaEvaluadas = await conn.QueryAsync<YaEvaluadaRaw>(
+                @"SELECT contributor_id AS ContributorId, proyecto_id AS ProyectoId, nota AS Nota,
+                         no_aplica AS NoAplica, no_aplica_motivo AS NoAplicaMotivo
                   FROM ev_evaluacion_contratista
                   WHERE periodo_id = @PeriodoId
                     AND evaluador_user_id = @UserId
-                    AND area_nombre = @Area",
+                    AND area_nombre = @Area
+                    AND contributor_id IS NOT NULL
+                    AND proyecto_id IS NOT NULL",
                 new { PeriodoId = periodo.Id, UserId = userId, Area = areaMatch });
 
-            var evaluadasMap = yaEvaluadas.ToDictionary(
-                x => (x.ContributorId, x.ProyectoId),
-                x => x.Nota);
+            var evaluadasMap = yaEvaluadas.ToDictionary(x => (x.ContributorId, x.ProyectoId));
 
             var aEvaluar = contratistas.Select(c =>
             {
                 var key = (c.ContributorId, c.ProyectoId);
-                var yaEvalue = evaluadasMap.TryGetValue(key, out var nota);
+                var yaEvalue = evaluadasMap.TryGetValue(key, out var previa);
                 return new EvContratistaAEvaluarDto
                 {
                     ContributorId = c.ContributorId,
@@ -213,7 +214,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     ProyectoNombre = c.ProyectoNombre,
                     DiasLaborados = c.DiasLaborados,
                     YaEvalue = yaEvalue,
-                    NotaPrevia = yaEvalue ? nota : null
+                    NotaPrevia = yaEvalue ? previa.Nota : null,
+                    NoAplica = yaEvalue && previa.NoAplica,
+                    NoAplicaMotivo = yaEvalue ? previa.NoAplicaMotivo : null
                 };
             }).ToList();
 
@@ -238,7 +241,9 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 e.NoAplica);
         }
 
-        public async Task RegistrarNoAplicaAsync(int periodoId, int evaluadorUserId, string areaNombre, string motivo)
+        public async Task RegistrarNoAplicaAsync(
+            int periodoId, int evaluadorUserId, string areaNombre, string motivo,
+            int? proyectoId = null, int? contributorId = null)
         {
             using var ctx = _factory.CreateDbContext();
             ctx.EvEvaluacionesContratista.Add(new EvEvaluacionContratista
@@ -246,8 +251,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 PeriodoId = periodoId,
                 EvaluadorUserId = evaluadorUserId,
                 AreaNombre = areaNombre,
-                ProyectoId = null,
-                ContributorId = null,
+                ProyectoId = proyectoId,
+                ContributorId = contributorId,
                 NoAplica = true,
                 NoAplicaMotivo = motivo
             });
@@ -477,6 +482,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
         private record EvaluadorInfo(string? Subarea, string? Area, string? Categoria);
         private record ContratistaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, int DiasLaborados);
+        private record YaEvaluadaRaw(int ContributorId, int ProyectoId, decimal? Nota, bool NoAplica, string? NoAplicaMotivo);
         private record NotaAreaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, string AreaNombre, decimal? Nota);
         private record EvContratistaTendenciaRaw(int Mes, int Anio, int ContributorId, string ContributorNombre, decimal? NotaTotal);
     }

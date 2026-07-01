@@ -20,6 +20,10 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
     public class EvContratistaNoAplicaCreateDto
     {
         public string Motivo { get; set; } = string.Empty;
+        // Si se indican, marca "no aplica" solo para esa empresa/proyecto puntual.
+        // Si se dejan null, marca que no corresponde evaluar a ningun contratista este periodo.
+        public int? ProyectoId { get; set; }
+        public int? ContributorId { get; set; }
     }
 
     // ─── INICIO (pantalla evaluar) ──────────────────────────────────────────────
@@ -51,6 +55,8 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public int DiasLaborados { get; set; }
         public bool YaEvalue { get; set; }
         public decimal? NotaPrevia { get; set; }
+        public bool NoAplica { get; set; }
+        public string? NoAplicaMotivo { get; set; }
     }
 
     // ─── VER EVALUACIONES (lista consolidada) ──────────────────────────────────

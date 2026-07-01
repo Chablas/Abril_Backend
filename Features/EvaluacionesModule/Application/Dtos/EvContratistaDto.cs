@@ -17,6 +17,11 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public bool EsNa { get; set; } = false;
     }
 
+    public class EvContratistaNoAplicaCreateDto
+    {
+        public string Motivo { get; set; } = string.Empty;
+    }
+
     // ─── INICIO (pantalla evaluar) ──────────────────────────────────────────────
     public class EvContratistaInicioDto
     {
@@ -26,6 +31,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public List<EvContratistaCriterioDto> Plantilla { get; set; } = [];
         public List<EvContratistaAEvaluarDto> ContratistasAEvaluar { get; set; } = [];
         public bool PuedeVerTodos { get; set; }
+        public bool YaMarcoNoAplica { get; set; }
     }
 
     public class EvContratistaCriterioDto

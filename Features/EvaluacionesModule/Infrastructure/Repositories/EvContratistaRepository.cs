@@ -123,6 +123,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     Periodo = MapPeriodo(periodo)
                 };
 
+            var yaMarcoNoAplica = await conn.QueryFirstOrDefaultAsync<bool>(
+                @"SELECT EXISTS (
+                    SELECT 1 FROM ev_evaluacion_contratista
+                    WHERE periodo_id = @PeriodoId AND evaluador_user_id = @UserId AND no_aplica = TRUE
+                  )",
+                new { PeriodoId = periodo.Id, UserId = userId });
+
             // Plantilla de criterios para esta área
             var plantilla = await conn.QueryAsync<EvContratistaCriterioDto>(
                 @"SELECT id AS Id, criterio AS Criterio, orden AS Orden
@@ -153,7 +160,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                         Periodo = MapPeriodo(periodo),
                         MiAreaNombre = areaMatch,
                         MiPuestoEvaluador = puestoMatch,
-                        Plantilla = plantilla.ToList()
+                        Plantilla = plantilla.ToList(),
+                        YaMarcoNoAplica = yaMarcoNoAplica
                     };
             }
 
@@ -216,8 +224,34 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 MiPuestoEvaluador = puestoMatch,
                 Plantilla = plantilla.ToList(),
                 ContratistasAEvaluar = aEvaluar,
-                PuedeVerTodos = puedeVerTodos
+                PuedeVerTodos = puedeVerTodos,
+                YaMarcoNoAplica = yaMarcoNoAplica
             };
+        }
+
+        public async Task<bool> ExisteNoAplicaAsync(int periodoId, int evaluadorUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.EvEvaluacionesContratista.AnyAsync(e =>
+                e.PeriodoId == periodoId &&
+                e.EvaluadorUserId == evaluadorUserId &&
+                e.NoAplica);
+        }
+
+        public async Task RegistrarNoAplicaAsync(int periodoId, int evaluadorUserId, string areaNombre, string motivo)
+        {
+            using var ctx = _factory.CreateDbContext();
+            ctx.EvEvaluacionesContratista.Add(new EvEvaluacionContratista
+            {
+                PeriodoId = periodoId,
+                EvaluadorUserId = evaluadorUserId,
+                AreaNombre = areaNombre,
+                ProyectoId = null,
+                ContributorId = null,
+                NoAplica = true,
+                NoAplicaMotivo = motivo
+            });
+            await ctx.SaveChangesAsync();
         }
 
         public async Task<EvContratistaVerInicioDto> GetVerInicioAsync(int? periodoId, int? proyectoId)

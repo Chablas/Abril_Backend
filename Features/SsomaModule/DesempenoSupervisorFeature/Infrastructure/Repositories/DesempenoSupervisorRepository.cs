@@ -207,11 +207,14 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .Select(g => new { SupId = g.Key, N = g.Count() })
             .ToListAsync();
 
-        var evalContratistaPorSupervisor = await ctx.SsEvalSupervisor
-            .Where(e => e.EvaluadorUserId != null && supervisorUserIds.Contains(e.EvaluadorUserId.Value)
-                     && e.Mes == mes && e.Anio == anio)
+        // ss_eval_supervisor es una tabla legacy sin ningun flujo que la escriba hoy;
+        // la evaluacion de contratistas real vive en ev_evaluacion_contratista
+        // (feature "Evaluar Contratista" del modulo Evaluaciones).
+        var evalContratistaPorSupervisor = await ctx.EvEvaluacionesContratista
+            .Where(e => supervisorUserIds.Contains(e.EvaluadorUserId)
+                     && e.Periodo!.Mes == mes && e.Periodo!.Anio == anio)
             .GroupBy(e => e.EvaluadorUserId)
-            .Select(g => new { SupId = g.Key!.Value, N = g.Count() })
+            .Select(g => new { SupId = g.Key, N = g.Count() })
             .ToListAsync();
 
         // Se filtra por el mes/año del período de evaluación (ev_periodo), no por CreatedAt:

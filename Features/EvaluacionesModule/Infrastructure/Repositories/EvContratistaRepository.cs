@@ -46,6 +46,40 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 e.EvaluadorUserId == evaluadorUserId);
         }
 
+        public async Task<List<EvaluadorDto>> GetEvaluadoresCandidatosAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+
+            var workers = await conn.QueryAsync<CandidatoRaw>(
+                @"SELECT DISTINCT
+                    au.user_id       AS UserId,
+                    p.full_name      AS NombreCompleto,
+                    w.email_personal AS EmailPersonal,
+                    w.subarea        AS Subarea
+                  FROM workers w
+                  JOIN person p    ON p.person_id = w.person_id
+                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_personal)
+                  JOIN user_project up ON up.user_id = au.user_id
+                  WHERE w.email_personal IS NOT NULL
+                    AND w.email_personal != ''
+                    AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)");
+
+            // Reutiliza ResolverArea (misma regla que usa GetInicioAsync) para no duplicar
+            // el mapeo subárea -> área evaluadora en dos lugares distintos.
+            return workers
+                .Where(w => ResolverArea(w.Subarea ?? "").AreaNombre != null)
+                .Select(w => new EvaluadorDto
+                {
+                    UserId = w.UserId,
+                    NombreCompleto = w.NombreCompleto,
+                    EmailPersonal = w.EmailPersonal,
+                    Subarea = w.Subarea ?? string.Empty
+                })
+                .ToList();
+        }
+
         public async Task<EvContratistaInicioDto> GetInicioAsync(int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -354,6 +388,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                         NotaProduccion = NotaDeArea("Producción"),
                         NotaResidencia = NotaDeArea("Residencia"),
                         NotaCalidad = NotaDeArea("Calidad"),
+                        NotaAdministracion = NotaDeArea("Administración de Obra"),
                         NotaTotal = total,
                         Estado = estado
                     };
@@ -367,6 +402,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         {
             if (string.IsNullOrWhiteSpace(subarea)) return (null, null);
             var s = subarea.ToUpperInvariant();
+            if (s.Contains("ADMINISTRACI") && s.Contains("OBRA")) return ("Administración de Obra", "Administrador de Obra");
             if (s.Contains("SSOMA")) return ("SSOMA", "Responsable SSOMA");
             if (s.Contains("OFICINA") || s.Contains("TÉCNICA") || s.Contains("TECNICA") || s.Contains("OT")) return ("Oficina Técnica", "Jefe de Oficina Técnica");
             if (s.Contains("PRODUCCI") || s.Contains("ING.PROD") || s.Contains("ING. PROD")) return ("Producción", "Residente / Ingeniero de Producción");
@@ -386,6 +422,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         };
 
         // ─── Raw helpers ───────────────────────────────────────────────────────
+        private record CandidatoRaw(int UserId, string NombreCompleto, string EmailPersonal, string? Subarea);
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
         private record EvaluadorInfo(string? Subarea, string? Area);
         private record ContratistaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, int DiasLaborados);

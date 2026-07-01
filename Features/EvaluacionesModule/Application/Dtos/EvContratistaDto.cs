@@ -71,6 +71,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public decimal? NotaResidencia { get; set; }
         public decimal? NotaCalidad { get; set; }
         public decimal? NotaProduccion { get; set; }
+        public decimal? NotaAdministracion { get; set; }
         public decimal? NotaTotal { get; set; }
         public string Estado { get; set; } = string.Empty;
     }

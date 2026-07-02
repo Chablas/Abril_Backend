@@ -156,10 +156,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                         emo.ClinicaId = clinicaId;
                     else if (emo.ClinicaId != clinicaId)
                         throw new AbrilException("No tiene permiso para subir documentos de este EMO.", 403);
-
-                    // La clínica solo puede subir Aptitud y EMO completo, no Lectura
-                    if (tipoNorm == "Lectura")
-                        throw new AbrilException("La clínica no puede subir archivos de lectura de EMO.", 403);
                 }
 
                 var dni = emo.Worker?.Person?.DocumentIdentityCode ?? emo.WorkerId.ToString();

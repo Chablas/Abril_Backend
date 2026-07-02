@@ -1155,6 +1155,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 return;
             }
 
+            // Si el trabajador ya tiene "Inducción Obra" aprobada globalmente, el nuevo proyecto
+            // hereda esa inducción — no debe quedar como pendiente cuando arriba ya dice Aprobado.
+            var induccionYaAprobada = await ctx.SsHabTrabajador
+                .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
+
             ctx.WorkerProyecto.Add(new WorkerProyecto
             {
                 WorkerId = workerId,
@@ -1162,8 +1167,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 EmpresaId = empresaNuevaId,
                 FechaInicio = fechaCambio,
                 FechaFin = null,
-                InduccionCompletada = false,
-                FechaInduccion = null,
+                InduccionCompletada = induccionYaAprobada,
+                FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(now.UtcDateTime) : null,
                 CreatedAt = now,
                 UpdatedAt = null
             });
@@ -1663,6 +1668,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var fechaInicio = dto.FechaInicio ?? DateOnly.FromDateTime(DateTime.UtcNow);
             var now = DateTimeOffset.UtcNow;
 
+            // Si el trabajador ya tiene "Inducción Obra" aprobada globalmente, el nuevo proyecto
+            // hereda esa inducción — no debe quedar como pendiente cuando arriba ya dice Aprobado.
+            var induccionYaAprobada = await ctx.SsHabTrabajador
+                .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
+
             var asignacion = new WorkerProyecto
             {
                 WorkerId = workerId,
@@ -1670,8 +1680,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 EmpresaId = dto.EmpresaId,
                 FechaInicio = fechaInicio,
                 FechaFin = null,
-                InduccionCompletada = false,
-                FechaInduccion = null,
+                InduccionCompletada = induccionYaAprobada,
+                FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(DateTime.UtcNow) : null,
                 CreatedAt = now,
                 UpdatedAt = null
             };

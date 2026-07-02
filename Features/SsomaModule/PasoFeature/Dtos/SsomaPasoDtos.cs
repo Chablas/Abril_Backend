@@ -30,3 +30,28 @@ public class PasoResumenMesAmbitoDto { public int Programadas { get; set; } publ
 public class PasoResumenMesActividadDto { public int ActividadId { get; set; } public string Nombre { get; set; } = ""; public string CategoriaNombre { get; set; } = ""; public string CategoriaAmbito { get; set; } = ""; public string Frecuencia { get; set; } = ""; public int? EjecucionId { get; set; } public DateOnly? FechaProgramada { get; set; } public string Estado { get; set; } = ""; public DateOnly? FechaEjecutada { get; set; } public string? Observaciones { get; set; } public string? EvidenciaNombre { get; set; } public string? EvidenciaUrl { get; set; } public List<PasoEjecucionArchivoDto> Archivos { get; set; } = new(); }
 public class PasoResumenMesDto { public int Anio { get; set; } public int Mes { get; set; } public string NombreMes { get; set; } = ""; public int TotalProgramadas { get; set; } public int Completadas { get; set; } public int Pendientes { get; set; } public int Vencidas { get; set; } public int PorcentajeAvance { get; set; } public PasoResumenMesAmbitoDto Seguridad { get; set; } = new(); public PasoResumenMesAmbitoDto Salud { get; set; } = new(); public PasoResumenMesAmbitoDto Ambiente { get; set; } = new(); public PasoResumenMesAmbitoDto Ssoma { get; set; } = new(); public List<PasoResumenMesActividadDto> Actividades { get; set; } = new(); }
 public class PasoHistoricoAnioDto { public int Anio { get; set; } public int TotalProgramadas { get; set; } public int TotalEjecutadas { get; set; } public int TotalVencidas { get; set; } public decimal SpiGeneral { get; set; } public string SpiColor { get; set; } = "rojo"; public decimal PorcentajeAvance { get; set; } }
+
+public class PasoSaludListQuery { public int? ProyectoId { get; set; } public int? CategoriaId { get; set; } public int? Anio { get; set; } public int? Mes { get; set; } public bool? Cumplida { get; set; } public int Page { get; set; } = 1; public int PageSize { get; set; } = 20; }
+
+public class PasoSaludActividadListItemDto
+{
+    public int EjecucionId { get; set; }
+    public int ActividadId { get; set; }
+    public int PasoId { get; set; }
+    public int? ProyectoId { get; set; }
+    public string ProyectoNombre { get; set; } = "";
+    public int CategoriaId { get; set; }
+    public string CategoriaNombre { get; set; } = "";
+    public string? CategoriaIcono { get; set; }
+    public string ActividadNombre { get; set; } = "";
+    public string Frecuencia { get; set; } = "";
+    public DateOnly FechaProgramada { get; set; }
+    public DateOnly? FechaEjecutada { get; set; }
+    public string Estado { get; set; } = "";
+    public bool Cumplida { get; set; }
+    public string? Observaciones { get; set; }
+    public int? ParticipantesCount { get; set; }
+    public string? EvidenciaUrl { get; set; }
+    public string? EvidenciaNombre { get; set; }
+    public string? ResponsableNombre { get; set; }
+}

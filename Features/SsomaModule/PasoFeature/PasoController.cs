@@ -136,6 +136,13 @@ public class PasoController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.GetAuditoria"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("salud/actividades")]
+    public async Task<IActionResult> GetActividadesSalud([FromQuery] PasoSaludListQuery q)
+    {
+        try { return Ok(await _service.GetActividadesSaludAsync(q)); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en PasoController.GetActividadesSalud"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpGet("{id:int}/resumen-mes")]
     public async Task<IActionResult> GetResumenMes(int id, [FromQuery] int anio, [FromQuery] int mes)
     {

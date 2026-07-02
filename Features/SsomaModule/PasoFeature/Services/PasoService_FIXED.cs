@@ -1056,6 +1056,101 @@ if (cat is not null) act.Categoria = cat;
             .ToListAsync();
     }
 
+    // ── Actividades de Salud (todos los proyectos) ──────────────────────────────
+
+    public async Task<PagedResult<PasoSaludActividadListItemDto>> GetActividadesSaludAsync(PasoSaludListQuery q)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var limiteSuperior = UltimoDiaMes(hoy.Year, hoy.Month);
+
+        var query =
+            from e in ctx.SsomaPasoEjecuciones
+            join a in ctx.SsomaPasoActividades on e.ActividadId equals a.Id
+            join c in ctx.SsomaPasoCategorias on a.CategoriaId equals c.Id
+            join p in ctx.SsomaPasos on a.PasoId equals p.Id
+            where c.Ambito == "Salud" && a.Activo && a.DeletedAt == null
+                  && e.FechaProgramada <= limiteSuperior
+            select new { e, a, c, p };
+
+        if (q.ProyectoId.HasValue) query = query.Where(x => x.p.ProyectoId == q.ProyectoId);
+        if (q.CategoriaId.HasValue) query = query.Where(x => x.c.Id == q.CategoriaId);
+        if (q.Anio.HasValue) query = query.Where(x => x.e.FechaProgramada.Year == q.Anio);
+        if (q.Mes.HasValue) query = query.Where(x => x.e.FechaProgramada.Month == q.Mes);
+        if (q.Cumplida.HasValue)
+            query = q.Cumplida.Value
+                ? query.Where(x => x.e.Estado == "Ejecutado")
+                : query.Where(x => x.e.Estado != "Ejecutado");
+
+        var total = await query.CountAsync();
+        var rows = await query
+            .OrderByDescending(x => x.e.FechaProgramada)
+            .Skip((q.Page - 1) * q.PageSize)
+            .Take(q.PageSize)
+            .Select(x => new
+            {
+                EjecucionId = x.e.Id,
+                x.e.ActividadId,
+                PasoId = x.p.Id,
+                x.p.ProyectoId,
+                x.a.Nombre,
+                x.a.Frecuencia,
+                x.e.FechaProgramada,
+                x.e.FechaEjecutada,
+                x.e.Estado,
+                x.e.Observaciones,
+                x.e.ParticipantesCount,
+                x.e.EvidenciaUrl,
+                x.e.EvidenciaNombre,
+                x.a.ResponsableId,
+                CategoriaId = x.c.Id,
+                CategoriaNombre = x.c.Nombre,
+                CategoriaIcono = x.c.Icono
+            })
+            .ToListAsync();
+
+        var proyIds = rows.Where(r => r.ProyectoId.HasValue).Select(r => r.ProyectoId!.Value).Distinct().ToList();
+        var proyectos = await ctx.Project
+            .Where(pr => proyIds.Contains(pr.ProjectId))
+            .ToDictionaryAsync(pr => pr.ProjectId, pr => pr.ProjectDescription ?? "");
+
+        var userIds = rows.Where(r => r.ResponsableId.HasValue).Select(r => r.ResponsableId!.Value).Distinct().ToList();
+        var personas = await ctx.Person
+            .Where(p => p.UserId.HasValue && userIds.Contains(p.UserId.Value))
+            .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "");
+
+        var items = rows.Select(r => new PasoSaludActividadListItemDto
+        {
+            EjecucionId = r.EjecucionId,
+            ActividadId = r.ActividadId,
+            PasoId = r.PasoId,
+            ProyectoId = r.ProyectoId,
+            ProyectoNombre = r.ProyectoId.HasValue ? proyectos.GetValueOrDefault(r.ProyectoId.Value, "") : "Corporativo",
+            CategoriaId = r.CategoriaId,
+            CategoriaNombre = r.CategoriaNombre,
+            CategoriaIcono = r.CategoriaIcono,
+            ActividadNombre = r.Nombre,
+            Frecuencia = r.Frecuencia,
+            FechaProgramada = r.FechaProgramada,
+            FechaEjecutada = r.FechaEjecutada,
+            Estado = r.Estado,
+            Cumplida = r.Estado == "Ejecutado",
+            Observaciones = r.Observaciones,
+            ParticipantesCount = r.ParticipantesCount,
+            EvidenciaUrl = r.EvidenciaUrl,
+            EvidenciaNombre = r.EvidenciaNombre,
+            ResponsableNombre = r.ResponsableId.HasValue ? personas.GetValueOrDefault(r.ResponsableId.Value) : null
+        }).ToList();
+
+        return new PagedResult<PasoSaludActividadListItemDto>
+        {
+            Items = items,
+            Total = total,
+            Page = q.Page,
+            PageSize = q.PageSize
+        };
+    }
+
     // ── Resumen Mes ───────────────────────────────────────────────────────────
 
     public async Task<PasoResumenMesDto> GetResumenMesAsync(int id, int anio, int mes)

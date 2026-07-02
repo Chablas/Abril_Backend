@@ -39,6 +39,10 @@ using Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Interfaces
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
@@ -57,6 +61,10 @@ namespace Abril_Backend.Features.Ssoma
             // Checklist SSOMA
             services.AddScoped<IChecklistRepository, ChecklistRepository>();
             services.AddScoped<IChecklistService, ChecklistService>();
+
+            // Proyectos habilitados para SSOMA
+            services.AddScoped<IProyectoHabilitadoRepository, ProyectoHabilitadoRepository>();
+            services.AddScoped<IProyectoHabilitadoService, ProyectoHabilitadoService>();
 
             // Inhabilitaciones y Escuelitas
             services.AddScoped<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services.SsomaInhabilitacionService>();

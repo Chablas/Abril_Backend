@@ -1,6 +1,7 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,12 +10,12 @@ namespace Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.R
     /// <summary>
     /// Horas Hombre se calcula a partir del Tareo diario (Control de Acceso): cada registro de
     /// SsTareo (proyecto + fecha) trae el conteo de personas de Casa y de cada empresa contratista
-    /// ese día. Horas Hombre = personas del día × 8h, igual que en IndicadoresProactivosRepository.
+    /// ese día. Horas Hombre = personas del día × horas de jornada de ese día
+    /// (ver <see cref="HorarioLaboralCalculator"/>: 8.5h L-V, 5.5h sábado, 0h domingo).
     /// No hay carga manual de "horas hombre" — se reutiliza el tareo que ya suben las contratas.
     /// </summary>
     public class HorasHombreRepository : IHorasHombreRepository
     {
-        private const int HorasPorPersonaDia = 8;
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public HorasHombreRepository(IDbContextFactory<AppDbContext> factory)
@@ -52,23 +53,37 @@ namespace Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.R
                     t.ProyectoId,
                     t.Fecha,
                     ProyectoNombre = t.Proyecto != null ? t.Proyecto.ProjectDescription : "",
-                    PersonasCasa = ctx.SsTareoDetalleCasa.Where(d => d.TareoId == t.Id).Sum(d => (int?)d.CantidadPersonas) ?? 0,
-                    PersonasContratista = ctx.SsTareoDetalleContratista.Where(d => d.TareoId == t.Id).Sum(d => (int?)d.CantidadPersonas) ?? 0,
                 })
                 .ToListAsync();
 
+            var tareoIds = rows.Select(r => r.Id).ToList();
+
+            var casaPorTareo = await ctx.SsTareoDetalleCasa
+                .Where(d => tareoIds.Contains(d.TareoId))
+                .GroupBy(d => d.TareoId)
+                .Select(g => new { TareoId = g.Key, Cantidad = g.Sum(d => d.CantidadPersonas) })
+                .ToDictionaryAsync(g => g.TareoId, g => g.Cantidad);
+
+            var contratistaPorTareo = await ctx.SsTareoDetalleContratista
+                .Where(d => tareoIds.Contains(d.TareoId))
+                .GroupBy(d => d.TareoId)
+                .Select(g => new { TareoId = g.Key, Cantidad = g.Sum(d => d.CantidadPersonas) })
+                .ToDictionaryAsync(g => g.TareoId, g => g.Cantidad);
+
             var items = rows.Select(r =>
             {
-                var totalPersonas = r.PersonasCasa + r.PersonasContratista;
+                var personasCasa = casaPorTareo.GetValueOrDefault(r.Id);
+                var personasContratista = contratistaPorTareo.GetValueOrDefault(r.Id);
+                var totalPersonas = personasCasa + personasContratista;
                 return new HorasHombreDiaDto
                 {
                     Fecha = r.Fecha,
                     ProyectoId = r.ProyectoId,
                     ProyectoNombre = r.ProyectoNombre ?? "",
-                    PersonasCasa = r.PersonasCasa,
-                    PersonasContratista = r.PersonasContratista,
+                    PersonasCasa = personasCasa,
+                    PersonasContratista = personasContratista,
                     TotalPersonas = totalPersonas,
-                    HorasHombre = totalPersonas * HorasPorPersonaDia,
+                    HorasHombre = totalPersonas * HorarioLaboralCalculator.HorasPorDia(r.Fecha),
                 };
             }).ToList();
 
@@ -129,7 +144,9 @@ namespace Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.R
             var contratistaPorTareo = detalleContratista.GroupBy(d => d.TareoId)
                 .ToDictionary(g => g.Key, g => g.Sum(x => x.CantidadPersonas));
 
-            long totalHHCasa = 0, totalHHContratista = 0;
+            var fechaPorTareo = tareos.ToDictionary(t => t.Id, t => t.Fecha);
+
+            decimal totalHHCasa = 0, totalHHContratista = 0;
             long totalPersonasAcumulado = 0;
 
             var serieDiaria = tareos
@@ -137,13 +154,14 @@ namespace Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.R
                 .OrderBy(g => g.Key)
                 .Select(g =>
                 {
-                    long hhCasa = 0, hhContr = 0;
+                    var horasDia = HorarioLaboralCalculator.HorasPorDia(g.Key);
+                    decimal hhCasa = 0, hhContr = 0;
                     foreach (var t in g)
                     {
                         var casa = casaPorTareo.GetValueOrDefault(t.Id);
                         var contr = contratistaPorTareo.GetValueOrDefault(t.Id);
-                        hhCasa += (long)casa * HorasPorPersonaDia;
-                        hhContr += (long)contr * HorasPorPersonaDia;
+                        hhCasa += casa * horasDia;
+                        hhContr += contr * horasDia;
                         totalPersonasAcumulado += casa + contr;
                     }
                     totalHHCasa += hhCasa;
@@ -165,7 +183,7 @@ namespace Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.R
                     EmpresaId = g.Key,
                     EmpresaNombre = empresaNombres.GetValueOrDefault(g.Key, "—"),
                     TotalPersonasDia = g.Sum(x => (long)x.CantidadPersonas),
-                    HorasHombre = g.Sum(x => (long)x.CantidadPersonas) * HorasPorPersonaDia,
+                    HorasHombre = g.Sum(x => x.CantidadPersonas * HorarioLaboralCalculator.HorasPorDia(fechaPorTareo[x.TareoId])),
                 })
                 .OrderByDescending(e => e.HorasHombre)
                 .ToList();
@@ -177,12 +195,12 @@ namespace Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.R
                     .GroupBy(t => new { t.ProyectoId, t.ProyectoNombre })
                     .Select(g =>
                     {
-                        long hh = 0;
+                        decimal hh = 0;
                         foreach (var t in g)
                         {
                             var casa = casaPorTareo.GetValueOrDefault(t.Id);
                             var contr = contratistaPorTareo.GetValueOrDefault(t.Id);
-                            hh += (long)(casa + contr) * HorasPorPersonaDia;
+                            hh += (casa + contr) * HorarioLaboralCalculator.HorasPorDia(t.Fecha);
                         }
                         return new HorasHombreProyectoResumenDto
                         {

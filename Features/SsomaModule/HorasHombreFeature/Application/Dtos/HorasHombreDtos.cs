@@ -18,30 +18,30 @@ namespace Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Dtos
         public int PersonasCasa { get; set; }
         public int PersonasContratista { get; set; }
         public int TotalPersonas { get; set; }
-        public long HorasHombre { get; set; }
+        public decimal HorasHombre { get; set; }
     }
 
     public class HorasHombrePorEmpresaDto
     {
         public int EmpresaId { get; set; }
         public string EmpresaNombre { get; set; } = string.Empty;
-        public long HorasHombre { get; set; }
+        public decimal HorasHombre { get; set; }
         public long TotalPersonasDia { get; set; }
     }
 
     public class HorasHombreSerieDiaDto
     {
         public DateOnly Fecha { get; set; }
-        public long HorasHombreCasa { get; set; }
-        public long HorasHombreContratista { get; set; }
-        public long HorasHombreTotal { get; set; }
+        public decimal HorasHombreCasa { get; set; }
+        public decimal HorasHombreContratista { get; set; }
+        public decimal HorasHombreTotal { get; set; }
     }
 
     public class HorasHombreProyectoResumenDto
     {
         public int ProyectoId { get; set; }
         public string ProyectoNombre { get; set; } = string.Empty;
-        public long HorasHombre { get; set; }
+        public decimal HorasHombre { get; set; }
     }
 
     public class HorasHombreDashboardDto
@@ -49,9 +49,9 @@ namespace Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Dtos
         public int? ProyectoId { get; set; }
         public int? Mes { get; set; }
         public int? Anio { get; set; }
-        public long TotalHorasHombre { get; set; }
-        public long TotalHorasHombreCasa { get; set; }
-        public long TotalHorasHombreContratista { get; set; }
+        public decimal TotalHorasHombre { get; set; }
+        public decimal TotalHorasHombreCasa { get; set; }
+        public decimal TotalHorasHombreContratista { get; set; }
         public int DiasRegistrados { get; set; }
         public double PromedioPersonasPorDia { get; set; }
         public DateOnly? UltimaFechaRegistrada { get; set; }

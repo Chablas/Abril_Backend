@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260702044852_AddSsProyectoHabilitado")]
+    partial class AddSsProyectoHabilitado
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -4568,10 +4571,6 @@ namespace Abril_Backend.Migrations
                     b.Property<string>("NombreArchivo")
                         .HasColumnType("text")
                         .HasColumnName("nombre_archivo");
-
-                    b.Property<string>("ObsRevisor")
-                        .HasColumnType("text")
-                        .HasColumnName("obs_revisor");
 
                     b.Property<string>("TipoDoc")
                         .IsRequired()
@@ -10581,65 +10580,6 @@ namespace Abril_Backend.Migrations
                         .HasDatabaseName("ix_ss_charla_asistencia_charla_id");
 
                     b.ToTable("ss_charla_asistencia", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models.SsCharlaContratista", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Descripcion")
-                        .HasColumnType("text")
-                        .HasColumnName("descripcion");
-
-                    b.Property<int>("EmpresaId")
-                        .HasColumnType("integer")
-                        .HasColumnName("empresa_id");
-
-                    b.Property<string>("EvidenciaNombre")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)")
-                        .HasColumnName("evidencia_nombre");
-
-                    b.Property<string>("EvidenciaUrl")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("evidencia_url");
-
-                    b.Property<DateOnly>("Fecha")
-                        .HasColumnType("date")
-                        .HasColumnName("fecha");
-
-                    b.Property<int>("ProyectoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("proyecto_id");
-
-                    b.Property<bool>("State")
-                        .HasColumnType("boolean")
-                        .HasColumnName("state");
-
-                    b.Property<int?>("SubidoPorUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("subido_por_user_id");
-
-                    b.Property<string>("Tema")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("tema");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_charla_contratista");
-
-                    b.ToTable("ss_charla_contratista", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models.SsCharlaPrograma", b =>

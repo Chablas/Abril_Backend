@@ -86,6 +86,30 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("registrado_por_id")]
         public int RegistradoPorId { get; set; }
 
+        [Column("state")]
+        public bool State { get; set; } = true;
+
+        [Column("url_informe")]
+        public string? UrlInforme { get; set; }
+
+        [Column("sctr_activado")]
+        public bool SctrActivado { get; set; } = false;
+
+        [Column("tipo_caso_sctr")]
+        public string? TipoCasoSctr { get; set; }
+
+        [Column("descanso_generado_id")]
+        public int? DescansoGeneradoId { get; set; }
+
+        [Column("estado")]
+        public string Estado { get; set; } = "Abierta";
+
+        [Column("cerrado_por_id")]
+        public int? CerradoPorId { get; set; }
+
+        [Column("fecha_cierre")]
+        public DateTimeOffset? FechaCierre { get; set; }
+
         [Column("created_at")]
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

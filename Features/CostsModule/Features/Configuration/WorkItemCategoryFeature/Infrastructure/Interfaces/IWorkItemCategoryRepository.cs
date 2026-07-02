@@ -11,6 +11,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         Task Update(WorkItemCategoryEditDto dto, int userId);
         Task<bool> Delete(int workItemCategoryId, int userId);
         Task<List<WorkItemCategory>> GetAllActive();
+        Task<List<WorkSpecialtyOptionDto>> GetActiveSpecialties();
         Task UpdateInstructivosSync(int workItemCategoryId, string? folderId, string? folderName, int syncStatus);
         Task CreateWithSync(string description, string folderId, string folderName, int userId);
         Task UpdateManualInstructivo(int workItemCategoryId, string fileUrl, string fileName, int userId);

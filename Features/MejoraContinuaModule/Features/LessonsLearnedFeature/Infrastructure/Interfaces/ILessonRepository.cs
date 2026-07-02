@@ -32,5 +32,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
         Task<LessonReviewResultDTO> ApproveAsync(int lessonId, int currentUserId);
         Task<LessonReviewResultDTO> RejectAsync(int lessonId, int currentUserId, string? comment);
+
+        /// <summary>
+        /// Feriados/días no laborables (vivos y activos) del año/mes indicado,
+        /// resolviendo los recurrentes al año pedido. Se usan para calcular la
+        /// ventana de revisión de la jefatura (días hábiles de fin de mes).
+        /// </summary>
+        Task<HashSet<DateOnly>> GetHolidayDatesAsync(int year, int month);
     }
 }

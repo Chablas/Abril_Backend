@@ -2,16 +2,20 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Sunat.Dtos;
+using Abril_Backend.Shared.Services.Sunat.Interfaces;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
     public class CatalogosService : ICatalogosService
     {
         private readonly ICatalogosRepository _repo;
+        private readonly ISunatService _sunat;
 
-        public CatalogosService(ICatalogosRepository repo)
+        public CatalogosService(ICatalogosRepository repo, ISunatService sunat)
         {
             _repo = repo;
+            _sunat = sunat;
         }
 
         public Task<List<ClinicaDto>> ListClinicas(bool soloActivos) => _repo.ListClinicas(soloActivos);
@@ -100,7 +104,49 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             return _repo.UpdateRestriccionTipo(id, dto);
         }
 
+        public Task<List<AgenteRiesgoDto>> ListAgentesRiesgo(bool soloActivos) => _repo.ListAgentesRiesgo(soloActivos);
+
+        public Task<AgenteRiesgoDto> CreateAgenteRiesgo(AgenteRiesgoUpsertDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Nombre))
+                throw new AbrilException("El nombre del agente de riesgo es obligatorio.", 400);
+            if (string.IsNullOrWhiteSpace(dto.Tipo))
+                throw new AbrilException("El tipo de agente de riesgo es obligatorio.", 400);
+            return _repo.CreateAgenteRiesgo(dto);
+        }
+
+        public Task<AgenteRiesgoDto> UpdateAgenteRiesgo(int id, AgenteRiesgoUpsertDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Nombre))
+                throw new AbrilException("El nombre del agente de riesgo es obligatorio.", 400);
+            if (string.IsNullOrWhiteSpace(dto.Tipo))
+                throw new AbrilException("El tipo de agente de riesgo es obligatorio.", 400);
+            return _repo.UpdateAgenteRiesgo(id, dto);
+        }
+
         public Task<List<EmpresaCatalogoDto>> ListEmpresas(bool soloActivas) => _repo.ListEmpresas(soloActivas);
+
+        public Task<SunatContributorDto?> GetEmpresaByRuc(string ruc) => _sunat.GetByRucAsync(ruc);
+
+        public Task<EmpresaCatalogoDto> CreateEmpresa(EmpresaCreateDto dto, int? userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Ruc) || dto.Ruc.Trim().Length != 11)
+                throw new AbrilException("El RUC debe tener 11 dígitos.", 400);
+            if (string.IsNullOrWhiteSpace(dto.Nombre))
+                throw new AbrilException("La razón social es obligatoria.", 400);
+            if (string.IsNullOrWhiteSpace(dto.Direccion))
+                throw new AbrilException("La dirección es obligatoria.", 400);
+            if (string.IsNullOrWhiteSpace(dto.TipoActividad))
+                throw new AbrilException("El tipo de actividad es obligatorio.", 400);
+            if (string.IsNullOrWhiteSpace(dto.Distrito))
+                throw new AbrilException("El distrito es obligatorio.", 400);
+            if (string.IsNullOrWhiteSpace(dto.Provincia))
+                throw new AbrilException("La provincia es obligatoria.", 400);
+            if (string.IsNullOrWhiteSpace(dto.Departamento))
+                throw new AbrilException("El departamento es obligatorio.", 400);
+
+            return _repo.CreateEmpresa(dto, userId);
+        }
 
         public Task<List<ClinicaEmailDto>> ListClinicaEmails(int clinicaId) =>
             _repo.ListClinicaEmails(clinicaId);

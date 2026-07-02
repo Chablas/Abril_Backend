@@ -10,5 +10,7 @@ public interface IAmonestacionService
     Task<AmonestacionDetalleDto?> GetDetalleAsync(int id);
     Task<AmonestacionDashboardDto> GetDashboardAsync();
     Task<WorkerPuntajeDto?> GetPuntajeWorkerAsync(int workerId);
-    Task<byte[]> GetPdfAsync(int id);
+    Task<(byte[]? Bytes, string? RedirectUrl)> GetPdfAsync(int id);
+    Task<AmonestacionCreadaDto> ConfirmarAsync(int id);
+    Task CerrarAsync(int id, AmonestacionCerrarRequest req);
 }

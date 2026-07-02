@@ -22,6 +22,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
         [HttpGet("paged")]
         public async Task<IActionResult> GetPaged(
             [FromQuery] string? description,
+            [FromQuery] bool? hasValorizationForm,
+            [FromQuery] int? workItemCategoryId,
             [FromQuery] int page = 1)
         {
             try
@@ -33,10 +35,30 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                 var filter = new WorkItemFilterDto
                 {
                     Description = description,
+                    HasValorizationForm = hasValorizationForm,
+                    WorkItemCategoryId = workItemCategoryId,
                     Page = page
                 };
 
                 var result = await _service.GetPaged(filter);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("categories")]
+        public async Task<IActionResult> GetCategories()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var result = await _service.GetActiveCategories();
                 return Ok(result);
             }
             catch (Exception)

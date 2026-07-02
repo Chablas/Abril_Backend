@@ -48,6 +48,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? projectId,
             [FromQuery] int? areaId,
             [FromQuery] int? userId,
+            [FromQuery] int? reviewerWorkerId,
             [FromQuery] string? catalogItemIds,
             [FromQuery] string? lessonAreaIds,
             [FromQuery] string? approvalStatus,
@@ -79,6 +80,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     ProjectId = projectId,
                     AreaId = areaId,
                     UserId = userId,
+                    ReviewerWorkerId = reviewerWorkerId,
                     CatalogItemIds = parsedCatalogIds,
                     LessonAreaIds = ParseCsvInts(lessonAreaIds),
                     ApprovalStatus = approvalStatus,
@@ -104,6 +106,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? projectId,
             [FromQuery] int? areaId,
             [FromQuery] int? userId,
+            [FromQuery] int? reviewerWorkerId,
             [FromQuery] string? catalogItemIds,
             [FromQuery] string? lessonAreaIds,
             [FromQuery] string? approvalStatus,
@@ -136,6 +139,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     ProjectId = projectId,
                     AreaId = areaId,
                     UserId = userId,
+                    ReviewerWorkerId = reviewerWorkerId,
                     CatalogItemIds = parsedCatalogIds,
                     LessonAreaIds = ParseCsvInts(lessonAreaIds),
                     ApprovalStatus = approvalStatus,
@@ -151,6 +155,30 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = ex.Message, stackTrace = ex.StackTrace, inner = ex.InnerException?.Message });
+            }
+        }
+
+        /// <summary>
+        /// Estado de la ventana de subida de hoy. El frontend lo consulta al cargar
+        /// la página para deshabilitar "Nuevo registro" durante la ventana de
+        /// revisión de la jefatura (últimos 2 días hábiles del mes + fines de
+        /// semana/feriados intermedios).
+        /// </summary>
+        [Authorize]
+        [HttpGet("upload-window")]
+        public async Task<IActionResult> GetUploadWindow()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
+
+                var window = await _lessonService.GetUploadWindowAsync();
+                return Ok(window);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
 

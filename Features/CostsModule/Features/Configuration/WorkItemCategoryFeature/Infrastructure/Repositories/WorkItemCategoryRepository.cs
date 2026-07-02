@@ -23,8 +23,44 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
 
             var query = _context.WorkItemCategory.Where(x => x.State);
 
+            // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
+            // (alineado con app-search-input del front).
             if (!string.IsNullOrWhiteSpace(filter.Description))
-                query = query.Where(x => EF.Functions.ILike(x.WorkItemCategoryDescription, $"%{filter.Description}%"));
+            {
+                foreach (var word in filter.Description.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var pattern = $"%{word}%";
+                    query = query.Where(x => EF.Functions.ILike(
+                        AppDbContext.Unaccent(x.WorkItemCategoryDescription), AppDbContext.Unaccent(pattern)));
+                }
+            }
+
+            // Con instructivo = tiene carpeta/archivo asociado (sync automático o manual).
+            if (filter.HasInstructivo.HasValue)
+            {
+                if (filter.HasInstructivo.Value)
+                    query = query.Where(x => x.InstructivosFolderId != null);
+                else
+                    query = query.Where(x => x.InstructivosFolderId == null);
+            }
+
+            // Con cláusula = al menos una cláusula activa en contrato, anexo 3 o anexo 4.
+            if (filter.HasClause.HasValue)
+            {
+                if (filter.HasClause.Value)
+                    query = query.Where(x =>
+                        _context.WorkItemCategoryClause.Any(c => c.WorkItemCategoryId == x.WorkItemCategoryId && c.State) ||
+                        _context.WorkItemCategoryAnexo3Clause.Any(c => c.WorkItemCategoryId == x.WorkItemCategoryId && c.State) ||
+                        _context.WorkItemCategoryAnexo4Clause.Any(c => c.WorkItemCategoryId == x.WorkItemCategoryId && c.State));
+                else
+                    query = query.Where(x =>
+                        !_context.WorkItemCategoryClause.Any(c => c.WorkItemCategoryId == x.WorkItemCategoryId && c.State) &&
+                        !_context.WorkItemCategoryAnexo3Clause.Any(c => c.WorkItemCategoryId == x.WorkItemCategoryId && c.State) &&
+                        !_context.WorkItemCategoryAnexo4Clause.Any(c => c.WorkItemCategoryId == x.WorkItemCategoryId && c.State));
+            }
+
+            if (filter.WorkSpecialtyId.HasValue)
+                query = query.Where(x => x.WorkSpecialtyId == filter.WorkSpecialtyId.Value);
 
             var totalRecords = await query.CountAsync();
 
@@ -36,6 +72,11 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                 {
                     WorkItemCategoryId = x.WorkItemCategoryId,
                     WorkItemCategoryDescription = x.WorkItemCategoryDescription,
+                    WorkSpecialtyId = x.WorkSpecialtyId,
+                    WorkSpecialtyDescription = _context.WorkSpecialty
+                        .Where(s => s.WorkSpecialtyId == x.WorkSpecialtyId)
+                        .Select(s => s.WorkSpecialtyDescription)
+                        .FirstOrDefault(),
                     CreatedDateTime = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                     CreatedUserId = x.CreatedUserId,
                     UpdatedDateTime = x.UpdatedDateTime.HasValue
@@ -101,9 +142,12 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
             if (exists)
                 throw new AbrilException("Ya existe una categoría con esa descripción.");
 
+            await ValidateSpecialty(dto.WorkSpecialtyId);
+
             var record = new WorkItemCategory
             {
                 WorkItemCategoryDescription = dto.WorkItemCategoryDescription.Trim(),
+                WorkSpecialtyId = dto.WorkSpecialtyId,
                 Active = true,
                 State = true,
                 CreatedDateTime = DateTimeOffset.UtcNow,
@@ -130,7 +174,10 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
             if (duplicate)
                 throw new AbrilException("Ya existe una categoría con esa descripción.");
 
+            await ValidateSpecialty(dto.WorkSpecialtyId);
+
             record.WorkItemCategoryDescription = dto.WorkItemCategoryDescription.Trim();
+            record.WorkSpecialtyId = dto.WorkSpecialtyId;
             record.Active = dto.Active;
             record.UpdatedDateTime = DateTimeOffset.UtcNow;
             record.UpdatedUserId = userId;
@@ -300,6 +347,29 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
 
         public async Task<List<WorkItemCategory>> GetAllActive()
             => await _context.WorkItemCategory.Where(x => x.State && x.Active).ToListAsync();
+
+        public async Task<List<WorkSpecialtyOptionDto>> GetActiveSpecialties()
+            => await _context.WorkSpecialty
+                .Where(s => s.State && s.Active)
+                .OrderBy(s => s.WorkSpecialtyDescription)
+                .Select(s => new WorkSpecialtyOptionDto
+                {
+                    WorkSpecialtyId = s.WorkSpecialtyId,
+                    WorkSpecialtyDescription = s.WorkSpecialtyDescription
+                })
+                .ToListAsync();
+
+        // La especialidad es obligatoria y debe existir y estar activa.
+        private async Task ValidateSpecialty(int? workSpecialtyId)
+        {
+            if (!workSpecialtyId.HasValue)
+                throw new AbrilException("Debe seleccionar una especialidad.");
+
+            var ok = await _context.WorkSpecialty
+                .AnyAsync(s => s.WorkSpecialtyId == workSpecialtyId.Value && s.State && s.Active);
+            if (!ok)
+                throw new AbrilException("La especialidad seleccionada no existe.");
+        }
 
         public async Task CreateWithSync(string description, string folderId, string folderName, int userId)
         {

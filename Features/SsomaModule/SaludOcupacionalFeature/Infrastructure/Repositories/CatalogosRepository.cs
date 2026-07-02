@@ -427,6 +427,50 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             await ctx.SaveChangesAsync();
         }
 
+        // ===== Agente de Riesgo =====
+        public async Task<List<AgenteRiesgoDto>> ListAgentesRiesgo(bool soloActivos)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var q = ctx.SsAgenteRiesgo.AsQueryable();
+            if (soloActivos) q = q.Where(a => a.Activo);
+            return await q
+                .OrderBy(a => a.Tipo).ThenBy(a => a.Nombre)
+                .Select(a => new AgenteRiesgoDto
+                {
+                    Id = a.Id,
+                    Nombre = a.Nombre,
+                    Tipo = a.Tipo,
+                    Activo = a.Activo
+                })
+                .ToListAsync();
+        }
+
+        public async Task<AgenteRiesgoDto> CreateAgenteRiesgo(AgenteRiesgoUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = new SsAgenteRiesgo
+            {
+                Nombre = dto.Nombre,
+                Tipo = dto.Tipo,
+                Activo = dto.Activo
+            };
+            ctx.SsAgenteRiesgo.Add(ent);
+            await ctx.SaveChangesAsync();
+            return new AgenteRiesgoDto { Id = ent.Id, Nombre = ent.Nombre, Tipo = ent.Tipo, Activo = ent.Activo };
+        }
+
+        public async Task<AgenteRiesgoDto> UpdateAgenteRiesgo(int id, AgenteRiesgoUpsertDto dto)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsAgenteRiesgo.FirstOrDefaultAsync(a => a.Id == id)
+                ?? throw new AbrilException("Agente de riesgo no encontrado.", 404);
+            ent.Nombre = dto.Nombre;
+            ent.Tipo = dto.Tipo;
+            ent.Activo = dto.Activo;
+            await ctx.SaveChangesAsync();
+            return new AgenteRiesgoDto { Id = ent.Id, Nombre = ent.Nombre, Tipo = ent.Tipo, Activo = ent.Activo };
+        }
+
         // ===== Empresas (razones sociales) =====
         // Lee desde la tabla `contributor`. Mapea los campos al shape de EmpresaCatalogoDto
         // que es el que consume tanto SSOMA como Configuración → Razones Sociales.
@@ -449,6 +493,47 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     EsAbril          = e.EsAbril
                 })
                 .ToListAsync();
+        }
+
+        public async Task<EmpresaCatalogoDto> CreateEmpresa(EmpresaCreateDto dto, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ruc = dto.Ruc.Trim();
+            var exists = await ctx.Contributor.AnyAsync(c => c.ContributorRuc == ruc && c.State);
+            if (exists)
+                throw new AbrilException("Ya existe una razón social registrada con ese RUC.", 409);
+
+            var entity = new Abril_Backend.Features.CostsModule.Shared.Models.Contributor
+            {
+                ContributorRuc = ruc,
+                ContributorName = dto.Nombre.Trim(),
+                ContributorAddress = dto.Direccion.Trim(),
+                ContributorEconomicActivityDescription = dto.TipoActividad.Trim(),
+                ContributorDistrict = dto.Distrito.Trim(),
+                ContributorProvince = dto.Provincia.Trim(),
+                ContributorDepartment = dto.Departamento.Trim(),
+                LegalEntityRegistryNumber = string.IsNullOrWhiteSpace(dto.PartidaRegistral) ? null : dto.PartidaRegistral.Trim(),
+                CreatedDateTime = DateTimeOffset.UtcNow,
+                CreatedUserId = userId,
+                Active = true,
+                State = true,
+                EsAbril = false
+            };
+            ctx.Contributor.Add(entity);
+            await ctx.SaveChangesAsync();
+
+            return new EmpresaCatalogoDto
+            {
+                Id = entity.ContributorId,
+                Nombre = entity.ContributorName,
+                Ruc = entity.ContributorRuc,
+                Direccion = entity.ContributorAddress,
+                PartidaRegistral = entity.LegalEntityRegistryNumber,
+                TipoActividad = entity.ContributorEconomicActivityDescription ?? "",
+                Activo = entity.Active,
+                EsAbril = entity.EsAbril
+            };
         }
     }
 }

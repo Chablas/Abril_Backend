@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
@@ -71,6 +72,13 @@ public class SsomaAccidenteIncidente
     public string? CelularTrabajador { get; set; }
     public int? ParteAfectadaId { get; set; }
 
+    // Campos nuevos Entrega 1
+    public string? Turno { get; set; }                    // Mañana | Tarde | Noche
+    public string? TipoContacto { get; set; }             // Golpe por objeto | Caída mismo nivel | etc.
+    public bool DanioProcesoFlag { get; set; } = false;  // checkbox ¿hubo daño?
+    public string? AtencionMedica { get; set; }           // Ninguna | Tópico | Clínica | Hospital
+    public string? CentroAtencion { get; set; }           // nombre del centro
+
     // Daños y consecuencias
     public string? DanoProceso { get; set; }
     public int? ConsecuenciaRealPersonal { get; set; }    // 1-6
@@ -106,6 +114,24 @@ public class SsomaAccidenteIncidente
     public SsomaFlashPartida? Partida { get; set; }
     public SsomaFlashParteAfectada? ParteAfectada { get; set; }
     public ICollection<SsomaFlashDescanso> Descansos { get; set; } = [];
+    public ICollection<SsomaAccidenteTrabajador> Trabajadores { get; set; } = [];
+}
+
+// ── Trabajadores afectados asociados al flash ────────────────────────────────
+
+public class SsomaAccidenteTrabajador
+{
+    public int Id { get; set; }
+    public int AccidenteIncidenteId { get; set; }
+    public int? WorkerId { get; set; }
+    public string TrabajadorNombre { get; set; } = string.Empty;
+    public string? PuestoTrabajo { get; set; }
+    public int? Edad { get; set; }
+    public int? AniosExperiencia { get; set; }
+    public string? CelularTrabajador { get; set; }
+    public int? ParteAfectadaId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public SsomaAccidenteIncidente? AccidenteIncidente { get; set; }
 }
 
 // ── Descansos médicos asociados al flash ─────────────────────────────────────
@@ -130,6 +156,8 @@ public class SsomaEntregableTipo
     public string Nombre { get; set; } = string.Empty;
     public int Orden { get; set; }
     public bool Activo { get; set; } = true;
+    // TODOS | ACCIDENTE | INCIDENTE_ALTO_RIESGO
+    public string AplicaA { get; set; } = "TODOS";
 }
 
 public class SsomaEntregable
@@ -159,10 +187,11 @@ public class SsomaEntregableResponsable
 
 // ── Investigación RM-050 ──────────────────────────────────────────────────────
 
+[Table("ss_investigacion_rm050")]
 public class SsomaInvestigacionRm050
 {
-    public int Id { get; set; }
-    public int AccidenteIncidenteId { get; set; }
+    [Column("id")]                       public int Id { get; set; }
+    [Column("accidente_incidente_id")]   public int AccidenteIncidenteId { get; set; }
     public string? DescripcionDetallada { get; set; }
     public string? Mecanismo { get; set; }
     public string? AgenteCausante { get; set; }
@@ -188,19 +217,20 @@ public class SsomaInvestigacionRm050
     public ICollection<SsomaAccionCorrectiva> AccionesCorrectivas { get; set; } = [];
 }
 
+[Table("ss_accion_correctiva")]
 public class SsomaAccionCorrectiva
 {
-    public int Id { get; set; }
-    public int InvestigacionId { get; set; }
-    public string Descripcion { get; set; } = string.Empty;
-    public string? Tipo { get; set; } // Correctiva, Preventiva
-    public string? ResponsableNombre { get; set; }
-    public int? ResponsableWorkerId { get; set; }
-    public DateOnly? FechaCompromiso { get; set; }
-    public DateOnly? FechaCumplimiento { get; set; }
-    public string Estado { get; set; } = "Pendiente";
-    public string? EvidenciaUrl { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    [Column("id")]                    public int Id { get; set; }
+    [Column("investigacion_id")]      public int InvestigacionId { get; set; }
+    [Column("descripcion")]           public string Descripcion { get; set; } = string.Empty;
+    [Column("tipo")]                  public string? Tipo { get; set; }
+    [Column("responsable_nombre")]    public string? ResponsableNombre { get; set; }
+    [Column("responsable_worker_id")] public int? ResponsableWorkerId { get; set; }
+    [Column("fecha_compromiso")]      public DateOnly? FechaCompromiso { get; set; }
+    [Column("fecha_cumplimiento")]    public DateOnly? FechaCumplimiento { get; set; }
+    [Column("estado")]                public string Estado { get; set; } = "Pendiente";
+    [Column("evidencia_url")]         public string? EvidenciaUrl { get; set; }
+    [Column("created_at")]            public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 // ── Documentos adjuntos (compatibilidad hacia atrás) ─────────────────────────

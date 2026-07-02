@@ -82,7 +82,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EstadoCalc =
                         (ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
                              h.ItemId != HabItemIds.LecturaEmo &&
-                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado") &&
+                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
+                              (h.Estado == "Enviado" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
                              !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
@@ -460,16 +461,31 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 entregable.FechaAprobacion = DateTime.UtcNow;
             }
 
-            if (entregable.ItemId == HabItemIds.InduccionObra
-                && string.Equals(dto.Estado, "Falta", StringComparison.OrdinalIgnoreCase))
+            if (entregable.ItemId == HabItemIds.InduccionObra)
             {
-                var wpRows = await ctx.WorkerProyecto
-                    .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
-                    .ToListAsync();
-                foreach (var wp in wpRows)
+                if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
                 {
-                    wp.InduccionCompletada = false;
-                    wp.FechaInduccion = null;
+                    var wpRows = await ctx.WorkerProyecto
+                        .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
+                        .ToListAsync();
+                    foreach (var wp in wpRows)
+                    {
+                        wp.InduccionCompletada = true;
+                        wp.FechaInduccion ??= DateOnly.FromDateTime(DateTime.UtcNow);
+                        wp.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
+                }
+                else if (string.Equals(dto.Estado, "Falta", StringComparison.OrdinalIgnoreCase))
+                {
+                    var wpRows = await ctx.WorkerProyecto
+                        .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
+                        .ToListAsync();
+                    foreach (var wp in wpRows)
+                    {
+                        wp.InduccionCompletada = false;
+                        wp.FechaInduccion = null;
+                        wp.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
                 }
             }
 
@@ -601,6 +617,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
+            if (worker.Estado == "INHABILITADO_SSOMA")
+                throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
+
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -621,6 +640,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 await ValidarExclusividadEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId.Value);
 
             var itemsToReset = new HashSet<int>();
+            var itemsToRestore = new HashSet<int>();
             var pendingEmails = new List<(List<string> To, string Subject, string Body)>();
             Project? proyectoDestino = null;
 
@@ -646,6 +666,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             BuildBodyReingreso(worker, proyectoDestino, "• Inducción Obra")
                         ));
                     }
+                }
+                else
+                {
+                    itemsToRestore.Add(HabItemIds.InduccionObra);
                 }
             }
 
@@ -705,7 +729,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 CreatedAt = now
             });
 
-            if (esCambioProyecto && !esContratista)
+            if (esCambioProyecto)
             {
                 await SincronizarWorkerProyectoCambioAsync(
                     ctx,
@@ -726,6 +750,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 foreach (var e in entregables)
                 {
                     e.Estado = "Falta";
+                    e.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            if (itemsToRestore.Count > 0)
+            {
+                var entregables = await ctx.SsHabTrabajador
+                    .Where(h => h.WorkerId == workerId && itemsToRestore.Contains(h.ItemId))
+                    .ToListAsync();
+
+                foreach (var e in entregables)
+                {
+                    e.Estado = "Aprobado";
                     e.UpdatedAt = DateTime.UtcNow;
                 }
             }
@@ -765,6 +802,54 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CreatedAt = nowUtc
                 });
 
+            // Auto-crear convalidación pendiente si el trabajador cambia de empresa y tiene un EMO activo.
+            _logger.LogInformation("[Convalidacion] esCambioEmpresa={EsCambioEmpresa} workerId={WorkerId} NuevaEmpresaId={NuevaEmpresaId} currentEmpresaId={CurrentEmpresaId} esContratista={EsContratista}",
+                esCambioEmpresa, workerId, dto.NuevaEmpresaId, currentEmpresaId, esContratista);
+
+            if (esCambioEmpresa)
+            {
+                var ultimoEmo = await ctx.WorkerEmo
+                    .Where(e => e.WorkerId == workerId && e.Activo)
+                    .OrderByDescending(e => e.FechaEmo)
+                    .ThenByDescending(e => e.Id)
+                    .FirstOrDefaultAsync();
+
+                _logger.LogInformation("[Convalidacion] ultimoEmo={UltimoEmoId}", ultimoEmo?.Id);
+
+                if (ultimoEmo != null)
+                {
+                    ctx.WorkerEmoConvalidacion.Add(new WorkerEmoConvalidacion
+                    {
+                        EmoId = ultimoEmo.Id,
+                        EmpresaDestinoId = dto.NuevaEmpresaId,
+                        FechaConvalidacion = fechaCambio,
+                        Resultado = "Pendiente",
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow
+                    });
+
+                    // Marcar CertAptitud como Pendiente (override del "Falta" ya asignado arriba)
+                    var habCert = await ctx.SsHabTrabajador
+                        .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.CertAptitud);
+                    if (habCert != null)
+                    {
+                        habCert.Estado = "Pendiente";
+                        habCert.UpdatedAt = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        ctx.SsHabTrabajador.Add(new SsHabTrabajador
+                        {
+                            WorkerId = workerId,
+                            ItemId = HabItemIds.CertAptitud,
+                            Estado = "Pendiente",
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+            }
+
             await ctx.SaveChangesAsync();
 
             foreach (var (to, subject, body) in pendingEmails)
@@ -782,6 +867,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
+
+            if (worker.Estado == "INHABILITADO_SSOMA")
+                throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
             await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId);
 
@@ -1067,6 +1155,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 return;
             }
 
+            // Si el trabajador ya tiene "Inducción Obra" aprobada globalmente, el nuevo proyecto
+            // hereda esa inducción — no debe quedar como pendiente cuando arriba ya dice Aprobado.
+            var induccionYaAprobada = await ctx.SsHabTrabajador
+                .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
+
             ctx.WorkerProyecto.Add(new WorkerProyecto
             {
                 WorkerId = workerId,
@@ -1074,8 +1167,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 EmpresaId = empresaNuevaId,
                 FechaInicio = fechaCambio,
                 FechaFin = null,
-                InduccionCompletada = false,
-                FechaInduccion = null,
+                InduccionCompletada = induccionYaAprobada,
+                FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(now.UtcDateTime) : null,
                 CreatedAt = now,
                 UpdatedAt = null
             });
@@ -1231,6 +1324,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
             if (dto.Categoria is not null) w.Categoria = dto.Categoria;
             if (dto.Ocupacion is not null) w.Ocupacion = dto.Ocupacion;
+            if (dto.OcupacionId.HasValue) w.OcupacionId = dto.OcupacionId;
             if (dto.Area is not null) w.Area = dto.Area;
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
             if (dto.ContrataCasa is not null) w.ContrataCasa = dto.ContrataCasa;
@@ -1363,10 +1457,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             EmailPersonal = w.EmailPersonal,
             EmailCorporativo = null,  // columna en BD ya no se usa; mantener el campo en DTO por compat. de API.
             FechaNacimiento = w.FechaNacimiento,
+            Sexo = w.Person?.Sexo,
             FechaIngreso = w.FechaIngreso,
             FechaRetiro = w.FechaRetiro,
             Categoria = w.Categoria,
             Ocupacion = w.Ocupacion,
+            OcupacionId = w.OcupacionId,
             Area = w.Area,
             Subarea = w.Subarea,
             ContrataCasa = w.ContrataCasa,
@@ -1543,6 +1639,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
                 throw new AbrilException(MensajeRestriccion, 400);
 
+            if (worker.Estado == "INHABILITADO_SSOMA")
+                throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
+
             bool esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
 
             if (esContratista)
@@ -1569,6 +1668,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var fechaInicio = dto.FechaInicio ?? DateOnly.FromDateTime(DateTime.UtcNow);
             var now = DateTimeOffset.UtcNow;
 
+            // Si el trabajador ya tiene "Inducción Obra" aprobada globalmente, el nuevo proyecto
+            // hereda esa inducción — no debe quedar como pendiente cuando arriba ya dice Aprobado.
+            var induccionYaAprobada = await ctx.SsHabTrabajador
+                .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
+
             var asignacion = new WorkerProyecto
             {
                 WorkerId = workerId,
@@ -1576,8 +1680,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 EmpresaId = dto.EmpresaId,
                 FechaInicio = fechaInicio,
                 FechaFin = null,
-                InduccionCompletada = false,
-                FechaInduccion = null,
+                InduccionCompletada = induccionYaAprobada,
+                FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(DateTime.UtcNow) : null,
                 CreatedAt = now,
                 UpdatedAt = null
             };
@@ -1688,6 +1792,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task MarcarInduccionAsync(int workerId, int proyectoId)
         {
             using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker.Include(w => w.Person)
+                .FirstOrDefaultAsync(w => w.Id == workerId)
+                ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            if (await _restringidoService.EstaRestringidoPorDniAsync(worker.Person?.DocumentIdentityCode))
+                throw new AbrilException(MensajeRestriccion, 400);
 
             var asignacion = await ctx.WorkerProyecto
                 .Where(wp => wp.WorkerId == workerId && wp.ProyectoId == proyectoId && wp.FechaFin == null)

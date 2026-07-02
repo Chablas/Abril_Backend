@@ -78,15 +78,33 @@ public class AmonestacionController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.GetPuntajeWorker"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpPost("{id:int}/confirmar")]
+    public async Task<IActionResult> Confirmar(int id)
+    {
+        try { return Ok(await _service.ConfirmarAsync(id)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.Confirmar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpGet("{id:int}/pdf")]
     public async Task<IActionResult> GetPdf(int id)
     {
         try
         {
-            var bytes = await _service.GetPdfAsync(id);
-            return File(bytes, "application/pdf", $"Amonestacion-{id}.pdf");
+            var result = await _service.GetPdfAsync(id);
+            if (result.RedirectUrl != null)
+                return Redirect(result.RedirectUrl);
+            return File(result.Bytes!, "application/pdf", $"Amonestacion-{id}.pdf");
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.GetPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPost("{id:int}/cerrar")]
+    public async Task<IActionResult> Cerrar(int id, [FromBody] AmonestacionCerrarRequest req)
+    {
+        try { await _service.CerrarAsync(id, req); return Ok(new { message = "Amonestación cerrada correctamente." }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.Cerrar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 }

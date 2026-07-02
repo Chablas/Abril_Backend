@@ -49,6 +49,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             }
         }
 
+        [HttpGet("document-types")]
+        public async Task<IActionResult> GetDocumentTypes()
+        {
+            try { return Ok(await _service.GetDocumentTypes()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en WorkersController.GetDocumentTypes");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] WorkerCreateDto dto)
         {
@@ -116,6 +128,25 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en WorkersController.Update");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPut("{id:int}/datos-basicos")]
+        public async Task<IActionResult> UpdateDatosBasicos(int id, [FromBody] WorkerDatosBasicosDto dto)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(dto.NombreCompleto))
+                    return BadRequest(new { message = "El nombre completo es obligatorio." });
+
+                await _service.UpdateDatosBasicos(id, dto);
+                return Ok(new { message = "Trabajador actualizado exitosamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en WorkersController.UpdateDatosBasicos");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

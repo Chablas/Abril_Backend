@@ -72,7 +72,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     FechaEmo = x.e.FechaEmo,
                     FechaVencimiento = x.e.FechaVencimientoCalculada ?? x.e.FechaVencimiento,
                     Aptitud = x.e.Aptitud,
-                    Estado = x.e.Estado
+                    Estado = x.e.Estado,
+                    UrlResultado = x.e.UrlResultado,
+                    UrlAptitud = x.e.UrlAptitud,
+                    UrlEmoCompleto = x.e.UrlEmoCompleto
                 })
                 .ToListAsync();
 
@@ -166,6 +169,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerId = x.w.Id,
                     NombreCompleto = (x.w.Person != null ? x.w.Person.FullName : null) ?? string.Empty,
                     Dni = (x.w.Person != null ? x.w.Person.DocumentIdentityCode : null) ?? string.Empty,
+                    DocumentIdentityTypeId = x.w.Person != null ? x.w.Person.DocumentIdentityTypeId : null,
+                    Cumpleanos = x.w.Person != null ? x.w.Person.Cumpleanos : null,
                     EmpresaId = x.vv != null ? x.vv.EmpresaId : null,
                     Empresa = x.em != null ? x.em.ContributorName : null,
                     EmpresaOrigenNombre = x.eop != null ? x.eop.ContributorName : null,
@@ -178,7 +183,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     FechaEmo = x.ue != null ? (DateOnly?)x.ue.FechaEmo : null,
                     FechaVencimiento = x.ue != null ? (x.ue.FechaVencimientoCalculada ?? x.ue.FechaVencimiento) : null,
                     Aptitud = x.ue != null ? x.ue.Aptitud : null,
-                    Estado = x.ue != null ? x.ue.Estado : null
+                    Estado = x.ue != null ? x.ue.Estado : null,
+                    UrlAptitud = x.ue != null ? x.ue.UrlAptitud : null,
+                    UrlEmoCompleto = x.ue != null ? x.ue.UrlEmoCompleto : null,
+                    UrlResultado = x.ue != null ? x.ue.UrlResultado : null,
+                    RequiereInterconsulta = x.ue != null && x.ue.RequiereInterconsulta,
+                    InterconsultaId = x.ue != null
+                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => (int?)ic.Id).FirstOrDefault()
+                        : null,
+                    InterconsultaEspecialidad = x.ue != null
+                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => ic.Especialidad).FirstOrDefault()
+                        : null,
+                    InterconsultaEstado = x.ue != null
+                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => ic.Estado).FirstOrDefault()
+                        : null,
+                    InterconsultaUrlInforme = x.ue != null
+                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => ic.UrlInforme).FirstOrDefault()
+                        : null
                 })
                 .ToListAsync();
 
@@ -272,6 +293,49 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     UrlDocumento = cv.UrlDocumento
                 }).ToListAsync();
 
+            var programacion = await (
+                from p in ctx.SsProgramacionEmo
+                join c in ctx.SsClinica on p.ClinicaId equals c.Id into cj
+                from c in cj.DefaultIfEmpty()
+                join m in ctx.SsMedicoOcupacional on p.MedicoId equals m.Id into mj
+                from m in mj.DefaultIfEmpty()
+                where p.EmoResultadoId == id
+                orderby p.FechaProgramada descending
+                select new EmoProgramacionDetalleDto
+                {
+                    Id = p.Id,
+                    FechaProgramada = p.FechaProgramada,
+                    HoraProgramada = p.HoraProgramada,
+                    CheckInHora = p.CheckInHora,
+                    ClinicaNombre = c != null ? c.Nombre : null,
+                    MedicoNombre = m != null ? m.ApellidoNombre : null,
+                    Estado = p.Estado,
+                    Origen = p.Origen,
+                    MotivoRechazo = p.MotivoRechazo
+                }).FirstOrDefaultAsync();
+
+            var interconsulta = await (
+                from i in ctx.SsInterconsulta
+                join m in ctx.SsMedicoOcupacional on i.MedicoDerivaId equals m.Id into mj
+                from m in mj.DefaultIfEmpty()
+                where i.EmoId == id
+                orderby i.CreatedAt descending
+                select new EmoInterconsultaResumenDto
+                {
+                    Id = i.Id,
+                    Especialidad = i.Especialidad,
+                    MedicoDeriva = m != null ? m.ApellidoNombre : null,
+                    FechaDerivacion = i.FechaDerivacion,
+                    FechaAtencion = i.FechaAtencion,
+                    CentroAtencion = i.CentroAtencion,
+                    Diagnostico = i.Diagnostico,
+                    Cie10 = i.Cie10,
+                    Resultado = i.Resultado,
+                    Estado = i.Estado,
+                    RequiereSeguimiento = i.RequiereSeguimiento,
+                    UrlInforme = i.UrlInforme
+                }).FirstOrDefaultAsync();
+
             var fechaVenc = row.e.FechaVencimientoCalculada ?? row.e.FechaVencimiento;
 
             return new EmoDetalleDto
@@ -295,13 +359,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 RequiereInterconsulta = row.e.RequiereInterconsulta,
                 NumeroInforme = row.e.NumeroInforme,
                 UrlResultado = row.e.UrlResultado,
+                UrlAptitud = row.e.UrlAptitud,
+                UrlEmoCompleto = row.e.UrlEmoCompleto,
                 Estado = row.e.Estado,
                 Notas = row.e.Notas,
                 Activo = row.e.Activo,
                 DiasParaVencer = fechaVenc.HasValue ? fechaVenc.Value.DayNumber - hoy.DayNumber : (int?)null,
                 Examenes = examenes,
                 Restricciones = restricciones,
-                Convalidaciones = convalidaciones
+                Convalidaciones = convalidaciones,
+                Programacion = programacion,
+                Interconsulta = interconsulta
             };
         }
 
@@ -387,8 +455,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == dto.WorkerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            var fechaVencCalc = tipo.VigenciaMeses > 0
-                ? (DateOnly?)dto.FechaEmo.AddMonths(tipo.VigenciaMeses.Value)
+            var vigenciaMeses = tipo.VigenciaMeses ?? 0;
+            if (string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase))
+                vigenciaMeses = 24;
+            var fechaVencCalc = vigenciaMeses > 0
+                ? (DateOnly?)dto.FechaEmo.AddMonths(vigenciaMeses)
                 : null;
 
             var esApto = !string.Equals(dto.Aptitud, "Observado", StringComparison.OrdinalIgnoreCase)
@@ -553,26 +624,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 progActiva.EmoResultadoId = emo.Id;
                 progActiva.UpdatedAt = DateTimeOffset.UtcNow;
-                if (emo.RequiereInterconsulta != true)
+                if (emo.RequiereInterconsulta == true)
+                {
+                    // La clínica maneja el levantamiento; el estado refleja la espera
+                    progActiva.Estado = "En Interconsulta";
+                }
+                else
                 {
                     progActiva.Estado = "Completado";
                 }
-                // Si requiere interconsulta, se queda en "En Atención"
-                // hasta que la interconsulta sea resuelta
             }
 
             if (dto.FechaLectura.HasValue)
             {
                 var lecturaEmo = await ctx.SsHabTrabajador
-                    .Include(h => h.Item)
-                    .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == 25);
-                if (lecturaEmo != null)
+                    .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.LecturaEmo);
+                if (lecturaEmo == null)
                 {
-                    lecturaEmo.Estado = "Aprobado";
-                    lecturaEmo.Vigencia = HabilitacionDateHelper.AsUtc(
-                        dto.FechaLectura.Value.ToDateTime(TimeOnly.MinValue));
-                    lecturaEmo.UpdatedAt = DateTime.UtcNow;
+                    lecturaEmo = new SsHabTrabajador
+                    {
+                        WorkerId = emo.WorkerId,
+                        ItemId = HabItemIds.LecturaEmo,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    ctx.SsHabTrabajador.Add(lecturaEmo);
                 }
+                lecturaEmo.Estado = "Aprobado";
+                lecturaEmo.Vigencia = HabilitacionDateHelper.AsUtc(
+                    dto.FechaLectura.Value.ToDateTime(TimeOnly.MinValue));
+                lecturaEmo.UpdatedAt = DateTime.UtcNow;
             }
 
             await ctx.SaveChangesAsync();
@@ -592,9 +673,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var tipo = await ctx.SsEmoTipo.FirstOrDefaultAsync(t => t.Id == dto.TipoEmoId)
                 ?? throw new AbrilException("Tipo de EMO no válido.", 400);
 
-            var fechaVencCalc = tipo.VigenciaMeses > 0
-                ? (DateOnly?)dto.FechaEmo.AddMonths(tipo.VigenciaMeses.Value)
+            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == emo.WorkerId)
+                ?? throw new AbrilException("Trabajador no encontrado.", 404);
+
+            var vigenciaMesesUpd = tipo.VigenciaMeses ?? 0;
+            if (string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase))
+                vigenciaMesesUpd = 24;
+            var fechaVencCalc = vigenciaMesesUpd > 0
+                ? (DateOnly?)dto.FechaEmo.AddMonths(vigenciaMesesUpd)
                 : null;
+
+            var esApto = !string.Equals(dto.Aptitud, "Observado", StringComparison.OrdinalIgnoreCase)
+                      && !string.Equals(dto.Aptitud, "No Apto", StringComparison.OrdinalIgnoreCase);
 
             emo.TipoEmoId = dto.TipoEmoId;
             emo.EmpresaOrigenId = dto.EmpresaOrigenId;
@@ -608,6 +698,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             emo.NumeroInforme = dto.NumeroInforme;
             emo.UrlResultado = dto.UrlResultado;
             emo.Notas = dto.Notas;
+            emo.Estado = esApto ? "Vigente" : "Observado";
             emo.UpdatedAt = DateTimeOffset.UtcNow;
 
             var examenesExistentes = await ctx.SsEmoExamenDetalle.Where(x => x.EmoId == id).ToListAsync();
@@ -640,7 +731,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 });
             }
 
-            var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == emo.WorkerId);
             if (worker != null)
             {
                 if (dto.Aptitud == "No Apto")
@@ -669,7 +759,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var hab = await ctx.SsHabTrabajador
                 .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.CertAptitud);
 
-            if (hab == null) return;
+            if (hab == null)
+            {
+                hab = new SsHabTrabajador
+                {
+                    WorkerId = emo.WorkerId,
+                    ItemId = HabItemIds.CertAptitud,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                ctx.SsHabTrabajador.Add(hab);
+            }
 
             switch (emo.Aptitud)
             {
@@ -697,15 +797,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 var habLectura = await ctx.SsHabTrabajador
                     .FirstOrDefaultAsync(h => h.WorkerId == emo.WorkerId && h.ItemId == HabItemIds.LecturaEmo);
-                if (habLectura != null)
+                if (habLectura == null)
                 {
-                    habLectura.Estado = "Aprobado";
-                    var fvLectura = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
-                    if (fvLectura.HasValue)
-                        habLectura.Vigencia = DateTime.SpecifyKind(fvLectura.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-                    habLectura.ArchivoUrl = emo.UrlResultado;
-                    habLectura.UpdatedAt = DateTime.UtcNow;
+                    habLectura = new SsHabTrabajador
+                    {
+                        WorkerId = emo.WorkerId,
+                        ItemId = HabItemIds.LecturaEmo,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    ctx.SsHabTrabajador.Add(habLectura);
                 }
+                habLectura.Estado = "Aprobado";
+                var fvLectura = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
+                if (fvLectura.HasValue)
+                    habLectura.Vigencia = DateTime.SpecifyKind(fvLectura.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+                habLectura.ArchivoUrl = emo.UrlResultado;
+                habLectura.UpdatedAt = DateTime.UtcNow;
             }
         }
     }

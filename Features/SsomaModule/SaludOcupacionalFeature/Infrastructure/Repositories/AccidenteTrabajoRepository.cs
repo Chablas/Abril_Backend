@@ -1,6 +1,10 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.AccidenteTrabajo;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.AltaMedica;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.CitaMedica;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMedico;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.EquipoPrestado;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -68,6 +72,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Estado = x.a.Estado,
                     NotificadoSunafil = x.a.NotificadoSunafil,
                     TotalSeguimientos = ctx.SsAccidenteSeguimiento.Count(s => s.AccidenteId == x.a.Id),
+                    FlashReportId = x.a.FlashReportId,
+                    TieneAlta = ctx.SsAltaMedica.Any(al => al.AccidenteId == x.a.Id && al.State),
+                    RequiereReinduccion = x.a.RequiereReinduccion,
+                    ReinduccionCompletada = x.a.ReinduccionCompletada,
                     CreatedAt = x.a.CreatedAt
                 })
                 .ToListAsync();
@@ -94,7 +102,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from em in emj.DefaultIfEmpty()
                 join p in ctx.Project on a.ProyectoId equals p.ProjectId into pj
                 from p in pj.DefaultIfEmpty()
-                select new { a, w, em, p }
+                join ag in ctx.SsAgenteRiesgo on a.AgenteRiesgoId equals ag.Id into agj
+                from ag in agj.DefaultIfEmpty()
+                select new { a, w, em, p, ag }
             ).FirstOrDefaultAsync()
               ?? throw new AbrilException("Accidente de trabajo no encontrado.", 404);
 
@@ -114,12 +124,92 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 })
                 .ToListAsync();
 
+            var descansos = await ctx.SsDescansoMedico
+                .Where(d => d.AccidenteId == id && d.State)
+                .OrderByDescending(d => d.FechaInicio)
+                .Select(d => new DescansoMedicoListItemDto
+                {
+                    Id = d.Id,
+                    WorkerId = d.WorkerId,
+                    Tipo = d.Tipo,
+                    FechaInicio = d.FechaInicio,
+                    FechaFin = d.FechaFin,
+                    Dias = d.Dias,
+                    Estado = d.Estado,
+                    CreatedAt = d.CreatedAt
+                })
+                .ToListAsync();
+
+            var citas = await ctx.SsCitaMedica
+                .Where(c => c.AccidenteId == id && c.State)
+                .OrderByDescending(c => c.FechaCita)
+                .Select(c => new CitaMedicaListItemDto
+                {
+                    Id = c.Id,
+                    AccidenteId = c.AccidenteId,
+                    TipoId = c.TipoId,
+                    TipoNombre = c.Tipo != null ? c.Tipo.Nombre : string.Empty,
+                    FechaCita = c.FechaCita,
+                    HoraCita = c.HoraCita,
+                    Clinica = c.Clinica,
+                    Medico = c.Medico,
+                    Diagnostico = c.Diagnostico,
+                    Indicaciones = c.Indicaciones,
+                    ProximaCita = c.ProximaCita,
+                    UrlEvidencia = c.UrlEvidencia,
+                    Observaciones = c.Observaciones,
+                    CreatedAt = c.CreatedAt
+                })
+                .ToListAsync();
+
+            var equipos = await ctx.SsEquipoPrestado
+                .Where(e => e.AccidenteId == id && e.State)
+                .OrderByDescending(e => e.FechaPrestamo)
+                .Select(e => new EquipoPrestadoListItemDto
+                {
+                    Id = e.Id,
+                    AccidenteId = e.AccidenteId,
+                    TipoEquipoId = e.TipoEquipoId,
+                    TipoEquipoNombre = e.TipoEquipo != null ? e.TipoEquipo.Nombre : string.Empty,
+                    Cantidad = e.Cantidad,
+                    FechaPrestamo = e.FechaPrestamo,
+                    FechaDevolucion = e.FechaDevolucion,
+                    Devuelto = e.Devuelto,
+                    Observaciones = e.Observaciones,
+                    UrlEvidencia = e.UrlEvidencia,
+                    CreatedAt = e.CreatedAt
+                })
+                .ToListAsync();
+
+            var altaMedica = await ctx.SsAltaMedica
+                .Where(a => a.AccidenteId == id && a.State)
+                .Select(a => new AltaMedicaDto
+                {
+                    Id = a.Id,
+                    AccidenteId = a.AccidenteId,
+                    TipoId = a.TipoId,
+                    TipoNombre = a.Tipo != null ? a.Tipo.Nombre : string.Empty,
+                    FechaAlta = a.FechaAlta,
+                    Medico = a.Medico,
+                    DiagnosticoFinal = a.DiagnosticoFinal,
+                    TieneRestriccion = a.TieneRestriccion,
+                    DescripcionRestriccion = a.DescripcionRestriccion,
+                    FechaFinRestriccion = a.FechaFinRestriccion,
+                    UrlCertificado = a.UrlCertificado,
+                    Observaciones = a.Observaciones,
+                    CreatedAt = a.CreatedAt
+                })
+                .FirstOrDefaultAsync();
+
             return new AccidenteTrabajoDetalleDto
             {
                 Id = row.a.Id,
                 WorkerId = row.a.WorkerId,
                 WorkerNombre = row.w.Person != null ? row.w.Person.FullName : null,
                 WorkerDni = row.w.Person != null ? row.w.Person.DocumentIdentityCode : null,
+                WorkerTelefono = row.w.Person != null && row.w.Person.PhoneNumber.HasValue
+                    ? row.w.Person.PhoneNumber.Value.ToString()
+                    : null,
                 ProyectoId = row.a.ProyectoId,
                 ProyectoNombre = row.p != null ? row.p.ProjectDescription : null,
                 EmpresaId = row.a.EmpresaId,
@@ -130,8 +220,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 TipoAccidente = row.a.TipoAccidente,
                 Mecanismo = row.a.Mecanismo,
                 ParteCuerpoAfectada = row.a.ParteCuerpoAfectada,
+                AgenteRiesgoId = row.a.AgenteRiesgoId,
+                AgenteRiesgoNombre = row.ag != null ? row.ag.Nombre : null,
                 Descripcion = row.a.Descripcion,
                 DescripcionLesion = row.a.DescripcionLesion,
+                DiagnosticoCie10 = row.a.DiagnosticoCie10,
                 RequiereHospitalizacion = row.a.RequiereHospitalizacion,
                 HospitalNombre = row.a.HospitalNombre,
                 AtencionTopicoId = row.a.AtencionTopicoId,
@@ -144,11 +237,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 FechaNotificacionSunafil = row.a.FechaNotificacionSunafil,
                 NumeroNotificacionSunafil = row.a.NumeroNotificacionSunafil,
                 UrlInforme = row.a.UrlInforme,
+                RequiereReinduccion = row.a.RequiereReinduccion,
+                ReinduccionCompletada = row.a.ReinduccionCompletada,
+                FechaReinduccion = row.a.FechaReinduccion,
+                FlashReportId = row.a.FlashReportId,
+                TieneAlta = altaMedica != null,
+                CasoSocialId = row.a.CasoSocialId,
                 RegistradoPorId = row.a.RegistradoPorId,
                 CerradoPorId = row.a.CerradoPorId,
                 FechaCierre = row.a.FechaCierre,
                 CreatedAt = row.a.CreatedAt,
-                Seguimientos = seguimientos
+                Seguimientos = seguimientos,
+                Descansos = descansos,
+                Citas = citas,
+                Equipos = equipos,
+                AltaMedica = altaMedica
             };
         }
 
@@ -167,8 +270,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 TipoAccidente = dto.TipoAccidente,
                 Mecanismo = dto.Mecanismo,
                 ParteCuerpoAfectada = dto.ParteCuerpoAfectada,
+                AgenteRiesgoId = dto.AgenteRiesgoId,
                 Descripcion = dto.Descripcion,
                 DescripcionLesion = dto.DescripcionLesion,
+                DiagnosticoCie10 = dto.DiagnosticoCie10,
                 RequiereHospitalizacion = dto.RequiereHospitalizacion,
                 HospitalNombre = dto.HospitalNombre,
                 DiasDescansoEstimados = dto.DiasDescansoEstimados,
@@ -194,8 +299,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             entity.TipoAccidente = dto.TipoAccidente;
             entity.Mecanismo = dto.Mecanismo;
             entity.ParteCuerpoAfectada = dto.ParteCuerpoAfectada;
+            entity.AgenteRiesgoId = dto.AgenteRiesgoId;
             entity.Descripcion = dto.Descripcion;
             entity.DescripcionLesion = dto.DescripcionLesion;
+            entity.DiagnosticoCie10 = dto.DiagnosticoCie10;
             entity.RequiereHospitalizacion = dto.RequiereHospitalizacion;
             entity.HospitalNombre = dto.HospitalNombre;
             entity.DiasDescansoEstimados = dto.DiasDescansoEstimados;
@@ -216,8 +323,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var entity = await ctx.SsAccidenteTrabajo.FirstOrDefaultAsync(a => a.Id == id)
                 ?? throw new AbrilException("Accidente de trabajo no encontrado.", 404);
 
-            if (entity.Estado == "Cerrado")
+            if (entity.Estado == "Cerrado" || entity.Estado == "Dado de Alta")
                 throw new AbrilException("El accidente ya está cerrado.", 400);
+
+            var tieneAlta = await ctx.SsAltaMedica.AnyAsync(a => a.AccidenteId == id && a.State);
+            if (!tieneAlta)
+                throw new AbrilException("Debe registrar el alta médica antes de cerrar el accidente.", 400);
+
+            var tieneDescansosPendientes = await ctx.SsDescansoMedico
+                .AnyAsync(d => d.AccidenteId == id && d.Estado == "Pendiente" && d.State);
+            if (tieneDescansosPendientes)
+                throw new AbrilException("Existen descansos médicos pendientes de aprobación. Apruébelos o rechácelos antes de cerrar.", 400);
 
             entity.Estado = "Dado de Alta";
             entity.FechaAlta = dto.FechaAlta;
@@ -273,6 +389,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Seguimiento no encontrado.", 404);
 
             ctx.SsAccidenteSeguimiento.Remove(entity);
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task MarcarReinduccionAsync(int accidenteId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var entity = await ctx.SsAccidenteTrabajo.FindAsync(accidenteId)
+                ?? throw new AbrilException("Accidente no encontrado.", 404);
+
+            entity.ReinduccionCompletada = true;
+            entity.FechaReinduccion = DateOnly.FromDateTime(DateTime.UtcNow);
+            entity.ReinduccionPorId = userId;
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }
     }

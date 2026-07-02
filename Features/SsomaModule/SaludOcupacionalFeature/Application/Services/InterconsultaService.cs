@@ -1,3 +1,4 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interconsulta;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
@@ -16,7 +17,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             _repo = repo;
         }
 
-        public Task<List<InterconsultaListDto>> List(InterconsultaFilterDto filter) => _repo.List(filter);
+        public Task<PagedResult<InterconsultaListDto>> List(InterconsultaFilterDto filter) => _repo.List(filter);
+
+        public Task<InterconsultaDetalleDto> GetById(int id) => _repo.GetById(id);
 
         public Task<int> Create(InterconsultaCreateDto dto, int? userId)
         {

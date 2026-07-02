@@ -28,9 +28,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetList([FromQuery] int? workerId)
+        public async Task<IActionResult> GetList([FromQuery] ConvalidacionFilterDto filter)
         {
-            try { return Ok(await _service.List(workerId)); }
+            try { return Ok(await _service.List(filter)); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ConvalidacionController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 
 namespace Abril_Backend.Infrastructure.Models
 {
@@ -54,6 +55,18 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("ocupacion")]
         public string? Ocupacion { get; set; }
 
+        /// <summary>
+        /// FK a <c>cat_ocupacion</c> (puesto de trabajo normalizado). Complementa a
+        /// <see cref="Ocupacion"/> (texto libre, se conserva por compatibilidad) para
+        /// permitir tabular accidentes/enfermedades por puesto en reportes como el
+        /// informe anual DIGESA.
+        /// </summary>
+        [Column("ocupacion_id")]
+        public int? OcupacionId { get; set; }
+
+        [ForeignKey(nameof(OcupacionId))]
+        public CatOcupacion? OcupacionCatalogo { get; set; }
+
         [Column("area")]
         public string? Area { get; set; }
 
@@ -106,6 +119,13 @@ namespace Abril_Backend.Infrastructure.Models
         /// </summary>
         [Column("worker_lesson_jefe_id")]
         public int? WorkerLessonJefeId { get; set; }
+
+        /// <summary>
+        /// Si true, las lecciones aprendidas creadas por este trabajador se auto-aprueban
+        /// al momento de crear o editar (solo en sus propias lecciones). Sin notificación.
+        /// </summary>
+        [Column("auto_approve_lesson")]
+        public bool AutoApproveLesson { get; set; }
 
         [Column("created_at")]
         public DateTimeOffset? CreatedAt { get; set; }

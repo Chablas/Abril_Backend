@@ -305,10 +305,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cCurrencyActive  = ctx.Col<Currency>(nameof(Currency.Active));
 
             // WorkItem
-            string tWorkItem       = ctx.Table<WorkItem>();
-            string cWorkItemId     = ctx.Col<WorkItem>(nameof(WorkItem.WorkItemId));
-            string cWorkItemDesc   = ctx.Col<WorkItem>(nameof(WorkItem.WorkItemDescription));
-            string cWorkItemActive = ctx.Col<WorkItem>(nameof(WorkItem.Active));
+            string tWorkItem            = ctx.Table<WorkItem>();
+            string cWorkItemId          = ctx.Col<WorkItem>(nameof(WorkItem.WorkItemId));
+            string cWorkItemDesc        = ctx.Col<WorkItem>(nameof(WorkItem.WorkItemDescription));
+            string cWorkItemCategoryFk  = ctx.Col<WorkItem>(nameof(WorkItem.WorkItemCategoryId));
+            string cWorkItemActive      = ctx.Col<WorkItem>(nameof(WorkItem.Active));
 
             // WorkItemValorizationForm (formas de valorización de la partida)
             string tWorkItemValForm            = ctx.Table<WorkItemValorizationForm>();
@@ -322,6 +323,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string tWorkItemCategory            = ctx.Table<WorkItemCategory>();
             string cWorkItemCategoryId          = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryId));
             string cWorkItemCategoryDesc        = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkItemCategoryDescription));
+            string cWorkItemCategorySpecialtyFk = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.WorkSpecialtyId));
             string cWorkItemCategoryActive      = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.Active));
             string cWorkItemCategorySyncStatus  = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.InstructivosSyncStatus));
             string cWorkItemCategoryFolderName  = ctx.Col<WorkItemCategory>(nameof(WorkItemCategory.InstructivosFolderName));
@@ -387,7 +389,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cCurrencyActive} = TRUE
                  ORDER BY {cCurrencyCode};
 
-                SELECT {cWorkItemId}, {cWorkItemDesc}
+                SELECT {cWorkItemId}, {cWorkItemDesc}, {cWorkItemCategoryFk}
                   FROM {tWorkItem}
                  WHERE {cWorkItemActive} = TRUE
                  ORDER BY {cWorkItemDesc};
@@ -400,7 +402,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cWorkItemValFormState} = TRUE
                  ORDER BY {cWorkItemValFormWorkItemId}, {cWorkItemValFormSortOrder};
 
-                SELECT {cWorkItemCategoryId}, {cWorkItemCategoryDesc}, {cWorkItemCategorySyncStatus}, {cWorkItemCategoryFolderName}
+                SELECT {cWorkItemCategoryId}, {cWorkItemCategoryDesc}, {cWorkItemCategorySpecialtyFk}, {cWorkItemCategorySyncStatus}, {cWorkItemCategoryFolderName}
                   FROM {tWorkItemCategory}
                  WHERE {cWorkItemCategoryActive} = TRUE
                  ORDER BY {cWorkItemCategoryDesc};

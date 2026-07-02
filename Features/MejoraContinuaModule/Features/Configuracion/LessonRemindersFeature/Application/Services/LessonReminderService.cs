@@ -31,5 +31,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public Task<List<WorkerRevisorItemDTO>> GetWorkerRevisoresAsync() => _repository.GetWorkerRevisoresAsync();
         public Task<List<WorkerRevisorOptionDTO>> GetWorkerRevisorOptionsAsync() => _repository.GetWorkerRevisorOptionsAsync();
         public Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId) => _repository.UpdateWorkerRevisorAsync(workerId, jefeWorkerId);
+        public Task<ToggleAutoApproveLessonResultDTO> ToggleAutoApproveLessonAsync(int workerId) => _repository.ToggleAutoApproveLessonAsync(workerId);
     }
 }

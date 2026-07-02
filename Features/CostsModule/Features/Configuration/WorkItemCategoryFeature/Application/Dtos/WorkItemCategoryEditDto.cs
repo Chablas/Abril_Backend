@@ -26,6 +26,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
     {
         public int WorkItemCategoryId { get; set; }
         public string WorkItemCategoryDescription { get; set; } = null!;
+        /// <summary>Especialidad a la que pertenece la partida de control (requerido).</summary>
+        public int? WorkSpecialtyId { get; set; }
         public bool Active { get; set; }
         public List<WorkItemCategoryClauseUpsertDto> Clauses { get; set; } = [];
         public List<WorkItemCategoryAnexo3ClauseUpsertDto> Anexo3Clauses { get; set; } = [];

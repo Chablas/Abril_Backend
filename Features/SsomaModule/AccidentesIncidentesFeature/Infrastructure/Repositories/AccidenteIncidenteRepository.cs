@@ -127,13 +127,16 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                 a.partida_id, pa.partida_description AS partida_nombre,
                 a.worker_id, a.trabajador_nombre, a.puesto_trabajo, a.edad, a.anios_experiencia, a.celular_trabajador,
                 a.parte_afectada_id, paf.nombre AS parte_afectada_nombre,
+                a.turno, a.tipo_contacto, a.danio_proceso_flag, a.atencion_medica, a.centro_atencion,
                 a.dano_proceso, a.consecuencia_real_personal, a.consecuencia_potencial_personal,
                 a.acciones_inmediatas,
                 a.elaborado_por_id, a.elaborado_por_nombre, a.elaborado_por_cargo, a.elaborado_por_email, a.elaborado_por_telefono,
                 a.url_foto1, a.url_foto2,
                 a.enviado, a.fecha_envio, a.url_pdf_sharepoint,
-                a.created_at
+                a.created_at,
+                at_vinc.id AS accidente_trabajo_id
             FROM ss_accidente_incidente a
+            LEFT JOIN ss_accidente_trabajo at_vinc ON at_vinc.flash_report_id = a.id
             JOIN project p ON p.project_id = a.proyecto_id
             JOIN ssoma_flash_tipo t ON t.id = a.tipo_id
             LEFT JOIN contributor ea ON ea.contributor_id = a.empresa_abril_id
@@ -144,6 +147,14 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             WHERE a.id = @id;
 
             SELECT id, fecha_inicio, fecha_fin, observacion FROM ssoma_flash_descanso WHERE accidente_incidente_id = @id ORDER BY fecha_inicio;
+
+            SELECT t.id, t.worker_id, t.trabajador_nombre, t.puesto_trabajo, t.edad,
+                   t.anios_experiencia, t.celular_trabajador, t.parte_afectada_id,
+                   paf.nombre AS parte_afectada_nombre
+            FROM ssoma_accidente_trabajador t
+            LEFT JOIN ssoma_flash_parte_afectada paf ON paf.id = t.parte_afectada_id
+            WHERE t.accidente_incidente_id = @id
+            ORDER BY t.id;
             """;
 
         await using var conn = Conn();
@@ -152,6 +163,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         var detalle = await multi.ReadFirstOrDefaultAsync<FlashReportDetalleDto>();
         if (detalle == null) return null;
         detalle.Descansos = (await multi.ReadAsync<DescansoDto>()).ToList();
+        detalle.Trabajadores = (await multi.ReadAsync<TrabajadorAfectadoDto>()).ToList();
         return detalle;
     }
 
@@ -172,7 +184,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         return $"{abrev}-{tipoCodigoCorto}-{correlativo}";
     }
 
-    public async Task<int> CrearAsync(CrearFlashReportRequest req, string codigo, string? urlFoto1, string? urlFoto2, int? usuarioId)
+    public async Task<int> CrearAsync(CrearFlashReportRequest req, string codigo, string? urlFoto1, string? urlFoto2, int? usuarioId, bool generarEntregables)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -202,6 +214,11 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             AniosExperiencia = req.AniosExperiencia,
             CelularTrabajador = req.CelularTrabajador,
             ParteAfectadaId = req.ParteAfectadaId,
+            Turno = req.Turno,
+            TipoContacto = req.TipoContacto,
+            DanioProcesoFlag = req.DanioProcesoFlag,
+            AtencionMedica = req.AtencionMedica,
+            CentroAtencion = req.CentroAtencion,
             DanoProceso = req.DanoProceso,
             ConsecuenciaRealPersonal = req.ConsecuenciaRealPersonal,
             ConsecuenciaPotencialPersonal = req.ConsecuenciaPotencialPersonal,
@@ -224,19 +241,75 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         ctx.Set<SsomaAccidenteIncidente>().Add(entity);
         await ctx.SaveChangesAsync();
 
-        var tiposEntregable = await ctx.Set<SsomaEntregableTipo>()
-            .Where(t => t.Activo)
-            .OrderBy(t => t.Orden)
-            .ToListAsync();
-
-        var entregables = tiposEntregable.Select(t => new SsomaEntregable
+        if (generarEntregables)
         {
-            AccidenteIncidenteId = entity.Id,
-            TipoId = t.Id,
-            Estado = "Pendiente"
-        }).ToList();
+            // Determinar qué entregables aplican según el tipo de evento
+            var tipoCodigo = req.TipoId > 0
+                ? (await ctx.Set<SsomaFlashTipo>().FindAsync(req.TipoId))?.Codigo ?? "AC"
+                : "AC";
+            var esIncidente = tipoCodigo.Equals("IN", StringComparison.OrdinalIgnoreCase);
+            var potencial = req.ConsecuenciaPotencialPersonal ?? 0;
+            var esHIPI = esIncidente && potencial >= 5;
+            var esAccidenteGrave = !esIncidente && (req.ConsecuenciaRealPersonal ?? 0) >= 4;
 
-        ctx.Set<SsomaEntregable>().AddRange(entregables);
+            var tiposEntregable = await ctx.Set<SsomaEntregableTipo>()
+                .Where(t => t.Activo)
+                .OrderBy(t => t.Orden)
+                .ToListAsync();
+
+            var entregablesFiltrados = tiposEntregable.Where(t =>
+            {
+                var aplica = t.AplicaA ?? "Todos";
+                if (aplica == "Todos") return true;
+                if (aplica == "Accidente") return !esIncidente;
+                if (aplica == "AccidenteGrave") return esAccidenteGrave;
+                if (aplica == "AccidenteIncapac") return !esIncidente && (req.ConsecuenciaRealPersonal ?? 0) >= 3;
+                if (aplica == "AccidenteHIPI") return !esIncidente || esHIPI;
+                return true;
+            }).ToList();
+
+            var entregables = entregablesFiltrados.Select(t => new SsomaEntregable
+            {
+                AccidenteIncidenteId = entity.Id,
+                TipoId = t.Id,
+                Estado = "Pendiente"
+            }).ToList();
+
+            ctx.Set<SsomaEntregable>().AddRange(entregables);
+            await ctx.SaveChangesAsync();
+        }
+
+        if (req.Trabajadores.Count > 0)
+        {
+            var trabajadores = req.Trabajadores.Select(t => new SsomaAccidenteTrabajador
+            {
+                AccidenteIncidenteId = entity.Id,
+                WorkerId = t.WorkerId,
+                TrabajadorNombre = t.TrabajadorNombre,
+                PuestoTrabajo = t.PuestoTrabajo,
+                Edad = t.Edad,
+                AniosExperiencia = t.AniosExperiencia,
+                CelularTrabajador = t.CelularTrabajador,
+                ParteAfectadaId = t.ParteAfectadaId,
+            });
+            ctx.SsomaAccidenteTrabajador.AddRange(trabajadores);
+            await ctx.SaveChangesAsync();
+        }
+
+        // Auto-crear RM-050 stub + 3 medidas de control por defecto
+        var inv = new SsomaInvestigacionRm050 { AccidenteIncidenteId = entity.Id };
+        ctx.Set<SsomaInvestigacionRm050>().Add(inv);
+        await ctx.SaveChangesAsync();
+        for (int i = 1; i <= 3; i++)
+        {
+            ctx.Set<SsomaAccionCorrectiva>().Add(new SsomaAccionCorrectiva
+            {
+                InvestigacionId = inv.Id,
+                Descripcion = $"Medida de control {i}",
+                Tipo = "Correctiva",
+                Estado = "Pendiente",
+            });
+        }
         await ctx.SaveChangesAsync();
 
         return entity.Id;
@@ -271,6 +344,11 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         entity.AniosExperiencia = req.AniosExperiencia;
         entity.CelularTrabajador = req.CelularTrabajador;
         entity.ParteAfectadaId = req.ParteAfectadaId;
+        entity.Turno = req.Turno;
+        entity.TipoContacto = req.TipoContacto;
+        entity.DanioProcesoFlag = req.DanioProcesoFlag;
+        entity.AtencionMedica = req.AtencionMedica;
+        entity.CentroAtencion = req.CentroAtencion;
         entity.DanoProceso = req.DanoProceso;
         entity.ConsecuenciaRealPersonal = req.ConsecuenciaRealPersonal;
         entity.ConsecuenciaPotencialPersonal = req.ConsecuenciaPotencialPersonal;
@@ -294,6 +372,25 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             Observacion = d.Observacion
         }).ToList();
 
+        // Reemplazar trabajadores afectados
+        var existentes = ctx.SsomaAccidenteTrabajador.Where(t => t.AccidenteIncidenteId == id);
+        ctx.SsomaAccidenteTrabajador.RemoveRange(existentes);
+        if (req.Trabajadores.Count > 0)
+        {
+            var nuevos = req.Trabajadores.Select(t => new SsomaAccidenteTrabajador
+            {
+                AccidenteIncidenteId = id,
+                WorkerId = t.WorkerId,
+                TrabajadorNombre = t.TrabajadorNombre,
+                PuestoTrabajo = t.PuestoTrabajo,
+                Edad = t.Edad,
+                AniosExperiencia = t.AniosExperiencia,
+                CelularTrabajador = t.CelularTrabajador,
+                ParteAfectadaId = t.ParteAfectadaId,
+            });
+            ctx.SsomaAccidenteTrabajador.AddRange(nuevos);
+        }
+
         await ctx.SaveChangesAsync();
     }
 
@@ -308,6 +405,43 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         entity.Estado = "Enviado";
         entity.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int?> CrearAccidenteTrabajoVinculadoAsync(FlashReportDetalleDto fr, int registradoPorId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        // Evitar duplicado si ya existe uno vinculado
+        var existe = await ctx.Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo>()
+            .AnyAsync(a => a.FlashReportId == fr.Id);
+        if (existe) return null;
+
+        var primerTrabajador = fr.Trabajadores.Count > 0 ? fr.Trabajadores[0] : null;
+        var workerId = primerTrabajador?.WorkerId ?? fr.WorkerId;
+        if (workerId == null) return null;
+
+        var accidente = new Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo
+        {
+            WorkerId = workerId.Value,
+            FechaAccidente = DateOnly.FromDateTime(fr.Fecha),
+            HoraAccidente = fr.Hora.HasValue ? TimeOnly.FromTimeSpan(fr.Hora.Value) : null,
+            ProyectoId = fr.ProyectoId,
+            EmpresaId = fr.ContributorId,
+            LugarAccidente = fr.LugarExacto,
+            TipoAccidente = fr.TipoNombre,
+            Mecanismo = fr.TipoContacto,
+            ParteCuerpoAfectada = primerTrabajador?.ParteAfectadaNombre ?? fr.ParteAfectadaNombre,
+            Descripcion = fr.Descripcion,
+            DescripcionLesion = fr.DanoProceso,
+            Estado = "Registrado",
+            FlashReportId = fr.Id,
+            RegistradoPorId = registradoPorId,
+            RequiereReinduccion = true,
+        };
+
+        ctx.Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo>().Add(accidente);
+        await ctx.SaveChangesAsync();
+        return accidente.Id;
     }
 
     public async Task EliminarAsync(int id)
@@ -327,6 +461,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             FROM ss_entregable e
             JOIN ss_entregable_tipo t ON t.id = e.tipo_id
             WHERE e.accidente_incidente_id = @id
+              AND t.activo = true
             ORDER BY t.orden;
 
             SELECT r.id, r.entregable_id, r.worker_id, r.nombre
@@ -438,6 +573,38 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         };
     }
 
+    public async Task<List<AccionCorrectivaVencidaDto>> GetAccionesVencidasAsync()
+    {
+        const string sql = """
+            SELECT
+                ac.id AS accion_id,
+                ai.id AS accidente_id,
+                ai.codigo AS codigo_accidente,
+                ac.descripcion,
+                ac.tipo,
+                ac.responsable_nombre,
+                ac.fecha_compromiso,
+                (CURRENT_DATE - ac.fecha_compromiso) AS dias_vencida,
+                ac.estado
+            FROM ss_accion_correctiva ac
+            JOIN ss_investigacion_rm050 rm ON rm.id = ac.investigacion_id
+            JOIN ss_accidente_incidente ai ON ai.id = rm.accidente_incidente_id
+            WHERE ac.fecha_compromiso < CURRENT_DATE
+              AND ac.estado NOT IN ('Cumplido', 'No aplica')
+            ORDER BY ac.fecha_compromiso ASC
+            """;
+
+        await using var conn = Conn();
+        await conn.OpenAsync();
+        return (await conn.QueryAsync<AccionCorrectivaVencidaDto>(sql)).ToList();
+    }
+
+    public async Task<SsomaAccionCorrectiva?> GetAccionCorrectivaAsync(int accionId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.Set<SsomaAccionCorrectiva>().FindAsync(accionId);
+    }
+
     public async Task GuardarRm050Async(int accidenteId, GuardarRm050Request req)
     {
         using var ctx = _factory.CreateDbContext();
@@ -484,5 +651,118 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         }).ToList();
 
         await ctx.SaveChangesAsync();
+    }
+
+    public async Task ReclasificarTipoAsync(int id, int tipoId, string tipoCodigo, string tipoNombre)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var entity = await ctx.SsomaAccidenteIncidente.FindAsync(id)
+            ?? throw new AbrilException("Flash Report no encontrado.", 404);
+
+        if (entity.Enviado)
+            throw new AbrilException("No se puede reclasificar un Flash Report ya enviado.", 400);
+
+        entity.TipoId = tipoId;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    // ── Medidas de control ────────────────────────────────────────────────────
+
+    public async Task<List<AccionCorrectivaDto>> GetMedidasAsync(int accidenteId)
+    {
+        const string sql = """
+            SELECT ac.id, ac.descripcion, ac.tipo, ac.responsable_nombre,
+                   ac.responsable_worker_id, ac.fecha_compromiso, ac.fecha_cumplimiento,
+                   ac.estado, ac.evidencia_url
+            FROM ss_accion_correctiva ac
+            JOIN ss_investigacion_rm050 inv ON inv.id = ac.investigacion_id
+            WHERE inv.accidente_incidente_id = @accidenteId
+            ORDER BY ac.id
+            """;
+        await using var conn = Conn();
+        await conn.OpenAsync();
+        var rows = await conn.QueryAsync<AccionCorrectivaDto>(sql, new { accidenteId });
+        return rows.ToList();
+    }
+
+    public async Task<int> AddMedidaAsync(int accidenteId, GuardarAccionCorrectivaRequest req)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var inv = await ctx.Set<SsomaInvestigacionRm050>()
+            .FirstOrDefaultAsync(i => i.AccidenteIncidenteId == accidenteId);
+        if (inv == null)
+        {
+            inv = new SsomaInvestigacionRm050 { AccidenteIncidenteId = accidenteId };
+            ctx.Set<SsomaInvestigacionRm050>().Add(inv);
+            await ctx.SaveChangesAsync();
+        }
+        var accion = new SsomaAccionCorrectiva
+        {
+            InvestigacionId = inv.Id,
+            Descripcion = req.Descripcion,
+            Tipo = req.Tipo ?? "Correctiva",
+            ResponsableNombre = req.ResponsableNombre,
+            ResponsableWorkerId = req.ResponsableWorkerId,
+            FechaCompromiso = req.FechaCompromiso,
+            Estado = req.Estado ?? "Pendiente",
+        };
+        ctx.Set<SsomaAccionCorrectiva>().Add(accion);
+        await ctx.SaveChangesAsync();
+        return accion.Id;
+    }
+
+    public async Task UpdateMedidaAsync(int accionId, GuardarAccionCorrectivaRequest req)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var accion = await ctx.Set<SsomaAccionCorrectiva>().FindAsync(accionId)
+            ?? throw new AbrilException("Medida de control no encontrada.", 404);
+        accion.Descripcion = req.Descripcion;
+        accion.Tipo = req.Tipo ?? accion.Tipo;
+        accion.ResponsableNombre = req.ResponsableNombre;
+        accion.ResponsableWorkerId = req.ResponsableWorkerId;
+        accion.FechaCompromiso = req.FechaCompromiso;
+        accion.FechaCumplimiento = req.FechaCumplimiento;
+        accion.Estado = req.Estado ?? accion.Estado;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task DeleteMedidaAsync(int accionId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var accion = await ctx.Set<SsomaAccionCorrectiva>().FindAsync(accionId)
+            ?? throw new AbrilException("Medida de control no encontrada.", 404);
+        ctx.Set<SsomaAccionCorrectiva>().Remove(accion);
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<List<string>> GetDestinatariosFlashReportAsync()
+    {
+        const string sql = """
+            SELECT DISTINCT w.email_personal
+            FROM workers w
+            WHERE w.estado = 'ACTIVO'
+              AND w.email_personal ILIKE '%@abril.pe'
+              AND w.contrata_casa = 'Casa'
+              AND w.email_personal IS NOT NULL
+              AND w.email_personal <> ''
+              AND (
+                  w.area     ILIKE '%proyecto%'
+                  OR w.subarea  ILIKE '%talento%'
+                  OR w.subarea  ILIKE '%humano%'
+                  OR w.subarea  ILIKE '%gth%'
+                  OR w.ocupacion ILIKE '%medico%'
+                  OR w.ocupacion ILIKE '%médico%'
+                  OR w.ocupacion ILIKE '%gerente%general%'
+                  OR w.jefatura  ILIKE '%gerente%general%'
+                  OR w.ocupacion ILIKE '%gerente%administr%'
+                  OR w.jefatura  ILIKE '%gerente%administr%'
+              );
+            """;
+        await using var conn = Conn();
+        await conn.OpenAsync();
+        var rows = await conn.QueryAsync<string>(sql);
+        return rows.ToList();
     }
 }

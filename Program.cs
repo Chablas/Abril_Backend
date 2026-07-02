@@ -32,6 +32,8 @@ using Abril_Backend.Features.Habilitacion;
 using Abril_Backend.Features.UnidadDeProyectosModule;
 using Abril_Backend.Features.Evaluaciones;
 using Abril_Backend.Features.VecinosModule;
+using Abril_Backend.Features.AccountingModule;
+using Abril_Backend.Features.BoletinModule;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using Abril_Backend.Shared.Interceptors;
@@ -58,6 +60,7 @@ var emailProvider = builder.Configuration["Email:EmailProvider"];
 var storageProvider = builder.Configuration["Storage:StorageProvider"];
 
 // Add services to the container.
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<AuditoriaInterceptor>();
 
@@ -132,12 +135,15 @@ builder.Services.AddContractorsModule();
 builder.Services.AddConfigurationModule();
 builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddSsomaModule();
+builder.Services.AddHostedService<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.SsomaIndicadoresCacheWarmup>();
 builder.Services.AddGestionAdministrativaModule();
 builder.Services.AddHabilitacionModule();
 builder.Services.AddEvaluacionesModule();
 builder.Services.AddUnidadDeProyectosModule();
 builder.Services.AddMejoraContinuaModule();
 builder.Services.AddVecinosModule();
+builder.Services.AddAccountingModule();
+builder.Services.AddBoletinModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();

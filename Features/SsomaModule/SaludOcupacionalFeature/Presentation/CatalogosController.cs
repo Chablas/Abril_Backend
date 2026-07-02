@@ -159,12 +159,72 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // ===== Agente de Riesgo =====
+        [AllowAnonymous]
+        [HttpGet("agentes-riesgo")]
+        public async Task<IActionResult> GetAgentesRiesgo([FromQuery] bool soloActivos = true)
+        {
+            try { return Ok(await _service.ListAgentesRiesgo(soloActivos)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("agentes-riesgo")]
+        public async Task<IActionResult> CreateAgenteRiesgo([FromBody] AgenteRiesgoUpsertDto dto)
+        {
+            try { return Ok(await _service.CreateAgenteRiesgo(dto)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("agentes-riesgo/{id:int}")]
+        public async Task<IActionResult> UpdateAgenteRiesgo(int id, [FromBody] AgenteRiesgoUpsertDto dto)
+        {
+            try { return Ok(await _service.UpdateAgenteRiesgo(id, dto)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         // ===== Empresas =====
         [AllowAnonymous]
         [HttpGet("empresas")]
         public async Task<IActionResult> GetEmpresas([FromQuery] bool soloActivas = true)
         {
             try { return Ok(await _service.ListEmpresas(soloActivas)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Consulta de RUC a SUNAT para el alta de una razón social.</summary>
+        [AllowAnonymous]
+        [HttpGet("empresas/ruc/{ruc}")]
+        public async Task<IActionResult> GetEmpresaByRuc(string ruc)
+        {
+            try
+            {
+                var result = await _service.GetEmpresaByRuc(ruc);
+                if (result is null)
+                    return NotFound(new { message = "No se encontró información para el RUC proporcionado." });
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Alta de una razón social (contribuyente).</summary>
+        [AllowAnonymous]
+        [HttpPost("empresas")]
+        public async Task<IActionResult> CreateEmpresa([FromBody] EmpresaCreateDto dto)
+        {
+            try
+            {
+                int? userId = null;
+                var claim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                if (claim != null && int.TryParse(claim.Value, out var uid)) userId = uid;
+
+                var result = await _service.CreateEmpresa(dto, userId);
+                return Ok(result);
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }

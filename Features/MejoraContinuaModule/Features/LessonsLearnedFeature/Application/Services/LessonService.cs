@@ -14,6 +14,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         private readonly IEmailService _emailService;
         private readonly string _platformUrl;
 
+        // Mensaje único de bloqueo de subida (lo usan tanto el rechazo del POST como
+        // el endpoint que consulta el estado de la ventana para el frontend).
+        private const string ReviewWindowMessage =
+            "Estamos en la ventana de revisión de la jefatura (los últimos 2 días hábiles del mes). " +
+            "Durante estos días no se pueden registrar nuevas lecciones aprendidas.";
+
         public LessonService(ILessonRepository lessonRepository, IEmailService emailService, IConfiguration configuration)
         {
             _lessonRepository = lessonRepository;
@@ -48,15 +54,33 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             //var today = new DateTime(2026, 6, 29); // 4.º día hábil de jun-2026 → debe BLOQUEAR
             // var today = new DateTime(2026, 6, 30); // 5.º día hábil de jun-2026 → debe BLOQUEAR
 
-            // Días 4–5 de los últimos 5 hábiles = ventana de revisión de la
-            // jefatura: nadie puede registrar nuevas lecciones aprendidas.
-            if (LessonUploadWindow.IsReviewWindow(today))
-                throw new AbrilException(
-                    "Estamos en la ventana de revisión de la jefatura (los últimos 2 días hábiles del mes). " +
-                    "Durante estos días no se pueden registrar nuevas lecciones aprendidas.",
-                    403);
+            // Días 4–5 de los últimos 5 hábiles (incluidos los fines de semana/feriados
+            // intermedios) = ventana de revisión de la jefatura: nadie puede registrar
+            // nuevas lecciones aprendidas. Los feriados se descartan como días hábiles.
+            var holidays = await _lessonRepository.GetHolidayDatesAsync(today.Year, today.Month);
+            if (LessonUploadWindow.IsReviewWindow(today, holidays))
+                throw new AbrilException(ReviewWindowMessage, 403);
 
             return await _lessonRepository.CreateAsync(dto, userId);
+        }
+
+        public async Task<LessonUploadWindowDTO> GetUploadWindowAsync()
+        {
+            var today = DateTime.UtcNow.AddHours(-5);
+            //var today = new DateTime(2026, 6, 29); // 4.º día hábil de jun-2026 → debe BLOQUEAR
+
+            var holidays = await _lessonRepository.GetHolidayDatesAsync(today.Year, today.Month);
+            var (start, end) = LessonUploadWindow.ReviewWindowRange(today, holidays);
+            var isReview = LessonUploadWindow.IsReviewWindow(today, holidays);
+
+            return new LessonUploadWindowDTO
+            {
+                CanUpload = !isReview,
+                IsReviewWindow = isReview,
+                ReviewStart = start,
+                ReviewEnd = end,
+                Message = isReview ? ReviewWindowMessage : null,
+            };
         }
 
         public Task<bool> UpdateAsync(int lessonId, LessonUpdateDTO dto, int currentUserId)

@@ -61,28 +61,38 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var dniNorm = dto.Dni?.Trim().ToUpper();
             var dniOriginal = dto.Dni?.Trim();
 
-            // Si ya existe un registro con el mismo DNI pero inactivo, reactivarlo
-            if (!string.IsNullOrWhiteSpace(dniNorm))
-            {
-                var existente = await ctx.SsTrabajadorRestringido
-                    .FirstOrDefaultAsync(r => r.Dni != null && r.Dni.ToUpper() == dniNorm && !r.Activo);
+            // Si ya existe un registro con el mismo WorkerId o DNI pero inactivo, reactivarlo
+            SsTrabajadorRestringido? existente = null;
 
-                if (existente is not null)
-                {
-                    existente.Activo = true;
-                    existente.Motivo = dto.Motivo;
-                    existente.ApellidoNombre = dto.ApellidoNombre ?? existente.ApellidoNombre;
-                    existente.ProyectoOrigen = dto.ProyectoOrigen;
-                    existente.RestringidoPor = dto.RestringidoPor;
-                    existente.FechaRestriccion = dto.FechaRestriccion;
-                    existente.UpdatedAt = DateTime.UtcNow;
-                    await ctx.SaveChangesAsync();
-                    return ToDto(existente);
-                }
+            if (dto.WorkerId.HasValue)
+            {
+                existente = await ctx.SsTrabajadorRestringido
+                    .FirstOrDefaultAsync(r => r.WorkerId == dto.WorkerId.Value && !r.Activo);
+            }
+
+            if (existente is null && !string.IsNullOrWhiteSpace(dniNorm))
+            {
+                existente = await ctx.SsTrabajadorRestringido
+                    .FirstOrDefaultAsync(r => r.Dni != null && r.Dni.ToUpper() == dniNorm && !r.Activo);
+            }
+
+            if (existente is not null)
+            {
+                existente.Activo = true;
+                existente.WorkerId = dto.WorkerId ?? existente.WorkerId;
+                existente.Motivo = dto.Motivo;
+                existente.ApellidoNombre = dto.ApellidoNombre ?? existente.ApellidoNombre;
+                existente.ProyectoOrigen = dto.ProyectoOrigen;
+                existente.RestringidoPor = dto.RestringidoPor;
+                existente.FechaRestriccion = dto.FechaRestriccion;
+                existente.UpdatedAt = DateTime.UtcNow;
+                await ctx.SaveChangesAsync();
+                return ToDto(existente);
             }
 
             var nuevo = new SsTrabajadorRestringido
             {
+                WorkerId = dto.WorkerId,
                 Dni = dniOriginal,
                 ApellidoNombre = dto.ApellidoNombre,
                 Motivo = dto.Motivo,
@@ -107,6 +117,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             registro.Activo = false;
             registro.UpdatedAt = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task DesactivarPorWorkerIdAsync(int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var registros = ctx.SsTrabajadorRestringido
+                .Where(r => r.WorkerId == workerId && r.Activo)
+                .ToList();
+            foreach (var r in registros)
+            {
+                r.Activo = false;
+                r.UpdatedAt = DateTime.UtcNow;
+            }
+            if (registros.Count > 0)
+                await ctx.SaveChangesAsync();
         }
 
         private static TrabajadorRestringidoListDto ToDto(SsTrabajadorRestringido r) => new()

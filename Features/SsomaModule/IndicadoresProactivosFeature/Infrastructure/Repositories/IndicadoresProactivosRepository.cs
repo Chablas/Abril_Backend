@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.Shared;
 using Abril_Backend.Infrastructure.Data;
 
 namespace Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Repositories;
@@ -787,22 +788,33 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var proyIds = proyectos.Select(p => p.ProjectId).ToList();
         if (!proyIds.Any()) return [];
 
-        // ── HHT: personas-día casa + contratista, agrupado por proyecto ─────────
-        var personasCasaBulk = await ctx.SsTareoDetalleCasa
+        // ── HHT: personas-día casa + contratista, agrupado por proyecto/fecha ────
+        // (se agrupa también por fecha porque la jornada varía L-V/sábado/domingo)
+        var personasCasaPorDia = await ctx.SsTareoDetalleCasa
             .Where(d => proyIds.Contains(d.Tareo!.ProyectoId)
                      && d.Tareo.Fecha.Month == mes && d.Tareo.Fecha.Year == anio
                      && d.CantidadPersonas > 0)
-            .GroupBy(d => d.Tareo!.ProyectoId)
-            .Select(g => new { ProyectoId = g.Key, Total = g.Sum(x => (long)x.CantidadPersonas) })
+            .GroupBy(d => new { d.Tareo!.ProyectoId, d.Tareo.Fecha })
+            .Select(g => new { g.Key.ProyectoId, g.Key.Fecha, Total = g.Sum(x => (long)x.CantidadPersonas) })
             .ToListAsync();
 
-        var personasContrBulk = await ctx.SsTareoDetalleContratista
+        var personasContrPorDia = await ctx.SsTareoDetalleContratista
             .Where(d => proyIds.Contains(d.Tareo!.ProyectoId)
                      && d.Tareo.Fecha.Month == mes && d.Tareo.Fecha.Year == anio
                      && d.CantidadPersonas > 0)
-            .GroupBy(d => d.Tareo!.ProyectoId)
-            .Select(g => new { ProyectoId = g.Key, Total = g.Sum(x => (long)x.CantidadPersonas) })
+            .GroupBy(d => new { d.Tareo!.ProyectoId, d.Tareo.Fecha })
+            .Select(g => new { g.Key.ProyectoId, g.Key.Fecha, Total = g.Sum(x => (long)x.CantidadPersonas) })
             .ToListAsync();
+
+        var personasCasaBulk = personasCasaPorDia
+            .GroupBy(d => d.ProyectoId)
+            .Select(g => new { ProyectoId = g.Key, Total = g.Sum(x => x.Total * HorarioLaboralCalculator.HorasPorDia(x.Fecha)) })
+            .ToList();
+
+        var personasContrBulk = personasContrPorDia
+            .GroupBy(d => d.ProyectoId)
+            .Select(g => new { ProyectoId = g.Key, Total = g.Sum(x => x.Total * HorarioLaboralCalculator.HorasPorDia(x.Fecha)) })
+            .ToList();
 
         // ── Accidentes Tópico por proyecto ───────────────────────────────────────
         var accTopicoBulk = await ctx.SsAccidenteTrabajo
@@ -857,8 +869,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         foreach (var proy in proyectos)
         {
             var pid = proy.ProjectId;
-            var hht = ((personasCasaBulk.FirstOrDefault(x => x.ProyectoId == pid)?.Total ?? 0)
-                     + (personasContrBulk.FirstOrDefault(x => x.ProyectoId == pid)?.Total ?? 0)) * 8L;
+            var hht = (personasCasaBulk.FirstOrDefault(x => x.ProyectoId == pid)?.Total ?? 0)
+                     + (personasContrBulk.FirstOrDefault(x => x.ProyectoId == pid)?.Total ?? 0);
 
             var accTopico = accTopicoBulk.FirstOrDefault(x => x.ProyectoId == pid);
             var totalAccidentes = (accTopico?.Count ?? 0)
@@ -901,22 +913,27 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .FirstOrDefaultAsync() ?? "";
 
         // ── 2. Horas Hombre Trabajadas (HHT) ─────────────────────────────────
-        // Personas-día registradas en tareo × 8 h/día
-        var personasDiaCasa = await ctx.SsTareoDetalleCasa
+        // Personas-día registradas en tareo × horas de jornada de ese día (8.5h L-V, 5.5h sábado)
+        var personasDiaCasaPorDia = await ctx.SsTareoDetalleCasa
             .Where(d => d.Tareo!.ProyectoId == proyectoId
                      && d.Tareo.Fecha.Month == mes
                      && d.Tareo.Fecha.Year == anio
                      && d.CantidadPersonas > 0)
-            .SumAsync(d => (long)d.CantidadPersonas);
+            .GroupBy(d => d.Tareo!.Fecha)
+            .Select(g => new { Fecha = g.Key, Total = g.Sum(x => (long)x.CantidadPersonas) })
+            .ToListAsync();
 
-        var personasDiaContr = await ctx.SsTareoDetalleContratista
+        var personasDiaContrPorDia = await ctx.SsTareoDetalleContratista
             .Where(d => d.Tareo!.ProyectoId == proyectoId
                      && d.Tareo.Fecha.Month == mes
                      && d.Tareo.Fecha.Year == anio
                      && d.CantidadPersonas > 0)
-            .SumAsync(d => (long)d.CantidadPersonas);
+            .GroupBy(d => d.Tareo!.Fecha)
+            .Select(g => new { Fecha = g.Key, Total = g.Sum(x => (long)x.CantidadPersonas) })
+            .ToListAsync();
 
-        var hht = (personasDiaCasa + personasDiaContr) * 8L;
+        var hht = personasDiaCasaPorDia.Sum(x => x.Total * HorarioLaboralCalculator.HorasPorDia(x.Fecha))
+                + personasDiaContrPorDia.Sum(x => x.Total * HorarioLaboralCalculator.HorasPorDia(x.Fecha));
 
         // ── 3. Accidentes con lesión en el período ────────────────────────────
         // Solo tipos que generan AT: código "AC" (Accidente).

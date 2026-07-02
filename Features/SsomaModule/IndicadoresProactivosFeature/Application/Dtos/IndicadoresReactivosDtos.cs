@@ -10,7 +10,7 @@ public record IndicadorReactivoProyectoDto
     public int Anio { get; init; }
 
     // Horas Hombre Trabajadas del período
-    public long HorasHombreTrabajadas { get; init; }
+    public decimal HorasHombreTrabajadas { get; init; }
 
     // Contadores base
     public int TotalAccidentes { get; init; }

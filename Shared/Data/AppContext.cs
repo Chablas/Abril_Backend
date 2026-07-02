@@ -348,6 +348,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsChecklistProyecto> SsChecklistProyecto => Set<SsChecklistProyecto>();
         public DbSet<SsChecklistProyectoItem> SsChecklistProyectoItem => Set<SsChecklistProyectoItem>();
 
+        // Habilitación de proyectos para SSOMA
+        public DbSet<Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Models.SsProyectoHabilitado> SsProyectoHabilitado => Set<Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Models.SsProyectoHabilitado>();
+
         // ── Presupuesto de Materiales SSOMA ───────────────────────────────────
         public DbSet<SsMaterialTipo> SsMaterialTipo => Set<SsMaterialTipo>();
         public DbSet<SsMaterialHito> SsMaterialHito => Set<SsMaterialHito>();

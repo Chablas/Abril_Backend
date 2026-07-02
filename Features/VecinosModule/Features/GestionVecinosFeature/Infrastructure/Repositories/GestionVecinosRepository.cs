@@ -168,11 +168,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             var now = DateTime.UtcNow;
 
             vecino.VecinoUsoId = dto.VecinoUsoId;
-            vecino.Direccion = dto.Direccion.Trim();
             vecino.InteriorDepartamento = dto.InteriorDepartamento?.Trim();
             vecino.VecinoColindanciaId = dto.VecinoColindanciaId;
             vecino.VecinoTipoConstruccionId = dto.VecinoTipoConstruccionId;
-            vecino.Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim();
             vecino.UpdatedDateTime = now;
             vecino.UpdatedUserId = userId;
 
@@ -228,6 +226,21 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             return true;
         }
 
+        public async Task<bool> UpdateLote(int vecinoLoteId, VecinoLoteUpdateDto dto, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var lote = await ctx.VecinoLote.FirstOrDefaultAsync(l => l.VecinoLoteId == vecinoLoteId && l.Active && l.State);
+            if (lote is null) return false;
+
+            lote.Direccion = dto.Direccion.Trim();
+            lote.Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim();
+            lote.UpdatedDateTime = DateTime.UtcNow;
+            lote.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
+
         public async Task<PagedResult<VecinoListItemDto>> GetPaged(VecinoFilterDto filter)
         {
             using var ctx = _factory.CreateDbContext();
@@ -235,12 +248,14 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             var query =
                 from v in ctx.Vecino
                 join p in ctx.Project on v.ProjectId equals p.ProjectId
+                join lo in ctx.VecinoLote on v.VecinoLoteId equals lo.VecinoLoteId into loj
+                from lo in loj.DefaultIfEmpty()
                 join col in ctx.VecinoColindancia on v.VecinoColindanciaId equals col.VecinoColindanciaId
                 join tc in ctx.VecinoTipoConstruccion on v.VecinoTipoConstruccionId equals tc.VecinoTipoConstruccionId
                 join u in ctx.VecinoUso on v.VecinoUsoId equals u.VecinoUsoId into uj
                 from u in uj.DefaultIfEmpty()
                 where v.Active && v.State
-                select new { v, p, col, tc, u };
+                select new { v, p, lo, col, tc, u };
 
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.v.ProjectId == filter.ProjectId.Value);
@@ -252,7 +267,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             {
                 var s = filter.Search.ToLower();
                 query = query.Where(x =>
-                    x.v.Direccion.ToLower().Contains(s) ||
+                    (x.lo != null && x.lo.Direccion != null && x.lo.Direccion.ToLower().Contains(s)) ||
                     ctx.VecinoPersona.Any(per => per.VecinoId == x.v.VecinoId && per.Active && per.State &&
                         (per.Nombre.ToLower().Contains(s) || (per.Dni != null && per.Dni.Contains(s)))));
             }
@@ -266,18 +281,19 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 .Select(x => new VecinoListItemDto
                 {
                     VecinoId = x.v.VecinoId,
+                    VecinoLoteId = x.v.VecinoLoteId,
                     ProjectId = x.v.ProjectId,
                     ProjectDescription = x.p.ProjectDescription,
                     Predio = x.v.Predio,
                     VecinoUsoId = x.v.VecinoUsoId,
                     UsoDescripcion = x.u != null ? x.u.Descripcion : null,
-                    Direccion = x.v.Direccion,
+                    Direccion = x.lo != null ? x.lo.Direccion : null,
                     InteriorDepartamento = x.v.InteriorDepartamento,
                     VecinoColindanciaId = x.v.VecinoColindanciaId,
                     ColindanciaDescripcion = x.col.Descripcion,
                     VecinoTipoConstruccionId = x.v.VecinoTipoConstruccionId,
                     TipoConstruccionDescripcion = x.tc.Descripcion,
-                    Observaciones = x.v.Observaciones,
+                    Observaciones = x.lo != null ? x.lo.Observaciones : null,
                     CreatedDateTime = x.v.CreatedDateTime
                 })
                 .ToListAsync();
@@ -313,6 +329,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             var item = await (
                 from v in ctx.Vecino
                 join p in ctx.Project on v.ProjectId equals p.ProjectId
+                join lo in ctx.VecinoLote on v.VecinoLoteId equals lo.VecinoLoteId into loj
+                from lo in loj.DefaultIfEmpty()
                 join col in ctx.VecinoColindancia on v.VecinoColindanciaId equals col.VecinoColindanciaId
                 join tc in ctx.VecinoTipoConstruccion on v.VecinoTipoConstruccionId equals tc.VecinoTipoConstruccionId
                 join u in ctx.VecinoUso on v.VecinoUsoId equals u.VecinoUsoId into uj
@@ -321,18 +339,19 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 select new VecinoListItemDto
                 {
                     VecinoId = v.VecinoId,
+                    VecinoLoteId = v.VecinoLoteId,
                     ProjectId = v.ProjectId,
                     ProjectDescription = p.ProjectDescription,
                     Predio = v.Predio,
                     VecinoUsoId = v.VecinoUsoId,
                     UsoDescripcion = u != null ? u.Descripcion : null,
-                    Direccion = v.Direccion,
+                    Direccion = lo != null ? lo.Direccion : null,
                     InteriorDepartamento = v.InteriorDepartamento,
                     VecinoColindanciaId = v.VecinoColindanciaId,
                     ColindanciaDescripcion = col.Descripcion,
                     VecinoTipoConstruccionId = v.VecinoTipoConstruccionId,
                     TipoConstruccionDescripcion = tc.Descripcion,
-                    Observaciones = v.Observaciones,
+                    Observaciones = lo != null ? lo.Observaciones : null,
                     CreatedDateTime = v.CreatedDateTime
                 }
             ).FirstOrDefaultAsync();
@@ -350,26 +369,64 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             return item;
         }
 
-        public async Task<int> Create(VecinoCreateDto dto, int userId)
+        public async Task<VecinoLoteRegisterResultDto> RegisterVecinos(VecinoLoteRegisterDto dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
-
             var now = DateTime.UtcNow;
 
-            var vecino = new Vecino
+            // El lote se define como un polígono del croquis. Resolvemos el polígono seleccionado.
+            var poligono = await ctx.ProjectCroquisLote
+                .FirstOrDefaultAsync(l => l.ProjectCroquisLoteId == dto.ProjectCroquisLoteId && l.State);
+            if (poligono is null)
+                throw new AbrilException("El lote seleccionado del croquis no existe.", 404);
+
+            var projectId = await ctx.ProjectCroquis
+                .Where(c => c.ProjectCroquisId == poligono.ProjectCroquisId)
+                .Select(c => c.ProjectId)
+                .FirstOrDefaultAsync();
+
+            // Lote de negocio: reutilizar el existente o crearlo (perezoso) sobre el polígono.
+            VecinoLote lote;
+            if (poligono.VecinoLoteId.HasValue)
             {
-                ProjectId = dto.ProjectId,
-                VecinoUsoId = dto.VecinoUsoId,
-                Direccion = dto.Direccion.Trim(),
-                InteriorDepartamento = dto.InteriorDepartamento?.Trim(),
-                VecinoColindanciaId = dto.VecinoColindanciaId,
-                VecinoTipoConstruccionId = dto.VecinoTipoConstruccionId,
-                Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim(),
+                lote = await ctx.VecinoLote.FirstAsync(l => l.VecinoLoteId == poligono.VecinoLoteId.Value);
+                lote.UpdatedDateTime = now;
+                lote.UpdatedUserId = userId;
+            }
+            else
+            {
+                lote = new VecinoLote
+                {
+                    ProjectId = projectId,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true,
+                };
+                ctx.VecinoLote.Add(lote);
+                poligono.Lote = lote; // EF fija la FK vecino_lote_id del polígono al guardar
+                poligono.UpdatedDateTime = now;
+                poligono.UpdatedUserId = userId;
+            }
+
+            // Dirección / observaciones a nivel de lote (upsert).
+            lote.Direccion = dto.Direccion.Trim();
+            lote.Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim();
+
+            // Crear los vecinos/departamentos del lote (con sus personas).
+            var vecinos = dto.Vecinos.Select(dep => new Vecino
+            {
+                ProjectId = projectId,
+                Lote = lote, // nav; EF fija VecinoLoteId al guardar
+                VecinoUsoId = dep.VecinoUsoId,
+                InteriorDepartamento = dep.InteriorDepartamento?.Trim(),
+                VecinoColindanciaId = dep.VecinoColindanciaId,
+                VecinoTipoConstruccionId = dep.VecinoTipoConstruccionId,
                 CreatedDateTime = now,
                 CreatedUserId = userId,
                 Active = true,
                 State = true,
-                Personas = dto.Personas.Select(per => new VecinoPersona
+                Personas = dep.Personas.Select(per => new VecinoPersona
                 {
                     Nombre = per.Nombre.Trim(),
                     Dni = string.IsNullOrWhiteSpace(per.Dni) ? null : per.Dni.Trim(),
@@ -380,11 +437,16 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                     Active = true,
                     State = true
                 }).ToList()
-            };
+            }).ToList();
 
-            ctx.Vecino.Add(vecino);
+            ctx.Vecino.AddRange(vecinos);
             await ctx.SaveChangesAsync();
-            return vecino.VecinoId;
+
+            return new VecinoLoteRegisterResultDto
+            {
+                VecinoLoteId = lote.VecinoLoteId,
+                VecinoIds = vecinos.Select(v => v.VecinoId).ToList(),
+            };
         }
 
         // ── Solicitudes ─────────────────────────────────────────────────────
@@ -797,6 +859,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 join t in ctx.VecinoLimpiezaTipo on l.VecinoLimpiezaTipoId equals t.VecinoLimpiezaTipoId
                 join v in ctx.Vecino on l.VecinoId equals v.VecinoId into vj
                 from v in vj.DefaultIfEmpty()
+                join lo in ctx.VecinoLote on v.VecinoLoteId equals lo.VecinoLoteId into loj
+                from lo in loj.DefaultIfEmpty()
                 orderby l.Fecha, l.VecinoLimpiezaId
                 select new VecinoLimpiezaDto
                 {
@@ -805,7 +869,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                     VecinoLimpiezaTipoId = l.VecinoLimpiezaTipoId,
                     TipoDescripcion = t.Descripcion,
                     VecinoId = l.VecinoId,
-                    VecinoDireccion = v != null ? v.Direccion : null,
+                    VecinoDireccion = lo != null ? lo.Direccion : null,
+                    VecinoInterior = v != null ? v.InteriorDepartamento : null,
                     Descripcion = l.Descripcion,
                     AtencionArchivoUrl = l.AtencionArchivoUrl,
                     AtencionOriginalFileName = l.AtencionOriginalFileName,
@@ -866,6 +931,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             int? vecinoId = null;
             string? vecinoNombre = null;
             string? vecinoDireccion = null;
+            string? vecinoInterior = null;
 
             if (tipo.Descripcion == "Departamento")
             {
@@ -877,7 +943,11 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                     throw new AbrilException("El vecino no pertenece a este proyecto.", 422);
 
                 vecinoId = vecino.VecinoId;
-                vecinoDireccion = vecino.Direccion;
+                vecinoInterior = vecino.InteriorDepartamento;
+                vecinoDireccion = await ctx.VecinoLote
+                    .Where(lo => lo.VecinoLoteId == vecino.VecinoLoteId)
+                    .Select(lo => lo.Direccion)
+                    .FirstOrDefaultAsync();
                 vecinoNombre = await (
                     from per in ctx.VecinoPersona.Where(p => p.VecinoId == vecino.VecinoId && p.Active && p.State)
                     orderby per.VecinoRelacionTipoId, per.VecinoPersonaId
@@ -910,6 +980,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 VecinoId = vecinoId,
                 VecinoNombre = vecinoNombre,
                 VecinoDireccion = vecinoDireccion,
+                VecinoInterior = vecinoInterior,
                 Descripcion = entity.Descripcion,
             };
         }
@@ -1045,6 +1116,12 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
                 .Select(g => new { ProjectId = g.Key, Count = g.Count() })
                 .ToListAsync();
 
+            var loteCounts = await ctx.VecinoLote
+                .Where(l => l.Active && l.State)
+                .GroupBy(l => l.ProjectId)
+                .Select(g => new { ProjectId = g.Key, Count = g.Count() })
+                .ToListAsync();
+
             var solicitudCounts = await (
                 from s in ctx.VecinoSolicitud
                 join v in ctx.Vecino on s.VecinoId equals v.VecinoId
@@ -1122,6 +1199,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             {
                 ProjectId = p.ProjectId,
                 ProjectDescription = p.ProjectDescription,
+                LotesCount = loteCounts.FirstOrDefault(x => x.ProjectId == p.ProjectId)?.Count ?? 0,
                 VecinosCount = vecinoCounts.FirstOrDefault(x => x.ProjectId == p.ProjectId)?.Count ?? 0,
                 Solicitudes = SolicitudesFor(p.ProjectId),
                 Compromisos = CompromisosFor(p.ProjectId),
@@ -1132,6 +1210,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             {
                 ProjectId = 0,
                 ProjectDescription = "Resumen general",
+                LotesCount = loteCounts.Sum(x => x.Count),
                 VecinosCount = vecinoCounts.Sum(x => x.Count),
                 Solicitudes = SolicitudesFor(null),
                 Compromisos = CompromisosFor(null),

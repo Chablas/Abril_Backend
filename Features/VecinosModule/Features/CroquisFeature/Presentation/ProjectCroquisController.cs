@@ -91,29 +91,6 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Presentat
             }
         }
 
-        /// <summary>Asigna o quita (vecinoId = null) el vecino de un lote.</summary>
-        [HttpPatch("lotes/{loteId:int}/vecino")]
-        public async Task<IActionResult> AssignVecino(int loteId, [FromBody] AssignVecinoLoteDto dto)
-        {
-            try
-            {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
-
-                await _service.AssignVecinoToLote(loteId, dto.VecinoId, userId);
-                return Ok(new { message = "Lote actualizado exitosamente." });
-            }
-            catch (AbrilException ex)
-            {
-                return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "ERROR CROQUIS LOTE VECINO: {msg}", ex.ToString());
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
         /// <summary>Guarda el conjunto completo de lotes de un croquis (reemplaza los existentes).</summary>
         [HttpPut("{projectCroquisId:int}/lotes")]
         public async Task<IActionResult> SaveLotes(int projectCroquisId, [FromBody] SaveCroquisLotesDto dto)

@@ -253,6 +253,75 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
             }
         }
 
+        /// <summary>Aprueba en bloque las facturas seleccionadas.</summary>
+        [HttpPost("approve")]
+        public async Task<IActionResult> Approve([FromBody] InvoiceBulkActionDto dto)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == null) return Unauthorized(new { message = "Inicie sesión." });
+
+                var count = await _service.Approve(dto.InvoiceIds, userId.Value);
+                return Ok(new { message = $"Se aprobó(aron) {count} factura(s).", count });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE APPROVE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Rechaza en bloque las facturas seleccionadas.</summary>
+        [HttpPost("reject")]
+        public async Task<IActionResult> Reject([FromBody] InvoiceBulkActionDto dto)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == null) return Unauthorized(new { message = "Inicie sesión." });
+
+                var count = await _service.Reject(dto.InvoiceIds, userId.Value);
+                return Ok(new { message = $"Se rechazó(aron) {count} factura(s).", count });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE REJECT: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Observa en bloque las facturas seleccionadas con un motivo del catálogo.</summary>
+        [HttpPost("observe")]
+        public async Task<IActionResult> Observe([FromBody] InvoiceBulkActionDto dto)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == null) return Unauthorized(new { message = "Inicie sesión." });
+
+                var count = await _service.Observe(dto.InvoiceIds, dto.InvoiceObservationReasonId ?? 0, userId.Value);
+                return Ok(new { message = $"Se observó(aron) {count} factura(s).", count });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR INVOICE OBSERVE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Consulta de RUC a SUNAT para el modal de alta de proveedor.</summary>
         [HttpGet("ruc/{ruc}")]
         public async Task<IActionResult> GetByRuc(string ruc)

@@ -45,6 +45,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
         /// <summary>UserId del usuario logueado (de claims). Necesario para <see cref="OnlyMyPendingReview"/>.</summary>
         public int? CurrentUserId { get; set; }
+
+        /// <summary>Página solicitada (1-based). Solo aplica a la vista paginada de la tabla.</summary>
+        public int Page { get; set; } = 1;
+
+        /// <summary>
+        /// Columna por la que ordenar la tabla. Null/desconocida = orden original
+        /// (pendientes primero, luego más recientes). Valores: trabajador, fechaSalida,
+        /// horaSalida, horaRetorno, motivo, lugarOrigen, lugarDestino, estadoAprobacion,
+        /// estadoRendicion, createdAt.
+        /// </summary>
+        public string? SortBy { get; set; }
+
+        /// <summary>Dirección del orden: "asc" o "desc" (por defecto "asc").</summary>
+        public string? SortDir { get; set; }
     }
 
     public class MarcarRendidasBulkDto

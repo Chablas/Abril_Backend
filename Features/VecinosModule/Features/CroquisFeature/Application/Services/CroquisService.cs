@@ -63,8 +63,5 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Applicati
 
         public Task<CroquisGestionResponseDto> GetGestion()
             => _repository.GetGestion();
-
-        public Task AssignVecinoToLote(int loteId, int? vecinoId, int userId)
-            => _repository.AssignVecinoToLote(loteId, vecinoId, userId);
     }
 }

@@ -102,6 +102,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<InvoiceFolder> InvoiceFolder { get; set; }
         public DbSet<Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Models.ManagerSignature> ManagerSignature { get; set; }
         public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceDocumentType> InvoiceDocumentType { get; set; }
+        public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceStatus> InvoiceStatus { get; set; }
+        public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceObservationReason> InvoiceObservationReason { get; set; }
         public DbSet<WorkSpecialty> WorkSpecialty { get; set; }
         public DbSet<ProjectSubContractorQuotationFile> ProjectSubContractorQuotationFile { get; set; }
         public DbSet<ProjectSubContractorComparativeFile> ProjectSubContractorComparativeFile { get; set; }
@@ -294,6 +296,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionFoto> SsomaAmonestacionFotos => Set<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models.SsomaAmonestacionFoto>();
 
         // ── Vecinos ──────────────────────────────────────────────────────────────
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLote> VecinoLote => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLote>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino> Vecino => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.Vecino>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoColindancia> VecinoColindancia => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoColindancia>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoTipoConstruccion> VecinoTipoConstruccion => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoTipoConstruccion>();
@@ -467,6 +470,18 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(i => i.InvoiceDocumentType)
                 .WithMany()
                 .HasForeignKey(i => i.InvoiceDocumentTypeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Invoice>()
+                .HasOne(i => i.InvoiceStatus)
+                .WithMany()
+                .HasForeignKey(i => i.InvoiceStatusId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Invoice>()
+                .HasOne(i => i.InvoiceObservationReason)
+                .WithMany()
+                .HasForeignKey(i => i.InvoiceObservationReasonId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ContractorEmail>()

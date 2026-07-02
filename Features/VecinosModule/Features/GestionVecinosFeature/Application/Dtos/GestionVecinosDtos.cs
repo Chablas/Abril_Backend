@@ -48,12 +48,15 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
     public class VecinoListItemDto
     {
         public int VecinoId { get; set; }
+        /// <summary>Lote/edificio al que pertenece este vecino/departamento.</summary>
+        public int VecinoLoteId { get; set; }
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = null!;
         public string? Predio { get; set; }
         public int? VecinoUsoId { get; set; }
         public string? UsoDescripcion { get; set; }
-        public string Direccion { get; set; } = null!;
+        /// <summary>Dirección del lote (puede ser nula si el lote aún no tiene dirección registrada).</summary>
+        public string? Direccion { get; set; }
         public string? InteriorDepartamento { get; set; }
         /// <summary>Nombre de la persona principal (propietario) de la casa, para mostrar en la tabla/tarjeta.</summary>
         public string? NombrePropietario { get; set; }
@@ -121,29 +124,54 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public int VecinoRelacionTipoId { get; set; }
     }
 
-    /// <summary>Edición de los datos de la casa/propiedad (sección Detalle) + sus personas.</summary>
+    /// <summary>Edición de los datos de un vecino/departamento (sección Detalle) + sus personas.
+    /// La dirección y observaciones se editan aparte (a nivel de lote, ver <see cref="VecinoLoteUpdateDto"/>).</summary>
     public class VecinoUpdateDto
     {
         public int VecinoUsoId { get; set; }
-        public string Direccion { get; set; } = null!;
         public string? InteriorDepartamento { get; set; }
         public int VecinoColindanciaId { get; set; }
         public int VecinoTipoConstruccionId { get; set; }
-        public string? Observaciones { get; set; }
         public List<VecinoPersonaUpsertDto> Personas { get; set; } = new();
     }
 
-    public class VecinoCreateDto
+    /// <summary>Edición de los datos a nivel de lote (dirección + observaciones).</summary>
+    public class VecinoLoteUpdateDto
     {
-        public int ProjectId { get; set; }
-        public int VecinoUsoId { get; set; }
         public string Direccion { get; set; } = null!;
+        public string? Observaciones { get; set; }
+    }
+
+    /// <summary>Un vecino/departamento del formulario de alta (interior + uso/colindancia/tipo + personas).</summary>
+    public class VecinoDepartamentoCreateDto
+    {
+        public int VecinoUsoId { get; set; }
         public string? InteriorDepartamento { get; set; }
         public int VecinoColindanciaId { get; set; }
         public int VecinoTipoConstruccionId { get; set; }
-        public string? Observaciones { get; set; }
-        /// <summary>Personas asociadas a la casa/lote (al menos una).</summary>
+        /// <summary>Personas del departamento (al menos una).</summary>
         public List<VecinoPersonaCreateDto> Personas { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Alta de vecinos sobre un lote existente (definido como polígono en el croquis).
+    /// Fija/actualiza la dirección y observaciones del lote y crea N vecinos/departamentos.
+    /// </summary>
+    public class VecinoLoteRegisterDto
+    {
+        /// <summary>Polígono del croquis que representa el lote donde se registran los vecinos.</summary>
+        public int ProjectCroquisLoteId { get; set; }
+        public string Direccion { get; set; } = null!;
+        public string? Observaciones { get; set; }
+        /// <summary>Vecinos/departamentos a crear en el lote (al menos uno).</summary>
+        public List<VecinoDepartamentoCreateDto> Vecinos { get; set; } = new();
+    }
+
+    /// <summary>Resultado del alta: el lote afectado y los vecinos creados (en orden).</summary>
+    public class VecinoLoteRegisterResultDto
+    {
+        public int VecinoLoteId { get; set; }
+        public List<int> VecinoIds { get; set; } = new();
     }
 
     // ── Solicitudes ─────────────────────────────────────────────────────────
@@ -290,7 +318,10 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public string TipoDescripcion { get; set; } = null!;
         public int? VecinoId { get; set; }
         public string? VecinoNombre { get; set; }
+        /// <summary>Dirección del lote del vecino/departamento.</summary>
         public string? VecinoDireccion { get; set; }
+        /// <summary>Interior/departamento del vecino (dentro del lote).</summary>
+        public string? VecinoInterior { get; set; }
         public string? Descripcion { get; set; }
         public string? AtencionArchivoUrl { get; set; }
         public string? AtencionOriginalFileName { get; set; }
@@ -349,6 +380,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         /// <summary>0 cuando representa el resumen general (agregado global).</summary>
         public int ProjectId { get; set; }
         public string ProjectDescription { get; set; } = null!;
+        /// <summary>Cantidad de lotes/edificios del proyecto.</summary>
+        public int LotesCount { get; set; }
+        /// <summary>Cantidad de vecinos/departamentos del proyecto.</summary>
         public int VecinosCount { get; set; }
         public List<VecinosDashboardEstadoDto> Solicitudes { get; set; } = new();
         public List<VecinosDashboardEstadoDto> Compromisos { get; set; } = new();

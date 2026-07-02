@@ -44,6 +44,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters)
             => _repo.GetAll(filters);
 
+        public Task<Abril_Backend.Application.DTOs.PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
+            => _repo.GetPaged(filters);
+
         public Task<GestionSalidaFilterDataDto> GetFilterData()
             => _repo.GetFilterData();
 

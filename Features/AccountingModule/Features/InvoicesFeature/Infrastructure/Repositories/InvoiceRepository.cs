@@ -3,6 +3,7 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Dtos;
+using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Application.Helpers;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Shared.Models;
@@ -65,6 +66,64 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                 .ToListAsync();
         }
 
+        public async Task<List<InvoiceObservationReasonDto>> GetObservationReasons()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.InvoiceObservationReason
+                .Where(r => r.State && r.Active)
+                .OrderBy(r => r.InvoiceObservationReasonId)
+                .Select(r => new InvoiceObservationReasonDto
+                {
+                    InvoiceObservationReasonId = r.InvoiceObservationReasonId,
+                    InvoiceObservationReasonDescription = r.InvoiceObservationReasonDescription
+                })
+                .ToListAsync();
+        }
+
+        // ── Acciones en bloque: aprobar / rechazar / observar ──────────────────
+        public Task<int> ApproveInvoices(List<int> invoiceIds, int userId)
+            => SetStatusByDescription(invoiceIds, "Aprobado", null, userId);
+
+        public Task<int> RejectInvoices(List<int> invoiceIds, int userId)
+            => SetStatusByDescription(invoiceIds, "Rechazado", null, userId);
+
+        public Task<int> ObserveInvoices(List<int> invoiceIds, int observationReasonId, int userId)
+            => SetStatusByDescription(invoiceIds, "Observado", observationReasonId, userId);
+
+        /// <summary>
+        /// Resuelve el id del estado por su descripción y lo aplica a las facturas indicadas.
+        /// Al aprobar/rechazar limpia el motivo de observación; al observar lo asigna.
+        /// </summary>
+        private async Task<int> SetStatusByDescription(List<int> invoiceIds, string statusDescription, int? reasonId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var statusId = await ctx.InvoiceStatus
+                .Where(s => s.State && s.InvoiceStatusDescription.ToLower() == statusDescription.ToLower())
+                .Select(s => (int?)s.InvoiceStatusId)
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException($"No existe el estado '{statusDescription}' en el catálogo.");
+
+            var invoices = await ctx.Invoice
+                .Where(i => i.State && invoiceIds.Contains(i.InvoiceId))
+                .ToListAsync();
+
+            if (invoices.Count == 0)
+                throw new AbrilException("No se encontraron facturas para actualizar.");
+
+            var now = DateTimeOffset.UtcNow;
+            foreach (var inv in invoices)
+            {
+                inv.InvoiceStatusId = statusId;
+                inv.InvoiceObservationReasonId = reasonId;
+                inv.UpdatedDateTime = now;
+                inv.UpdatedUserId = userId;
+            }
+
+            await ctx.SaveChangesAsync();
+            return invoices.Count;
+        }
+
         public async Task<InvoiceDetailDto?> GetDetail(int invoiceId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -89,6 +148,10 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     CurrencyId = i.CurrencyId,
                     CurrencyCode = i.Currency!.CurrencyCode,
                     CurrencySymbol = i.Currency.CurrencySymbol,
+                    InvoiceStatusId = i.InvoiceStatusId,
+                    InvoiceStatusDescription = i.InvoiceStatus!.InvoiceStatusDescription,
+                    InvoiceObservationReasonId = i.InvoiceObservationReasonId,
+                    InvoiceObservationReasonDescription = i.InvoiceObservationReason!.InvoiceObservationReasonDescription,
                     InvoiceFolderId = i.InvoiceFolderId,
                     InvoiceFolderName = i.InvoiceFolder!.FolderName,
                     DocumentUrl = i.DocumentUrl,
@@ -180,6 +243,34 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                 .FirstOrDefaultAsync();
         }
 
+        public async Task<(string? Ruc, string Name)?> GetContributorRucName(int contributorId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var row = await ctx.Contributor
+                .Where(c => c.ContributorId == contributorId && c.State)
+                .Select(c => new { c.ContributorRuc, c.ContributorName })
+                .FirstOrDefaultAsync();
+            return row == null ? null : (row.ContributorRuc, row.ContributorName);
+        }
+
+        public async Task<Dictionary<string, string>> GetContributorRucByNormalizedName()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var list = await ctx.Contributor
+                .Where(c => c.State)
+                .Select(c => new { c.ContributorName, c.ContributorRuc })
+                .ToListAsync();
+
+            var map = new Dictionary<string, string>();
+            foreach (var c in list)
+            {
+                if (string.IsNullOrWhiteSpace(c.ContributorRuc)) continue;
+                var key = InvoiceTextHelper.NormalizeName(c.ContributorName);
+                if (!map.ContainsKey(key)) map[key] = c.ContributorRuc.Trim();
+            }
+            return map;
+        }
+
         public async Task<string?> GetAbrilContributorName(int abrilContributorId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -227,6 +318,9 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
             if (filter.InvoicePaymentFormId.HasValue)
                 query = query.Where(i => i.InvoicePaymentFormId == filter.InvoicePaymentFormId.Value);
 
+            if (filter.CurrencyId.HasValue)
+                query = query.Where(i => i.CurrencyId == filter.CurrencyId.Value);
+
             if (filter.TotalMin.HasValue)
                 query = query.Where(i => i.Total >= filter.TotalMin.Value);
 
@@ -265,6 +359,67 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
             return query;
         }
 
+        /// <summary>
+        /// Aplica el orden de la tabla según <see cref="InvoiceFilterDto.SortBy"/> / <see cref="InvoiceFilterDto.SortDir"/>.
+        /// Si no se indica columna (o es desconocida) se usa el orden original: más recientes primero (InvoiceId desc).
+        /// El desempate siempre es por InvoiceId para que el orden sea estable entre páginas.
+        /// </summary>
+        private static IOrderedQueryable<Invoice> ApplyOrder(IQueryable<Invoice> query, InvoiceFilterDto filter)
+        {
+            var asc = !string.Equals(filter.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
+
+            switch ((filter.SortBy ?? "").Trim().ToLower())
+            {
+                case "issuedate":
+                    return asc
+                        ? query.OrderBy(i => i.IssueDate).ThenByDescending(i => i.InvoiceId)
+                        : query.OrderByDescending(i => i.IssueDate).ThenByDescending(i => i.InvoiceId);
+
+                case "invoicenumber":
+                    return asc
+                        ? query.OrderBy(i => i.Serie).ThenBy(i => i.Correlativo).ThenByDescending(i => i.InvoiceId)
+                        : query.OrderByDescending(i => i.Serie).ThenByDescending(i => i.Correlativo).ThenByDescending(i => i.InvoiceId);
+
+                case "contributorname":
+                    return asc
+                        ? query.OrderBy(i => i.ProveedorName ?? i.Contributor!.ContributorName).ThenByDescending(i => i.InvoiceId)
+                        : query.OrderByDescending(i => i.ProveedorName ?? i.Contributor!.ContributorName).ThenByDescending(i => i.InvoiceId);
+
+                case "contributorruc":
+                    return asc
+                        ? query.OrderBy(i => i.Contributor!.ContributorRuc).ThenByDescending(i => i.InvoiceId)
+                        : query.OrderByDescending(i => i.Contributor!.ContributorRuc).ThenByDescending(i => i.InvoiceId);
+
+                case "abrilcontributorname":
+                    return asc
+                        ? query.OrderBy(i => i.AbrilName ?? i.AbrilContributor!.ContributorName).ThenByDescending(i => i.InvoiceId)
+                        : query.OrderByDescending(i => i.AbrilName ?? i.AbrilContributor!.ContributorName).ThenByDescending(i => i.InvoiceId);
+
+                case "description":
+                    return asc
+                        ? query.OrderBy(i => i.Description).ThenByDescending(i => i.InvoiceId)
+                        : query.OrderByDescending(i => i.Description).ThenByDescending(i => i.InvoiceId);
+
+                case "invoicepaymentformdescription":
+                    return asc
+                        ? query.OrderBy(i => i.InvoicePaymentForm!.InvoicePaymentFormDescription).ThenByDescending(i => i.InvoiceId)
+                        : query.OrderByDescending(i => i.InvoicePaymentForm!.InvoicePaymentFormDescription).ThenByDescending(i => i.InvoiceId);
+
+                case "total":
+                    return asc
+                        ? query.OrderBy(i => i.Total).ThenByDescending(i => i.InvoiceId)
+                        : query.OrderByDescending(i => i.Total).ThenByDescending(i => i.InvoiceId);
+
+                case "invoicestatusdescription":
+                    return asc
+                        ? query.OrderBy(i => i.InvoiceStatus!.InvoiceStatusDescription).ThenByDescending(i => i.InvoiceId)
+                        : query.OrderByDescending(i => i.InvoiceStatus!.InvoiceStatusDescription).ThenByDescending(i => i.InvoiceId);
+
+                default:
+                    return query.OrderByDescending(i => i.InvoiceId);
+            }
+        }
+
         public async Task<List<InvoiceBlockGroupDto>> GetBlocks(InvoiceFilterDto filter)
         {
             using var ctx = _factory.CreateDbContext();
@@ -291,6 +446,10 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     CurrencyId = i.CurrencyId,
                     CurrencyCode = i.Currency!.CurrencyCode,
                     CurrencySymbol = i.Currency.CurrencySymbol,
+                    InvoiceStatusId = i.InvoiceStatusId,
+                    InvoiceStatusDescription = i.InvoiceStatus!.InvoiceStatusDescription,
+                    InvoiceObservationReasonId = i.InvoiceObservationReasonId,
+                    InvoiceObservationReasonDescription = i.InvoiceObservationReason!.InvoiceObservationReasonDescription,
                     DocumentUrl = i.DocumentUrl,
                     SignedDocumentUrl = i.SignedDocumentUrl,
                     CreatedDateTime = i.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
@@ -394,8 +553,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
 
             var totalRecords = await query.CountAsync();
 
-            var data = await query
-                .OrderByDescending(i => i.InvoiceId)
+            var data = await ApplyOrder(query, filter)
                 .Skip((filter.Page - 1) * PageSize)
                 .Take(PageSize)
                 .Select(i => new InvoiceDto
@@ -416,6 +574,10 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     CurrencyId = i.CurrencyId,
                     CurrencyCode = i.Currency!.CurrencyCode,
                     CurrencySymbol = i.Currency.CurrencySymbol,
+                    InvoiceStatusId = i.InvoiceStatusId,
+                    InvoiceStatusDescription = i.InvoiceStatus!.InvoiceStatusDescription,
+                    InvoiceObservationReasonId = i.InvoiceObservationReasonId,
+                    InvoiceObservationReasonDescription = i.InvoiceObservationReason!.InvoiceObservationReasonDescription,
                     DocumentUrl = i.DocumentUrl,
                     SignedDocumentUrl = i.SignedDocumentUrl,
                     CreatedDateTime = i.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime
@@ -470,7 +632,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         }
 
         public async Task<InvoiceImportResultDto> ImportInvoices(
-            List<InvoiceImportRowDto> rows, Dictionary<int, string?> docUrlByIndex, int userId)
+            List<InvoiceImportRowDto> rows, Dictionary<int, string?> docUrlByIndex, int? invoiceFolderId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
             var now = DateTimeOffset.UtcNow;
@@ -570,6 +732,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
                     Total = r.Total,
                     CurrencyId = currencyId,
                     DocumentUrl = documentUrl,
+                    InvoiceFolderId = invoiceFolderId,
                     CreatedDateTime = now,
                     CreatedUserId = userId,
                     Active = true,

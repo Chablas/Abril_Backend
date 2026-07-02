@@ -22,7 +22,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] bool onlyMyPendingReview = false)
+        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] bool onlyMyPendingReview = false, [FromQuery] int page = 1, [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
         {
             try
             {
@@ -37,8 +37,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     EstadoAprobacion    = estadoAprobacion,
                     OnlyMyPendingReview = onlyMyPendingReview,
                     CurrentUserId       = currentUserId,
+                    Page                = page < 1 ? 1 : page,
+                    SortBy              = sortBy,
+                    SortDir             = sortDir,
                 };
-                return Ok(await _service.GetAll(filters));
+                return Ok(await _service.GetPaged(filters));
             }
             catch (AbrilException ex)
             {

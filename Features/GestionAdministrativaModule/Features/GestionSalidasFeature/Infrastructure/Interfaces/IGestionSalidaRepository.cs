@@ -1,3 +1,4 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces
@@ -5,6 +6,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
     public interface IGestionSalidaRepository
     {
         Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters);
+
+        /// <summary>Igual que <see cref="GetAll"/> pero ordenado por la columna indicada y paginado.</summary>
+        Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters);
         Task<GestionSalidaFilterDataDto> GetFilterData();
         Task Aprobar(int id, int reviewerUserId);
         Task Rechazar(int id, int reviewerUserId);

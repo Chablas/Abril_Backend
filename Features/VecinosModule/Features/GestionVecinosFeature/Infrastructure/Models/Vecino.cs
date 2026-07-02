@@ -6,12 +6,26 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
     {
         public int VecinoId { get; set; }
 
+        /// <summary>
+        /// Proyecto del vecino/departamento. Se mantiene poblado (denormalizado desde el lote)
+        /// para evitar joins adicionales en listados y dashboard. Siempre coincide con
+        /// <see cref="VecinoLote"/>.ProjectId.
+        /// </summary>
         public int ProjectId { get; set; }
         public Project? Project { get; set; }
 
+        /// <summary>
+        /// Lote/edificio al que pertenece este vecino/departamento. Un lote agrupa a N vecinos.
+        /// La dirección y las observaciones viven en el lote.
+        /// </summary>
+        public int VecinoLoteId { get; set; }
+        public VecinoLote? Lote { get; set; }
+
         /// <summary>Obsoleto: reemplazado por <see cref="VecinoUsoId"/>. Se conserva por auditoría.</summary>
         public string? Predio { get; set; }
-        public string Direccion { get; set; } = null!;
+
+        /// <summary>Obsoleto: la dirección vive ahora en <see cref="VecinoLote"/>. Se conserva por auditoría.</summary>
+        public string? Direccion { get; set; }
         public string? InteriorDepartamento { get; set; }
 
         /// <summary>Obsoleto: los datos de la persona viven ahora en <see cref="Personas"/>. Se conserva por auditoría.</summary>
@@ -30,6 +44,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
         public int VecinoTipoConstruccionId { get; set; }
         public VecinoTipoConstruccion? TipoConstruccion { get; set; }
 
+        /// <summary>Obsoleto: las observaciones viven ahora en <see cref="VecinoLote"/>. Se conserva por auditoría.</summary>
         public string? Observaciones { get; set; }
 
         public ICollection<VecinoPersona> Personas { get; set; } = new List<VecinoPersona>();

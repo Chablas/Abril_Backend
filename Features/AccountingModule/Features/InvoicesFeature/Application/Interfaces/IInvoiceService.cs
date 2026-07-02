@@ -25,5 +25,12 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         Task<string> Sign(int invoiceId, int userId);
         Task<InvoiceSupplierDto> CreateSupplier(InvoiceSupplierCreateDto dto, int userId);
         Task<SunatContributorDto?> GetByRuc(string ruc);
+
+        /// <summary>Aprueba en bloque las facturas indicadas. Devuelve cuántas se actualizaron.</summary>
+        Task<int> Approve(List<int> invoiceIds, int userId);
+        /// <summary>Rechaza en bloque las facturas indicadas. Devuelve cuántas se actualizaron.</summary>
+        Task<int> Reject(List<int> invoiceIds, int userId);
+        /// <summary>Observa en bloque las facturas indicadas con un motivo. Devuelve cuántas se actualizaron.</summary>
+        Task<int> Observe(List<int> invoiceIds, int observationReasonId, int userId);
     }
 }

@@ -81,6 +81,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             {
                 dto.DocumentoInterconsulta = documentoInterconsulta;
                 dto.ArchivoLectura = archivoLectura;
+
+                // Si quien registra es una clinica y no mando clinicaId explicito,
+                // se liga el EMO a su propia clinica desde el inicio (evita que las
+                // subidas de Aptitud/EMO Completo que siguen a la creacion choquen
+                // con el chequeo de propiedad de SubirDocumento).
+                if (dto.ClinicaId == null && User.IsInRole("CLINICA"))
+                {
+                    var clinicaIdClaim = User.FindFirst("clinicaId")?.Value;
+                    if (int.TryParse(clinicaIdClaim, out var clinicaIdActual))
+                        dto.ClinicaId = clinicaIdActual;
+                }
+
                 var result = await _service.Create(dto, CurrentUserId());
                 return Ok(new { id = result.EmoId, interconsultaId = result.InterconsultaId, message = "EMO registrado exitosamente." });
             }

@@ -385,7 +385,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                     racsE.Count(), racsE.Count(r => r.Estado == "Cerrado"), optE, atsE, charlasE, inspE));
             }
 
-            if (!empresasDtos.Any()) continue;
+            // No se omite el proyecto aunque no tenga tareo todavía: debe aparecer
+            // con 0% en vez de desaparecer de la lista de "proyectos activos".
 
             // Usar todas las empresas con tareo (no filtrar por EsActiva = 10 días)
             // El umbral de 10 días solo afecta las metas proporcionales dentro de BuildMetaDto
@@ -475,7 +476,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                                && pe.Estado == "Ejecutado")
             : 0;
 
-        var pctPasso = pasoProgramadas > 0 ? (decimal)pasoEjecutadas / pasoProgramadas * 100 : 100;
+        var pctPasso = pasoProgramadas > 0 ? (decimal)pasoEjecutadas / pasoProgramadas * 100 : 0;
 
         // % cierre accidentes (todos los abiertos hasta la fecha, incluye meses anteriores)
         var accidentesTotales = await ctx.SsomaAccidenteIncidente
@@ -484,7 +485,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .CountAsync(a => a.ProyectoId == proyectoId && a.Fecha < fechaCorte && a.Estado == "Cerrado");
         var accidentesAbiertos = accidentesTotales - accidentesCerrados;
         var pctCierreAccidentes = accidentesTotales > 0
-            ? (decimal)accidentesCerrados / accidentesTotales * 100 : 100;
+            ? (decimal)accidentesCerrados / accidentesTotales * 100 : 0;
 
         // % cierre hallazgos (join a través de inspección)
         var hallazgosTotales = await ctx.SsomaInspeccionHallazgo
@@ -504,7 +505,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .CountAsync();
 
         var pctCierreHallazgos = hallazgosTotales > 0
-            ? (decimal)hallazgosCerrados / hallazgosTotales * 100 : 100;
+            ? (decimal)hallazgosCerrados / hallazgosTotales * 100 : 0;
 
         // Cálculo del puntaje (sobre 100, con bonus hasta +10)
         var puntProactivos = Math.Min(pctProactivos, 100) * 0.40m;
@@ -542,7 +543,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         };
     }
 
-    public async Task<List<PuntajeMesDto>> GetPuntajeTodosProyectosAsync(int mes, int anio)
+    public async Task<List<PuntajeMesDto>> GetPuntajeTodosProyectosAsync(
+        int mes, int anio, List<IndicadorProactivoProyectoDto>? seguimiento = null)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -561,8 +563,11 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var proyIds = proyectos.Select(p => p.ProjectId).ToList();
         if (!proyIds.Any()) return [];
 
-        // Bulk: seguimiento (proactivos) — reutiliza el mismo método optimizado
-        var seguimientoTask = GetSeguimientoTodosProyectosAsync(mes, anio);
+        // Bulk: seguimiento (proactivos) — reutiliza el resultado ya calculado si viene provisto
+        // (evita repetir las 8 bulk queries cuando el controller ya lo tiene cacheado)
+        var seguimientoTask = seguimiento != null
+            ? Task.FromResult(seguimiento)
+            : GetSeguimientoTodosProyectosAsync(mes, anio);
 
         // Bulk: PASSO — todo en memoria, sin GroupBy en EF Core
         var pasos = await ctx.SsomaPasos
@@ -610,25 +615,25 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Select(g => new { g.Key.ProyectoId, g.Key.Cerrado, Count = g.Count() })
             .ToListAsync();
 
-        var seguimiento = await seguimientoTask;
+        var seguimientoFinal = await seguimientoTask;
 
         var result = new List<PuntajeMesDto>();
         foreach (var proy in proyectos)
         {
             var pid = proy.ProjectId;
-            var seg = seguimiento.FirstOrDefault(s => s.ProyectoId == pid);
+            var seg = seguimientoFinal.FirstOrDefault(s => s.ProyectoId == pid);
             var pctProactivos = seg != null ? seg.PctProactivoGeneral : 0m;
 
             var paso = pasoProgFinal.FirstOrDefault(p => p.ProyectoId == pid);
-            var pctPasso = paso is { Total: > 0 } ? (decimal)paso.Ejecutadas / paso.Total * 100 : 100m;
+            var pctPasso = paso is { Total: > 0 } ? (decimal)paso.Ejecutadas / paso.Total * 100 : 0m;
 
             var accTotal = accBulk.Where(a => a.ProyectoId == pid).Sum(a => a.Count);
             var accCerr  = accBulk.Where(a => a.ProyectoId == pid && a.Cerrado).Sum(a => a.Count);
-            var pctAcc   = accTotal > 0 ? (decimal)accCerr / accTotal * 100 : 100m;
+            var pctAcc   = accTotal > 0 ? (decimal)accCerr / accTotal * 100 : 0m;
 
             var hallTotal = hallBulk.Where(h => h.ProyectoId == pid).Sum(h => h.Count);
             var hallCerr  = hallBulk.Where(h => h.ProyectoId == pid && h.Cerrado).Sum(h => h.Count);
-            var pctHall   = hallTotal > 0 ? (decimal)hallCerr / hallTotal * 100 : 100m;
+            var pctHall   = hallTotal > 0 ? (decimal)hallCerr / hallTotal * 100 : 0m;
 
             var puntProac = Math.Min(pctProactivos, 100) * 0.40m;
             var puntPasso = Math.Min(pctPasso, 100) * 0.25m;
@@ -710,7 +715,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
     }
 
     private static decimal Pct(int actual, int meta)
-        => meta > 0 ? Math.Round((decimal)actual / meta * 100, 1) : 100m;
+        => meta > 0 ? Math.Round((decimal)actual / meta * 100, 1) : 0m;
 
     private static HashSet<DateTime> FeriadosPeruDateTime(int anio)
     {
@@ -779,12 +784,109 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Where(p => p.Active && p.Estado == "ACTIVO")
             .Select(p => new { p.ProjectId, p.ProjectDescription })
             .ToListAsync();
+        var proyIds = proyectos.Select(p => p.ProjectId).ToList();
+        if (!proyIds.Any()) return [];
 
+        // ── HHT: personas-día casa + contratista, agrupado por proyecto ─────────
+        var personasCasaBulk = await ctx.SsTareoDetalleCasa
+            .Where(d => proyIds.Contains(d.Tareo!.ProyectoId)
+                     && d.Tareo.Fecha.Month == mes && d.Tareo.Fecha.Year == anio
+                     && d.CantidadPersonas > 0)
+            .GroupBy(d => d.Tareo!.ProyectoId)
+            .Select(g => new { ProyectoId = g.Key, Total = g.Sum(x => (long)x.CantidadPersonas) })
+            .ToListAsync();
+
+        var personasContrBulk = await ctx.SsTareoDetalleContratista
+            .Where(d => proyIds.Contains(d.Tareo!.ProyectoId)
+                     && d.Tareo.Fecha.Month == mes && d.Tareo.Fecha.Year == anio
+                     && d.CantidadPersonas > 0)
+            .GroupBy(d => d.Tareo!.ProyectoId)
+            .Select(g => new { ProyectoId = g.Key, Total = g.Sum(x => (long)x.CantidadPersonas) })
+            .ToListAsync();
+
+        // ── Accidentes Tópico por proyecto ───────────────────────────────────────
+        var accTopicoBulk = await ctx.SsAccidenteTrabajo
+            .Where(a => a.ProyectoId != null && proyIds.Contains(a.ProyectoId!.Value)
+                     && a.FechaAccidente.Month == mes && a.FechaAccidente.Year == anio)
+            .GroupBy(a => a.ProyectoId!.Value)
+            .Select(g => new {
+                ProyectoId = g.Key,
+                Count = g.Count(),
+                DiasPerdidos = g.Sum(a => (int?)(a.DiasDescansoReales ?? a.DiasDescansoEstimados) ?? 0)
+            })
+            .ToListAsync();
+
+        // ── Flash Report tipo "AC" sin vincular a un accidente de Tópico ─────────
+        var flashIdsYaVinculados = await ctx.SsAccidenteTrabajo
+            .Where(a => a.FlashReportId != null)
+            .Select(a => a.FlashReportId!.Value)
+            .ToListAsync();
+
+        var flashSinVincular = await (
+            from fr in ctx.SsomaAccidenteIncidente
+            join t in ctx.SsomaFlashTipo on fr.TipoId equals t.Id
+            where proyIds.Contains(fr.ProyectoId)
+               && fr.Fecha.Month == mes && fr.Fecha.Year == anio
+               && t.Codigo == "AC"
+               && !flashIdsYaVinculados.Contains(fr.Id)
+            select new { fr.Id, fr.ProyectoId }
+        ).ToListAsync();
+
+        var flashIds = flashSinVincular.Select(f => f.Id).ToList();
+        var flashProyMap = flashSinVincular.ToDictionary(f => f.Id, f => f.ProyectoId);
+
+        var diasPerdidosFlashRaw = flashIds.Any()
+            ? await ctx.SsomaInvestigacionRm050
+                .Where(inv => flashIds.Contains(inv.AccidenteIncidenteId))
+                .Select(inv => new { inv.AccidenteIncidenteId, inv.DiasPerdidos })
+                .ToListAsync()
+            : [];
+
+        var flashCountBulk = flashSinVincular
+            .GroupBy(f => f.ProyectoId)
+            .Select(g => new { ProyectoId = g.Key, Count = g.Count() })
+            .ToList();
+
+        var diasPerdidosFlashBulk = diasPerdidosFlashRaw
+            .GroupBy(x => flashProyMap.GetValueOrDefault(x.AccidenteIncidenteId))
+            .Select(g => new { ProyectoId = g.Key, Total = g.Sum(x => (int?)x.DiasPerdidos ?? 0) })
+            .ToList();
+
+        // ── Agregar por proyecto ─────────────────────────────────────────────────
         var resultado = new List<IndicadorReactivoProyectoDto>();
-        foreach (var p in proyectos)
+        foreach (var proy in proyectos)
         {
-            var ind = await CalcularReactivosAsync(ctx, p.ProjectId, mes, anio);
-            resultado.Add(ind with { ProyectoNombre = p.ProjectDescription ?? "" });
+            var pid = proy.ProjectId;
+            var hht = ((personasCasaBulk.FirstOrDefault(x => x.ProyectoId == pid)?.Total ?? 0)
+                     + (personasContrBulk.FirstOrDefault(x => x.ProyectoId == pid)?.Total ?? 0)) * 8L;
+
+            var accTopico = accTopicoBulk.FirstOrDefault(x => x.ProyectoId == pid);
+            var totalAccidentes = (accTopico?.Count ?? 0)
+                + (flashCountBulk.FirstOrDefault(x => x.ProyectoId == pid)?.Count ?? 0);
+            var totalDiasPerdidos = (accTopico?.DiasPerdidos ?? 0)
+                + (diasPerdidosFlashBulk.FirstOrDefault(x => x.ProyectoId == pid)?.Total ?? 0);
+
+            decimal if_ = 0, ig = 0, ia = 0;
+            if (hht > 0)
+            {
+                if_ = Math.Round((decimal)totalAccidentes * 1_000_000m / hht, 2);
+                ig  = Math.Round((decimal)totalDiasPerdidos * 1_000_000m / hht, 2);
+                ia  = Math.Round(if_ * ig / 1000m, 2);
+            }
+
+            resultado.Add(new IndicadorReactivoProyectoDto
+            {
+                ProyectoId = pid,
+                ProyectoNombre = proy.ProjectDescription ?? "",
+                Mes = mes,
+                Anio = anio,
+                HorasHombreTrabajadas = hht,
+                TotalAccidentes = totalAccidentes,
+                TotalDiasPerdidos = totalDiasPerdidos,
+                IndiceFrecuencia = if_,
+                IndiceGravedad = ig,
+                IndiceAccidentabilidad = ia,
+            });
         }
         return resultado;
     }

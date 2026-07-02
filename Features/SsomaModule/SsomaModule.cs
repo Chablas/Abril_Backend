@@ -43,6 +43,10 @@ using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Applicatio
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -192,6 +196,10 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IPresupuestoService, PresupuestoService>();
             services.AddScoped<IControlConsumoRepository, ControlConsumoRepository>();
             services.AddScoped<IControlConsumoService, ControlConsumoService>();
+
+            // Horas Hombre (a partir del Tareo de Control de Acceso)
+            services.AddScoped<IHorasHombreRepository, HorasHombreRepository>();
+            services.AddScoped<IHorasHombreService, HorasHombreService>();
 
             return services;
         }

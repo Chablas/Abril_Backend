@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace Abril_Backend.Features.Habilitacion.Application.Services
@@ -195,6 +196,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return path;
         }
 
+        // Límite documentado de Microsoft Graph para el PUT simple ".../content" (4 MB).
+        // Archivos más grandes deben subirse por sesión (createUploadSession) en chunks.
+        private const long GraphSimpleUploadMaxBytes = 4 * 1024 * 1024;
+
         public async Task<string> SubirArchivoEnRutaAsync(Stream fileStream, string fileName, string libraryContexto, string carpetaPath)
         {
             var siteId = ResolverSiteId(libraryContexto);
@@ -213,6 +218,17 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var path = $"{carpetaPath.Trim('/')}/{fechaPrefix}_{fileNameLimpio}";
 
             var encoded = Uri.EscapeDataString(path).Replace("%2F", "/");
+
+            long fileLength;
+            try { fileLength = fileStream.Length; }
+            catch (NotSupportedException) { fileLength = GraphSimpleUploadMaxBytes + 1; } // stream sin Length conocido → forzar chunked por seguridad
+
+            if (fileLength > GraphSimpleUploadMaxBytes)
+            {
+                await SubirArchivoPorSesionAsync(siteId, driveId, token, encoded, fileStream, fileLength, path);
+                return path;
+            }
+
             var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encoded}:/content";
 
             var client = _httpClientFactory.CreateClient();
@@ -231,6 +247,139 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             }
 
             return path;
+        }
+
+        /// <summary>
+        /// Sube un archivo grande (&gt; 4 MB) a SharePoint usando una upload session de Microsoft Graph,
+        /// en fragmentos de 5 MB (múltiplo de 320 KiB, tal como exige la API). Reintenta cada fragmento
+        /// hasta 3 veces ante fallas transitorias antes de abortar.
+        /// </summary>
+        private async Task SubirArchivoPorSesionAsync(
+            string siteId, string driveId, string token, string encodedPath,
+            Stream fileStream, long fileLength, string pathParaLog)
+        {
+            const int chunkSize = 5 * 1024 * 1024; // 5 MB, múltiplo de 320 KiB
+            const int maxIntentosPorChunk = 3;
+
+            var client = _httpClientFactory.CreateClient();
+
+            var createSessionUrl = $"https://graph.microsoft.com/v1.0/sites/{siteId}/drives/{driveId}/root:/{encodedPath}:/createUploadSession";
+            using var sessionRequest = new HttpRequestMessage(HttpMethod.Post, createSessionUrl)
+            {
+                Content = JsonContent.Create(new
+                {
+                    item = new Dictionary<string, string> { ["@microsoft.graph.conflictBehavior"] = "replace" }
+                })
+            };
+            sessionRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var sessionResponse = await client.SendAsync(sessionRequest);
+            if (!sessionResponse.IsSuccessStatusCode)
+            {
+                var body = await sessionResponse.Content.ReadAsStringAsync();
+                _logger.LogWarning("No se pudo crear la upload session de SharePoint ({Status}) para {Path}: {Body}",
+                    sessionResponse.StatusCode, pathParaLog, body);
+                throw new AbrilException($"Error al iniciar la subida del archivo a SharePoint ({(int)sessionResponse.StatusCode}).", 502);
+            }
+
+            using var sessionDoc = JsonDocument.Parse(await sessionResponse.Content.ReadAsStringAsync());
+            var uploadUrl = sessionDoc.RootElement.GetProperty("uploadUrl").GetString()
+                ?? throw new AbrilException("SharePoint no devolvió una URL de subida válida.", 502);
+
+            if (fileStream.CanSeek) fileStream.Position = 0;
+            var buffer = new byte[chunkSize];
+            long enviados = 0;
+
+            try
+            {
+                while (enviados < fileLength)
+                {
+                    var tamanoChunk = (int)Math.Min(chunkSize, fileLength - enviados);
+                    var leidos = await LeerBufferCompletoAsync(fileStream, buffer, tamanoChunk);
+                    if (leidos != tamanoChunk)
+                        throw new AbrilException("El archivo se cortó durante la lectura antes de completar la subida.", 400);
+
+                    var rangoInicio = enviados;
+                    var rangoFin = enviados + tamanoChunk - 1;
+
+                    var exito = false;
+                    Exception? ultimoError = null;
+
+                    for (var intento = 1; intento <= maxIntentosPorChunk && !exito; intento++)
+                    {
+                        try
+                        {
+                            using var chunkContent = new ByteArrayContent(buffer, 0, tamanoChunk);
+                            chunkContent.Headers.ContentLength = tamanoChunk;
+                            chunkContent.Headers.ContentRange =
+                                new System.Net.Http.Headers.ContentRangeHeaderValue(rangoInicio, rangoFin, fileLength);
+
+                            // La uploadUrl de la sesión ya está pre-autorizada — no enviar Authorization aquí.
+                            using var chunkResponse = await client.PutAsync(uploadUrl, chunkContent);
+                            if (chunkResponse.IsSuccessStatusCode)
+                            {
+                                exito = true;
+                            }
+                            else
+                            {
+                                var body = await chunkResponse.Content.ReadAsStringAsync();
+                                ultimoError = new AbrilException(
+                                    $"Error al subir fragmento ({(int)chunkResponse.StatusCode}).", 502);
+                                _logger.LogWarning(
+                                    "Fragmento {Inicio}-{Fin}/{Total} falló ({Status}) intento {Intento} para {Path}: {Body}",
+                                    rangoInicio, rangoFin, fileLength, chunkResponse.StatusCode, intento, pathParaLog, body);
+                            }
+                        }
+                        catch (Exception ex) when (ex is not AbrilException)
+                        {
+                            ultimoError = ex;
+                            _logger.LogWarning(ex,
+                                "Excepción subiendo fragmento {Inicio}-{Fin}/{Total} intento {Intento} para {Path}",
+                                rangoInicio, rangoFin, fileLength, intento, pathParaLog);
+                        }
+
+                        if (!exito && intento < maxIntentosPorChunk)
+                            await Task.Delay(TimeSpan.FromSeconds(intento)); // backoff simple
+                    }
+
+                    if (!exito)
+                    {
+                        _logger.LogError(ultimoError,
+                            "Subida de fragmento agotó reintentos para {Path}", pathParaLog);
+                        throw new AbrilException(
+                            "No se pudo completar la subida del archivo a SharePoint tras varios intentos. Intenta nuevamente.",
+                            502);
+                    }
+
+                    enviados += tamanoChunk;
+                }
+            }
+            catch
+            {
+                // Best-effort: cancelar la sesión para no dejar un upload huérfano en SharePoint.
+                try
+                {
+                    using var cancelRequest = new HttpRequestMessage(HttpMethod.Delete, uploadUrl);
+                    await client.SendAsync(cancelRequest);
+                }
+                catch (Exception cancelEx)
+                {
+                    _logger.LogWarning(cancelEx, "No se pudo cancelar la upload session huérfana para {Path}", pathParaLog);
+                }
+                throw;
+            }
+        }
+
+        private static async Task<int> LeerBufferCompletoAsync(Stream stream, byte[] buffer, int cantidad)
+        {
+            var leidos = 0;
+            while (leidos < cantidad)
+            {
+                var n = await stream.ReadAsync(buffer.AsMemory(leidos, cantidad - leidos));
+                if (n == 0) break; // fin de stream
+                leidos += n;
+            }
+            return leidos;
         }
 
         public async Task<string> SubirArchivoYObtenerUrlAsync(Stream fileStream, string fileName, string libraryContexto, string carpetaPath)

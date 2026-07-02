@@ -47,7 +47,10 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             {
                 var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
 
-                if (esContratista)
+                // Solo forzar "Enviado" cuando el contratista realmente está subiendo/reemplazando
+                // un archivo. Un PUT que solo actualiza observaciones no debe resubir un entregable
+                // ya aprobado.
+                if (esContratista && !string.IsNullOrWhiteSpace(dto.ArchivoUrl))
                 {
                     dto.Estado = "Enviado";
                     dto.Vigencia = null;

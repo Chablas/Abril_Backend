@@ -11,7 +11,7 @@ public interface IRacService
     Task<RacDetalleDto> CerrarAsync(int id, RacCerrarRequest req, int userId);
     Task<RacFotoUploadResult> SubirFotoAsync(int racId, IFormFile file, string tipo, int userId);
     Task<byte[]> GetPdfAsync(int id);
-    Task<RacDashboardDto> GetDashboardAsync();
+    Task<RacDashboardDto> GetDashboardAsync(int? empresaIdContratista = null);
     Task<List<RacCategoriaDto>> GetCategoriasAsync();
     Task<List<RacInfraccionDto>> GetInfraccionesAsync();
     Task<List<string>> GetNivelesProyectoAsync(int projectId);

@@ -486,20 +486,24 @@ public class RacService : IRacService
 
         return await RacPdfService.GenerarPdfAsync(rac, fotoBytes);
     }
-    public async Task<RacDashboardDto> GetDashboardAsync()
+    public async Task<RacDashboardDto> GetDashboardAsync(int? empresaIdContratista = null)
     {
         using var ctx = _factory.CreateDbContext();
         var ahora = DateTime.UtcNow;
 
-        var totalAbiertos     = await ctx.SsomaRacs.CountAsync(r => r.Estado == "Abierto");
-        var totalCerrados     = await ctx.SsomaRacs.CountAsync(r => r.Estado == "Cerrado");
-        var totalConPenalidad = await ctx.SsomaRacs.CountAsync(r => r.AplicaPenalidad);
-        var criticosAbiertos  = await ctx.SsomaRacs.CountAsync(r => r.Estado == "Abierto" && r.Severidad == "CRITICO");
-        var altosAbiertos     = await ctx.SsomaRacs.CountAsync(r => r.Estado == "Abierto" && r.Severidad == "ALTO");
-        var vencidosAbiertos  = await ctx.SsomaRacs.CountAsync(r => r.Estado == "Abierto" && r.PlazoLevantamiento < ahora);
+        var baseQuery = ctx.SsomaRacs.AsQueryable();
+        if (empresaIdContratista.HasValue)
+            baseQuery = baseQuery.Where(r => r.EmpresaReportadaId == empresaIdContratista.Value);
+
+        var totalAbiertos     = await baseQuery.CountAsync(r => r.Estado == "Abierto");
+        var totalCerrados     = await baseQuery.CountAsync(r => r.Estado == "Cerrado");
+        var totalConPenalidad = await baseQuery.CountAsync(r => r.AplicaPenalidad);
+        var criticosAbiertos  = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.Severidad == "CRITICO");
+        var altosAbiertos     = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.Severidad == "ALTO");
+        var vencidosAbiertos  = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.PlazoLevantamiento < ahora);
 
         // ── PorProyecto ───────────────────────────────────────────────────────
-        var porProyectoRaw = await ctx.SsomaRacs
+        var porProyectoRaw = await baseQuery
             .GroupBy(r => r.ProyectoId)
             .Select(g => new
             {
@@ -528,7 +532,7 @@ public class RacService : IRacService
         }).ToList();
 
         // ── PorCategoria ──────────────────────────────────────────────────────
-        var porCategoriaRaw = await ctx.SsomaRacs
+        var porCategoriaRaw = await baseQuery
             .GroupBy(r => r.CategoriaId)
             .Select(g => new { CategoriaId = g.Key, Total = g.Count() })
             .OrderByDescending(x => x.Total)
@@ -550,7 +554,7 @@ public class RacService : IRacService
 
         // ── Tendencia — últimos 6 meses ───────────────────────────────────────
         var fechaCorte = DateTime.SpecifyKind(new DateTime(ahora.Year, ahora.Month, 1).AddMonths(-5), DateTimeKind.Utc);
-        var tendencia  = await ctx.SsomaRacs
+        var tendencia  = await baseQuery
             .Where(r => r.FechaReporte >= fechaCorte)
             .GroupBy(r => new { r.FechaReporte.Year, r.FechaReporte.Month })
             .Select(g => new RacTendenciaDto

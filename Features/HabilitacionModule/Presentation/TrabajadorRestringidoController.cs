@@ -13,6 +13,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     public class TrabajadorRestringidoController : ControllerBase
     {
         private static readonly string[] RolesPermitidos = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR ADMINISTRACION"];
+        private const string EmailAutorizadoParaBorrar = "sjustiniani@abril.pe";
 
         private readonly ITrabajadorRestringidoService _service;
         private readonly ILogger<TrabajadorRestringidoController> _logger;
@@ -65,7 +66,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                if (!UsuarioTienePermiso())
+                if (!PuedeBorrar())
                     return StatusCode(403, new { message = "No tiene permisos para realizar esta acción." });
 
                 await _service.DesactivarAsync(id);
@@ -79,6 +80,12 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
             return roles.Any(r => RolesPermitidos.Contains(r, StringComparer.OrdinalIgnoreCase));
+        }
+
+        private bool PuedeBorrar()
+        {
+            var email = User.FindFirst(ClaimTypes.Email)?.Value;
+            return string.Equals(email, EmailAutorizadoParaBorrar, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

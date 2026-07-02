@@ -16,7 +16,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             _factory = factory;
         }
 
-        public async Task<List<WorkerSearchResultDto>> Search(string? q, int limit)
+        public async Task<List<WorkerSearchResultDto>> Search(string? q, int limit, int? empresaIdContratista = null)
         {
             using var ctx = _factory.CreateDbContext();
             var hoy = DateOnly.FromDateTime(DateTime.Today);
@@ -29,6 +29,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 workers = workers.Where(w =>
                     (w.Person != null && w.Person.FullName != null && w.Person.FullName.ToLower().Contains(term))
                     || (w.Person != null && w.Person.DocumentIdentityCode != null && w.Person.DocumentIdentityCode.ToLower().Contains(term)));
+            }
+
+            // Un contratista solo debe poder buscar/seleccionar trabajadores
+            // vinculados actualmente a su propia empresa.
+            if (empresaIdContratista.HasValue)
+            {
+                workers = workers.Where(w => ctx.WorkerVinculacion.Any(v =>
+                    v.WorkerId == w.Id
+                    && v.EmpresaId == empresaIdContratista.Value
+                    && (v.FechaFin == null || v.FechaFin >= hoy)));
             }
 
             var baseList = await workers

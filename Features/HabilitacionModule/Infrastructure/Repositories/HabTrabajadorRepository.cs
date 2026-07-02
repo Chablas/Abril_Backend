@@ -82,7 +82,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EstadoCalc =
                         (ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
                              h.ItemId != HabItemIds.LecturaEmo &&
-                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado") &&
+                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
+                              (h.Estado == "Enviado" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
                              !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
@@ -1154,6 +1155,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 return;
             }
 
+            // Si el trabajador ya tiene "Inducción Obra" aprobada globalmente, el nuevo proyecto
+            // hereda esa inducción — no debe quedar como pendiente cuando arriba ya dice Aprobado.
+            var induccionYaAprobada = await ctx.SsHabTrabajador
+                .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
+
             ctx.WorkerProyecto.Add(new WorkerProyecto
             {
                 WorkerId = workerId,
@@ -1161,8 +1167,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 EmpresaId = empresaNuevaId,
                 FechaInicio = fechaCambio,
                 FechaFin = null,
-                InduccionCompletada = false,
-                FechaInduccion = null,
+                InduccionCompletada = induccionYaAprobada,
+                FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(now.UtcDateTime) : null,
                 CreatedAt = now,
                 UpdatedAt = null
             });
@@ -1662,6 +1668,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var fechaInicio = dto.FechaInicio ?? DateOnly.FromDateTime(DateTime.UtcNow);
             var now = DateTimeOffset.UtcNow;
 
+            // Si el trabajador ya tiene "Inducción Obra" aprobada globalmente, el nuevo proyecto
+            // hereda esa inducción — no debe quedar como pendiente cuando arriba ya dice Aprobado.
+            var induccionYaAprobada = await ctx.SsHabTrabajador
+                .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
+
             var asignacion = new WorkerProyecto
             {
                 WorkerId = workerId,
@@ -1669,8 +1680,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 EmpresaId = dto.EmpresaId,
                 FechaInicio = fechaInicio,
                 FechaFin = null,
-                InduccionCompletada = false,
-                FechaInduccion = null,
+                InduccionCompletada = induccionYaAprobada,
+                FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(DateTime.UtcNow) : null,
                 CreatedAt = now,
                 UpdatedAt = null
             };

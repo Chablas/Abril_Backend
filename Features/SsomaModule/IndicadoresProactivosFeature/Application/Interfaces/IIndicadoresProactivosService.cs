@@ -10,7 +10,12 @@ public interface IIndicadoresProactivosService
     Task<IndicadorProactivoProyectoDto> GetIndicadoresProyectoAsync(int proyectoId, int mes, int anio);
     Task<List<IndicadorProactivoProyectoDto>> GetSeguimientoTodosProyectosAsync(int mes, int anio);
     Task<PuntajeMesDto> GetPuntajeMesAsync(int proyectoId, int mes, int anio);
-    Task<List<PuntajeMesDto>> GetPuntajeTodosProyectosAsync(int mes, int anio);
+
+    /// <summary>
+    /// Si <paramref name="seguimiento"/> se provee, se reutiliza en vez de recalcular.
+    /// </summary>
+    Task<List<PuntajeMesDto>> GetPuntajeTodosProyectosAsync(
+        int mes, int anio, List<IndicadorProactivoProyectoDto>? seguimiento = null);
 
     // ── Indicadores reactivos IF / IG / IA ───────────────────────────────────
     Task<IndicadorReactivoProyectoDto> GetIndicadoresReactivosAsync(int proyectoId, int mes, int anio);

@@ -23,6 +23,12 @@ public class InspeccionController : ControllerBase
         _logger = logger;
     }
 
+    private int? GetEmpresaIdContratista() =>
+        User.FindFirst("tipo")?.Value == "CONTRATISTA"
+            && int.TryParse(User.FindFirst("empresaId")?.Value, out var id)
+            ? id
+            : null;
+
     [HttpGet("catalogos")]
     public async Task<IActionResult> GetCatalogos()
     {
@@ -46,7 +52,7 @@ public class InspeccionController : ControllerBase
         [FromQuery] DateTime? fechaDesde, [FromQuery] DateTime? fechaHasta,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try { return Ok(await _service.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, page, pageSize)); }
+        try { return Ok(await _service.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, page, pageSize, GetEmpresaIdContratista())); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error lista inspecciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -55,7 +61,7 @@ public class InspeccionController : ControllerBase
     public async Task<IActionResult> GetDashboard(
         [FromQuery] int? proyectoId, [FromQuery] int? anio)
     {
-        try { return Ok(await _service.GetDashboardAsync(proyectoId, anio)); }
+        try { return Ok(await _service.GetDashboardAsync(proyectoId, anio, GetEmpresaIdContratista())); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error dashboard inspecciones"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -91,6 +97,12 @@ public class InspeccionController : ControllerBase
         {
             if (string.IsNullOrEmpty(request.AccionCorrectiva))
                 return BadRequest(new { message = "La acción correctiva es requerida." });
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue)
+            {
+                var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(id);
+                if (empresaHallazgo != empresaId.Value) return Forbid();
+            }
             await _service.CerrarHallazgoAsync(id, request);
             return Ok(new { message = "Hallazgo cerrado correctamente." });
         }
@@ -119,7 +131,7 @@ public class InspeccionController : ControllerBase
         [FromQuery] int? responsableId,
         [FromQuery] DateTime? fechaLimiteHasta)
     {
-        try { return Ok(await _service.GetHallazgosAsync(estado, proyecto, area, fechaLimiteHasta)); }
+        try { return Ok(await _service.GetHallazgosAsync(estado, proyecto, area, fechaLimiteHasta, GetEmpresaIdContratista())); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error listar hallazgos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -129,6 +141,12 @@ public class InspeccionController : ControllerBase
     {
         try
         {
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue)
+            {
+                var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(hallazgoId);
+                if (empresaHallazgo != empresaId.Value) return Forbid();
+            }
             await _service.LevantarHallazgoAsync(hallazgoId, dto);
             return Ok(new { message = "Hallazgo actualizado correctamente." });
         }

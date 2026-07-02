@@ -155,6 +155,11 @@ public class AmonestacionRepository : IAmonestacionRepository
             where.Add("a.estado = @estado");
             p.Add("estado", q.Estado.Trim());
         }
+        if (q.EmpresaIdContratista.HasValue)
+        {
+            where.Add("wv.empresa_id = @empresaIdContratista");
+            p.Add("empresaIdContratista", q.EmpresaIdContratista.Value);
+        }
 
         var whereClause = "WHERE " + string.Join(" AND ", where);
 
@@ -218,6 +223,7 @@ public class AmonestacionRepository : IAmonestacionRepository
                 w.ocupacion AS workerCargo,
                 CASE WHEN w.fecha_nacimiento IS NOT NULL
                      THEN DATE_PART('year', AGE(w.fecha_nacimiento))::int ELSE NULL END AS workerEdad,
+                c.contributor_id AS empresaId,
                 COALESCE(c.contributor_name, '') AS empresaNombre,
                 COALESCE(c.es_abril, false) AS esEmpresaAbril,
                 ct.logo_file_url AS empresaLogoUrl,
@@ -279,9 +285,22 @@ public class AmonestacionRepository : IAmonestacionRepository
         return detalle;
     }
 
-    public async Task<AmonestacionDashboardDto> GetDashboardAsync()
+    public async Task<AmonestacionDashboardDto> GetDashboardAsync(int? empresaIdContratista = null)
     {
-        const string sql = """
+        // Cuando el usuario es contratista, acota TODAS las subconsultas a los
+        // trabajadores vinculados actualmente a su empresa.
+        var filtroEmpresa = empresaIdContratista.HasValue
+            ? """
+              AND EXISTS (
+                  SELECT 1 FROM worker_vinculaciones wve
+                  WHERE wve.worker_id = a.worker_id
+                    AND wve.empresa_id = @empresaIdContratista
+                    AND (wve.fecha_fin IS NULL OR wve.fecha_fin > CURRENT_DATE)
+              )
+              """
+            : "";
+
+        var sql = $"""
             -- 1) KPIs
             SELECT
                 COUNT(*)::int AS totalAmonestaciones,
@@ -298,14 +317,14 @@ public class AmonestacionRepository : IAmonestacionRepository
                     SUM(a2.puntos_infraccion) OVER (PARTITION BY a.worker_id) AS puntos_acc
                 FROM ssoma_amonestaciones a
                 JOIN ssoma_amonestaciones a2 ON a2.worker_id = a.worker_id AND a2.state = true
-                WHERE a.state = true
+                WHERE a.state = true {filtroEmpresa}
             ) sub;
 
             -- 2) Por tipo
             SELECT ts.nombre AS tipoNombre, COUNT(*)::int AS total
             FROM ssoma_amonestaciones a
             JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
-            WHERE a.state = true
+            WHERE a.state = true {filtroEmpresa}
             GROUP BY ts.nombre ORDER BY total DESC;
 
             -- 3) Matriz proyecto × tipo (filas planas, se agrupa en C#)
@@ -315,7 +334,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             FROM ssoma_amonestaciones a
             JOIN project pr ON pr.project_id = a.proyecto_id
             JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
-            WHERE a.state = true
+            WHERE a.state = true {filtroEmpresa}
             GROUP BY pr.project_description, ts.nombre
             ORDER BY pr.project_description, total DESC;
 
@@ -325,7 +344,7 @@ public class AmonestacionRepository : IAmonestacionRepository
                    COUNT(*)::int AS total
             FROM ssoma_amonestaciones a
             JOIN project pr ON pr.project_id = a.proyecto_id
-            WHERE a.state = true
+            WHERE a.state = true {filtroEmpresa}
               AND EXTRACT(YEAR FROM a.fecha) = EXTRACT(YEAR FROM CURRENT_DATE)::int
             GROUP BY mes, pr.project_description
             ORDER BY mes, total DESC;
@@ -349,14 +368,14 @@ public class AmonestacionRepository : IAmonestacionRepository
                 AND (wv.fecha_fin IS NULL OR wv.fecha_fin > CURRENT_DATE)
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
             JOIN ssoma_amonestacion_tipo_sanciones ts ON ts.id = a.tipo_sancion_id
-            WHERE a.state = true
+            WHERE a.state = true {filtroEmpresa}
             ORDER BY a.fecha DESC, a.id DESC
             LIMIT 8;
             """;
 
         await using var conn = Conn();
         await conn.OpenAsync();
-        await using var multi = await conn.QueryMultipleAsync(sql);
+        await using var multi = await conn.QueryMultipleAsync(sql, new { empresaIdContratista });
 
         var resumen = await multi.ReadFirstAsync<AmonestacionDashboardDto>();
         resumen.PorTipoSancion = (await multi.ReadAsync<AmonPorTipoDto>()).ToList();
@@ -399,6 +418,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             SELECT w.id AS workerId,
                    pe.full_name AS nombre,
                    pe.document_identity_code AS dni,
+                   c.contributor_id AS empresaId,
                    COALESCE(c.contributor_name, '') AS empresaNombre,
                    COALESCE(SUM(a.puntos_infraccion), 0)::int AS puntosAcumulados
             FROM workers w
@@ -408,7 +428,7 @@ public class AmonestacionRepository : IAmonestacionRepository
             LEFT JOIN contributor c ON c.contributor_id = wv.empresa_id
             LEFT JOIN ssoma_amonestaciones a ON a.worker_id = w.id AND a.state = true
             WHERE w.id = @wid
-            GROUP BY w.id, pe.full_name, pe.document_identity_code, c.contributor_name;
+            GROUP BY w.id, pe.full_name, pe.document_identity_code, c.contributor_id, c.contributor_name;
             """;
 
         await using var conn = Conn();

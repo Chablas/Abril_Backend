@@ -42,13 +42,12 @@ public class SsomaIndicadoresCacheWarmup : BackgroundService
             using var scope = _services.CreateScope();
             var svc = scope.ServiceProvider.GetRequiredService<IIndicadoresProactivosService>();
 
-            // Calcula en paralelo seguimiento + puntaje todos
-            var t1 = WarmAsync($"ind_seguimiento_{mes}_{anio}",
+            // Seguimiento primero, y se reutiliza para el puntaje (evita duplicar las bulk queries)
+            var seguimiento = await WarmAsync($"ind_seguimiento_{mes}_{anio}",
                 () => svc.GetSeguimientoTodosProyectosAsync(mes, anio));
-            var t2 = WarmAsync($"ind_puntaje_todos_{mes}_{anio}",
-                () => svc.GetPuntajeTodosProyectosAsync(mes, anio));
+            await WarmAsync($"ind_puntaje_todos_{mes}_{anio}",
+                () => svc.GetPuntajeTodosProyectosAsync(mes, anio, seguimiento));
 
-            await Task.WhenAll(t1, t2);
             _log.LogInformation("[SSOMA Cache] Pre-calentamiento completo.");
         }
         catch (Exception ex)
@@ -57,10 +56,11 @@ public class SsomaIndicadoresCacheWarmup : BackgroundService
         }
     }
 
-    private async Task WarmAsync<T>(string key, Func<Task<T>> factory)
+    private async Task<T> WarmAsync<T>(string key, Func<Task<T>> factory)
     {
-        if (_cache.TryGetValue(key, out _)) return;
+        if (_cache.TryGetValue(key, out T? cached) && cached != null) return cached;
         var result = await factory();
         _cache.Set(key, result, CacheTtl);
+        return result;
     }
 }

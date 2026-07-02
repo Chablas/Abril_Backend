@@ -298,7 +298,8 @@ public class AmonestacionService : IAmonestacionService
 
     public Task<AmonestacionDetalleDto?> GetDetalleAsync(int id) => _repo.GetDetalleAsync(id);
 
-    public Task<AmonestacionDashboardDto> GetDashboardAsync() => _repo.GetDashboardAsync();
+    public Task<AmonestacionDashboardDto> GetDashboardAsync(int? empresaIdContratista = null) =>
+        _repo.GetDashboardAsync(empresaIdContratista);
 
     public Task<WorkerPuntajeDto?> GetPuntajeWorkerAsync(int workerId) =>
         _repo.GetPuntajeWorkerAsync(workerId);

@@ -157,6 +157,14 @@ public class OptRepository : IOptRepository
 
         if (opt == null) return null;
 
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var trabajadorIds = opt.Trabajadores.Select(t => t.TrabajadorId).ToList();
+        var empresaVigentePorTrabajador = await ctx.WorkerVinculacion
+            .Where(v => trabajadorIds.Contains(v.WorkerId) && (v.FechaFin == null || v.FechaFin >= hoy))
+            .GroupBy(v => v.WorkerId)
+            .Select(g => g.OrderByDescending(v => v.FechaInicio).First())
+            .ToDictionaryAsync(v => v.WorkerId, v => v.EmpresaId);
+
         return new OptDetalleDto
         {
             Id                      = opt.Id,
@@ -195,7 +203,8 @@ public class OptRepository : IOptRepository
                 TipoTrabajador     = t.TipoTrabajador,
                 TiempoEnObra       = t.TiempoEnObra,
                 AniosExperiencia   = t.AniosExperiencia,
-                FirmaTrabajadorUrl = t.FirmaTrabajadorUrl
+                FirmaTrabajadorUrl = t.FirmaTrabajadorUrl,
+                EmpresaId          = empresaVigentePorTrabajador.TryGetValue(t.TrabajadorId, out var eid) ? eid : null
             }).ToList(),
             Verificaciones = opt.Verificaciones
                 .OrderBy(v => v.Criterio?.Orden)
@@ -223,9 +232,10 @@ public class OptRepository : IOptRepository
 
     public async Task<List<OptListItemDto>> GetListAsync(int? proyectoId, int? petId,
         string? tipoObservacion, DateTime? fechaDesde, DateTime? fechaHasta,
-        int? trabajadorId, int page, int pageSize)
+        int? trabajadorId, int page, int pageSize, int? empresaIdContratista = null)
     {
         using var ctx = _factory.CreateDbContext();
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
         var q = ctx.SsomaOpt
             .Include(o => o.Proyecto)
             .Include(o => o.Pet)
@@ -238,6 +248,11 @@ public class OptRepository : IOptRepository
         if (fechaDesde.HasValue)            q = q.Where(o => o.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
         if (fechaHasta.HasValue)            q = q.Where(o => o.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
         if (trabajadorId.HasValue)          q = q.Where(o => o.Trabajadores.Any(t => t.TrabajadorId == trabajadorId.Value));
+        if (empresaIdContratista.HasValue)
+            q = q.Where(o => o.Trabajadores.Any(t => ctx.WorkerVinculacion.Any(v =>
+                v.WorkerId == t.TrabajadorId
+                && v.EmpresaId == empresaIdContratista.Value
+                && (v.FechaFin == null || v.FechaFin >= hoy))));
 
         return await q
             .OrderByDescending(o => o.Fecha)
@@ -269,9 +284,11 @@ public class OptRepository : IOptRepository
     }
 
     public async Task<int> GetListCountAsync(int? proyectoId, int? petId,
-        string? tipoObservacion, DateTime? fechaDesde, DateTime? fechaHasta, int? trabajadorId)
+        string? tipoObservacion, DateTime? fechaDesde, DateTime? fechaHasta, int? trabajadorId,
+        int? empresaIdContratista = null)
     {
         using var ctx = _factory.CreateDbContext();
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
         var q = ctx.SsomaOpt.AsQueryable();
         if (proyectoId.HasValue)            q = q.Where(o => o.ProyectoId == proyectoId.Value);
         if (petId.HasValue)                 q = q.Where(o => o.PetId == petId.Value);
@@ -279,6 +296,11 @@ public class OptRepository : IOptRepository
         if (fechaDesde.HasValue)            q = q.Where(o => o.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
         if (fechaHasta.HasValue)            q = q.Where(o => o.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
         if (trabajadorId.HasValue)          q = q.Where(o => o.Trabajadores.Any(t => t.TrabajadorId == trabajadorId.Value));
+        if (empresaIdContratista.HasValue)
+            q = q.Where(o => o.Trabajadores.Any(t => ctx.WorkerVinculacion.Any(v =>
+                v.WorkerId == t.TrabajadorId
+                && v.EmpresaId == empresaIdContratista.Value
+                && (v.FechaFin == null || v.FechaFin >= hoy))));
         return await q.CountAsync();
     }
 
@@ -316,14 +338,20 @@ public class OptRepository : IOptRepository
         await ctx.SaveChangesAsync();
     }
 
-    public async Task<OptDashboardDto> GetDashboardAsync(int? proyectoId, int? anio)
+    public async Task<OptDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null)
     {
         using var ctx = _factory.CreateDbContext();
         var anioFiltro = anio ?? DateTime.UtcNow.Year;
         var mesActual  = DateTime.UtcNow.Month;
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
 
         var q = ctx.SsomaOpt.AsQueryable();
         if (proyectoId.HasValue) q = q.Where(o => o.ProyectoId == proyectoId.Value);
+        if (empresaIdContratista.HasValue)
+            q = q.Where(o => o.Trabajadores.Any(t => ctx.WorkerVinculacion.Any(v =>
+                v.WorkerId == t.TrabajadorId
+                && v.EmpresaId == empresaIdContratista.Value
+                && (v.FechaFin == null || v.FechaFin >= hoy))));
 
         var all = await q
             .Include(o => o.Trabajadores).ThenInclude(t => t.Trabajador).ThenInclude(w => w!.Person)

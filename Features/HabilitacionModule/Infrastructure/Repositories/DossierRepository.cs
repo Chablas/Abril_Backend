@@ -55,7 +55,7 @@ public class DossierRepository : IDossierRepository
             .Select(d => new DossierDocumentoDto(
                 d.Id, d.DossierId, d.TipoDoc,
                 d.NombreArchivo, d.ArchivoPath,
-                d.Estado, d.CreatedAt, d.UpdatedAt,
+                d.Estado, d.ObsRevisor, d.CreatedAt, d.UpdatedAt,
                 d.Archivos.OrderBy(a => a.CreatedAt)
                     .Select(a => new DossierArchivoDto(a.Id, a.NombreArchivo, a.ArchivoPath, a.CreatedAt))
                     .ToList()))
@@ -128,6 +128,7 @@ public class DossierRepository : IDossierRepository
             CreatedAt = DateTime.UtcNow
         });
         doc.Estado = "Subido";
+        doc.ObsRevisor = null;
         doc.ArchivoPath = archivoPath;
         doc.NombreArchivo = nombreArchivo;
         doc.UpdatedAt = DateTime.UtcNow;
@@ -164,6 +165,33 @@ public class DossierRepository : IDossierRepository
         semana.Estado = req.Estado;
         semana.ObsRevisor = req.ObsRevisor;
         semana.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task RevisarDocumentoAsync(int docId, RevisarDocumentoRequest req)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var doc = await ctx.SsDossierDocumento.FindAsync(docId)
+            ?? throw new AbrilException("Documento no encontrado.", 404);
+        var semana = await ctx.SsDossierSemana
+            .Include(s => s.Documentos)
+            .FirstOrDefaultAsync(s => s.Id == doc.DossierId)
+            ?? throw new AbrilException("Dossier no encontrado.", 404);
+
+        var ahora = DateTime.UtcNow;
+        doc.Estado = req.Estado;
+        doc.ObsRevisor = req.ObsRevisor;
+        doc.UpdatedAt = ahora;
+
+        var aplicables = semana.Documentos.Where(d => d.Estado != "NA").ToList();
+        if (aplicables.Count > 0 && aplicables.All(d => d.Estado == "Aprobado"))
+            semana.Estado = "Aprobado";
+        else if (aplicables.Any(d => d.Estado == "Observado"))
+            semana.Estado = "Observado";
+        else
+            semana.Estado = "Enviado";
+        semana.UpdatedAt = ahora;
+
         await ctx.SaveChangesAsync();
     }
 

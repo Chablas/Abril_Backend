@@ -80,6 +80,7 @@ public class OptTrabajadorDto
     public string? TiempoEnObra { get; set; }
     public string? AniosExperiencia { get; set; }
     public string? FirmaTrabajadorUrl { get; set; }
+    public int? EmpresaId { get; set; }
 }
 
 public class OptVerificacionDto

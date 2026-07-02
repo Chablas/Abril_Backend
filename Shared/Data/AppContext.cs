@@ -139,6 +139,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<WorkerEmo> WorkerEmo { get; set; }
         public DbSet<WorkerEmoConvalidacion> WorkerEmoConvalidacion { get; set; }
         public DbSet<WorkerVinculacion> WorkerVinculacion { get; set; }
+        public DbSet<Features.SsomaModule.CharlasFeature.Infrastructure.Models.SsCharlaContratista> SsCharlaContratista { get; set; }
         public DbSet<WorkerProyecto> WorkerProyecto { get; set; }
         public DbSet<SsClinica> SsClinica { get; set; }
         public DbSet<SsClinicaResetToken> SsClinicaResetToken => Set<SsClinicaResetToken>();
@@ -350,6 +351,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsChecklistPlantillaItem> SsChecklistPlantillaItem => Set<SsChecklistPlantillaItem>();
         public DbSet<SsChecklistProyecto> SsChecklistProyecto => Set<SsChecklistProyecto>();
         public DbSet<SsChecklistProyectoItem> SsChecklistProyectoItem => Set<SsChecklistProyectoItem>();
+
+        // Habilitación de proyectos para SSOMA
+        public DbSet<Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Models.SsProyectoHabilitado> SsProyectoHabilitado => Set<Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Models.SsProyectoHabilitado>();
 
         // ── Presupuesto de Materiales SSOMA ───────────────────────────────────
         public DbSet<SsMaterialTipo> SsMaterialTipo => Set<SsMaterialTipo>();

@@ -8,7 +8,7 @@ public interface IAuditoriaAtsRepository
     Task<(List<AuditoriaAtsListItemDto> Items, int Total)> GetListAsync(
         int? auditadoWorkerId, int? auditorWorkerId, int? proyectoId,
         DateOnly? fechaDesde, DateOnly? fechaHasta, string? estado,
-        int page, int pageSize);
+        int page, int pageSize, int? empresaIdContratista = null);
     Task<AuditoriaAtsDetalleDto?> GetDetalleAsync(int id);
     Task<int> CrearAsync(CrearAuditoriaAtsRequest request, decimal promedio, string nivel);
 }

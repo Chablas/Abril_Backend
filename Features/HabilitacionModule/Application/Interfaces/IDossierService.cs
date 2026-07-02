@@ -12,6 +12,7 @@ public interface IDossierService
     Task MarcarNaAsync(int docId);
     Task EnviarAsync(int dossierId);
     Task RevisarAsync(int dossierId, RevisarDossierRequest req);
+    Task RevisarDocumentoAsync(int docId, RevisarDocumentoRequest req);
     Task<string> GetDocumentoUrlAsync(int docId);
     Task MarcarSemanaNoAplicaAsync(int dossierId);
     Task EliminarArchivoAsync(int archivoId);

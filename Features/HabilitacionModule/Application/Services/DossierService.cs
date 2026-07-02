@@ -54,7 +54,7 @@ public class DossierService : IDossierService
         await _repo.SubirDocumentoAsync(dossierId, tipoDoc, file.FileName, path);
 
         var detalle = await _repo.GetDetalleAsync(dossierId);
-        if (detalle?.Estado == "Aprobado")
+        if (detalle?.Estado is "Aprobado" or "Observado")
             await _repo.RevertirABorradorAsync(dossierId);
     }
 
@@ -95,6 +95,14 @@ public class DossierService : IDossierService
             throw new AbrilException("Solo se puede revisar un dossier en estado Enviado.", 400);
 
         await _repo.RevisarAsync(dossierId, req);
+    }
+
+    public async Task RevisarDocumentoAsync(int docId, RevisarDocumentoRequest req)
+    {
+        if (req.Estado != "Aprobado" && req.Estado != "Observado")
+            throw new AbrilException("Estado inválido. Use 'Aprobado' u 'Observado'.", 400);
+
+        await _repo.RevisarDocumentoAsync(docId, req);
     }
 
     public async Task<string> GetDocumentoUrlAsync(int docId)

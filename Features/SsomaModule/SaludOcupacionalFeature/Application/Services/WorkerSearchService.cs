@@ -16,11 +16,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             _repo = repo;
         }
 
-        public Task<List<WorkerSearchResultDto>> Search(string? q, int limit)
+        public Task<List<WorkerSearchResultDto>> Search(string? q, int limit, int? empresaIdContratista = null)
         {
             if (limit <= 0) limit = LimitDefault;
             if (limit > LimitMax) limit = LimitMax;
-            return _repo.Search(q, limit);
+            return _repo.Search(q, limit, empresaIdContratista);
         }
 
         public Task<List<DocumentTypeDto>> GetDocumentTypes() => _repo.GetDocumentTypes();

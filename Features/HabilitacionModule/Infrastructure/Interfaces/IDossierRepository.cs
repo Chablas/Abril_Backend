@@ -11,6 +11,7 @@ public interface IDossierRepository
     Task MarcarNaAsync(int docId);
     Task EnviarAsync(int dossierId);
     Task RevisarAsync(int dossierId, RevisarDossierRequest req);
+    Task RevisarDocumentoAsync(int docId, RevisarDocumentoRequest req);
     Task<string?> GetArchivoPathAsync(int docId);
     Task<(int ContributorId, int ProyectoId, int NumeroSemana, DateTime FechaInicio)?> GetDossierContextoAsync(int dossierId);
     Task MarcarSemanaNoAplicaAsync(int dossierId);

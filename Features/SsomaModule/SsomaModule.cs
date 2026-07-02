@@ -39,10 +39,18 @@ using Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Interfaces
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -53,6 +61,10 @@ namespace Abril_Backend.Features.Ssoma
             // Checklist SSOMA
             services.AddScoped<IChecklistRepository, ChecklistRepository>();
             services.AddScoped<IChecklistService, ChecklistService>();
+
+            // Proyectos habilitados para SSOMA
+            services.AddScoped<IProyectoHabilitadoRepository, ProyectoHabilitadoRepository>();
+            services.AddScoped<IProyectoHabilitadoService, ProyectoHabilitadoService>();
 
             // Inhabilitaciones y Escuelitas
             services.AddScoped<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services.SsomaInhabilitacionService>();
@@ -156,6 +168,8 @@ namespace Abril_Backend.Features.Ssoma
 
             // Charlas y Capacitaciones
             services.AddScoped<ICharlaService, CharlaService>();
+            services.AddScoped<Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Interfaces.ICharlaContratistaService,
+                Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Services.CharlaContratistaService>();
 
             // Accidentes e Incidentes
             services.AddScoped<IAccidenteIncidenteRepository, AccidenteIncidenteRepository>();
@@ -192,6 +206,10 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IPresupuestoService, PresupuestoService>();
             services.AddScoped<IControlConsumoRepository, ControlConsumoRepository>();
             services.AddScoped<IControlConsumoService, ControlConsumoService>();
+
+            // Horas Hombre (a partir del Tareo de Control de Acceso)
+            services.AddScoped<IHorasHombreRepository, HorasHombreRepository>();
+            services.AddScoped<IHorasHombreService, HorasHombreService>();
 
             return services;
         }

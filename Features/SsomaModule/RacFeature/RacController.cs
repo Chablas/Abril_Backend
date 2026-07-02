@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.Ssoma.Rac;
 
 [ApiController]
 [Route("api/v1/ssoma-rac")]
-[AllowAnonymous]
+[Authorize]
 public class RacController : ControllerBase
 {
     private readonly IRacService _service;
@@ -24,10 +24,25 @@ public class RacController : ControllerBase
     private int GetUserId() =>
         int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
+    private bool EsContratista() =>
+        User.FindFirst(ClaimTypes.Role)?.Value == "CONTRATISTA";
+
+    /// <summary>
+    /// Empresa del usuario contratista logueado (claim "empresaId" del JWT emitido
+    /// por ContratistaAuthService). Null si el usuario no es contratista.
+    /// </summary>
+    private int? GetEmpresaIdContratista() =>
+        EsContratista() && int.TryParse(User.FindFirst("empresaId")?.Value, out var id) ? id : null;
+
     [HttpGet]
     public async Task<IActionResult> GetList([FromQuery] RacListQuery q)
     {
-        try { return Ok(await _service.GetListAsync(q)); }
+        try
+        {
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue) q.EmpresaReportadaId = empresaId.Value;
+            return Ok(await _service.GetListAsync(q));
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetList"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -35,7 +50,7 @@ public class RacController : ControllerBase
     [HttpGet("dashboard")]
     public async Task<IActionResult> GetDashboard()
     {
-        try { return Ok(await _service.GetDashboardAsync()); }
+        try { return Ok(await _service.GetDashboardAsync(GetEmpresaIdContratista())); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetDashboard"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -78,7 +93,9 @@ public class RacController : ControllerBase
         try
         {
             var r = await _service.GetDetalleAsync(id);
-            return r is null ? NotFound(new { message = "RAC no encontrado." }) : Ok(r);
+            if (r is null) return NotFound(new { message = "RAC no encontrado." });
+            if (!EsPropioDeContratista(r.EmpresaReportadaId)) return Forbid();
+            return Ok(r);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetDetalle"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -87,7 +104,13 @@ public class RacController : ControllerBase
     [HttpPatch("{id:int}/cerrar")]
     public async Task<IActionResult> Cerrar(int id, [FromBody] RacCerrarRequest req)
     {
-        try { return Ok(await _service.CerrarAsync(id, req, GetUserId())); }
+        try
+        {
+            var actual = await _service.GetDetalleAsync(id);
+            if (actual is null) return NotFound(new { message = "RAC no encontrado." });
+            if (!EsPropioDeContratista(actual.EmpresaReportadaId)) return Forbid();
+            return Ok(await _service.CerrarAsync(id, req, GetUserId()));
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.Cerrar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -97,7 +120,13 @@ public class RacController : ControllerBase
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> SubirFoto(int id, [FromForm] IFormFile file, [FromForm] string tipo = "Hallazgo")
     {
-        try { return StatusCode(201, await _service.SubirFotoAsync(id, file, tipo, GetUserId())); }
+        try
+        {
+            var actual = await _service.GetDetalleAsync(id);
+            if (actual is null) return NotFound(new { message = "RAC no encontrado." });
+            if (!EsPropioDeContratista(actual.EmpresaReportadaId)) return Forbid();
+            return StatusCode(201, await _service.SubirFotoAsync(id, file, tipo, GetUserId()));
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.SubirFoto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -109,6 +138,7 @@ public class RacController : ControllerBase
         {
             var rac = await _service.GetDetalleAsync(id);
             if (rac is null) return NotFound(new { message = "RAC no encontrado." });
+            if (!EsPropioDeContratista(rac.EmpresaReportadaId)) return Forbid();
             if (string.IsNullOrWhiteSpace(rac.PdfUrl)) return NotFound(new { message = "PDF no disponible." });
             var url = "https://abrilinmob.sharepoint.com/sites/SSOMA-Powerapps/RacPDF2026/" + rac.PdfUrl;
             return Ok(new { url });
@@ -122,10 +152,23 @@ public class RacController : ControllerBase
     {
         try
         {
+            var rac = await _service.GetDetalleAsync(id);
+            if (rac is null) return NotFound(new { message = "RAC no encontrado." });
+            if (!EsPropioDeContratista(rac.EmpresaReportadaId)) return Forbid();
             var bytes = await _service.GetPdfAsync(id);
             return File(bytes, "application/pdf", $"RAC-{id}.pdf");
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    /// <summary>
+    /// Si el usuario es contratista, exige que el RAC pertenezca a su propia
+    /// empresa; los usuarios internos (admin/SSOMA Abril) ven todo.
+    /// </summary>
+    private bool EsPropioDeContratista(int? empresaReportadaId)
+    {
+        var empresaId = GetEmpresaIdContratista();
+        return !empresaId.HasValue || empresaReportadaId == empresaId.Value;
     }
 }

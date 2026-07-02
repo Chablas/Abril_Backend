@@ -114,16 +114,25 @@ public class IndicadoresProactivosController : ControllerBase
     {
         try
         {
-            var key = $"ind_seguimiento_{mes}_{anio}";
-            var result = await _cache.GetOrCreateAsync(key, async e =>
-            {
-                e.AbsoluteExpirationRelativeToNow = CacheTtl;
-                return await _service.GetSeguimientoTodosProyectosAsync(mes, anio);
-            });
+            var result = await GetOrCreateSeguimientoAsync(mes, anio);
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch { return StatusCode(500, new { message = "Error al obtener el seguimiento." }); }
+    }
+
+    /// <summary>
+    /// Comparte una sola entrada de caché entre "seguimiento" y "puntaje" para evitar
+    /// recalcular las 8 bulk queries del seguimiento dos veces en la misma carga de dashboard.
+    /// </summary>
+    private Task<List<Application.Dtos.IndicadorProactivoProyectoDto>> GetOrCreateSeguimientoAsync(int mes, int anio)
+    {
+        var key = $"ind_seguimiento_{mes}_{anio}";
+        return _cache.GetOrCreateAsync(key, async e =>
+        {
+            e.AbsoluteExpirationRelativeToNow = CacheTtl;
+            return await _service.GetSeguimientoTodosProyectosAsync(mes, anio);
+        })!;
     }
 
     // ── PUNTAJE DEL MES ───────────────────────────────────────────────────────
@@ -157,11 +166,13 @@ public class IndicadoresProactivosController : ControllerBase
     {
         try
         {
+            var seguimiento = await GetOrCreateSeguimientoAsync(mes, anio);
+
             var key = $"ind_puntaje_todos_{mes}_{anio}";
             var result = await _cache.GetOrCreateAsync(key, async e =>
             {
                 e.AbsoluteExpirationRelativeToNow = CacheTtl;
-                return await _service.GetPuntajeTodosProyectosAsync(mes, anio);
+                return await _service.GetPuntajeTodosProyectosAsync(mes, anio, seguimiento);
             });
             return Ok(result);
         }

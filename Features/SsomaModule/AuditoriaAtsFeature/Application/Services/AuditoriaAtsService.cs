@@ -16,11 +16,11 @@ public class AuditoriaAtsService : IAuditoriaAtsService
     public async Task<object> GetListAsync(
         int? auditadoWorkerId, int? auditorWorkerId, int? proyectoId,
         DateOnly? fechaDesde, DateOnly? fechaHasta, string? estado,
-        int page, int pageSize)
+        int page, int pageSize, int? empresaIdContratista = null)
     {
         var (items, total) = await _repo.GetListAsync(
             auditadoWorkerId, auditorWorkerId, proyectoId,
-            fechaDesde, fechaHasta, estado, page, pageSize);
+            fechaDesde, fechaHasta, estado, page, pageSize, empresaIdContratista);
         return new { items, total, page, pageSize };
     }
 

@@ -89,6 +89,13 @@ public class AmonestacionListQuery
     public string? Estado { get; set; }   // "Borrador" | "Registrada" | "Cerrada"
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
+
+    /// <summary>
+    /// Forzado por el controller cuando el usuario logueado es CONTRATISTA:
+    /// acota el listado a los trabajadores vinculados actualmente a su empresa.
+    /// No debe ser seteable desde el query string del cliente.
+    /// </summary>
+    public int? EmpresaIdContratista { get; set; }
 }
 
 public class AmonestacionPagedResult<T>
@@ -133,6 +140,7 @@ public class AmonestacionDetalleDto
     public string? WorkerCargo { get; set; }
     public string? WorkerCategoria { get; set; }
     public int? WorkerEdad { get; set; }
+    public int? EmpresaId { get; set; }
     public string EmpresaNombre { get; set; } = "";
     public bool EsEmpresaAbril { get; set; }
     public string? EmpresaLogoUrl { get; set; }
@@ -260,6 +268,7 @@ public class WorkerPuntajeDto
     public int WorkerId { get; set; }
     public string Nombre { get; set; } = "";
     public string Dni { get; set; } = "";
+    public int? EmpresaId { get; set; }
     public string EmpresaNombre { get; set; } = "";
     public int PuntosAcumulados { get; set; }
     public bool Inhabilitado { get; set; }

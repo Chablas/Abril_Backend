@@ -8,7 +8,7 @@ namespace Abril_Backend.Features.SsomaModule.CharlasFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-charlas")]
-[AllowAnonymous]
+[Authorize]
 public class CharlaController : ControllerBase
 {
     private readonly ICharlaService _svc;

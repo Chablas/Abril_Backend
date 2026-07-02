@@ -7,7 +7,7 @@ namespace Abril_Backend.Features.SsomaModule.OptFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-opt")]
-[AllowAnonymous]
+[Authorize]
 public class OptController : ControllerBase
 {
     private readonly IOptService _service;
@@ -18,6 +18,12 @@ public class OptController : ControllerBase
         _service = service;
         _logger  = logger;
     }
+
+    private int? GetEmpresaIdContratista() =>
+        User.FindFirst("tipo")?.Value == "CONTRATISTA"
+            && int.TryParse(User.FindFirst("empresaId")?.Value, out var id)
+            ? id
+            : null;
 
     [HttpGet("catalogos")]
     public async Task<IActionResult> GetCatalogos()
@@ -49,7 +55,8 @@ public class OptController : ControllerBase
         try
         {
             return Ok(await _service.GetListAsync(
-                proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, page, pageSize));
+                proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, page, pageSize,
+                GetEmpresaIdContratista()));
         }
         catch (Exception ex)
         {
@@ -65,7 +72,7 @@ public class OptController : ControllerBase
     {
         try
         {
-            return Ok(await _service.GetDashboardAsync(proyectoId, anio));
+            return Ok(await _service.GetDashboardAsync(proyectoId, anio, GetEmpresaIdContratista()));
         }
         catch (Exception ex)
         {
@@ -80,6 +87,9 @@ public class OptController : ControllerBase
         try
         {
             var detalle = await _service.GetDetalleAsync(id);
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue && !detalle.Trabajadores.Any(t => t.EmpresaId == empresaId.Value))
+                return Forbid();
             return Ok(detalle);
         }
         catch (KeyNotFoundException)

@@ -11,6 +11,7 @@ public record DossierDocumentoDto(
     string? NombreArchivo,
     string? ArchivoPath,
     string Estado,
+    string? ObsRevisor,
     DateTime CreatedAt,
     DateTime UpdatedAt,
     List<DossierArchivoDto> Archivos);
@@ -46,6 +47,8 @@ public record DossierSemanaDetalleDto(
 public record EnsureSemanaRequest(int ContributorId, int ProyectoId, int NumeroSemana, int Anio);
 
 public record RevisarDossierRequest(string Estado, string? ObsRevisor);
+
+public record RevisarDocumentoRequest(string Estado, string? ObsRevisor);
 
 public class SubirDocumentoDossierRequest
 {

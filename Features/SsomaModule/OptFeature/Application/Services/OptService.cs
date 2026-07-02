@@ -22,12 +22,12 @@ public class OptService : IOptService
 
     public async Task<PagedResult<OptListItemDto>> GetListAsync(int? proyectoId, int? petId,
         string? tipoObservacion, DateTime? fechaDesde, DateTime? fechaHasta,
-        int? trabajadorId, int page, int pageSize)
+        int? trabajadorId, int page, int pageSize, int? empresaIdContratista = null)
     {
         var items = await _repo.GetListAsync(
-            proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, page, pageSize);
+            proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, page, pageSize, empresaIdContratista);
         var total = await _repo.GetListCountAsync(
-            proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId);
+            proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, empresaIdContratista);
 
         return new PagedResult<OptListItemDto>
         {
@@ -91,6 +91,6 @@ public class OptService : IOptService
         return optId;
     }
 
-    public Task<OptDashboardDto> GetDashboardAsync(int? proyectoId, int? anio)
-        => _repo.GetDashboardAsync(proyectoId, anio);
+    public Task<OptDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null)
+        => _repo.GetDashboardAsync(proyectoId, anio, empresaIdContratista);
 }

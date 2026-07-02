@@ -7,9 +7,10 @@ public interface IInspeccionRepository
     Task<List<InspeccionTipoDto>> GetTiposAsync();
     Task<List<InspeccionChecklistItemDto>> GetChecklistItemsAsync(int tipoId);
     Task<List<InspeccionListItemDto>> GetListAsync(int? proyectoId, int? tipoId,
-        string? estado, DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize);
+        string? estado, DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize,
+        int? empresaIdContratista = null);
     Task<int> GetListCountAsync(int? proyectoId, int? tipoId,
-        string? estado, DateTime? fechaDesde, DateTime? fechaHasta);
+        string? estado, DateTime? fechaDesde, DateTime? fechaHasta, int? empresaIdContratista = null);
     Task<InspeccionDetalleDto?> GetDetalleAsync(int id);
     Task<int> CrearInspeccionAsync(CrearInspeccionRequest request,
         string? firmaInspectorUrl, string? firmaRepresentanteUrl,
@@ -17,7 +18,8 @@ public interface IInspeccionRepository
     Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request, string? evidenciaUrl);
     Task ActualizarFirmasYFotosAsync(int id, string? firmaInspectorUrl, string? firmaRepresentanteUrl,
         Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls);
-    Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio);
-    Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta);
+    Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null);
+    Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null);
     Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto);
+    Task<int?> GetEmpresaIdDeHallazgoAsync(int hallazgoId);
 }

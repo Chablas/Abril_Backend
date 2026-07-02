@@ -25,10 +25,11 @@ public class InspeccionService : IInspeccionService
         => await _repo.GetChecklistItemsAsync(tipoId);
 
     public async Task<object> GetListAsync(int? proyectoId, int? tipoId,
-        string? estado, DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize)
+        string? estado, DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize,
+        int? empresaIdContratista = null)
     {
-        var items = await _repo.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, page, pageSize);
-        var total = await _repo.GetListCountAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta);
+        var items = await _repo.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, page, pageSize, empresaIdContratista);
+        var total = await _repo.GetListCountAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, empresaIdContratista);
         return new { items, total, page, pageSize };
     }
 
@@ -39,8 +40,8 @@ public class InspeccionService : IInspeccionService
         return result;
     }
 
-    public async Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio)
-        => await _repo.GetDashboardAsync(proyectoId, anio);
+    public async Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null)
+        => await _repo.GetDashboardAsync(proyectoId, anio, empresaIdContratista);
 
     public async Task<int> CrearInspeccionAsync(CrearInspeccionRequest request)
     {
@@ -111,8 +112,10 @@ public class InspeccionService : IInspeccionService
         return id;
     }
 
-    public Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta)
-        => _repo.GetHallazgosAsync(estado, proyecto, area, fechaLimiteHasta);
+    public Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null)
+        => _repo.GetHallazgosAsync(estado, proyecto, area, fechaLimiteHasta, empresaIdContratista);
+
+    public Task<int?> GetEmpresaIdDeHallazgoAsync(int hallazgoId) => _repo.GetEmpresaIdDeHallazgoAsync(hallazgoId);
 
     public async Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto)
     {

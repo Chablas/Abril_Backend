@@ -22,6 +22,18 @@ public class AmonestacionController : ControllerBase
     private int GetUserId() =>
         int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
+    private bool EsContratista() => User.FindFirst("tipo")?.Value == "CONTRATISTA";
+
+    private int? GetEmpresaIdContratista() =>
+        EsContratista() && int.TryParse(User.FindFirst("empresaId")?.Value, out var id) ? id : null;
+
+    /// <summary>Contratista solo puede ver/operar registros de trabajadores de su propia empresa.</summary>
+    private bool EsPropioDeContratista(int? empresaId)
+    {
+        var propia = GetEmpresaIdContratista();
+        return !propia.HasValue || empresaId == propia.Value;
+    }
+
     [HttpGet("init")]
     public async Task<IActionResult> GetInit()
     {
@@ -33,7 +45,17 @@ public class AmonestacionController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Crear([FromBody] AmonestacionCreateRequest req)
     {
-        try { return StatusCode(201, await _service.CrearAsync(req, GetUserId())); }
+        try
+        {
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue)
+            {
+                var puntaje = await _service.GetPuntajeWorkerAsync(req.WorkerId);
+                if (puntaje is null || !EsPropioDeContratista(puntaje.EmpresaId))
+                    return Forbid();
+            }
+            return StatusCode(201, await _service.CrearAsync(req, GetUserId()));
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.Crear"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -41,7 +63,11 @@ public class AmonestacionController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetList([FromQuery] AmonestacionListQuery q)
     {
-        try { return Ok(await _service.GetListAsync(q)); }
+        try
+        {
+            q.EmpresaIdContratista = GetEmpresaIdContratista();
+            return Ok(await _service.GetListAsync(q));
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.GetList"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -49,7 +75,7 @@ public class AmonestacionController : ControllerBase
     [HttpGet("dashboard")]
     public async Task<IActionResult> GetDashboard()
     {
-        try { return Ok(await _service.GetDashboardAsync()); }
+        try { return Ok(await _service.GetDashboardAsync(GetEmpresaIdContratista())); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.GetDashboard"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -60,7 +86,9 @@ public class AmonestacionController : ControllerBase
         try
         {
             var r = await _service.GetDetalleAsync(id);
-            return r is null ? NotFound(new { message = "Amonestación no encontrada." }) : Ok(r);
+            if (r is null) return NotFound(new { message = "Amonestación no encontrada." });
+            if (!EsPropioDeContratista(r.EmpresaId)) return Forbid();
+            return Ok(r);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.GetDetalle"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -72,7 +100,9 @@ public class AmonestacionController : ControllerBase
         try
         {
             var r = await _service.GetPuntajeWorkerAsync(workerId);
-            return r is null ? NotFound(new { message = "Trabajador no encontrado." }) : Ok(r);
+            if (r is null) return NotFound(new { message = "Trabajador no encontrado." });
+            if (!EsPropioDeContratista(r.EmpresaId)) return Forbid();
+            return Ok(r);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.GetPuntajeWorker"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -81,7 +111,13 @@ public class AmonestacionController : ControllerBase
     [HttpPost("{id:int}/confirmar")]
     public async Task<IActionResult> Confirmar(int id)
     {
-        try { return Ok(await _service.ConfirmarAsync(id)); }
+        try
+        {
+            var actual = await _service.GetDetalleAsync(id);
+            if (actual is null) return NotFound(new { message = "Amonestación no encontrada." });
+            if (!EsPropioDeContratista(actual.EmpresaId)) return Forbid();
+            return Ok(await _service.ConfirmarAsync(id));
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.Confirmar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -91,6 +127,9 @@ public class AmonestacionController : ControllerBase
     {
         try
         {
+            var actual = await _service.GetDetalleAsync(id);
+            if (actual is null) return NotFound(new { message = "Amonestación no encontrada." });
+            if (!EsPropioDeContratista(actual.EmpresaId)) return Forbid();
             var result = await _service.GetPdfAsync(id);
             if (result.RedirectUrl != null)
                 return Redirect(result.RedirectUrl);
@@ -103,7 +142,14 @@ public class AmonestacionController : ControllerBase
     [HttpPost("{id:int}/cerrar")]
     public async Task<IActionResult> Cerrar(int id, [FromBody] AmonestacionCerrarRequest req)
     {
-        try { await _service.CerrarAsync(id, req); return Ok(new { message = "Amonestación cerrada correctamente." }); }
+        try
+        {
+            var actual = await _service.GetDetalleAsync(id);
+            if (actual is null) return NotFound(new { message = "Amonestación no encontrada." });
+            if (!EsPropioDeContratista(actual.EmpresaId)) return Forbid();
+            await _service.CerrarAsync(id, req);
+            return Ok(new { message = "Amonestación cerrada correctamente." });
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en AmonestacionController.Cerrar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }

@@ -31,9 +31,10 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
     public async Task<(List<AuditoriaAtsListItemDto> Items, int Total)> GetListAsync(
         int? auditadoWorkerId, int? auditorWorkerId, int? proyectoId,
         DateOnly? fechaDesde, DateOnly? fechaHasta, string? estado,
-        int page, int pageSize)
+        int page, int pageSize, int? empresaIdContratista = null)
     {
         using var ctx = _factory.CreateDbContext();
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
 
         var query = from a in ctx.SsomaAuditoriaAts
                     join auditor in ctx.Worker on a.AuditorWorkerId equals auditor.Id
@@ -54,6 +55,11 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             query = query.Where(x => x.a.Fecha <= fechaHasta.Value);
         if (!string.IsNullOrEmpty(estado))
             query = query.Where(x => x.a.Estado == estado);
+        if (empresaIdContratista.HasValue)
+            query = query.Where(x => ctx.WorkerVinculacion.Any(v =>
+                v.WorkerId == x.a.AuditadoWorkerId
+                && v.EmpresaId == empresaIdContratista.Value
+                && (v.FechaFin == null || v.FechaFin >= hoy)));
 
         var total = await query.CountAsync();
 
@@ -133,6 +139,13 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             .Select(f => f.FotoBase64)
             .ToListAsync();
 
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var empresaId = await ctx.WorkerVinculacion
+            .Where(v => v.WorkerId == auditoria.AuditadoWorkerId && (v.FechaFin == null || v.FechaFin >= hoy))
+            .OrderByDescending(v => v.FechaInicio)
+            .Select(v => v.EmpresaId)
+            .FirstOrDefaultAsync();
+
         return new AuditoriaAtsDetalleDto
         {
             Id = auditoria.Id,
@@ -141,6 +154,7 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             AuditorNombre = auditorNombre,
             AuditadoWorkerId = auditoria.AuditadoWorkerId,
             AuditadoNombre = auditadoNombre,
+            EmpresaId = empresaId,
             ProyectoId = auditoria.ProyectoId,
             ProyectoNombre = proyectoNombre,
             EmailAuditado = auditoria.EmailAuditado,

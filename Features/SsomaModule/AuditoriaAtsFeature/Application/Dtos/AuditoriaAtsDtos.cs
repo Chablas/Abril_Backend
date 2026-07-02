@@ -44,6 +44,7 @@ public class AuditoriaAtsDetalleDto
     public string AuditorNombre { get; set; } = string.Empty;
     public int AuditadoWorkerId { get; set; }
     public string AuditadoNombre { get; set; } = string.Empty;
+    public int? EmpresaId { get; set; }
     public int? ProyectoId { get; set; }
     public string? ProyectoNombre { get; set; }
     public string? EmailAuditado { get; set; }

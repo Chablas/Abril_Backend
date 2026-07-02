@@ -20,6 +20,12 @@ public class AuditoriaAtsController : ControllerBase
         _logger = logger;
     }
 
+    private int? GetEmpresaIdContratista() =>
+        User.FindFirst("tipo")?.Value == "CONTRATISTA"
+            && int.TryParse(User.FindFirst("empresaId")?.Value, out var id)
+            ? id
+            : null;
+
     [HttpGet("preguntas")]
     public async Task<IActionResult> GetPreguntas()
     {
@@ -43,7 +49,7 @@ public class AuditoriaAtsController : ControllerBase
         {
             return Ok(await _service.GetListAsync(
                 auditadoWorkerId, auditorWorkerId, proyectoId,
-                fechaDesde, fechaHasta, estado, page, pageSize));
+                fechaDesde, fechaHasta, estado, page, pageSize, GetEmpresaIdContratista()));
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error listar auditorias ATS"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -52,7 +58,13 @@ public class AuditoriaAtsController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetDetalle(int id)
     {
-        try { return Ok(await _service.GetDetalleAsync(id)); }
+        try
+        {
+            var detalle = await _service.GetDetalleAsync(id);
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue && detalle.EmpresaId != empresaId.Value) return Forbid();
+            return Ok(detalle);
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error detalle auditoria ATS {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }

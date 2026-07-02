@@ -37,10 +37,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             _logger = logger;
         }
 
+        private int? GetEmpresaIdContratista() =>
+            User.FindFirst("tipo")?.Value == "CONTRATISTA"
+                && int.TryParse(User.FindFirst("empresaId")?.Value, out var id)
+                ? id
+                : null;
+
         [HttpGet("search")]
         public async Task<IActionResult> Search([FromQuery] string? q, [FromQuery] int limit = 20)
         {
-            try { return Ok(await _service.Search(q, limit)); }
+            try { return Ok(await _service.Search(q, limit, GetEmpresaIdContratista())); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {

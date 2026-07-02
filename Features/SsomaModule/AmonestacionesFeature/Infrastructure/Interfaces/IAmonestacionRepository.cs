@@ -8,7 +8,7 @@ public interface IAmonestacionRepository
     Task<int> CrearAsync(AmonestacionDetalleDto detalle, List<(string Base64, string NombreArchivo, string Url)> fotos);
     Task<(List<AmonestacionListItemDto> Items, int Total)> GetListAsync(AmonestacionListQuery q);
     Task<AmonestacionDetalleDto?> GetDetalleAsync(int id);
-    Task<AmonestacionDashboardDto> GetDashboardAsync();
+    Task<AmonestacionDashboardDto> GetDashboardAsync(int? empresaIdContratista = null);
     Task<WorkerPuntajeDto?> GetPuntajeWorkerAsync(int workerId);
     Task<string> GenerarCodigoAsync(int proyectoId);
     Task GuardarPdfUrlAsync(int id, string url);

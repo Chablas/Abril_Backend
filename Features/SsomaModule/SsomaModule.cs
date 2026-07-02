@@ -160,6 +160,8 @@ namespace Abril_Backend.Features.Ssoma
 
             // Charlas y Capacitaciones
             services.AddScoped<ICharlaService, CharlaService>();
+            services.AddScoped<Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Interfaces.ICharlaContratistaService,
+                Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Services.CharlaContratistaService>();
 
             // Accidentes e Incidentes
             services.AddScoped<IAccidenteIncidenteRepository, AccidenteIncidenteRepository>();

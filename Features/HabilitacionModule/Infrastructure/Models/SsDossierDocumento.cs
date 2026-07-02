@@ -8,6 +8,7 @@ public class SsDossierDocumento
     public string? NombreArchivo { get; set; }
     public string? ArchivoPath { get; set; }
     public string Estado { get; set; } = "Pendiente";
+    public string? ObsRevisor { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public SsDossierSemana? Dossier { get; set; }

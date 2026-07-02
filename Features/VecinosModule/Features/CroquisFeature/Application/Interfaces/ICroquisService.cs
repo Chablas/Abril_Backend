@@ -14,7 +14,5 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Applicati
         Task SaveLotes(int projectCroquisId, List<CroquisLoteDto> lotes, int userId);
 
         Task<CroquisGestionResponseDto> GetGestion();
-
-        Task AssignVecinoToLote(int loteId, int? vecinoId, int userId);
     }
 }

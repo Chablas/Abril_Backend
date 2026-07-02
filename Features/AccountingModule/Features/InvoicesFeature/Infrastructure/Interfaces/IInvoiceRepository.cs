@@ -11,6 +11,8 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         Task<List<InvoiceSupplierDto>> GetAbrilCompanies();
         /// <summary>Monedas activas (reusa la tabla currency de Adjudicaciones).</summary>
         Task<List<InvoiceCurrencyDto>> GetCurrencies();
+        /// <summary>Motivos de observación activos (para el modal "Observar").</summary>
+        Task<List<InvoiceObservationReasonDto>> GetObservationReasons();
         Task<PagedResult<InvoiceDto>> GetPaged(InvoiceFilterDto filter);
         Task<InvoiceDashboardDto> GetDashboard(InvoiceFilterDto filter);
         Task<List<InvoiceBlockGroupDto>> GetBlocks(InvoiceFilterDto filter);
@@ -31,11 +33,22 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         Task<(int Id, string DriveId, string FolderId)?> GetActiveFolderDestination();
         /// <summary>Nombre/razón social de un contribuyente. Null si no existe.</summary>
         Task<string?> GetContributorName(int contributorId);
+        /// <summary>RUC + razón social de un contribuyente. Null si no existe.</summary>
+        Task<(string? Ruc, string Name)?> GetContributorRucName(int contributorId);
+        /// <summary>Mapa razón social normalizada → RUC de los contribuyentes (para nombrar documentos importados).</summary>
+        Task<Dictionary<string, string>> GetContributorRucByNormalizedName();
         /// <summary>Nombre de una razón social de Abril (es_abril = true). Null si no existe o no es de Abril.</summary>
         Task<string?> GetAbrilContributorName(int abrilContributorId);
 
+        /// <summary>Marca como "Aprobado" las facturas indicadas. Devuelve cuántas se actualizaron.</summary>
+        Task<int> ApproveInvoices(List<int> invoiceIds, int userId);
+        /// <summary>Marca como "Rechazado" las facturas indicadas. Devuelve cuántas se actualizaron.</summary>
+        Task<int> RejectInvoices(List<int> invoiceIds, int userId);
+        /// <summary>Marca como "Observado" (con motivo) las facturas indicadas. Devuelve cuántas se actualizaron.</summary>
+        Task<int> ObserveInvoices(List<int> invoiceIds, int observationReasonId, int userId);
+
         Task Create(InvoiceCreateDto dto, string? documentUrl, int invoiceFolderId, int userId);
-        Task<InvoiceImportResultDto> ImportInvoices(List<InvoiceImportRowDto> rows, Dictionary<int, string?> docUrlByIndex, int userId);
+        Task<InvoiceImportResultDto> ImportInvoices(List<InvoiceImportRowDto> rows, Dictionary<int, string?> docUrlByIndex, int? invoiceFolderId, int userId);
 
         /// <summary>Crea un contribuyente/proveedor. Lanza AbrilException si el RUC ya existe.</summary>
         Task<InvoiceSupplierDto> CreateSupplier(InvoiceSupplierCreateDto dto, int userId);

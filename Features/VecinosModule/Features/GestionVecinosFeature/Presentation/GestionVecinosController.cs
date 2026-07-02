@@ -75,16 +75,17 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             }
         }
 
+        /// <summary>Registra uno o varios vecinos/departamentos sobre un lote (polígono) del croquis.</summary>
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] VecinoCreateDto dto)
+        public async Task<IActionResult> RegisterVecinos([FromBody] VecinoLoteRegisterDto dto)
         {
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
                 int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
 
-                var vecinoId = await _service.Create(dto, userId);
-                return Ok(new { vecinoId, message = "Vecino registrado exitosamente." });
+                var result = await _service.RegisterVecinos(dto, userId);
+                return Ok(new { vecinoLoteId = result.VecinoLoteId, vecinoIds = result.VecinoIds, message = "Vecinos registrados exitosamente." });
             }
             catch (AbrilException ex)
             {
@@ -92,7 +93,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "ERROR GESTION VECINOS CREATE: {msg}", ex.ToString());
+                _logger.LogError(ex, "ERROR GESTION VECINOS REGISTER: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -127,7 +128,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
                 int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
 
                 await _service.Update(vecinoId, dto, userId);
-                return Ok(new { message = "Propiedad actualizada exitosamente." });
+                return Ok(new { message = "Vecino actualizado exitosamente." });
             }
             catch (AbrilException ex)
             {
@@ -136,6 +137,29 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Pr
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR GESTION VECINOS UPDATE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Edita los datos a nivel de lote (dirección + observaciones).</summary>
+        [HttpPut("lotes/{vecinoLoteId:int}")]
+        public async Task<IActionResult> UpdateLote(int vecinoLoteId, [FromBody] VecinoLoteUpdateDto dto)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                int userId = userIdClaim != null ? int.Parse(userIdClaim.Value) : 0;
+
+                await _service.UpdateLote(vecinoLoteId, dto, userId);
+                return Ok(new { message = "Lote actualizado exitosamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR GESTION VECINOS LOTE UPDATE: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

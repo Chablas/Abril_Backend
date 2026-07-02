@@ -57,28 +57,34 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
 
             var now = DateTime.UtcNow;
 
-            // Soft-delete del croquis activo anterior (si existe) para conservar historial/auditoría.
+            // Reemplazo de imagen EN SITIO: se conserva el mismo croquis (y por tanto sus lotes y los
+            // vecinos ligados a ellos). Antes se soft-deleteaba el croquis y se creaba uno nuevo, lo que
+            // dejaba huérfanos todos los polígonos/lotes ya dibujados.
             var existing = await ctx.ProjectCroquis
                 .Where(c => c.ProjectId == projectId && c.State)
-                .ToListAsync();
+                .OrderByDescending(c => c.ProjectCroquisId)
+                .FirstOrDefaultAsync();
 
-            foreach (var old in existing)
+            if (existing is not null)
             {
-                old.State = false;
-                old.UpdatedDateTime = now;
-                old.UpdatedUserId = userId;
+                existing.ImageUrl = imageUrl;
+                existing.OriginalFileName = originalFileName;
+                existing.UpdatedDateTime = now;
+                existing.UpdatedUserId = userId;
             }
-
-            ctx.ProjectCroquis.Add(new ProjectCroquis
+            else
             {
-                ProjectId = projectId,
-                ImageUrl = imageUrl,
-                OriginalFileName = originalFileName,
-                CreatedDateTime = now,
-                CreatedUserId = userId,
-                Active = true,
-                State = true,
-            });
+                ctx.ProjectCroquis.Add(new ProjectCroquis
+                {
+                    ProjectId = projectId,
+                    ImageUrl = imageUrl,
+                    OriginalFileName = originalFileName,
+                    CreatedDateTime = now,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true,
+                });
+            }
 
             await ctx.SaveChangesAsync();
         }
@@ -123,8 +129,8 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 .ToListAsync();
             var existingById = existing.ToDictionary(l => l.ProjectCroquisLoteId);
 
-            // Diff por id: se actualizan los lotes conservados (preservando su VecinoId
-            // asignado en Gestión), se insertan los nuevos y se da de baja a los quitados.
+            // Diff por id: se actualizan los lotes conservados (preservando su lote de negocio
+            // VecinoLoteId), se insertan los nuevos y se da de baja a los quitados.
             var keptIds = new HashSet<int>();
 
             foreach (var lote in lotes)
@@ -132,7 +138,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 if (lote.ProjectCroquisLoteId.HasValue
                     && existingById.TryGetValue(lote.ProjectCroquisLoteId.Value, out var current))
                 {
-                    // Lote conservado: actualizar geometría/etiqueta sin tocar el VecinoId.
+                    // Lote conservado: actualizar geometría/etiqueta sin tocar el VecinoLoteId.
                     current.NumeroLote = lote.NumeroLote;
                     current.Poligono = JsonSerializer.Serialize(lote.Puntos);
                     current.UpdatedDateTime = now;
@@ -141,7 +147,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 }
                 else
                 {
-                    // Lote nuevo: aún sin vecino asignado.
+                    // Lote nuevo: aún sin lote de negocio (se crea al registrar sus vecinos en Gestión).
                     ctx.ProjectCroquisLote.Add(new ProjectCroquisLote
                     {
                         ProjectCroquisId = projectCroquisId,
@@ -155,13 +161,36 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 }
             }
 
-            // Soft-delete de los lotes que el usuario quitó del croquis.
-            foreach (var old in existing)
+            // Lotes que el usuario quitó del croquis.
+            var removed = existing.Where(l => !keptIds.Contains(l.ProjectCroquisLoteId)).ToList();
+            if (removed.Count > 0)
             {
-                if (keptIds.Contains(old.ProjectCroquisLoteId)) continue;
-                old.State = false;
-                old.UpdatedDateTime = now;
-                old.UpdatedUserId = userId;
+                // No se puede quitar un lote (polígono) que ya tiene vecinos registrados.
+                var loteIdsRemovidos = removed.Where(l => l.VecinoLoteId.HasValue)
+                    .Select(l => l.VecinoLoteId!.Value).ToList();
+                if (loteIdsRemovidos.Count > 0)
+                {
+                    var conVecinos = await ctx.Vecino
+                        .Where(v => v.State && v.Active && loteIdsRemovidos.Contains(v.VecinoLoteId))
+                        .Select(v => v.VecinoLoteId)
+                        .Distinct()
+                        .ToListAsync();
+                    if (conVecinos.Count > 0)
+                    {
+                        var etiquetas = string.Join(", ", removed
+                            .Where(l => l.VecinoLoteId.HasValue && conVecinos.Contains(l.VecinoLoteId.Value))
+                            .Select(l => l.NumeroLote));
+                        throw new AbrilException(
+                            $"No se puede quitar el/los lote(s) '{etiquetas}' porque tienen vecinos registrados.", 422);
+                    }
+                }
+
+                foreach (var old in removed)
+                {
+                    old.State = false;
+                    old.UpdatedDateTime = now;
+                    old.UpdatedUserId = userId;
+                }
             }
 
             await ctx.SaveChangesAsync();
@@ -224,20 +253,27 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
             var croquisIds = croquis.Select(c => c.ProjectCroquisId).ToList();
             var projectIds = croquis.Select(c => c.ProjectId).ToList();
 
-            // Lotes de esos croquis (el nombre del vecino asignado se completa más abajo con la persona principal).
+            // Lotes (polígonos) de esos croquis. Cada polígono representa un lote/edificio.
             var lotes = await (
                 from l in ctx.ProjectCroquisLote.Where(l => l.State && croquisIds.Contains(l.ProjectCroquisId))
+                orderby l.ProjectCroquisLoteId
                 select new
                 {
                     l.ProjectCroquisLoteId,
                     l.ProjectCroquisId,
                     l.NumeroLote,
                     l.Poligono,
-                    l.VecinoId,
+                    l.VecinoLoteId,
                 }
             ).ToListAsync();
 
-            // Vecinos (casas) de esos proyectos (para los desplegables de asignación).
+            // Direcciones/observaciones de los lotes de esos proyectos.
+            var loteInfo = await ctx.VecinoLote
+                .Where(lo => lo.State && projectIds.Contains(lo.ProjectId))
+                .Select(lo => new { lo.VecinoLoteId, lo.Direccion, lo.Observaciones })
+                .ToDictionaryAsync(x => x.VecinoLoteId, x => x);
+
+            // Vecinos/departamentos de esos proyectos.
             var vecinos = await (
                 from v in ctx.Vecino.Where(v => v.State && v.Active && projectIds.Contains(v.ProjectId))
                 join p in ctx.Project on v.ProjectId equals p.ProjectId
@@ -245,7 +281,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 join tc in ctx.VecinoTipoConstruccion on v.VecinoTipoConstruccionId equals tc.VecinoTipoConstruccionId
                 join u in ctx.VecinoUso on v.VecinoUsoId equals u.VecinoUsoId into uj
                 from u in uj.DefaultIfEmpty()
-                orderby v.Direccion
+                orderby v.VecinoId
                 select new { v, p, col, tc, u }
             ).ToListAsync();
 
@@ -394,120 +430,100 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
             int reqSubidosDe(int vid) =>
                 requisitosPorVecino.GetValueOrDefault(vid)?.Subidos ?? 0;
 
-            response.Croquis = croquis.Select(c => new CroquisGestionDto
+            // DTO por vecino/departamento (con sus KPIs), construido una sola vez.
+            var vecinoDtos = vecinos.Select(x => new VecinoListItemDto
             {
-                ProjectId = c.ProjectId,
-                ProjectDescription = c.ProjectDescription,
-                ProjectCroquisId = c.ProjectCroquisId,
-                ImageUrl = c.ImageUrl,
-                SolicitudesCount = vecinos
-                    .Where(x => x.v.ProjectId == c.ProjectId)
-                    .Sum(x => solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Count ?? 0),
-                SolicitudesAprobadas = vecinos
-                    .Where(x => x.v.ProjectId == c.ProjectId)
-                    .Sum(x => solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobadas ?? 0),
-                SolicitudesEvaluables = vecinos
-                    .Where(x => x.v.ProjectId == c.ProjectId)
-                    .Sum(x => solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0),
-                CompromisosCount = vecinos
-                    .Where(x => x.v.ProjectId == c.ProjectId)
-                    .Sum(x => compromisosPorVecino.GetValueOrDefault(x.v.VecinoId)),
-                CompromisosPendientes = CompCount(c.ProjectId, compPendienteId, null),
-                CompromisosEnProceso = CompCount(c.ProjectId, compEnProcesoId, null),
-                CompromisosCulminados = CompCount(c.ProjectId, compCulminadoId, null),
-                CompromisosLimitePendientes = CompCount(c.ProjectId, compPendienteId, true),
-                CompromisosLimiteEnProceso = CompCount(c.ProjectId, compEnProcesoId, true),
-                CompromisosLimiteCulminados = CompCount(c.ProjectId, compCulminadoId, true),
-                EntregablesAprobados = vecinos
-                    .Where(x => x.v.ProjectId == c.ProjectId)
-                    .Sum(x => entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobados ?? 0),
-                EntregablesEvaluables = vecinos
-                    .Where(x => x.v.ProjectId == c.ProjectId)
-                    .Sum(x => entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0),
-                RequisitosSubidos = vecinos
-                    .Where(x => x.v.ProjectId == c.ProjectId)
-                    .Sum(x => reqSubidosDe(x.v.VecinoId)),
-                RequisitosEvaluables = vecinos
-                    .Where(x => x.v.ProjectId == c.ProjectId)
-                    .Sum(x => reqEvaluablesDe(x.v.VecinoId)),
-                Lotes = lotes
-                    .Where(l => l.ProjectCroquisId == c.ProjectCroquisId)
-                    .Select(l => new CroquisGestionLoteDto
+                VecinoId = x.v.VecinoId,
+                VecinoLoteId = x.v.VecinoLoteId,
+                ProjectId = x.v.ProjectId,
+                ProjectDescription = x.p.ProjectDescription,
+                Predio = x.v.Predio,
+                VecinoUsoId = x.v.VecinoUsoId,
+                UsoDescripcion = x.u != null ? x.u.Descripcion : null,
+                Direccion = loteInfo.GetValueOrDefault(x.v.VecinoLoteId)?.Direccion,
+                InteriorDepartamento = x.v.InteriorDepartamento,
+                NombrePropietario = personasByVecino.GetValueOrDefault(x.v.VecinoId)?.FirstOrDefault()?.Nombre,
+                Dni = personasByVecino.GetValueOrDefault(x.v.VecinoId)?.FirstOrDefault()?.Dni,
+                Celular = personasByVecino.GetValueOrDefault(x.v.VecinoId)?.FirstOrDefault()?.Celular,
+                Personas = personasByVecino.GetValueOrDefault(x.v.VecinoId, new()),
+                Imagenes = imagenesByVecino.GetValueOrDefault(x.v.VecinoId, new()),
+                VecinoColindanciaId = x.v.VecinoColindanciaId,
+                ColindanciaDescripcion = x.col.Descripcion,
+                VecinoTipoConstruccionId = x.v.VecinoTipoConstruccionId,
+                TipoConstruccionDescripcion = x.tc.Descripcion,
+                Observaciones = loteInfo.GetValueOrDefault(x.v.VecinoLoteId)?.Observaciones,
+                CreatedDateTime = x.v.CreatedDateTime,
+                SolicitudesCount = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Count ?? 0,
+                CompromisosCount = compromisosPorVecino.GetValueOrDefault(x.v.VecinoId),
+                SolicitudesAprobadas = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobadas ?? 0,
+                SolicitudesEvaluables = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0,
+                EntregablesAprobados = entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobados ?? 0,
+                EntregablesEvaluables = entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0,
+                RequisitosSubidos = reqSubidosDe(x.v.VecinoId),
+                RequisitosEvaluables = reqEvaluablesDe(x.v.VecinoId),
+            }).ToList();
+
+            // Agrupar los vecinos por su lote (para anidarlos bajo cada polígono).
+            var vecinosByLote = vecinoDtos
+                .GroupBy(v => v.VecinoLoteId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            response.Croquis = croquis.Select(c =>
+            {
+                var projectVecinos = vecinoDtos.Where(v => v.ProjectId == c.ProjectId).ToList();
+                var projectLotes = lotes.Where(l => l.ProjectCroquisId == c.ProjectCroquisId).ToList();
+
+                return new CroquisGestionDto
+                {
+                    ProjectId = c.ProjectId,
+                    ProjectDescription = c.ProjectDescription,
+                    ProjectCroquisId = c.ProjectCroquisId,
+                    ImageUrl = c.ImageUrl,
+                    SolicitudesCount = projectVecinos.Sum(v => v.SolicitudesCount),
+                    SolicitudesAprobadas = projectVecinos.Sum(v => v.SolicitudesAprobadas),
+                    SolicitudesEvaluables = projectVecinos.Sum(v => v.SolicitudesEvaluables),
+                    CompromisosCount = projectVecinos.Sum(v => v.CompromisosCount),
+                    CompromisosPendientes = CompCount(c.ProjectId, compPendienteId, null),
+                    CompromisosEnProceso = CompCount(c.ProjectId, compEnProcesoId, null),
+                    CompromisosCulminados = CompCount(c.ProjectId, compCulminadoId, null),
+                    CompromisosLimitePendientes = CompCount(c.ProjectId, compPendienteId, true),
+                    CompromisosLimiteEnProceso = CompCount(c.ProjectId, compEnProcesoId, true),
+                    CompromisosLimiteCulminados = CompCount(c.ProjectId, compCulminadoId, true),
+                    EntregablesAprobados = projectVecinos.Sum(v => v.EntregablesAprobados),
+                    EntregablesEvaluables = projectVecinos.Sum(v => v.EntregablesEvaluables),
+                    RequisitosSubidos = projectVecinos.Sum(v => v.RequisitosSubidos),
+                    RequisitosEvaluables = projectVecinos.Sum(v => v.RequisitosEvaluables),
+                    LotesCount = projectLotes.Count,
+                    VecinosCount = projectVecinos.Count,
+                    Lotes = projectLotes.Select(l =>
                     {
-                        ProjectCroquisLoteId = l.ProjectCroquisLoteId,
-                        NumeroLote = l.NumeroLote,
-                        Puntos = DeserializePuntos(l.Poligono),
-                        VecinoId = l.VecinoId,
-                        VecinoNombre = l.VecinoId.HasValue
-                            ? personasByVecino.GetValueOrDefault(l.VecinoId.Value)?.FirstOrDefault()?.Nombre
-                            : null,
-                    })
-                    .ToList(),
-                Vecinos = vecinos
-                    .Where(x => x.v.ProjectId == c.ProjectId)
-                    .Select(x => new VecinoListItemDto
-                    {
-                        VecinoId = x.v.VecinoId,
-                        ProjectId = x.v.ProjectId,
-                        ProjectDescription = x.p.ProjectDescription,
-                        Predio = x.v.Predio,
-                        VecinoUsoId = x.v.VecinoUsoId,
-                        UsoDescripcion = x.u != null ? x.u.Descripcion : null,
-                        Direccion = x.v.Direccion,
-                        InteriorDepartamento = x.v.InteriorDepartamento,
-                        NombrePropietario = personasByVecino.GetValueOrDefault(x.v.VecinoId)?.FirstOrDefault()?.Nombre,
-                        Dni = personasByVecino.GetValueOrDefault(x.v.VecinoId)?.FirstOrDefault()?.Dni,
-                        Celular = personasByVecino.GetValueOrDefault(x.v.VecinoId)?.FirstOrDefault()?.Celular,
-                        Personas = personasByVecino.GetValueOrDefault(x.v.VecinoId, new()),
-                        Imagenes = imagenesByVecino.GetValueOrDefault(x.v.VecinoId, new()),
-                        VecinoColindanciaId = x.v.VecinoColindanciaId,
-                        ColindanciaDescripcion = x.col.Descripcion,
-                        VecinoTipoConstruccionId = x.v.VecinoTipoConstruccionId,
-                        TipoConstruccionDescripcion = x.tc.Descripcion,
-                        Observaciones = x.v.Observaciones,
-                        CreatedDateTime = x.v.CreatedDateTime,
-                        SolicitudesCount = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Count ?? 0,
-                        CompromisosCount = compromisosPorVecino.GetValueOrDefault(x.v.VecinoId),
-                        SolicitudesAprobadas = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobadas ?? 0,
-                        SolicitudesEvaluables = solicitudesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0,
-                        EntregablesAprobados = entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Aprobados ?? 0,
-                        EntregablesEvaluables = entregablesPorVecino.GetValueOrDefault(x.v.VecinoId)?.Evaluables ?? 0,
-                        RequisitosSubidos = reqSubidosDe(x.v.VecinoId),
-                        RequisitosEvaluables = reqEvaluablesDe(x.v.VecinoId),
-                    })
-                    .ToList(),
+                        var loteVecinos = l.VecinoLoteId.HasValue
+                            ? vecinosByLote.GetValueOrDefault(l.VecinoLoteId.Value, new())
+                            : new List<VecinoListItemDto>();
+                        return new CroquisGestionLoteDto
+                        {
+                            ProjectCroquisLoteId = l.ProjectCroquisLoteId,
+                            NumeroLote = l.NumeroLote,
+                            Puntos = DeserializePuntos(l.Poligono),
+                            VecinoLoteId = l.VecinoLoteId,
+                            Direccion = l.VecinoLoteId.HasValue ? loteInfo.GetValueOrDefault(l.VecinoLoteId.Value)?.Direccion : null,
+                            Observaciones = l.VecinoLoteId.HasValue ? loteInfo.GetValueOrDefault(l.VecinoLoteId.Value)?.Observaciones : null,
+                            VecinosCount = loteVecinos.Count,
+                            SolicitudesCount = loteVecinos.Sum(v => v.SolicitudesCount),
+                            CompromisosCount = loteVecinos.Sum(v => v.CompromisosCount),
+                            SolicitudesAprobadas = loteVecinos.Sum(v => v.SolicitudesAprobadas),
+                            SolicitudesEvaluables = loteVecinos.Sum(v => v.SolicitudesEvaluables),
+                            EntregablesAprobados = loteVecinos.Sum(v => v.EntregablesAprobados),
+                            EntregablesEvaluables = loteVecinos.Sum(v => v.EntregablesEvaluables),
+                            RequisitosSubidos = loteVecinos.Sum(v => v.RequisitosSubidos),
+                            RequisitosEvaluables = loteVecinos.Sum(v => v.RequisitosEvaluables),
+                            Vecinos = loteVecinos,
+                        };
+                    }).ToList(),
+                };
             }).ToList();
 
             return response;
-        }
-
-        public async Task AssignVecinoToLote(int loteId, int? vecinoId, int userId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var lote = await ctx.ProjectCroquisLote.FirstOrDefaultAsync(l => l.ProjectCroquisLoteId == loteId && l.State);
-            if (lote == null)
-                throw new AbrilException("El lote no existe.", 404);
-
-            if (vecinoId.HasValue)
-            {
-                // El vecino debe pertenecer al mismo proyecto del croquis del lote.
-                var ok = await (
-                    from l in ctx.ProjectCroquisLote.Where(l => l.ProjectCroquisLoteId == loteId)
-                    join c in ctx.ProjectCroquis on l.ProjectCroquisId equals c.ProjectCroquisId
-                    join v in ctx.Vecino on c.ProjectId equals v.ProjectId
-                    where v.VecinoId == vecinoId.Value && v.State
-                    select v.VecinoId
-                ).AnyAsync();
-
-                if (!ok)
-                    throw new AbrilException("El vecino no pertenece al proyecto de este croquis.", 422);
-            }
-
-            lote.VecinoId = vecinoId;
-            lote.UpdatedDateTime = DateTime.UtcNow;
-            lote.UpdatedUserId = userId;
-            await ctx.SaveChangesAsync();
         }
 
         private static List<List<double>> DeserializePuntos(string json)

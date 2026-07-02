@@ -1,3 +1,4 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
@@ -10,11 +11,72 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 {
     public class GestionSalidaRepository : IGestionSalidaRepository
     {
+        private const int PageSize = 10;
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public GestionSalidaRepository(IDbContextFactory<AppDbContext> factory)
         {
             _factory = factory;
+        }
+
+        /// <summary>
+        /// Tabla ordenada + paginada. Reutiliza <see cref="GetAll"/> (que ya resuelve motivo/origen/
+        /// destino/horas y <c>PuedeRendirse</c>) y aplica el orden por columna en memoria. El orden es
+        /// estable: los empates conservan el orden original (pendientes primero, luego más recientes).
+        /// </summary>
+        public async Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
+        {
+            var all = await GetAll(filters);
+            var sorted = ApplySort(all, filters);
+
+            var totalRecords = sorted.Count;
+            var page = filters.Page < 1 ? 1 : filters.Page;
+
+            return new PagedResult<GestionSalidaListItemDto>
+            {
+                Page = page,
+                PageSize = PageSize,
+                TotalRecords = totalRecords,
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)PageSize),
+                Data = sorted.Skip((page - 1) * PageSize).Take(PageSize).ToList(),
+            };
+        }
+
+        /// <summary>
+        /// Ordena en memoria por la columna indicada en <paramref name="filters"/>. Si no se indica
+        /// columna (o es desconocida) se conserva el orden original que trae <see cref="GetAll"/>.
+        /// Las columnas de texto se ordenan ignorando mayúsculas/acentos según la cultura.
+        /// </summary>
+        private static List<GestionSalidaListItemDto> ApplySort(List<GestionSalidaListItemDto> items, GestionSalidaFiltersDto filters)
+        {
+            if (string.IsNullOrWhiteSpace(filters.SortBy)) return items;
+
+            var asc = !string.Equals(filters.SortDir, "desc", StringComparison.OrdinalIgnoreCase);
+
+            IEnumerable<GestionSalidaListItemDto> OrderText(Func<GestionSalidaListItemDto, string?> sel) =>
+                asc
+                    ? items.OrderBy(x => sel(x) ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
+                    : items.OrderByDescending(x => sel(x) ?? string.Empty, StringComparer.CurrentCultureIgnoreCase);
+
+            IEnumerable<GestionSalidaListItemDto> OrderKey<TKey>(Func<GestionSalidaListItemDto, TKey> sel) =>
+                asc ? items.OrderBy(sel) : items.OrderByDescending(sel);
+
+            IEnumerable<GestionSalidaListItemDto>? ordered = filters.SortBy.Trim().ToLowerInvariant() switch
+            {
+                "trabajador"       => OrderText(s => s.Trabajador),
+                "motivo"           => OrderText(s => s.Motivo),
+                "lugarorigen"      => OrderText(s => s.LugarOrigen),
+                "lugardestino"     => OrderText(s => s.LugarDestino),
+                "estadoaprobacion" => OrderText(s => s.EstadoAprobacion),
+                "estadorendicion"  => OrderText(s => s.EstadoRendicion),
+                "fechasalida"      => OrderKey(s => s.FechaSalida),
+                "horasalida"       => OrderKey(s => s.HoraSalida),
+                "horaretorno"      => OrderKey(s => s.HoraRetorno),
+                "createdat"        => OrderKey(s => s.CreatedAt),
+                _                  => null,
+            };
+
+            return ordered?.ToList() ?? items;
         }
 
         public async Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters)

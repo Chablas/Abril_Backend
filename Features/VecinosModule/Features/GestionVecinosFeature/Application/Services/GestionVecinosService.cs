@@ -39,40 +39,44 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
         public Task<PagedResult<VecinoListItemDto>> GetList(VecinoFilterDto filter)
             => _repository.GetPaged(filter);
 
-        public Task<int> Create(VecinoCreateDto dto, int userId)
+        public Task<VecinoLoteRegisterResultDto> RegisterVecinos(VecinoLoteRegisterDto dto, int userId)
         {
-            if (dto.ProjectId <= 0)
-                throw new AbrilException("Debe seleccionar un proyecto.", 400);
+            if (dto.ProjectCroquisLoteId <= 0)
+                throw new AbrilException("Debe seleccionar el lote en el croquis.", 400);
             if (string.IsNullOrWhiteSpace(dto.Direccion))
-                throw new AbrilException("La dirección es obligatoria.", 400);
-            if (string.IsNullOrWhiteSpace(dto.InteriorDepartamento))
-                throw new AbrilException("El interior / departamento es obligatorio.", 400);
-            if (dto.VecinoUsoId <= 0)
-                throw new AbrilException("Debe seleccionar el uso.", 400);
-            if (dto.VecinoColindanciaId <= 0)
-                throw new AbrilException("Debe seleccionar si es colindante o no colindante.", 400);
-            if (dto.VecinoTipoConstruccionId <= 0)
-                throw new AbrilException("Debe seleccionar el tipo de construcción.", 400);
+                throw new AbrilException("La dirección del lote es obligatoria.", 400);
+            if (dto.Vecinos is null || dto.Vecinos.Count == 0)
+                throw new AbrilException("Debe agregar al menos un vecino.", 400);
 
-            if (dto.Personas is null || dto.Personas.Count == 0)
-                throw new AbrilException("Debe agregar al menos una persona.", 400);
-
-            foreach (var per in dto.Personas)
+            foreach (var dep in dto.Vecinos)
             {
-                if (string.IsNullOrWhiteSpace(per.Nombre))
-                    throw new AbrilException("El nombre de cada persona es obligatorio.", 400);
-                if (string.IsNullOrWhiteSpace(per.Celular))
-                    throw new AbrilException("El celular de cada persona es obligatorio.", 400);
-                if (per.VecinoRelacionTipoId <= 0)
-                    throw new AbrilException("Debe seleccionar la relación (propietario, inquilino u otro) de cada persona.", 400);
+                if (dep.VecinoUsoId <= 0)
+                    throw new AbrilException("Debe seleccionar el uso de cada vecino.", 400);
+                if (dep.VecinoColindanciaId <= 0)
+                    throw new AbrilException("Debe seleccionar si cada vecino es colindante o no colindante.", 400);
+                if (dep.VecinoTipoConstruccionId <= 0)
+                    throw new AbrilException("Debe seleccionar el tipo de construcción de cada vecino.", 400);
 
-                // El DNI es opcional, pero si se ingresa debe tener 8 dígitos.
-                var dni = per.Dni?.Trim();
-                if (!string.IsNullOrEmpty(dni) && (dni.Length != 8 || !dni.All(char.IsDigit)))
-                    throw new AbrilException("El DNI debe tener 8 dígitos.", 400);
+                if (dep.Personas is null || dep.Personas.Count == 0)
+                    throw new AbrilException("Cada vecino debe tener al menos una persona.", 400);
+
+                foreach (var per in dep.Personas)
+                {
+                    if (string.IsNullOrWhiteSpace(per.Nombre))
+                        throw new AbrilException("El nombre de cada persona es obligatorio.", 400);
+                    if (string.IsNullOrWhiteSpace(per.Celular))
+                        throw new AbrilException("El celular de cada persona es obligatorio.", 400);
+                    if (per.VecinoRelacionTipoId <= 0)
+                        throw new AbrilException("Debe seleccionar la relación (propietario, inquilino u otro) de cada persona.", 400);
+
+                    // El DNI es opcional, pero si se ingresa debe tener 8 dígitos.
+                    var dni = per.Dni?.Trim();
+                    if (!string.IsNullOrEmpty(dni) && (dni.Length != 8 || !dni.All(char.IsDigit)))
+                        throw new AbrilException("El DNI debe tener 8 dígitos.", 400);
+                }
             }
 
-            return _repository.Create(dto, userId);
+            return _repository.RegisterVecinos(dto, userId);
         }
 
         public async Task<VecinoListItemDto> GetById(int vecinoId)
@@ -85,10 +89,6 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
 
         public async Task Update(int vecinoId, VecinoUpdateDto dto, int userId)
         {
-            if (string.IsNullOrWhiteSpace(dto.Direccion))
-                throw new AbrilException("La dirección es obligatoria.", 400);
-            if (string.IsNullOrWhiteSpace(dto.InteriorDepartamento))
-                throw new AbrilException("El interior / departamento es obligatorio.", 400);
             if (dto.VecinoUsoId <= 0)
                 throw new AbrilException("Debe seleccionar el uso.", 400);
             if (dto.VecinoColindanciaId <= 0)
@@ -115,7 +115,17 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Ap
 
             var ok = await _repository.Update(vecinoId, dto, userId);
             if (!ok)
-                throw new AbrilException("La propiedad no existe.", 404);
+                throw new AbrilException("El vecino no existe.", 404);
+        }
+
+        public async Task UpdateLote(int vecinoLoteId, VecinoLoteUpdateDto dto, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Direccion))
+                throw new AbrilException("La dirección del lote es obligatoria.", 400);
+
+            var ok = await _repository.UpdateLote(vecinoLoteId, dto, userId);
+            if (!ok)
+                throw new AbrilException("El lote no existe.", 404);
         }
 
         public async Task DeleteImagen(int imagenId, int userId)

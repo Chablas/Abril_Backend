@@ -76,23 +76,34 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Applicati
         public int RequisitosSubidos { get; set; }
         /// <summary>Requisitos evaluables del proyecto (Subido + No subido, sin "No aplica").</summary>
         public int RequisitosEvaluables { get; set; }
+        /// <summary>Cantidad de lotes/edificios (polígonos) del proyecto.</summary>
+        public int LotesCount { get; set; }
+        /// <summary>Cantidad de vecinos/departamentos del proyecto.</summary>
+        public int VecinosCount { get; set; }
         public List<CroquisGestionLoteDto> Lotes { get; set; } = new();
-        public List<VecinoListItemDto> Vecinos { get; set; } = new();
     }
 
-    /// <summary>Lote dentro de la vista de Gestión, con su vecino asignado (si tiene).</summary>
+    /// <summary>Lote (polígono) dentro de la vista de Gestión, con sus vecinos/departamentos y KPIs.</summary>
     public class CroquisGestionLoteDto
     {
         public int ProjectCroquisLoteId { get; set; }
         public string NumeroLote { get; set; } = null!;
         public List<List<double>> Puntos { get; set; } = new();
-        public int? VecinoId { get; set; }
-        public string? VecinoNombre { get; set; }
-    }
-
-    /// <summary>Cuerpo para asignar (o quitar) el vecino de un lote.</summary>
-    public class AssignVecinoLoteDto
-    {
-        public int? VecinoId { get; set; }
+        /// <summary>Lote/edificio que representa el polígono (null si aún no tiene lote registrado).</summary>
+        public int? VecinoLoteId { get; set; }
+        public string? Direccion { get; set; }
+        public string? Observaciones { get; set; }
+        // ── KPIs a nivel de lote (agregados de sus vecinos) ──
+        public int VecinosCount { get; set; }
+        public int SolicitudesCount { get; set; }
+        public int CompromisosCount { get; set; }
+        public int SolicitudesAprobadas { get; set; }
+        public int SolicitudesEvaluables { get; set; }
+        public int EntregablesAprobados { get; set; }
+        public int EntregablesEvaluables { get; set; }
+        public int RequisitosSubidos { get; set; }
+        public int RequisitosEvaluables { get; set; }
+        /// <summary>Vecinos/departamentos registrados en este lote.</summary>
+        public List<VecinoListItemDto> Vecinos { get; set; } = new();
     }
 }

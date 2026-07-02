@@ -16,7 +16,17 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
         /// <summary>JSON: lista de puntos [[x,y], …] con x,y en rango 0–1 relativos a la imagen.</summary>
         public string Poligono { get; set; } = null!;
 
-        /// <summary>Vecino asignado a este lote (opcional). Se asigna desde la vista de Gestión.</summary>
+        /// <summary>
+        /// Lote/edificio que representa este polígono. Un lote agrupa a N vecinos/departamentos.
+        /// Se crea junto con el polígono al dibujarlo en el croquis.
+        /// </summary>
+        public int? VecinoLoteId { get; set; }
+        public Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLote? Lote { get; set; }
+
+        /// <summary>
+        /// Obsoleto: reemplazado por <see cref="VecinoLoteId"/>. Antes un polígono se enlazaba a un
+        /// único vecino; ahora enlaza a un lote (que agrupa varios vecinos). Se conserva por auditoría.
+        /// </summary>
         public int? VecinoId { get; set; }
 
         public DateTime CreatedDateTime { get; set; }

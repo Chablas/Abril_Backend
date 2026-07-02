@@ -21,8 +21,5 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
 
         /// <summary>Todos los croquis registrados con sus lotes y los vecinos de su proyecto (vista de Gestión).</summary>
         Task<CroquisGestionResponseDto> GetGestion();
-
-        /// <summary>Asigna o quita (vecinoId = null) el vecino de un lote.</summary>
-        Task AssignVecinoToLote(int loteId, int? vecinoId, int userId);
     }
 }

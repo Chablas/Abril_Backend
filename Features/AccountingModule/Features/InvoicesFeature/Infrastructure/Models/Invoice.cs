@@ -41,6 +41,10 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         public int? InvoiceFolderId { get; set; }
         /// <summary>Razón social de Abril (contribuyente con es_abril = true) a la que pertenece la factura.</summary>
         public int? AbrilContributorId { get; set; }
+        /// <summary>Estado de la factura (Pendiente, Aprobado, Rechazado, Observado).</summary>
+        public int? InvoiceStatusId { get; set; }
+        /// <summary>Motivo de observación. Solo se completa cuando la factura está Observada.</summary>
+        public int? InvoiceObservationReasonId { get; set; }
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }
         public DateTimeOffset? UpdatedDateTime { get; set; }
@@ -54,5 +58,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infra
         public Contributor? AbrilContributor { get; set; }
         public Currency? Currency { get; set; }
         public InvoiceDocumentType? InvoiceDocumentType { get; set; }
+        public InvoiceStatus? InvoiceStatus { get; set; }
+        public InvoiceObservationReason? InvoiceObservationReason { get; set; }
     }
 }

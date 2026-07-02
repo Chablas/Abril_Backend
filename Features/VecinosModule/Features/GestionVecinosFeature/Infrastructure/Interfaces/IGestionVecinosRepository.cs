@@ -8,8 +8,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
         Task<VecinoFormOptionsDto> GetOptions();
         Task<PagedResult<VecinoListItemDto>> GetPaged(VecinoFilterDto filter);
         Task<VecinoListItemDto?> GetById(int vecinoId);
-        Task<int> Create(VecinoCreateDto dto, int userId);
+        Task<VecinoLoteRegisterResultDto> RegisterVecinos(VecinoLoteRegisterDto dto, int userId);
         Task<bool> Update(int vecinoId, VecinoUpdateDto dto, int userId);
+        Task<bool> UpdateLote(int vecinoLoteId, VecinoLoteUpdateDto dto, int userId);
         Task<List<VecinoImagenDto>> AddImagenes(int vecinoId, List<(string ArchivoUrl, string? OriginalFileName)> imagenes, int userId);
         Task<bool> DeleteImagen(int imagenId, int userId);
 

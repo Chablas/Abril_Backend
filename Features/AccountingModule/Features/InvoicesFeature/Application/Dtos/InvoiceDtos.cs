@@ -23,6 +23,10 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public int? CurrencyId { get; set; }
         public string? CurrencyCode { get; set; }
         public string? CurrencySymbol { get; set; }
+        public int? InvoiceStatusId { get; set; }
+        public string? InvoiceStatusDescription { get; set; }
+        public int? InvoiceObservationReasonId { get; set; }
+        public string? InvoiceObservationReasonDescription { get; set; }
         public string? DocumentUrl { get; set; }
         public string? SignedDocumentUrl { get; set; }
         public DateTime CreatedDateTime { get; set; }
@@ -49,6 +53,10 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public int? CurrencyId { get; set; }
         public string? CurrencyCode { get; set; }
         public string? CurrencySymbol { get; set; }
+        public int? InvoiceStatusId { get; set; }
+        public string? InvoiceStatusDescription { get; set; }
+        public int? InvoiceObservationReasonId { get; set; }
+        public string? InvoiceObservationReasonDescription { get; set; }
         public int? InvoiceFolderId { get; set; }
         public string? InvoiceFolderName { get; set; }
         public string? DocumentUrl { get; set; }
@@ -157,6 +165,21 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         public string InvoicePaymentFormDescription { get; set; } = null!;
     }
 
+    /// <summary>Motivo de observación para el desplegable del modal "Observar".</summary>
+    public class InvoiceObservationReasonDto
+    {
+        public int InvoiceObservationReasonId { get; set; }
+        public string InvoiceObservationReasonDescription { get; set; } = null!;
+    }
+
+    /// <summary>Acción en bloque (aprobar/rechazar/observar) sobre facturas seleccionadas.</summary>
+    public class InvoiceBulkActionDto
+    {
+        public List<int> InvoiceIds { get; set; } = new();
+        /// <summary>Requerido solo para la acción "Observar".</summary>
+        public int? InvoiceObservationReasonId { get; set; }
+    }
+
     /// <summary>Carga inicial de la pantalla: datos de filtros/desplegables + primera página de la tabla.</summary>
     public class InvoiceInitDto
     {
@@ -165,6 +188,8 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         /// <summary>Razones sociales que maneja Abril (contribuyentes con es_abril = true).</summary>
         public List<InvoiceSupplierDto> AbrilCompanies { get; set; } = new();
         public List<InvoiceCurrencyDto> Currencies { get; set; } = new();
+        /// <summary>Motivos de observación para el modal "Observar".</summary>
+        public List<InvoiceObservationReasonDto> ObservationReasons { get; set; } = new();
         public Abril_Backend.Application.DTOs.PagedResult<InvoiceDto> Invoices { get; set; } = new();
     }
 
@@ -183,11 +208,22 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
         /// <summary>RUC de la razón social de Abril.</summary>
         public string? AbrilContributorRuc { get; set; }
         public int? InvoicePaymentFormId { get; set; }
+        /// <summary>Moneda (currency_id): 1 = Soles (PEN), 2 = Dólares (USD).</summary>
+        public int? CurrencyId { get; set; }
         public decimal? TotalMin { get; set; }
         public decimal? TotalMax { get; set; }
         public DateOnly? IssueDateFrom { get; set; }
         public DateOnly? IssueDateTo { get; set; }
         public int Page { get; set; } = 1;
+        /// <summary>
+        /// Columna por la que ordenar la tabla. Si es null/desconocida se usa el orden original
+        /// (más recientes primero). Valores: issueDate, invoiceNumber, contributorName,
+        /// contributorRuc, abrilContributorName, description, invoicePaymentFormDescription,
+        /// total, invoiceStatusDescription.
+        /// </summary>
+        public string? SortBy { get; set; }
+        /// <summary>Dirección del orden: "asc" o "desc" (por defecto "asc").</summary>
+        public string? SortDir { get; set; }
     }
 
     /// <summary>Datos de creación de una factura (se reciben como multipart/form-data).</summary>

@@ -76,10 +76,19 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             try
             {
                 using var ctx = _dbFactory.CreateDbContext();
+                var workerIdsConUsuario = ctx.SsContratistaUsuarios
+                    .Where(u => u.ContractorId == contractorId && u.Activo && u.WorkerId != null)
+                    .Select(u => u.WorkerId!.Value);
+
+                var workerIdsVinculadosActivos = ctx.WorkerVinculacion
+                    .Where(v => v.EmpresaId == contractorId && v.FechaFin == null)
+                    .Select(v => v.WorkerId);
+
                 var query = ctx.Worker
                     .Include(w => w.Person)
-                    .Where(w => w.ContributorId == contractorId
-                             && (w.Estado == "ACTIVO" || w.Estado == "Activo"));
+                    .Where(w => workerIdsVinculadosActivos.Contains(w.Id)
+                             && (w.Estado == "ACTIVO" || w.Estado == "Activo")
+                             && !workerIdsConUsuario.Contains(w.Id));
 
                 if (!string.IsNullOrWhiteSpace(search))
                 {
@@ -110,7 +119,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
         }
 
-        [HttpDelete("{id:int}")]
+        [HttpPatch("{id:int}/desactivar")]
         public async Task<IActionResult> DesactivarUsuario(int id, [FromQuery] int contractorId)
         {
             try

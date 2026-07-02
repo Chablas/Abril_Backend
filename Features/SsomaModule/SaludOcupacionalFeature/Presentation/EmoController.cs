@@ -135,8 +135,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 if (User.IsInRole("CLINICA"))
                 {
                     var clinicaIdClaim = User.FindFirst("clinicaId")?.Value;
-                    if (!int.TryParse(clinicaIdClaim, out var clinicaId) || emo.ClinicaId != clinicaId)
+                    if (!int.TryParse(clinicaIdClaim, out var clinicaId))
                         throw new AbrilException("No tiene permiso para subir documentos de este EMO.", 403);
+
+                    if (emo.ClinicaId == null)
+                        // EMO sin clínica asignada todavía (dato legado o registrado sin vínculo):
+                        // se liga a la clínica que sube el primer documento, en vez de bloquearla.
+                        emo.ClinicaId = clinicaId;
+                    else if (emo.ClinicaId != clinicaId)
+                        throw new AbrilException("No tiene permiso para subir documentos de este EMO.", 403);
+
                     // La clínica solo puede subir Aptitud y EMO completo, no Lectura
                     if (tipoNorm == "Lectura")
                         throw new AbrilException("La clínica no puede subir archivos de lectura de EMO.", 403);

@@ -105,10 +105,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 interconsulta.Estado = "Atendida";
                 interconsulta.UpdatedAt = DateTimeOffset.UtcNow;
 
-                // Retornar la programación a "En Atención" para que la clínica pueda completar el proceso
+                // Retornar la programación a "En Atención" para que la clínica pueda completar el proceso.
+                // No exigimos Estado == "En Interconsulta" exacto: si la programación ya quedó
+                // "Completado" por otra vía (p. ej. el EMO se registró sin marcar que requería
+                // interconsulta, y esta se creó aparte), igual debe poder avanzar al resolverse.
                 var prog = await ctx.SsProgramacionEmo
                     .Where(p => p.WorkerId == interconsulta.WorkerId
-                             && p.Estado == "En Interconsulta")
+                             && p.Estado != "Completado"
+                             && p.Estado != "Cancelado"
+                             && p.Estado != "Rechazado por Clínica")
                     .OrderByDescending(p => p.FechaProgramada)
                     .FirstOrDefaultAsync();
                 if (prog != null)

@@ -82,7 +82,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 var totalRecords = await q.CountAsync();
                 var page = Math.Max(filter.Page, 1);
-                var pageSize = Math.Clamp(filter.PageSize, 1, 200);
+                // La Agenda pide pageSize=500 para traer todo sin paginar; el tope viejo de 200
+                // cortaba silenciosamente el resto de registros (los mas antiguos por el ORDER BY).
+                var pageSize = Math.Clamp(filter.PageSize, 1, 2000);
                 var totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize);
 
                 var data = await q

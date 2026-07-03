@@ -22,8 +22,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public Task<List<ProyectoSimpleCronogramaDto>> GetProyectosAsync()
             => _repository.GetProyectosAsync();
 
-        public Task<ActividadesProyectoResponseDto> GetActividadesAsync(int proyectoId)
-            => _repository.GetActividadesAsync(proyectoId);
+        public Task<ActividadesProyectoResponseDto> GetActividadesAsync(int proyectoId, string tipoCronograma = "ANTEPROYECTO")
+            => _repository.GetActividadesAsync(proyectoId, tipoCronograma);
 
         public async Task<CrearActividadResultDto> CrearActividadAsync(int proyectoId, CrearActividadRequest request, int userId)
         {
@@ -76,9 +76,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public Task<List<DebugProyectoDto>> GetDebugProyectosAsync()
             => _repository.GetDebugProyectosAsync();
 
-        public async Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId)
+        public async Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId, string tipoCronograma = "ANTEPROYECTO")
         {
-            var result = await _repository.ImportarMppAsync(proyectoId, archivo, userId);
+            var result = await _repository.ImportarMppAsync(proyectoId, archivo, userId, tipoCronograma);
             // Tras importar, los nodos padre deben reflejar MIN/MAX de sus hijos (cualquier nivel)
             await _scheduling.RecalcularFechasPadresAsync(proyectoId);
             return result;
@@ -145,5 +145,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         public Task<CronogramaDashboardResponseDto> GetDashboardAsync(int? responsableId, string? estado)
             => _repository.GetDashboardAsync(responsableId, estado);
+
+        public Task<CrearActividadesMasivoResultDto> CrearActividadesMasivoAsync(int proyectoId, CrearActividadesMasivoRequest request, int userId)
+            => _repository.CrearActividadesMasivoAsync(proyectoId, request, userId);
     }
 }

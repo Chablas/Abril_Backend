@@ -6,13 +6,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     public interface ICronogramaActividadesRepository
     {
         Task<List<ProyectoSimpleCronogramaDto>> GetProyectosAsync();
-        Task<ActividadesProyectoResponseDto> GetActividadesAsync(int proyectoId);
+        Task<ActividadesProyectoResponseDto> GetActividadesAsync(int proyectoId, string tipoCronograma);
         Task<ActividadDto> CrearActividadAsync(int proyectoId, CrearActividadRequest request, int userId);
         Task<ActividadDto> EditarActividadAsync(int projectActivityId, EditarActividadRequest request, int userId);
         Task<CulminarActividadDto> CulminarActividadAsync(int projectActivityId, int userId);
         Task EliminarActividadAsync(int projectActivityId, int userId);
         Task<List<DebugProyectoDto>> GetDebugProyectosAsync();
-        Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId);
+        Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId, string tipoCronograma);
         Task<List<ActividadDto>> ReordenarActividadesAsync(int proyectoId, List<ReordenarItem> items);
         Task<List<ActividadDto>> CambiarJerarquiaAsync(int proyectoId, CambiarJerarquiaRequest request);
         Task<List<ActividadDto>> SubirNivelAsync(int proyectoId, int actividadId);
@@ -34,5 +34,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         // Dashboard
         Task<CronogramaDashboardResponseDto> GetDashboardAsync(int? responsableId, string? estado);
+
+        // Creación masiva
+        Task<CrearActividadesMasivoResultDto> CrearActividadesMasivoAsync(int proyectoId, CrearActividadesMasivoRequest request, int userId);
     }
 }

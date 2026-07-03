@@ -317,6 +317,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLimpiezaTipo> VecinoLimpiezaTipo => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLimpiezaTipo>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLimpieza> VecinoLimpieza => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoLimpieza>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeature.Infrastructure.Models.VecinoLicencia> VecinoLicencia => Set<Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeature.Infrastructure.Models.VecinoLicencia>();
+        public DbSet<Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeature.Infrastructure.Models.VecinoLicenciaEmail> VecinoLicenciaEmail => Set<Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeature.Infrastructure.Models.VecinoLicenciaEmail>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis> ProjectCroquis => Set<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquis>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquisLote> ProjectCroquisLote => Set<Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Models.ProjectCroquisLote>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoTipo> VecinoRequisitoTipo => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoTipo>();
@@ -941,6 +942,7 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.Property(e => e.Order).HasColumnName("project_activity_order");
                 entity.Property(e => e.ActivityDescription).IsRequired().HasMaxLength(500);
                 entity.Property(e => e.ProgressPercentage).HasDefaultValue(0);
+                entity.Property(e => e.TipoCronograma).IsRequired().HasMaxLength(30).HasDefaultValue("ANTEPROYECTO");
                 entity.HasOne<ProjectActivity>()
                     .WithMany()
                     .HasForeignKey(e => e.ParentId)

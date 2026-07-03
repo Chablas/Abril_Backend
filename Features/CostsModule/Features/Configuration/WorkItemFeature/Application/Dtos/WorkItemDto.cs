@@ -6,6 +6,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
         public string WorkItemDescription { get; set; } = null!;
         public int? WorkItemCategoryId { get; set; }
         public string? WorkItemCategoryDescription { get; set; }
+        /// <summary>Especialidad a la que pertenece la partida de control.</summary>
+        public string? WorkSpecialtyDescription { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

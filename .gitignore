@@ -66,4 +66,5 @@ appsettings.json
 
 *.sln
 
-.claude/
+.claude/*
+!.claude/skills/

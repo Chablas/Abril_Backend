@@ -95,10 +95,21 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
             var ids = items.Select(c => c.ContractorId).ToList();
 
-            var emails = await ctx.ContractorEmail
-                .Where(e => ids.Contains(e.ContractorId) && e.State)
-                .Select(e => new { e.ContractorId, e.ContractorEmailId, e.Email, e.Active })
-                .ToListAsync();
+            var emails = await (
+                from e in ctx.ContractorEmail
+                join pt in ctx.ContractorPersonType on e.ContractorPersonTypeId equals pt.ContractorPersonTypeId into ptJoin
+                from pt in ptJoin.DefaultIfEmpty()
+                where ids.Contains(e.ContractorId) && e.State
+                select new
+                {
+                    e.ContractorId,
+                    e.ContractorEmailId,
+                    e.Email,
+                    e.Active,
+                    e.ContractorPersonTypeId,
+                    ContractorPersonTypeDescription = pt != null ? pt.Description : null
+                }
+            ).ToListAsync();
 
             var emailsByContractor = emails
                 .GroupBy(e => e.ContractorId)
@@ -115,7 +126,9 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                     {
                         ContractorEmailId = e.ContractorEmailId,
                         Email = e.Email,
-                        Active = e.Active
+                        Active = e.Active,
+                        ContractorPersonTypeId = e.ContractorPersonTypeId,
+                        ContractorPersonTypeDescription = e.ContractorPersonTypeDescription
                     })
                     .ToList();
             }
@@ -522,10 +535,11 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
             {
                 if (incomingById.TryGetValue(existing.ContractorEmailId, out var match))
                 {
-                    existing.Email           = match.Email.Trim();
-                    existing.Active          = match.Active;
-                    existing.UpdatedDateTime = DateTimeOffset.UtcNow;
-                    existing.UpdatedUserId   = userId;
+                    existing.Email                  = match.Email.Trim();
+                    existing.Active                 = match.Active;
+                    existing.ContractorPersonTypeId = match.ContractorPersonTypeId;
+                    existing.UpdatedDateTime        = DateTimeOffset.UtcNow;
+                    existing.UpdatedUserId          = userId;
                 }
                 else
                 {
@@ -544,12 +558,13 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
 
                 ctx.ContractorEmail.Add(new Abril_Backend.Features.CostsModule.Shared.Models.ContractorEmail
                 {
-                    ContractorId    = contractorId,
-                    Email           = email,
-                    CreatedDateTime = DateTimeOffset.UtcNow,
-                    CreatedUserId   = userId,
-                    Active          = newEmail.Active,
-                    State           = true
+                    ContractorId           = contractorId,
+                    Email                  = email,
+                    ContractorPersonTypeId = newEmail.ContractorPersonTypeId,
+                    CreatedDateTime        = DateTimeOffset.UtcNow,
+                    CreatedUserId          = userId,
+                    Active                 = newEmail.Active,
+                    State                  = true
                 });
             }
 

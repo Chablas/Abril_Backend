@@ -50,7 +50,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     ParentId = a.ParentId,
                     HierarchyLevel = a.HierarchyLevel,
                     ActualEndDate = a.ActualEndDate,
-                    ProgressPercentage = a.ProgressPercentage
+                    ProgressPercentage = a.ProgressPercentage,
+                    TipoCronograma = a.TipoCronograma
                 })
                 .ToListAsync();
 
@@ -60,9 +61,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
             foreach (var proyecto in proyectos)
             {
-                proyecto.Avance = actividadesPorProyecto.TryGetValue(proyecto.ProjectId, out var acts)
-                    ? CalcularAvanceNivel0(acts)
-                    : 0;
+                if (actividadesPorProyecto.TryGetValue(proyecto.ProjectId, out var acts))
+                {
+                    var porTab = acts.GroupBy(a => a.TipoCronograma).ToDictionary(g => g.Key, g => g.ToList());
+                    proyecto.AvanceAnteproyecto = porTab.TryGetValue("ANTEPROYECTO", out var ant) ? CalcularAvanceNivel0(ant) : 0;
+                    proyecto.AvanceProyecto = porTab.TryGetValue("PROYECTO", out var proy) ? CalcularAvanceNivel0(proy) : 0;
+                    proyecto.AvanceProyectoActualizacion = porTab.TryGetValue("PROYECTO_ACTUALIZACION", out var pact) ? CalcularAvanceNivel0(pact) : 0;
+                }
             }
 
             return proyectos;
@@ -75,9 +80,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             public int ProjectId { get; set; }
             public int? ParentId { get; set; }
             public int HierarchyLevel { get; set; }
+            public DateOnly? PlannedStartDate { get; set; }
             public DateOnly? PlannedEndDate { get; set; }
             public DateOnly? ActualEndDate { get; set; }
             public int ProgressPercentage { get; set; }
+            public string TipoCronograma { get; set; } = "ANTEPROYECTO";
         }
 
         /// <summary>
@@ -121,7 +128,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             return (int)Math.Round((double)total / nivel0.Count, MidpointRounding.AwayFromZero);
         }
 
-        public async Task<ActividadesProyectoResponseDto> GetActividadesAsync(int proyectoId)
+        public async Task<ActividadesProyectoResponseDto> GetActividadesAsync(int proyectoId, string tipoCronograma)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -140,7 +147,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 throw new AbrilException("Proyecto no encontrado.", 404);
 
             var actividades = await ctx.ProjectActivity
-                .Where(a => a.ProjectId == proyectoId && a.State && a.Active)
+                .Where(a => a.ProjectId == proyectoId && a.State && a.Active && a.TipoCronograma == tipoCronograma)
                 .OrderBy(a => a.Order)
                 .ToListAsync();
 
@@ -179,7 +186,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     HierarchyLevel = a.HierarchyLevel,
                     ParentId = a.ParentId,
                     Predecesoras = predecesorasPorActividad.GetValueOrDefault(a.ProjectActivityId, new List<int>()),
-                    EsPadre = idsPadre.Contains(a.ProjectActivityId)
+                    EsPadre = idsPadre.Contains(a.ProjectActivityId),
+                    TipoCronograma = a.TipoCronograma
                 }).ToList()
             };
         }
@@ -204,6 +212,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 Order = maxOrder + 1,
                 HierarchyLevel = request.HierarchyLevel,
                 ParentId = request.ParentId,
+                IsManual = true,
+                TipoCronograma = request.TipoCronograma,
                 CreatedDateTime = DateTime.UtcNow,
                 CreatedUserId = userId,
                 Active = true,
@@ -225,7 +235,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 ProgressPercentage = activity.ProgressPercentage,
                 Order = activity.Order,
                 HierarchyLevel = activity.HierarchyLevel,
-                ParentId = activity.ParentId
+                ParentId = activity.ParentId,
+                TipoCronograma = activity.TipoCronograma
             };
         }
 
@@ -279,7 +290,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 ProgressPercentage = activity.ProgressPercentage,
                 Order = activity.Order,
                 HierarchyLevel = activity.HierarchyLevel,
-                ParentId = activity.ParentId
+                ParentId = activity.ParentId,
+                TipoCronograma = activity.TipoCronograma
             };
         }
 
@@ -347,7 +359,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             await ctx.SaveChangesAsync();
         }
 
-        public async Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId)
+        public async Task<ImportarMppResultDto> ImportarMppAsync(int proyectoId, IFormFile archivo, int userId, string tipoCronograma)
         {
             if (archivo == null || archivo.Length == 0)
                 throw new AbrilException("El archivo .mpp está vacío o no fue enviado.", 400);
@@ -376,16 +388,19 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 if (mppStartDate.HasValue && proyecto.FechaInicio.HasValue)
                     offsetDias = proyecto.FechaInicio.Value.DayNumber - mppStartDate.Value.DayNumber;
 
-                // Eliminar todas las actividades existentes del proyecto (eliminación física)
+                // Preservar actividades manuales de esta pestaña (pueden tener padres que se eliminarán)
+                var manuales = await ctx.ProjectActivity
+                    .Where(a => a.ProjectId == proyectoId && a.IsManual && a.TipoCronograma == tipoCronograma)
+                    .ToListAsync();
+
+                // Eliminar solo actividades no-manuales de esta pestaña
                 var existentes = await ctx.ProjectActivity
-                    .Where(a => a.ProjectId == proyectoId)
+                    .Where(a => a.ProjectId == proyectoId && !a.IsManual && a.TipoCronograma == tipoCronograma)
                     .ToListAsync();
                 int eliminadas = existentes.Count;
 
-                // Primero borrar las dependencias (predecesoras) que referencian a esas
-                // actividades, ya sea como sucesora o como predecesora; de lo contrario el
-                // FK fk_activity_predecessor_project_activity_predecessor_id (ON DELETE RESTRICT)
-                // bloquea el RemoveRange de las actividades.
+                // Borrar predecesoras de las actividades a eliminar; el FK predecessor_id
+                // es RESTRICT, por lo que hay que limpiarlas antes del RemoveRange.
                 var actividadIds = existentes.Select(a => a.ProjectActivityId).ToList();
                 if (actividadIds.Count > 0)
                 {
@@ -413,17 +428,26 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     DateOnly? inicio = AplicarOffset(tarea.Start, offsetDias);
                     DateOnly? fin = AplicarOffset(tarea.Finish, offsetDias);
 
+                    int pct = (int)(tarea.PercentageComplete ?? 0.0);
+                    DateOnly? actualEnd = pct >= 100
+                        ? (tarea.ActualFinish.HasValue
+                            ? DateOnly.FromDateTime(tarea.ActualFinish.Value)
+                            : fin ?? DateOnly.FromDateTime(DateTime.UtcNow))
+                        : null;
+                    pct = Math.Min(pct, 100);
+
                     var nueva = new ProjectActivity
                     {
                         ProjectId = proyectoId,
                         ActivityDescription = tarea.Name.Trim(),
                         PlannedStartDate = inicio,
                         PlannedEndDate = fin,
-                        ActualEndDate = null,
-                        ProgressPercentage = 0,
+                        ActualEndDate = actualEnd,
+                        ProgressPercentage = pct,
                         Order = orden++,
                         ParentId = null,
                         HierarchyLevel = tarea.OutlineLevel ?? 0,
+                        TipoCronograma = tipoCronograma,
                         CreatedDateTime = DateTime.UtcNow,
                         CreatedUserId = userId,
                         Active = true,
@@ -453,10 +477,41 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 }
                 await ctx.SaveChangesAsync();  // actualiza solo los ParentId que cambiaron
 
+                // Post-procesado: ajustar actividades manuales conservadas
+                if (manuales.Count > 0)
+                {
+                    var mppIdsList = uniqueIdToEntity.Values.Select(e => e.ProjectActivityId).ToList();
+                    var manualesIdsList = manuales.Select(m => m.ProjectActivityId).ToList();
+                    var idsValidos = mppIdsList.Concat(manualesIdsList).ToHashSet();
+                    var idsValidosList = idsValidos.ToList();
+
+                    // Eliminar predecesoras de manuales que apunten a IDs ya inexistentes
+                    var predsHuerfanas = await ctx.ActivityPredecessors
+                        .Where(ap => manualesIdsList.Contains(ap.ActivityId)
+                                  && !idsValidosList.Contains(ap.PredecessorId))
+                        .ToListAsync();
+                    if (predsHuerfanas.Count > 0)
+                        ctx.ActivityPredecessors.RemoveRange(predsHuerfanas);
+
+                    int idxManual = 1;
+                    foreach (var m in manuales.OrderBy(m => m.Order))
+                    {
+                        if (m.ParentId.HasValue && !idsValidos.Contains(m.ParentId.Value))
+                        {
+                            m.ParentId = null;
+                            m.HierarchyLevel = 0;
+                        }
+                        m.Order = (orden - 1) + idxManual++;
+                    }
+
+                    await ctx.SaveChangesAsync();
+                }
+
                 return new ImportarMppResultDto
                 {
                     ActividadesImportadas = orden - 1,
-                    ActividadesEliminadas = eliminadas
+                    ActividadesEliminadas = eliminadas,
+                    ActividadesManualesConservadas = manuales.Count
                 };
             }
             finally
@@ -514,7 +569,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     ProgressPercentage = a.ProgressPercentage,
                     Order = a.Order,
                     HierarchyLevel = a.HierarchyLevel,
-                    ParentId = a.ParentId
+                    ParentId = a.ParentId,
+                    TipoCronograma = a.TipoCronograma
                 })
                 .ToList();
         }
@@ -559,7 +615,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     ProgressPercentage = a.ProgressPercentage,
                     Order = a.Order,
                     HierarchyLevel = a.HierarchyLevel,
-                    ParentId = a.ParentId
+                    ParentId = a.ParentId,
+                    TipoCronograma = a.TipoCronograma
                 })
                 .ToList();
         }
@@ -609,7 +666,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     ProgressPercentage = a.ProgressPercentage,
                     Order = a.Order,
                     HierarchyLevel = a.HierarchyLevel,
-                    ParentId = a.ParentId
+                    ParentId = a.ParentId,
+                    TipoCronograma = a.TipoCronograma
                 })
                 .ToList();
         }
@@ -659,7 +717,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     ProgressPercentage = a.ProgressPercentage,
                     Order = a.Order,
                     HierarchyLevel = a.HierarchyLevel,
-                    ParentId = a.ParentId
+                    ParentId = a.ParentId,
+                    TipoCronograma = a.TipoCronograma
                 })
                 .ToList();
         }
@@ -824,7 +883,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 Order = activity.Order,
                 HierarchyLevel = activity.HierarchyLevel,
                 ParentId = activity.ParentId,
-                EsPadre = false
+                EsPadre = false,
+                TipoCronograma = activity.TipoCronograma
             };
         }
 
@@ -855,9 +915,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     ProjectId = a.ProjectId,
                     ParentId = a.ParentId,
                     HierarchyLevel = a.HierarchyLevel,
+                    PlannedStartDate = a.PlannedStartDate,
                     PlannedEndDate = a.PlannedEndDate,
                     ActualEndDate = a.ActualEndDate,
-                    ProgressPercentage = a.ProgressPercentage
+                    ProgressPercentage = a.ProgressPercentage,
+                    TipoCronograma = a.TipoCronograma
                 })
                 .ToListAsync();
 
@@ -918,6 +980,35 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 string semaforo = diasRetraso == 0 ? "VERDE" : diasRetraso <= 7 ? "AMARILLO" : "ROJO";
                 string estadoProy = acts.Count == 0 ? "SIN_ACTIVIDADES" : vencidas > 0 ? "CON_RETRASO" : "AL_DIA";
 
+                // Cálculo SPI
+                decimal spi = 1.0m;
+                if (acts.Count > 0)
+                {
+                    decimal sumEv = 0, sumPv = 0;
+                    foreach (var act in acts)
+                    {
+                        decimal ev = act.ActualEndDate.HasValue ? 100m : act.ProgressPercentage;
+
+                        decimal pv = 0m;
+                        if (act.PlannedStartDate.HasValue && act.PlannedEndDate.HasValue)
+                        {
+                            if (today >= act.PlannedEndDate.Value)
+                                pv = 100m;
+                            else if (today <= act.PlannedStartDate.Value)
+                                pv = 0m;
+                            else
+                            {
+                                double totalDays = act.PlannedEndDate.Value.DayNumber - act.PlannedStartDate.Value.DayNumber;
+                                double elapsed   = today.DayNumber - act.PlannedStartDate.Value.DayNumber;
+                                pv = totalDays > 0 ? (decimal)(elapsed / totalDays) * 100m : 0m;
+                            }
+                        }
+                        sumEv += ev;
+                        sumPv += pv;
+                    }
+                    spi = sumPv > 0 ? Math.Round(sumEv / sumPv, 2) : 1.0m;
+                }
+
                 return new CronogramaDashboardProyectoDto
                 {
                     ProjectId = p.ProjectId,
@@ -931,7 +1022,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     PorcentajeAvance = porcentajeAvance,
                     DiasRetraso = diasRetraso,
                     Semaforo = semaforo,
-                    Estado = estadoProy
+                    Estado = estadoProy,
+                    Spi = spi
                 };
             }).ToList();
 
@@ -978,6 +1070,42 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 Proyectos = filtrados.ToList(),
                 Responsables = listaResponsables
             };
+        }
+
+        // ─────────────────────────── Creación masiva ───────────────────────────
+
+        public async Task<CrearActividadesMasivoResultDto> CrearActividadesMasivoAsync(int proyectoId, CrearActividadesMasivoRequest request, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var maxOrder = await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State)
+                .Select(a => (int?)a.Order)
+                .MaxAsync() ?? 0;
+
+            var nuevas = request.Actividades.Select((item, idx) => new ProjectActivity
+            {
+                ProjectId = proyectoId,
+                ActivityDescription = item.Nombre,
+                PlannedStartDate = item.InicioProgramado,
+                PlannedEndDate = item.FinProgramado,
+                ActualEndDate = null,
+                ProgressPercentage = 0,
+                Order = maxOrder + idx + 1,
+                HierarchyLevel = 0,
+                ParentId = null,
+                IsManual = true,
+                TipoCronograma = item.TipoCronograma,
+                CreatedDateTime = DateTime.UtcNow,
+                CreatedUserId = userId,
+                Active = true,
+                State = true
+            }).ToList();
+
+            ctx.ProjectActivity.AddRange(nuevas);
+            await ctx.SaveChangesAsync();
+
+            return new CrearActividadesMasivoResultDto { ActividadesCreadas = nuevas.Count };
         }
 
         private static void ActualizarHijosRecursivo(int parentId, int levelDelta, List<ProjectActivity> todas)

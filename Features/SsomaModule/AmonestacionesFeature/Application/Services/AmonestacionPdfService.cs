@@ -129,7 +129,7 @@ public static class AmonestacionPdfService
             {
                 r.RelativeItem().Text(etiquetaCopia).Bold().FontSize(7.5f).FontColor(Colors.White);
                 if (a.Inhabilitado)
-                    r.AutoItem().Text("⚠ INHABILITADO").Bold().FontSize(7).FontColor("#F59E0B");
+                    r.AutoItem().Text("INHABILITADO").Bold().FontSize(7).FontColor("#F59E0B");
             });
 
             // ── Fotos en la parte superior (si existen) ──

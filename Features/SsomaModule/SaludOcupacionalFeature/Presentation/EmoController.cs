@@ -54,6 +54,68 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en EmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Exporta a Excel la misma lista de "por-trabajador", respetando los filtros
+        /// y el orden aplicados en pantalla (sin paginar).
+        /// </summary>
+        [HttpGet("emos/por-trabajador/excel")]
+        public async Task<IActionResult> GetPorTrabajadorExcel([FromQuery] EmoPorTrabajadorFilterDto filter)
+        {
+            try
+            {
+                filter.Page = 1;
+                filter.PageSize = int.MaxValue;
+                var result = await _service.ListPorTrabajador(filter);
+
+                using var workbook = new ClosedXML.Excel.XLWorkbook();
+                var ws = workbook.AddWorksheet("EMOs por trabajador");
+
+                var headers = new[]
+                {
+                    "Trabajador", "DNI", "Tipo EMO", "Empresa Actual", "Empresa Origen",
+                    "Proyecto", "Fecha EMO", "Vencimiento", "Aptitud", "Estado", "Días"
+                };
+                for (int col = 1; col <= headers.Length; col++)
+                {
+                    var cell = ws.Cell(1, col);
+                    cell.Value = headers[col - 1];
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#003366");
+                    cell.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
+                    cell.Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+                }
+
+                int row = 2;
+                foreach (var x in result.Data)
+                {
+                    ws.Cell(row, 1).Value = x.NombreCompleto;
+                    ws.Cell(row, 2).Value = x.Dni;
+                    ws.Cell(row, 3).Value = x.TipoEmo ?? string.Empty;
+                    ws.Cell(row, 4).Value = x.Empresa ?? string.Empty;
+                    ws.Cell(row, 5).Value = x.EmpresaOrigenNombre ?? string.Empty;
+                    ws.Cell(row, 6).Value = x.ProyectoNombre ?? string.Empty;
+                    ws.Cell(row, 7).Value = x.FechaEmo.HasValue ? x.FechaEmo.Value.ToString("dd/MM/yyyy") : string.Empty;
+                    ws.Cell(row, 8).Value = x.FechaVencimiento.HasValue ? x.FechaVencimiento.Value.ToString("dd/MM/yyyy") : string.Empty;
+                    ws.Cell(row, 9).Value = x.Aptitud ?? string.Empty;
+                    ws.Cell(row, 10).Value = x.TieneEmo ? (x.Estado ?? string.Empty) : "Sin EMO";
+                    ws.Cell(row, 11).Value = x.DiasRestantes.HasValue ? x.DiasRestantes.Value.ToString() : string.Empty;
+
+                    if (row % 2 == 0)
+                        ws.Range(row, 1, row, headers.Length).Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#F5F5F5");
+                    row++;
+                }
+
+                ws.Columns().AdjustToContents();
+
+                using var ms = new MemoryStream();
+                workbook.SaveAs(ms);
+                var fileName = $"EMOs_{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx";
+                return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error exportando EMOs a Excel"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("emos/{id:int}")]
         public async Task<IActionResult> GetById(int id)
         {

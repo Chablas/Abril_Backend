@@ -588,6 +588,70 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             return null;
         }
 
+        public async Task<(byte[] Bytes, string ContentType, string FileName)?> DescargarPorWebUrlAsync(string webUrl)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(webUrl)) return null;
+
+                var token = await GetAccessTokenAsync();
+                if (string.IsNullOrWhiteSpace(token)) return null;
+
+                var client = _httpClientFactory.CreateClient();
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                // Graph "shares" API: cualquier URL de SharePoint (webUrl) se puede resolver
+                // a su driveItem codificándola como "u!" + base64url, sin necesitar sesión
+                // interactiva del usuario — solo el token de la app.
+                var shareId = "u!" + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(webUrl))
+                    .TrimEnd('=')
+                    .Replace('/', '_')
+                    .Replace('+', '-');
+
+                var itemResponse = await client.GetAsync(
+                    $"https://graph.microsoft.com/v1.0/shares/{shareId}/driveItem?$select=id,name,file,parentReference,@microsoft.graph.downloadUrl");
+                if (!itemResponse.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("DescargarPorWebUrlAsync: no se pudo resolver el share ({Status}) para {Url}",
+                        itemResponse.StatusCode, webUrl);
+                    return null;
+                }
+
+                using var itemDoc = JsonDocument.Parse(await itemResponse.Content.ReadAsStringAsync());
+                var root = itemDoc.RootElement;
+                var fileName = root.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "archivo" : "archivo";
+                var contentType = root.TryGetProperty("file", out var fileEl) && fileEl.TryGetProperty("mimeType", out var mimeEl)
+                    ? mimeEl.GetString() ?? "application/octet-stream"
+                    : "application/octet-stream";
+
+                // Si Graph ya incluyó el link de descarga directa, usarlo (evita una llamada extra).
+                if (root.TryGetProperty("@microsoft.graph.downloadUrl", out var dlEl) && dlEl.GetString() is { } directUrl)
+                {
+                    var directClient = _httpClientFactory.CreateClient();
+                    var directResponse = await directClient.GetAsync(directUrl);
+                    if (directResponse.IsSuccessStatusCode)
+                        return (await directResponse.Content.ReadAsByteArrayAsync(), contentType, fileName);
+                }
+
+                // Fallback: descargar vía /content con el id + driveId del item resuelto.
+                var itemId = root.GetProperty("id").GetString();
+                var driveId = root.GetProperty("parentReference").GetProperty("driveId").GetString();
+                var contentResponse = await client.GetAsync(
+                    $"https://graph.microsoft.com/v1.0/drives/{driveId}/items/{itemId}/content");
+                if (contentResponse.IsSuccessStatusCode)
+                    return (await contentResponse.Content.ReadAsByteArrayAsync(), contentType, fileName);
+
+                _logger.LogWarning("DescargarPorWebUrlAsync: /content falló ({Status}) para {Url}",
+                    contentResponse.StatusCode, webUrl);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "DescargarPorWebUrlAsync excepción para {Url}", webUrl);
+                return null;
+            }
+        }
+
         public async Task<byte[]?> DescargarContenidoAsync(string path, string libraryContexto)
         {
             try

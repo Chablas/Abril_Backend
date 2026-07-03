@@ -36,6 +36,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
                     w.Id,
                     p.PersonId,
                     p.FullName,
+                    w.Puesto,
                     w.Ocupacion,
                     w.EmailCorporativo,
                     Cumple = p.Cumpleanos,
@@ -58,7 +59,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
                 {
                     WorkerId = f.Id,
                     NombreCompleto = f.FullName ?? string.Empty,
-                    Ocupacion = f.Ocupacion,
+                    Puesto = f.Puesto ?? f.Ocupacion,
                     Email = f.EmailCorporativo!,
                     Mes = fecha.Value.Month,
                     Dia = fecha.Value.Day,

@@ -4629,3 +4629,41 @@ Resuelve error al cargar /costs/adjudicaciones.
 - Fix semáforo gris en SIN ACTIVIDADES del dashboard
 - Endpoint PATCH /actividades/{id}/mover con body { parentId, order } para drag & drop libre desde frontend
 - Definir proceso de deploy frontend a VPS con usuario deploy
+
+## Sesión 2026-06-29
+
+### 1. SPI (Índice de Rendimiento del Cronograma) en Dashboard UDP
+
+**Backend — `CronogramaActividadesRepository.cs`:**
+- Clase privada `ActividadAvance` extendida con `PlannedStartDate`
+- Query 2 del dashboard mapea `PlannedStartDate = a.PlannedStartDate`
+- Nuevo cálculo SPI por proyecto antes del `return new CronogramaDashboardProyectoDto`:
+  - `ev` = `actualEndDate != null ? 100 : progressPercentage`
+  - `pv` = 100 si `hoy >= plannedEndDate`, 0 si `hoy <= plannedStartDate`, interpolación lineal en otro caso
+  - `SPI = Sum(ev) / Sum(pv)`, redondeado a 2 decimales. Si `Sum(pv) == 0` → `1.0`
+- `CronogramaDashboardProyectoDto` extendido con `public decimal Spi { get; set; } = 1.0m`
+
+**Frontend — `features/projects/cronograma-dashboard/`:**
+- `CronogramaDashboardProyectoDto` extendido con `spi: number`
+- Propiedad `spiPromedio = 1.0` calculada en `loadDashboard()` promediando proyectos con actividades
+- Métodos `spiColor(spi, estado)` y `spiLabel(spi, estado)` para color y texto del badge
+- KPI card "SPI PROMEDIO" agregada (9na card, skeleton actualizado a 9)
+- Columna SPI en tabla con badge coloreado: verde ≥1, naranja ≥0.9, rojo <0.9, gris SIN_ACTIVIDADES
+- Estilos `.col-spi` y `.spi-badge` en `cronograma-dashboard.css`
+
+### 2. Bugs identificados (pendientes)
+
+- **Responsables vacíos en filtro**: el select solo muestra "Responsable: Todos", nunca carga nombres. Query 3 del dashboard trae los IDs correctos pero hay que verificar por qué no devuelve nombres.
+- **Avance 0% en dashboard**: `CalcularAvanceNivel0` mezcla los 3 tipos de cronograma. El dashboard debe mostrar 3 barras separadas por tipo igual que `proyectos-cronograma-list`. Requiere cambiar `CronogramaDashboardProyectoDto` para devolver `avanceAnteproyecto`, `avanceProyecto`, `avanceProyectoActualizacion` en lugar de `porcentajeAvance`.
+
+### 3. Setup de herramientas por PC
+
+**PC Personal (esta máquina) — CON headroom:**
+- `headroom` v0.28.0 instalado via `py -m pip install "headroom-ai[all]"`
+- Al abrir Claude Code: `headroom wrap claude` desde la carpeta del repo correspondiente
+- Si el proxy se cae entre sesiones: `headroom proxy` en cualquier terminal, luego reabrir Claude Code
+- Modelo: `claude config set model claude-sonnet-4-5`
+
+**PC Trabajo — SIN headroom:**
+- Claude Code se abre directamente con `claude` como siempre
+- Sin cambios en el flujo de trabajo habitual

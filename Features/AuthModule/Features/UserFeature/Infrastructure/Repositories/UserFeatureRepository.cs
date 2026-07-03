@@ -24,7 +24,15 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
             using var ctx = _factory.CreateDbContext();
 
             var hasSearch = !string.IsNullOrWhiteSpace(search);
-            var likePattern = hasSearch ? $"%{search!.Trim().ToLower()}%" : null;
+            // Búsqueda por palabras en cualquier orden: cada palabra debe aparecer en el
+            // nombre, DNI o correo (misma semántica que SearchInput.matches del frontend).
+            // Así "jairo diaz" encuentra a "DIAZ BUIZA JAIRO ELIU".
+            var likePatterns = hasSearch
+                ? search!.Trim().ToLower()
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(w => $"%{w}%")
+                    .ToArray()
+                : Array.Empty<string>();
 
             int totalRecords;
             List<UserBaseRow> baseRows;
@@ -37,11 +45,8 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                         FROM app_user u
                         LEFT JOIN person p ON p.user_id = u.user_id AND p.state = true
                         WHERE u.state = true
-                          AND (
-                            LOWER(COALESCE(p.full_name, '')) LIKE {likePattern}
-                            OR LOWER(COALESCE(p.document_identity_code, '')) LIKE {likePattern}
-                            OR LOWER(u.email) LIKE {likePattern}
-                          )
+                          AND LOWER(COALESCE(p.full_name, '') || ' ' || COALESCE(p.document_identity_code, '') || ' ' || u.email)
+                              LIKE ALL ({likePatterns})
                         """)
                     .ToListAsync();
                 totalRecords = counts.FirstOrDefault();
@@ -64,11 +69,8 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     LEFT JOIN person p ON p.user_id = u.user_id AND p.state = true
                     LEFT JOIN contractor_user cu ON cu.user_id = u.user_id AND cu.state = true
                     WHERE u.state = true
-                      AND (
-                        LOWER(COALESCE(p.full_name, '')) LIKE {likePattern}
-                        OR LOWER(COALESCE(p.document_identity_code, '')) LIKE {likePattern}
-                        OR LOWER(u.email) LIKE {likePattern}
-                      )
+                      AND LOWER(COALESCE(p.full_name, '') || ' ' || COALESCE(p.document_identity_code, '') || ' ' || u.email)
+                          LIKE ALL ({likePatterns})
                     ORDER BY u.user_id DESC
                     LIMIT {pageSize} OFFSET {(page - 1) * pageSize}
                     """).ToListAsync();

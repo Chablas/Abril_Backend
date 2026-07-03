@@ -80,6 +80,14 @@ Todo código nuevo va en `Features/<NombreFeature>/`.
 Prohibido agregar código en carpetas por capa (`Controllers/`, `Services/`, `Repositories/` en raíz).
 La estructura por capas en raíz es legacy y no debe crecer.
 
+### DEPLOY
+
+- P1: El frontend de producción vive en /var/www/abril en la VPS — se actualiza con npm run build + copia de dist/Abril/browser/*
+- P2: El backend se conecta a la BD de producción a través del túnel SSH (localhost:5544 → VPS:5432)
+- P3: El túnel SSH debe estar activo antes de levantar el backend: ssh -L 5544:localhost:5432 jefe@intranet.abril.pe
+- P4: El usuario deploy es el dueño de /var/www/abril — los archivos deben copiarse con permisos correctos
+- P5: Push directo a master está permitido (el usuario tiene permisos de bypass de branch protection) — pero SIEMPRE sin --force. Un push forzado puede pisar trabajo hecho desde otra PC o en otra sesión sin aviso previo.
+
 ---
 
 ## 2. Arquitectura

@@ -1,43 +1,35 @@
 ---
 name: guardar-master
-description: Guarda el trabajo en curso en la rama actual (no master), actualiza CONTEXT.md con un resumen de la sesión, y sube los cambios a origin. Usar cuando el usuario diga "guardar rama", "guarda mis cambios" o quiera cerrar sesión de trabajo en una rama feature. Solo opera sobre el repo en el que Claude Code está parado (backend o frontend) — si el usuario quiere ambos, se corre por separado en cada terminal.
+description: Guarda el trabajo en curso y lo sube directo a master, siguiendo la regla P5 (nunca --force). Usar cuando el usuario diga "guardar master" o quiera subir cambios hechos directamente en master a producción. Pide confirmación explícita antes del push por ser la rama de producción. Solo opera sobre el repo en el que Claude Code está parado (backend o frontend) — si el usuario quiere ambos, se corre por separado en cada terminal.
 ---
 
-# Guardar rama
+# Guardar master
 
-Guarda el trabajo de la sesión en la rama actual y lo sube a `origin`. Nunca toca `master`.
+Guarda el trabajo de la sesión y lo sube a `master`. Es la única skill que puede pushear a `master`, y lo hace con más cuidado que "guardar rama" porque va directo a producción.
 
 ## Pasos (en orden, detenerse si alguno falla)
 
 ### 1. Verificar rama actual
-
-```
 git branch --show-current
-```
 
-Si la rama es `master`, DETENERSE inmediatamente y responder:
+Si la rama NO es `master`, DETENERSE inmediatamente y responder:
+Estás en <rama-actual>, no en master. Para usar "guardar master":
 
-```
-Estás en master, no en una rama de trabajo. Para usar "guardar rama":
+Si tienes cambios sin guardar en esta rama, corre "guardar rama" primero.
+git checkout master
+Corre "guardar master" de nuevo.
 
-1. Si tienes cambios sin guardar en esta rama, corre "guardar rama" primero.
-2. git checkout <nombre-de-tu-rama>   (o git checkout -b <nombre> si es nueva)
-3. Corre "guardar rama" de nuevo.
-```
 
 No continuar con ningún paso siguiente.
 
 ### 2. Commit de cambios pendientes (solo si hay algo que guardar)
-
-```
 git status --porcelain
-```
 
 Si no hay salida, no hay nada que commitear — saltar a paso 3.
 
 Si hay cambios:
 1. `git add -A`
-2. Analizar el diff (`git diff --cached --stat` y una revisión rápida de los archivos) para generar un mensaje de commit en formato **Conventional Commits** (`feat:`, `fix:`, `refactor:`, `style:`, `chore:`, etc. + descripción corta en español). No preguntar al usuario el mensaje, generarlo directamente.
+2. Analizar el diff (`git diff --cached --stat` y revisión rápida de archivos) para generar un mensaje de commit en formato **Conventional Commits** en español. No preguntar al usuario el mensaje.
 3. `git commit -m "<mensaje generado>"`
 
 ### 3. Build obligatorio
@@ -47,39 +39,34 @@ Detectar el tipo de repo:
 - Si existe un `.csproj` o `.sln` en la raíz → `dotnet build`
 
 Ejecutar el build correspondiente. Si falla:
-- DETENERSE. No continuar a los pasos 4-6.
-- Mostrar el error de build al usuario tal cual, sin intentar arreglarlo solo (a menos que el usuario lo pida explícitamente).
+- DETENERSE. No continuar a los pasos 4-7.
+- Mostrar el error de build tal cual, sin intentar arreglarlo solo salvo que el usuario lo pida.
 
 ### 4. Actualizar CONTEXT.md
 
-Agregar al final de `CONTEXT.md` una nueva sección con el resumen de la sesión, siguiendo el formato ya usado en el archivo (`## Sesión YYYY-MM-DD` o `## §N — Título (YYYY-MM-DD)`). El resumen debe cubrir, en base a lo trabajado en esta sesión:
-- Qué se hizo (features, fixes, cambios de arquitectura)
-- Archivos clave tocados
-- Bugs pendientes o próximos pasos, si los hay
-
-Escribir el resumen directamente en el archivo, sin mostrarlo antes al usuario para aprobación.
-
-Luego:
-```
+Agregar al final de `CONTEXT.md` una sección con el resumen de la sesión, siguiendo el formato existente del archivo (`## Sesión YYYY-MM-DD` o `## §N — Título (YYYY-MM-DD)`). Cubrir: qué se hizo, archivos clave, pendientes. Escribir directo, sin pedir aprobación antes.
 git add CONTEXT.md
 git commit -m "docs: actualiza CONTEXT.md con resumen de sesión"
-```
 
 ### 5. Traer cambios remotos
-
-```
 git fetch origin
-git merge origin/<rama-actual>
-```
+git merge origin/master
 
 Si hay conflictos:
 - DETENERSE. No hacer push.
-- Listar los archivos en conflicto y pedir al usuario cómo resolverlos. No resolver conflictos de forma automática sin confirmación.
+- Listar los archivos en conflicto y pedir al usuario cómo resolverlos.
 
-### 6. Push
+### 6. Confirmación antes de push (obligatoria — master es producción)
 
-```
-git push origin <rama-actual>
-```
+Mostrar al usuario:
+git log origin/master..HEAD --oneline
+git diff origin/master..HEAD --stat
 
-Sin `--force` bajo ninguna circunstancia. Confirmar al usuario qué se subió (commits + archivos).
+Y preguntar explícitamente: "¿Confirmas subir estos commits a master?" — esperar un sí claro antes de continuar. No asumir confirmación implícita.
+
+### 7. Push
+
+Solo tras confirmación explícita:
+git push origin master
+
+**Regla P5 — nunca usar `--force` bajo ninguna circunstancia**, ni aunque el usuario lo pida sin dar una razón explícita y consciente del riesgo (esto pisaría trabajo de otra PC o sesión sin aviso).

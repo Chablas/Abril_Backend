@@ -43,5 +43,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 throw new AbrilException("El estado de la interconsulta no es válido.", 400);
             return _repo.UpdateResultado(id, dto, userId);
         }
+
+        public Task UpdateDerivacion(int id, InterconsultaDerivacionPatchDto dto, int? userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Especialidad))
+                throw new AbrilException("La especialidad es obligatoria.", 400);
+            return _repo.UpdateDerivacion(id, dto, userId);
+        }
     }
 }

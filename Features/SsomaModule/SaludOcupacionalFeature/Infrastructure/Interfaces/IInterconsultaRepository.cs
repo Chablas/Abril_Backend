@@ -10,5 +10,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task<int> Create(InterconsultaCreateDto dto, int? userId);
         Task Update(int id, InterconsultaUpdateDto dto, int? userId);
         Task UpdateResultado(int id, InterconsultaResultadoPatchDto dto, int? userId);
+        Task UpdateDerivacion(int id, InterconsultaDerivacionPatchDto dto, int? userId);
     }
 }

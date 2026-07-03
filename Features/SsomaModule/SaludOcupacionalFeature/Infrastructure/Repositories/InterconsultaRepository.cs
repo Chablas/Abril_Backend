@@ -292,5 +292,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             await ctx.SaveChangesAsync();
         }
+
+        public async Task UpdateDerivacion(int id, InterconsultaDerivacionPatchDto dto, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsInterconsulta.FirstOrDefaultAsync(i => i.Id == id)
+                ?? throw new AbrilException("Interconsulta no encontrada.", 404);
+            ent.Especialidad = dto.Especialidad;
+            ent.Diagnostico = dto.Diagnostico;
+            ent.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
     }
 }

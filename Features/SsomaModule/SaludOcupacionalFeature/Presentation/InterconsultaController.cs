@@ -142,5 +142,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en InterconsultaController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        [HttpPatch("{id:int}/derivacion")]
+        [Authorize(Roles = "CLINICA")]
+        public async Task<IActionResult> PatchDerivacion(int id, [FromBody] InterconsultaDerivacionPatchDto dto)
+        {
+            try
+            {
+                await _service.UpdateDerivacion(id, dto, CurrentUserId());
+                return Ok(new { message = "Derivación actualizada exitosamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en InterconsultaController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

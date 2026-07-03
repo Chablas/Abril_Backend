@@ -345,6 +345,31 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en Enviar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Sirve el contenido de un archivo de SharePoint a partir de su `webUrl` (guardado
+        /// tal cual en BD por SubirArchivoYObtenerUrlAsync), sin redirigir al navegador a
+        /// SharePoint. Así funciona para cualquier usuario logueado en la intranet, sin
+        /// depender de que tenga sesión interactiva de Microsoft 365 en el navegador.
+        /// </summary>
+        [HttpGet("proxy")]
+        public async Task<IActionResult> Proxy([FromQuery] string url)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(url))
+                    return BadRequest(new { message = "Parámetro 'url' requerido." });
+
+                var webUrl = Uri.UnescapeDataString(url);
+                var archivo = await _sharePoint.DescargarPorWebUrlAsync(webUrl);
+                if (archivo is null)
+                    return NotFound(new { message = "Archivo no encontrado." });
+
+                return File(archivo.Value.Bytes, archivo.Value.ContentType, archivo.Value.FileName);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ArchivoHabilitacionController.Proxy"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("descargar")]
         [AllowAnonymous]
         public async Task<IActionResult> Descargar([FromQuery] string url)

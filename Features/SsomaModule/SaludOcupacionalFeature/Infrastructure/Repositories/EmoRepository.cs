@@ -154,14 +154,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             if (filter.EmpresaId.HasValue)
                 q = q.Where(x => x.vv != null && x.vv.EmpresaId == filter.EmpresaId.Value);
+            if (filter.ProyectoId.HasValue)
+                q = q.Where(x => x.vv != null && x.vv.ProyectoId == filter.ProyectoId.Value);
+            if (filter.FechaEmoDesde.HasValue)
+                q = q.Where(x => x.ue != null && x.ue.FechaEmo >= filter.FechaEmoDesde.Value);
+            if (filter.FechaEmoHasta.HasValue)
+                q = q.Where(x => x.ue != null && x.ue.FechaEmo <= filter.FechaEmoHasta.Value);
+            if (filter.SinLectura)
+                q = q.Where(x => x.ue != null && x.ue.UrlResultado == null);
+            if (filter.SinCertificado)
+                q = q.Where(x => x.ue != null && x.ue.UrlAptitud == null);
+            if (filter.SinEmoCompleto)
+                q = q.Where(x => x.ue != null && x.ue.UrlEmoCompleto == null);
 
             var page = filter.Page < 1 ? 1 : filter.Page;
             var pageSize = filter.PageSize <= 0 ? 50 : Math.Min(filter.PageSize, 200);
 
             var total = await q.CountAsync();
 
+            q = filter.SortBy switch
+            {
+                "fechaEmo" => filter.SortDesc
+                    ? q.OrderByDescending(x => x.ue != null ? (DateOnly?)x.ue.FechaEmo : null)
+                    : q.OrderBy(x => x.ue != null ? (DateOnly?)x.ue.FechaEmo : null),
+                "fechaVencimiento" => filter.SortDesc
+                    ? q.OrderByDescending(x => x.ue != null ? (x.ue.FechaVencimientoCalculada ?? x.ue.FechaVencimiento) : null)
+                    : q.OrderBy(x => x.ue != null ? (x.ue.FechaVencimientoCalculada ?? x.ue.FechaVencimiento) : null),
+                _ => q.OrderBy(x => x.w.Person != null ? x.w.Person.FullName : null)
+            };
+
             var rows = await q
-                .OrderBy(x => x.w.Person != null ? x.w.Person.FullName : null)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .Select(x => new EmoPorTrabajadorDto

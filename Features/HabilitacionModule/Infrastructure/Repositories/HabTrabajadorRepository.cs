@@ -1525,6 +1525,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 CreatedAt = DateTime.UtcNow
             });
 
+            if (vinculacion?.EmpresaId != null)
+            {
+                var usuariosContratista = await ctx.SsContratistaUsuarios
+                    .Where(u => u.WorkerId == workerId
+                             && u.ContractorId == vinculacion.EmpresaId.Value
+                             && u.Activo)
+                    .ToListAsync();
+                foreach (var u in usuariosContratista)
+                    u.Activo = false;
+            }
+
             await ctx.SaveChangesAsync();
         }
 
@@ -1573,6 +1584,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .GroupBy(v => v.WorkerId)
                 .ToDictionary(g => g.Key, g => g.First());
 
+            var usuariosContratista = await ctx.SsContratistaUsuarios
+                .Where(u => u.WorkerId != null && workerIds.Contains(u.WorkerId.Value) && u.Activo)
+                .ToListAsync();
+
             foreach (var w in workers)
             {
                 vincMap.TryGetValue(w.Id, out var vinc);
@@ -1585,6 +1600,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EmpresaAnteriorId = vinc?.EmpresaId,
                     CreatedAt = DateTime.UtcNow
                 });
+
+                if (vinc?.EmpresaId != null)
+                {
+                    foreach (var u in usuariosContratista.Where(u => u.WorkerId == w.Id && u.ContractorId == vinc.EmpresaId.Value))
+                        u.Activo = false;
+                }
             }
 
             await ctx.SaveChangesAsync();

@@ -54,6 +54,68 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en EmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Exporta a Excel la misma lista de "por-trabajador", respetando los filtros
+        /// y el orden aplicados en pantalla (sin paginar).
+        /// </summary>
+        [HttpGet("emos/por-trabajador/excel")]
+        public async Task<IActionResult> GetPorTrabajadorExcel([FromQuery] EmoPorTrabajadorFilterDto filter)
+        {
+            try
+            {
+                filter.Page = 1;
+                filter.PageSize = int.MaxValue;
+                var result = await _service.ListPorTrabajador(filter);
+
+                using var workbook = new ClosedXML.Excel.XLWorkbook();
+                var ws = workbook.AddWorksheet("EMOs por trabajador");
+
+                var headers = new[]
+                {
+                    "Trabajador", "DNI", "Tipo EMO", "Empresa Actual", "Empresa Origen",
+                    "Proyecto", "Fecha EMO", "Vencimiento", "Aptitud", "Estado", "Días"
+                };
+                for (int col = 1; col <= headers.Length; col++)
+                {
+                    var cell = ws.Cell(1, col);
+                    cell.Value = headers[col - 1];
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#003366");
+                    cell.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
+                    cell.Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+                }
+
+                int row = 2;
+                foreach (var x in result.Data)
+                {
+                    ws.Cell(row, 1).Value = x.NombreCompleto;
+                    ws.Cell(row, 2).Value = x.Dni;
+                    ws.Cell(row, 3).Value = x.TipoEmo ?? string.Empty;
+                    ws.Cell(row, 4).Value = x.Empresa ?? string.Empty;
+                    ws.Cell(row, 5).Value = x.EmpresaOrigenNombre ?? string.Empty;
+                    ws.Cell(row, 6).Value = x.ProyectoNombre ?? string.Empty;
+                    ws.Cell(row, 7).Value = x.FechaEmo.HasValue ? x.FechaEmo.Value.ToString("dd/MM/yyyy") : string.Empty;
+                    ws.Cell(row, 8).Value = x.FechaVencimiento.HasValue ? x.FechaVencimiento.Value.ToString("dd/MM/yyyy") : string.Empty;
+                    ws.Cell(row, 9).Value = x.Aptitud ?? string.Empty;
+                    ws.Cell(row, 10).Value = x.TieneEmo ? (x.Estado ?? string.Empty) : "Sin EMO";
+                    ws.Cell(row, 11).Value = x.DiasRestantes.HasValue ? x.DiasRestantes.Value.ToString() : string.Empty;
+
+                    if (row % 2 == 0)
+                        ws.Range(row, 1, row, headers.Length).Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#F5F5F5");
+                    row++;
+                }
+
+                ws.Columns().AdjustToContents();
+
+                using var ms = new MemoryStream();
+                workbook.SaveAs(ms);
+                var fileName = $"EMOs_{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx";
+                return File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error exportando EMOs a Excel"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("emos/{id:int}")]
         public async Task<IActionResult> GetById(int id)
         {
@@ -81,6 +143,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             {
                 dto.DocumentoInterconsulta = documentoInterconsulta;
                 dto.ArchivoLectura = archivoLectura;
+
+                // Si quien registra es una clinica y no mando clinicaId explicito,
+                // se liga el EMO a su propia clinica desde el inicio (evita que las
+                // subidas de Aptitud/EMO Completo que siguen a la creacion choquen
+                // con el chequeo de propiedad de SubirDocumento).
+                if (dto.ClinicaId == null && User.IsInRole("CLINICA"))
+                {
+                    var clinicaIdClaim = User.FindFirst("clinicaId")?.Value;
+                    if (int.TryParse(clinicaIdClaim, out var clinicaIdActual))
+                        dto.ClinicaId = clinicaIdActual;
+                }
+
                 var result = await _service.Create(dto, CurrentUserId());
                 return Ok(new { id = result.EmoId, interconsultaId = result.InterconsultaId, message = "EMO registrado exitosamente." });
             }
@@ -135,11 +209,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 if (User.IsInRole("CLINICA"))
                 {
                     var clinicaIdClaim = User.FindFirst("clinicaId")?.Value;
-                    if (!int.TryParse(clinicaIdClaim, out var clinicaId) || emo.ClinicaId != clinicaId)
+                    if (!int.TryParse(clinicaIdClaim, out var clinicaId))
                         throw new AbrilException("No tiene permiso para subir documentos de este EMO.", 403);
-                    // La clínica solo puede subir Aptitud y EMO completo, no Lectura
-                    if (tipoNorm == "Lectura")
-                        throw new AbrilException("La clínica no puede subir archivos de lectura de EMO.", 403);
+
+                    if (emo.ClinicaId == null)
+                        // EMO sin clínica asignada todavía (dato legado o registrado sin vínculo):
+                        // se liga a la clínica que sube el primer documento, en vez de bloquearla.
+                        emo.ClinicaId = clinicaId;
+                    else if (emo.ClinicaId != clinicaId)
+                        throw new AbrilException("No tiene permiso para subir documentos de este EMO.", 403);
                 }
 
                 var dni = emo.Worker?.Person?.DocumentIdentityCode ?? emo.WorkerId.ToString();

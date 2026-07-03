@@ -359,6 +359,11 @@ public class PasoService : IPasoService
         paso.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
 
+        // Generar de inmediato las ejecuciones (entregables) del ciclo hasta el mes actual,
+        // en vez de esperar al cron del día 1 — evita que un PASO recién aprobado quede en 0.
+        if (!paso.EsPlantilla)
+            await GenerarEjecucionesPasoAsync(ctx, paso);
+
         var proyectos = paso.ProyectoId.HasValue
             ? await ctx.Project.Where(pr => pr.ProjectId == paso.ProyectoId).ToDictionaryAsync(pr => pr.ProjectId, pr => pr.ProjectDescription ?? "")
             : new Dictionary<int, string>();
@@ -460,7 +465,7 @@ public class PasoService : IPasoService
 
         foreach (var paso in pasos)
         {
-            var cicloStartYear = paso.MesInicio > 6 ? paso.Anio!.Value - 1 : paso.Anio!.Value;
+            var cicloStartYear = paso.Anio!.Value;
             var cicloStart = new DateOnly(cicloStartYear, paso.MesInicio, 1);
             var cicloEnd = cicloStart.AddMonths(12).AddDays(-1);
 
@@ -519,7 +524,7 @@ public class PasoService : IPasoService
             };
 
         var hoy = DateOnly.FromDateTime(DateTime.Today);
-        var cicloStartYear = paso.MesInicio > 6 ? paso.Anio!.Value - 1 : paso.Anio!.Value;
+        var cicloStartYear = paso.Anio!.Value;
         var cicloStart = new DateOnly(cicloStartYear, paso.MesInicio, 1);
         var cicloEnd = cicloStart.AddMonths(12).AddDays(-1);
 
@@ -1094,7 +1099,7 @@ if (cat is not null) act.Categoria = cat;
         foreach (var paso in pasos)
         {
             int pasoAnio = paso.Anio!.Value;
-            int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+            int cicloStartYear = pasoAnio;
             int cicloStartAbs = cicloStartYear * 12 + paso.MesInicio - 1;
 
             foreach (var act in paso.Actividades.Where(a => a.Categoria?.Ambito == "Salud"))
@@ -1203,7 +1208,7 @@ if (cat is not null) act.Categoria = cat;
         int pasoAnio = paso.Anio ?? DateTime.Today.Year;
 
         // ── Calcular mes del ciclo ────────────────────────────────────────────
-        int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+        int cicloStartYear = pasoAnio;
         int cicloStartAbs  = cicloStartYear * 12 + paso.MesInicio - 1;
         int cicloEndAbs    = cicloStartAbs + 11;
         int requestedAbs   = anio * 12 + mes - 1;
@@ -1335,6 +1340,51 @@ if (cat is not null) act.Categoria = cat;
             await GenerarEjecucionesMesAsync(ctx, hoy.Year, hoy.Month);
     }
 
+    // Genera, para un PASO recién activado, las ejecuciones de todos los meses del ciclo
+    // ya transcurridos (desde MesInicio hasta el mes calendario actual), en lugar de
+    // depender del cron del día 1 que solo cubre el mes en curso.
+    private async Task GenerarEjecucionesPasoAsync(AppDbContext ctx, SsomaPaso paso)
+    {
+        if (!paso.Anio.HasValue) return;
+
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        int pasoAnio = paso.Anio.Value;
+        int cicloStartYear = pasoAnio;
+        int cicloStartAbs = cicloStartYear * 12 + paso.MesInicio - 1;
+        int hoyAbs = hoy.Year * 12 + hoy.Month - 1;
+        int limiteAbs = Math.Min(hoyAbs, cicloStartAbs + 11);
+
+        foreach (var act in paso.Actividades)
+        {
+            for (int abs = cicloStartAbs; abs <= limiteAbs; abs++)
+            {
+                int mesCiclo = abs - cicloStartAbs + 1;
+                if (act.MesInicio > mesCiclo || act.MesFin < mesCiclo) continue;
+                if (!EsMesPlanificado(act.Frecuencia, mesCiclo, act.MesInicio)) continue;
+
+                int anioReal = abs / 12;
+                int mesReal = abs % 12 + 1;
+
+                if (act.Ejecuciones.Any(e => e.FechaProgramada.Year == anioReal && e.FechaProgramada.Month == mesReal))
+                    continue;
+
+                var primer = new DateOnly(anioReal, mesReal, 1);
+                var ultimo = UltimoDiaMes(anioReal, mesReal);
+
+                ctx.SsomaPasoEjecuciones.Add(new SsomaPasoEjecucion
+                {
+                    ActividadId = act.Id,
+                    FechaProgramada = primer,
+                    FechaVerificacion = ultimo,
+                    Estado = primer < hoy ? "Vencido" : "Programado",
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+        }
+
+        await ctx.SaveChangesAsync();
+    }
+
     private async Task GenerarEjecucionesMesAsync(AppDbContext ctx, int anio, int mes)
     {
         // FIX-B3: fetch ALL active PASOs of the year, then calculate mesCiclo
@@ -1357,7 +1407,7 @@ if (cat is not null) act.Categoria = cat;
             int pasoAnio = paso.Anio ?? anio;
 
             // Calculate mesCiclo for this specific PASO
-            int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+            int cicloStartYear = pasoAnio;
             int cicloStartAbs  = cicloStartYear * 12 + paso.MesInicio - 1;
             int requestedAbs   = anio * 12 + mes - 1;
 

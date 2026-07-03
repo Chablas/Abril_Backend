@@ -163,11 +163,11 @@ public class InspeccionPdfService
                                     table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(2).AlignCenter().Text(n.ToString()).FontSize(8);
                                     table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(r.Pregunta).FontSize(8);
                                     table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(2).AlignCenter()
-                                        .Text(r.Resultado == "Cumple" ? "✓" : "").FontSize(10).FontColor(Colors.Green.Darken2);
+                                        .Text(r.Resultado == "Cumple" ? "OK" : "").Bold().FontSize(9).FontColor(Colors.Green.Darken2);
                                     table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(2).AlignCenter()
-                                        .Text(r.Resultado == "NoCumple" ? "✗" : "").FontSize(10).FontColor(Colors.Red.Darken2);
+                                        .Text(r.Resultado == "NoCumple" ? "X" : "").Bold().FontSize(9).FontColor(Colors.Red.Darken2);
                                     table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(2).AlignCenter()
-                                        .Text(r.Resultado == "NA" ? "—" : "").FontSize(8);
+                                        .Text(r.Resultado == "NA" ? "N/A" : "").FontSize(8);
                                     table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(2).Text(r.Observacion ?? "").FontSize(8);
                                     n++;
                                 }

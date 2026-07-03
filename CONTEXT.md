@@ -4666,4 +4666,28 @@ Resuelve error al cargar /costs/adjudicaciones.
 
 **PC Trabajo — SIN headroom:**
 - Claude Code se abre directamente con `claude` como siempre
+
+## Sesión 2026-07-03 — Skills de Claude Code versionadas (guardar-rama / guardar-master)
+
+### 1. Skills locales `guardar-rama` y `guardar-master`
+
+Nuevas skills en `.claude/skills/`, invocables con frase natural ("guardar rama"), que automatizan el cierre de una sesión de trabajo:
+
+- `.claude/skills/guardar-rama/SKILL.md`: verifica que no se esté en `master` (si lo está, detiene y explica cómo cambiar de rama), commitea cambios pendientes con mensaje Conventional Commits generado automáticamente, corre build obligatorio (`dotnet build` o `ng build` según el repo), agrega un resumen de sesión al final de `CONTEXT.md`, hace `git fetch` + `merge` con `origin/<rama>` (se detiene si hay conflictos) y finalmente `git push origin <rama>` sin `--force`.
+- `.claude/skills/guardar-master/SKILL.md`: mismo contenido que `guardar-rama` (solo cambia `name:` en el frontmatter) — **pendiente**: si `guardar-master` debe tener lógica propia (por ejemplo, para operar sobre `master` en vez de bloquearlo), falta diferenciar el cuerpo del archivo.
+
+### 2. `.gitignore` — se permite versionar `.claude/skills/`
+
+La línea `.claude/` se reemplazó por:
+
+```
+.claude/*
+!.claude/skills/
+```
+
+Esto sigue ignorando `.claude/settings.local.json` y `.claude/worktrees/` (verificado con `git check-ignore`), pero permite subir `.claude/skills/*/SKILL.md` al repo para que las skills viajen con el proyecto.
+
+### 3. Pendiente — sección DEPLOY en CONTEXT.md
+
+Se pidió agregar una regla "P5: push directo a master permitido, nunca con --force" dentro de una sección "DEPLOY" en "REGLAS DE PROGRAMACIÓN". Esa sección no existe en este archivo — solo existe "REGLAS DE CODIFICACIÓN" (R1-R5, línea 33) y no tiene nada de deploy. Queda pendiente decidir si se crea una sección nueva para esto.
 - Sin cambios en el flujo de trabajo habitual

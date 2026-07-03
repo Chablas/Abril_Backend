@@ -1626,7 +1626,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{TIPO_CONTRATO}}",                 data.ContractTypeDescription },
                 { "{{TIPO_CONTRATO_MAYÚSCULA}}",       (data.ContractTypeDescription ?? "").ToUpper() },
                 { "{{PARTIDA}}",                       string.IsNullOrWhiteSpace(data.ContractWorkItemName) ? data.WorkItemDescription : data.ContractWorkItemName },
-                { "{{AÑO_ACTUAL}}",                    DateTime.UtcNow.Year.ToString() },
+                // El año se toma de la fecha de firma (definida en el paso 2), no del año actual.
+                { "{{AÑO_ACTUAL}}",                    (data.SigningDate?.Year ?? DateTime.UtcNow.Year).ToString() },
                 { "{{NUM_CONTRATO}}",                  data.ContractNumber.HasValue ? data.ContractNumber.Value.ToString("D3") : "" },
                 { "{{NUM_PAGARE}}",                    data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },
                 { "{{TIPO_DOCUMENTO_GARANTÍA}}",       tipoDocumentoGarantia },
@@ -1798,7 +1799,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PROYECTO_RUC}}",                     data.ProjectContributorRuc ?? "" },
                 { "{{PROYECTO_NOMBRE}}",                  data.ProjectDescription },
                 { "{{PROYECTO_DISTRITO}}",                data.ProjectDistrict ?? "" },
-                { "{{AÑO_ACTUAL}}",                       hoy.Year.ToString() },
+                // El año se toma de la fecha de firma (definida en el paso 2), no del año actual.
+                { "{{AÑO_ACTUAL}}",                       (data.SigningDate?.Year ?? hoy.Year).ToString() },
                 { "{{NUM_PAGARE}}",                       data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },
                 { "{{NUM_CONTRATO}}",                     data.ContractNumber.HasValue ? data.ContractNumber.Value.ToString("D3") : "" },
                 { "{{ADVANCE_AMOUNT}}",                   $"{currencySymbol} {advanceAmount:N2}" },
@@ -2149,8 +2151,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 : (data.ProjectDescription.Length >= 3
                     ? data.ProjectDescription[..3].ToUpperInvariant()
                     : data.ProjectDescription.ToUpperInvariant());
+            // El año se toma de la fecha de firma (definida en el paso 2), no del año actual.
+            var anioContrato = data.SigningDate?.Year ?? DateTime.UtcNow.Year;
             var docNumber = data.ContractNumber.HasValue
-                ? $"{data.ContractNumber.Value:D3}{abrevProyecto}-{DateTime.UtcNow.Year}"
+                ? $"{data.ContractNumber.Value:D3}{abrevProyecto}-{anioContrato}"
                 : data.ProjectSubContractorId.ToString("D4");
 
             // ── Row 2: Title ───────────────────────────────────────────────────
@@ -2269,7 +2273,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 var numPagare = data.PromissoryNoteNumber.HasValue
                     ? data.PromissoryNoteNumber.Value.ToString("D3")
                     : "";
-                var pagareRef = $"PAGARÉ N°{numPagare}{abrevProyecto}-{DateTime.UtcNow.Year}";
+                var pagareRef = $"PAGARÉ N°{numPagare}{abrevProyecto}-{anioContrato}";
                 ws.Cell("G13").Value = conCartaFianza
                     ? $"{pagareRef}, LETRA DE GARANTÍA Y CARTA DE FIANZA"
                     : $"{pagareRef} Y LETRA DE GARANTÍA";

@@ -187,8 +187,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 Categoria = dto.Categoria,
                 Ocupacion = dto.Ocupacion,
                 OcupacionId = dto.OcupacionId,
+                Puesto = dto.Puesto,
                 Area = dto.Area,
                 Subarea = dto.Subarea,
+                // Match interno: deriva el nodo normalizado area_scope a partir del texto capturado.
+                AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(dto.Area, dto.Subarea, dto.ObraOficina),
                 ContrataCasa = dto.ContrataCasa,
                 ObraOficina = dto.ObraOficina,
                 Jefatura = dto.Jefatura,
@@ -242,8 +245,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.Categoria = dto.Categoria;
             worker.Ocupacion = dto.Ocupacion;
             worker.OcupacionId = dto.OcupacionId;
+            worker.Puesto = dto.Puesto;
             worker.Area = dto.Area;
             worker.Subarea = dto.Subarea;
+            // Match interno: deriva el nodo normalizado area_scope a partir del texto capturado.
+            worker.AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(worker.Area, worker.Subarea, worker.ObraOficina);
             worker.ContrataCasa = dto.ContrataCasa;
             worker.ObraOficina = dto.ObraOficina;
             worker.Jefatura = dto.Jefatura;
@@ -320,6 +326,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             worker.Person.Cumpleanos = dto.Cumpleanos;
             worker.Person.UpdatedDateTime = DateTime.UtcNow;
+
+            worker.Categoria = dto.Categoria;
+            worker.Ocupacion = dto.Ocupacion;
+            worker.OcupacionId = dto.OcupacionId;
+            worker.Puesto = dto.Puesto;
+            worker.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();
         }

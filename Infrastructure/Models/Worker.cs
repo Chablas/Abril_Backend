@@ -67,6 +67,14 @@ namespace Abril_Backend.Infrastructure.Models
         [ForeignKey(nameof(OcupacionId))]
         public CatOcupacion? OcupacionCatalogo { get; set; }
 
+        /// <summary>
+        /// Nombre del puesto final del trabajador. Se autocompleta en el frontend
+        /// concatenando <see cref="Categoria"/> y <see cref="Ocupacion"/>
+        /// (ej. "Operario Abogado"), pero es editable.
+        /// </summary>
+        [Column("puesto")]
+        public string? Puesto { get; set; }
+
         [Column("area")]
         public string? Area { get; set; }
 
@@ -119,6 +127,14 @@ namespace Abril_Backend.Infrastructure.Models
         /// </summary>
         [Column("worker_lesson_jefe_id")]
         public int? WorkerLessonJefeId { get; set; }
+
+        /// <summary>
+        /// Jefe directo (worker) encargado de aprobar/rechazar las solicitudes de salida
+        /// de este trabajador. Autoreferencia a <c>workers.id</c>; null si aún no se asigna,
+        /// en cuyo caso el aprobador se resuelve por el árbol de áreas (ApproverResolver).
+        /// </summary>
+        [Column("worker_salida_jefe_id")]
+        public int? WorkerSalidaJefeId { get; set; }
 
         /// <summary>
         /// Si true, las lecciones aprendidas creadas por este trabajador se auto-aprueban

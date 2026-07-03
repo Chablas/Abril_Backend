@@ -22,7 +22,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] bool onlyMyPendingReview = false, [FromQuery] int page = 1, [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
+        public async Task<IActionResult> GetAll([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] List<int>? areaScopeIds = null, [FromQuery] int page = 1, [FromQuery] string? sortBy = null, [FromQuery] string? sortDir = null)
         {
             try
             {
@@ -35,7 +35,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     LugarProyectoId     = lugarProyectoId,
                     EstadoRendicion     = estadoRendicion,
                     EstadoAprobacion    = estadoAprobacion,
-                    OnlyMyPendingReview = onlyMyPendingReview,
+                    FilterAreaScopeIds  = areaScopeIds,
                     CurrentUserId       = currentUserId,
                     Page                = page < 1 ? 1 : page,
                     SortBy              = sortBy,
@@ -55,16 +55,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         }
 
         [HttpGet("exportar-excel")]
-        public async Task<IActionResult> ExportarExcel([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion)
+        public async Task<IActionResult> ExportarExcel([FromQuery] int? workerId, [FromQuery] int? lugarProyectoId, [FromQuery] string? estadoRendicion, [FromQuery] string? estadoAprobacion, [FromQuery] List<int>? areaScopeIds = null)
         {
             try
             {
+                var currentUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+
                 var filters = new GestionSalidaFiltersDto
                 {
-                    WorkerId         = workerId,
-                    LugarProyectoId  = lugarProyectoId,
-                    EstadoRendicion  = estadoRendicion,
-                    EstadoAprobacion = estadoAprobacion,
+                    WorkerId           = workerId,
+                    LugarProyectoId    = lugarProyectoId,
+                    EstadoRendicion    = estadoRendicion,
+                    EstadoAprobacion   = estadoAprobacion,
+                    FilterAreaScopeIds = areaScopeIds,
+                    CurrentUserId      = currentUserId,
                 };
                 var bytes = await _service.GetExcel(filters);
                 return File(

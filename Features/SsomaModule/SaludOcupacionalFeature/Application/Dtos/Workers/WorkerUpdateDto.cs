@@ -12,6 +12,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public string? Categoria { get; set; }
         public string? Ocupacion { get; set; }
         public int? OcupacionId { get; set; }
+        /// <summary>Nombre del puesto final (autocompletado de Categoría + Ocupación, editable).</summary>
+        public string? Puesto { get; set; }
         public string? Area { get; set; }
         public string? Subarea { get; set; }
         public string? ContrataCasa { get; set; }

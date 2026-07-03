@@ -17,6 +17,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Categoria { get; set; }
         public string? Ocupacion { get; set; }
         public int? OcupacionId { get; set; }
+        public string? Puesto { get; set; }
         public string? Area { get; set; }
         public string? Subarea { get; set; }
         public string? ContrataCasa { get; set; }

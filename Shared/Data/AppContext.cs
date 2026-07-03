@@ -15,6 +15,7 @@ using Abril_Backend.Features.GestionAdministrativa.Lugares.Infrastructure.Models
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
@@ -195,6 +196,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaSolicitudCaptura> GaSolicitudCaptura { get; set; }
         public DbSet<GaRendicion> GaRendicion { get; set; }
         public DbSet<GaTrayecto> GaTrayecto { get; set; }
+        public DbSet<GaSalidaVisibilidadArea> GaSalidaVisibilidadArea { get; set; }
         // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();

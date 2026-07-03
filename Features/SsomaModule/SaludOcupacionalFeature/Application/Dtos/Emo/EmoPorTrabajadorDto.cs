@@ -15,6 +15,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? ProyectoNombre { get; set; }
         public string? ObraOficina { get; set; }
         public string? TipoContrata { get; set; }
+        /// <summary>Categoría del trabajador (para prellenar el modal de edición).</summary>
+        public string? Categoria { get; set; }
+        /// <summary>Ocupación del trabajador (para prellenar el modal de edición).</summary>
+        public string? Ocupacion { get; set; }
+        /// <summary>FK de la ocupación normalizada (para prellenar el modal de edición).</summary>
+        public int? OcupacionId { get; set; }
+        /// <summary>Puesto final del trabajador (para prellenar el modal de edición).</summary>
+        public string? Puesto { get; set; }
         public bool TieneEmo { get; set; }
         public int? EmoId { get; set; }
         public string? TipoEmo { get; set; }

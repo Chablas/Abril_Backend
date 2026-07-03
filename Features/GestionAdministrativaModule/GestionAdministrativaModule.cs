@@ -10,6 +10,14 @@ using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Int
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
@@ -34,6 +42,7 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // Gestión de Salidas
             services.AddScoped<IGestionSalidaRepository, GestionSalidaRepository>();
             services.AddScoped<IGestionSalidaService, GestionSalidaService>();
+            services.AddScoped<ISalidaVisibilityResolver, SalidaVisibilityResolver>();
 
             // Lugares (configuración)
             services.AddScoped<IGaLugarRepository, GaLugarRepository>();
@@ -46,6 +55,14 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // Trayectos (configuración: par origen-destino con monto)
             services.AddScoped<IGaTrayectoRepository, GaTrayectoRepository>();
             services.AddScoped<IGaTrayectoService, GaTrayectoService>();
+
+            // Revisor de salidas (configuración: override manual del aprobador por trabajador)
+            services.AddScoped<IRevisorSalidaRepository, RevisorSalidaRepository>();
+            services.AddScoped<IRevisorSalidaService, RevisorSalidaService>();
+
+            // Visibilidad de salidas (configuración: override manual de áreas visibles por trabajador)
+            services.AddScoped<IVisibilidadSalidaRepository, VisibilidadSalidaRepository>();
+            services.AddScoped<IVisibilidadSalidaService, VisibilidadSalidaService>();
 
             return services;
         }

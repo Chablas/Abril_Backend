@@ -40,11 +40,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>"Pendiente" | "Aprobado" | "Rechazado" | null para todos.</summary>
         public string? EstadoAprobacion { get; set; }
 
-        /// <summary>Si true, solo solicitudes Pendientes cuyo aprobador resuelto es el usuario actual.</summary>
-        public bool OnlyMyPendingReview { get; set; }
-
-        /// <summary>UserId del usuario logueado (de claims). Necesario para <see cref="OnlyMyPendingReview"/>.</summary>
+        /// <summary>UserId del usuario logueado (de claims). Necesario para el scoping de visibilidad.</summary>
         public int? CurrentUserId { get; set; }
+
+        /// <summary>
+        /// Visibilidad ya resuelta por el servicio (SalidaVisibilityResolver). Si true, el usuario
+        /// ve TODAS las solicitudes sin restricción por área.
+        /// </summary>
+        public bool SeesAll { get; set; }
+
+        /// <summary>
+        /// Nodos area_scope cuyos trabajadores puede ver el usuario. El usuario también ve
+        /// siempre las solicitudes donde él es el aprobador resuelto (aprobador_worker_id).
+        /// </summary>
+        public List<int>? VisibleAreaScopeIds { get; set; }
+
+        /// <summary>
+        /// Filtro de área elegido por el usuario en la UI (desplegable en cascada): nodo
+        /// seleccionado + sus descendientes, resueltos en el frontend. Null/vacío = sin filtro.
+        /// Es independiente de <see cref="VisibleAreaScopeIds"/> (visibilidad obligatoria).
+        /// </summary>
+        public List<int>? FilterAreaScopeIds { get; set; }
 
         /// <summary>Página solicitada (1-based). Solo aplica a la vista paginada de la tabla.</summary>
         public int Page { get; set; } = 1;
@@ -70,6 +86,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     {
         public List<TrabajadorOptionDto> Trabajadores { get; set; } = new();
         public List<LugarProyectoOptionDto> LugaresProyecto { get; set; } = new();
+        /// <summary>Árbol area_scope (lista plana) para el filtro de área en cascada.</summary>
+        public List<AreaNodeDto> AreaTree { get; set; } = new();
+    }
+
+    /// <summary>Nodo del árbol area_scope (lista plana; el frontend arma la jerarquía). </summary>
+    public class AreaNodeDto
+    {
+        public int AreaScopeId { get; set; }
+        public int AreaItemId { get; set; }
+        public string AreaItemName { get; set; } = string.Empty;
+        public int AreaTypeId { get; set; }
+        public string AreaTypeName { get; set; } = string.Empty;
+        public int? AreaScopeParentId { get; set; }
+        public int DisplayOrder { get; set; }
     }
 
     public class TrabajadorOptionDto

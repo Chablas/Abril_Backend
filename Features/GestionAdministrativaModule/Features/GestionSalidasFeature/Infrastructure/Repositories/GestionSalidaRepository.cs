@@ -97,16 +97,31 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (aprobId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacionId == aprobId.Value);
 
-            // "Pendientes de mi revisión": solo Pendientes cuyo aprobador resuelto (worker → user)
-            // sea el usuario logueado. El aprobador se guardó como aprobador_worker_id al crear.
-            if (filters.OnlyMyPendingReview && filters.CurrentUserId.HasValue)
+            // Visibilidad obligatoria (server-side): el usuario ve las solicitudes en las que él
+            // es el aprobador resuelto (aprobador_worker_id → su user), MÁS las de los trabajadores
+            // que pertenecen a las áreas (area_scope) que tiene permitido ver. Si SeesAll = true no
+            // se aplica restricción por área. El servicio ya resolvió el alcance (override o algoritmo).
+            if (filters.CurrentUserId.HasValue && !filters.SeesAll)
             {
                 var uid = filters.CurrentUserId.Value;
+                var areaIds = filters.VisibleAreaScopeIds ?? new List<int>();
                 solicitudQuery = solicitudQuery.Where(s =>
-                    s.EstadoAprobacionId == EstadosSalida.Aprobacion.Pendiente &&
-                    s.AprobadorWorkerId != null &&
-                    ctx.Worker.Any(w => w.Id == s.AprobadorWorkerId &&
-                        ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)));
+                    (s.AprobadorWorkerId != null &&
+                     ctx.Worker.Any(w => w.Id == s.AprobadorWorkerId &&
+                         ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
+                    ||
+                    ctx.Worker.Any(w => w.Id == s.WorkerId &&
+                        w.AreaScopeId != null && areaIds.Contains(w.AreaScopeId.Value)));
+            }
+
+            // Filtro de área elegido por el usuario (cascada): trabajadores cuyo area_scope_id
+            // esté dentro del nodo seleccionado + sus descendientes (ya expandidos en el frontend).
+            if (filters.FilterAreaScopeIds is { Count: > 0 })
+            {
+                var areaFilter = filters.FilterAreaScopeIds;
+                solicitudQuery = solicitudQuery.Where(s =>
+                    ctx.Worker.Any(w => w.Id == s.WorkerId &&
+                        w.AreaScopeId != null && areaFilter.Contains(w.AreaScopeId.Value)));
             }
 
             // Filtro por lugar proyecto: necesita pasar por trayectos
@@ -261,10 +276,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 }
             ).ToListAsync();
 
+            var areaTree = await (
+                from s in ctx.AreaScope
+                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
+                join at in ctx.AreaType on ai.AreaTypeId equals at.AreaTypeId
+                where s.State && ai.State && at.State
+                orderby s.DisplayOrder
+                select new AreaNodeDto
+                {
+                    AreaScopeId       = s.AreaScopeId,
+                    AreaItemId        = s.AreaItemId,
+                    AreaItemName      = ai.AreaItemName,
+                    AreaTypeId        = ai.AreaTypeId,
+                    AreaTypeName      = at.AreaTypeName,
+                    AreaScopeParentId = s.AreaScopeParentId,
+                    DisplayOrder      = s.DisplayOrder,
+                }
+            ).ToListAsync();
+
             return new GestionSalidaFilterDataDto
             {
                 Trabajadores    = trabajadores,
                 LugaresProyecto = lugaresProyecto,
+                AreaTree        = areaTree,
             };
         }
 

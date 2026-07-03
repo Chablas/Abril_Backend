@@ -19,6 +19,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         private readonly IGestionSalidaRepository _repo;
         private readonly IGraphSharePointService _sharePointService;
         private readonly ISolicitudSalidaService _solicitudSalidaService;
+        private readonly ISalidaVisibilityResolver _visibilityResolver;
         private readonly SharePointSiteRef _site;
         private readonly string _solicitudSalidasLibraryId;
         private readonly ILogger<GestionSalidaService> _logger;
@@ -29,29 +30,50 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             IGestionSalidaRepository repo,
             IGraphSharePointService sharePointService,
             ISolicitudSalidaService solicitudSalidaService,
+            ISalidaVisibilityResolver visibilityResolver,
             IConfiguration configuration,
             ILogger<GestionSalidaService> logger)
         {
             _repo = repo;
             _sharePointService = sharePointService;
             _solicitudSalidaService = solicitudSalidaService;
+            _visibilityResolver = visibilityResolver;
             _logger = logger;
             _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
             _solicitudSalidasLibraryId = configuration["SharePoint:Sites:CostosYPresupuestos:SolicitudSalidasLibraryId"]
                 ?? throw new InvalidOperationException("SharePoint:Sites:CostosYPresupuestos:SolicitudSalidasLibraryId no está configurado.");
         }
 
-        public Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters)
-            => _repo.GetAll(filters);
+        public async Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters)
+        {
+            await ApplyVisibilityAsync(filters);
+            return await _repo.GetAll(filters);
+        }
 
-        public Task<Abril_Backend.Application.DTOs.PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
-            => _repo.GetPaged(filters);
+        public async Task<Abril_Backend.Application.DTOs.PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters)
+        {
+            await ApplyVisibilityAsync(filters);
+            return await _repo.GetPaged(filters);
+        }
 
         public Task<GestionSalidaFilterDataDto> GetFilterData()
             => _repo.GetFilterData();
 
+        /// <summary>
+        /// Resuelve el alcance de visibilidad del usuario actual y lo escribe en el filtro
+        /// (SeesAll / VisibleAreaScopeIds). Sin CurrentUserId no se aplica restricción.
+        /// </summary>
+        private async Task ApplyVisibilityAsync(GestionSalidaFiltersDto filters)
+        {
+            if (!filters.CurrentUserId.HasValue) return;
+            var vis = await _visibilityResolver.ResolveAsync(filters.CurrentUserId.Value);
+            filters.SeesAll = vis.SeesAll;
+            filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
+        }
+
         public async Task<byte[]> GetExcel(GestionSalidaFiltersDto filters)
         {
+            await ApplyVisibilityAsync(filters);
             var salidas = await _repo.GetAll(filters);
 
             using var workbook = new XLWorkbook();

@@ -38,6 +38,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         {
             using var ctx = _factory.CreateDbContext();
 
+            // Regla 0 (override manual): si el trabajador tiene un revisor de salidas asignado
+            // (workers.worker_salida_jefe_id, sección "Revisor de Salidas") y ese jefe tiene
+            // correo corporativo @abril.pe, se usa directamente. Tiene prioridad sobre todo el
+            // algoritmo del árbol. Si el campo es null o el jefe no tiene correo válido, se cae
+            // al algoritmo de jerarquía (fallback) definido más abajo.
+            if (user.WorkerSalidaJefeId.HasValue)
+            {
+                var jefe = await ctx.Worker
+                    .AsNoTracking()
+                    .Where(w => w.Id == user.WorkerSalidaJefeId.Value && w.Id != user.Id)
+                    .Select(w => new { w.Id, w.EmailPersonal })
+                    .FirstOrDefaultAsync();
+
+                if (jefe != null && jefe.EmailPersonal != null &&
+                    jefe.EmailPersonal.Trim().EndsWith(EmailDomainCorp, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new ApproverResolution(jefe.Id, jefe.EmailPersonal.Trim());
+                }
+                // Sin correo válido → continúa al fallback por jerarquía.
+            }
+
             // Categoría del solicitante leída del catálogo workers_category
             // (FK worker_category_id), no del texto libre workers.categoria.
             var userCategoria = user.WorkerCategoryId.HasValue

@@ -1329,6 +1329,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
             if (dto.ContrataCasa is not null) w.ContrataCasa = dto.ContrataCasa;
             if (dto.ObraOficina is not null) w.ObraOficina = dto.ObraOficina;
+            // Match interno: deriva el nodo normalizado area_scope a partir del texto capturado.
+            w.AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(w.Area, w.Subarea, w.ObraOficina);
             if (dto.Jefatura is not null) w.Jefatura = dto.Jefatura;
             if (dto.Estado is not null) w.Estado = dto.Estado;
             if (dto.HabilitadoObra.HasValue) w.HabilitadoObra = dto.HabilitadoObra;
@@ -1463,6 +1465,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Categoria = w.Categoria,
             Ocupacion = w.Ocupacion,
             OcupacionId = w.OcupacionId,
+            Puesto = w.Puesto,
             Area = w.Area,
             Subarea = w.Subarea,
             ContrataCasa = w.ContrataCasa,

@@ -2,11 +2,13 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Application.Dtos;
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Application.Interfaces;
 using Abril_Backend.Shared.Services.Reniec.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
 namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Presentation
 {
+    [Authorize]
     [ApiController]
     [Route("api/v1/[controller]")]
     public class GestionVecinosController : ControllerBase

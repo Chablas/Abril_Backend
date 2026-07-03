@@ -1,11 +1,13 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Application.Dtos;
 using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
 namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Presentation
 {
+    [Authorize]
     [ApiController]
     [Route("api/v1/[controller]")]
     public class ProjectCroquisController : ControllerBase

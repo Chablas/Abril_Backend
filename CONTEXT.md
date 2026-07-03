@@ -80,6 +80,14 @@ Todo código nuevo va en `Features/<NombreFeature>/`.
 Prohibido agregar código en carpetas por capa (`Controllers/`, `Services/`, `Repositories/` en raíz).
 La estructura por capas en raíz es legacy y no debe crecer.
 
+### DEPLOY
+
+- P1: El frontend de producción vive en /var/www/abril en la VPS — se actualiza con npm run build + copia de dist/Abril/browser/*
+- P2: El backend se conecta a la BD de producción a través del túnel SSH (localhost:5544 → VPS:5432)
+- P3: El túnel SSH debe estar activo antes de levantar el backend: ssh -L 5544:localhost:5432 jefe@intranet.abril.pe
+- P4: El usuario deploy es el dueño de /var/www/abril — los archivos deben copiarse con permisos correctos
+- P5: Push directo a master está permitido (el usuario tiene permisos de bypass de branch protection) — pero SIEMPRE sin --force. Un push forzado puede pisar trabajo hecho desde otra PC o en otra sesión sin aviso previo.
+
 ---
 
 ## 2. Arquitectura
@@ -4588,3 +4596,133 @@ PATCH /api/v1/ssoma-inspeccion/hallazgos/{hallazgoId}/levantar
 **Estados en BD:** "Abierto" (inicial) | "En proceso" (vía LevantarHallazgo) | "Cerrado" (vía LevantarHallazgo o CerrarHallazgo).
 
 > La tabla `ssoma_inspeccion_hallazgo_evidencia_cierre` y la columna `cerrado_por_id` del SQL de la tarea son DDL pendientes de ejecutar manualmente en PostgreSQL — no incluidas en código porque el modelo actual ya tiene `EvidenciaCierreUrl` y `FechaCierre`.
+
+---
+
+## Sesión 2026-06-24
+
+### 1. Fix importación MPP — preservar actividades manuales
+
+Columna nueva: is_manual boolean NOT NULL DEFAULT false en project_activity.
+- Actividades creadas desde POST /{proyectoId}/actividades → is_manual = true
+- Actividades importadas desde MPP → is_manual = false
+
+Cambios en ImportarMppAsync:
+- Solo borra actividades con is_manual = false
+- Actividades manuales huérfanas (parentId ya no existe) → parentId = null, hierarchyLevel = 0
+- Predecesoras de manuales que apunten a IDs borrados → se limpian
+- Manuales van al final con order continuando desde el último del MPP
+
+ImportarMppResultDto extendido: ActividadesManualesConservadas: int
+
+SQL aplicado en VPS Abril Prod:
+ALTER TABLE project_activity ADD COLUMN IF NOT EXISTS is_manual boolean NOT NULL DEFAULT false;
+
+### 2. Fix PercentageComplete en ImportarMppAsync
+
+- Leer PercentageComplete de MPXJ y asignar a ProgressPercentage (cast a int, null → 0)
+- Si pct >= 100 → marcar como culminada con ActualEndDate
+- Si pct < 100 → ActualEndDate = null
+- Math.Min(pct, 100) para valores > 100
+
+### 3. Fix SharePoint CostosYPresupuestos
+
+En appsettings.Development.json agregar bajo SharePoint.Sites:
+"CostosYPresupuestos": { "Hostname": "abrilinmob.sharepoint.com", "SitePath": "/sites/CostosYPresupuestos" }
+Resuelve error al cargar /costs/adjudicaciones.
+
+### 4. Pendientes próxima sesión
+
+- Verificar avance promedio en Dashboard UDP después del fix MPP (reimportar y confirmar %)
+- Fix semáforo gris en SIN ACTIVIDADES del dashboard
+- Endpoint PATCH /actividades/{id}/mover con body { parentId, order } para drag & drop libre desde frontend
+- Definir proceso de deploy frontend a VPS con usuario deploy
+
+## Sesión 2026-06-29
+
+### 1. SPI (Índice de Rendimiento del Cronograma) en Dashboard UDP
+
+**Backend — `CronogramaActividadesRepository.cs`:**
+- Clase privada `ActividadAvance` extendida con `PlannedStartDate`
+- Query 2 del dashboard mapea `PlannedStartDate = a.PlannedStartDate`
+- Nuevo cálculo SPI por proyecto antes del `return new CronogramaDashboardProyectoDto`:
+  - `ev` = `actualEndDate != null ? 100 : progressPercentage`
+  - `pv` = 100 si `hoy >= plannedEndDate`, 0 si `hoy <= plannedStartDate`, interpolación lineal en otro caso
+  - `SPI = Sum(ev) / Sum(pv)`, redondeado a 2 decimales. Si `Sum(pv) == 0` → `1.0`
+- `CronogramaDashboardProyectoDto` extendido con `public decimal Spi { get; set; } = 1.0m`
+
+**Frontend — `features/projects/cronograma-dashboard/`:**
+- `CronogramaDashboardProyectoDto` extendido con `spi: number`
+- Propiedad `spiPromedio = 1.0` calculada en `loadDashboard()` promediando proyectos con actividades
+- Métodos `spiColor(spi, estado)` y `spiLabel(spi, estado)` para color y texto del badge
+- KPI card "SPI PROMEDIO" agregada (9na card, skeleton actualizado a 9)
+- Columna SPI en tabla con badge coloreado: verde ≥1, naranja ≥0.9, rojo <0.9, gris SIN_ACTIVIDADES
+- Estilos `.col-spi` y `.spi-badge` en `cronograma-dashboard.css`
+
+### 2. Bugs identificados (pendientes)
+
+- **Responsables vacíos en filtro**: el select solo muestra "Responsable: Todos", nunca carga nombres. Query 3 del dashboard trae los IDs correctos pero hay que verificar por qué no devuelve nombres.
+- **Avance 0% en dashboard**: `CalcularAvanceNivel0` mezcla los 3 tipos de cronograma. El dashboard debe mostrar 3 barras separadas por tipo igual que `proyectos-cronograma-list`. Requiere cambiar `CronogramaDashboardProyectoDto` para devolver `avanceAnteproyecto`, `avanceProyecto`, `avanceProyectoActualizacion` en lugar de `porcentajeAvance`.
+
+### 3. Setup de herramientas por PC
+
+**PC Personal (esta máquina) — CON headroom:**
+- `headroom` v0.28.0 instalado via `py -m pip install "headroom-ai[all]"`
+- Al abrir Claude Code: `headroom wrap claude` desde la carpeta del repo correspondiente
+- Si el proxy se cae entre sesiones: `headroom proxy` en cualquier terminal, luego reabrir Claude Code
+- Modelo: `claude config set model claude-sonnet-4-5`
+
+**PC Trabajo — SIN headroom:**
+- Claude Code se abre directamente con `claude` como siempre
+
+## Sesión 2026-07-03 — Skills de Claude Code versionadas (guardar-rama / guardar-master)
+
+### 1. Skills locales `guardar-rama` y `guardar-master`
+
+Nuevas skills en `.claude/skills/`, invocables con frase natural ("guardar rama"), que automatizan el cierre de una sesión de trabajo:
+
+- `.claude/skills/guardar-rama/SKILL.md`: verifica que no se esté en `master` (si lo está, detiene y explica cómo cambiar de rama), commitea cambios pendientes con mensaje Conventional Commits generado automáticamente, corre build obligatorio (`dotnet build` o `ng build` según el repo), agrega un resumen de sesión al final de `CONTEXT.md`, hace `git fetch` + `merge` con `origin/<rama>` (se detiene si hay conflictos) y finalmente `git push origin <rama>` sin `--force`.
+- `.claude/skills/guardar-master/SKILL.md`: mismo contenido que `guardar-rama` (solo cambia `name:` en el frontmatter) — **pendiente**: si `guardar-master` debe tener lógica propia (por ejemplo, para operar sobre `master` en vez de bloquearlo), falta diferenciar el cuerpo del archivo.
+
+### 2. `.gitignore` — se permite versionar `.claude/skills/`
+
+La línea `.claude/` se reemplazó por:
+
+```
+.claude/*
+!.claude/skills/
+```
+
+Esto sigue ignorando `.claude/settings.local.json` y `.claude/worktrees/` (verificado con `git check-ignore`), pero permite subir `.claude/skills/*/SKILL.md` al repo para que las skills viajen con el proyecto.
+
+### 3. Pendiente — sección DEPLOY en CONTEXT.md
+
+Se pidió agregar una regla "P5: push directo a master permitido, nunca con --force" dentro de una sección "DEPLOY" en "REGLAS DE PROGRAMACIÓN". Esa sección no existe en este archivo — solo existe "REGLAS DE CODIFICACIÓN" (R1-R5, línea 33) y no tiene nada de deploy. Queda pendiente decidir si se crea una sección nueva para esto.
+- Sin cambios en el flujo de trabajo habitual
+
+## Sesión 2026-07-03 (continuación) — sección DEPLOY y guardar-master con lógica propia
+
+### 1. `### DEPLOY` agregada dentro de `## REGLAS DE CODIFICACIÓN`
+
+Se agregó justo después de R5 (línea ~78-81), con reglas P1-P5:
+- P1: frontend de producción en `/var/www/abril` en la VPS (`npm run build` + copia de `dist/Abril/browser/*`)
+- P2: backend se conecta a la BD de producción vía túnel SSH (`localhost:5544` → `VPS:5432`)
+- P3: túnel SSH debe estar activo antes de levantar el backend (`ssh -L 5544:localhost:5432 jefe@intranet.abril.pe`)
+- P4: usuario `deploy` es dueño de `/var/www/abril` — copiar con permisos correctos
+- P5: push directo a `master` permitido (bypass de branch protection), pero nunca con `--force`
+
+Resuelve el pendiente anotado en la sesión anterior (§3 arriba).
+
+### 2. `.claude/skills/guardar-master/SKILL.md` — lógica propia, ya no es copia de `guardar-rama`
+
+Reescrita completa. Diferencias clave respecto a `guardar-rama`:
+- Solo corre si la rama actual **es** `master` (antes bloqueaba `master`; ahora es al revés — bloquea todo lo que no sea `master`).
+- Antes del `git push origin master` exige confirmación explícita del usuario, mostrando `git log origin/master..HEAD --oneline` y `git diff origin/master..HEAD --stat`. No asume confirmación implícita.
+- Aplica la regla P5: nunca `--force`.
+
+### Archivos clave
+- `CONTEXT.md` (sección DEPLOY)
+- `.claude/skills/guardar-master/SKILL.md`
+
+### Pendiente
+- Las skills `guardar-rama`/`guardar-master` no se recargan dentro de una sesión ya iniciada — hay que abrir una sesión nueva de Claude Code para que el trigger por frase natural ("guardar rama", "guardar master") las detecte; mientras tanto se siguen los pasos manualmente.

@@ -156,6 +156,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.vv != null && x.vv.EmpresaId == filter.EmpresaId.Value);
             if (filter.ProyectoId.HasValue)
                 q = q.Where(x => x.vv != null && x.vv.ProyectoId == filter.ProyectoId.Value);
+            if (filter.FechaEmoDesde.HasValue)
+                q = q.Where(x => x.ue != null && x.ue.FechaEmo >= filter.FechaEmoDesde.Value);
+            if (filter.FechaEmoHasta.HasValue)
+                q = q.Where(x => x.ue != null && x.ue.FechaEmo <= filter.FechaEmoHasta.Value);
             if (filter.SinLectura)
                 q = q.Where(x => x.ue != null && x.ue.UrlResultado == null);
             if (filter.SinCertificado)

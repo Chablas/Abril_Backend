@@ -26,6 +26,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
     {
         public int WorkItemCategoryId { get; set; }
         public string WorkItemCategoryDescription { get; set; } = null!;
+        public int? WorkSpecialtyId { get; set; }
+        public string? WorkSpecialtyDescription { get; set; }
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }
@@ -38,6 +40,13 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         public List<WorkItemCategoryClauseDto> Clauses { get; set; } = [];
         public List<WorkItemCategoryAnexo3ClauseDto> Anexo3Clauses { get; set; } = [];
         public List<WorkItemCategoryAnexo4ClauseDto> Anexo4Clauses { get; set; } = [];
+    }
+
+    /// <summary>Opción para el desplegable de especialidades en el formulario.</summary>
+    public class WorkSpecialtyOptionDto
+    {
+        public int WorkSpecialtyId { get; set; }
+        public string WorkSpecialtyDescription { get; set; } = null!;
     }
 
     public class WorkItemCategorySyncResultDto

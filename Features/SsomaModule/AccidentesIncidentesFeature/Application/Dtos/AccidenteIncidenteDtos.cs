@@ -54,6 +54,32 @@ public class FlashReportInicializarDto
     public List<ProyectoContratistaDto> ProyectoContratistas { get; set; } = [];
 }
 
+// ── Trabajadores afectados ────────────────────────────────────────────────────
+
+public class TrabajadorAfectadoDto
+{
+    public int Id { get; set; }
+    public int? WorkerId { get; set; }
+    public string TrabajadorNombre { get; set; } = string.Empty;
+    public string? PuestoTrabajo { get; set; }
+    public int? Edad { get; set; }
+    public int? AniosExperiencia { get; set; }
+    public string? CelularTrabajador { get; set; }
+    public int? ParteAfectadaId { get; set; }
+    public string? ParteAfectadaNombre { get; set; }
+}
+
+public class TrabajadorAfectadoRequest
+{
+    public int? WorkerId { get; set; }
+    public string TrabajadorNombre { get; set; } = string.Empty;
+    public string? PuestoTrabajo { get; set; }
+    public int? Edad { get; set; }
+    public int? AniosExperiencia { get; set; }
+    public string? CelularTrabajador { get; set; }
+    public int? ParteAfectadaId { get; set; }
+}
+
 // ── Lista ─────────────────────────────────────────────────────────────────────
 
 public class FlashReportListItemDto
@@ -66,6 +92,7 @@ public class FlashReportListItemDto
     public string TipoCodigo { get; set; } = string.Empty;
     public string? TrabajadorNombre { get; set; }
     public string Estado { get; set; } = string.Empty;
+    public int? AccidenteTrabajoId { get; set; }
     public bool Enviado { get; set; }
     public DateTime? FechaEnvio { get; set; }
     public int? ConsecuenciaRealPersonal { get; set; }
@@ -118,6 +145,12 @@ public class FlashReportDetalleDto
     public int? ParteAfectadaId { get; set; }
     public string? ParteAfectadaNombre { get; set; }
 
+    public string? Turno { get; set; }
+    public string? TipoContacto { get; set; }
+    public bool DanioProcesoFlag { get; set; }
+    public string? AtencionMedica { get; set; }
+    public string? CentroAtencion { get; set; }
+
     public string? DanoProceso { get; set; }
     public int? ConsecuenciaRealPersonal { get; set; }
     public int? ConsecuenciaPotencialPersonal { get; set; }
@@ -137,6 +170,7 @@ public class FlashReportDetalleDto
     public string? UrlPdfSharepoint { get; set; }
 
     public List<DescansoDto> Descansos { get; set; } = [];
+    public List<TrabajadorAfectadoDto> Trabajadores { get; set; } = [];
     public DateTime CreatedAt { get; set; }
 }
 
@@ -173,6 +207,12 @@ public class CrearFlashReportRequest
     public string? CelularTrabajador { get; set; }
     public int? ParteAfectadaId { get; set; }
 
+    public string? Turno { get; set; }
+    public string? TipoContacto { get; set; }
+    public bool DanioProcesoFlag { get; set; }
+    public string? AtencionMedica { get; set; }
+    public string? CentroAtencion { get; set; }
+
     public string? DanoProceso { get; set; }
     public int? ConsecuenciaRealPersonal { get; set; }
     public int? ConsecuenciaPotencialPersonal { get; set; }
@@ -188,6 +228,7 @@ public class CrearFlashReportRequest
     public string? Foto2Base64 { get; set; }
 
     public List<DescansoRequest> Descansos { get; set; } = [];
+    public List<TrabajadorAfectadoRequest> Trabajadores { get; set; } = [];
 }
 
 public class ActualizarFlashReportRequest : CrearFlashReportRequest { }
@@ -274,6 +315,7 @@ public class Rm050Dto
 
 public class GuardarAccionCorrectivaRequest
 {
+    public int? Id { get; set; }
     public string Descripcion { get; set; } = string.Empty;
     public string? Tipo { get; set; }
     public string? ResponsableNombre { get; set; }
@@ -321,4 +363,25 @@ public class DocumentoAdjuntoDto
     public long TamanioBytes { get; set; }
     public string UrlSharepoint { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+}
+
+public class AccionCorrectivaVencidaDto
+{
+    public int AccionId { get; set; }
+    public int AccidenteId { get; set; }
+    public string CodigoAccidente { get; set; } = string.Empty;
+    public string Descripcion { get; set; } = string.Empty;
+    public string? Tipo { get; set; }
+    public string? ResponsableNombre { get; set; }
+    public DateOnly? FechaCompromiso { get; set; }
+    public int DiasVencida { get; set; }
+    public string Estado { get; set; } = string.Empty;
+}
+
+public class CrearLeccionDesdeAccionRequest
+{
+    public int AccionCorrectivaId { get; set; }
+    public int ProyectoId { get; set; }
+    public int AreaId { get; set; }
+    public string? ImpactDescription { get; set; }
 }

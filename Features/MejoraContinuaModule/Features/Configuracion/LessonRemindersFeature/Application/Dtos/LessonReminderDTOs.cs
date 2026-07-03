@@ -133,9 +133,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public int WorkerId { get; set; }
         public string? FullName { get; set; }
         public string? Email { get; set; }
+        public int? CategoryId { get; set; }
+        public string? Category { get; set; }
         public int? JefeWorkerId { get; set; }
         public string? JefeFullName { get; set; }
         public string? JefeEmail { get; set; }
+        public int? JefeCategoryId { get; set; }
+        public string? JefeCategory { get; set; }
+        public bool AutoApproveLesson { get; set; }
     }
 
     /// <summary>Opción del selector de jefe: cualquier worker.</summary>
@@ -149,6 +154,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
     public class WorkerRevisorUpdateDTO
     {
         public int? JefeWorkerId { get; set; }
+    }
+
+    public class ToggleAutoApproveLessonResultDTO
+    {
+        public int WorkerId { get; set; }
+        public bool AutoApproveLesson { get; set; }
     }
 
     /// <summary>

@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
 
 /// <summary>ssoma_amonestacion_tipo_sancion</summary>
@@ -58,6 +60,11 @@ public class SsomaAmonestacion
     // PDF generado
     public string? PdfUrl { get; set; }
 
+    // Ciclo de vida: Registrada | PendienteFirma | Cerrada
+    public string Estado { get; set; } = "Registrada";
+    public string? DocumentoFirmadoUrl { get; set; }
+    public DateTime? FechaCierre { get; set; }
+
     // Auditoría
     public int? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -77,6 +84,8 @@ public class SsomaAmonestacionFoto
     public string? SpId { get; set; }
     public string? NombreArchivo { get; set; }
     public int Orden { get; set; } = 1;
+    [Column("base64data")]
+    public string? Base64Data { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navegación

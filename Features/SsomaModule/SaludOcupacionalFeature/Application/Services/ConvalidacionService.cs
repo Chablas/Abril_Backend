@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convalidacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
@@ -9,7 +10,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     {
         private static readonly HashSet<string> ResultadosValidos = new()
         {
-            "Aprobada", "Aprobada con Observaciones", "Rechazada"
+            "Pendiente", "Aprobada", "Aprobada con Observaciones", "Rechazada"
         };
 
         private readonly IConvalidacionRepository _repo;
@@ -19,11 +20,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             _repo = repo;
         }
 
-        public Task<List<ConvalidacionListDto>> List(int? workerId) => _repo.List(workerId);
+        public Task<PagedResponseDto<ConvalidacionListDto>> List(ConvalidacionFilterDto filter) => _repo.List(filter);
 
         public Task<int> Create(ConvalidacionCreateDto dto, int? userId)
         {
-            if (dto.EmoId <= 0) throw new AbrilException("El EMO es obligatorio.", 400);
+            if (dto.EmoOrigenId <= 0) throw new AbrilException("El EMO es obligatorio.", 400);
             if (!ResultadosValidos.Contains(dto.Resultado))
                 throw new AbrilException("El resultado de la convalidación no es válido.", 400);
             return _repo.Create(dto, userId);

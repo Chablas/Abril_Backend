@@ -1,3 +1,4 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interconsulta;
@@ -17,43 +18,153 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             _factory = factory;
         }
 
-        public async Task<List<InterconsultaListDto>> List(InterconsultaFilterDto filter)
+        public async Task<PagedResult<InterconsultaListDto>> List(InterconsultaFilterDto filter)
         {
             using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
 
             var q =
                 from i in ctx.SsInterconsulta
                 join w in ctx.Worker on i.WorkerId equals w.Id
                 join m in ctx.SsMedicoOcupacional on i.MedicoDerivaId equals m.Id into mj
                 from m in mj.DefaultIfEmpty()
-                select new { i, w, m };
+                select new
+                {
+                    i,
+                    w,
+                    m,
+                    VincActiva = ctx.WorkerVinculacion
+                        .Where(v => v.WorkerId == w.Id && v.FechaFin == null)
+                        .OrderByDescending(v => v.CreatedAt)
+                        .ThenByDescending(v => v.Id)
+                        .FirstOrDefault()
+                };
 
             if (!string.IsNullOrWhiteSpace(filter.Estado))
                 q = q.Where(x => x.i.Estado == filter.Estado);
             if (filter.WorkerId.HasValue)
                 q = q.Where(x => x.i.WorkerId == filter.WorkerId.Value);
+            if (!string.IsNullOrWhiteSpace(filter.Search))
+            {
+                var term = filter.Search.Trim();
+                q = q.Where(x =>
+                    (x.w.Person != null && x.w.Person.FullName != null &&
+                     EF.Functions.ILike(x.w.Person.FullName, $"%{term}%"))
+                    || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null &&
+                     EF.Functions.ILike(x.w.Person.DocumentIdentityCode, $"%{term}%")));
+            }
 
-            return await q
+            var total = await q.CountAsync();
+            var page = filter.Page < 1 ? 1 : filter.Page;
+            var pageSize = filter.PageSize <= 0 ? 15 : Math.Min(filter.PageSize, 100);
+
+            var raw = await q
                 .OrderByDescending(x => x.i.FechaDerivacion)
-                .Select(x => new InterconsultaListDto
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(x => new
                 {
-                    Id = x.i.Id,
-                    EmoId = x.i.EmoId,
-                    WorkerId = x.i.WorkerId,
+                    x.i.Id,
+                    x.i.EmoId,
+                    x.i.WorkerId,
                     WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
                     WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
-                    Especialidad = x.i.Especialidad,
+                    x.i.Especialidad,
                     MedicoDeriva = x.m != null ? x.m.ApellidoNombre : null,
-                    FechaDerivacion = x.i.FechaDerivacion,
-                    FechaAtencion = x.i.FechaAtencion,
-                    CentroAtencion = x.i.CentroAtencion,
-                    Diagnostico = x.i.Diagnostico,
-                    Resultado = x.i.Resultado,
-                    Estado = x.i.Estado,
-                    RequiereSeguimiento = x.i.RequiereSeguimiento,
-                    UrlInforme = x.i.UrlInforme
+                    x.i.FechaDerivacion,
+                    x.i.FechaAtencion,
+                    x.i.CentroAtencion,
+                    x.i.Diagnostico,
+                    x.i.Resultado,
+                    x.i.Estado,
+                    x.i.RequiereSeguimiento,
+                    x.i.UrlInforme,
+                    ProyectoId = x.VincActiva != null ? (int?)x.VincActiva.ProyectoId : null,
+                    EmpresaId = x.VincActiva != null ? x.VincActiva.EmpresaId : null
                 })
                 .ToListAsync();
+
+            var proyectoIds = raw.Where(x => x.ProyectoId.HasValue).Select(x => x.ProyectoId!.Value).Distinct().ToList();
+            var empresaIds = raw.Where(x => x.EmpresaId.HasValue).Select(x => x.EmpresaId!.Value).Distinct().ToList();
+
+            var proyectoMap = await ctx.Project
+                .Where(p => proyectoIds.Contains(p.ProjectId))
+                .ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
+            var empresaMap = await ctx.Contributor
+                .Where(c => empresaIds.Contains(c.ContributorId))
+                .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
+
+            var items = raw.Select(x => new InterconsultaListDto
+            {
+                Id = x.Id,
+                EmoId = x.EmoId,
+                WorkerId = x.WorkerId,
+                WorkerNombre = x.WorkerNombre,
+                WorkerDni = x.WorkerDni,
+                ProyectoNombre = x.ProyectoId.HasValue && proyectoMap.TryGetValue(x.ProyectoId.Value, out var pNombre) ? pNombre : null,
+                RazonSocial = x.EmpresaId.HasValue && empresaMap.TryGetValue(x.EmpresaId.Value, out var eNombre) ? eNombre : null,
+                Especialidad = x.Especialidad,
+                MedicoDeriva = x.MedicoDeriva,
+                FechaDerivacion = x.FechaDerivacion,
+                FechaAtencion = x.FechaAtencion,
+                CentroAtencion = x.CentroAtencion,
+                Diagnostico = x.Diagnostico,
+                Resultado = x.Resultado,
+                Estado = x.Estado,
+                RequiereSeguimiento = x.RequiereSeguimiento,
+                UrlInforme = x.UrlInforme
+            }).ToList();
+
+            foreach (var it in items)
+                if (it.Estado == "Pendiente")
+                    it.DiasPendiente = hoy.DayNumber - it.FechaDerivacion.DayNumber;
+
+            return new PagedResult<InterconsultaListDto>
+            {
+                Page = page,
+                PageSize = pageSize,
+                TotalRecords = total,
+                TotalPages = (int)Math.Ceiling(total / (double)pageSize),
+                Data = items
+            };
+        }
+
+        public async Task<InterconsultaDetalleDto> GetById(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            var row = await (
+                from i in ctx.SsInterconsulta
+                join w in ctx.Worker on i.WorkerId equals w.Id
+                join m in ctx.SsMedicoOcupacional on i.MedicoDerivaId equals m.Id into mj
+                from m in mj.DefaultIfEmpty()
+                where i.Id == id
+                select new InterconsultaDetalleDto
+                {
+                    Id = i.Id,
+                    EmoId = i.EmoId,
+                    WorkerId = i.WorkerId,
+                    WorkerNombre = w.Person != null ? w.Person.FullName : null,
+                    WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
+                    Especialidad = i.Especialidad,
+                    Medico = m != null ? m.ApellidoNombre : null,
+                    FechaDerivacion = i.FechaDerivacion,
+                    FechaAtencion = i.FechaAtencion,
+                    CentroAtencion = i.CentroAtencion,
+                    Diagnostico = i.Diagnostico,
+                    Cie10 = i.Cie10,
+                    Resultado = i.Resultado,
+                    UrlInforme = i.UrlInforme,
+                    Estado = i.Estado,
+                    RequiereSeguimiento = i.RequiereSeguimiento
+                }
+            ).FirstOrDefaultAsync() ?? throw new AbrilException("Interconsulta no encontrada.", 404);
+
+            if (row.Estado == "Pendiente")
+                row.DiasPendiente = hoy.DayNumber - row.FechaDerivacion.DayNumber;
+
+            return row;
         }
 
         public async Task<int> Create(InterconsultaCreateDto dto, int? userId)
@@ -81,6 +192,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             ctx.SsInterconsulta.Add(ent);
+
+            // Mover la programación activa a "En Interconsulta" para que
+            // no aparezca en la agenda normal hasta que la clínica suba el levantamiento.
+            var prog = await ctx.SsProgramacionEmo
+                .Where(p => p.WorkerId == dto.WorkerId
+                         && p.Estado != "Completado"
+                         && p.Estado != "Cancelado"
+                         && p.Estado != "Rechazado por Clínica"
+                         && p.Estado != "En Interconsulta")
+                .OrderByDescending(p => p.FechaProgramada)
+                .FirstOrDefaultAsync();
+            if (prog != null)
+            {
+                prog.Estado = "En Interconsulta";
+                prog.UpdatedAt = DateTimeOffset.UtcNow;
+            }
 
             var lecturaEmo = await ctx.SsHabTrabajador
                 .FirstOrDefaultAsync(h => h.WorkerId == dto.WorkerId && h.ItemId == 25);

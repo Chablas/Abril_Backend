@@ -5,6 +5,7 @@ using Abril_Backend.Application.DTOs;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
 using System.Globalization;
 
 namespace Abril_Backend.Application.Services
@@ -45,16 +46,20 @@ namespace Abril_Backend.Application.Services
         };
 
         // ── Aviso mensual de publicación de lecciones (1er día del mes) ─────────
-        // Buzón visible como destinatario/remitente del aviso masivo; también
-        // recibe cada lote como copia de auditoría. Cambiar por el correo
-        // institucional (ej. comunicaciones@abril.pe) cuando se defina.
-        private readonly List<string> _publicationAnnouncementTo = new List<string>
+        private readonly ISsomaReminderService _ssomaReminderService;
+
+        // Buzón institucional remitente (aprobaciones@abril.pe). Va como único
+        // destinatario visible (To) del aviso masivo para no exponer a ningún
+        // trabajador —ni a la copia de auditoría— como destinatario principal.
+        // La audiencia real viaja siempre en BCC.
+        private readonly List<string> _publicationAnnouncementTo;
+
+        // Copia de auditoría del aviso: viaja en BCC (nunca en To) para que quien
+        // administra el envío reciba una copia oculta sin figurar como principal.
+        private readonly List<string> _publicationAuditBcc = new List<string>
         {
             "calvarez@abril.pe"
         };
-        // Tamaño de lote para el BCC: evita topes del proveedor (Outlook/365 ~500
-        // destinatarios por mensaje) y reduce el riesgo de marcas de spam.
-        private const int PublicationBatchSize = 90;
 
         public ReminderService(
             IEmailService emailService,
@@ -62,7 +67,8 @@ namespace Abril_Backend.Application.Services
             IMilestoneScheduleHistoryRepository milestoneScheduleHistoryRepository,
             ILessonReminderRepository lessonReminderRepository,
             IEmailGroupResolver emailGroupResolver,
-            IConfiguration configuration
+            IConfiguration configuration,
+            ISsomaReminderService ssomaReminderService
         )
         {
             _emailService = emailService;
@@ -71,6 +77,15 @@ namespace Abril_Backend.Application.Services
             _lessonReminderRepository = lessonReminderRepository;
             _emailGroupResolver = emailGroupResolver;
             _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
+            _ssomaReminderService = ssomaReminderService;
+
+            // Remitente institucional configurado (el mismo buzón desde el que se
+            // envían los correos). Sirve de único To visible del aviso masivo.
+            var fromEmail = configuration["Email:EmailSettings:FromEmail"];
+            _publicationAnnouncementTo = new List<string>
+            {
+                string.IsNullOrWhiteSpace(fromEmail) ? "aprobaciones@abril.pe" : fromEmail
+            };
         }
 
         /// <summary>
@@ -128,18 +143,24 @@ namespace Abril_Backend.Application.Services
             // Ventana de los últimos 5 días hábiles del mes:
             //   • Días 1–3: recordatorio para subir lecciones.
             //   • Día 4: reporte de quién NO subió su lección (antes salía el 1er día del mes).
-            //   • Días 4–5: ventana de revisión de la jefatura (Aprobar/Rechazar en la app;
-            //     no hay correo automático adicional — esos correos los dispara la acción del jefe).
+            //   • Días 4–5: ventana de revisión de la jefatura. En AMBOS días se envía
+            //     el aviso de revisión a las jefaturas (Aprobar/Rechazar en la app); los
+            //     correos de aprobación/rechazo en sí los dispara la acción del jefe.
             // Los feriados/días no laborables NO cuentan como días hábiles (igual que sábados/domingos).
             var holidays = await _lessonReminderRepository.GetHolidayDatesAsync(today.Year, today.Month);
             var ordinal = LastFiveBusinessDayOrdinal(today, holidays);
 
             if (ordinal >= 1 && ordinal <= 3)
             {
-                Console.WriteLine($"⏰ Día {ordinal}/5 hábil final: recordatorio para subir lecciones aprendidas");
+                // El 3.º día hábil es el ÚLTIMO de la ventana de subida (los días 4–5
+                // son revisión de jefatura). Ese día el recordatorio cambia de tono:
+                // asunto ligeramente distinto y cuerpo que avisa que se tiene "hasta
+                // hoy" para registrar las lecciones aprendidas.
+                var isLastUploadDay = ordinal == 3;
+                Console.WriteLine($"⏰ Día {ordinal}/5 hábil final: recordatorio para subir lecciones aprendidas{(isLastUploadDay ? " (ÚLTIMO DÍA)" : "")}");
                 // Pasamos `today` (puede estar simulado) para que el período del filtro,
                 // el periodLabel del correo y el canal de staff sean consistentes.
-                await SendLessonsLearnedMonthlyRemindersAsync(today);
+                await SendLessonsLearnedMonthlyRemindersAsync(today, isLastUploadDay);
                 Console.WriteLine("📧 Recordatorios enviados correctamente");
             }
             else if (ordinal == 4)
@@ -151,12 +172,25 @@ namespace Abril_Backend.Application.Services
             }
             else if (ordinal == 5)
             {
-                Console.WriteLine("⏰ Día 5/5 hábil final: ventana de revisión de jefatura (sin correo automático)");
+                // 2.º día de la ventana de revisión: se reitera el aviso a las
+                // jefaturas (el reporte de pendientes a supervisores sigue siendo
+                // solo del día 4, no se repite aquí).
+                Console.WriteLine("⏰ Día 5/5 hábil final: aviso de revisión a jefaturas (2.º día de la ventana)");
+                await SendJefesReviewWindowReminderAsync(today);
+                Console.WriteLine("📧 Aviso de revisión enviado correctamente");
             }
             else
             {
                 Console.WriteLine("Hoy no corresponde enviar recordatorios de lecciones");
             }
+
+            // Alertas SSOMA diarias (se ejecutan todos los días)
+            Console.WriteLine("⏰ Procesando alertas SSOMA (accidentes, descansos, reinducción, casos sociales)…");
+            var ssomaResult = await _ssomaReminderService.ProcesarAlertasAsync();
+            Console.WriteLine($"📧 SSOMA: {ssomaResult.TotalEnviados} enviados, {ssomaResult.TotalErrores} errores.");
+            foreach (var detalle in ssomaResult.Detalles)
+                Console.WriteLine($"   · {detalle}");
+
             return false;
         }
 
@@ -190,9 +224,14 @@ namespace Abril_Backend.Application.Services
 
         /// <summary>
         /// Aviso mensual (1er día del mes) de que las lecciones aprendidas del mes
-        /// anterior ya están publicadas. Va a todos los trabajadores cuyo correo
-        /// corporativo @abril (worker.email_personal) tiene un usuario registrado.
-        /// Los destinatarios viajan en BCC por lotes para no exponer sus correos.
+        /// anterior ya están publicadas. La audiencia es EXACTAMENTE la misma que
+        /// recibe el recordatorio de subida (días 1–3 de la ventana de fin de mes):
+        /// los trabajadores asignados a proyectos vía user_project + los miembros del
+        /// staff de proyectos con recordatorio activo. A diferencia del recordatorio,
+        /// aquí NO importa si subieron o no su lección: se avisa a todos ellos que ya
+        /// están publicadas. Se envía en UN solo correo con la audiencia en BCC (no se
+        /// exponen entre sí) junto con la copia de auditoría; el único To visible es el
+        /// buzón institucional remitente.
         /// </summary>
         public async Task SendLessonsLearnedPublicationAsync(DateTime executionDate)
         {
@@ -203,8 +242,34 @@ namespace Abril_Backend.Application.Services
             var periodLabel = target.ToString("MMMM yyyy", es);        // "marzo 2026"
             var periodLabelTitle = es.TextInfo.ToTitleCase(periodLabel); // "Marzo 2026"
 
-            var recipients = await _lessonReminderRepository.GetAbrilWorkerEmailsWithUserAsync();
-            Console.WriteLine($"📊 [publicación lecciones] destinatarios @abril con usuario: {recipients.Count}");
+            // CANAL 1 — user_project: trabajadores asignados a proyectos con
+            // recordatorio vivo y activo (independiente de si subieron lección).
+            var userProjectEmails = await _lessonReminderRepository.GetLessonReminderUserProjectEmailsAsync();
+
+            // CANAL 2 — project_staff_reminder: expandir los grupos de staff activos
+            // a sus miembros individuales (igual que el recordatorio de subida).
+            var staffProjects = await _lessonReminderRepository.GetActiveStaffEmailsAsync();
+            var staffEmails = new List<string>();
+            foreach (var sp in staffProjects)
+            {
+                var members = await _emailGroupResolver.ExpandAsync(
+                    new List<string> { sp.StaffEmail });
+                if (members == null || members.Count == 0)
+                    members = new List<string> { sp.StaffEmail };
+                staffEmails.AddRange(members);
+            }
+
+            // Unión de ambos canales, deduplicada case-insensitive. Esta es la MISMA
+            // audiencia que recibe el recordatorio, sin filtrar por cumplimiento.
+            var recipients = userProjectEmails
+                .Concat(staffEmails)
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e.Trim())
+                .GroupBy(e => e.ToLowerInvariant())
+                .Select(g => g.First())
+                .ToList();
+
+            Console.WriteLine($"📊 [publicación lecciones] audiencia del recordatorio (user_project + staff): {recipients.Count}");
             if (recipients.Count == 0)
             {
                 Console.WriteLine("   • Sin destinatarios; no se envía el aviso de publicación.");
@@ -250,25 +315,35 @@ namespace Abril_Backend.Application.Services
             </p>
             ";
 
-            // Envío masivo: trabajadores en BCC por lotes (no se exponen entre sí).
-            // El To lleva el buzón institucional, que también queda como auditoría.
-            var batches = 0;
-            foreach (var batch in recipients.Chunk(PublicationBatchSize))
-            {
-                await _emailService.SendAsync(
-                    to: _publicationAnnouncementTo,
-                    subject: subject,
-                    body: body,
-                    isHtml: true,
-                    bcc: batch.ToList()
-                );
-                batches++;
-            }
+            // Un solo correo: la audiencia + la copia de auditoría viajan en BCC (no
+            // se exponen entre sí). El único To visible es el buzón institucional
+            // remitente, para que nadie figure como destinatario principal.
+            var bcc = recipients
+                .Concat(_publicationAuditBcc)
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(e => e.Trim())
+                .GroupBy(e => e.ToLowerInvariant())
+                .Select(g => g.First())
+                .ToList();
 
-            Console.WriteLine($"📧 Aviso de publicación enviado en {batches} lote(s) a {recipients.Count} destinatario(s).");
+            await _emailService.SendAsync(
+                to: _publicationAnnouncementTo,
+                subject: subject,
+                body: body,
+                isHtml: true,
+                bcc: bcc
+            );
+
+            Console.WriteLine($"📧 Aviso de publicación enviado en 1 correo a {recipients.Count} destinatario(s) en BCC.");
         }
 
-        public async Task SendLessonsLearnedMonthlyRemindersAsync(DateTime executionDate)
+        /// <summary>
+        /// Recordatorios mensuales de subida de lecciones (días 1–3 de la ventana).
+        /// Cuando <paramref name="isLastUploadDay"/> es true (3.º día = último de
+        /// subida) el asunto se modifica y el cuerpo avisa que se tiene "hasta hoy"
+        /// para registrar, porque al día siguiente inicia la revisión de jefatura.
+        /// </summary>
+        public async Task SendLessonsLearnedMonthlyRemindersAsync(DateTime executionDate, bool isLastUploadDay = false)
         {
             var currentPeriod = executionDate.ToString("MM-yyyy");
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
@@ -282,16 +357,22 @@ namespace Abril_Backend.Application.Services
             Console.WriteLine($"📊 [user_project] pendientes: {pendingUserProjects.Count}");
 
             // Staff emails activos por proyecto (project_staff_reminder.active=true).
-            // En el canal 1 los usamos como CC; en el canal 2 son el origen mismo.
+            // Origen del canal 2; en el canal 1 ya no se usan como CC (los correos
+            // van solo al destinatario, sin copia a nadie más).
             var activeStaffEmails = await _lessonReminderRepository.GetActiveStaffEmailsAsync();
-            var staffByProjectId = activeStaffEmails
-                .GroupBy(s => s.ProjectId)
-                .ToDictionary(g => g.Key, g => g.First().StaffEmail);
 
-            // Para deduplicar entre canal 1 y canal 2: si ya mandé al user X
-            // por el canal 1 (porque está en user_project), no le mando otra
-            // vez por el canal 2 aunque sea miembro del staff_email.
-            var emailedThisRun = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Para deduplicar se usa la pareja (correo, proyecto), NO solo el
+            // correo: el recordatorio es POR PROYECTO (cada proyecto requiere su
+            // propia lección). Un trabajador pendiente en varios proyectos debe
+            // recibir un recordatorio por cada uno. Solo evitamos enviar dos veces
+            // el MISMO proyecto al MISMO correo (p. ej. si aparece tanto en
+            // user_project como en el staff_email de ese proyecto, o si está en el
+            // staff de dos grupos que apuntan al mismo proyecto).
+            var emailedThisRun = new HashSet<(string Email, int ProjectId)>();
+
+            // Clave de dedup normalizada (correo en minúsculas/trim + proyecto).
+            static (string, int) DedupKey(string? email, int projectId) =>
+                (email?.Trim().ToLowerInvariant() ?? string.Empty, projectId);
 
             foreach (var item in pendingUserProjects)
             {
@@ -300,14 +381,36 @@ namespace Abril_Backend.Application.Services
                     item.Projects.Select(p => $"<li>{p.ProjectDescription}</li>")
                 );
 
+                // Párrafo de apertura: en el último día de subida avisamos que el
+                // plazo vence hoy; el resto de días es un recordatorio normal.
+                var introHtml = isLastUploadDay
+                    ? $@"<p>
+                            <strong>Hoy es el último día</strong> para registrar tus
+                            <strong>lecciones aprendidas</strong> correspondientes a
+                            <strong>{periodLabel}</strong>. A partir de mañana inicia la ventana de
+                            revisión de la jefatura y ya no será posible registrar nuevas lecciones.
+                            Tienes pendiente el envío en los siguientes proyectos:
+                        </p>"
+                    : $@"<p>
+                            Te recordamos que tienes pendiente el envío mensual de
+                            <strong>lecciones aprendidas</strong> correspondiente a
+                            <strong>{periodLabel}</strong> en los siguientes proyectos:
+                        </p>";
+
+                var pieHtml = isLastUploadDay
+                    ? @"<p style='font-size: 12px; color: #666;'>
+                            Este es el aviso del último día de registro; se envía de manera automática
+                            a quienes aún no han registrado sus lecciones aprendidas del mes.
+                        </p>"
+                    : @"<p style='font-size: 12px; color: #666;'>
+                            Este recordatorio se envía de manera automática a quienes aún no han registrado
+                            sus lecciones aprendidas del mes.
+                        </p>";
+
                 var body = $@"
                 <p>Estimado(a) <strong>{item.UserFullName}</strong>,</p>
 
-                <p>
-                    Te recordamos que tienes pendiente el envío mensual de
-                    <strong>lecciones aprendidas</strong> correspondiente a
-                    <strong>{periodLabel}</strong> en los siguientes proyectos:
-                </p>
+                {introHtml}
 
                 <ul>
                     {projectsHtml}
@@ -323,37 +426,35 @@ namespace Abril_Backend.Application.Services
                     </a>
                 </p>
 
-                <p style='font-size: 12px; color: #666;'>
-                    Este recordatorio se envía de manera automática a quienes aún no han registrado
-                    sus lecciones aprendidas del mes.
-                </p>
+                {pieHtml}
 
                 <p>Gracias por tu compromiso con la mejora continua.</p>
                 ";
 
-                // Recipientes: el usuario + staff_email activo de los proyectos donde tiene pendientes
+                // Destinatario: solo el usuario pendiente. La única copia es la BCC
+                // de auditoría (calvarez@abril.pe); no se copia a nadie más.
                 var to = new List<string> { item.Email };
-                var staffCcSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var p in item.Projects)
-                {
-                    if (staffByProjectId.TryGetValue(p.ProjectId, out var staff)
-                        && !string.IsNullOrWhiteSpace(staff))
-                    {
-                        staffCcSet.Add(staff);
-                    }
-                }
+
+                var subject = isLastUploadDay
+                    ? $"⏰ ÚLTIMO DÍA para registrar tus lecciones aprendidas — {periodLabel}"
+                    : "🔔 Abril App Recordatorio: envío mensual de lecciones aprendidas pendiente";
 
                 await SendEmailExpandingGroupsAsync(
                     to: to,
-                    subject: "🔔 Abril App Recordatorio: envío mensual de lecciones aprendidas pendiente",
+                    subject: subject,
                     body: body,
                     isHtml: true,
-                    cc: staffCcSet.Count > 0 ? staffCcSet.ToList() : null,
                     bcc: new List<string> {"calvarez@abril.pe"}
                 );
 
-                if (!string.IsNullOrWhiteSpace(item.Email))
-                    emailedThisRun.Add(item.Email.Trim());
+                // Este correo (canal 1) ya cubre TODOS los proyectos pendientes del
+                // trabajador en user_project; marcamos cada pareja (correo, proyecto)
+                // para que el canal 2 no reenvíe esos mismos proyectos.
+                if (!string.IsNullOrWhiteSpace(item.Email) && item.Projects != null)
+                {
+                    foreach (var p in item.Projects)
+                        emailedThisRun.Add(DedupKey(item.Email, p.ProjectId));
+                }
             }
 
             // ─────────────────────────────────────────────────────────────────
@@ -390,22 +491,36 @@ namespace Abril_Backend.Application.Services
 
                 foreach (var m in pendingMembers)
                 {
-                    // Dedup: no mandar dos veces si ya recibió correo por el canal 1
-                    if (emailedThisRun.Contains(m.Email)) continue;
+                    // Dedup POR PROYECTO: solo se omite si a este correo ya se le
+                    // recordó ESTE MISMO proyecto (por canal 1 o por otro grupo de
+                    // staff que apunta al mismo proyecto). Si es otro proyecto, se
+                    // envía igual: cada proyecto necesita su propia lección.
+                    if (emailedThisRun.Contains(DedupKey(m.Email, staffProject.ProjectId))) continue;
 
                     var greeting = !string.IsNullOrWhiteSpace(m.FullName)
                         ? $"Estimado(a) <strong>{m.FullName}</strong>,"
                         : "Estimado(a),";
 
+                    var staffIntroHtml = isLastUploadDay
+                        ? $@"<p>
+                                Como miembro del staff del proyecto
+                                <strong>{staffProject.ProjectDescription}</strong>, te avisamos que
+                                <strong>hoy es el último día</strong> para registrar tu
+                                <strong>lección aprendida</strong> correspondiente a
+                                <strong>{periodLabel}</strong>. A partir de mañana inicia la ventana de
+                                revisión de la jefatura y ya no será posible registrar nuevas lecciones.
+                            </p>"
+                        : $@"<p>
+                                Como miembro del staff del proyecto
+                                <strong>{staffProject.ProjectDescription}</strong>, te recordamos que aún
+                                no tienes registrada tu <strong>lección aprendida</strong> correspondiente
+                                a <strong>{periodLabel}</strong>.
+                            </p>";
+
                     var body = $@"
                     <p>{greeting}</p>
 
-                    <p>
-                        Como miembro del staff del proyecto
-                        <strong>{staffProject.ProjectDescription}</strong>, te recordamos que aún
-                        no tienes registrada tu <strong>lección aprendida</strong> correspondiente
-                        a <strong>{periodLabel}</strong>.
-                    </p>
+                    {staffIntroHtml}
 
                     <p>
                         Por favor ingresa a la plataforma y completa el envío:
@@ -425,16 +540,20 @@ namespace Abril_Backend.Application.Services
                     <p>Gracias por tu compromiso con la mejora continua.</p>
                     ";
 
+                    var staffSubject = isLastUploadDay
+                        ? $"⏰ ÚLTIMO DÍA: registra tu lección aprendida de {staffProject.ProjectDescription} — {periodLabel}"
+                        : $"🔔 Abril App Recordatorio: lección pendiente para {staffProject.ProjectDescription} — {periodLabel}";
+
                     // Enviar directo (ya está expandido — no volver a expandir).
                     await _emailService.SendAsync(
                         to: new List<string> { m.Email },
-                        subject: $"🔔 Abril App Recordatorio: lección pendiente para {staffProject.ProjectDescription} — {periodLabel}",
+                        subject: staffSubject,
                         body: body,
                         isHtml: true,
                         bcc: new List<string> { "calvarez@abril.pe" }
                     );
 
-                    emailedThisRun.Add(m.Email);
+                    emailedThisRun.Add(DedupKey(m.Email, staffProject.ProjectId));
                 }
             }
         }
@@ -511,9 +630,10 @@ namespace Abril_Backend.Application.Services
         }
 
         /// <summary>
-        /// Aviso del 4.º día hábil a las jefaturas ACTIVAS en la sección
-        /// "Jefaturas" (lesson_jefe_reminder.active=true): las lecciones del mes ya
-        /// están listas y se abre la ventana de revisión (Aprobar/Rechazar). Es
+        /// Aviso a las jefaturas ACTIVAS en la sección "Jefaturas"
+        /// (lesson_jefe_reminder.active=true) durante la ventana de revisión (4.º y
+        /// 5.º día hábil final del mes): las lecciones del mes ya están listas y se
+        /// abre la ventana de revisión (Aprobar/Rechazar). Se envía en ambos días y es
         /// independiente del reporte de pendientes — sale aunque no haya pendientes.
         /// </summary>
         public async Task SendJefesReviewWindowReminderAsync(DateTime executionDate)
@@ -540,8 +660,9 @@ namespace Abril_Backend.Application.Services
 
                 var pieHtml = @"
                 <p style='font-size: 12px; color: #666;'>
-                    Este aviso se envía automáticamente el 4.º día hábil final del mes a las
-                    jefaturas habilitadas en la configuración de recordatorios.
+                    Este aviso se envía automáticamente durante la ventana de revisión (los
+                    2 últimos días hábiles del mes) a las jefaturas habilitadas en la
+                    configuración de recordatorios.
                 </p>";
 
                 string subject;

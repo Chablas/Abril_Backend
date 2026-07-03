@@ -58,9 +58,18 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         /// worker.email_personal (la columna email_corporativo está en NULL); el
         /// enlace con usuario es worker.person_id → person.person_id → person.user_id
         /// → app_user.user_id. Devuelve la lista deduplicada (case-insensitive).
-        /// Usado por el aviso mensual de publicación de lecciones aprendidas.
         /// </summary>
         Task<List<string>> GetAbrilWorkerEmailsWithUserAsync();
+
+        /// <summary>
+        /// Correos (worker.email_personal) de los trabajadores asignados a proyectos
+        /// vía user_project con recordatorio vivo y activo (state=true, active=true),
+        /// SIN filtrar por si subieron o no su lección. Es el CANAL 1 de la audiencia
+        /// del recordatorio mensual de subida; lo usa el aviso de publicación para
+        /// dirigirse exactamente a las mismas personas que reciben el recordatorio.
+        /// Devuelto deduplicado case-insensitive.
+        /// </summary>
+        Task<List<string>> GetLessonReminderUserProjectEmailsAsync();
 
         // ── Jefaturas (lesson_jefe_reminder) — recordatorio del 4.º día ────────
         /// <summary>
@@ -94,5 +103,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
         /// <summary>Asigna (o quita, con null) el jefe directo de un trabajador.</summary>
         Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId);
+
+        /// <summary>Alterna auto_approve_lesson de un trabajador.</summary>
+        Task<ToggleAutoApproveLessonResultDTO> ToggleAutoApproveLessonAsync(int workerId);
     }
 }

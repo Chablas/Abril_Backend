@@ -58,6 +58,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("updated_at")]
         public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
+        [Column("accidente_id")]
+        public int? AccidenteId { get; set; }
+
         [Column("state")]
         public bool State { get; set; } = true;
 

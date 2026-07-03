@@ -91,6 +91,7 @@ namespace Abril_Backend.Controllers
             [FromQuery] int? etapaId,
             [FromQuery] string? search,
             [FromQuery] bool? soloActivas,
+            [FromQuery] int? filtroUserId,
             [FromQuery] int pagina = 1,
             [FromQuery] int porPagina = 100)
         {
@@ -106,7 +107,12 @@ namespace Abril_Backend.Controllers
 
             try
             {
-                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                int? userId;
+                if (esGestor)
+                    userId = filtroUserId; // null = ve todo; valor = filtra por ese supervisor
+                else
+                    userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+
                 var result = await _service.GetActividades(proyectoId, tipo, etapaId, search, soloActivas, pagina, porPagina, userId, esUsuarioAc);
                 return Ok(result);
             }

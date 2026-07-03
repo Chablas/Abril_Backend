@@ -125,9 +125,15 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     w.area                 AS Area,
                     w.subarea              AS Subarea
                 FROM workers w
-                JOIN person p   ON p.person_id      = w.person_id
-                JOIN app_user u ON u.user_id          = p.user_id
-                JOIN project pr ON pr.contributor_id  = w.contributor_id
+                JOIN person p   ON p.person_id = w.person_id
+                JOIN app_user u ON u.user_id   = p.user_id
+                JOIN project pr ON pr.project_id = (
+                    SELECT wv.proyecto_id
+                    FROM worker_vinculaciones wv
+                    WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                    ORDER BY wv.fecha_inicio DESC
+                    LIMIT 1
+                )
                 WHERE w.ocupacion = 'Residencia'
                   AND w.estado   != 'Retirado'
                   AND u.active    = true";
@@ -167,11 +173,12 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             return (await conn.QueryAsync<ResidenteEvaluableDto>(
                 selectBase + @"
                   AND pr.project_id = (
-                      SELECT pr2.project_id
+                      SELECT wv2.proyecto_id
                       FROM workers w2
-                      JOIN person p2   ON p2.person_id      = w2.person_id
-                      JOIN project pr2 ON pr2.contributor_id = w2.contributor_id
+                      JOIN person p2 ON p2.person_id = w2.person_id
+                      JOIN worker_vinculaciones wv2 ON wv2.worker_id = w2.id AND wv2.fecha_fin IS NULL
                       WHERE p2.user_id = @EvaluadorUserId
+                      ORDER BY wv2.fecha_inicio DESC
                       LIMIT 1
                   )
                 ORDER BY p.full_name",

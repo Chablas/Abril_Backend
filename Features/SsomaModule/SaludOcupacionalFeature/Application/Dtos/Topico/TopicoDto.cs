@@ -1,5 +1,12 @@
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
 {
+    public class TopicoTipoAtencionDto
+    {
+        public int Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string? Descripcion { get; set; }
+    }
+
     public class TopicoListItemDto
     {
         public int Id { get; set; }
@@ -17,6 +24,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public bool DerivadoClinica { get; set; }
         public bool GeneraDescanso { get; set; }
         public bool GeneraAccidente { get; set; }
+        public bool SctrActivado { get; set; }
+        public string? UrlInforme { get; set; }
+        public int? DescansoGeneradoId { get; set; }
+        public string Estado { get; set; } = "Abierta";
+        public DateTimeOffset? FechaCierre { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 
@@ -51,6 +63,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public bool GeneraAccidente { get; set; }
         public int? AccidenteId { get; set; }
         public string? Observaciones { get; set; }
+        public bool SctrActivado { get; set; }
+        public string? TipoCasoSctr { get; set; }
+        public string? UrlInforme { get; set; }
+        public int? DescansoGeneradoId { get; set; }
+        public string Estado { get; set; } = "Abierta";
+        public int? CerradoPorId { get; set; }
+        public DateTimeOffset? FechaCierre { get; set; }
         public int RegistradoPorId { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
@@ -80,6 +99,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public int? ProyectoId { get; set; }
         public int? EmpresaId { get; set; }
         public string? Observaciones { get; set; }
+        public bool SctrActivado { get; set; }
+        public string? TipoCasoSctr { get; set; }
+        // UrlInforme se asigna en el controller tras subir el archivo
+        public string? UrlInforme { get; set; }
     }
 
     public class TopicoUpdateDto
@@ -103,6 +126,28 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public int? ProyectoId { get; set; }
         public int? EmpresaId { get; set; }
         public string? Observaciones { get; set; }
+        public bool SctrActivado { get; set; }
+        public string? TipoCasoSctr { get; set; }
+        public string? UrlInforme { get; set; }
+    }
+
+    public class TopicoEvolucionDto
+    {
+        public int Id { get; set; }
+        public int AtencionId { get; set; }
+        public DateTimeOffset FechaEvolucion { get; set; }
+        public string NotaEvolucion { get; set; } = string.Empty;
+        public int? RegistradoPorId { get; set; }
+        public string? RegistradoPorNombre { get; set; }
+        public string? UrlEvidencia { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+    }
+
+    public class TopicoEvolucionCreateDto
+    {
+        public string NotaEvolucion { get; set; } = string.Empty;
+        // UrlEvidencia se asigna en controller tras subir el archivo
+        public string? UrlEvidencia { get; set; }
     }
 
     public class TopicoFilterDto
@@ -113,6 +158,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico
         public int? TipoAtencionId { get; set; }
         public int? EmpresaId { get; set; }
         public int? ProyectoId { get; set; }
+        public string? Estado { get; set; }
         public int Page { get; set; } = 1;
     }
 }

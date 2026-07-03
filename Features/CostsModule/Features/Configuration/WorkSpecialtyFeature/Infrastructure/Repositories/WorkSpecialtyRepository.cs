@@ -23,10 +23,16 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialt
 
             var query = _context.WorkSpecialty.Where(x => x.State);
 
+            // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
+            // (alineado con app-search-input del front).
             if (!string.IsNullOrWhiteSpace(filter.Description))
             {
-                var descLower = filter.Description.ToLower();
-                query = query.Where(x => x.WorkSpecialtyDescription.ToLower().Contains(descLower));
+                foreach (var word in filter.Description.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var pattern = $"%{word}%";
+                    query = query.Where(x => EF.Functions.ILike(
+                        AppDbContext.Unaccent(x.WorkSpecialtyDescription), AppDbContext.Unaccent(pattern)));
+                }
             }
 
             var totalRecords = await query.CountAsync();

@@ -17,6 +17,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Interfaces;
+
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repositories;
@@ -27,9 +28,29 @@ using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Interfa
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Services;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Repositories;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -37,6 +58,18 @@ namespace Abril_Backend.Features.Ssoma
     {
         public static IServiceCollection AddSsomaModule(this IServiceCollection services)
         {
+            // Checklist SSOMA
+            services.AddScoped<IChecklistRepository, ChecklistRepository>();
+            services.AddScoped<IChecklistService, ChecklistService>();
+
+            // Proyectos habilitados para SSOMA
+            services.AddScoped<IProyectoHabilitadoRepository, ProyectoHabilitadoRepository>();
+            services.AddScoped<IProyectoHabilitadoService, ProyectoHabilitadoService>();
+
+            // Inhabilitaciones y Escuelitas
+            services.AddScoped<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services.SsomaInhabilitacionService>();
+            services.AddScoped<Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services.SsomaEscuelitaService>();
+
             // Catalogos
             services.AddScoped<ICatalogosRepository, CatalogosRepository>();
             services.AddScoped<ICatalogosService, CatalogosService>();
@@ -70,6 +103,9 @@ namespace Abril_Backend.Features.Ssoma
 
             // Alertas EMO (cron)
             services.AddScoped<IEmoAlertaService, EmoAlertaService>();
+
+            // Alertas SSOMA (cron) — accidentes, descansos, reinducción, casos sociales
+            services.AddScoped<ISsomaReminderService, SsomaReminderService>();
 
             // Auto-programación EMO (cron)
             services.AddScoped<IEmoAutoProgramacionService, EmoAutoProgramacionService>();
@@ -105,9 +141,21 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IAccidenteTrabajoRepository, AccidenteTrabajoRepository>();
             services.AddScoped<IAccidenteTrabajoService, AccidenteTrabajoService>();
 
+            // Seguimiento Médico de Accidentes (citas, equipos, alta)
+            services.AddScoped<ICitaMedicaRepository, CitaMedicaRepository>();
+            services.AddScoped<ICitaMedicaService, CitaMedicaService>();
+            services.AddScoped<IEquipoPrestadoRepository, EquipoPrestadoRepository>();
+            services.AddScoped<IEquipoPrestadoService, EquipoPrestadoService>();
+            services.AddScoped<IAltaMedicaRepository, AltaMedicaRepository>();
+            services.AddScoped<IAltaMedicaService, AltaMedicaService>();
+
             // Descansos Médicos
             services.AddScoped<IDescansoMedicoRepository, DescansoMedicoRepository>();
             services.AddScoped<IDescansoMedicoService, DescansoMedicoService>();
+
+            // SCTR — Asistente Social
+            services.AddScoped<ISctrGestionRepository, SctrGestionRepository>();
+            services.AddScoped<ISctrGestionService, SctrGestionService>();
 
             // Mi Salud (self-service staff)
             services.AddScoped<IMiSaludRepository, MiSaludRepository>();
@@ -133,6 +181,33 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IAmonestacionRepository, AmonestacionRepository>();
             services.AddScoped<IAmonestacionService, AmonestacionService>();
             services.AddScoped<AmonestacionNotificationService>();
+
+            // Indicadores Proactivos
+            services.AddScoped<IIndicadoresProactivosRepository, IndicadoresProactivosRepository>();
+            services.AddScoped<IIndicadoresProactivosService, IndicadoresProactivosService>();
+
+            // Desempeño Supervisor
+            services.AddScoped<DesempenoSupervisorRepository>();
+
+            // Presupuesto de Materiales SSOMA
+            services.AddScoped<ICatalogoMaterialesRepository, CatalogoMaterialesRepository>();
+            services.AddScoped<ICatalogoMaterialesService, CatalogoMaterialesService>();
+            services.AddScoped<IConsumoRepository, ConsumoRepository>();
+            services.AddScoped<IEstandarizacionRepository, EstandarizacionRepository>();
+            services.AddScoped<IEstandarizacionService, EstandarizacionService>();
+            services.AddScoped<IConsumoService, ConsumoService>();
+            services.AddScoped<IRevisionMaterialesService, RevisionMaterialesService>();
+            services.AddScoped<IRatioRepository, RatioRepository>();
+            services.AddScoped<IRatioService, RatioService>();
+            services.AddScoped<IDriversService, DriversService>();
+            services.AddScoped<IPresupuestoRepository, PresupuestoRepository>();
+            services.AddScoped<IPresupuestoService, PresupuestoService>();
+            services.AddScoped<IControlConsumoRepository, ControlConsumoRepository>();
+            services.AddScoped<IControlConsumoService, ControlConsumoService>();
+
+            // Horas Hombre (a partir del Tareo de Control de Acceso)
+            services.AddScoped<IHorasHombreRepository, HorasHombreRepository>();
+            services.AddScoped<IHorasHombreService, HorasHombreService>();
 
             return services;
         }

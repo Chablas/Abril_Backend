@@ -30,8 +30,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
         Task<RestriccionTipoDto> CreateRestriccionTipo(RestriccionTipoUpsertDto dto);
         Task<RestriccionTipoDto> UpdateRestriccionTipo(int id, RestriccionTipoUpsertDto dto);
 
+        // Agente de Riesgo
+        Task<List<AgenteRiesgoDto>> ListAgentesRiesgo(bool soloActivos);
+        Task<AgenteRiesgoDto> CreateAgenteRiesgo(AgenteRiesgoUpsertDto dto);
+        Task<AgenteRiesgoDto> UpdateAgenteRiesgo(int id, AgenteRiesgoUpsertDto dto);
+
         // Empresas
         Task<List<EmpresaCatalogoDto>> ListEmpresas(bool soloActivas);
+        Task<EmpresaCatalogoDto> CreateEmpresa(EmpresaCreateDto dto, int? userId);
 
         // Clinica Emails
         Task<List<ClinicaEmailDto>> ListClinicaEmails(int clinicaId);

@@ -91,6 +91,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en AccidenteTrabajoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPatch("accidentes/{id:int}/reinduccion")]
+        public async Task<IActionResult> MarcarReinduccion(int id)
+        {
+            try
+            {
+                await _service.MarcarReinduccionAsync(id, CurrentUserId());
+                return Ok(new { message = "Reinducción de seguridad registrada. El trabajador puede reintegrarse." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AccidenteTrabajoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPost("accidentes/{accidenteId:int}/seguimientos")]
         public async Task<IActionResult> CreateSeguimiento(int accidenteId, [FromBody] AccidenteSeguimientoCreateDto dto)
         {

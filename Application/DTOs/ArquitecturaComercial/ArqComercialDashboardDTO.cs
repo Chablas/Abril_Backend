@@ -84,6 +84,7 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public EficienciaSpiDTO[]             EficienciaSpi               { get; set; } = [];
         public CategoriaItemDTO[]             Categorias                  { get; set; } = [];
         public List<CategoriaDashboardItemDTO> DistribucionPorCategoria   { get; set; } = [];
+        public List<ArqComercialChartItemDTO> DistribucionTipos           { get; set; } = [];
     }
 
     public class ArqComercialFilterOptionDTO

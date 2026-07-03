@@ -1056,6 +1056,125 @@ if (cat is not null) act.Categoria = cat;
             .ToListAsync();
     }
 
+    // ── Actividades de Salud (todos los proyectos) ──────────────────────────────
+
+    // Igual que GetResumenMesAsync, pero expandido a todos los proyectos y a todos los meses
+    // (desde el inicio de cada PASO hasta el mes actual), no solo a un PASO/mes puntual.
+    // Reutiliza EsMesPlanificado para "inventar" el mes teórico de cada actividad aunque
+    // el cron todavía no haya generado su fila en ssoma_paso_ejecucion (ver ProcesarCronAsync).
+    public async Task<PagedResult<PasoSaludActividadListItemDto>> GetActividadesSaludAsync(PasoSaludListQuery q)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        int mesActualAbs = hoy.Year * 12 + hoy.Month;
+
+        var pasosQuery = ctx.SsomaPasos.Where(p => !p.EsPlantilla && p.Anio != null);
+        if (q.ProyectoId.HasValue) pasosQuery = pasosQuery.Where(p => p.ProyectoId == q.ProyectoId);
+
+        var pasos = await pasosQuery
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
+                .ThenInclude(a => a.Categoria)
+            .Include(p => p.Actividades.Where(a => a.Activo && a.DeletedAt == null))
+                .ThenInclude(a => a.Ejecuciones)
+            .ToListAsync();
+
+        var proyIds = pasos.Where(p => p.ProyectoId.HasValue).Select(p => p.ProyectoId!.Value).Distinct().ToList();
+        var proyectos = await ctx.Project
+            .Where(pr => proyIds.Contains(pr.ProjectId))
+            .ToDictionaryAsync(pr => pr.ProjectId, pr => pr.ProjectDescription ?? "");
+
+        var responsableIds = pasos.SelectMany(p => p.Actividades)
+            .Where(a => a.ResponsableId.HasValue).Select(a => a.ResponsableId!.Value).Distinct().ToList();
+        var personas = await ctx.Person
+            .Where(p => p.UserId.HasValue && responsableIds.Contains(p.UserId.Value))
+            .ToDictionaryAsync(p => p.UserId!.Value, p => p.FullName ?? "");
+
+        var resultados = new List<PasoSaludActividadListItemDto>();
+
+        foreach (var paso in pasos)
+        {
+            int pasoAnio = paso.Anio!.Value;
+            int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+            int cicloStartAbs = cicloStartYear * 12 + paso.MesInicio - 1;
+
+            foreach (var act in paso.Actividades.Where(a => a.Categoria?.Ambito == "Salud"))
+            {
+                if (q.CategoriaId.HasValue && act.CategoriaId != q.CategoriaId) continue;
+
+                // Meses del ciclo teórico según la frecuencia de la actividad.
+                var mesesAbs = new HashSet<int>();
+                for (int mesCiclo = act.MesInicio; mesCiclo <= Math.Min(act.MesFin, 12); mesCiclo++)
+                {
+                    if (act.Frecuencia == "Unica")
+                    {
+                        if (mesCiclo == act.MesInicio) mesesAbs.Add(cicloStartAbs + mesCiclo - 1);
+                        continue;
+                    }
+                    if (EsMesPlanificado(act.Frecuencia, mesCiclo, act.MesInicio))
+                        mesesAbs.Add(cicloStartAbs + mesCiclo - 1);
+                }
+                // Uniones con meses de ejecuciones reales (cubre reprogramaciones fuera del ciclo teórico).
+                foreach (var ej in act.Ejecuciones)
+                    mesesAbs.Add(ej.FechaProgramada.Year * 12 + ej.FechaProgramada.Month);
+
+                foreach (var absMes in mesesAbs)
+                {
+                    if (absMes > mesActualAbs) continue; // hasta el mes actual, nada futuro
+
+                    int calAnio = (absMes - 1) / 12;
+                    int calMes = absMes - calAnio * 12;
+
+                    if (q.Anio.HasValue && calAnio != q.Anio) continue;
+                    if (q.Mes.HasValue && calMes != q.Mes) continue;
+
+                    var ej = act.Ejecuciones
+                        .Where(e => e.FechaProgramada.Year == calAnio && e.FechaProgramada.Month == calMes)
+                        .OrderByDescending(e => e.Id)
+                        .FirstOrDefault();
+
+                    var estado = ej?.Estado ?? "SinProgramar";
+                    var cumplida = estado == "Ejecutado";
+                    if (q.Cumplida.HasValue && q.Cumplida.Value != cumplida) continue;
+
+                    resultados.Add(new PasoSaludActividadListItemDto
+                    {
+                        EjecucionId = ej?.Id ?? 0,
+                        ActividadId = act.Id,
+                        PasoId = paso.Id,
+                        ProyectoId = paso.ProyectoId,
+                        ProyectoNombre = paso.ProyectoId.HasValue ? proyectos.GetValueOrDefault(paso.ProyectoId.Value, "") : "Corporativo",
+                        CategoriaId = act.CategoriaId,
+                        CategoriaNombre = act.Categoria?.Nombre ?? "",
+                        CategoriaIcono = act.Categoria?.Icono,
+                        ActividadNombre = act.Nombre,
+                        Frecuencia = act.Frecuencia,
+                        FechaProgramada = ej?.FechaProgramada ?? new DateOnly(calAnio, calMes, 1),
+                        FechaEjecutada = ej?.FechaEjecutada,
+                        Estado = estado,
+                        Cumplida = cumplida,
+                        Observaciones = ej?.Observaciones,
+                        ParticipantesCount = ej?.ParticipantesCount,
+                        EvidenciaUrl = ej?.EvidenciaUrl,
+                        EvidenciaNombre = ej?.EvidenciaNombre,
+                        ResponsableNombre = act.ResponsableId.HasValue ? personas.GetValueOrDefault(act.ResponsableId.Value) : null
+                    });
+                }
+            }
+        }
+
+        var ordenados = resultados.OrderByDescending(r => r.FechaProgramada).ThenBy(r => r.ActividadNombre).ToList();
+        var total = ordenados.Count;
+        var items = ordenados.Skip((q.Page - 1) * q.PageSize).Take(q.PageSize).ToList();
+
+        return new PagedResult<PasoSaludActividadListItemDto>
+        {
+            Items = items,
+            Total = total,
+            Page = q.Page,
+            PageSize = q.PageSize
+        };
+    }
+
     // ── Resumen Mes ───────────────────────────────────────────────────────────
 
     public async Task<PasoResumenMesDto> GetResumenMesAsync(int id, int anio, int mes)

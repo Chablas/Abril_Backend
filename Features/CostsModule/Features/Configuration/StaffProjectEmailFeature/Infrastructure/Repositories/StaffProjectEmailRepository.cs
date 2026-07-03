@@ -42,8 +42,17 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.StaffProject
             if (filter.ProjectId.HasValue)
                 query = query.Where(x => x.s.ProjectId == filter.ProjectId.Value);
 
+            // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
+            // (alineado con app-search-input del front).
             if (!string.IsNullOrWhiteSpace(filter.Email))
-                query = query.Where(x => x.s.Email.Contains(filter.Email));
+            {
+                foreach (var word in filter.Email.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var pattern = $"%{word}%";
+                    query = query.Where(x => EF.Functions.ILike(
+                        AppDbContext.Unaccent(x.s.Email), AppDbContext.Unaccent(pattern)));
+                }
+            }
 
             if (filter.StaffProjectEmailTypeId.HasValue)
                 query = query.Where(x => x.s.StaffProjectEmailTypeId == filter.StaffProjectEmailTypeId.Value);

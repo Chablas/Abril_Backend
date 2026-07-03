@@ -11,10 +11,12 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? EmailPersonal { get; set; }
         public string? EmailCorporativo { get; set; }
         public DateOnly? FechaNacimiento { get; set; }
+        public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }
         public DateOnly? FechaRetiro { get; set; }
         public string? Categoria { get; set; }
         public string? Ocupacion { get; set; }
+        public int? OcupacionId { get; set; }
         public string? Area { get; set; }
         public string? Subarea { get; set; }
         public string? ContrataCasa { get; set; }

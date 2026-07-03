@@ -52,6 +52,10 @@ namespace Abril_Backend.Shared.Models {
         public decimal? AreaTechadaM2 {get; set;}
         public decimal? HhTotalCasa {get; set;}
         public string? CantTrabajadoresCasa {get; set;}
+        /// <summary>HH_REAL | HH_PROYECTADO | HH_CALCULADO_MEDIANA</summary>
+        public string? HhFuente {get; set;}
+        /// <summary>Estado del ciclo de vida: Finalizado | Activo | Inactivo</summary>
+        public string? Activo {get; set;}
 
         // Contadores
         public int ContadorIncidentes {get; set;}

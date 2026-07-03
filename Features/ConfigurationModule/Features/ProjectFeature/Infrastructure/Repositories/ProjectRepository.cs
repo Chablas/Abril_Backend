@@ -6,16 +6,19 @@ using Abril_Backend.Shared.Models;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Dtos;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Infrastructure.Repositories
 {
     public class ProjectRepository : IProjectRepository
     {
         private readonly AppDbContext _context;
+        private readonly IChecklistRepository _checklist;
 
-        public ProjectRepository(AppDbContext context)
+        public ProjectRepository(AppDbContext context, IChecklistRepository checklist)
         {
-            _context = context;
+            _context  = context;
+            _checklist = checklist;
         }
 
         public async Task<PagedResult<ProjectDto>> GetPaged(
@@ -117,6 +120,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 existing.UpdatedUserId   = userId;
                 await _context.SaveChangesAsync();
                 await UpdateContributorLegalEntityRegistryNumberAsync(dto.ContributorId, dto.LegalEntityRegistryNumber, userId);
+                await _checklist.SeedChecklistsObligatoriosAsync(existing.ProjectId, userId);
                 return;
             }
 
@@ -132,6 +136,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             _context.Project.Add(project);
             await _context.SaveChangesAsync();
             await UpdateContributorLegalEntityRegistryNumberAsync(dto.ContributorId, dto.LegalEntityRegistryNumber, userId);
+            await _checklist.SeedChecklistsObligatoriosAsync(project.ProjectId, userId);
         }
 
         public async Task Update(ProjectEditDto dto, int userId)

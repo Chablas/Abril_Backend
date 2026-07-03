@@ -53,6 +53,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("accidente_id")]
         public int? AccidenteId { get; set; }
 
+        [Column("es_recaida")]
+        public bool EsRecaida { get; set; } = false;
+
         [Column("proyecto_id")]
         public int? ProyectoId { get; set; }
 
@@ -80,6 +83,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("url_documento")]
         public string? UrlDocumento { get; set; }
 
+        [Column("topico_origen_id")]
+        public int? TopicoOrigenId { get; set; }
+
+        [Column("prorroga_del_id")]
+        public int? ProrrogaDelId { get; set; }
+
+        [Column("fecha_alta")]
+        public DateOnly? FechaAlta { get; set; }
+
+        [Column("alta_por_id")]
+        public int? AltaPorId { get; set; }
+
+        [Column("alta_observaciones")]
+        public string? AltaObservaciones { get; set; }
+
         [Column("state")]
         public bool State { get; set; } = true;
 
@@ -97,5 +115,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
 
         [ForeignKey(nameof(AccidenteId))]
         public SsAccidenteTrabajo? Accidente { get; set; }
+
+        [ForeignKey(nameof(TopicoOrigenId))]
+        public TopicoAtencion? TopicoOrigen { get; set; }
     }
 }

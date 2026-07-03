@@ -167,7 +167,10 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     PersonId = g.Key.PersonId!.Value,
                     FullName = g.Key.FullName ?? string.Empty,
                     DocumentIdentityCode = g.Key.DocumentIdentityCode,
-                    EmailPersonal = g.Min(w => w.EmailPersonal)!
+                    EmailPersonal = g.Min(w => w.EmailPersonal)!,
+                    // Si alguna de sus filas en workers es "Staff", se considera Staff
+                    // (usado por el front para preseleccionar el rol EVALUADOR).
+                    ObraOficina = g.Any(w => w.ObraOficina == "Staff") ? "Staff" : g.Max(w => w.ObraOficina)
                 })
                 .OrderBy(o => o.FullName)
                 .ToListAsync();

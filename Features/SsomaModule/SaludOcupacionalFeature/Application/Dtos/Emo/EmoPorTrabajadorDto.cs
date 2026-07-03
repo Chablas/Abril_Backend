@@ -5,6 +5,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public int WorkerId { get; set; }
         public string NombreCompleto { get; set; } = string.Empty;
         public string Dni { get; set; } = string.Empty;
+        /// <summary>FK al tipo de documento (para prellenar el modal de edición).</summary>
+        public int? DocumentIdentityTypeId { get; set; }
+        /// <summary>Cumpleaños del trabajador (para prellenar el modal de edición).</summary>
+        public DateOnly? Cumpleanos { get; set; }
         public int? EmpresaId { get; set; }
         public string? Empresa { get; set; }
         public string? EmpresaOrigenNombre { get; set; }
@@ -19,5 +23,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? Aptitud { get; set; }
         public string? Estado { get; set; }
         public int? DiasRestantes { get; set; }
+        public string? UrlAptitud { get; set; }
+        public string? UrlEmoCompleto { get; set; }
+        public string? UrlResultado { get; set; }
+        public bool RequiereInterconsulta { get; set; }
+        public int? InterconsultaId { get; set; }
+        public string? InterconsultaEspecialidad { get; set; }
+        public string? InterconsultaEstado { get; set; }
+        public string? InterconsultaUrlInforme { get; set; }
     }
 }

@@ -17,7 +17,7 @@ public interface ICharlaService
     Task GuardarAsistenciaAsync(int charlaId, GuardarAsistenciaDto dto, int userId);
 
     // Tab 2 — Capacitaciones Staff (staff self-upload; coordinator approves)
-    Task<List<CapacitacionDto>> GetCapacitacionesAsync(int proyectoId, int mes, int anio);
+    Task<List<CapacitacionDto>> GetCapacitacionesAsync(int proyectoId, int? mes, int? anio);
     Task<CapacitacionDto> SubirCapacitacionAsync(int workerId, DateTime fecha, string tema, Stream evidencia, string fileName, int userId);
     Task<CapacitacionDto> SubirMiCapacitacionAsync(int userId, DateTime fecha, string tema, Stream evidencia, string fileName);
     Task<CapacitacionDto> SubirMiCapacitacionMultiAsync(int userId, DateTime fecha, string tema, List<(Stream Stream, string FileName)> archivos);
@@ -47,6 +47,6 @@ public interface ICharlaService
     Task<List<CapacitacionDto>> GetMisCapacitacionesAsync(int userId);
 
     // NEW: Dashboard por persona y por proyecto
-    Task<DashPersonalResultDto> GetDashPersonalAsync(int proyectoId, int semana, int anio);
-    Task<List<DashProyectoItemDto>> GetDashProyectosAsync(int semana, int anio);
+    Task<DashPersonalResultDto> GetDashPersonalAsync(int proyectoId, int mes, int anio);
+    Task<List<DashProyectoItemDto>> GetDashProyectosAsync(int mes, int anio);
 }

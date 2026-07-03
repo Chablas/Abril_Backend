@@ -140,7 +140,11 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     if (itemId == HabItemIds.InduccionObra)
                         return BadRequest(new { message = "La Inducción de Obra no puede ser enviada por el contratista. Debe ser aprobada presencialmente." });
 
-                    dto.Estado = "Enviado";
+                    // Solo forzar "Enviado" cuando el contratista realmente está subiendo/reemplazando
+                    // un archivo. Un PUT que solo actualiza observaciones (ej. al cerrar el panel de
+                    // detalle sin subir nada) no debe resubir un documento ya aprobado.
+                    if (!string.IsNullOrWhiteSpace(dto.ArchivoUrl))
+                        dto.Estado = "Enviado";
                     // No borrar vigencia — el contratista puede enviarla cuando el item la requiere
                 }
 

@@ -13,6 +13,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
         public int Dias { get; set; }
         public string Estado { get; set; } = string.Empty;
         public bool ReportadoPorTrabajador { get; set; }
+        public int? TopicoOrigenId { get; set; }
+        public bool TrabajadorBloqueado { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 
@@ -41,13 +43,47 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
         public int? AprobadoPorId { get; set; }
         public DateTimeOffset? FechaAprobacion { get; set; }
         public int? AccidenteId { get; set; }
+        public bool EsRecaida { get; set; }
         public bool NotificadoGth { get; set; }
         public bool NotificadoJefe { get; set; }
         public bool ReportadoPorTrabajador { get; set; }
         public string? Observaciones { get; set; }
+        public int? TopicoOrigenId { get; set; }
+        public int? ProrrogaDelId { get; set; }
+        public DateOnly? FechaAlta { get; set; }
+        public int? AltaPorId { get; set; }
+        public string? AltaObservaciones { get; set; }
         public int RegistradoPorId { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
+    }
+
+    public class DarAltaDto
+    {
+        public string? Observaciones { get; set; }
+    }
+
+    public class DescansoSeguimientoDto
+    {
+        public int Id { get; set; }
+        public int DescansoId { get; set; }
+        public DateTimeOffset FechaSeguimiento { get; set; }
+        public string Tipo { get; set; } = string.Empty;
+        public string? RealizadoPorRol { get; set; }
+        public int? RealizadoPorId { get; set; }
+        public string? Nota { get; set; }
+        public DateOnly? ProximaCita { get; set; }
+        public string? UrlEvidencia { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+    }
+
+    public class DescansoSeguimientoCreateDto
+    {
+        public string Tipo { get; set; } = string.Empty;
+        public string? Nota { get; set; }
+        public DateOnly? ProximaCita { get; set; }
+        // UrlEvidencia se asigna en controller tras subir el archivo
+        public string? UrlEvidencia { get; set; }
     }
 
     public class DescansoMedicoCreateDto
@@ -62,9 +98,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Descans
         public string? MedicoCertifica { get; set; }
         public string? Establecimiento { get; set; }
         public int? AccidenteId { get; set; }
+        public bool EsRecaida { get; set; } = false;
+        public int? TopicoOrigenId { get; set; }
+        public int? ProrrogaDelId { get; set; }
         public int? ProyectoId { get; set; }
         public int? EmpresaId { get; set; }
         public string? Observaciones { get; set; }
+        public bool ReportadoPorTrabajador { get; set; } = false;
+        // Asignado en controller tras subir el archivo
+        public string? UrlCertificado { get; set; }
     }
 
     public class DescansoMedicoUpdateDto

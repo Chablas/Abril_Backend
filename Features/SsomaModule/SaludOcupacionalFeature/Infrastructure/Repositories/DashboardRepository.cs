@@ -41,19 +41,25 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .CountAsync(w => workerIdsAbril.Contains(w.Id)
                               && w.ContrataCasa == ContratistaCategoria);
 
-            var emosActivos = ctx.WorkerEmo
-                .Where(e => e.Activo && workerIdsAbril.Contains(e.WorkerId));
-
-            var ultimosEmos = await emosActivos
-                .Where(e => !emosActivos.Any(e2 =>
-                    e2.WorkerId == e.WorkerId &&
-                    (e2.FechaEmo > e.FechaEmo || (e2.FechaEmo == e.FechaEmo && e2.Id > e.Id))))
-                .Select(e => new { e.WorkerId, e.Aptitud })
+            // Load all active EMOs for Abril workers into memory once.
+            // Avoids complex correlated subquery translation issues with EF Core + Npgsql.
+            var todosEmos = await ctx.WorkerEmo
+                .Where(e => e.Activo && workerIdsAbril.Contains(e.WorkerId))
+                .Select(e => new
+                {
+                    e.Id, e.WorkerId, e.Aptitud, e.FechaEmo,
+                    Vence = e.FechaVencimientoCalculada ?? e.FechaVencimiento
+                })
                 .ToListAsync();
 
-            int GetCount(string aptitud) => ultimosEmos.Count(e => e.Aptitud == aptitud);
+            // Latest EMO per worker (fecha desc, id desc as tiebreaker)
+            var ultimosEmos = todosEmos
+                .GroupBy(e => e.WorkerId)
+                .Select(g => g.OrderByDescending(e => e.FechaEmo).ThenByDescending(e => e.Id).First())
+                .ToList();
 
-            var workersConEmo = ultimosEmos.Select(e => e.WorkerId).Distinct().Count();
+            int GetCount(string aptitud) => ultimosEmos.Count(e => e.Aptitud == aptitud);
+            var workersConEmo = ultimosEmos.Count;
 
             var aptitud = new AptitudResumenDto
             {
@@ -64,24 +70,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 SinEmo = Math.Max(0, totalTrabajadores - workersConEmo)
             };
 
-            var emosVencidos = await emosActivos
-                .CountAsync(e => (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
-                              && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoy);
+            var emosVencidos = todosEmos.Count(e => e.Vence != null && e.Vence < hoy);
 
             var vencer = new VencimientoResumenDto
             {
-                Dias30 = await emosActivos.CountAsync(e =>
-                    (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
-                    && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) >= hoy
-                    && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) <= hoy30),
-                Dias15 = await emosActivos.CountAsync(e =>
-                    (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
-                    && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) >= hoy
-                    && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) <= hoy15),
-                Dias7 = await emosActivos.CountAsync(e =>
-                    (e.FechaVencimientoCalculada ?? e.FechaVencimiento) != null
-                    && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) >= hoy
-                    && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) <= hoy7)
+                Dias30 = todosEmos.Count(e => e.Vence != null && e.Vence >= hoy && e.Vence <= hoy30),
+                Dias15 = todosEmos.Count(e => e.Vence != null && e.Vence >= hoy && e.Vence <= hoy15),
+                Dias7  = todosEmos.Count(e => e.Vence != null && e.Vence >= hoy && e.Vence <= hoy7)
             };
 
             var interconsultasPendientes = await ctx.SsInterconsulta
@@ -94,28 +89,47 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var trabajadoresInhabilitados = await ctx.Worker
                 .CountAsync(w => workerIdsAbril.Contains(w.Id) && w.HabilitadoObra == false);
 
-            var proximos = await (
-                from e in emosActivos
-                join w in ctx.Worker on e.WorkerId equals w.Id
-                join em in ctx.Contributor on e.EmpresaOrigenId equals em.ContributorId into ej
+            // Get top-10 proximos a vencer: look up worker names from the EMO ids already loaded
+            var proximosWorkerIds = todosEmos
+                .Where(e => e.Vence != null && e.Vence >= hoy)
+                .OrderBy(e => e.Vence)
+                .Select(e => e.WorkerId)
+                .Distinct()
+                .Take(10)
+                .ToList();
+
+            var proximosVenceFechas = todosEmos
+                .Where(e => e.Vence != null && e.Vence >= hoy && proximosWorkerIds.Contains(e.WorkerId))
+                .GroupBy(e => e.WorkerId)
+                .ToDictionary(g => g.Key, g => g.Min(e => e.Vence)!.Value);
+
+            var proximosWorkers = await (
+                from w in ctx.Worker
+                join per in ctx.Person on w.PersonId equals per.PersonId into perj
+                from per in perj.DefaultIfEmpty()
+                join v in ctx.WorkerVinculacion.Where(x => x.FechaFin == null) on w.Id equals v.WorkerId into vj
+                from v in vj.DefaultIfEmpty()
+                join em in ctx.Contributor on v.EmpresaId equals em.ContributorId into ej
                 from em in ej.DefaultIfEmpty()
-                let fv = e.FechaVencimientoCalculada ?? e.FechaVencimiento
-                where fv != null && fv >= hoy
-                orderby fv
+                where proximosWorkerIds.Contains(w.Id)
                 select new
                 {
-                    e.WorkerId,
-                    Nombre = (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
-                    Dni = (w.Person != null ? w.Person.DocumentIdentityCode : null) ?? string.Empty,
-                    FechaVencimiento = fv!.Value,
+                    w.Id,
+                    Nombre = per != null ? per.FullName : string.Empty,
+                    Dni = per != null ? per.DocumentIdentityCode : string.Empty,
                     Empresa = em != null ? (em.ContributorName ?? string.Empty) : string.Empty
                 })
-                .Take(10)
                 .ToListAsync();
+
+            var proximos = proximosWorkers
+                .Where(w => proximosVenceFechas.ContainsKey(w.Id))
+                .Select(w => new { w.Id, w.Nombre, w.Dni, FechaVencimiento = proximosVenceFechas[w.Id], w.Empresa })
+                .OrderBy(w => w.FechaVencimiento)
+                .ToList();
 
             var proximosDto = proximos.Select(p => new ProximoVencerDto
             {
-                WorkerId = p.WorkerId,
+                WorkerId = p.Id,
                 Nombre = p.Nombre,
                 Dni = p.Dni,
                 FechaVencimiento = p.FechaVencimiento,

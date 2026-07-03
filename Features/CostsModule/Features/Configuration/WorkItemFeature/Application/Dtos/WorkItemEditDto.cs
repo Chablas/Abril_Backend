@@ -4,6 +4,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
     {
         public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; } = null!;
+        /// <summary>Partida de control a la que pertenece la partida (requerido).</summary>
+        public int? WorkItemCategoryId { get; set; }
         public bool Active { get; set; }
 
         /// <summary>Formas de valorización (cláusula 5.1) a guardar (upsert completo).</summary>

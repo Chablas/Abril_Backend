@@ -28,4 +28,5 @@ public interface IPasoService
     Task ProcesarCronAsync();
     Task<PasoResumenMesDto> GetResumenMesAsync(int id, int anio, int mes);
     Task<List<PasoAuditoriaDto>> GetAuditoriaAsync(int actividadId);
+    Task<PagedResult<PasoSaludActividadListItemDto>> GetActividadesSaludAsync(PasoSaludListQuery q);
 }

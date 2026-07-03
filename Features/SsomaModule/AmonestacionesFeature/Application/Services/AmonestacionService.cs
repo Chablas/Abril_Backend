@@ -3,7 +3,10 @@ using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
 using Abril_Backend.Infrastructure.Data;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
@@ -12,21 +15,32 @@ public class AmonestacionService : IAmonestacionService
 {
     private readonly IAmonestacionRepository _repo;
     private readonly AmonestacionNotificationService _notif;
+    private readonly ISharePointHabService _sharePoint;
+    private readonly SsomaInhabilitacionService _inhabilitacion;
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly ILogger<AmonestacionService> _logger;
-    private readonly string AbrilLogoPath =
-        Path.Combine(AppContext.BaseDirectory, "Templates", "logo-abril.jpg");
+    private readonly string _logoPath;
 
     public AmonestacionService(
         IAmonestacionRepository repo,
         AmonestacionNotificationService notif,
+        ISharePointHabService sharePoint,
+        SsomaInhabilitacionService inhabilitacion,
         IDbContextFactory<AppDbContext> factory,
-        ILogger<AmonestacionService> logger)
+        ILogger<AmonestacionService> logger,
+        IWebHostEnvironment env)
     {
-        _repo    = repo;
-        _notif   = notif;
-        _factory = factory;
-        _logger  = logger;
+        _repo           = repo;
+        _notif          = notif;
+        _sharePoint     = sharePoint;
+        _inhabilitacion = inhabilitacion;
+        _factory        = factory;
+        _logger         = logger;
+        _logoPath   = new[] {
+            Path.Combine(env.WebRootPath, "images", "abril-logo.png"),
+            Path.Combine(env.WebRootPath, "images", "logo-abril.jpg"),
+            Path.Combine(env.ContentRootPath, "Templates", "logo-abril.jpg"),
+        }.FirstOrDefault(File.Exists) ?? "";
     }
 
     public Task<AmonestacionInitDto> GetInitAsync() => _repo.GetInitAsync();
@@ -81,11 +95,14 @@ public class AmonestacionService : IAmonestacionService
             }
         }
 
+        var esBorrador = req.Estado == "Borrador";
+
         // Construir DTO de detalle para crear
         var detalle = new AmonestacionDetalleDto
         {
             Codigo              = codigo,
             PersonaReportaId    = userId > 0 ? userId : null,
+            Estado              = esBorrador ? "Borrador" : "Registrada",
             ProyectoId          = req.ProyectoId,
             Fecha               = DateTime.TryParse(req.Fecha, out var fd)
                                     ? DateTime.SpecifyKind(fd, DateTimeKind.Utc)
@@ -108,33 +125,153 @@ public class AmonestacionService : IAmonestacionService
                 : null,
         };
 
-        // Guardar en BD
-        var fotasParaRepo = fotosBytes.Select(f => (Convert.ToBase64String(f.Bytes), f.Nombre)).ToList();
+        List<(string Base64, string Nombre, string Url)> fotasParaRepo;
+
+        if (esBorrador)
+        {
+            // Borrador: guardar base64 en BD, sin SharePoint, sin PDF, sin correo
+            fotasParaRepo = fotosBytes
+                .Select(f => (Convert.ToBase64String(f.Bytes), f.Nombre, ""))
+                .ToList();
+            var idBorrador = await _repo.CrearAsync(detalle, fotasParaRepo);
+            return new AmonestacionCreadaDto { Id = idBorrador, Codigo = codigo };
+        }
+
+        // Registrada: subir fotos a SharePoint y obtener URLs
+        var fotosConUrl = new List<(string Base64, string Nombre, string Url)>();
+        foreach (var (bytes, nombre) in fotosBytes)
+        {
+            var url = "";
+            try
+            {
+                var ext = Path.GetExtension(nombre).ToLowerInvariant();
+                if (string.IsNullOrEmpty(ext)) ext = ".jpg";
+                var fileName = $"{codigo}_foto_{DateTime.UtcNow:HHmmssffff}{ext}";
+                using var stream = new MemoryStream(bytes);
+                url = await _sharePoint.SubirArchivoEnRutaAsync(
+                    stream, fileName, "amonestacion-pdf",
+                    $"Amonestaciones/{DateTime.UtcNow:yyyy}/Fotos");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo subir foto de amonestacion");
+            }
+            fotosConUrl.Add((Convert.ToBase64String(bytes), nombre, url));
+        }
+
+        fotasParaRepo = fotosConUrl;
         var id = await _repo.CrearAsync(detalle, fotasParaRepo);
 
-        // Obtener detalle completo para PDF y notificación
-        var detalleCompleto = await _repo.GetDetalleAsync(id);
-        if (detalleCompleto is null) return new AmonestacionCreadaDto { Id = id, Codigo = codigo };
+        await GenerarPdfYNotificarAsync(id, codigo, fotosBytes.Select(f => f.Bytes).ToList());
 
-        // Generar PDF
+        // Evaluar inhabilitación SSOMA
+        await _inhabilitacion.EvaluarTrasBmonestacionAsync(req.WorkerId, req.TipoSancionId, userId);
+
+        return new AmonestacionCreadaDto { Id = id, Codigo = codigo };
+    }
+
+    public async Task<AmonestacionCreadaDto> ConfirmarAsync(int id)
+    {
+        var detalle = await _repo.GetDetalleAsync(id)
+            ?? throw new AbrilException("Amonestación no encontrada.", 404);
+
+        if (detalle.Estado != "Borrador")
+            throw new AbrilException("Solo se puede confirmar un borrador.", 400);
+
+        // Leer bytes de fotos desde base64 guardado en BD
+        var fotosBytes = await _repo.GetFotosBytesAsync(id);
+
+        // Subir fotos a SharePoint ahora que tenemos los bytes
+        using var ctx = _factory.CreateDbContext();
+        var fotosEntidad = await ctx.SsomaAmonestacionFotos
+            .Where(f => f.AmonestacionId == id)
+            .OrderBy(f => f.Orden)
+            .ToListAsync();
+
+        for (int i = 0; i < fotosEntidad.Count && i < fotosBytes.Count; i++)
+        {
+            try
+            {
+                var (bytes, nombre) = fotosBytes[i];
+                var ext = Path.GetExtension(nombre).ToLowerInvariant();
+                if (string.IsNullOrEmpty(ext)) ext = ".jpg";
+                var fileName = $"{detalle.Codigo}_foto_{i + 1}{ext}";
+                using var stream = new MemoryStream(bytes);
+                var url = await _sharePoint.SubirArchivoEnRutaAsync(
+                    stream, fileName, "amonestacion-pdf",
+                    $"Amonestaciones/{DateTime.UtcNow:yyyy}/Fotos");
+                fotosEntidad[i].Url = url;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error subiendo foto al confirmar amonestacion {Id}", id);
+            }
+        }
+        await ctx.SaveChangesAsync();
+
+        // Cambiar estado a Registrada
+        await _repo.ConfirmarEstadoAsync(id);
+
+        // Generar PDF y notificar
+        await GenerarPdfYNotificarAsync(id, detalle.Codigo, fotosBytes.Select(f => f.Bytes).ToList());
+
+        // Evaluar inhabilitación SSOMA al confirmar
+        var detalleConf = await _repo.GetDetalleAsync(id);
+        if (detalleConf is not null)
+            await _inhabilitacion.EvaluarTrasBmonestacionAsync(detalleConf.WorkerId, detalleConf.TipoSancionId, 0);
+
+        return new AmonestacionCreadaDto { Id = id, Codigo = detalle.Codigo };
+    }
+
+    private async Task<byte[]?> ResolveLogoAsync(AmonestacionDetalleDto detalle)
+    {
+        if (detalle.EsEmpresaAbril)
+            return File.Exists(_logoPath) ? await File.ReadAllBytesAsync(_logoPath) : null;
+
+        if (!string.IsNullOrEmpty(detalle.EmpresaLogoUrl))
+        {
+            try
+            {
+                var dl = await _sharePoint.GetDownloadUrlAsync(detalle.EmpresaLogoUrl, "empresa-logos");
+                var url = !string.IsNullOrEmpty(dl) ? dl : detalle.EmpresaLogoUrl;
+                using var http = new System.Net.Http.HttpClient();
+                var bytes = await http.GetByteArrayAsync(url);
+                if (bytes.Length > 0) return bytes;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo obtener logo de contratista para amonestacion");
+            }
+        }
+        return null;
+    }
+
+    private async Task GenerarPdfYNotificarAsync(int id, string codigo, List<byte[]> fotosBytes)
+    {
+        var detalleCompleto = await _repo.GetDetalleAsync(id);
+        if (detalleCompleto is null) return;
+
         try
         {
-            byte[]? logoBytes = null;
-            if (detalleCompleto.EsEmpresaAbril && File.Exists(AbrilLogoPath))
-                logoBytes = await File.ReadAllBytesAsync(AbrilLogoPath);
-            else if (!detalleCompleto.EsEmpresaAbril && !string.IsNullOrEmpty(detalleCompleto.EmpresaLogoUrl))
+            var logoBytes = await ResolveLogoAsync(detalleCompleto);
+
+            var pdfBytes = AmonestacionPdfService.GenerarPdf(detalleCompleto, fotosBytes, logoBytes);
+
+            try
             {
-                // El logo de contratista está en SharePoint/storage, para PDF usamos Abril logo como fallback
-                if (File.Exists(AbrilLogoPath))
-                    logoBytes = await File.ReadAllBytesAsync(AbrilLogoPath);
+                var pdfFileName = $"Amonestacion_{codigo}.pdf";
+                var carpeta = $"Amonestaciones/{DateTime.UtcNow:yyyy}";
+                using var stream = new MemoryStream(pdfBytes);
+                var pdfUrl = await _sharePoint.SubirArchivoEnRutaAsync(
+                    stream, pdfFileName, "amonestacion-pdf", carpeta);
+                if (!string.IsNullOrEmpty(pdfUrl))
+                    await _repo.GuardarPdfUrlAsync(id, pdfUrl);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error subiendo PDF a SharePoint para amonestacion {Id}", id);
             }
 
-            var pdfBytes = AmonestacionPdfService.GenerarPdf(
-                detalleCompleto,
-                fotosBytes.Select(f => f.Bytes).ToList(),
-                logoBytes);
-
-            // Enviar correo en background
             _ = Task.Run(async () =>
             {
                 try { await _notif.NotificarAmonestacionAsync(detalleCompleto, pdfBytes); }
@@ -145,8 +282,6 @@ public class AmonestacionService : IAmonestacionService
         {
             _logger.LogWarning(ex, "Error generando PDF amonestacion {Id}", id);
         }
-
-        return new AmonestacionCreadaDto { Id = id, Codigo = codigo };
     }
 
     public async Task<AmonestacionPagedResult<AmonestacionListItemDto>> GetListAsync(AmonestacionListQuery q)
@@ -168,15 +303,83 @@ public class AmonestacionService : IAmonestacionService
     public Task<WorkerPuntajeDto?> GetPuntajeWorkerAsync(int workerId) =>
         _repo.GetPuntajeWorkerAsync(workerId);
 
-    public async Task<byte[]> GetPdfAsync(int id)
+    public async Task<(byte[]? Bytes, string? RedirectUrl)> GetPdfAsync(int id)
     {
         var detalle = await _repo.GetDetalleAsync(id)
             ?? throw new AbrilException("Amonestación no encontrada.", 404);
 
-        byte[]? logoBytes = null;
-        if (File.Exists(AbrilLogoPath))
-            logoBytes = await File.ReadAllBytesAsync(AbrilLogoPath);
+        // Si ya existe PDF generado en SharePoint, redirigir directamente (no regenerar)
+        if (!string.IsNullOrEmpty(detalle.PdfUrl))
+        {
+            var downloadUrl = await _sharePoint.GetDownloadUrlAsync(detalle.PdfUrl, "amonestacion-pdf");
+            if (!string.IsNullOrEmpty(downloadUrl))
+                return (null, downloadUrl);
+        }
 
-        return AmonestacionPdfService.GenerarPdf(detalle, new List<byte[]>(), logoBytes);
+        // Fallback: generar en memoria
+        var logoBytes = await ResolveLogoAsync(detalle);
+        var fotosConNombre = await _repo.GetFotosBytesAsync(id);
+
+        if (fotosConNombre.Count == 0)
+        {
+            using var http = new System.Net.Http.HttpClient();
+            foreach (var foto in detalle.Fotos.Where(f => !string.IsNullOrEmpty(f.Url)))
+            {
+                try
+                {
+                    var downloadUrl = await _sharePoint.GetDownloadUrlAsync(foto.Url, "amonestacion-pdf");
+                    if (!string.IsNullOrEmpty(downloadUrl))
+                    {
+                        var bytes = await http.GetByteArrayAsync(downloadUrl);
+                        if (bytes.Length > 0) fotosConNombre.Add((bytes, foto.NombreArchivo ?? "foto.jpg"));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "No se pudo descargar foto {Url} para PDF amonestacion {Id}", foto.Url, id);
+                }
+            }
+        }
+
+        return (AmonestacionPdfService.GenerarPdf(detalle, fotosConNombre.Select(f => f.Bytes).ToList(), logoBytes), null);
+    }
+
+    public async Task CerrarAsync(int id, AmonestacionCerrarRequest req)
+    {
+        var detalle = await _repo.GetDetalleAsync(id)
+            ?? throw new AbrilException("Amonestación no encontrada.", 404);
+
+        if (detalle.Estado == "Cerrada")
+            throw new AbrilException("La amonestación ya está cerrada.", 400);
+
+        if (string.IsNullOrWhiteSpace(req.DocumentoFirmadoBase64))
+            throw new AbrilException("Debe adjuntar el documento firmado.", 400);
+
+        // Decodificar imagen/PDF firmado
+        var base64 = req.DocumentoFirmadoBase64.Contains(',')
+            ? req.DocumentoFirmadoBase64.Split(',')[1]
+            : req.DocumentoFirmadoBase64;
+        var bytes = Convert.FromBase64String(base64);
+
+        // Subir a SharePoint
+        var ext = Path.GetExtension(req.NombreArchivo).ToLowerInvariant();
+        if (string.IsNullOrEmpty(ext)) ext = ".jpg";
+        var fileName = $"Firmado_{detalle.Codigo}{ext}";
+        var carpeta = $"Amonestaciones/{DateTime.UtcNow:yyyy}/Firmados";
+
+        string documentoUrl;
+        try
+        {
+            using var stream = new MemoryStream(bytes);
+            documentoUrl = await _sharePoint.SubirArchivoEnRutaAsync(
+                stream, fileName, "amonestacion-pdf", carpeta);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error subiendo documento firmado amonestacion {Id}", id);
+            throw new AbrilException("No se pudo subir el documento firmado.", 502);
+        }
+
+        await _repo.CerrarAsync(id, documentoUrl);
     }
 }

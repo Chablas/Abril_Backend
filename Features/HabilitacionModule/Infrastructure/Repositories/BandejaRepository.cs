@@ -53,7 +53,8 @@ SELECT
     NULL::int as empresa_id_raw,
     NULL::int as mes,
     NULL::int as anio,
-    0 as meses_pendientes
+    0 as meses_pendientes,
+    i.requiere_vigencia as requiere_vigencia
 FROM ss_hab_trabajador ht
 JOIN ss_item_trabajador i ON i.id = ht.item_id
 JOIN workers w ON w.id = ht.worker_id
@@ -100,7 +101,8 @@ SELECT
      WHERE sub.empresa_id = he.empresa_id
        AND sub.proyecto_id = he.proyecto_id
        AND sub.item_id = he.item_id
-       AND sub.estado = 'Enviado') as meses_pendientes
+       AND sub.estado = 'Enviado') as meses_pendientes,
+    i.requiere_vigencia as requiere_vigencia
 FROM ss_hab_empresa he
 JOIN ss_item_empresa i ON i.id = he.item_id
 JOIN contributor ec ON ec.contributor_id = he.empresa_id
@@ -143,7 +145,8 @@ SELECT
     NULL::int as empresa_id_raw,
     NULL::int as mes,
     NULL::int as anio,
-    0 as meses_pendientes
+    0 as meses_pendientes,
+    i.requiere_vigencia as requiere_vigencia
 FROM ss_hab_equipo heq
 JOIN ss_item_equipo i ON i.id = heq.item_id
 JOIN ss_equipo eq ON eq.id = heq.equipo_id
@@ -176,16 +179,17 @@ SELECT
     NULL::int as empresa_id_raw,
     NULL::int as mes,
     NULL::int as anio,
-    0 as meses_pendientes
+    0 as meses_pendientes,
+    false as requiere_vigencia
 FROM ss_induccion i
 JOIN workers w ON w.id = i.worker_id
 LEFT JOIN person per ON per.person_id = w.person_id
 JOIN contributor c ON c.contributor_id = i.empresa_id
 JOIN project p ON p.project_id = i.proyecto_id
 WHERE i.estado = 'PROGRAMADA'
+  AND @Tipo = 'INDUCCION'
   AND (@ProyectoId IS NULL OR i.proyecto_id = @ProyectoId)
   AND (@EmpresaId IS NULL OR i.empresa_id = @EmpresaId)
-  AND (@Tipo IS NULL OR @Tipo = 'INDUCCION')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
 ";

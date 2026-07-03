@@ -4699,3 +4699,30 @@ Esto sigue ignorando `.claude/settings.local.json` y `.claude/worktrees/` (verif
 
 Se pidió agregar una regla "P5: push directo a master permitido, nunca con --force" dentro de una sección "DEPLOY" en "REGLAS DE PROGRAMACIÓN". Esa sección no existe en este archivo — solo existe "REGLAS DE CODIFICACIÓN" (R1-R5, línea 33) y no tiene nada de deploy. Queda pendiente decidir si se crea una sección nueva para esto.
 - Sin cambios en el flujo de trabajo habitual
+
+## Sesión 2026-07-03 (continuación) — sección DEPLOY y guardar-master con lógica propia
+
+### 1. `### DEPLOY` agregada dentro de `## REGLAS DE CODIFICACIÓN`
+
+Se agregó justo después de R5 (línea ~78-81), con reglas P1-P5:
+- P1: frontend de producción en `/var/www/abril` en la VPS (`npm run build` + copia de `dist/Abril/browser/*`)
+- P2: backend se conecta a la BD de producción vía túnel SSH (`localhost:5544` → `VPS:5432`)
+- P3: túnel SSH debe estar activo antes de levantar el backend (`ssh -L 5544:localhost:5432 jefe@intranet.abril.pe`)
+- P4: usuario `deploy` es dueño de `/var/www/abril` — copiar con permisos correctos
+- P5: push directo a `master` permitido (bypass de branch protection), pero nunca con `--force`
+
+Resuelve el pendiente anotado en la sesión anterior (§3 arriba).
+
+### 2. `.claude/skills/guardar-master/SKILL.md` — lógica propia, ya no es copia de `guardar-rama`
+
+Reescrita completa. Diferencias clave respecto a `guardar-rama`:
+- Solo corre si la rama actual **es** `master` (antes bloqueaba `master`; ahora es al revés — bloquea todo lo que no sea `master`).
+- Antes del `git push origin master` exige confirmación explícita del usuario, mostrando `git log origin/master..HEAD --oneline` y `git diff origin/master..HEAD --stat`. No asume confirmación implícita.
+- Aplica la regla P5: nunca `--force`.
+
+### Archivos clave
+- `CONTEXT.md` (sección DEPLOY)
+- `.claude/skills/guardar-master/SKILL.md`
+
+### Pendiente
+- Las skills `guardar-rama`/`guardar-master` no se recargan dentro de una sesión ya iniciada — hay que abrir una sesión nueva de Claude Code para que el trigger por frase natural ("guardar rama", "guardar master") las detecte; mientras tanto se siguen los pasos manualmente.

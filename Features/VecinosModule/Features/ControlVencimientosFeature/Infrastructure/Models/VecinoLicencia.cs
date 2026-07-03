@@ -22,6 +22,9 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeatu
         /// <summary>Días de antelación respecto al vencimiento (FechaVencimiento - FechaRecordatorio).</summary>
         public int DiasAntes { get; set; }
 
+        /// <summary>Momento en que el cron envió el recordatorio (null = aún no enviado).</summary>
+        public DateTime? RecordatorioEnviadoDateTime { get; set; }
+
         public DateTime CreatedDateTime { get; set; }
         public int CreatedUserId { get; set; }
         public DateTime? UpdatedDateTime { get; set; }

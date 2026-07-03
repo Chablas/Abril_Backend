@@ -64,6 +64,13 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                         .Where(c => c.WorkItemCategoryId == x.WorkItemCategoryId)
                         .Select(c => c.WorkItemCategoryDescription)
                         .FirstOrDefault(),
+                    WorkSpecialtyDescription = _context.WorkItemCategory
+                        .Where(c => c.WorkItemCategoryId == x.WorkItemCategoryId)
+                        .Join(_context.WorkSpecialty,
+                            c => c.WorkSpecialtyId,
+                            s => (int?)s.WorkSpecialtyId,
+                            (c, s) => s.WorkSpecialtyDescription)
+                        .FirstOrDefault(),
                     CreatedDateTime = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                     CreatedUserId = x.CreatedUserId,
                     UpdatedDateTime = x.UpdatedDateTime.HasValue

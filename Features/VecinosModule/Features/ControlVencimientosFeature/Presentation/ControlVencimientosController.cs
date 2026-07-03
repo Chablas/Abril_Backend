@@ -14,13 +14,16 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeatu
     {
         private readonly IControlVencimientosService _service;
         private readonly ILogger<ControlVencimientosController> _logger;
+        private readonly IConfiguration _configuration;
 
         public ControlVencimientosController(
             IControlVencimientosService service,
-            ILogger<ControlVencimientosController> logger)
+            ILogger<ControlVencimientosController> logger,
+            IConfiguration configuration)
         {
             _service = service;
             _logger = logger;
+            _configuration = configuration;
         }
 
         /// <summary>Listado de licencias/permisos registrados, ordenados por fecha de vencimiento.</summary>
@@ -59,6 +62,30 @@ namespace Abril_Backend.Features.VecinosModule.Features.ControlVencimientosFeatu
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ERROR CONTROL VENCIMIENTOS CREATE: {msg}", ex.ToString());
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Cron (cron-job.org): envía los recordatorios de licencias cuya fecha de recordatorio
+        /// ya llegó. Protegido con el CronSecret en el header Authorization.
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("recordatorios/procesar")]
+        public async Task<IActionResult> ProcesarRecordatorios()
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (authHeader != $"Bearer {_configuration["CronSecret"]}")
+                    return Unauthorized();
+
+                var result = await _service.ProcesarRecordatorios();
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ERROR CONTROL VENCIMIENTOS RECORDATORIOS: {msg}", ex.ToString());
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

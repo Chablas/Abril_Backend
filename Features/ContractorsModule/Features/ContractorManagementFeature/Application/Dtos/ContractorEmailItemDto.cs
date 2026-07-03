@@ -11,5 +11,9 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Application.Dt
         public string Email { get; set; } = null!;
         /// <summary>Flag 'active': si está en false el correo no aparece en filtros/desplegables ni recibe correos.</summary>
         public bool Active { get; set; }
+        /// <summary>Clasificación del contacto (Gerente General, etc.). Null = sin clasificar.</summary>
+        public int? ContractorPersonTypeId { get; set; }
+        /// <summary>Descripción de la clasificación. Solo lectura (se ignora en la edición).</summary>
+        public string? ContractorPersonTypeDescription { get; set; }
     }
 }

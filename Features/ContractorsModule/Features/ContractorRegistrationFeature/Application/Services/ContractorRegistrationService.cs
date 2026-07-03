@@ -204,7 +204,10 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
         {
             var invalid = new HashSet<char> { '\\', '/', ':', '*', '?', '"', '<', '>', '|', '#', '%' };
             var result  = string.Concat(name.Select(c => invalid.Contains(c) ? '-' : c)).Trim();
-            return result.Length > 60 ? result[..60].TrimEnd() : result;
+            if (result.Length > 60) result = result[..60];
+            // SharePoint no permite nombres que terminen en punto o espacio (las razones
+            // sociales suelen terminar en "S.A.C.", "E.I.R.L.", etc.).
+            return result.TrimEnd(' ', '.');
         }
     }
 }

@@ -17,7 +17,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     ///                                 Si la cadena no devuelve nada → fallback al
     ///                                 Gerente del macro-área.
     ///
-    /// Sólo se consideran como aprobadores trabajadores con <c>email_personal</c>
+    /// Sólo se consideran como aprobadores trabajadores con <c>email_corporativo</c>
     /// que termine en <c>@abril.pe</c> (correo corporativo).
     /// </summary>
     public class ApproverResolver : IApproverResolver
@@ -48,13 +48,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var jefe = await ctx.Worker
                     .AsNoTracking()
                     .Where(w => w.Id == user.WorkerSalidaJefeId.Value && w.Id != user.Id)
-                    .Select(w => new { w.Id, w.EmailPersonal })
+                    .Select(w => new { w.Id, w.EmailCorporativo })
                     .FirstOrDefaultAsync();
 
-                if (jefe != null && jefe.EmailPersonal != null &&
-                    jefe.EmailPersonal.Trim().EndsWith(EmailDomainCorp, StringComparison.OrdinalIgnoreCase))
+                if (jefe != null && jefe.EmailCorporativo != null &&
+                    jefe.EmailCorporativo.Trim().EndsWith(EmailDomainCorp, StringComparison.OrdinalIgnoreCase))
                 {
-                    return new ApproverResolution(jefe.Id, jefe.EmailPersonal.Trim());
+                    return new ApproverResolution(jefe.Id, jefe.EmailCorporativo.Trim());
                 }
                 // Sin correo válido → continúa al fallback por jerarquía.
             }
@@ -102,9 +102,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     where w.AreaScopeId == scopeId
                           && w.Id != user.Id
                           && CategoriasWalkUp.Contains(c.Name)
-                          && w.EmailPersonal != null
-                          && w.EmailPersonal.EndsWith(EmailDomainCorp)
-                    select new { w.Id, Categoria = c.Name, w.EmailPersonal }
+                          && w.EmailCorporativo != null
+                          && w.EmailCorporativo.EndsWith(EmailDomainCorp)
+                    select new { w.Id, Categoria = c.Name, w.EmailCorporativo }
                 ).ToListAsync();
 
                 if (candidatos.Count == 0) continue;
@@ -113,7 +113,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     .OrderBy(c => CategoriaPriority(c.Categoria))
                     .First();
 
-                return new ApproverResolution(elegido.Id, elegido.EmailPersonal!.Trim());
+                return new ApproverResolution(elegido.Id, elegido.EmailCorporativo!.Trim());
             }
 
             // Fallback: ningún Jefe/SubGer/Coord en la cadena → Gerente del macro-área
@@ -161,13 +161,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 where w.AreaScopeId.HasValue
                       && w.Id != excludeWorkerId
                       && c.Name == "Gerente"
-                      && w.EmailPersonal != null
-                      && w.EmailPersonal.EndsWith(EmailDomainCorp)
-                select new { w.Id, w.AreaScopeId, w.EmailPersonal }
+                      && w.EmailCorporativo != null
+                      && w.EmailCorporativo.EndsWith(EmailDomainCorp)
+                select new { w.Id, w.AreaScopeId, w.EmailCorporativo }
             ).ToListAsync();
 
             var gerente = gerentes.FirstOrDefault(g => g.AreaScopeId.HasValue && scopesEnRaiz.Contains(g.AreaScopeId.Value));
-            return gerente == null ? null : new ApproverResolution(gerente.Id, gerente.EmailPersonal!.Trim());
+            return gerente == null ? null : new ApproverResolution(gerente.Id, gerente.EmailCorporativo!.Trim());
         }
 
         /// <summary>Camina hacia arriba devolviendo el id de la raíz de un scope.</summary>

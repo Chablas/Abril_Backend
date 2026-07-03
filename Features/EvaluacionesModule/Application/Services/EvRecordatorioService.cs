@@ -84,7 +84,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                 try
                 {
                     await _email.SendAsync(
-                        to: [ev.EmailPersonal],
+                        to: [ev.EmailCorporativo],
                         subject: asunto,
                         body: cuerpo,
                         isHtml: true,
@@ -92,7 +92,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
 
                     await _repo.RegistrarLogAsync(
                         periodo.Id, ev.UserId, tipoLog,
-                        ev.EmailPersonal,
+                        ev.EmailCorporativo,
                         ccJefatura: false,
                         ccGerencia: false);
 
@@ -100,7 +100,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error enviando recordatorio a {Email}", ev.EmailPersonal);
+                    _logger.LogError(ex, "Error enviando recordatorio a {Email}", ev.EmailCorporativo);
                 }
             }
 
@@ -136,7 +136,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                 try
                 {
                     await _email.SendAsync(
-                        to: [ev.EmailPersonal],
+                        to: [ev.EmailCorporativo],
                         subject: asunto,
                         body: cuerpo,
                         isHtml: true,
@@ -144,7 +144,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
 
                     await _repo.RegistrarLogAsync(
                         periodo.Id, ev.UserId, tipoLog,
-                        ev.EmailPersonal,
+                        ev.EmailCorporativo,
                         ccJefatura: false,
                         ccGerencia: false);
 
@@ -152,7 +152,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error enviando recordatorio de contratistas a {Email}", ev.EmailPersonal);
+                    _logger.LogError(ex, "Error enviando recordatorio de contratistas a {Email}", ev.EmailCorporativo);
                 }
             }
 
@@ -187,7 +187,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                 try
                 {
                     await _email.SendAsync(
-                        to: [ev.EmailPersonal],
+                        to: [ev.EmailCorporativo],
                         subject: asunto,
                         body: cuerpo,
                         isHtml: true,
@@ -195,7 +195,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
 
                     await _repo.RegistrarLogAsync(
                         periodo.Id, ev.UserId, "DESCARGO",
-                        ev.EmailPersonal,
+                        ev.EmailCorporativo,
                         ccJefatura: true,
                         ccGerencia: true);
 
@@ -203,7 +203,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error enviando descargo a {Email}", ev.EmailPersonal);
+                    _logger.LogError(ex, "Error enviando descargo a {Email}", ev.EmailCorporativo);
                 }
             }
 

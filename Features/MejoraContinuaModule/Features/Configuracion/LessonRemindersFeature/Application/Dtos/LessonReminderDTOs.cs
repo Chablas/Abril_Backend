@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         public int UserProjectId { get; set; }
         public int WorkerId { get; set; }
         public string? WorkerFullName { get; set; }
-        public string? Email { get; set; } // worker.email_personal
+        public string? Email { get; set; } // worker.email_corporativo
         public int ProjectId { get; set; }
         public string? ProjectDescription { get; set; }
         public DateTime CreatedDateTime { get; set; }
@@ -47,7 +47,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
     {
         public int WorkerId { get; set; }
         public string? FullName { get; set; }
-        public string? Email { get; set; } // worker.email_personal (@abril.pe)
+        public string? Email { get; set; } // worker.email_corporativo (@abril.pe)
     }
 
     public class LessonReminderProjectDTO
@@ -125,7 +125,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
     // ─────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Una fila por trabajador con email_personal @abril.pe, junto a su jefe
+    /// Una fila por trabajador con email_corporativo @abril.pe, junto a su jefe
     /// directo (workers.worker_lesson_jefe_id) encargado de revisar sus lecciones.
     /// </summary>
     public class WorkerRevisorItemDTO

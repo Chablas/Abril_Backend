@@ -3,7 +3,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Application.D
     /// <summary>
     /// Una persona cumpleañera del trimestre. El cumpleaños sale de <c>person.cumpleanos</c>
     /// y, si es null, de <c>workers.fecha_nacimiento</c>. Solo se incluye si el trabajador
-    /// tiene un <c>email_personal</c> con dominio @abril.pe.
+    /// tiene un <c>email_corporativo</c> con dominio @abril.pe.
     /// </summary>
     public class CumpleaneroDto
     {

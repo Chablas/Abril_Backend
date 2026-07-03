@@ -49,7 +49,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
 
             var workers = await (
                 from w in ctx.Worker
-                where w.EmailPersonal != null && w.EmailPersonal.ToLower().Contains("@abril.pe")
+                where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains("@abril.pe")
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
                 join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
@@ -59,7 +59,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
                 {
                     WorkerId = w.Id,
                     FullName = p != null ? p.FullName : null,
-                    Email = w.EmailPersonal,
+                    Email = w.EmailCorporativo,
                     CategoryId = w.WorkerCategoryId,
                     Category = c != null ? c.Name : null,
                     AreaScopeId = w.AreaScopeId,

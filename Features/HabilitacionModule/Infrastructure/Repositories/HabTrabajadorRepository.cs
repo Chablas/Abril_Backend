@@ -1317,8 +1317,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (dto.ApellidoNombre is not null && w.Person is not null) w.Person.FullName = dto.ApellidoNombre;
             if (dto.Celular is not null && w.Person is not null) w.Person.PhoneNumber = int.TryParse(dto.Celular, out var ph) ? ph : (int?)null;
-            if (dto.EmailPersonal is not null)    w.EmailPersonal = dto.EmailPersonal;
-            else if (dto.EmailCorporativo is not null) w.EmailPersonal = dto.EmailCorporativo;
+            if (dto.EmailCorporativo is not null)    w.EmailCorporativo = dto.EmailCorporativo;
             if (dto.FechaNacimiento.HasValue) w.FechaNacimiento = dto.FechaNacimiento;
             if (dto.FechaIngreso.HasValue) w.FechaIngreso = dto.FechaIngreso;
             if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
@@ -1456,8 +1455,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Dni = w.Person?.DocumentIdentityCode,
             Ruc = w.Contributor?.ContributorRuc,
             Celular = w.Person?.PhoneNumber?.ToString(),
-            EmailPersonal = w.EmailPersonal,
-            EmailCorporativo = null,  // columna en BD ya no se usa; mantener el campo en DTO por compat. de API.
+            EmailCorporativo = w.EmailCorporativo,
             FechaNacimiento = w.FechaNacimiento,
             Sexo = w.Person?.Sexo,
             FechaIngreso = w.FechaIngreso,

@@ -214,13 +214,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         private static List<string> BuildDestinatarios(Worker worker, Project? proyecto)
         {
-            var raw = new List<string?> { worker.EmailPersonal };
+            var raw = new List<string?> { worker.EmailCorporativo };
 
             // Casa y Staff: agregar también email corporativo
             if (string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(worker.ContrataCasa, "Staff", StringComparison.OrdinalIgnoreCase))
             {
-                raw.Add(worker.EmailPersonal);
+                raw.Add(worker.EmailCorporativo);
             }
 
             if (proyecto != null)

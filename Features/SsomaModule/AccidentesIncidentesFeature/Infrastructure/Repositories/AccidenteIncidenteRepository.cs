@@ -740,13 +740,13 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
     public async Task<List<string>> GetDestinatariosFlashReportAsync()
     {
         const string sql = """
-            SELECT DISTINCT w.email_personal
+            SELECT DISTINCT w.email_corporativo
             FROM workers w
             WHERE w.estado = 'ACTIVO'
-              AND w.email_personal ILIKE '%@abril.pe'
+              AND w.email_corporativo ILIKE '%@abril.pe'
               AND w.contrata_casa = 'Casa'
-              AND w.email_personal IS NOT NULL
-              AND w.email_personal <> ''
+              AND w.email_corporativo IS NOT NULL
+              AND w.email_corporativo <> ''
               AND (
                   w.area     ILIKE '%proyecto%'
                   OR w.subarea  ILIKE '%talento%'

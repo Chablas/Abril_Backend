@@ -99,7 +99,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
         public async Task<List<int>> GetUserProjectIdsAsync(int userId)
         {
             // Proyectos del usuario según los correos registrados en staff_project_email:
-            // el correo registrado identifica al trabajador por workers.email_personal
+            // el correo registrado identifica al trabajador por workers.email_corporativo
             // (ahí se guarda el correo @abril.pe, que es el mismo de app_user.email).
             var userEmail = await _context.User
                 .Where(u => u.UserId == userId)
@@ -113,9 +113,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
 
             return await (
                 from spe in _context.StaffProjectEmail
-                join w in _context.Worker on spe.Email.ToLower() equals (w.EmailPersonal ?? string.Empty).ToLower()
+                join w in _context.Worker on spe.Email.ToLower() equals (w.EmailCorporativo ?? string.Empty).ToLower()
                 where spe.State && spe.Active
-                   && (w.EmailPersonal ?? string.Empty).ToLower() == email
+                   && (w.EmailCorporativo ?? string.Empty).ToLower() == email
                 select spe.ProjectId
             ).Distinct().ToListAsync();
         }

@@ -149,7 +149,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var trayectosResueltos = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
                 // 2a. Email al aprobador. Se guarda el worker aprobador (FK) y el correo se
-                //     deriva de su email_personal.
+                //     deriva de su email_corporativo.
                 var aprobador = await _approverResolver.ResolveApproverAsync(solicitante);
                 var aprobadorEmail = aprobador?.Email;
                 if (aprobador != null && !string.IsNullOrWhiteSpace(aprobador.Email))
@@ -344,7 +344,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         /// <summary>
         /// Devuelve los correos para CC del flujo de salidas:
-        /// (a) <c>worker.email_personal</c> de todos los users con rol id 52 (USUARIO DE RECEPCIÓN),
+        /// (a) <c>worker.email_corporativo</c> de todos los users con rol id 52 (USUARIO DE RECEPCIÓN),
         /// (b) más el correo fijo <c>recepcionnm@abril.pe</c> (siempre),
         /// (c) más el correo fijo de GTH <c>gthnm@abril.pe</c> (siempre).
         /// </summary>
@@ -355,8 +355,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 where ur.RoleId == RoleIdRecepcion && ur.State
                 join p in ctx.Person  on (int?)ur.UserId  equals p.UserId
                 join w in ctx.Worker  on (int?)p.PersonId equals w.PersonId
-                where w.EmailPersonal != null && w.EmailPersonal != ""
-                select w.EmailPersonal!
+                where w.EmailCorporativo != null && w.EmailCorporativo != ""
+                select w.EmailCorporativo!
             ).Distinct().ToListAsync();
 
             if (!emails.Any(e => string.Equals(e, CcRecepcionFijo, StringComparison.OrdinalIgnoreCase)))

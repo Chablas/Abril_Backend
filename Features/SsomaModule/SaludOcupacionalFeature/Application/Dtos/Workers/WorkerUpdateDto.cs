@@ -4,7 +4,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
     {
         public string ApellidoNombre { get; set; } = string.Empty;
         public string? Celular { get; set; }
-        public string? EmailPersonal { get; set; }
         public string? EmailCorporativo { get; set; }
         public DateOnly? FechaNacimiento { get; set; }
         public string? Sexo { get; set; }

@@ -301,7 +301,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         /// </summary>
         private static List<string> BuildDestinatarios(Worker worker, Project? proyecto)
         {
-            var raw = new List<string?> { worker.EmailPersonal };
+            var raw = new List<string?> { worker.EmailCorporativo };
 
             if (proyecto != null)
             {

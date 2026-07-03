@@ -67,7 +67,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             using var ctx = _factory.CreateDbContext();
 
             // Asignaciones por TRABAJADOR (user_project.worker_id). Nombre/área desde
-            // person/worker; correo desde worker.email_personal. NO requiere usuario.
+            // person/worker; correo desde worker.email_corporativo. NO requiere usuario.
             var baseQuery =
                 from up in ctx.UserProject
                 join w in ctx.Worker on up.WorkerId equals w.Id
@@ -96,7 +96,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                     UserProjectId = x.up.UserProjectId,
                     WorkerId = x.w.Id,
                     WorkerFullName = x.p.FullName,
-                    Email = x.w.EmailPersonal,
+                    Email = x.w.EmailCorporativo,
                     ProjectId = x.up.ProjectId,
                     ProjectDescription = x.pj.ProjectDescription ?? string.Empty,
                     CreatedDateTime = x.up.CreatedDateTime,
@@ -125,7 +125,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                     {
                         WorkerId = w.Id,
                         FullName = p.FullName,
-                        Email = w.EmailPersonal
+                        Email = w.EmailCorporativo
                     }
                 ).Distinct().ToListAsync();
             }
@@ -154,15 +154,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             var workers = await (
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
-                where w.EmailPersonal != null
-                      && w.EmailPersonal.ToLower().Contains("@abril")
+                where w.EmailCorporativo != null
+                      && w.EmailCorporativo.ToLower().Contains("@abril")
                       && p.State == true
                 orderby p.FullName
                 select new LessonReminderWorkerDTO
                 {
                     WorkerId = w.Id,
                     FullName = p.FullName,
-                    Email = w.EmailPersonal
+                    Email = w.EmailCorporativo
                 }
             ).ToListAsync();
 
@@ -519,7 +519,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
                       && up.Active == true
-                      && w.EmailPersonal != null && w.EmailPersonal != ""
+                      && w.EmailCorporativo != null && w.EmailCorporativo != ""
                       // Pendiente si NO existe lección suya (por su usuario, si lo tiene)
                       // en el período. Un trabajador sin usuario nunca tendrá lección → pendiente.
                       && !ctx.Lesson.Any(l =>
@@ -533,7 +533,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 {
                     WorkerId = w.Id,
                     p.FullName,
-                    Email = w.EmailPersonal,
+                    Email = w.EmailCorporativo,
                     UserId = p.UserId
                 }
                 into g
@@ -557,19 +557,19 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
-            // worker.email_personal guarda el correo corporativo @abril (la columna
+            // worker.email_corporativo guarda el correo corporativo @abril (la columna
             // email_corporativo está siempre en NULL). Solo trabajadores con usuario
             // registrado y activo: worker.person_id → person.person_id →
             // person.user_id → app_user. Comparación lower() para que el match de
             // "@abril" y la deduplicación sean case-insensitive.
             var emails = await (
                 from w in ctx.Worker
-                where w.EmailPersonal != null
-                      && w.EmailPersonal.ToLower().Contains("@abril")
+                where w.EmailCorporativo != null
+                      && w.EmailCorporativo.ToLower().Contains("@abril")
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 join u in ctx.User on p.UserId equals u.UserId
                 where u.State == true && u.Active == true
-                select w.EmailPersonal!
+                select w.EmailCorporativo!
             ).ToListAsync();
 
             // Dedup case-insensitive conservando una sola variante por correo.
@@ -594,9 +594,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 join w in ctx.Worker on up.WorkerId equals w.Id
                 where up.State == true
                       && up.Active == true
-                      && w.EmailPersonal != null
-                      && w.EmailPersonal != ""
-                select w.EmailPersonal!
+                      && w.EmailCorporativo != null
+                      && w.EmailCorporativo != ""
+                select w.EmailCorporativo!
             ).ToListAsync();
 
             return emails
@@ -625,7 +625,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 select new
                 {
                     w.Id,
-                    w.EmailPersonal,
+                    w.EmailCorporativo,
                     Categoria = c.Name,
                     FullName = p != null ? p.FullName : null
                 }
@@ -644,7 +644,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                         LessonJefeReminderId = row?.LessonJefeReminderId,
                         WorkerId = j.Id,
                         FullName = j.FullName,
-                        Email = j.EmailPersonal,
+                        Email = j.EmailCorporativo,
                         Categoria = j.Categoria,
                         Active = row != null && row.Active
                     };
@@ -707,12 +707,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 where r.State
                       && r.Active
                       && CategoriasJefatura.Contains(c.Name)
-                      && w.EmailPersonal != null
-                      && w.EmailPersonal != ""
+                      && w.EmailCorporativo != null
+                      && w.EmailCorporativo != ""
                 select new
                 {
                     WorkerId = w.Id,
-                    Email = w.EmailPersonal!,
+                    Email = w.EmailCorporativo!,
                     p.FullName
                 }
             ).ToListAsync();
@@ -758,12 +758,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Trabajadores con correo corporativo @abril.pe (vive en email_personal)
+            // Trabajadores con correo corporativo @abril.pe (vive en email_corporativo)
             // + su jefe directo si lo tiene. Left join doble: persona del trabajador
             // y worker/persona del jefe pueden faltar.
             return await (
                 from w in ctx.Worker
-                where w.EmailPersonal != null && w.EmailPersonal.ToLower().Contains("@abril.pe")
+                where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains("@abril.pe")
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
                 join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
@@ -779,12 +779,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 {
                     WorkerId = w.Id,
                     FullName = p != null ? p.FullName : null,
-                    Email = w.EmailPersonal,
+                    Email = w.EmailCorporativo,
                     CategoryId = w.WorkerCategoryId,
                     Category = c != null ? c.Name : null,
                     JefeWorkerId = w.WorkerLessonJefeId,
                     JefeFullName = jp != null ? jp.FullName : null,
-                    JefeEmail = j != null ? j.EmailPersonal : null,
+                    JefeEmail = j != null ? j.EmailCorporativo : null,
                     JefeCategoryId = j != null ? j.WorkerCategoryId : null,
                     JefeCategory = jc != null ? jc.Name : null,
                     AutoApproveLesson = w.AutoApproveLesson
@@ -806,7 +806,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 {
                     WorkerId = w.Id,
                     FullName = p.FullName,
-                    Email = w.EmailPersonal
+                    Email = w.EmailCorporativo
                 }
             ).ToListAsync();
         }
@@ -873,7 +873,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 join pj in ctx.Project on up.ProjectId equals pj.ProjectId
                 where up.State == true
                       && up.Active == true
-                      && w.EmailPersonal != null && w.EmailPersonal != ""
+                      && w.EmailCorporativo != null && w.EmailCorporativo != ""
                       && !ctx.Lesson.Any(l =>
                              l.CreatedUserId == p.UserId &&
                              l.ProjectId == up.ProjectId &&
@@ -885,7 +885,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 {
                     WorkerId = w.Id,
                     p.FullName,
-                    Email = w.EmailPersonal,
+                    Email = w.EmailCorporativo,
                     UserId = p.UserId
                 }
                 into g

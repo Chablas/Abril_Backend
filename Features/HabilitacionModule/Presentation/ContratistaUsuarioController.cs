@@ -105,7 +105,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                         w.Id,
                         Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                         NombreCompleto = w.Person != null ? w.Person.FullName : null,
-                        w.EmailPersonal
+                        w.EmailCorporativo
                     })
                     .Take(10)
                     .ToListAsync();

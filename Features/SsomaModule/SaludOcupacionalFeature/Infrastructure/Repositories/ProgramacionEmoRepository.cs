@@ -533,7 +533,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 else if (esStaff)
                 {
                     // Staff: correo corporativo + residente + administrador + SSOMA + admin empresa
-                    toRaw.Add(worker.EmailPersonal);
+                    toRaw.Add(worker.EmailCorporativo);
                     if (proyecto != null)
                     {
                         var projectEmails = await ctx.Project.AsNoTracking()
@@ -555,7 +555,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 else if (esOficinaCentral)
                 {
                     // Oficina Central: correo corporativo + jefatura + GTH + médico ocupacional + admin empresa
-                    toRaw.Add(worker.EmailPersonal);
+                    toRaw.Add(worker.EmailCorporativo);
                     toRaw.Add(gth);
                     toRaw.Add(medOcupacional);
                     toRaw.Add(adminEmail);
@@ -674,7 +674,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
                 else if (esStaff)
                 {
-                    toRaw.Add(worker.EmailPersonal);
+                    toRaw.Add(worker.EmailCorporativo);
                     if (proyecto != null)
                     {
                         var projectEmails = await ctx.Project.AsNoTracking()
@@ -689,7 +689,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
                 else if (esOficinaCentral)
                 {
-                    toRaw.Add(worker.EmailPersonal);
+                    toRaw.Add(worker.EmailCorporativo);
                     toRaw.Add(gth);
                     toRaw.Add(medOcupacional);
                     toRaw.Add(adminEmail);

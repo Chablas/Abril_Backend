@@ -18,7 +18,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     {
         /// <summary>
         /// Devuelve el aprobador resuelto (worker id + su correo corporativo), o null si no
-        /// se pudo resolver. El correo proviene de <c>workers.email_personal</c> de ese worker.
+        /// se pudo resolver. El correo proviene de <c>workers.email_corporativo</c> de ese worker.
         /// </summary>
         Task<ApproverResolution?> ResolveApproverAsync(Worker user);
     }

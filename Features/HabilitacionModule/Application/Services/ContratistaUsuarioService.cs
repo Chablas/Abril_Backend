@@ -58,8 +58,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             {
                 var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == dto.WorkerId.Value)
                     ?? throw new AbrilException("Trabajador no encontrado.", 404);
-                if (!string.IsNullOrWhiteSpace(worker.EmailPersonal))
-                    email = worker.EmailPersonal.Trim().ToLower();
+                if (!string.IsNullOrWhiteSpace(worker.EmailCorporativo))
+                    email = worker.EmailCorporativo.Trim().ToLower();
             }
 
             var rol = await ctx.SsContratistaRoles.FirstOrDefaultAsync(r => r.Nombre == rolNombre)

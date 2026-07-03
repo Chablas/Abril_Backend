@@ -15,7 +15,7 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
     {
         public int? UserId { get; set; }
         public string NombreCompleto { get; set; } = string.Empty;
-        public string EmailPersonal { get; set; } = string.Empty;
+        public string EmailCorporativo { get; set; } = string.Empty;
         public string Subarea { get; set; } = string.Empty;
         public string? JefeEmail { get; set; }
         public string? JefeNombre { get; set; }

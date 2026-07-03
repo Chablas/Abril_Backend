@@ -145,14 +145,14 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Trabajadores de Abril = existen en workers con email_personal @abril.pe.
+            // Trabajadores de Abril = existen en workers con email_corporativo @abril.pe.
             // "Sin usuario" = la person vinculada no tiene un app_user activo (user_id NULL
             // o el user apuntado está dado de baja). Un mismo person puede tener varias filas
             // en workers, por eso se agrupa por person_id.
             return await ctx.Worker
                 .Where(w => w.PersonId != null
-                         && w.EmailPersonal != null
-                         && w.EmailPersonal.ToLower().EndsWith("@abril.pe")
+                         && w.EmailCorporativo != null
+                         && w.EmailCorporativo.ToLower().EndsWith("@abril.pe")
                          && w.Person != null
                          && w.Person.State
                          && !ctx.User.Any(u => u.UserId == w.Person!.UserId && u.State))
@@ -167,7 +167,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     PersonId = g.Key.PersonId!.Value,
                     FullName = g.Key.FullName ?? string.Empty,
                     DocumentIdentityCode = g.Key.DocumentIdentityCode,
-                    EmailPersonal = g.Min(w => w.EmailPersonal)!,
+                    EmailCorporativo = g.Min(w => w.EmailCorporativo)!,
                     // Si alguna de sus filas en workers es "Staff", se considera Staff
                     // (usado por el front para preseleccionar el rol EVALUADOR).
                     ObraOficina = g.Any(w => w.ObraOficina == "Staff") ? "Staff" : g.Max(w => w.ObraOficina)
@@ -189,11 +189,11 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     var person = await ctx.Person.FirstOrDefaultAsync(p => p.PersonId == dto.PersonId && p.State)
                         ?? throw new AbrilException("Persona no encontrada.", 404);
 
-                    // El correo corporativo @abril.pe vive en workers.email_personal.
+                    // El correo corporativo @abril.pe vive en workers.email_corporativo.
                     var worker = await ctx.Worker
                         .FirstOrDefaultAsync(w => w.PersonId == dto.PersonId
-                                               && w.EmailPersonal != null
-                                               && w.EmailPersonal.ToLower().EndsWith("@abril.pe"))
+                                               && w.EmailCorporativo != null
+                                               && w.EmailCorporativo.ToLower().EndsWith("@abril.pe"))
                         ?? throw new AbrilException("El trabajador de Abril no tiene un correo @abril.pe registrado.", 400);
 
                     var userExists = await ctx.User.AnyAsync(u => u.UserId == person.UserId && u.State);
@@ -204,7 +204,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     // activo y con el correo confirmado, sin contraseña (igual que el alta por login).
                     var user = new UserModel
                     {
-                        Email = worker.EmailPersonal!,
+                        Email = worker.EmailCorporativo!,
                         Password = null,
                         Active = true,
                         State = true,

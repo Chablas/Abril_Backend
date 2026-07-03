@@ -34,8 +34,8 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var conn = ctx.Database.GetDbConnection();
 
             const string filtroBase = @"
-                w.email_personal IS NOT NULL
-                AND w.email_personal != ''
+                w.email_corporativo IS NOT NULL
+                AND w.email_corporativo != ''
                 AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)";
 
             const string subAreaMapeo = @"CASE w.subarea
@@ -58,13 +58,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 SELECT DISTINCT
                     au.user_id       AS UserId,
                     p.full_name      AS NombreCompleto,
-                    w.email_personal AS EmailPersonal,
+                    w.email_corporativo AS EmailCorporativo,
                     w.subarea        AS Subarea,
                     cj.email         AS JefeEmail,
                     cj.nombre        AS JefeNombre
                 FROM workers w
                 JOIN person p    ON p.person_id = w.person_id
-                JOIN app_user au ON LOWER(au.email) = LOWER(w.email_personal)
+                JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                 LEFT JOIN cat_jefatura cj ON cj.nombre = ({subAreaMapeo}) AND cj.activo = true
                 WHERE w.obra_oficina = 'Oficina Central'
                   AND w.area         = 'Proyectos'
@@ -83,13 +83,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 SELECT DISTINCT
                     au.user_id       AS UserId,
                     p.full_name      AS NombreCompleto,
-                    w.email_personal AS EmailPersonal,
+                    w.email_corporativo AS EmailCorporativo,
                     w.subarea        AS Subarea,
                     cj.email         AS JefeEmail,
                     cj.nombre        AS JefeNombre
                 FROM workers w
                 JOIN person p         ON p.person_id = w.person_id
-                LEFT JOIN app_user au ON LOWER(au.email) = LOWER(w.email_personal)
+                LEFT JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                 LEFT JOIN cat_jefatura cj ON cj.nombre = 'Jefe de Proyectos' AND cj.activo = true
                 WHERE w.subarea IN ('Unidad de Proyectos', 'Planeamiento BIM')
                   AND NOT (w.categoria = 'Gerente' AND w.area = 'Proyectos')
@@ -123,13 +123,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 SELECT DISTINCT
                     au.user_id       AS UserId,
                     p.full_name      AS NombreCompleto,
-                    w.email_personal AS EmailPersonal,
+                    w.email_corporativo AS EmailCorporativo,
                     w.subarea        AS Subarea,
                     cj.email         AS JefeEmail,
                     cj.nombre        AS JefeNombre
                 FROM workers w
                 JOIN person p    ON p.person_id = w.person_id
-                JOIN app_user au ON LOWER(au.email) = LOWER(w.email_personal)
+                JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
                 LEFT JOIN cat_jefatura cj ON cj.nombre = 'Gerente De Proyectos' AND cj.activo = true
                 WHERE w.obra_oficina != 'Oficina Central'
                   AND NOT (w.categoria = 'Gerente' AND w.area = 'Proyectos')

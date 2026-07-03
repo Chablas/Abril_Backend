@@ -1,7 +1,7 @@
 namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Application.Dtos
 {
     /// <summary>
-    /// Una fila por trabajador con email_personal @abril.pe, junto a su revisor de salidas
+    /// Una fila por trabajador con email_corporativo @abril.pe, junto a su revisor de salidas
     /// directo (workers.worker_salida_jefe_id) encargado de aprobar/rechazar sus solicitudes
     /// de salida. Si no hay revisor asignado, el aprobador se resuelve por el árbol de áreas.
     /// </summary>

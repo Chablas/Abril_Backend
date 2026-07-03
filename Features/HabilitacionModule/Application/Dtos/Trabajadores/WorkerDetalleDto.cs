@@ -8,7 +8,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Dni { get; set; }
         public string? Ruc { get; set; }
         public string? Celular { get; set; }
-        public string? EmailPersonal { get; set; }
         public string? EmailCorporativo { get; set; }
         public DateOnly? FechaNacimiento { get; set; }
         public string? Sexo { get; set; }

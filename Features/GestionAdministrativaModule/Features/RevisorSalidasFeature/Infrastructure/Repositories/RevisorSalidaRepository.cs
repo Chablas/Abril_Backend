@@ -26,12 +26,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastruc
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Trabajadores con correo corporativo @abril.pe (vive en email_personal)
+            // Trabajadores con correo corporativo @abril.pe (vive en email_corporativo)
             // + su revisor de salidas directo si lo tiene. Left join doble: persona del
             // trabajador y worker/persona del jefe pueden faltar.
             return await (
                 from w in ctx.Worker
-                where w.EmailPersonal != null && w.EmailPersonal.ToLower().Contains("@abril.pe")
+                where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains("@abril.pe")
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
                 join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
@@ -47,12 +47,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastruc
                 {
                     WorkerId = w.Id,
                     FullName = p != null ? p.FullName : null,
-                    Email = w.EmailPersonal,
+                    Email = w.EmailCorporativo,
                     CategoryId = w.WorkerCategoryId,
                     Category = c != null ? c.Name : null,
                     JefeWorkerId = w.WorkerSalidaJefeId,
                     JefeFullName = jp != null ? jp.FullName : null,
-                    JefeEmail = j != null ? j.EmailPersonal : null,
+                    JefeEmail = j != null ? j.EmailCorporativo : null,
                     JefeCategoryId = j != null ? j.WorkerCategoryId : null,
                     JefeCategory = jc != null ? jc.Name : null
                 }
@@ -64,10 +64,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastruc
             using var ctx = _factory.CreateDbContext();
 
             // Solo workers con correo corporativo @abril.pe pueden ser aprobadores válidos
-            // (el correo del aprobador se deriva de email_personal).
+            // (el correo del aprobador se deriva de email_corporativo).
             return await (
                 from w in ctx.Worker
-                where w.EmailPersonal != null && w.EmailPersonal.ToLower().Contains("@abril.pe")
+                where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains("@abril.pe")
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where p.State == true
                 orderby p.FullName
@@ -75,7 +75,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastruc
                 {
                     WorkerId = w.Id,
                     FullName = p.FullName,
-                    Email = w.EmailPersonal
+                    Email = w.EmailCorporativo
                 }
             ).ToListAsync();
         }
@@ -95,12 +95,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastruc
 
                 var jefe = await ctx.Worker
                     .Where(w => w.Id == jefeWorkerId.Value)
-                    .Select(w => new { w.EmailPersonal })
+                    .Select(w => new { w.EmailCorporativo })
                     .FirstOrDefaultAsync();
                 if (jefe == null)
                     throw new AbrilException("El revisor seleccionado no existe.", 404);
-                if (string.IsNullOrWhiteSpace(jefe.EmailPersonal) ||
-                    !jefe.EmailPersonal.Trim().ToLower().EndsWith(EmailDomainCorp))
+                if (string.IsNullOrWhiteSpace(jefe.EmailCorporativo) ||
+                    !jefe.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp))
                     throw new AbrilException("El revisor seleccionado no tiene un correo corporativo @abril.pe.", 400);
             }
 

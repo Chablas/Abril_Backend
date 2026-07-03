@@ -57,13 +57,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 @"SELECT DISTINCT
                     au.user_id       AS UserId,
                     p.full_name      AS NombreCompleto,
-                    w.email_personal AS EmailPersonal,
+                    w.email_corporativo AS EmailCorporativo,
                     w.subarea        AS Subarea
                   FROM workers w
                   JOIN person p    ON p.person_id = w.person_id
-                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_personal)
-                  WHERE w.email_personal IS NOT NULL
-                    AND w.email_personal != ''
+                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+                  WHERE w.email_corporativo IS NOT NULL
+                    AND w.email_corporativo != ''
                     AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)
                     AND EXISTS (
                         SELECT 1 FROM worker_vinculaciones wv
@@ -78,7 +78,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 {
                     UserId = w.UserId,
                     NombreCompleto = w.NombreCompleto,
-                    EmailPersonal = w.EmailPersonal,
+                    EmailCorporativo = w.EmailCorporativo,
                     Subarea = w.Subarea ?? string.Empty
                 })
                 .ToList();
@@ -478,7 +478,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
         };
 
         // ─── Raw helpers ───────────────────────────────────────────────────────
-        private record CandidatoRaw(int UserId, string NombreCompleto, string EmailPersonal, string? Subarea);
+        private record CandidatoRaw(int UserId, string NombreCompleto, string EmailCorporativo, string? Subarea);
         private record EvPeriodoRaw(int Id, int Mes, int Anio, DateOnly FechaApertura, DateOnly FechaCierre, bool Activo);
         private record EvaluadorInfo(string? Subarea, string? Area, string? Categoria);
         private record ContratistaRaw(int ContributorId, string ContributorNombre, string ContributorRuc, int ProyectoId, string ProyectoNombre, int DiasLaborados);

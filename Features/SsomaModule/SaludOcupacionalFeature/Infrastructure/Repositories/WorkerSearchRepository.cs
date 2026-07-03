@@ -181,7 +181,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var worker = new Worker
             {
                 Person = person,
-                EmailPersonal = dto.EmailPersonal ?? dto.EmailCorporativo,
+                EmailCorporativo = dto.EmailCorporativo,
                 FechaNacimiento = dto.FechaNacimiento,
                 FechaIngreso = dto.FechaIngreso,
                 Categoria = dto.Categoria,
@@ -239,7 +239,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 worker.Person.PhoneNumber   = int.TryParse(dto.Celular, out var ph2) ? ph2 : (int?)null;
                 if (!string.IsNullOrWhiteSpace(dto.Sexo)) worker.Person.Sexo = dto.Sexo;
             }
-            worker.EmailPersonal = dto.EmailPersonal ?? dto.EmailCorporativo;
+            worker.EmailCorporativo = dto.EmailCorporativo;
             worker.FechaNacimiento = dto.FechaNacimiento;
             worker.FechaIngreso = dto.FechaIngreso;
             worker.Categoria = dto.Categoria;

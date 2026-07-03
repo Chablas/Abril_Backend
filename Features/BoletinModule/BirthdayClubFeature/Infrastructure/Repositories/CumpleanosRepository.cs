@@ -28,8 +28,8 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
             var filas = await (
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
-                where w.EmailPersonal != null
-                      && w.EmailPersonal.ToLower().EndsWith("@abril.pe")
+                where w.EmailCorporativo != null
+                      && w.EmailCorporativo.ToLower().EndsWith("@abril.pe")
                       && (p.Cumpleanos != null || w.FechaNacimiento != null)
                 select new
                 {
@@ -37,7 +37,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
                     p.PersonId,
                     p.FullName,
                     w.Ocupacion,
-                    w.EmailPersonal,
+                    w.EmailCorporativo,
                     Cumple = p.Cumpleanos,
                     Nacimiento = w.FechaNacimiento,
                 }).ToListAsync();
@@ -59,7 +59,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
                     WorkerId = f.Id,
                     NombreCompleto = f.FullName ?? string.Empty,
                     Ocupacion = f.Ocupacion,
-                    Email = f.EmailPersonal!,
+                    Email = f.EmailCorporativo!,
                     Mes = fecha.Value.Month,
                     Dia = fecha.Value.Day,
                 });

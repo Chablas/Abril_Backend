@@ -55,14 +55,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
         /// <summary>
         /// Correos corporativos (@abril) de los trabajadores que además tienen un
         /// usuario registrado en el sistema. El correo corporativo vive en
-        /// worker.email_personal (la columna email_corporativo está en NULL); el
+        /// worker.email_corporativo (la columna email_corporativo está en NULL); el
         /// enlace con usuario es worker.person_id → person.person_id → person.user_id
         /// → app_user.user_id. Devuelve la lista deduplicada (case-insensitive).
         /// </summary>
         Task<List<string>> GetAbrilWorkerEmailsWithUserAsync();
 
         /// <summary>
-        /// Correos (worker.email_personal) de los trabajadores asignados a proyectos
+        /// Correos (worker.email_corporativo) de los trabajadores asignados a proyectos
         /// vía user_project con recordatorio vivo y activo (state=true, active=true),
         /// SIN filtrar por si subieron o no su lección. Es el CANAL 1 de la audiencia
         /// del recordatorio mensual de subida; lo usa el aviso de publicación para
@@ -93,7 +93,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
 
         // ── Revisor de Trabajadores (workers.worker_lesson_jefe_id) ────────────
         /// <summary>
-        /// Trabajadores con email_personal @abril.pe + su jefe directo asignado
+        /// Trabajadores con email_corporativo @abril.pe + su jefe directo asignado
         /// (workers.worker_lesson_jefe_id), si lo tiene.
         /// </summary>
         Task<List<WorkerRevisorItemDTO>> GetWorkerRevisoresAsync();

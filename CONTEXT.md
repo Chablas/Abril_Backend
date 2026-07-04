@@ -4734,3 +4734,20 @@ Reescrita completa. Diferencias clave respecto a `guardar-rama`:
 
 ### Pendiente
 - Las skills `guardar-rama`/`guardar-master` no se recargan dentro de una sesión ya iniciada — hay que abrir una sesión nueva de Claude Code para que el trigger por frase natural ("guardar rama", "guardar master") las detecte; mientras tanto se siguen los pasos manualmente.
+
+## Sesión 2026-07-03 (continuación) — sección BASE DE DATOS en CONTEXT.md
+
+### 1. `### BASE DE DATOS` agregada dentro de `## REGLAS DE CODIFICACIÓN`
+
+Nueva sección insertada justo después de R5 y antes de `### DEPLOY`, con reglas D1-D5:
+- D1: todo feature nuevo requiere SQL en los 2 entornos: `defaultdb_local` (local) y VPS/abril (producción vía túnel SSH puerto 5544)
+- D2: usar siempre `ON CONFLICT DO NOTHING` en los INSERT de `feature` y `role_feature`
+- D3: para asignar roles usar `SELECT` en vez de hardcodear el `feature_id` (el ID puede diferir entre entornos)
+- D4: tras aplicar el SQL en producción, cerrar sesión y volver a entrar para refrescar `allowed_features` en localStorage
+- D5: el connection string de producción va en `appsettings.Development.json` (gitignored), nunca en `appsettings.json`
+
+### Archivos clave
+- `CONTEXT.md` (sección BASE DE DATOS)
+
+### Notas
+- Trabajo hecho en `master`; movido a la rama `docs/context-base-datos` al guardar (la skill `guardar-rama` no opera sobre `master`).

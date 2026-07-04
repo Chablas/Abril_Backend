@@ -677,8 +677,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ctx.SsHabTrabajador.Add(lecturaEmo);
                 }
                 lecturaEmo.Estado = "Aprobado";
-                lecturaEmo.Vigencia = HabilitacionDateHelper.AsUtc(
-                    dto.FechaLectura.Value.ToDateTime(TimeOnly.MinValue));
+                // Vigencia = vencimiento del EMO (no la fecha de lectura, que es hoy y lo marcaría
+                // como vencido de inmediato). Ver mismo criterio en Update().
+                var fechaVencLectura = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
+                lecturaEmo.Vigencia = fechaVencLectura.HasValue
+                    ? HabilitacionDateHelper.AsUtc(fechaVencLectura.Value.ToDateTime(TimeOnly.MinValue))
+                    : HabilitacionDateHelper.AsUtc(dto.FechaLectura.Value.ToDateTime(TimeOnly.MinValue));
                 lecturaEmo.UpdatedAt = DateTime.UtcNow;
             }
 

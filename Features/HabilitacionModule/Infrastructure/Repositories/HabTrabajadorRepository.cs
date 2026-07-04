@@ -216,11 +216,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 })
                 .ToDictionaryAsync(x => x.WorkerId, x => x.FechaVencimiento);
 
-            var progMap = await ctx.SsProgramacionEmo
-                .Where(p => workerIds.Contains(p.WorkerId)
-                         && p.Estado != "Completado"
-                         && p.Estado != "Cancelado"
-                         && p.Estado != "Rechazado por Clínica")
+            // Trae la programación MÁS RECIENTE de cada trabajador (sin filtrar por estado):
+            // si se filtrara "Completado"/"Cancelado"/"Rechazado" antes de ordenar, una
+            // programación vieja "No se presentó" quedaría como "la más reciente" para
+            // siempre, aunque exista una programación posterior ya completada.
+            var progMapRaw = await ctx.SsProgramacionEmo
+                .Where(p => workerIds.Contains(p.WorkerId))
                 .GroupBy(p => p.WorkerId)
                 .Select(g => new
                 {
@@ -229,7 +230,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                                .Select(p => (string?)p.Estado)
                                .FirstOrDefault()
                 })
-                .ToDictionaryAsync(x => x.WorkerId, x => x.Estado);
+                .ToListAsync();
+
+            // Solo se muestra como badge si la programación más reciente sigue "abierta"
+            // (no es un estado terminal ya resuelto).
+            var progMap = progMapRaw
+                .Where(x => x.Estado != "Completado"
+                         && x.Estado != "Cancelado"
+                         && x.Estado != "Rechazado por Clínica")
+                .ToDictionary(x => x.WorkerId, x => x.Estado);
 
             var interconsultaWorkerIds = (await ctx.SsInterconsulta
                 .Where(i => workerIds.Contains(i.WorkerId) && i.Estado == "Pendiente")

@@ -80,6 +80,14 @@ Todo código nuevo va en `Features/<NombreFeature>/`.
 Prohibido agregar código en carpetas por capa (`Controllers/`, `Services/`, `Repositories/` en raíz).
 La estructura por capas en raíz es legacy y no debe crecer.
 
+### BASE DE DATOS
+
+- D1: Todo feature nuevo requiere SQL en los 2 entornos: defaultdb_local (local), VPS/abril (producción vía túnel SSH puerto 5544)
+- D2: Siempre usar ON CONFLICT DO NOTHING en los INSERT de feature y role_feature
+- D3: Para asignar roles usar SELECT en lugar de hardcodear el feature_id — el ID puede diferir entre entornos
+- D4: Después de aplicar el SQL en producción, el usuario debe cerrar sesión y volver a entrar para actualizar allowed_features en localStorage
+- D5: El connection string de producción va en appsettings.Development.json (gitignored) — nunca en appsettings.json
+
 ### DEPLOY
 
 - P1: El frontend de producción vive en /var/www/abril en la VPS — se actualiza con npm run build + copia de dist/Abril/browser/*

@@ -4726,3 +4726,47 @@ Reescrita completa. Diferencias clave respecto a `guardar-rama`:
 
 ### Pendiente
 - Las skills `guardar-rama`/`guardar-master` no se recargan dentro de una sesión ya iniciada — hay que abrir una sesión nueva de Claude Code para que el trigger por frase natural ("guardar rama", "guardar master") las detecte; mientras tanto se siguen los pasos manualmente.
+
+## Sesión 2026-07-05 — CronogramaActividades: preferencia última pestaña + fixes cascada/línea base
+
+Rama: `victor-backend`
+
+### 1. Feature nueva: recordar última pestaña de cronograma por usuario/proyecto
+
+Tabla `user_cronograma_preference` (PK compuesta `user_id, project_id`, columna `tipo_cronograma`, `updated_at` default `now()`). Verificado antes de implementar que no existía nada (ni tabla, ni endpoints `ultima-pestana`).
+
+- **Modelo:** `UserCronogramaPreference` (namespace `Abril_Backend.Shared.Models`, igual que `Feriado`/`ProjectActivity`, aunque vive físicamente en `Infrastructure/Models` de esta feature).
+- **DbSet + config PG:** en `AppContext.cs`.
+- **Endpoints** en `CronogramaActividadesController` (controller existente, no uno nuevo):
+  - `GET /api/v1/cronograma-actividades/{proyectoId}/ultima-pestana` → `{ tipoCronograma: string | null }`
+  - `PATCH /api/v1/cronograma-actividades/{proyectoId}/ultima-pestana` → upsert (find-or-create vía EF, mismo patrón que `ManagerSignatureRepository`).
+- **Migración EF:** `20260705162909_AddUserCronogramaPreference` — aislada a mano para que contenga *solo* esta tabla.
+- **Prod:** `_sql_prod/cronograma_user_preference.sql` (idempotente, sin bookkeeping de `__EFMigrationsHistory` — así son los demás scripts de `_sql_prod/`).
+
+**Hallazgo importante (no resuelto, no es de esta feature):** al correr `dotnet ef migrations add`, EF detectó drift preexistente entre modelos ya commiteados y migraciones — `workers.email_corporativo`/`worker_salida_jefe_id`, `invoice_status`, `invoice_observation_reason`, `vecino_lote`, `ga_salida_visibilidad_area`, etc. no tienen migración correspondiente. Si alguien corre `dotnet ef migrations add` de nuevo, ese drift va a volver a aparecer empaquetado. Vale la pena que alguien lo revise y genere la migración de catch-up correspondiente.
+
+### 2. Bug: fechas de cascada no se reflejaban en la respuesta del PATCH
+
+`CronogramaActividadesService.EditarActividadAsync` armaba el DTO `Actividad` con `request.PlannedStartDate/PlannedEndDate` (pre-cascada) y nunca lo refrescaba después de `AplicarCascadaAsync` (que sí persiste bien en BD). Fix: buscar el cambio propio en `cascada.Cambios` por `ProjectActivityId` y pisar `PlannedStartDate/PlannedEndDate` en el DTO antes de devolverlo.
+
+### 3. Feature: auto-fill de línea base (LB)
+
+Al guardar por primera vez INICIO/FIN PROG. (con LB vacía), se copia automáticamente a `BaselineStartDate`/`BaselineEndDate`. No mezcla (inicio no llena LB fin), no pisa si ya tiene valor, no aplica a nodos padre.
+
+- `CronogramaActividadesRepository.CrearActividadAsync`/`EditarActividadAsync`: fill inicial.
+- `CronogramaSchedulingService.CalcularCascadaAsync` (rama sucesor-hoja) y `DesplazarSubarbol` (rama sucesor-padre): mismo fill cuando la fecha llega por cascada, no por edición directa. En `DesplazarSubarbol` se agregó el guard `esHoja = !hijosDe.ContainsKey(rootId)` que no existía antes en este servicio.
+- `CascadaCambioDto` ahora incluye `BaselineStartDate`/`BaselineEndDate` para que el frontend pueda refrescar esas columnas sin recargar la página.
+
+### 4. Bug: fin se autocompletaba como inicio cuando la actividad no tenía fecha fin
+
+En `CalcularCascadaAsync`, rama sucesor-hoja: el diccionario `duracion` le daba `1` día por defecto a actividades sin `PlannedEndDate`, y `AddBusinessDays(nuevoInicio, 0, ...)` devolvía el mismo día → fin quedaba igual a inicio. Fix: `finNuevoDo` ahora es condicional a `act.PlannedEndDate.HasValue`; si la actividad nunca tuvo fin, se deja `null` (el usuario lo pone a mano). La rama sucesor-padre (`DesplazarSubarbol`) ya manejaba esto bien desde antes.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Application/Services/CronogramaSchedulingService.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Application/Services/CronogramaActividadesService.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Application/Dtos/CronogramaActividadesDtos.cs`
+
+### Pendiente
+- Sacar un `console.log // DEBUG` en el frontend (el usuario lo pidió aparte, no se tocó en esta sesión).
+- Drift de migraciones preexistente (ver punto 1) sin resolver.

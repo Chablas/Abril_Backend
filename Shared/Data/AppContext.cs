@@ -252,6 +252,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaOptFotoArea> SsomaOptFotoArea => Set<SsomaOptFotoArea>();
         public DbSet<Feriado> Feriados { get; set; }
         public DbSet<ActivityPredecessor> ActivityPredecessors { get; set; }
+        public DbSet<UserCronogramaPreference> UserCronogramaPreferences { get; set; }
         public DbSet<SsHabAuditoria> SsHabAuditorias { get; set; }
         // ── Dossier Semanal ────────────────────────────────────────────────────
         public DbSet<SsDossierSemana> SsDossierSemana => Set<SsDossierSemana>();
@@ -974,6 +975,14 @@ namespace Abril_Backend.Infrastructure.Data
                     .WithMany()
                     .HasForeignKey(e => e.PredecessorId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<UserCronogramaPreference>(entity =>
+            {
+                entity.ToTable("user_cronograma_preference");
+                entity.HasKey(e => new { e.UserId, e.ProjectId });
+                entity.Property(e => e.TipoCronograma).IsRequired().HasMaxLength(30);
+                entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
             });
 
             // ── RAC — HasColumnName para prefijos conflictivos en snake_case ──

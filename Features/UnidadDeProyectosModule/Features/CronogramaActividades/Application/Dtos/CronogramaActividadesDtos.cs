@@ -222,6 +222,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         public DateOnly? InicioNuevo { get; set; }
         public DateOnly? FinAnterior { get; set; }
         public DateOnly? FinNuevo { get; set; }
+        public DateOnly? BaselineStartDate { get; set; }
+        public DateOnly? BaselineEndDate { get; set; }
     }
 
     public class CascadaResultDto
@@ -248,5 +250,17 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     public class CrearActividadesMasivoResultDto
     {
         public int ActividadesCreadas { get; set; }
+    }
+
+    // ─────────────────────────── Última pestaña ───────────────────────────
+
+    public class UltimaPestanaDto
+    {
+        public string? TipoCronograma { get; set; }
+    }
+
+    public class ActualizarUltimaPestanaRequest
+    {
+        public string TipoCronograma { get; set; } = string.Empty;
     }
 }

@@ -208,6 +208,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 PlannedStartDate = request.PlannedStartDate,
                 PlannedEndDate = request.PlannedEndDate,
                 ActualEndDate = null,
+                BaselineStartDate = request.PlannedStartDate,
+                BaselineEndDate = request.PlannedEndDate,
                 ProgressPercentage = request.ProgressPercentage,
                 Order = maxOrder + 1,
                 HierarchyLevel = request.HierarchyLevel,
@@ -265,6 +267,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 throw new AbrilException(
                     "No se pueden editar las fechas de una actividad con sub-actividades. " +
                     "Sus fechas se calculan automáticamente a partir de sus hijos.", 400);
+            }
+
+            // Primera vez que se guarda INICIO/FIN PROG. (LB aún vacío): copiar a la línea base.
+            // Si LB ya tiene valor, no se pisa — eso lo maneja el botón "Línea Base".
+            if (!data.EsPadre)
+            {
+                if (activity.BaselineStartDate == null && request.PlannedStartDate.HasValue)
+                    activity.BaselineStartDate = request.PlannedStartDate;
+                if (activity.BaselineEndDate == null && request.PlannedEndDate.HasValue)
+                    activity.BaselineEndDate = request.PlannedEndDate;
             }
 
             activity.ActivityDescription = request.ActivityDescription;
@@ -1121,6 +1133,43 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         {
             if (!fecha.HasValue) return null;
             return DateOnly.FromDateTime(fecha.Value).AddDays(offsetDias);
+        }
+
+        // ─────────────────────────── Última pestaña ───────────────────────────
+
+        public async Task<string?> GetUltimaPestanaAsync(int proyectoId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.UserCronogramaPreferences
+                .Where(p => p.UserId == userId && p.ProjectId == proyectoId)
+                .Select(p => p.TipoCronograma)
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task ActualizarUltimaPestanaAsync(int proyectoId, int userId, string tipoCronograma)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var preferencia = await ctx.UserCronogramaPreferences
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.ProjectId == proyectoId);
+
+            if (preferencia == null)
+            {
+                ctx.UserCronogramaPreferences.Add(new UserCronogramaPreference
+                {
+                    UserId = userId,
+                    ProjectId = proyectoId,
+                    TipoCronograma = tipoCronograma,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                preferencia.TipoCronograma = tipoCronograma;
+                preferencia.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await ctx.SaveChangesAsync();
         }
     }
 }

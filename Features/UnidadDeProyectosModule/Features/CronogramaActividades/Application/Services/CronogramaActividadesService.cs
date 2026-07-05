@@ -57,6 +57,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 await _repository.SetPredecesorasAsync(projectActivityId, limpias);
                 cascada = await _scheduling.AplicarCascadaAsync(actividad.ProjectId);
                 actividad.Predecesoras = limpias;
+
+                // La cascada puede haber movido la propia actividad editada (p. ej. al
+                // asignarle una predecesora): reflejar sus fechas post-cascada, no las
+                // pre-cascada que trae "actividad" desde EditarActividadAsync.
+                var cambioPropio = cascada.Cambios.FirstOrDefault(c => c.ProjectActivityId == projectActivityId);
+                if (cambioPropio != null)
+                {
+                    actividad.PlannedStartDate = cambioPropio.InicioNuevo;
+                    actividad.PlannedEndDate = cambioPropio.FinNuevo;
+                }
             }
 
             return new EditarActividadResultDto
@@ -148,5 +158,21 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         public Task<CrearActividadesMasivoResultDto> CrearActividadesMasivoAsync(int proyectoId, CrearActividadesMasivoRequest request, int userId)
             => _repository.CrearActividadesMasivoAsync(proyectoId, request, userId);
+
+        // ─────────────────────────── Última pestaña ───────────────────────────
+
+        public async Task<UltimaPestanaDto> GetUltimaPestanaAsync(int proyectoId, int userId)
+        {
+            var tipoCronograma = await _repository.GetUltimaPestanaAsync(proyectoId, userId);
+            return new UltimaPestanaDto { TipoCronograma = tipoCronograma };
+        }
+
+        public Task ActualizarUltimaPestanaAsync(int proyectoId, int userId, ActualizarUltimaPestanaRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.TipoCronograma))
+                throw new AbrilException("El tipo de cronograma es obligatorio.", 400);
+
+            return _repository.ActualizarUltimaPestanaAsync(proyectoId, userId, request.TipoCronograma);
+        }
     }
 }

@@ -299,5 +299,33 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        // ─────────────────────────── Última pestaña ───────────────────────────
+
+        // GET /api/v1/cronograma-actividades/{proyectoId}/ultima-pestana
+        [HttpGet("{proyectoId:int}/ultima-pestana")]
+        public async Task<IActionResult> GetUltimaPestana(int proyectoId)
+        {
+            try
+            {
+                var result = await _service.GetUltimaPestanaAsync(proyectoId, GetUserId());
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // PATCH /api/v1/cronograma-actividades/{proyectoId}/ultima-pestana
+        [HttpPatch("{proyectoId:int}/ultima-pestana")]
+        public async Task<IActionResult> ActualizarUltimaPestana(int proyectoId, [FromBody] ActualizarUltimaPestanaRequest request)
+        {
+            try
+            {
+                await _service.ActualizarUltimaPestanaAsync(proyectoId, GetUserId(), request);
+                return NoContent();
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

@@ -37,5 +37,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         // Creación masiva
         Task<CrearActividadesMasivoResultDto> CrearActividadesMasivoAsync(int proyectoId, CrearActividadesMasivoRequest request, int userId);
+
+        // Última pestaña
+        Task<string?> GetUltimaPestanaAsync(int proyectoId, int userId);
+        Task ActualizarUltimaPestanaAsync(int proyectoId, int userId, string tipoCronograma);
     }
 }

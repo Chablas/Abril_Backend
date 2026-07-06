@@ -4726,3 +4726,56 @@ Reescrita completa. Diferencias clave respecto a `guardar-rama`:
 
 ### Pendiente
 - Las skills `guardar-rama`/`guardar-master` no se recargan dentro de una sesión ya iniciada — hay que abrir una sesión nueva de Claude Code para que el trigger por frase natural ("guardar rama", "guardar master") las detecte; mientras tanto se siguen los pasos manualmente.
+
+## Sesión 2026-07-05/06 — Indicadores SSOMA: proyectos activos, PASSO, reactivos y meta anual
+
+### 1. Filtro de "proyecto activo" para indicadores proactivos/reactivos
+
+`IndicadoresProactivosRepository`: `GetSeguimientoTodosProyectosAsync` y `GetPuntajeTodosProyectosAsync` filtraban proyectos por `Project.Active && Project.Estado == "ACTIVO"` (estado genérico) en vez de `ss_proyecto_habilitado` (la tabla pensada justo para que SSOMA decida su propio subconjunto de proyectos, independiente de otros módulos). Corregido para usar `SsProyectoHabilitado`.
+
+Reactivos (IF/IG/IA) es la excepción: ahí sí deben contar las horas-hombre de proyectos ya finalizados (no solo habilitados) — `GetIndicadoresReactivosTodosAsync` arma la lista de proyectos como unión de habilitados + cualquiera con tareo registrado, sin filtrar por estado.
+
+### 2. Cierre de accidentes — ventana de fecha
+
+`PctCierreAccidentes` contaba accidentes con `Fecha < fechaCorte` sin piso inferior (todo el histórico acumulado). Se agregó `Fecha >= fechaIni` para que sea solo del mes consultado — así "Sin accidentes" (ya existente en el front) se dispara correctamente cuando no hubo ninguno ese mes.
+
+### 3. PASSO — dos bugs de cálculo
+
+- **Regla de año de ciclo**: la fórmula vieja era `cicloStartYear = MesInicio > 6 ? Anio - 1 : Anio`. Para proyectos con `mes_inicio` en julio-diciembre esto hacía que `Anio` representara el año en que TERMINA el ciclo, no en el que arranca — confuso y causaba instancias con el año mal puesto (ej. Bosque Real necesitaba `anio=2027` con `mes_inicio=7` para cubrir jul2026-jun2027). Corregido: `cicloStartYear = Anio` siempre, en `PasoService_FIXED.cs` y en el helper duplicado de `IndicadoresProactivosRepository`. **Requiere migrar datos existentes**: todo PASO con `mes_inicio > 6` necesita `anio -= 1` para mantener la misma ventana real (se hizo a mano vía SQL para Bosque Real, Gran Manzano y Camelia — Camelia excluido a pedido del usuario por ser proyecto finalizado).
+- **Cálculo de % programadas/ejecutadas**: contaba filas de `ssoma_paso_ejecucion` ya generadas para el mes, en vez de actividades teóricamente programadas ese mes de ciclo (según frecuencia/MesInicio/MesFin) — igual que hace `PasoService.GetResumenMesAsync`. Con pocas ejecuciones generadas, esto inflaba el % (ej. 1/1 = 100% cuando en realidad eran 40 actividades programadas y 1 completada). Se agregó `CalcularPassoDelMes` (réplica exacta de la lógica de `PasoService`) a `IndicadoresProactivosRepository`.
+
+### 4. Regularización de accidentes 2026 importados de SharePoint
+
+Se cruzó `FlashReport (1).csv` (export histórico de SharePoint, columnas `TotalDias`/`Codigo`/fechas de descanso) contra `ss_accidente_incidente` por fecha+proyecto (el `Codigo` del CSV no es único, no sirve como llave). De 23 accidentes tipo "AC" de 2026 en el CSV:
+- 17 regularizados: `ssoma_flash_descanso` cargado con `TotalDias` real, y vinculados a `ss_accidente_trabajo` (worker_id resuelto por similitud de nombre contra `workers`/`person`, `estado` = Cerrado/Registrado según `EstadoDeCierre` del CSV, no asumido).
+- 1 (Gran Manzano, `SF-AC-1`) vinculado usando el dato YA cargado en la app (2 días reales, más confiable que el `TotalDias=1` del CSV).
+- 1 (Amaranta, `AMR-AC-12`) no tenía fila en `ss_accidente_incidente` — se creó desde cero con los datos del CSV.
+- 4 quedan pendientes (3 "Incapacitante" con `TotalDias=0` que probablemente es dato incompleto del export, no un cero real; 1 sin trabajador identificable en el sistema).
+
+### 5. Fuente de días perdidos en reactivos: `ssoma_flash_descanso`, no `ss_investigacion_rm050`
+
+Para Flash Report sin vínculo a un accidente de Tópico, los días perdidos ahora se suman desde `ssoma_flash_descanso` (mismo dato que ya usa la lista de Accidentes e Incidentes) en vez de `ss_investigacion_rm050`, que en la práctica estaba casi vacío para 2026 (solo 2 de 26 casos tenían investigación cargada, y ambos en 0 días).
+
+### 6. Performance: 1 fetch en vez de 3
+
+Al agregar los niveles Mes/Año/Total del dashboard reactivo, cada cambio de mes disparaba las mismas queries a la BD 3 veces (una por nivel). Se separó en `FetchReactivosCrudoAsync` (trae todo sin filtrar) + `AgregarReactivos` (agrega en memoria, se llama 3 veces gratis).
+
+### 7. Meta anual de reactivos — nueva tabla `ssoma_meta_anual`
+
+Tabla simple (`anio` único, `meta_indice_frecuencia/gravedad/accidentabilidad` nullable) para que SSOMA cargue manualmente la meta de cada año (ej. "10% menos IF/IG, 20% menos IA vs año anterior") — no se calcula automáticamente contra el año anterior, es un valor editable desde el dashboard (botón "Meta"). Endpoints `GET/PUT api/v1/ssoma-indicadores-proactivos/meta-anual`.
+
+### 8. Lista de Accidentes e Incidentes — columnas nuevas
+
+`FlashReportListItemDto` ahora trae `descripcion`, `diasPerdidos` (suma de `ssoma_flash_descanso`) y `cerradoConAltaMedica` (null = no aplica / no es accidente con seguimiento médico; bool según `ss_accidente_trabajo.estado`+`fecha_alta`).
+
+### Archivos clave
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Repositories/IndicadoresProactivosRepository.cs`
+- `Features/SsomaModule/PasoFeature/Services/PasoService_FIXED.cs`
+- `Features/SsomaModule/AccidentesIncidentesFeature/Infrastructure/Repositories/AccidenteIncidenteRepository.cs`
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Models/IndicadoresProactivosModels.cs` (`SsomaMetaAnual`)
+- Tablas nuevas vía SQL directo (no migración EF, a pedido del usuario): `ssoma_meta_anual`
+
+### Pendiente
+- Cedro 33 · 2025 (instancia vieja de PASO, 130 actividades con 3 duplicados) sin limpiar.
+- 4 accidentes 2026 sin regularizar (ver §4).
+- Cronograma de Hitos (`milestone-schedule`): el usuario reportó fechas que no coinciden con un Excel de referencia — se determinó que las fechas son 100% manuales (sin cálculo ni importación automática), no se investigó más a fondo por indicación del usuario ("me equivoqué, es otro tema").

@@ -17,6 +17,8 @@ using Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Services;
 using Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositories;
+using Abril_Backend.Shared.Services.Graph.Interfaces;
+using Abril_Backend.Shared.Services.Graph.Services;
 
 namespace Abril_Backend.Features.AuthModule
 {
@@ -43,6 +45,9 @@ namespace Abril_Backend.Features.AuthModule
             // UserFeature
             services.AddScoped<IUserFeatureRepository, UserFeatureRepository>();
             services.AddScoped<IUserFeatureService, UserFeatureService>();
+
+            // Validación de correos contra el directorio de Abril (Microsoft Graph, app-only).
+            services.AddScoped<IGraphUserService, GraphUserService>();
 
             return services;
         }

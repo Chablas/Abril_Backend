@@ -246,6 +246,77 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
             });
         }
 
+        public async Task CreateAbrilManualUser(string email, string? fullName, List<int> roleIds, int createdUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var strategy = ctx.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                using var transaction = await ctx.Database.BeginTransactionAsync();
+                try
+                {
+                    // Índice único uq_app_user_email: se valida sin importar el state para
+                    // evitar chocar con la restricción (incluye usuarios dados de baja).
+                    var exists = await ctx.User.AnyAsync(u => u.Email.ToLower() == email.ToLower());
+                    if (exists)
+                        throw new AbrilException("Ya existe un usuario con ese correo.", 409);
+
+                    // Trabajador de Abril: ingresa vía Microsoft SSO, nace activo y con el
+                    // correo confirmado, sin contraseña (igual que el alta por login).
+                    var user = new UserModel
+                    {
+                        Email = email,
+                        Password = null,
+                        Active = true,
+                        State = true,
+                        EmailConfirmed = true,
+                        CreatedDateTime = DateTime.UtcNow,
+                        CreatedUserId = createdUserId
+                    };
+                    ctx.User.Add(user);
+                    await ctx.SaveChangesAsync();
+
+                    // Person mínima (sin DNI) para que el usuario muestre nombre en el listado
+                    // y quede vinculado desde ya; mismo criterio que el alta por login SSO.
+                    var person = new Person
+                    {
+                        UserId = user.UserId,
+                        DocumentIdentityTypeId = null,
+                        DocumentIdentityCode = null,
+                        FullName = (string.IsNullOrWhiteSpace(fullName) ? email : fullName).ToUpper(),
+                        Active = true,
+                        State = true,
+                        CreatedDateTime = DateTime.UtcNow,
+                        CreatedUserId = createdUserId
+                    };
+                    ctx.Person.Add(person);
+                    await ctx.SaveChangesAsync();
+
+                    foreach (var roleId in roleIds.Distinct())
+                    {
+                        ctx.UserRole.Add(new UserRole
+                        {
+                            UserId = user.UserId,
+                            RoleId = roleId,
+                            Active = true,
+                            State = true,
+                            CreatedDateTime = DateTime.UtcNow,
+                            CreatedUserId = createdUserId
+                        });
+                    }
+                    await ctx.SaveChangesAsync();
+
+                    await transaction.CommitAsync();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
+        }
+
         public async Task<UserModel> Create(UserFeatureCreateDto dto)
         {
             using var ctx = _factory.CreateDbContext();

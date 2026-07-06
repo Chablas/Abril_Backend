@@ -23,6 +23,10 @@ namespace Abril_Backend.Infrastructure.Models {
         public int? UpdatedUserId {get; set;}
         public bool Active {get; set;}
         public bool State {get; set;}
+        /// <summary>Bytes de la firma (PNG) dibujada por esta persona en Configuración.</summary>
+        public byte[]? SignatureImageBytes {get; set;}
+        public string? SignatureMime {get; set;}
+        public DateTimeOffset? SignatureUpdatedDateTime {get; set;}
         public User User { get; set; }
     }
 }

@@ -1,10 +1,12 @@
 using System.Security.Cryptography;
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Dtos;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Realtime;
+using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Microsoft.Extensions.Options;
 
 namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
@@ -16,19 +18,22 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
         private readonly IEmailService _emailService;
         private readonly FrontendSettings _frontendSettings;
         private readonly IRealtimeNotifier _notifier;
+        private readonly IGraphUserService _graphUserService;
 
         public UserFeatureService(
             IUserFeatureRepository repo,
             IUserPasswordTokenRepository tokenRepo,
             IEmailService emailService,
             IOptions<FrontendSettings> frontendSettings,
-            IRealtimeNotifier notifier)
+            IRealtimeNotifier notifier,
+            IGraphUserService graphUserService)
         {
             _repo = repo;
             _tokenRepo = tokenRepo;
             _emailService = emailService;
             _frontendSettings = frontendSettings.Value;
             _notifier = notifier;
+            _graphUserService = graphUserService;
         }
 
         public Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null) =>
@@ -39,6 +44,29 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
 
         public Task CreateAbrilWorkerUser(AbrilWorkerUserCreateDto dto, int createdUserId) =>
             _repo.CreateAbrilWorkerUser(dto, createdUserId);
+
+        public async Task CreateAbrilManualUser(AbrilManualUserCreateDto dto, int createdUserId)
+        {
+            var email = dto.Email?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(email)
+                || !email.EndsWith("@abril.pe", StringComparison.OrdinalIgnoreCase))
+                throw new AbrilException("El correo debe ser una cuenta corporativa @abril.pe.", 400);
+
+            if (dto.RoleIds is null || dto.RoleIds.Count == 0)
+                throw new AbrilException("Debe asignar al menos un rol.", 400);
+
+            // El correo debe existir en el directorio de Abril (tenant Microsoft). Se consulta
+            // con permiso de aplicación; los correos inexistentes no vuelven en el diccionario.
+            var profiles = await _graphUserService.GetUsersByEmailsAsync(new List<string> { email });
+            if (!profiles.TryGetValue(email, out var profile) || string.IsNullOrWhiteSpace(profile.Mail))
+                throw new AbrilException(
+                    "El correo no existe en el directorio de Abril (Microsoft). Verifica que esté bien escrito.", 404);
+
+            // Se persiste el correo canónico del directorio (así coincidirá con el que
+            // recibe el login SSO) y el nombre para mostrar del perfil de Graph.
+            await _repo.CreateAbrilManualUser(profile.Mail, profile.DisplayName, dto.RoleIds, createdUserId);
+        }
 
         public async Task Create(UserFeatureCreateDto dto)
         {

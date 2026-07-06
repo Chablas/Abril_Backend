@@ -17,7 +17,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Manager
             _repository = repository;
         }
 
-        public Task<ManagerSignatureDto?> GetSingleton() => _repository.GetSingleton();
+        public Task<ManagerSignatureDto?> Get(int userId) => _repository.GetByUserId(userId);
 
         public async Task<ManagerSignatureDto> Save(ManagerSignatureSaveDto dto, int userId)
         {
@@ -48,9 +48,9 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Manager
             if (!bytes.Take(PngMagic.Length).SequenceEqual(PngMagic))
                 throw new AbrilException("La firma debe ser una imagen PNG.");
 
-            await _repository.Upsert(bytes, "image/png", userId);
+            await _repository.Upsert(userId, bytes, "image/png");
 
-            return await _repository.GetSingleton()
+            return await _repository.GetByUserId(userId)
                 ?? throw new AbrilException("No se pudo guardar la firma.", 500);
         }
     }

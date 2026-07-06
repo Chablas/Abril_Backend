@@ -19,15 +19,16 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Manager
             _service = service;
         }
 
-        /// <summary>Firma del Gerente General configurada (null si aún no se configuró).</summary>
+        /// <summary>Firma del usuario actual (null si aún no la configuró).</summary>
         [HttpGet]
         public async Task<IActionResult> Get()
         {
             try
             {
-                if (GetUserId() == null) return Unauthorized(new { message = "Inicie sesión" });
+                var userId = GetUserId();
+                if (userId == null) return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetSingleton();
+                var result = await _service.Get(userId.Value);
                 return Ok(result);
             }
             catch (Exception)
@@ -36,7 +37,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Manager
             }
         }
 
-        /// <summary>Guarda/actualiza la firma del Gerente General (PNG dibujado en el canvas).</summary>
+        /// <summary>Guarda/actualiza la firma del usuario actual (PNG dibujado en el canvas).</summary>
         [HttpPut]
         public async Task<IActionResult> Save([FromBody] ManagerSignatureSaveDto dto)
         {

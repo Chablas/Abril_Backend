@@ -4770,3 +4770,26 @@ En `CalcularCascadaAsync`, rama sucesor-hoja: el diccionario `duracion` le daba 
 ### Pendiente
 - Sacar un `console.log // DEBUG` en el frontend (el usuario lo pidió aparte, no se tocó en esta sesión).
 - Drift de migraciones preexistente (ver punto 1) sin resolver.
+
+## Sesión 2026-07-05 (continuación) — CronogramaActividades: "Usar plantilla" (pestaña Proyecto)
+
+Rama: `victor-backend`
+
+### Feature: aplicar plantilla de actividades a un proyecto
+
+Plantilla fija de 81 items (20 padres agrupadores sin fecha, 61 hojas con predecesoras ya encadenadas por código) en `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Seeds/plantilla_proyecto_seed.json`. Agregada entrada `CopyToOutputDirectory: Always` en `Abril-Backend.csproj` (mismo patrón que las carpetas `Templates/` de otras features) para que el JSON se copie al `bin/` en cada build.
+
+**Endpoint:** `POST /api/v1/cronograma-actividades/{proyectoId}/aplicar-plantilla` con body `{ tipoCronograma }` (default `"PROYECTO"`), agregado al controller existente.
+
+**`CronogramaActividadesRepository.AplicarPlantillaAsync`:**
+- Lee y deserializa el JSON (`System.Text.Json`, `PropertyNameCaseInsensitive`).
+- Todo dentro de una transacción explícita (`ctx.Database.BeginTransactionAsync()` + `CommitAsync()` al final; si algo falla antes del commit, el `using` de la transacción hace rollback automático).
+- Pasada 1: inserta las 81 actividades con `ParentId = null` y fechas `null`, un solo `SaveChangesAsync()` para generar todos los IDs (mismo patrón de 2 pasadas que `ImportarMppAsync`, evita N+1).
+- Pasada 2: con los IDs ya generados, resuelve `parentCodigo` → `ParentId` real y agrega filas `ActivityPredecessor` por `predecesoraCodigo` — mismo efecto que `SetPredecesorasAsync` pero inline en el mismo `ctx`/transacción (no se llamó al método existente literalmente porque abre su propio `DbContext` por invocación, lo que rompería la atomicidad pedida al hacerlo 61 veces).
+
+No se agregó validación de existencia de proyecto — se mantuvo consistente con `CrearActividadAsync`, que tampoco la tiene.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Seeds/plantilla_proyecto_seed.json`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs`
+- `Abril-Backend.csproj`

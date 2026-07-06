@@ -29,16 +29,18 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             if (!string.IsNullOrWhiteSpace(ruc))
                 query = query.Where(p => p.Contributor != null && p.Contributor.ContributorRuc.Contains(ruc));
 
-            if (!string.IsNullOrWhiteSpace(razonSocial))
+            // Búsqueda por palabras en cualquier orden (compatible con el matcher de app-search-input):
+            // cada palabra debe estar contenida en el texto, sin distinguir mayúsculas.
+            foreach (var palabra in SplitBusqueda(razonSocial))
             {
-                var razonSocialLower = razonSocial.ToLower();
-                query = query.Where(p => p.Contributor != null && p.Contributor.ContributorName.ToLower().Contains(razonSocialLower));
+                var token = palabra;
+                query = query.Where(p => p.Contributor != null && p.Contributor.ContributorName.ToLower().Contains(token));
             }
 
-            if (!string.IsNullOrWhiteSpace(projectDescription))
+            foreach (var palabra in SplitBusqueda(projectDescription))
             {
-                var projectDescriptionLower = projectDescription.ToLower();
-                query = query.Where(p => p.ProjectDescription.ToLower().Contains(projectDescriptionLower));
+                var token = palabra;
+                query = query.Where(p => p.ProjectDescription.ToLower().Contains(token));
             }
 
             query = query.OrderByDescending(p => p.ProjectId);
@@ -259,6 +261,20 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         }
 
         // ----- helpers privados -----
+
+        /// <summary>
+        /// Divide el término de búsqueda en palabras (en minúsculas) para permitir coincidencias
+        /// por palabras en cualquier orden, igual que el matcher del componente app-search-input.
+        /// </summary>
+        private static IEnumerable<string> SplitBusqueda(string? busqueda)
+        {
+            if (string.IsNullOrWhiteSpace(busqueda))
+                return Enumerable.Empty<string>();
+
+            return busqueda
+                .ToLower()
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
 
         /// <summary>Aplica los campos editables del DTO Create a la entidad Project.</summary>
         private static void ApplyDtoToEntity(Project project, ProjectCreateDto dto)

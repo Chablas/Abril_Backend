@@ -327,5 +327,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        // ─────────────────────────── Plantilla ───────────────────────────
+
+        // POST /api/v1/cronograma-actividades/{proyectoId}/aplicar-plantilla
+        [HttpPost("{proyectoId:int}/aplicar-plantilla")]
+        public async Task<IActionResult> AplicarPlantilla(int proyectoId, [FromBody] AplicarPlantillaRequest request)
+        {
+            try
+            {
+                var result = await _service.AplicarPlantillaAsync(proyectoId, request, GetUserId());
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

@@ -5,6 +5,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using Mpxj = MPXJ.Net;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Repositories
@@ -1170,6 +1171,88 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             }
 
             await ctx.SaveChangesAsync();
+        }
+
+        // ─────────────────────────── Plantilla ───────────────────────────
+
+        private static readonly string PlantillaProyectoPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Features", "UnidadDeProyectosModule", "Features", "CronogramaActividades",
+            "Seeds", "plantilla_proyecto_seed.json");
+
+        private static readonly JsonSerializerOptions PlantillaJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+        private sealed class PlantillaItem
+        {
+            public string Codigo { get; set; } = string.Empty;
+            public string Nombre { get; set; } = string.Empty;
+            public int Nivel { get; set; }
+            public bool EsPadre { get; set; }
+            public string? ParentCodigo { get; set; }
+            public string? PredecesoraCodigo { get; set; }
+        }
+
+        public async Task<AplicarPlantillaResultDto> AplicarPlantillaAsync(int proyectoId, string tipoCronograma, int userId)
+        {
+            var json = await File.ReadAllTextAsync(PlantillaProyectoPath);
+            var items = JsonSerializer.Deserialize<List<PlantillaItem>>(json, PlantillaJsonOptions)
+                ?? throw new AbrilException("La plantilla de proyecto está vacía o es inválida.", 500);
+
+            using var ctx = _factory.CreateDbContext();
+            using var transaction = await ctx.Database.BeginTransactionAsync();
+
+            var maxOrder = await ctx.ProjectActivity
+                .Where(a => a.ProjectId == proyectoId && a.State)
+                .Select(a => (int?)a.Order)
+                .MaxAsync() ?? 0;
+
+            // Pasada 1: insertar todas las actividades sin ParentId (los IDs recién existen tras SaveChanges).
+            var codigoAEntidad = new Dictionary<string, ProjectActivity>();
+            int orden = 0;
+            foreach (var item in items)
+            {
+                var activity = new ProjectActivity
+                {
+                    ProjectId = proyectoId,
+                    ActivityDescription = item.Nombre,
+                    PlannedStartDate = null,
+                    PlannedEndDate = null,
+                    ProgressPercentage = 0,
+                    Order = maxOrder + (++orden),
+                    HierarchyLevel = item.Nivel - 1,
+                    ParentId = null,
+                    IsManual = true,
+                    TipoCronograma = tipoCronograma,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = userId,
+                    Active = true,
+                    State = true
+                };
+                ctx.ProjectActivity.Add(activity);
+                codigoAEntidad[item.Codigo] = activity;
+            }
+            await ctx.SaveChangesAsync(); // un solo INSERT masivo — genera todos los IDs
+
+            // Pasada 2: resolver ParentId y predecesoras usando los IDs ya generados.
+            foreach (var item in items)
+            {
+                if (item.ParentCodigo != null)
+                    codigoAEntidad[item.Codigo].ParentId = codigoAEntidad[item.ParentCodigo].ProjectActivityId;
+
+                if (item.PredecesoraCodigo != null)
+                {
+                    ctx.ActivityPredecessors.Add(new ActivityPredecessor
+                    {
+                        ActivityId = codigoAEntidad[item.Codigo].ProjectActivityId,
+                        PredecessorId = codigoAEntidad[item.PredecesoraCodigo].ProjectActivityId
+                    });
+                }
+            }
+            await ctx.SaveChangesAsync();
+
+            await transaction.CommitAsync();
+
+            return new AplicarPlantillaResultDto { ActividadesCreadas = items.Count };
         }
     }
 }

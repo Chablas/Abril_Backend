@@ -263,4 +263,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
     {
         public string TipoCronograma { get; set; } = string.Empty;
     }
+
+    // ─────────────────────────── Plantilla ───────────────────────────
+
+    public class AplicarPlantillaRequest
+    {
+        public string TipoCronograma { get; set; } = "PROYECTO";
+    }
+
+    public class AplicarPlantillaResultDto
+    {
+        public int ActividadesCreadas { get; set; }
+    }
 }

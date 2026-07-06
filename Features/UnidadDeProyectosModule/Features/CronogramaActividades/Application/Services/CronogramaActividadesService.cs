@@ -174,5 +174,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
             return _repository.ActualizarUltimaPestanaAsync(proyectoId, userId, request.TipoCronograma);
         }
+
+        // ─────────────────────────── Plantilla ───────────────────────────
+
+        public Task<AplicarPlantillaResultDto> AplicarPlantillaAsync(int proyectoId, AplicarPlantillaRequest request, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(request.TipoCronograma))
+                throw new AbrilException("El tipo de cronograma es obligatorio.", 400);
+
+            return _repository.AplicarPlantillaAsync(proyectoId, request.TipoCronograma, userId);
+        }
     }
 }

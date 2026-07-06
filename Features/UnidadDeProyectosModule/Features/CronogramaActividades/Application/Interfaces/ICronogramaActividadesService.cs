@@ -40,5 +40,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
         // Última pestaña
         Task<UltimaPestanaDto> GetUltimaPestanaAsync(int proyectoId, int userId);
         Task ActualizarUltimaPestanaAsync(int proyectoId, int userId, ActualizarUltimaPestanaRequest request);
+
+        // Plantilla
+        Task<AplicarPlantillaResultDto> AplicarPlantillaAsync(int proyectoId, AplicarPlantillaRequest request, int userId);
     }
 }

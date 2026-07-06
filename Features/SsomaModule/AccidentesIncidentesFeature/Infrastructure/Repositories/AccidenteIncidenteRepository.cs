@@ -99,7 +99,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                      ELSE (at_vinc.estado = 'Cerrado' AND at_vinc.fecha_alta IS NOT NULL)
                 END AS cerrado_con_alta_medica,
                 COALESCE((
-                    SELECT SUM((d.fecha_fin - d.fecha_inicio) + 1)
+                    SELECT SUM((d.fecha_fin::date - d.fecha_inicio::date) + 1)
                     FROM ssoma_flash_descanso d
                     WHERE d.accidente_incidente_id = a.id
                 ), 0) AS dias_perdidos

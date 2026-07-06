@@ -15,6 +15,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
         public bool? HasClause { get; set; }
         /// <summary>Filtra las partidas de control por la especialidad a la que pertenecen. null: todas.</summary>
         public int? WorkSpecialtyId { get; set; }
+        /// <summary>true: solo activas · false: solo inactivas · null: todas.</summary>
+        public bool? Active { get; set; }
         public int Page { get; set; } = 1;
     }
 }

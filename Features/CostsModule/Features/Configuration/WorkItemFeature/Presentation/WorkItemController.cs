@@ -24,6 +24,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             [FromQuery] string? description,
             [FromQuery] bool? hasValorizationForm,
             [FromQuery] int? workItemCategoryId,
+            [FromQuery] bool? active,
             [FromQuery] int page = 1)
         {
             try
@@ -37,6 +38,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                     Description = description,
                     HasValorizationForm = hasValorizationForm,
                     WorkItemCategoryId = workItemCategoryId,
+                    Active = active,
                     Page = page
                 };
 

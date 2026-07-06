@@ -35,6 +35,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialt
                 }
             }
 
+            if (filter.Active.HasValue)
+                query = query.Where(x => x.Active == filter.Active.Value);
+
             var totalRecords = await query.CountAsync();
 
             var data = await query

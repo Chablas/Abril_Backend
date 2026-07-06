@@ -101,6 +101,9 @@ public class ConsumoService : IConsumoService
     public async Task<List<ConsumoCargaResumenDto>> ObtenerCargasAsync(int projectId) =>
         await _repo.ObtenerCargasPorProyectoAsync(projectId);
 
+    public async Task<int> AsignarHitosAsync(int projectId) =>
+        await _repo.AsignarHitosPorFechaAsync(projectId);
+
     // ─── Parser flexible S10 ──────────────────────────────────────────────────
 
     private record LineaRaw(string RecursoCrudo, decimal Cantidad, decimal PrecioUnitario, decimal PrecioTotal, DateOnly FechaGuia);

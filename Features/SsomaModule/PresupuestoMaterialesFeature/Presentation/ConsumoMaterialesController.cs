@@ -63,6 +63,21 @@ public class ConsumoMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al obtener las cargas." }); }
     }
 
+    /// <summary>
+    /// Asigna cada línea de consumo del proyecto al hito real del cronograma (/projects) que le
+    /// corresponde según su fecha de guía. Se puede volver a correr cuando el cronograma cambie.
+    /// </summary>
+    [HttpPost("proyectos/{projectId}/asignar-hitos")]
+    public async Task<IActionResult> AsignarHitos(int projectId)
+    {
+        try
+        {
+            var lineasActualizadas = await _consumoService.AsignarHitosAsync(projectId);
+            return Ok(new { lineasActualizadas });
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al asignar hitos." }); }
+    }
+
     // ─── Estandarización manual (re-procesar) ────────────────────────────────
 
     /// <summary>Re-ejecuta la estandarización de una carga (útil después de agregar aliases).</summary>

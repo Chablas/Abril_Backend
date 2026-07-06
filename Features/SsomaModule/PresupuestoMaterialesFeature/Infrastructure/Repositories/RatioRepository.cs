@@ -20,9 +20,9 @@ public class RatioRepository : IRatioRepository
                 f.nombre                                    AS NombreFamilia,
                 t.nombre                                    AS TipoMaterial,
                 f.variable_base                             AS VariableBase,
-                SUM(l.cantidad)                             AS CantidadTotal,
-                CASE WHEN SUM(l.cantidad) > 0
-                     THEN SUM(l.precio_total) / SUM(l.cantidad)
+                SUM(COALESCE(l.cantidad_real, l.cantidad))  AS CantidadTotal,
+                CASE WHEN SUM(COALESCE(l.cantidad_real, l.cantidad)) > 0
+                     THEN SUM(l.precio_total) / SUM(COALESCE(l.cantidad_real, l.cantidad))
                      ELSE 0 END                             AS PrecioUnitarioPromedio,
                 SUM(l.precio_total)                         AS PrecioTotal
             FROM ss_consumo_linea l
@@ -40,16 +40,16 @@ public class RatioRepository : IRatioRepository
         return result.ToList();
     }
 
-    public async Task UpsertRatioAsync(int familiaId, int projectId, string variableBase,
-        decimal cantidadTotal, decimal precioUnitarioPromedio, decimal valorDriver,
-        decimal ratioCantidad, bool esOutlier)
+
+    public async Task UpsertRatiosBulkAsync(List<RatioUpsertItem> items)
     {
+        if (items.Count == 0) return;
         using var conn = Conn();
         const string sql = """
             INSERT INTO ss_ratio_proyecto
               (familia_id, project_id, variable_base, cantidad_total, precio_unitario_promedio, valor_driver, ratio_cantidad, es_outlier)
             VALUES
-              (@familiaId, @projectId, @variableBase, @cantidadTotal, @precioUnitarioPromedio, @valorDriver, @ratioCantidad, @esOutlier)
+              (@FamiliaId, @ProjectId, @VariableBase, @CantidadTotal, @PrecioUnitarioPromedio, @ValorDriver, @RatioCantidad, false)
             ON CONFLICT (familia_id, project_id)
             DO UPDATE SET
               variable_base            = EXCLUDED.variable_base,
@@ -57,11 +57,10 @@ public class RatioRepository : IRatioRepository
               precio_unitario_promedio = EXCLUDED.precio_unitario_promedio,
               valor_driver             = EXCLUDED.valor_driver,
               ratio_cantidad           = EXCLUDED.ratio_cantidad,
-              es_outlier               = EXCLUDED.es_outlier
+              es_outlier               = false
             """;
-        await conn.ExecuteAsync(sql, new { familiaId, projectId, variableBase, cantidadTotal,
-            precioUnitarioPromedio = (double)precioUnitarioPromedio,
-            valorDriver = (double)valorDriver, ratioCantidad = (double)ratioCantidad, esOutlier });
+        // Misma conexion para todas las filas (antes se abria una conexion nueva por familia).
+        await conn.ExecuteAsync(sql, items);
     }
 
     public async Task<List<RatioProyectoDto>> ObtenerRatiosPorProyectoAsync(int projectId)
@@ -73,7 +72,8 @@ public class RatioRepository : IRatioRepository
                    r.variable_base AS VariableBase, r.cantidad_total AS CantidadTotal,
                    r.precio_unitario_promedio AS PrecioUnitarioPromedio,
                    r.valor_driver AS ValorDriver, r.ratio_cantidad AS RatioCantidad,
-                   r.es_outlier AS EsOutlier
+                   r.es_outlier AS EsOutlier, r.incluido_manual_ratio AS IncluidoManualRatio,
+                   r.incluido_manual_precio AS IncluidoManualPrecio
             FROM ss_ratio_proyecto r
             JOIN ss_material_familia f ON f.id = r.familia_id
             JOIN ss_material_tipo t    ON t.id = f.tipo_id
@@ -94,7 +94,8 @@ public class RatioRepository : IRatioRepository
                    r.variable_base AS VariableBase, r.cantidad_total AS CantidadTotal,
                    r.precio_unitario_promedio AS PrecioUnitarioPromedio,
                    r.valor_driver AS ValorDriver, r.ratio_cantidad AS RatioCantidad,
-                   r.es_outlier AS EsOutlier
+                   r.es_outlier AS EsOutlier, r.incluido_manual_ratio AS IncluidoManualRatio,
+                   r.incluido_manual_precio AS IncluidoManualPrecio
             FROM ss_ratio_proyecto r
             JOIN ss_material_familia f ON f.id = r.familia_id
             JOIN ss_material_tipo t    ON t.id = f.tipo_id
@@ -103,6 +104,39 @@ public class RatioRepository : IRatioRepository
             ORDER BY r.ratio_cantidad
             """;
         var result = await conn.QueryAsync<RatioProyectoDto>(sql, new { familiaId });
+        return result.ToList();
+    }
+
+    public async Task ActualizarIncluidoManualAsync(int familiaId, int projectId, bool incluir, string campo)
+    {
+        var columna = campo.Equals("PRECIO", StringComparison.OrdinalIgnoreCase)
+            ? "incluido_manual_precio"
+            : "incluido_manual_ratio";
+        using var conn = Conn();
+        var sql = $"""
+            UPDATE ss_ratio_proyecto
+            SET {columna} = @incluir
+            WHERE familia_id = @familiaId AND project_id = @projectId
+            """;
+        await conn.ExecuteAsync(sql, new { familiaId, projectId, incluir });
+    }
+
+    public async Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync()
+    {
+        using var conn = Conn();
+        const string sql = """
+            SELECT f.id AS FamiliaId, f.nombre AS NombreFamilia, t.nombre AS TipoMaterial,
+                   f.variable_base AS VariableBase,
+                   COUNT(r.id) AS NProyectos,
+                   COUNT(r.id) FILTER (WHERE r.es_outlier) AS NOutliers
+            FROM ss_material_familia f
+            JOIN ss_material_tipo t ON t.id = f.tipo_id
+            JOIN ss_ratio_proyecto r ON r.familia_id = f.id
+            WHERE f.pertenece_ssoma = true AND f.activo = true
+            GROUP BY f.id, f.nombre, t.nombre, f.variable_base
+            ORDER BY t.nombre, f.nombre
+            """;
+        var result = await conn.QueryAsync<FamiliaConRatioDto>(sql);
         return result.ToList();
     }
 

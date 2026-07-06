@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260704100000_AddEsHitoCriticoToMilestoneSchedule")]
+    partial class AddEsHitoCriticoToMilestoneSchedule
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -14443,10 +14446,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("created_user_id");
 
-                    b.Property<string>("CustomDescription")
-                        .HasColumnType("text")
-                        .HasColumnName("custom_description");
-
                     b.Property<bool>("EsHitoCritico")
                         .HasColumnType("boolean")
                         .HasColumnName("es_hito_critico");
@@ -14455,7 +14454,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("date")
                         .HasColumnName("fecha_real_fin");
 
-                    b.Property<int?>("MilestoneId")
+                    b.Property<int>("MilestoneId")
                         .HasColumnType("integer")
                         .HasColumnName("milestone_id");
 

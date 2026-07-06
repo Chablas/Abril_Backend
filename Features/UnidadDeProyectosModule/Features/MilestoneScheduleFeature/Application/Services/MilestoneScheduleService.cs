@@ -71,5 +71,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
         public Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId)
             => _repository.CulminarAsync(milestoneScheduleId, fechaRealFin, userId);
+
+        public Task MarcarCriticoAsync(int milestoneScheduleId, bool esHitoCritico, int userId)
+            => _repository.MarcarCriticoAsync(milestoneScheduleId, esHitoCritico, userId);
     }
 }

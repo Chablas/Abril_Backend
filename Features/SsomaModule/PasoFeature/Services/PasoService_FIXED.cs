@@ -465,7 +465,8 @@ public class PasoService : IPasoService
 
         foreach (var paso in pasos)
         {
-            var cicloStartYear = paso.MesInicio > 6 ? paso.Anio!.Value - 1 : paso.Anio!.Value;
+            // "Anio" es siempre el año en que arranca el ciclo (sin importar el mes de inicio).
+            var cicloStartYear = paso.Anio!.Value;
             var cicloStart = new DateOnly(cicloStartYear, paso.MesInicio, 1);
             var cicloEnd = cicloStart.AddMonths(12).AddDays(-1);
 
@@ -524,7 +525,8 @@ public class PasoService : IPasoService
             };
 
         var hoy = DateOnly.FromDateTime(DateTime.Today);
-        var cicloStartYear = paso.MesInicio > 6 ? paso.Anio!.Value - 1 : paso.Anio!.Value;
+        // "Anio" es siempre el año en que arranca el ciclo (sin importar el mes de inicio).
+        var cicloStartYear = paso.Anio!.Value;
         var cicloStart = new DateOnly(cicloStartYear, paso.MesInicio, 1);
         var cicloEnd = cicloStart.AddMonths(12).AddDays(-1);
 
@@ -1099,7 +1101,8 @@ if (cat is not null) act.Categoria = cat;
         foreach (var paso in pasos)
         {
             int pasoAnio = paso.Anio!.Value;
-            int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+            // "Anio" es siempre el año en que arranca el ciclo (sin importar el mes de inicio).
+            int cicloStartYear = pasoAnio;
             int cicloStartAbs = cicloStartYear * 12 + paso.MesInicio - 1;
 
             foreach (var act in paso.Actividades.Where(a => a.Categoria?.Ambito == "Salud"))
@@ -1208,7 +1211,8 @@ if (cat is not null) act.Categoria = cat;
         int pasoAnio = paso.Anio ?? DateTime.Today.Year;
 
         // ── Calcular mes del ciclo ────────────────────────────────────────────
-        int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+        // "Anio" es siempre el año en que arranca el ciclo (sin importar el mes de inicio).
+        int cicloStartYear = pasoAnio;
         int cicloStartAbs  = cicloStartYear * 12 + paso.MesInicio - 1;
         int cicloEndAbs    = cicloStartAbs + 11;
         int requestedAbs   = anio * 12 + mes - 1;
@@ -1349,7 +1353,8 @@ if (cat is not null) act.Categoria = cat;
 
         var hoy = DateOnly.FromDateTime(DateTime.Today);
         int pasoAnio = paso.Anio.Value;
-        int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+        // "Anio" es siempre el año en que arranca el ciclo (sin importar el mes de inicio).
+        int cicloStartYear = pasoAnio;
         int cicloStartAbs = cicloStartYear * 12 + paso.MesInicio - 1;
         int hoyAbs = hoy.Year * 12 + hoy.Month - 1;
         int limiteAbs = Math.Min(hoyAbs, cicloStartAbs + 11);
@@ -1407,7 +1412,8 @@ if (cat is not null) act.Categoria = cat;
             int pasoAnio = paso.Anio ?? anio;
 
             // Calculate mesCiclo for this specific PASO
-            int cicloStartYear = paso.MesInicio > 6 ? pasoAnio - 1 : pasoAnio;
+            // "Anio" es siempre el año en que arranca el ciclo (sin importar el mes de inicio).
+            int cicloStartYear = pasoAnio;
             int cicloStartAbs  = cicloStartYear * 12 + paso.MesInicio - 1;
             int requestedAbs   = anio * 12 + mes - 1;
 

@@ -281,6 +281,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaInspeccionFotoArea> SsomaInspeccionFotoArea => Set<SsomaInspeccionFotoArea>();
         // ── Indicadores Proactivos ─────────────────────────────────────────────
         public DbSet<SsomaProgInspeccionEmpresa> SsomaProgInspeccionEmpresa => Set<SsomaProgInspeccionEmpresa>();
+        public DbSet<SsomaMetaAnual> SsomaMetaAnual => Set<SsomaMetaAnual>();
         // ── Auditoría ATS ──────────────────────────────────────────────────────
         public DbSet<SsomaAuditoriaAtsPregunta> SsomaAuditoriaAtsPregunta => Set<SsomaAuditoriaAtsPregunta>();
         public DbSet<SsomaAuditoriaAts> SsomaAuditoriaAts => Set<SsomaAuditoriaAts>();

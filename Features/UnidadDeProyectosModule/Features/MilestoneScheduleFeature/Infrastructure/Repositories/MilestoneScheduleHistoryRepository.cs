@@ -85,9 +85,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
             if (lastHistory != null)
             {
-                // milestoneIds: unión de los nuevos y los del historial anterior (ya en memoria)
+                // milestoneIds: unión de los nuevos y los del historial anterior (ya en memoria), solo catálogo (no personalizados)
                 var milestoneIds = dto.MilestoneSchedules.Select(m => m.MilestoneId)
                     .Union(lastMilestones.Select(ms => ms.MilestoneId))
+                    .Where(id => id.HasValue)
+                    .Select(id => id!.Value)
                     .Distinct()
                     .ToList();
 
@@ -120,10 +122,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             var milestoneSchedules = dto.MilestoneSchedules.Select(item => new MilestoneSchedule
             {
                 MilestoneId = item.MilestoneId,
+                CustomDescription = item.CustomDescription,
                 MilestoneScheduleHistoryId = history.MilestoneScheduleHistoryId,
                 Order = item.Order,
                 PlannedStartDate = item.PlannedStartDate,
                 PlannedEndDate = item.PlannedEndDate,
+                EsHitoCritico = item.EsHitoCritico,
                 Active = true,
                 State = true,
                 CreatedDateTime = DateTime.UtcNow,
@@ -183,18 +187,26 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             List<MilestoneScheduleCreateDTO> newMilestones,
             Dictionary<int, string> milestoneDescriptions)
         {
+            // Se compara por Order (posición en el cronograma), no por MilestoneId: los hitos
+            // personalizados (MilestoneId nulo, ej. una 2da/3ra grúa) no tienen un id de catálogo
+            // que los identifique de forma única, pero su posición sí es estable.
+            string Describe(int? milestoneId, string? customDescription) =>
+                milestoneId.HasValue
+                    ? milestoneDescriptions.GetValueOrDefault(milestoneId.Value, "Desconocido")
+                    : (customDescription ?? "Hito personalizado");
+
             var changes = new List<MilestoneChange>();
-            var lastDict = lastMilestones.ToDictionary(m => m.MilestoneId);
-            var newDict = newMilestones.ToDictionary(m => m.MilestoneId);
+            var lastDict = lastMilestones.ToDictionary(m => m.Order);
+            var newDict = newMilestones.ToDictionary(m => m.Order);
 
             foreach (var newItem in newMilestones)
             {
-                if (!lastDict.TryGetValue(newItem.MilestoneId, out var last))
+                if (!lastDict.TryGetValue(newItem.Order, out var last))
                 {
                     changes.Add(new MilestoneChange
                     {
                         MilestoneId = newItem.MilestoneId,
-                        MilestoneDescription = milestoneDescriptions.GetValueOrDefault(newItem.MilestoneId, "Desconocido"),
+                        MilestoneDescription = Describe(newItem.MilestoneId, newItem.CustomDescription),
                         ChangeType = "Añadido"
                     });
                     continue;
@@ -203,9 +215,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 var change = new MilestoneChange
                 {
                     MilestoneId = newItem.MilestoneId,
-                    MilestoneDescription = milestoneDescriptions.GetValueOrDefault(newItem.MilestoneId, "Desconocido"),
+                    MilestoneDescription = Describe(newItem.MilestoneId, newItem.CustomDescription),
                     ChangeType = "Actualizado",
-                    OrderChanged = last.Order != newItem.Order,
+                    OrderChanged = last.MilestoneId != newItem.MilestoneId || last.CustomDescription != newItem.CustomDescription,
                     StartDateChanged = last.PlannedStartDate != newItem.PlannedStartDate,
                     EndDateChanged = last.PlannedEndDate != newItem.PlannedEndDate
                 };
@@ -216,11 +228,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
             foreach (var last in lastMilestones)
             {
-                if (!newDict.ContainsKey(last.MilestoneId))
+                if (!newDict.ContainsKey(last.Order))
                     changes.Add(new MilestoneChange
                     {
                         MilestoneId = last.MilestoneId,
-                        MilestoneDescription = milestoneDescriptions.GetValueOrDefault(last.MilestoneId, "Desconocido"),
+                        MilestoneDescription = Describe(last.MilestoneId, last.CustomDescription),
                         ChangeType = "Eliminado"
                     });
             }

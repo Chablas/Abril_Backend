@@ -11,6 +11,7 @@ public class DriverProyectoDto
     public string HhFuente           { get; set; } = null!;   // HH_REAL | HH_PROYECTADO | HH_CALCULADO_MEDIANA
     public int    FamiliasConRatio   { get; set; }
     public bool   TieneConsumos      { get; set; }
+    public bool   HabilitadoSsoma    { get; set; }
 }
 
 public class ActualizarDriversDto

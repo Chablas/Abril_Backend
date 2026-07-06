@@ -96,6 +96,14 @@ public class FlashReportListItemDto
     public bool Enviado { get; set; }
     public DateTime? FechaEnvio { get; set; }
     public int? ConsecuenciaRealPersonal { get; set; }
+    public string Descripcion { get; set; } = string.Empty;
+    public int DiasPerdidos { get; set; }
+
+    // Estado del accidente vinculado en Salud Ocupacional (ss_accidente_trabajo):
+    // null = no aplica (no es un accidente con seguimiento médico, ej. incidente/NC/alerta)
+    // false = tiene seguimiento pero aún no cerró con alta médica
+    // true = cerrado con alta médica
+    public bool? CerradoConAltaMedica { get; set; }
 }
 
 // ── Detalle ───────────────────────────────────────────────────────────────────

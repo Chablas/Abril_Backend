@@ -17,5 +17,7 @@ public interface ICatalogoMaterialesRepository
     Task<(SsMaterialItem Item, bool Creado)> GetOrCreateItemAsync(
         string nombre, string nombreNormalizado, int familiaId, string? talla, string? dimensionNorm, bool noUsar);
 
-    Task<bool> CreateAliasIfNotExistsAsync(string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal? confianza);
+    Task<bool> CreateAliasIfNotExistsAsync(
+        string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal? confianza,
+        decimal factorConversion = 1);
 }

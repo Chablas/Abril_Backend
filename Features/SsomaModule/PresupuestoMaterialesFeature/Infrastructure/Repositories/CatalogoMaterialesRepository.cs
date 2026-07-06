@@ -98,11 +98,20 @@ public class CatalogoMaterialesRepository : ICatalogoMaterialesRepository
     }
 
     public async Task<bool> CreateAliasIfNotExistsAsync(
-        string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal? confianza)
+        string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal? confianza,
+        decimal factorConversion = 1)
     {
         using var ctx = _factory.CreateDbContext();
-        var existe = await ctx.SsMaterialAlias.AnyAsync(a => a.TextoCrudoNorm == textoCrudoNorm);
-        if (existe) return false;
+        var existente = await ctx.SsMaterialAlias.FirstOrDefaultAsync(a => a.TextoCrudoNorm == textoCrudoNorm);
+        if (existente != null)
+        {
+            if (existente.FactorConversion != factorConversion)
+            {
+                existente.FactorConversion = factorConversion;
+                await ctx.SaveChangesAsync();
+            }
+            return false;
+        }
 
         ctx.SsMaterialAlias.Add(new SsMaterialAlias
         {
@@ -111,6 +120,7 @@ public class CatalogoMaterialesRepository : ICatalogoMaterialesRepository
             ItemId = itemId,
             Origen = origen,
             Confianza = confianza,
+            FactorConversion = factorConversion,
             CreadoEn = DateTimeOffset.UtcNow
         });
         await ctx.SaveChangesAsync();

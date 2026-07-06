@@ -210,8 +210,8 @@ Features/SsomaModule/PasoFeature/
 
 **Lógica de ciclo (CRÍTICA):**
 - Cada PASO tiene `Anio` y `MesInicio`. Las actividades tienen `MesInicio`/`MesFin` en meses del CICLO (1-12), NO en meses calendario.
-- Mes 1 del ciclo = mes `MesInicio` del calendario. Ejemplo: PASO anio=2026, mes_inicio=12 → mes 1 ciclo = diciembre 2025.
-- Cálculo: `cicloStartYear = MesInicio > 6 ? Anio - 1 : Anio`
+- `Anio` es SIEMPRE el año calendario en que arranca el ciclo, sin importar `MesInicio` (regla corregida 2026-07-05: antes, con `MesInicio > 6`, `Anio` representaba el año en que terminaba el ciclo — confuso y causaba instancias con el año mal puesto). Mes 1 del ciclo = mes `MesInicio` del año `Anio`. Ejemplo: PASO anio=2026, mes_inicio=7 → mes 1 ciclo = julio 2026.
+- Cálculo: `cicloStartYear = Anio`
 - `mesCiclo = (anio*12 + mes - 1) - (cicloStartYear*12 + MesInicio - 1) + 1`
 - Si fecha solicitada está fuera del ciclo de 12 meses → retorna resumen vacío.
 

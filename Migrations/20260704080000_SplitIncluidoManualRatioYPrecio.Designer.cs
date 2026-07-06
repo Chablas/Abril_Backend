@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260704080000_SplitIncluidoManualRatioYPrecio")]
+    partial class SplitIncluidoManualRatioYPrecio
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -14443,19 +14446,11 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("created_user_id");
 
-                    b.Property<string>("CustomDescription")
-                        .HasColumnType("text")
-                        .HasColumnName("custom_description");
-
-                    b.Property<bool>("EsHitoCritico")
-                        .HasColumnType("boolean")
-                        .HasColumnName("es_hito_critico");
-
                     b.Property<DateOnly?>("FechaRealFin")
                         .HasColumnType("date")
                         .HasColumnName("fecha_real_fin");
 
-                    b.Property<int?>("MilestoneId")
+                    b.Property<int>("MilestoneId")
                         .HasColumnType("integer")
                         .HasColumnName("milestone_id");
 
@@ -18337,10 +18332,10 @@ namespace Abril_Backend.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_ss_consumo_linea_ss_consumo_carga_carga_id");
 
-                    b.HasOne("Abril_Backend.Infrastructure.Models.MilestoneSchedule", "Hito")
+                    b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialHito", "Hito")
                         .WithMany()
                         .HasForeignKey("HitoId")
-                        .HasConstraintName("fk_ss_consumo_linea_milestone_schedule_hito_id");
+                        .HasConstraintName("fk_ss_consumo_linea_ss_material_hito_hito_id");
 
                     b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialItem", "Item")
                         .WithMany()
@@ -18484,12 +18479,12 @@ namespace Abril_Backend.Migrations
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsPresupuestoPersonalHito", b =>
                 {
-                    b.HasOne("Abril_Backend.Infrastructure.Models.MilestoneSchedule", "Hito")
+                    b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialHito", "Hito")
                         .WithMany()
                         .HasForeignKey("HitoId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_ss_presupuesto_personal_hito_milestone_schedule_hito_id");
+                        .HasConstraintName("fk_ss_presupuesto_personal_hito_ss_material_hito_hito_id");
 
                     b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsPresupuesto", "Presupuesto")
                         .WithMany("PersonalHitos")

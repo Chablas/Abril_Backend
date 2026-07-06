@@ -13,6 +13,10 @@ public class SsRatioProyecto
     public decimal ValorDriver { get; set; }
     public decimal RatioCantidad { get; set; }
     public bool EsOutlier { get; set; } = false;
+    /// <summary>Si es false, este proyecto se excluye manualmente del cálculo del RATIO (mediana) recomendado, aunque no sea outlier.</summary>
+    public bool IncluidoManualRatio { get; set; } = true;
+    /// <summary>Si es false, este proyecto se excluye manualmente del cálculo del PRECIO promedio recomendado, aunque no sea outlier.</summary>
+    public bool IncluidoManualPrecio { get; set; } = true;
     public DateTimeOffset CalculadoEn { get; set; } = DateTimeOffset.UtcNow;
 
     public SsMaterialFamilia Familia { get; set; } = null!;

@@ -68,6 +68,14 @@ public class RatioMaterialesController : ControllerBase
         catch (Exception) { return StatusCode(500, new { message = "Error al obtener ratios." }); }
     }
 
+    /// <summary>Lista las familias que ya tienen algún ratio calculado, para elegir cuál comparar.</summary>
+    [HttpGet("familias")]
+    public async Task<IActionResult> ListarFamilias()
+    {
+        try { return Ok(await _ratioService.ListarFamiliasConRatioAsync()); }
+        catch (Exception) { return StatusCode(500, new { message = "Error al listar familias." }); }
+    }
+
     /// <summary>Compara el ratio de una familia entre todos los proyectos históricos.</summary>
     [HttpGet("familias/{familiaId}/comparacion")]
     public async Task<IActionResult> ComparacionFamilia(int familiaId)
@@ -79,6 +87,21 @@ public class RatioMaterialesController : ControllerBase
             return Ok(resultado);
         }
         catch (Exception) { return StatusCode(500, new { message = "Error al comparar familia." }); }
+    }
+
+    /// <summary>
+    /// Incluye o excluye manualmente un proyecto del cálculo del ratio recomendado de una familia
+    /// (independiente del flag automático de outlier).
+    /// </summary>
+    [HttpPatch("familias/{familiaId}/proyectos/{projectId}/incluir")]
+    public async Task<IActionResult> ActualizarIncluidoManual(int familiaId, int projectId, [FromBody] ActualizarIncluidoManualDto dto)
+    {
+        try
+        {
+            await _ratioService.ActualizarIncluidoManualAsync(familiaId, projectId, dto.Incluir, dto.Campo);
+            return Ok(new { familiaId, projectId, incluido = dto.Incluir, campo = dto.Campo });
+        }
+        catch (Exception) { return StatusCode(500, new { message = "Error al actualizar inclusión." }); }
     }
 
     /// <summary>Resumen general de todos los proyectos con ratios calculados.</summary>

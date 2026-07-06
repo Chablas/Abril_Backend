@@ -21,12 +21,14 @@ public class PresupuestoRepository : IPresupuestoRepository
               t.id                                                                        AS TipoId,
               t.nombre                                                                    AS NombreTipo,
               f.variable_base                                                             AS VariableBase,
-              COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.ratio_cantidad), 0) AS RatioRecomendado,
-              COALESCE(AVG(r.precio_unitario_promedio), 0)                                AS PrecioRecomendado,
-              COUNT(r.id)                                                                 AS NProyectos
+              COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.ratio_cantidad)
+                       FILTER (WHERE r.es_outlier = false AND r.incluido_manual_ratio = true), 0)  AS RatioRecomendado,
+              COALESCE(AVG(r.precio_unitario_promedio)
+                       FILTER (WHERE r.es_outlier = false AND r.incluido_manual_precio = true), 0) AS PrecioRecomendado,
+              COUNT(r.id) FILTER (WHERE r.es_outlier = false AND r.incluido_manual_ratio = true)   AS NProyectos
             FROM ss_material_familia f
             JOIN ss_material_tipo t       ON t.id = f.tipo_id
-            LEFT JOIN ss_ratio_proyecto r ON r.familia_id = f.id AND r.es_outlier = false
+            LEFT JOIN ss_ratio_proyecto r ON r.familia_id = f.id
             WHERE f.pertenece_ssoma = true AND f.activo = true
             GROUP BY f.id, f.nombre, t.id, t.nombre, f.variable_base
             ORDER BY t.nombre, f.nombre

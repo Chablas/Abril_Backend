@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -40,7 +41,7 @@ public class RatioService : IRatioService
         var trabajadores = ParseTrabajadores(proyecto.CantTrabajadoresCasa);
 
         // Calcular ratio para cada familia
-        var todosLosRatios = new List<(int familiaId, decimal ratio)>();
+        var itemsAGuardar = new List<RatioUpsertItem>();
 
         foreach (var consumo in consumos)
         {
@@ -54,19 +55,28 @@ public class RatioService : IRatioService
             }
 
             var ratio = consumo.CantidadTotal / driver;
-            todosLosRatios.Add((consumo.FamiliaId, ratio));
 
-            await _repo.UpsertRatioAsync(
-                consumo.FamiliaId, projectId, consumo.VariableBase,
-                consumo.CantidadTotal, consumo.PrecioUnitarioPromedio,
-                driver, ratio, esOutlier: false);
+            itemsAGuardar.Add(new RatioUpsertItem
+            {
+                FamiliaId = consumo.FamiliaId,
+                ProjectId = projectId,
+                VariableBase = consumo.VariableBase,
+                CantidadTotal = consumo.CantidadTotal,
+                PrecioUnitarioPromedio = consumo.PrecioUnitarioPromedio,
+                ValorDriver = driver,
+                RatioCantidad = ratio
+            });
 
             resultado.RatiosCalculados++;
         }
 
-        // Detectar outliers con IQR sobre los ratios del proyecto
-        if (todosLosRatios.Count >= 4)
-            await MarcarOutliersAsync(todosLosRatios, projectId);
+        // Una sola conexion para todas las familias (antes se abria una por familia).
+        await _repo.UpsertRatiosBulkAsync(itemsAGuardar);
+
+        // Detectar outliers con IQR comparando la MISMA familia entre todos los proyectos
+        // (no familias distintas dentro de este proyecto — eso comparaba peras con manzanas),
+        // en un solo lote (antes era una consulta + guardado por familia).
+        await RecalcularOutliersDeFamiliasAsync(itemsAGuardar.Select(i => i.FamiliaId).Distinct().ToList());
 
         return resultado;
     }
@@ -80,7 +90,12 @@ public class RatioService : IRatioService
         if (ratios.Count == 0) return null;
 
         var primero = ratios[0];
-        var valores = ratios.Where(r => !r.EsOutlier).Select(r => r.RatioCantidad).OrderBy(x => x).ToList();
+        // El checkbox manual es la unica autoridad sobre que entra al calculo — EsOutlier ya se
+        // reflejo ahi automaticamente cuando cambio (ver RecalcularOutliersDeFamiliasAsync), y el
+        // usuario puede marcar de nuevo un outlier si de verdad quiere forzar que cuente.
+        var paraRatio = ratios.Where(r => r.IncluidoManualRatio).ToList();
+        var paraPrecio = ratios.Where(r => r.IncluidoManualPrecio).ToList();
+        var valores = paraRatio.Select(r => r.RatioCantidad).OrderBy(x => x).ToList();
 
         return new RatioFamiliaComparacionDto
         {
@@ -92,7 +107,7 @@ public class RatioService : IRatioService
             MedianaRatio = valores.Count > 0 ? Mediana(valores) : 0,
             MinRatio = valores.Count > 0 ? valores.Min() : 0,
             MaxRatio = valores.Count > 0 ? valores.Max() : 0,
-            PromedioPrecioUnitario = ratios.Where(r => !r.EsOutlier).Select(r => r.PrecioUnitarioPromedio).DefaultIfEmpty(0).Average(),
+            PromedioPrecioUnitario = paraPrecio.Select(r => r.PrecioUnitarioPromedio).DefaultIfEmpty(0).Average(),
             Proyectos = ratios.Select(r => new RatioProyectoItemDto
             {
                 ProjectId = r.ProjectId,
@@ -101,10 +116,18 @@ public class RatioService : IRatioService
                 PrecioUnitario = r.PrecioUnitarioPromedio,
                 CantidadTotal = r.CantidadTotal,
                 ValorDriver = r.ValorDriver,
-                EsOutlier = r.EsOutlier
+                EsOutlier = r.EsOutlier,
+                IncluidoManualRatio = r.IncluidoManualRatio,
+                IncluidoManualPrecio = r.IncluidoManualPrecio
             }).ToList()
         };
     }
+
+    public Task ActualizarIncluidoManualAsync(int familiaId, int projectId, bool incluir, string campo) =>
+        _repo.ActualizarIncluidoManualAsync(familiaId, projectId, incluir, campo);
+
+    public Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync() =>
+        _repo.ListarFamiliasConRatioAsync();
 
     public async Task<ResumenRatiosDto> ObtenerResumenAsync()
     {
@@ -135,35 +158,62 @@ public class RatioService : IRatioService
         return decimal.TryParse(clean, out var d) ? d : 0;
     }
 
-    private async Task MarcarOutliersAsync(List<(int familiaId, decimal ratio)> ratios, int projectId)
+    /// <summary>
+    /// Recalcula el flag de outlier de varias familias en un solo lote, comparando el ratio de cada
+    /// familia a través de TODOS los proyectos que la tienen calculada (IQR) — no familias distintas
+    /// dentro de un mismo proyecto. Una sola consulta y un solo guardado para todas las familias.
+    /// </summary>
+    private async Task RecalcularOutliersDeFamiliasAsync(List<int> familiaIds)
     {
-        var valores = ratios.Select(r => r.ratio).OrderBy(x => x).ToList();
-        var n = valores.Count;
-        var q1 = valores[n / 4];
-        var q3 = valores[3 * n / 4];
-        var iqr = q3 - q1;
-        var limiteInf = q1 - 1.5m * iqr;
-        var limiteSup = q3 + 1.5m * iqr;
+        if (familiaIds.Count == 0) return;
 
-        foreach (var (familiaId, ratio) in ratios)
+        using var ctx = _factory.CreateDbContext();
+        var registros = await ctx.SsRatioProyecto
+            .Where(r => familiaIds.Contains(r.FamiliaId))
+            .ToListAsync();
+
+        foreach (var grupo in registros.GroupBy(r => r.FamiliaId))
         {
-            var esOutlier = ratio < limiteInf || ratio > limiteSup;
-            if (esOutlier)
+            var enGrupo = grupo.ToList();
+            if (enGrupo.Count < 4)
             {
-                // Actualizar solo el flag de outlier
-                var consumo = ratios.First(r => r.familiaId == familiaId);
-                // Re-upsert con esOutlier=true (los demás valores ya están en DB)
-                // Usamos el repo con valores dummy — el ON CONFLICT solo actualiza es_outlier
-                using var ctx = _factory.CreateDbContext();
-                var existing = await ctx.SsRatioProyecto
-                    .FirstOrDefaultAsync(r => r.FamiliaId == familiaId && r.ProjectId == projectId);
-                if (existing != null)
-                {
-                    existing.EsOutlier = true;
-                    await ctx.SaveChangesAsync();
-                }
+                foreach (var r in enGrupo) AplicarNuevoEstadoOutlier(r, false);
+                continue;
+            }
+
+            var valores = enGrupo.Select(r => r.RatioCantidad).OrderBy(x => x).ToList();
+            var n = valores.Count;
+            var q1 = valores[n / 4];
+            var q3 = valores[3 * n / 4];
+            var iqr = q3 - q1;
+            var limiteInf = q1 - 1.5m * iqr;
+            var limiteSup = q3 + 1.5m * iqr;
+
+            foreach (var r in enGrupo)
+            {
+                var nuevoEsOutlier = r.RatioCantidad < limiteInf || r.RatioCantidad > limiteSup;
+                AplicarNuevoEstadoOutlier(r, nuevoEsOutlier);
             }
         }
+
+        await ctx.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Aplica el nuevo estado de outlier a un registro. Si el estado realmente cambió (pasó a ser
+    /// outlier o dejó de serlo), sincroniza el checkbox manual con esa realidad — así el checkbox
+    /// nunca queda "marcado" mostrando inclusión mientras el outlier lo excluye por detrás. Si el
+    /// usuario ya lo había re-marcado a mano para forzar su inclusión, esa decisión se respeta
+    /// mientras el estado de outlier no vuelva a cambiar.
+    /// </summary>
+    private static void AplicarNuevoEstadoOutlier(SsRatioProyecto r, bool nuevoEsOutlier)
+    {
+        if (r.EsOutlier != nuevoEsOutlier)
+        {
+            r.IncluidoManualRatio = !nuevoEsOutlier;
+            r.IncluidoManualPrecio = !nuevoEsOutlier;
+        }
+        r.EsOutlier = nuevoEsOutlier;
     }
 
     private static decimal Mediana(List<decimal> sorted)

@@ -93,10 +93,20 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                 a.id, a.codigo, p.project_description AS proyecto_nombre, a.fecha,
                 t.nombre AS tipo_nombre, t.codigo AS tipo_codigo,
                 a.trabajador_nombre, a.estado, a.enviado, a.fecha_envio,
-                a.consecuencia_real_personal
+                a.consecuencia_real_personal, a.descripcion,
+                at_vinc.id AS accidente_trabajo_id,
+                CASE WHEN at_vinc.id IS NULL THEN NULL
+                     ELSE (at_vinc.estado = 'Cerrado' AND at_vinc.fecha_alta IS NOT NULL)
+                END AS cerrado_con_alta_medica,
+                COALESCE((
+                    SELECT SUM((d.fecha_fin - d.fecha_inicio) + 1)
+                    FROM ssoma_flash_descanso d
+                    WHERE d.accidente_incidente_id = a.id
+                ), 0) AS dias_perdidos
             FROM ss_accidente_incidente a
             JOIN project p ON p.project_id = a.proyecto_id
             JOIN ssoma_flash_tipo t ON t.id = a.tipo_id
+            LEFT JOIN ss_accidente_trabajo at_vinc ON at_vinc.flash_report_id = a.id
             {whereClause}
             ORDER BY a.fecha DESC, a.id DESC
             LIMIT @limit OFFSET @offset;

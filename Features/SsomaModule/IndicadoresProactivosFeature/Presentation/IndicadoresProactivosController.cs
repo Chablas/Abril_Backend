@@ -225,4 +225,32 @@ public class IndicadoresProactivosController : ControllerBase
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch { return StatusCode(500, new { message = "Error al calcular indicadores reactivos." }); }
     }
+
+    // ── Meta anual de reactivos ───────────────────────────────────────────────
+
+    /// <summary>Meta anual configurada (IF/IG/IA) para el año dado, si existe.</summary>
+    [HttpGet("meta-anual/{anio}")]
+    public async Task<IActionResult> GetMetaAnual(int anio)
+    {
+        try
+        {
+            var result = await _service.GetMetaAnualAsync(anio);
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al obtener la meta anual." }); }
+    }
+
+    /// <summary>Crea o actualiza la meta anual de IF/IG/IA para un año.</summary>
+    [HttpPut("meta-anual")]
+    public async Task<IActionResult> GuardarMetaAnual([FromBody] GuardarMetaAnualRequest request)
+    {
+        try
+        {
+            var result = await _service.GuardarMetaAnualAsync(request, GetUserId());
+            return Ok(result);
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch { return StatusCode(500, new { message = "Error al guardar la meta anual." }); }
+    }
 }

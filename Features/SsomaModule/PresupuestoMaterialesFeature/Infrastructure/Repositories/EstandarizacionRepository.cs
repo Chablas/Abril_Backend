@@ -26,7 +26,8 @@ public class EstandarizacionRepository : IEstandarizacionRepository
             SELECT i.id AS ItemId, i.nombre AS NombreItem,
                    f.id AS FamiliaId, f.nombre AS NombreFamilia,
                    f.pertenece_ssoma AS PerteneceSsoma,
-                   1.0 AS Score, 'ALIAS' AS Metodo
+                   1.0 AS Score, 'ALIAS' AS Metodo,
+                   a.factor_conversion AS FactorConversion
             FROM ss_material_alias a
             JOIN ss_material_item i ON i.id = a.item_id
             JOIN ss_material_familia f ON f.id = i.familia_id

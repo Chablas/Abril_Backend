@@ -61,7 +61,8 @@ public class CatalogoMaterialesService : ICatalogoMaterialesService
             // Alias: el texto crudo original (Recurso del S10) -> item estandarizado
             var recursoNorm = TextoNormalizador.Normalizar(fila.Recurso);
             var aliasCreado = await _repo.CreateAliasIfNotExistsAsync(
-                fila.Recurso.Trim(), recursoNorm, item.Id, "SEED", confianza: 1.0m);
+                fila.Recurso.Trim(), recursoNorm, item.Id, "SEED", confianza: 1.0m,
+                factorConversion: fila.CantidadComprada);
 
             if (aliasCreado) resultado.AliasCreados++;
         }

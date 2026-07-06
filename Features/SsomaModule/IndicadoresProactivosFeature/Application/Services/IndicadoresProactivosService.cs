@@ -85,4 +85,10 @@ public class IndicadoresProactivosService : IIndicadoresProactivosService
 
     public Task<List<IndicadorReactivoProyectoDto>> GetIndicadoresReactivosTodosAsync(int mes, int anio)
         => _repo.GetIndicadoresReactivosTodosAsync(mes, anio);
+
+    public Task<MetaAnualDto> GetMetaAnualAsync(int anio)
+        => _repo.GetMetaAnualAsync(anio);
+
+    public Task<MetaAnualDto> GuardarMetaAnualAsync(GuardarMetaAnualRequest request, int userId)
+        => _repo.GuardarMetaAnualAsync(request, userId);
 }

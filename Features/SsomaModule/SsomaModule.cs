@@ -206,6 +206,8 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IPresupuestoService, PresupuestoService>();
             services.AddScoped<IControlConsumoRepository, ControlConsumoRepository>();
             services.AddScoped<IControlConsumoService, ControlConsumoService>();
+            services.AddScoped<IPersonalHitoRepository, PersonalHitoRepository>();
+            services.AddScoped<IPersonalHitoService, PersonalHitoService>();
 
             // Horas Hombre (a partir del Tareo de Control de Acceso)
             services.AddScoped<IHorasHombreRepository, HorasHombreRepository>();

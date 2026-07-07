@@ -4793,3 +4793,40 @@ No se agregó validación de existencia de proyecto — se mantuvo consistente c
 - `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Seeds/plantilla_proyecto_seed.json`
 - `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs`
 - `Abril-Backend.csproj`
+
+## Sesión 2026-07-06 — Fixes en aplicar-plantilla y cascada de fechas
+
+Rama: `victor-backend`
+
+### Bug 1: `InvalidOperationException` al aplicar plantilla (execution strategy)
+
+`AplicarPlantillaAsync` usaba una transacción manual (`BeginTransactionAsync`/`CommitAsync`) directo sobre el `DbContext`, pero el provider Npgsql tiene `EnableRetryOnFailure` (`NpgsqlRetryingExecutionStrategy`), y esa combinación no es compatible → `The configured execution strategy 'NpgsqlRetryingExecutionStrategy' does not support user-initiated transactions`.
+
+**Fix:** se envolvió toda la transacción (las 2 pasadas de inserts + commit) con la execution strategy correcta:
+
+```csharp
+var strategy = ctx.Database.CreateExecutionStrategy();
+await strategy.ExecuteAsync(async () =>
+{
+    await using var transaction = await ctx.Database.BeginTransactionAsync();
+    // ... pasada 1 + pasada 2 ...
+    await transaction.CommitAsync();
+});
+```
+
+`ImportarMppAsync` NO tiene este bug: no usa transacción manual, solo `SaveChangesAsync()` sueltos, así que no requirió cambio.
+
+### Bug 2: la cascada de fechas no se disparaba al editar solo la fecha de una actividad
+
+Al ponerle fecha a una actividad predecesora, su sucesora (vinculada correctamente en `ActivityPredecessors`) no recibía fechas por cascada; el PUT devolvía `"cascada": null`.
+
+Causa (descartada la sospecha inicial de tabla descalzada — ambos flujos usan la misma tabla `ActivityPredecessors`): en `CronogramaActividadesService.EditarActividadAsync`, la llamada a `AplicarCascadaAsync` estaba **encerrada dentro del `if (request.PredecessorIds != null)`**. Un PUT que solo cambia fechas (sin reenviar `predecessorIds`) se saltaba el bloque entero → la cascada nunca corría.
+
+**Fix:** se separó el bloque de predecesoras (`SetPredecesorasAsync` + `DetectCycleAsync`, que solo debe correr si el request trae `PredecessorIds`) del cálculo de cascada, que ahora corre siempre que cambien fechas o predecesoras. `Cascada` en la respuesta sigue siendo `null` cuando no hay cambios reales (se mantiene el contrato con el frontend).
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Application/Services/CronogramaActividadesService.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs`
+
+### Pendiente
+- El usuario iba a reprobar en el navegador el flujo de cascada (fecha en 2167 → 2168) tras el Bug 2; confirmar que quedó bien.

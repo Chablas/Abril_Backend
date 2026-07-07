@@ -254,12 +254,23 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                         }
                         else
                         {
-                            // Sucesor es hoja: reposicionar preservando duración hábil original
-                            var nuevoFin = AddBusinessDays(nuevoInicio, duracion[id] - 1, feriados);
-                            var finNuevoDo = DateOnly.FromDateTime(nuevoFin);
+                            // Sucesor es hoja: reposicionar preservando duración hábil original.
+                            // Si la actividad nunca tuvo fecha fin, no se autocompleta con inicio+1:
+                            // se deja en null hasta que el usuario la ingrese a mano.
+                            DateOnly? finNuevoDo = act.PlannedEndDate.HasValue
+                                ? DateOnly.FromDateTime(AddBusinessDays(nuevoInicio, duracion[id] - 1, feriados))
+                                : null;
 
                             if (act.PlannedStartDate != inicioNuevoDo || act.PlannedEndDate != finNuevoDo)
                             {
+                                // Primera vez que la actividad recibe fecha (ahora por cascada) y su LB
+                                // sigue vacía: copiarla. Igual que en Crear/EditarActividad — no mezclar,
+                                // no pisar si ya tiene valor.
+                                if (act.BaselineStartDate == null)
+                                    act.BaselineStartDate = inicioNuevoDo;
+                                if (act.BaselineEndDate == null)
+                                    act.BaselineEndDate = finNuevoDo;
+
                                 cambios.Add(new CascadaCambioDto
                                 {
                                     ProjectActivityId = id,
@@ -267,10 +278,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                                     InicioAnterior = act.PlannedStartDate,
                                     InicioNuevo = inicioNuevoDo,
                                     FinAnterior = act.PlannedEndDate,
-                                    FinNuevo = finNuevoDo
+                                    FinNuevo = finNuevoDo,
+                                    BaselineStartDate = act.BaselineStartDate,
+                                    BaselineEndDate = act.BaselineEndDate
                                 });
                             }
-                            finVigente[id] = nuevoFin;
+                            finVigente[id] = finNuevoDo?.ToDateTime(TimeOnly.MinValue);
                         }
                     }
                 }
@@ -315,6 +328,17 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
             if (inicioAnterior != nuevoInicio || finAnterior != nuevoFin)
             {
+                // Misma regla que en Crear/EditarActividad: LB automática solo para hojas
+                // (los nodos padre no reciben LB automática), y solo si sigue vacía.
+                bool esHoja = !hijosDe.ContainsKey(rootId);
+                if (esHoja)
+                {
+                    if (nodo.BaselineStartDate == null)
+                        nodo.BaselineStartDate = nuevoInicio;
+                    if (nodo.BaselineEndDate == null)
+                        nodo.BaselineEndDate = nuevoFin;
+                }
+
                 cambios.Add(new CascadaCambioDto
                 {
                     ProjectActivityId = rootId,
@@ -322,7 +346,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                     InicioAnterior = inicioAnterior,
                     InicioNuevo = nuevoInicio,
                     FinAnterior = finAnterior,
-                    FinNuevo = nuevoFin
+                    FinNuevo = nuevoFin,
+                    BaselineStartDate = nodo.BaselineStartDate,
+                    BaselineEndDate = nodo.BaselineEndDate
                 });
             }
 

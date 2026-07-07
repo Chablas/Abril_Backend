@@ -29,6 +29,70 @@ public class RevisionMaterialesService : IRevisionMaterialesService
     public async Task<List<MaterialPendienteDto>> ObtenerPendientesAsync(int projectId) =>
         await _consumoRepo.ObtenerPendientesRevisionAsync(projectId);
 
+    public async Task<List<MaterialPendienteGlobalDto>> ObtenerPendientesGlobalAsync() =>
+        await _consumoRepo.ObtenerPendientesRevisionGlobalAsync();
+
+    public async Task<List<MaterialNoSsomaDto>> ObtenerNoSsomaAsync() =>
+        await _consumoRepo.ObtenerNoSsomaAsync();
+
+    /// <summary>
+    /// Igual que <see cref="ProcesarRevisionAsync"/> pero sin exigir un solo ProjectId compartido:
+    /// cada línea puede pertenecer a un proyecto distinto (vista global del Catálogo de Materiales).
+    /// Los rechazados se agrupan por proyecto para notificar a Oficina Técnica de cada uno.
+    /// </summary>
+    public async Task<RevisionResultDto> ProcesarRevisionGlobalAsync(List<RevisionDecisionDto> decisiones, int usuarioId)
+    {
+        var resultado = new RevisionResultDto();
+        var rechazadosPorProyecto = new Dictionary<int, List<(string RecursoCrudo, string? Motivo)>>();
+
+        foreach (var decision in decisiones)
+        {
+            try
+            {
+                var linea = await _consumoRepo.ObtenerLineaPorIdAsync(decision.LineaId);
+                if (linea == null)
+                {
+                    resultado.Errores.Add($"Línea {decision.LineaId}: no encontrada.");
+                    continue;
+                }
+
+                if (decision.Decision == "AUTORIZADO")
+                {
+                    await _consumoRepo.ActualizarRevisionAsync(decision.LineaId, "AUTORIZADO", decision.ItemIdConfirmado);
+
+                    if (decision.ItemIdConfirmado.HasValue)
+                    {
+                        var textoNorm = TextoNormalizador.Normalizar(linea.RecursoCrudo);
+                        await _estandarizacionRepo.CrearAliasAsync(linea.RecursoCrudo, textoNorm,
+                            decision.ItemIdConfirmado.Value, "FUZZY_CONFIRMADO", 1.0m);
+                    }
+                    resultado.Autorizados++;
+                }
+                else if (decision.Decision == "RECHAZADO")
+                {
+                    await _consumoRepo.ActualizarRevisionAsync(decision.LineaId, "RECHAZADO", null);
+                    if (!rechazadosPorProyecto.TryGetValue(linea.ProjectId, out var lista))
+                        rechazadosPorProyecto[linea.ProjectId] = lista = [];
+                    lista.Add((linea.RecursoCrudo, decision.MotivoRechazo));
+                    resultado.Rechazados++;
+                }
+                else
+                {
+                    resultado.Errores.Add($"Línea {decision.LineaId}: decisión inválida '{decision.Decision}'. Use AUTORIZADO o RECHAZADO.");
+                }
+            }
+            catch (Exception ex)
+            {
+                resultado.Errores.Add($"Línea {decision.LineaId}: {ex.Message}");
+            }
+        }
+
+        foreach (var (projectId, rechazados) in rechazadosPorProyecto)
+            resultado.NotificacionesEnviadas += await NotificarOficinaTecnicaAsync(projectId, rechazados);
+
+        return resultado;
+    }
+
     public async Task<RevisionResultDto> ProcesarRevisionAsync(RevisionLoteDto dto, int usuarioId)
     {
         var resultado = new RevisionResultDto();

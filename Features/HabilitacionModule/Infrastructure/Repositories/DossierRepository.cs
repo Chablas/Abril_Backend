@@ -28,17 +28,30 @@ public class DossierRepository : IDossierRepository
         if (proyectoId.HasValue) query = query.Where(s => s.ProyectoId == proyectoId.Value);
         if (anio.HasValue) query = query.Where(s => s.Anio == anio.Value);
 
-        return await query
+        var contributores = await ctx.Contributor.ToDictionaryAsync(c => c.ContributorId, c => c.ContributorName);
+        var proyectos = await ctx.Project.ToDictionaryAsync(p => p.ProjectId, p => p.ProjectDescription);
+
+        var semanas = await query
             .OrderByDescending(s => s.Anio)
             .ThenByDescending(s => s.NumeroSemana)
-            .Select(s => new DossierSemanaDto(
+            .Select(s => new
+            {
                 s.Id, s.ContributorId, s.ProyectoId,
                 s.Anio, s.NumeroSemana, s.FechaInicio, s.FechaFin,
                 s.Estado, s.ObsRevisor, s.CreatedAt,
-                s.Documentos.Count,
-                s.Documentos.Count(d => d.Estado == "Subido"),
-                s.Documentos.Count(d => d.Estado == "NA")))
+                TotalDocs = s.Documentos.Count,
+                DocsSubidos = s.Documentos.Count(d => d.Estado == "Subido"),
+                DocsNa = s.Documentos.Count(d => d.Estado == "NA"),
+                DocsAprobados = s.Documentos.Count(d => d.Estado == "Aprobado"),
+            })
             .ToListAsync();
+
+        return semanas.Select(s => new DossierSemanaDto(
+            s.Id, s.ContributorId, contributores.GetValueOrDefault(s.ContributorId),
+            s.ProyectoId, proyectos.GetValueOrDefault(s.ProyectoId),
+            s.Anio, s.NumeroSemana, s.FechaInicio, s.FechaFin,
+            s.Estado, s.ObsRevisor, s.CreatedAt,
+            s.TotalDocs, s.DocsSubidos, s.DocsNa, s.DocsAprobados)).ToList();
     }
 
     public async Task<DossierSemanaDetalleDto?> GetDetalleAsync(int id)
@@ -64,7 +77,12 @@ public class DossierRepository : IDossierRepository
         return new DossierSemanaDetalleDto(
             s.Id, s.ContributorId, s.ProyectoId,
             s.Anio, s.NumeroSemana, s.FechaInicio, s.FechaFin,
-            s.Estado, s.ObsRevisor, s.CreatedAt, docs);
+            s.Estado, s.ObsRevisor, s.CreatedAt,
+            s.Documentos.Count,
+            s.Documentos.Count(d => d.Estado == "Subido"),
+            s.Documentos.Count(d => d.Estado == "NA"),
+            s.Documentos.Count(d => d.Estado == "Aprobado"),
+            docs);
     }
 
     public async Task<(int Id, DateTime FechaInicio, DateTime FechaFin)> EnsureSemanaAsync(EnsureSemanaRequest req)

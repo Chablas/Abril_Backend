@@ -10,7 +10,7 @@ public interface IAccidenteIncidenteService
     Task<FlashReportDetalleDto> GetDetalleAsync(int id);
     Task<int> CrearAsync(CrearFlashReportRequest request, int? usuarioId);
     Task ActualizarAsync(int id, ActualizarFlashReportRequest request);
-    Task EnviarFlashReportAsync(int id);
+    Task EnviarFlashReportAsync(int id, bool enviarEmail = true);
     Task EliminarAsync(int id);
     Task<List<EntregableDto>> GetEntregablesAsync(int accidenteId);
     Task ActualizarEntregableAsync(int entregableId, ActualizarEntregableRequest req);

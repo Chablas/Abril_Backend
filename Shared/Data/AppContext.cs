@@ -374,6 +374,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsPresupuestoPersonalHito> SsPresupuestoPersonalHito => Set<SsPresupuestoPersonalHito>();
         public DbSet<SsControlSemana> SsControlSemana => Set<SsControlSemana>();
         public DbSet<SsControlSemanaLinea> SsControlSemanaLinea => Set<SsControlSemanaLinea>();
+        public DbSet<SsKit> SsKit => Set<SsKit>();
+        public DbSet<SsKitItem> SsKitItem => Set<SsKitItem>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -1058,6 +1060,17 @@ namespace Abril_Backend.Infrastructure.Data
                  .HasForeignKey(x => x.ControlId)
                  .OnDelete(DeleteBehavior.Cascade);
                 e.HasOne<SsMaterialFamilia>()
+                 .WithMany()
+                 .HasForeignKey(x => x.FamiliaId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+            modelBuilder.Entity<SsKitItem>(e =>
+            {
+                e.HasOne(x => x.Kit)
+                 .WithMany(k => k.Items)
+                 .HasForeignKey(x => x.KitId)
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(x => x.Familia)
                  .WithMany()
                  .HasForeignKey(x => x.FamiliaId)
                  .OnDelete(DeleteBehavior.Restrict);

@@ -19,7 +19,9 @@ public record DossierDocumentoDto(
 public record DossierSemanaDto(
     int Id,
     int ContributorId,
+    string? EmpresaNombre,
     int ProyectoId,
+    string? ProyectoNombre,
     int Anio,
     int NumeroSemana,
     DateTime FechaInicio,
@@ -29,7 +31,8 @@ public record DossierSemanaDto(
     DateTime CreatedAt,
     int TotalDocs,
     int DocsSubidos,
-    int DocsNa);
+    int DocsNa,
+    int DocsAprobados);
 
 public record DossierSemanaDetalleDto(
     int Id,
@@ -42,6 +45,10 @@ public record DossierSemanaDetalleDto(
     string Estado,
     string? ObsRevisor,
     DateTime CreatedAt,
+    int TotalDocs,
+    int DocsSubidos,
+    int DocsNa,
+    int DocsAprobados,
     List<DossierDocumentoDto> Documentos);
 
 public record EnsureSemanaRequest(int ContributorId, int ProyectoId, int NumeroSemana, int Anio);

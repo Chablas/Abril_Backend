@@ -4779,3 +4779,19 @@ Tabla simple (`anio` único, `meta_indice_frecuencia/gravedad/accidentabilidad` 
 - Cedro 33 · 2025 (instancia vieja de PASO, 130 actividades con 3 duplicados) sin limpiar.
 - 4 accidentes 2026 sin regularizar (ver §4).
 - Cronograma de Hitos (`milestone-schedule`): el usuario reportó fechas que no coinciden con un Excel de referencia — se determinó que las fechas son 100% manuales (sin cálculo ni importación automática), no se investigó más a fondo por indicación del usuario ("me equivoqué, es otro tema").
+
+## Sesión 2026-07-07 — Bug "Nueva semana" no aparecía en Dossier del contratista
+
+Se investigó por qué "Nueva semana" en `habilitacion/gestion/dossier` (Panel Contratista) parecía no crear nada. Se descartó que fuera un problema de esquema (las tablas `ss_dossier_semana`, `ss_dossier_documento`, `ss_dossier_documento_archivo` ya existían en la BD) revisando el flujo completo (frontend → `DossierController` → `DossierService` → `DossierRepository.EnsureSemanaAsync`, que usa `INSERT ... ON CONFLICT DO NOTHING`). Confirmando con Network tab del navegador se vio que el registro sí se creaba (`GET /dossier` devolvía la semana nueva en estado "Borrador"), pero no se mostraba en la UI.
+
+Causa real: el bug estaba en el **frontend**, no en el backend. El getter `semanasFiltradas` (`Abril-Frontend/.../pages/dossier/dossier.ts`) ocultaba toda semana en estado `Borrador` con `docsSubidos === 0` — pensado para no ensuciar la vista admin con borradores vacíos, pero eso también ocultaba al contratista la semana que él mismo acababa de crear, dejándolo sin forma de empezar a subir documentos.
+
+Se generó adicionalmente `dossier_semanal_schema.sql` (DDL idempotente para las 3 tablas del dossier semanal) como respaldo por si alguna instalación no las tuviera aplicadas — regla del proyecto: cambios de esquema siempre en SQL manual para pgAdmin, nunca `dotnet ef migrations`.
+
+### Archivos clave
+- `Abril_Backend/Features/HabilitacionModule/Infrastructure/Repositories/DossierRepository.cs` (`EnsureSemanaAsync` — sin cambios, funcionaba bien)
+- `Abril_Backend/dossier_semanal_schema.sql` (nuevo, DDL de respaldo)
+- El fix real quedó en el repo frontend: `Abril-Frontend/src/app/features/habilitacion/pages/dossier/dossier.ts` (getter `semanasFiltradas`)
+
+### Pendiente
+- Ninguno para este bug — verificado con Network tab que la semana ya aparece tras el fix del getter.

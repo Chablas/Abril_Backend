@@ -1586,7 +1586,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 : $"{data.PaymentMethodDescription}, {valorizacionTexto}";
 
             // {{HOJA_RESUMEN_ADELANTO_MONTO}}: con adelanto → "% - monto"; sin adelanto → única "-".
-            var hojaResumenAdelantoMonto = data.PaymentMethodId == 2
+            // Se usa hasAdvance (no un método de pago específico) porque el adelanto puede darse
+            // tanto en "Contrato con adelanto" (2) como en "Pago a cuenta" (4).
+            var hojaResumenAdelantoMonto = hasAdvance
                 ? $"{advancePercentageDisplay} - {advanceAmountDisplay}"
                 : "-";
 

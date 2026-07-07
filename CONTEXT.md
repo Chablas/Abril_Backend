@@ -4830,3 +4830,24 @@ Causa (descartada la sospecha inicial de tabla descalzada — ambos flujos usan 
 
 ### Pendiente
 - El usuario iba a reprobar en el navegador el flujo de cascada (fecha en 2167 → 2168) tras el Bug 2; confirmar que quedó bien.
+
+## Sesión 2026-07-07 — Investigación: feriados en la cascada de fechas
+
+Rama: `victor-backend`. Sesión solo de investigación, sin cambios de código.
+
+### Hallazgo: dos sistemas de feriados desconectados
+
+`CronogramaSchedulingService.EsHabil` sí excluye feriados (no solo sábado/domingo), leyendo `ctx.Feriados` dentro de `CalcularCascadaAsync`. Pero existen **dos tablas de feriados separadas que no se comunican entre sí**:
+
+1. **`Feriados`** (`Shared/Models/Feriado.cs`, tabla `feriados`) — la que **realmente consulta** la cascada de cronograma. CRUD vía `CronogramaActividadesController` (`GET/POST/DELETE api/v1/.../feriados`).
+2. **`Holiday`** (`Features/ConfigurationModule/Features/HolidayFeature/`, tabla `holiday`) — módulo CRUD más completo (con `HolidayType`, `RecurringYearly`, soft-delete) expuesto en `api/v1/holiday`. **No lo usa la cascada** — es una tabla paralela sin relación con `Feriados`.
+
+Riesgo: si alguien carga feriados vía `api/v1/holiday` pensando que alimenta el cronograma, no tiene ningún efecto.
+
+### Cómo se actualizan los feriados hoy
+
+Seed hardcodeado en la migración `20260601002547_AddFeriadosAndActivityPredecessor.cs` con feriados nacionales de Perú para 2024-2026 (incluye Semana Santa movible calculada a mano por año). No hay generación automática ni job — para 2027+ hay que insertar manualmente vía nueva migración o los endpoints del `CronogramaActividadesController`.
+
+### Pendiente / posible mejora futura
+- Evaluar si conviene unificar `Feriados` y `Holiday` en una sola tabla, o al menos documentar/advertir que son sistemas distintos.
+- Cargar feriados 2027 antes de que termine 2026 (ni la tabla `Feriados` ni `Holiday` los tienen aún).

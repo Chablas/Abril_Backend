@@ -47,6 +47,12 @@ public class SsomaAccidenteIncidente
     public string Codigo { get; set; } = string.Empty;           // GAR-AC-01
     public int ProyectoId { get; set; }
     public int TipoId { get; set; }
+
+    // Área organizacional de origen del evento (Producción/construcción, Post Venta, Arquitectura Comercial).
+    // Independiente del proyecto: un mismo proyecto puede tener eventos de más de un área
+    // (ej. post venta en un proyecto ya culminado, o arq. comercial en la sala de ventas antes de obra).
+    public string AreaOrigen { get; set; } = "Produccion"; // Produccion | PostVenta | ArquitecturaComercial
+
     public DateTime Fecha { get; set; }
     public TimeSpan? Hora { get; set; }
     public string LugarExacto { get; set; } = string.Empty;

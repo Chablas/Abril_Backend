@@ -466,14 +466,12 @@ public class PasoService : IPasoService
 
         foreach (var paso in pasos)
         {
-            // "Anio" es siempre el año en que arranca el ciclo (sin importar el mes de inicio).
-            var cicloStartYear = paso.Anio!.Value;
-            var cicloStart = new DateOnly(cicloStartYear, paso.MesInicio, 1);
-            var cicloEnd = cicloStart.AddMonths(12).AddDays(-1);
-
+            // No filtramos por ventana de ciclo (cicloStart/cicloEnd): la relación real
+            // ejecucion -> actividad -> paso_id ya determina a qué PASO pertenece cada fila.
+            // Filtrar además por fecha ocultaba ejecuciones reales cuando el mes_inicio/anio
+            // del PASO se corrigió después de que ya existían ejecuciones generadas.
             var allEj = paso.Actividades
                 .SelectMany(a => a.Ejecuciones)
-                .Where(e => e.FechaProgramada >= cicloStart && e.FechaProgramada <= cicloEnd)
                 .ToList();
 
             var totalProg = allEj.Count;
@@ -526,14 +524,8 @@ public class PasoService : IPasoService
             };
 
         var hoy = DateOnly.FromDateTime(DateTime.Today);
-        // "Anio" es siempre el año en que arranca el ciclo (sin importar el mes de inicio).
-        var cicloStartYear = paso.Anio!.Value;
-        var cicloStart = new DateOnly(cicloStartYear, paso.MesInicio, 1);
-        var cicloEnd = cicloStart.AddMonths(12).AddDays(-1);
-
-        var allEj = paso.Actividades.SelectMany(a => a.Ejecuciones)
-            .Where(e => e.FechaProgramada >= cicloStart && e.FechaProgramada <= cicloEnd)
-            .ToList();
+        // No filtramos por ventana de ciclo: ver nota en GetHistoricoProyectoAsync.
+        var allEj = paso.Actividades.SelectMany(a => a.Ejecuciones).ToList();
         var planHoy = allEj.Count(e => e.FechaProgramada <= hoy);
         var ejHoy = allEj.Count(e => e.Estado == "Ejecutado" && e.FechaProgramada <= hoy);
         var totalProg = allEj.Count;
@@ -551,7 +543,6 @@ public class PasoService : IPasoService
             var ejs = paso.Actividades
                 .Where(a => string.Equals(a.Categoria?.Ambito, ambito, StringComparison.OrdinalIgnoreCase))
                 .SelectMany(a => a.Ejecuciones)
-                .Where(e => e.FechaProgramada >= cicloStart && e.FechaProgramada <= cicloEnd)
                 .ToList();
             var ph = ejs.Count(e => e.FechaProgramada <= hoy);
             var eh = ejs.Count(e => e.Estado == "Ejecutado" && e.FechaProgramada <= hoy);
@@ -1214,8 +1205,6 @@ if (cat is not null) act.Categoria = cat;
         string[] nombresMes = { "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                                  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre" };
         string NombreMes() => mes >= 1 && mes <= 12 ? nombresMes[mes] : "";
-        PasoResumenMesDto Vacio() => new() { Anio = anio, Mes = mes, NombreMes = NombreMes(),
-            Seguridad = new(), Salud = new(), Ambiente = new(), Actividades = new() };
 
         // FIX-B2: null-safe anio (plantilla corporativa tiene Anio=NULL en BD)
         int pasoAnio = paso.Anio ?? DateTime.Today.Year;
@@ -1224,12 +1213,13 @@ if (cat is not null) act.Categoria = cat;
         // "Anio" es siempre el año en que arranca el ciclo (sin importar el mes de inicio).
         int cicloStartYear = pasoAnio;
         int cicloStartAbs  = cicloStartYear * 12 + paso.MesInicio - 1;
-        int cicloEndAbs    = cicloStartAbs + 11;
         int requestedAbs   = anio * 12 + mes - 1;
 
-        if (requestedAbs < cicloStartAbs || requestedAbs > cicloEndAbs)
-            return Vacio();
-
+        // No cortamos con "fuera de ciclo": si el mes tiene ejecuciones reales (ya sea porque
+        // el mes_inicio/anio del PASO se corrigió después de generarlas, o porque son datos
+        // migrados), deben mostrarse igual. mesCiclo puede salir <1 o >12 aquí; eso solo hace
+        // que la proyección teórica por frecuencia no aplique para ese mes, pero no oculta
+        // ninguna ejecución real (el filtro por actividad ya la incluye si existe en el mes).
         int mesCiclo = requestedAbs - cicloStartAbs + 1; // 1-based
 
         var actividadesEnMes = paso.Actividades

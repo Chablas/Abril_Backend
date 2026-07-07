@@ -25,7 +25,11 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
     public async Task<FlashReportInicializarDto> GetInicializarAsync()
     {
         const string sql = """
-            SELECT project_id AS id, project_description AS nombre, abbreviation AS abreviatura, email_coord_ssoma AS emailCoordsoma FROM project WHERE active = true ORDER BY project_description;
+            SELECT DISTINCT p.project_id AS id, p.project_description AS nombre, p.abbreviation AS abreviatura, p.email_coord_ssoma AS emailCoordsoma
+            FROM project p
+            LEFT JOIN ss_proyecto_habilitado h ON h.proyecto_id = p.project_id AND h.state = true AND h.active = true
+            WHERE p.active = true OR h.id IS NOT NULL
+            ORDER BY p.project_description;
             SELECT id, nombre, codigo FROM ssoma_flash_tipo ORDER BY orden;
             SELECT id, nombre FROM ssoma_flash_etapa_proyecto ORDER BY nombre;
             SELECT id, nombre FROM ssoma_flash_parte_afectada ORDER BY nombre;
@@ -72,7 +76,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
     public async Task<(List<FlashReportListItemDto> Items, int Total)> GetListAsync(
         int? proyectoId, int? tipoId, string? estado,
         DateTime? fechaDesde, DateTime? fechaHasta,
-        bool? soloEnviados, int page, int pageSize)
+        bool? soloEnviados, string? areaOrigen, int page, int pageSize)
     {
         var where = new List<string>();
         var p = new DynamicParameters();
@@ -85,15 +89,20 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         if (fechaDesde.HasValue)  { where.Add("a.fecha >= @fd"); p.Add("fd", fechaDesde.Value.Date); }
         if (fechaHasta.HasValue)  { where.Add("a.fecha <= @fh"); p.Add("fh", fechaHasta.Value.Date); }
         if (soloEnviados == true) { where.Add("a.enviado = true"); }
+        if (!string.IsNullOrEmpty(areaOrigen)) { where.Add("a.area_origen = @area"); p.Add("area", areaOrigen); }
 
         var whereClause = where.Count > 0 ? "WHERE " + string.Join(" AND ", where) : "";
 
         var sql = $"""
             SELECT
                 a.id, a.codigo, p.project_description AS proyecto_nombre, a.fecha,
-                t.nombre AS tipo_nombre, t.codigo AS tipo_codigo,
-                a.trabajador_nombre, a.estado, a.enviado, a.fecha_envio,
-                a.consecuencia_real_personal, a.descripcion,
+                t.nombre AS tipo_nombre, t.codigo AS tipo_codigo, a.area_origen,
+                COALESCE(a.trabajador_nombre, (
+                    SELECT t.trabajador_nombre FROM ssoma_accidente_trabajador t
+                    WHERE t.accidente_incidente_id = a.id ORDER BY t.id LIMIT 1
+                )) AS trabajador_nombre,
+                a.estado, a.enviado, a.fecha_envio,
+                a.consecuencia_real_personal, a.consecuencia_potencial_personal, a.descripcion,
                 at_vinc.id AS accidente_trabajo_id,
                 CASE WHEN at_vinc.id IS NULL THEN NULL
                      ELSE (at_vinc.estado = 'Cerrado' AND at_vinc.fecha_alta IS NOT NULL)
@@ -128,7 +137,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             SELECT
                 a.id, a.codigo,
                 a.proyecto_id, p.project_description AS proyecto_nombre, p.abbreviation AS proyecto_abreviatura,
-                a.tipo_id, t.nombre AS tipo_nombre, t.codigo AS tipo_codigo,
+                a.tipo_id, t.nombre AS tipo_nombre, t.codigo AS tipo_codigo, a.area_origen,
                 a.fecha, a.hora, a.lugar_exacto, a.descripcion, a.estado,
                 a.empresa_abril_id, ea.contributor_name AS empresa_abril_nombre,
                 a.contributor_id, c.contributor_name AS contributor_nombre,
@@ -207,6 +216,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             Codigo = codigo,
             ProyectoId = req.ProyectoId,
             TipoId = req.TipoId,
+            AreaOrigen = string.IsNullOrWhiteSpace(req.AreaOrigen) ? "Produccion" : req.AreaOrigen,
             Fecha = DateTime.SpecifyKind(req.Fecha.Date, DateTimeKind.Utc),
             Hora = hora,
             LugarExacto = req.LugarExacto,
@@ -338,6 +348,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             hora = ts;
 
         entity.TipoId = req.TipoId;
+        entity.AreaOrigen = string.IsNullOrWhiteSpace(req.AreaOrigen) ? "Produccion" : req.AreaOrigen;
         entity.Fecha = DateTime.SpecifyKind(req.Fecha.Date, DateTimeKind.Utc);
         entity.Hora = hora;
         entity.LugarExacto = req.LugarExacto;
@@ -401,6 +412,17 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             ctx.SsomaAccidenteTrabajador.AddRange(nuevos);
         }
 
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task ActualizarSeveridadAsync(int id, int? consecuenciaRealPersonal, int? consecuenciaPotencialPersonal)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = await ctx.Set<SsomaAccidenteIncidente>().FindAsync(id)
+            ?? throw new AbrilException("Flash Report no encontrado.", 404);
+        entity.ConsecuenciaRealPersonal = consecuenciaRealPersonal;
+        entity.ConsecuenciaPotencialPersonal = consecuenciaPotencialPersonal;
+        entity.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
     }
 

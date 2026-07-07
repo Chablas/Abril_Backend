@@ -9,11 +9,12 @@ public interface IAccidenteIncidenteRepository
     Task<(List<FlashReportListItemDto> Items, int Total)> GetListAsync(
         int? proyectoId, int? tipoId, string? estado,
         DateTime? fechaDesde, DateTime? fechaHasta,
-        bool? soloEnviados, int page, int pageSize);
+        bool? soloEnviados, string? areaOrigen, int page, int pageSize);
     Task<FlashReportDetalleDto?> GetDetalleAsync(int id);
     Task<string> GenerarCodigoAsync(int proyectoId, string tipoCodigoCorto);
     Task<int> CrearAsync(CrearFlashReportRequest request, string codigo, string? urlFoto1, string? urlFoto2, int? usuarioId, bool generarEntregables);
     Task ActualizarAsync(int id, ActualizarFlashReportRequest request, string? urlFoto1, string? urlFoto2);
+    Task ActualizarSeveridadAsync(int id, int? consecuenciaRealPersonal, int? consecuenciaPotencialPersonal);
     Task MarcarEnviadoAsync(int id, string urlPdf);
     Task<int?> CrearAccidenteTrabajoVinculadoAsync(FlashReportDetalleDto fr, int registradoPorId);
     Task EliminarAsync(int id);

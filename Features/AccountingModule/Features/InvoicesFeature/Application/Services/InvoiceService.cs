@@ -246,8 +246,8 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Appli
             if (string.IsNullOrWhiteSpace(detail.DocumentUrl))
                 throw new AbrilException("La factura no tiene un documento para firmar.");
 
-            var signature = await _signatureRepository.GetActiveBytes()
-                ?? throw new AbrilException("No hay una firma configurada. Configúrela en Contabilidad → Configuración → Firma de Gerente General.");
+            var signature = await _signatureRepository.GetActiveBytesByUserId(userId)
+                ?? throw new AbrilException("No tienes una firma configurada. Configúrala en Contabilidad → Configuración → Firma.");
 
             var destination = await _repository.GetActiveFolderDestination()
                 ?? throw new AbrilException("No hay una carpeta de facturas configurada.");

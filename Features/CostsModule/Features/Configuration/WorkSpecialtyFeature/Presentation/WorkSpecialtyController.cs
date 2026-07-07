@@ -20,7 +20,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialt
         }
 
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] string? description, [FromQuery] int page = 1)
+        public async Task<IActionResult> GetPaged([FromQuery] string? description, [FromQuery] bool? active, [FromQuery] int page = 1)
         {
             try
             {
@@ -28,7 +28,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialt
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetPaged(new WorkSpecialtyFilterDto { Description = description, Page = page });
+                var result = await _service.GetPaged(new WorkSpecialtyFilterDto { Description = description, Active = active, Page = page });
                 return Ok(result);
             }
             catch (Exception)

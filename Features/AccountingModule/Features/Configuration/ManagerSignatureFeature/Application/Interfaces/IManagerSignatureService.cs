@@ -4,10 +4,10 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Manager
 {
     public interface IManagerSignatureService
     {
-        /// <summary>Firma única configurada (o null si aún no se configuró).</summary>
-        Task<ManagerSignatureDto?> GetSingleton();
+        /// <summary>Firma del usuario indicado (o null si aún no la configuró).</summary>
+        Task<ManagerSignatureDto?> Get(int userId);
 
-        /// <summary>Valida y guarda/actualiza la firma única a partir del PNG del canvas. Devuelve la firma resultante.</summary>
+        /// <summary>Valida y guarda/actualiza la firma del usuario indicado a partir del PNG del canvas. Devuelve la firma resultante.</summary>
         Task<ManagerSignatureDto> Save(ManagerSignatureSaveDto dto, int userId);
     }
 }

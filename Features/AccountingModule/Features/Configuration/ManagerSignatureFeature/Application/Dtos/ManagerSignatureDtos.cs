@@ -1,13 +1,11 @@
 namespace Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Application.Dtos
 {
-    /// <summary>Firma única (singleton) configurada. La imagen se entrega como data URL para mostrarla directo.</summary>
+    /// <summary>Firma del usuario actual. La imagen se entrega como data URL para mostrarla directo.</summary>
     public class ManagerSignatureDto
     {
-        public int ManagerSignatureId { get; set; }
         /// <summary>data:image/png;base64,… para usar directamente en un &lt;img src&gt;.</summary>
         public string ImageDataUrl { get; set; } = null!;
         public DateTime? UpdatedDateTime { get; set; }
-        public DateTime CreatedDateTime { get; set; }
     }
 
     /// <summary>Datos para guardar la firma: el data URL PNG exportado por el canvas.</summary>

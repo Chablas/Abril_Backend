@@ -125,6 +125,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
         }
 
         [HttpPost("{invoiceId:int}/sign")]
+        [Authorize(Roles = "USUARIO FIRMANTE DE FACTURAS DE CONTABILIDAD")]
         public async Task<IActionResult> Sign(int invoiceId)
         {
             try

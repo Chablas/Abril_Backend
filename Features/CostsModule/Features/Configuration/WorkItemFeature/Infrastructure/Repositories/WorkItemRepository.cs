@@ -49,6 +49,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
             if (filter.WorkItemCategoryId.HasValue)
                 query = query.Where(x => x.WorkItemCategoryId == filter.WorkItemCategoryId.Value);
 
+            if (filter.Active.HasValue)
+                query = query.Where(x => x.Active == filter.Active.Value);
+
             var totalRecords = await query.CountAsync();
 
             var data = await query
@@ -70,6 +73,12 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
                             c => c.WorkSpecialtyId,
                             s => (int?)s.WorkSpecialtyId,
                             (c, s) => s.WorkSpecialtyDescription)
+                        .FirstOrDefault(),
+                    // Mismo criterio que el filtro "Instructivo" de partidas de control:
+                    // tiene instructivo = carpeta asociada (sync automático o manual).
+                    CategoryHasInstructivo = _context.WorkItemCategory
+                        .Where(c => c.WorkItemCategoryId == x.WorkItemCategoryId)
+                        .Select(c => (bool?)(c.InstructivosFolderId != null))
                         .FirstOrDefault(),
                     CreatedDateTime = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
                     CreatedUserId = x.CreatedUserId,

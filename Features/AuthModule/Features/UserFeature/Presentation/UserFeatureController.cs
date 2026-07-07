@@ -80,6 +80,28 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Presentation
         }
 
         [Authorize]
+        [HttpPost("abril-manual")]
+        public async Task<IActionResult> CreateAbrilManualUser([FromBody] AbrilManualUserCreateDto dto)
+        {
+            try
+            {
+                var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (claim == null) return Unauthorized(new { message = "Inicie sesión" });
+
+                await _service.CreateAbrilManualUser(dto, int.Parse(claim.Value));
+                return Ok(new { message = "Usuario de Abril creado correctamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] UserFeatureCreateDto dto)
         {

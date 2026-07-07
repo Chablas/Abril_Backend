@@ -10,6 +10,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces
         Task<List<AbrilWorkerOptionDto>> GetAbrilWorkersWithoutUser();
         Task<UserModel> Create(UserFeatureCreateDto dto);
         Task CreateAbrilWorkerUser(AbrilWorkerUserCreateDto dto, int createdUserId);
+        Task CreateAbrilManualUser(string email, string? fullName, List<int> roleIds, int createdUserId);
         Task Update(int userId, UserFeatureUpdateDto dto, int updatedUserId);
         Task ToggleActive(int userId, int updatedUserId);
         Task Delete(int userId, int updatedUserId);

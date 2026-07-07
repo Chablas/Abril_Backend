@@ -248,6 +248,27 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             await _projectSubContractorRepository.UpdateStatusToSent(dto.ProjectSubContractorId, userId);
         }
 
+        public async Task<AdjudicacionRecipientsPreviewDto> GetNotificationRecipients(int projectSubContractorId)
+        {
+            var data = await _projectSubContractorRepository.GetNotificationData(projectSubContractorId);
+
+            // CC = staff de obra + oficina central + equipo de costos y presupuestos (mismas
+            // fuentes que el envío real). No se expanden grupos vía Graph ni se incluye el BCC.
+            var costosEmails = await _costosPresupuestosEmailService.GetActiveEmails();
+            var cc = data.StaffEmails
+                .Concat(data.OficinaCentralEmails)
+                .Concat(costosEmails)
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return new AdjudicacionRecipientsPreviewDto
+            {
+                To = data.ContractorEmails,
+                Cc = cc
+            };
+        }
+
         public async Task UpdateStatusAsync(int projectSubContractorId, int statusId, int userId)
         {
             await _projectSubContractorRepository.UpdateStatus(projectSubContractorId, statusId, userId);
@@ -2222,9 +2243,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // La carta de fianza solo aplica en Suministro (ContractModalityId == 2) + contrato con
             // adelanto (PaymentMethodId == 2) y únicamente cuando se marcó el toggle IncludesCartaFianza.
             var conCartaFianza = data.PaymentMethodId == 2 && data.ContractModalityId == 2 && data.IncludesCartaFianza;
-            SetHeader("G12:G12", conCartaFianza
-                ? "PAGARÉ, LETRA DE GARANTÍA\nY CARTA DE FIANZA"
-                : "PAGARÉ Y LETRA DE GARANTÍA");
+            // El encabezado es siempre "CHEQUE / RECIBO"; el detalle del documento de garantía
+            // (pagaré, letra, carta de fianza) va en la celda de datos G13.
+            SetHeader("G12:G12", "CHEQUE / RECIBO");
             SetHeader("H12:H12", "% ADELANTO");
             SetHeader("I12:I12", $"IMPORTE ADELANTO\n{currencySymbol}");
             SetHeader("J12:J12", "SALDO");

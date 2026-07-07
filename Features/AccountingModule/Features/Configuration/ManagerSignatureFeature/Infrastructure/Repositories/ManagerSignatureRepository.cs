@@ -1,7 +1,7 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Application.Dtos;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Interfaces;
-using Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Repositories
@@ -15,80 +15,50 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Manager
             _factory = factory;
         }
 
-        public async Task<ManagerSignatureDto?> GetSingleton()
+        public async Task<ManagerSignatureDto?> GetByUserId(int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var s = await ctx.ManagerSignature
-                .Where(x => x.State)
-                .OrderBy(x => x.ManagerSignatureId)
-                .Select(x => new
-                {
-                    x.ManagerSignatureId,
-                    x.ImageBytes,
-                    x.Mime,
-                    x.CreatedDateTime,
-                    x.UpdatedDateTime
-                })
+            var p = await ctx.Person
+                .Where(x => x.UserId == userId && x.SignatureImageBytes != null)
+                .Select(x => new { x.SignatureImageBytes, x.SignatureMime, x.SignatureUpdatedDateTime })
                 .FirstOrDefaultAsync();
 
-            if (s == null) return null;
+            if (p == null) return null;
 
             return new ManagerSignatureDto
             {
-                ManagerSignatureId = s.ManagerSignatureId,
-                ImageDataUrl = $"data:{s.Mime};base64,{Convert.ToBase64String(s.ImageBytes)}",
-                CreatedDateTime = s.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
-                UpdatedDateTime = s.UpdatedDateTime.HasValue
-                    ? s.UpdatedDateTime.Value.ToOffset(TimeSpan.FromHours(-5)).DateTime
+                ImageDataUrl = $"data:{p.SignatureMime};base64,{Convert.ToBase64String(p.SignatureImageBytes!)}",
+                UpdatedDateTime = p.SignatureUpdatedDateTime.HasValue
+                    ? p.SignatureUpdatedDateTime.Value.ToOffset(TimeSpan.FromHours(-5)).DateTime
                     : (DateTime?)null
             };
         }
 
-        public async Task Upsert(byte[] imageBytes, string mime, int userId)
+        public async Task Upsert(int userId, byte[] imageBytes, string mime)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var record = await ctx.ManagerSignature
-                .Where(x => x.State)
-                .OrderBy(x => x.ManagerSignatureId)
-                .FirstOrDefaultAsync();
+            var person = await ctx.Person.FirstOrDefaultAsync(x => x.UserId == userId)
+                ?? throw new AbrilException("No se encontró una persona asociada al usuario actual.");
 
-            if (record == null)
-            {
-                ctx.ManagerSignature.Add(new ManagerSignature
-                {
-                    ImageBytes = imageBytes,
-                    Mime = mime,
-                    Active = true,
-                    State = true,
-                    CreatedDateTime = DateTimeOffset.UtcNow,
-                    CreatedUserId = userId
-                });
-            }
-            else
-            {
-                record.ImageBytes = imageBytes;
-                record.Mime = mime;
-                record.Active = true;
-                record.UpdatedDateTime = DateTimeOffset.UtcNow;
-                record.UpdatedUserId = userId;
-            }
+            person.SignatureImageBytes = imageBytes;
+            person.SignatureMime = mime;
+            person.SignatureUpdatedDateTime = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();
         }
 
-        public async Task<(byte[] Bytes, string Mime)?> GetActiveBytes()
+        public async Task<(byte[] Bytes, string Mime)?> GetActiveBytesByUserId(int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var s = await ctx.ManagerSignature
-                .Where(x => x.State && x.Active)
-                .OrderBy(x => x.ManagerSignatureId)
-                .Select(x => new { x.ImageBytes, x.Mime })
+            var p = await ctx.Person
+                .Where(x => x.UserId == userId && x.SignatureImageBytes != null)
+                .Select(x => new { x.SignatureImageBytes, x.SignatureMime })
                 .FirstOrDefaultAsync();
 
-            return s == null ? null : (s.ImageBytes, s.Mime);
+            return p == null ? null : (p.SignatureImageBytes!, p.SignatureMime!);
         }
     }
 }

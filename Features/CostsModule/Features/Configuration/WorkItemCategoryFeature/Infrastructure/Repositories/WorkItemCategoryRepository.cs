@@ -62,6 +62,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
             if (filter.WorkSpecialtyId.HasValue)
                 query = query.Where(x => x.WorkSpecialtyId == filter.WorkSpecialtyId.Value);
 
+            if (filter.Active.HasValue)
+                query = query.Where(x => x.Active == filter.Active.Value);
+
             var totalRecords = await query.CountAsync();
 
             var data = await query

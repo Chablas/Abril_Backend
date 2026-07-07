@@ -11,6 +11,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
         public List<WorkItemSimpleDTO> WorkItems {get;set;}
         public List<WorkItemCategorySimpleDTO> WorkItemCategories { get;set; }
         public List<WorkSpecialtySimpleDTO> WorkSpecialties { get;set; } = new();
+        public List<ProjectSubContractorStatusSimpleDTO> ProjectSubContractorStatuses { get;set; } = new();
         public List<ContributorFactoryDTO> Contributors {get;set;}
     }
 }

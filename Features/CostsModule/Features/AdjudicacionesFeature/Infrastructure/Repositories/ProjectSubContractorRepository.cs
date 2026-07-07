@@ -335,6 +335,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cWorkSpecialtyActive = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.Active));
             string cWorkSpecialtyState  = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.State));
 
+            // ProjectSubContractorStatus (pasos de la adjudicación)
+            string tStatus     = ctx.Table<ProjectSubContractorStatus>();
+            string cStatusId   = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusId));
+            string cStatusDesc = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusDescription));
+
             // Contractor + Contributor
             string tContractor          = ctx.Table<Contractor>();
             string cContractorId        = ctx.Col<Contractor>(nameof(Contractor.ContractorId));
@@ -412,6 +417,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cWorkSpecialtyActive} = TRUE AND {cWorkSpecialtyState} = TRUE
                  ORDER BY {cWorkSpecialtyDesc};
 
+                SELECT {cStatusId} AS ""ProjectSubContractorStatusId"", {cStatusDesc} AS ""ProjectSubContractorStatusDescription""
+                  FROM {tStatus}
+                 ORDER BY {cStatusId};
+
                 SELECT ct.{cContractorId} AS contractor_id,
                        contrib.{cContributorId} AS contributor_id,
                        contrib.{cContributorName} AS contributor_name,
@@ -447,6 +456,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var valorizationForms  = (await multi.ReadAsync<WorkItemValorizationFormSimpleDTO>()).ToList();
             var workItemCategories = (await multi.ReadAsync<WorkItemCategorySimpleDTO>()).ToList();
             var workSpecialties    = (await multi.ReadAsync<WorkSpecialtySimpleDTO>()).ToList();
+            var statuses           = (await multi.ReadAsync<ProjectSubContractorStatusSimpleDTO>()).ToList();
             var contractors        = (await multi.ReadAsync<ContributorFactoryDTO>()).ToList();
             var emails             = (await multi.ReadAsync<(int ContractorId, string Email)>()).ToList();
 
@@ -479,6 +489,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 WorkItems          = workItems,
                 WorkItemCategories = workItemCategories,
                 WorkSpecialties    = workSpecialties,
+                ProjectSubContractorStatuses = statuses,
                 Contributors       = contractors,
             };
         }
@@ -555,6 +566,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
 
             if (filter.PaymentMethodId.HasValue)
                 query = query.Where(x => x.psc.PaymentMethodId == filter.PaymentMethodId.Value);
+
+            if (filter.ProjectSubContractorStatusId.HasValue)
+                query = query.Where(x => x.psc.ProjectSubContractorStatusId == filter.ProjectSubContractorStatusId.Value);
 
             if (filter.CreatedUserId.HasValue)
                 query = query.Where(x => x.psc.CreatedUserId == filter.CreatedUserId.Value);
@@ -740,13 +754,25 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             return null;
         }
 
-        public async Task<AdjudicacionDashboardDto> GetDashboardAsync(List<int>? allowedProjectIds)
+        public async Task<AdjudicacionDashboardDto> GetDashboardAsync(ProjectSubContractorFilterDTO filter, bool includeFilterOptions)
         {
             using var ctx = _factory.CreateDbContext();
 
             var baseQ = ctx.ProjectSubContractor.Where(x => x.State && x.Active);
-            if (allowedProjectIds != null)
-                baseQ = baseQ.Where(x => allowedProjectIds.Contains(x.ProjectId));
+            if (filter.AllowedProjectIds != null)
+                baseQ = baseQ.Where(x => filter.AllowedProjectIds.Contains(x.ProjectId));
+
+            // Filtros del dashboard (afectan a todos los gráficos).
+            if (filter.ProjectId.HasValue)
+                baseQ = baseQ.Where(x => x.ProjectId == filter.ProjectId.Value);
+            if (filter.ContractTypeId.HasValue)
+                baseQ = baseQ.Where(x => x.ContractTypeId == filter.ContractTypeId.Value);
+            if (filter.ContractModalityId.HasValue)
+                baseQ = baseQ.Where(x => x.ContractModalityId == filter.ContractModalityId.Value);
+            if (filter.PaymentMethodId.HasValue)
+                baseQ = baseQ.Where(x => x.PaymentMethodId == filter.PaymentMethodId.Value);
+            if (filter.ProjectSubContractorStatusId.HasValue)
+                baseQ = baseQ.Where(x => x.ProjectSubContractorStatusId == filter.ProjectSubContractorStatusId.Value);
 
             // ── Resumen ────────────────────────────────────────────────────────
             var total = await baseQ.CountAsync();
@@ -941,8 +967,54 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 }
             }
 
+            // ── Catálogos de filtros (solo en la primera carga) ─────────────────
+            AdjudicacionDashboardFiltersDto? filtros = null;
+            if (includeFilterOptions)
+            {
+                var proyectosQ = ctx.Project.Where(p => p.Active && p.State);
+                if (filter.AllowedProjectIds != null)
+                    proyectosQ = proyectosQ.Where(p => filter.AllowedProjectIds.Contains(p.ProjectId));
+                var proyectosOpt = await proyectosQ
+                    .OrderBy(p => p.ProjectDescription)
+                    .Select(p => new AdjudicacionOptionDto { Id = p.ProjectId, Label = p.ProjectDescription })
+                    .ToListAsync();
+
+                var tiposContratoOpt = await ctx.ContractType
+                    .Where(ct => ct.Active)
+                    .OrderBy(ct => ct.ContractTypeDescription)
+                    .Select(ct => new AdjudicacionOptionDto { Id = ct.ContractTypeId, Label = ct.ContractTypeDescription! })
+                    .ToListAsync();
+
+                var modalidadesOpt = await ctx.ContractModality
+                    .Where(cm => cm.State)
+                    .OrderBy(cm => cm.ContractModalityId)
+                    .Select(cm => new AdjudicacionOptionDto { Id = cm.ContractModalityId, Label = cm.ContractModalityDescription! })
+                    .ToListAsync();
+
+                var modalidadesPagoOpt = await ctx.PaymentMethod
+                    .Where(pm => pm.Active)
+                    .OrderBy(pm => pm.PaymentMethodDescription)
+                    .Select(pm => new AdjudicacionOptionDto { Id = pm.PaymentMethodId, Label = pm.PaymentMethodDescription! })
+                    .ToListAsync();
+
+                var estadosOpt = await ctx.ProjectSubContractorStatus
+                    .OrderBy(e => e.ProjectSubContractorStatusId)
+                    .Select(e => new AdjudicacionOptionDto { Id = e.ProjectSubContractorStatusId, Label = e.ProjectSubContractorStatusDescription })
+                    .ToListAsync();
+
+                filtros = new AdjudicacionDashboardFiltersDto
+                {
+                    Projects = proyectosOpt,
+                    ContractTypes = tiposContratoOpt,
+                    ContractModalities = modalidadesOpt,
+                    PaymentMethods = modalidadesPagoOpt,
+                    Statuses = estadosOpt
+                };
+            }
+
             return new AdjudicacionDashboardDto
             {
+                Filters = filtros,
                 Summary = new AdjudicacionDashboardSummaryDto
                 {
                     Total = total,
@@ -1223,6 +1295,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cCFFileName = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.OriginalFileName));
             string cCFState = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.State));
 
+            string tScannedFile = ctx.Table<ProjectSubContractorScannedDoc>();
+            string cSDPscId = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.ProjectSubContractorId));
+            string cSDSlot = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.Slot));
+            string cSDFileUrl = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.FileUrl));
+            string cSDFileName = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.OriginalFileName));
+            string cSDState = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.State));
+
             var parameters = new DynamicParameters();
             parameters.Add("@PageSize", pageSize);
             parameters.Add("@PageOffset", offset);
@@ -1270,6 +1349,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             {
                 whereConditions.Add($"psc.{cPscPaymentMethodId} = @PaymentMethodId");
                 parameters.Add("@PaymentMethodId", filter.PaymentMethodId.Value);
+            }
+
+            if (filter.ProjectSubContractorStatusId.HasValue)
+            {
+                whereConditions.Add($"psc.{cPscStatusId} = @ProjectSubContractorStatusId");
+                parameters.Add("@ProjectSubContractorStatusId", filter.ProjectSubContractorStatusId.Value);
             }
 
             if (filter.CreatedUserId.HasValue)
@@ -1456,6 +1541,7 @@ SELECT {cPaymentMethodId} AS ""PaymentMethodId"", {cPaymentMethodDesc} AS ""Paym
 SELECT {cCurrencyId} AS ""CurrencyId"", {cCurrencyDesc} AS ""CurrencyDescription"", {cCurrencyCode} AS ""CurrencyCode"", {cCurrencySymbol} AS ""CurrencySymbol"" FROM {tCurrency} WHERE {cCurrencyActive} = TRUE ORDER BY {cCurrencyCode};
 SELECT {cWorkItemId} AS ""WorkItemId"", {cWorkItemDesc} AS ""WorkItemDescription"" FROM {tWorkItem} WHERE {cWorkItemActive} = TRUE ORDER BY {cWorkItemDesc};
 SELECT {cWorkItemCategoryId} AS ""WorkItemCategoryId"", {cWorkItemCategoryDesc} AS ""WorkItemCategoryDescription"" FROM {tWorkItemCategory} WHERE {cWorkItemCategoryActive} = TRUE ORDER BY {cWorkItemCategoryDesc};
+SELECT {cStatusId} AS ""ProjectSubContractorStatusId"", {cStatusDesc} AS ""ProjectSubContractorStatusDescription"" FROM {tStatus} ORDER BY {cStatusId};
 SELECT ct.{cContractorId} AS ""ContractorId"", contrib.{cContributorId} AS ""ContributorId"", contrib.{cContributorName} AS ""ContributorName"", contrib.{cContributorRuc} AS ""ContributorRuc""
 FROM {tContractor} ct
 JOIN {tContributor} contrib ON contrib.{cContributorId} = ct.{cContractorContribId}
@@ -1466,6 +1552,7 @@ ORDER BY contrib.{cContributorName};
 SELECT {cCEContractorId} AS ""ContractorId"", {cCEEmail} AS ""Email"" FROM {tContractorEmail} WHERE {cCEActive} = TRUE;
 SELECT {cQFPscId} AS ""ProjectSubContractorId"", {cQFFileUrl} AS ""FileUrl"", {cQFFileName} AS ""OriginalFileName"" FROM {tQuotFile} WHERE {cQFState} = TRUE;
 SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {cCFFileName} AS ""OriginalFileName"" FROM {tCompFile} WHERE {cCFState} = TRUE;
+SELECT {cSDPscId} AS ""ProjectSubContractorId"", {cSDSlot} AS ""Slot"", {cSDFileUrl} AS ""FileUrl"", {cSDFileName} AS ""OriginalFileName"" FROM {tScannedFile} WHERE {cSDState} = TRUE;
 SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} AS concept, {cWorkItemValFormPercentage} AS percentage, {cWorkItemValFormSortOrder} AS sort_order FROM {tWorkItemValForm} WHERE {cWorkItemValFormState} = TRUE ORDER BY {cWorkItemValFormWorkItemId}, {cWorkItemValFormSortOrder};
             ";
 
@@ -1486,22 +1573,27 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
             var currencies = (await multi.ReadAsync<CurrencySimpleDTO>()).ToList();
             var workItems = (await multi.ReadAsync<WorkItemSimpleDTO>()).ToList();
             var workItemCategories = (await multi.ReadAsync<WorkItemCategorySimpleDTO>()).ToList();
+            var statuses = (await multi.ReadAsync<ProjectSubContractorStatusSimpleDTO>()).ToList();
             var contractors = (await multi.ReadAsync<ContributorFactoryDTO>()).ToList();
 
             // Read supporting data (using dynamic to avoid tuple-naming issues)
             var emailsRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var quotationFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var comparativeFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
+            var scannedFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var valorizationForms = (await multi.ReadAsync<WorkItemValorizationFormSimpleDTO>()).ToList();
 
             var emails = emailsRaw.Select(e => new { ContractorId = (int)e.ContractorId, Email = (string)e.Email }).ToList();
             var quotationFiles = quotationFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
             var comparativeFiles = comparativeFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
+            var scannedFiles = scannedFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, Slot = (int)f.Slot, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
 
             // Build dictionaries for supporting data
             var emailsByContractor = emails.GroupBy(e => e.ContractorId).ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
             var quotationByPsc = quotationFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
             var comparativeByPsc = comparativeFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
+            // Escaneados agrupados por adjudicación y luego por slot (1/2/3).
+            var scannedByPsc = scannedFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.ToDictionary(f => f.Slot));
             var formsByWorkItem = valorizationForms.GroupBy(f => f.WorkItemId).ToDictionary(g => g.Key, g => g.OrderBy(f => f.SortOrder).ToList());
 
             // Map contractors with emails (for form data / create dropdown)
@@ -1589,6 +1681,17 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 item.WorkItemValorizationForms = formsByWorkItem.GetValueOrDefault(item.WorkItemId, new());
                 item.QuotationFiles   = quotationByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
                 item.ComparativeFiles = comparativeByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
+
+                // Documentos escaneados del paso 7 (slots 1/2/3), para que se vean en los pasos 7 y 8.
+                if (scannedByPsc.TryGetValue(item.ProjectSubContractorId, out var slots))
+                {
+                    if (slots.TryGetValue(1, out var s1))
+                        item.ScannedDoc1 = new ProjectSubContractorFileDto { FileUrl = s1.FileUrl, OriginalFileName = s1.OriginalFileName };
+                    if (slots.TryGetValue(2, out var s2))
+                        item.ScannedDoc2 = new ProjectSubContractorFileDto { FileUrl = s2.FileUrl, OriginalFileName = s2.OriginalFileName };
+                    if (slots.TryGetValue(3, out var s3))
+                        item.ScannedDoc3 = new ProjectSubContractorFileDto { FileUrl = s3.FileUrl, OriginalFileName = s3.OriginalFileName };
+                }
             }
 
             var formDataDto = new ProjectSubContractorFormDataDTO
@@ -1600,6 +1703,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 Currencies = currencies,
                 WorkItems = workItems,
                 WorkItemCategories = workItemCategories,
+                ProjectSubContractorStatuses = statuses,
                 Contributors = contractors
             };
 

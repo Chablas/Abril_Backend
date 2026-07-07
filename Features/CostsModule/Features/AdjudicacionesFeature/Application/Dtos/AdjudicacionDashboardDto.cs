@@ -28,9 +28,31 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public int PlazoPromedioDias { get; set; }
     }
 
+    /// <summary>Opción genérica para los desplegables de filtros del dashboard (id + etiqueta).</summary>
+    public class AdjudicacionOptionDto
+    {
+        public int Id { get; set; }
+        public string Label { get; set; } = null!;
+    }
+
+    /// <summary>
+    /// Catálogos para los filtros del dashboard. Solo se envían en la primera carga
+    /// (no se re-piden cuando el usuario cambia un filtro).
+    /// </summary>
+    public class AdjudicacionDashboardFiltersDto
+    {
+        public List<AdjudicacionOptionDto> Projects { get; set; } = new();
+        public List<AdjudicacionOptionDto> ContractTypes { get; set; } = new();
+        public List<AdjudicacionOptionDto> ContractModalities { get; set; } = new();
+        public List<AdjudicacionOptionDto> PaymentMethods { get; set; } = new();
+        public List<AdjudicacionOptionDto> Statuses { get; set; } = new();
+    }
+
     /// <summary>Datos completos del dashboard de adjudicaciones (un solo endpoint).</summary>
     public class AdjudicacionDashboardDto
     {
+        /// <summary>Catálogos de filtros (solo en la primera carga; null cuando el cliente ya los tiene).</summary>
+        public AdjudicacionDashboardFiltersDto? Filters { get; set; }
         public AdjudicacionDashboardSummaryDto Summary { get; set; } = new();
         public List<AdjudicacionChartItemDto> PorEstado { get; set; } = new();
         public List<AdjudicacionChartItemDto> PorProyecto { get; set; } = new();

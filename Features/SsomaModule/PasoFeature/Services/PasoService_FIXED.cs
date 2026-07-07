@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.Paso.Dtos;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
@@ -790,8 +791,17 @@ if (cat is not null) act.Categoria = cat;
     public async Task DeleteActividadAsync(int id, string motivo, int userId)
     {
         using var ctx = _factory.CreateDbContext();
-        var act = await ctx.SsomaPasoActividades.FindAsync(id)
+        var act = await ctx.SsomaPasoActividades
+            .Include(a => a.Ejecuciones)
+            .FirstOrDefaultAsync(a => a.Id == id)
             ?? throw new KeyNotFoundException("Actividad no encontrada.");
+
+        var ejecutadas = act.Ejecuciones.Count(e => e.Estado == "Ejecutado");
+        if (ejecutadas > 0)
+            throw new AbrilException(
+                $"No se puede eliminar: la actividad tiene {ejecutadas} ejecución(es) ya registradas como Ejecutado. " +
+                "Si necesitas reemplazarla, usa Editar en lugar de Eliminar para conservar el historial.",
+                400);
 
         var valorAnterior = JsonSerializer.Serialize(new
         {

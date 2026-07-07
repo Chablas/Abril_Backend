@@ -87,12 +87,15 @@ public class AccidenteIncidenteController : ControllerBase
     }
 
     [HttpPost("{id:int}/enviar")]
-    public async Task<IActionResult> Enviar(int id)
+    public async Task<IActionResult> Enviar(int id, [FromQuery] bool enviarEmail = true)
     {
         try
         {
-            await _service.EnviarFlashReportAsync(id);
-            return Ok(new { message = "Flash Report enviado correctamente. Se generó el PDF y se notificó por correo." });
+            await _service.EnviarFlashReportAsync(id, enviarEmail);
+            var mensaje = enviarEmail
+                ? "Flash Report enviado correctamente. Se generó el PDF y se notificó por correo."
+                : "Flash Report enviado correctamente. Se generó el PDF (sin notificación por correo).";
+            return Ok(new { message = mensaje });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error enviar flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }

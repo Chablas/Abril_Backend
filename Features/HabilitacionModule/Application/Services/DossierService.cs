@@ -81,6 +81,15 @@ public class DossierService : IDossierService
         if (detalle.Estado != "Borrador" && detalle.Estado != "Rechazado")
             throw new AbrilException("Solo se puede enviar un dossier en estado Borrador o Rechazado.", 400);
 
+        var pendientes = detalle.Documentos
+            .Where(d => d.Estado == "Pendiente")
+            .Select(d => d.TipoDoc)
+            .ToList();
+        if (pendientes.Count > 0)
+            throw new AbrilException(
+                $"Debes subir el documento o marcarlo como 'No aplica' antes de enviar: {string.Join(", ", pendientes)}.",
+                400);
+
         await _repo.EnviarAsync(dossierId);
     }
 

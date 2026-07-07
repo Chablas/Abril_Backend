@@ -79,7 +79,7 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         await _repo.ActualizarAsync(id, request, urlFoto1, urlFoto2);
     }
 
-    public async Task EnviarFlashReportAsync(int id)
+    public async Task EnviarFlashReportAsync(int id, bool enviarEmail = true)
     {
         var fr = await _repo.GetDetalleAsync(id)
             ?? throw new AbrilException("Flash Report no encontrado.", 404);
@@ -114,8 +114,9 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
             await _repo.CrearAccidenteTrabajoVinculadoAsync(fr, usuarioId);
         }
 
-        // Enviar email
-        await EnviarEmailAsync(fr, pdfBytes, pdfNombre);
+        // Enviar email (se puede omitir para regularizaciones de flash reports atrasados)
+        if (enviarEmail)
+            await EnviarEmailAsync(fr, pdfBytes, pdfNombre);
     }
 
     public async Task EliminarAsync(int id)

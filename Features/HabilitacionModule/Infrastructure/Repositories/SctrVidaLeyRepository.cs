@@ -386,6 +386,28 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 }
 
                 await ctx.SaveChangesAsync();
+
+                // Los workers agregados/quitados/reenviados pueden pertenecer también a
+                // otras pólizas (otros meses); recalcular esas para que no queden con
+                // Estado desactualizado.
+                var workersAfectadosHab = workerIdsAgregar
+                    .Concat(workerIdsQuitar)
+                    .Concat(archivoReemplazado ? workerIdsNuevos : Enumerable.Empty<int>())
+                    .Distinct()
+                    .ToList();
+                if (workersAfectadosHab.Count > 0)
+                {
+                    await RecalcularPolizasPorWorkersAsync(ctx, item.Id, workersAfectadosHab);
+                }
+
+                // Si la póliza se quedó sin trabajadores, no hay nada pendiente:
+                // no debe quedar en "Enviado"/"En revision".
+                if (workerIdsNuevos.Count == 0 && (entity.Estado == "Enviado" || entity.Estado == "En revision"))
+                {
+                    entity.Estado = "Aprobado";
+                    entity.UpdatedAt = DateTime.UtcNow;
+                    await ctx.SaveChangesAsync();
+                }
             }
 
             if (esAbril)
@@ -532,6 +554,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             entity.UpdatedAt = DateTime.UtcNow;
 
             await ctx.SaveChangesAsync();
+
+            // Los trabajadores afectados pueden pertenecer también a otras pólizas
+            // (otros meses). Recalcular esas también para que no queden con Estado
+            // desactualizado (p.ej. "Enviado" cuando ya no hay pendientes reales).
+            if (item is not null && afectados.Count > 0)
+            {
+                await RecalcularPolizasPorWorkersAsync(ctx, item.Id, afectados);
+            }
 
             var dtos = await BuildDtosAsync(ctx, new List<SsSctrVidaley> { entity });
             return dtos.First();
@@ -750,7 +780,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .Select(w => w.WorkerId)
                     .ToListAsync();
 
-                if (!workerIds.Any()) continue;
+                if (!workerIds.Any())
+                {
+                    // Sin trabajadores no hay nada pendiente: no debe quedar en "Enviado".
+                    if (poliza.Estado == "Enviado" || poliza.Estado == "En revision")
+                    {
+                        poliza.Estado = "Aprobado";
+                        poliza.UpdatedAt = DateTime.UtcNow;
+                    }
+                    continue;
+                }
 
                 var pendientes = await ctx.SsHabTrabajador
                     .Where(h => h.ItemId == item.Id
@@ -759,6 +798,57 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .CountAsync();
 
                 poliza.Estado = pendientes > 0 ? "Enviado" : "Aprobado";
+                poliza.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        // Recalcula el Estado de TODAS las pólizas (de cualquier mes) que incluyan
+        // alguno de estos workers para este item, no solo la póliza que se está editando.
+        // Sin esto, aprobar/rechazar un trabajador en la póliza del mes actual deja
+        // pólizas viejas (de meses anteriores) con Estado="Enviado" desactualizado,
+        // aunque ya no tengan trabajadores realmente pendientes.
+        private async Task RecalcularPolizasPorWorkersAsync(AppDbContext ctx, int itemId, List<int> workerIds)
+        {
+            if (workerIds.Count == 0) return;
+
+            var polizaIds = await ctx.SsSctrVidaLeyWorker
+                .Where(w => workerIds.Contains(w.WorkerId))
+                .Select(w => w.SctrVidaLeyId)
+                .Distinct()
+                .ToListAsync();
+
+            if (polizaIds.Count == 0) return;
+
+            var polizas = await ctx.SsSctrVidaley
+                .Where(s => polizaIds.Contains(s.Id))
+                .ToListAsync();
+
+            foreach (var poliza in polizas)
+            {
+                var workersDePoliza = await ctx.SsSctrVidaLeyWorker
+                    .Where(w => w.SctrVidaLeyId == poliza.Id)
+                    .Select(w => w.WorkerId)
+                    .ToListAsync();
+
+                if (workersDePoliza.Count == 0) continue;
+
+                var countEnviado = await ctx.SsHabTrabajador
+                    .Where(h => h.ItemId == itemId
+                             && workersDePoliza.Contains(h.WorkerId)
+                             && h.Estado == "Enviado")
+                    .CountAsync();
+
+                var countEnRevision = await ctx.SsHabTrabajador
+                    .Where(h => h.ItemId == itemId
+                             && workersDePoliza.Contains(h.WorkerId)
+                             && h.Estado == "En revision")
+                    .CountAsync();
+
+                poliza.Estado = countEnviado > 0 ? "Enviado"
+                              : countEnRevision > 0 ? "En revision"
+                              : "Aprobado";
                 poliza.UpdatedAt = DateTime.UtcNow;
             }
 

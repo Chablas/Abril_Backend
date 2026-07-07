@@ -124,6 +124,53 @@ public class ConsumoRepository : IConsumoRepository
             .ToListAsync();
     }
 
+    public async Task<List<MaterialPendienteGlobalDto>> ObtenerPendientesRevisionGlobalAsync()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsConsumoLinea
+            .Where(l => l.EstadoRevision == "PENDIENTE")
+            .Include(l => l.Item).ThenInclude(i => i!.Familia)
+            .Include(l => l.Proyecto)
+            .OrderByDescending(l => l.PrecioTotal)
+            .Select(l => new MaterialPendienteGlobalDto
+            {
+                LineaId = l.Id,
+                ProjectId = l.ProjectId,
+                ProjectDescription = l.Proyecto.ProjectDescription ?? string.Empty,
+                RecursoCrudo = l.RecursoCrudo,
+                Cantidad = l.Cantidad,
+                PrecioUnitario = l.PrecioUnitario,
+                PrecioTotal = l.PrecioTotal,
+                FechaGuia = l.FechaGuia,
+                NombreItemSugerido = l.Item != null ? l.Item.Nombre : null,
+                NombreFamiliaSugerida = l.Item != null ? l.Item.Familia.Nombre : null,
+                ItemIdSugerido = l.ItemId,
+                ScoreMatch = l.ScoreMatch,
+                MetodoMatch = l.MetodoMatch,
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<MaterialNoSsomaDto>> ObtenerNoSsomaAsync()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsConsumoLinea
+            .Where(l => !l.PerteneceSsoma || l.EstadoRevision == "RECHAZADO")
+            .Include(l => l.Proyecto)
+            .OrderByDescending(l => l.FechaGuia)
+            .Select(l => new MaterialNoSsomaDto
+            {
+                LineaId = l.Id,
+                ProjectId = l.ProjectId,
+                ProjectDescription = l.Proyecto.ProjectDescription ?? string.Empty,
+                RecursoCrudo = l.RecursoCrudo,
+                PrecioTotal = l.PrecioTotal,
+                FechaGuia = l.FechaGuia,
+                EstadoRevision = l.EstadoRevision,
+            })
+            .ToListAsync();
+    }
+
     public async Task<SsConsumoLinea?> ObtenerLineaPorIdAsync(long lineaId)
     {
         using var ctx = _factory.CreateDbContext();

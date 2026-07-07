@@ -14,6 +14,8 @@ public interface IConsumoRepository
     Task ActualizarContadoresCargaAsync(int cargaId, int estandarizadas, int pendientes);
     Task<List<ConsumoCargaResumenDto>> ObtenerCargasPorProyectoAsync(int projectId);
     Task<List<MaterialPendienteDto>> ObtenerPendientesRevisionAsync(int projectId);
+    Task<List<MaterialPendienteGlobalDto>> ObtenerPendientesRevisionGlobalAsync();
+    Task<List<MaterialNoSsomaDto>> ObtenerNoSsomaAsync();
     Task<SsConsumoLinea?> ObtenerLineaPorIdAsync(long lineaId);
     Task ActualizarRevisionAsync(long lineaId, string decision, int? itemIdConfirmado);
     Task<int> AsignarHitosPorFechaAsync(int projectId);

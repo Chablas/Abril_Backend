@@ -1199,58 +1199,63 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
                 ?? throw new AbrilException("La plantilla de proyecto está vacía o es inválida.", 500);
 
             using var ctx = _factory.CreateDbContext();
-            using var transaction = await ctx.Database.BeginTransactionAsync();
 
-            var maxOrder = await ctx.ProjectActivity
-                .Where(a => a.ProjectId == proyectoId && a.State)
-                .Select(a => (int?)a.Order)
-                .MaxAsync() ?? 0;
-
-            // Pasada 1: insertar todas las actividades sin ParentId (los IDs recién existen tras SaveChanges).
-            var codigoAEntidad = new Dictionary<string, ProjectActivity>();
-            int orden = 0;
-            foreach (var item in items)
+            var strategy = ctx.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
             {
-                var activity = new ProjectActivity
-                {
-                    ProjectId = proyectoId,
-                    ActivityDescription = item.Nombre,
-                    PlannedStartDate = null,
-                    PlannedEndDate = null,
-                    ProgressPercentage = 0,
-                    Order = maxOrder + (++orden),
-                    HierarchyLevel = item.Nivel - 1,
-                    ParentId = null,
-                    IsManual = true,
-                    TipoCronograma = tipoCronograma,
-                    CreatedDateTime = DateTime.UtcNow,
-                    CreatedUserId = userId,
-                    Active = true,
-                    State = true
-                };
-                ctx.ProjectActivity.Add(activity);
-                codigoAEntidad[item.Codigo] = activity;
-            }
-            await ctx.SaveChangesAsync(); // un solo INSERT masivo — genera todos los IDs
+                await using var transaction = await ctx.Database.BeginTransactionAsync();
 
-            // Pasada 2: resolver ParentId y predecesoras usando los IDs ya generados.
-            foreach (var item in items)
-            {
-                if (item.ParentCodigo != null)
-                    codigoAEntidad[item.Codigo].ParentId = codigoAEntidad[item.ParentCodigo].ProjectActivityId;
+                var maxOrder = await ctx.ProjectActivity
+                    .Where(a => a.ProjectId == proyectoId && a.State)
+                    .Select(a => (int?)a.Order)
+                    .MaxAsync() ?? 0;
 
-                if (item.PredecesoraCodigo != null)
+                // Pasada 1: insertar todas las actividades sin ParentId (los IDs recién existen tras SaveChanges).
+                var codigoAEntidad = new Dictionary<string, ProjectActivity>();
+                int orden = 0;
+                foreach (var item in items)
                 {
-                    ctx.ActivityPredecessors.Add(new ActivityPredecessor
+                    var activity = new ProjectActivity
                     {
-                        ActivityId = codigoAEntidad[item.Codigo].ProjectActivityId,
-                        PredecessorId = codigoAEntidad[item.PredecesoraCodigo].ProjectActivityId
-                    });
+                        ProjectId = proyectoId,
+                        ActivityDescription = item.Nombre,
+                        PlannedStartDate = null,
+                        PlannedEndDate = null,
+                        ProgressPercentage = 0,
+                        Order = maxOrder + (++orden),
+                        HierarchyLevel = item.Nivel - 1,
+                        ParentId = null,
+                        IsManual = true,
+                        TipoCronograma = tipoCronograma,
+                        CreatedDateTime = DateTime.UtcNow,
+                        CreatedUserId = userId,
+                        Active = true,
+                        State = true
+                    };
+                    ctx.ProjectActivity.Add(activity);
+                    codigoAEntidad[item.Codigo] = activity;
                 }
-            }
-            await ctx.SaveChangesAsync();
+                await ctx.SaveChangesAsync(); // un solo INSERT masivo — genera todos los IDs
 
-            await transaction.CommitAsync();
+                // Pasada 2: resolver ParentId y predecesoras usando los IDs ya generados.
+                foreach (var item in items)
+                {
+                    if (item.ParentCodigo != null)
+                        codigoAEntidad[item.Codigo].ParentId = codigoAEntidad[item.ParentCodigo].ProjectActivityId;
+
+                    if (item.PredecesoraCodigo != null)
+                    {
+                        ctx.ActivityPredecessors.Add(new ActivityPredecessor
+                        {
+                            ActivityId = codigoAEntidad[item.Codigo].ProjectActivityId,
+                            PredecessorId = codigoAEntidad[item.PredecesoraCodigo].ProjectActivityId
+                        });
+                    }
+                }
+                await ctx.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+            });
 
             return new AplicarPlantillaResultDto { ActividadesCreadas = items.Count };
         }

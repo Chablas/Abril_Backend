@@ -4920,3 +4920,40 @@ Seed hardcodeado en la migración `20260601002547_AddFeriadosAndActivityPredeces
 ### Pendiente / posible mejora futura
 - Evaluar si conviene unificar `Feriados` y `Holiday` en una sola tabla, o al menos documentar/advertir que son sistemas distintos.
 - Cargar feriados 2027 antes de que termine 2026 (ni la tabla `Feriados` ni `Holiday` los tienen aún).
+
+## Sesión 2026-07-07 — RAC: fotos, empresa reportante vs reportada, indicadores
+
+### 1. Fotos de RAC no se subían/mostraban en producción
+
+Investigando un reclamo de que un contratista no podía ver fotos de evidencia en un RAC, se confirmó en pgAdmin que el RAC (`RAC-2026-GMZ-039`) no tenía ninguna fila en `ssoma_rac_foto` — la subida nunca llegó a guardarse. Causa raíz: `appsettings.Production.json` (gitignored, config real de producción vive en otro lado según el usuario) no tenía `RacFotosLibraryId`/`RacPdfLibraryId`/`RacFirmasLibraryId` bajo `SharePoint:Sites:SSOMAApps` — sin esos IDs, `SharePointHabService.GetDownloadUrlAsync`/`SubirArchivoEnRutaAsync` no puede resolver el drive de SharePoint. La subida (`RacSharePointService.SubirFotoAsync` → `SubirArchivoEnRutaAsync`) debería lanzar `AbrilException` 500 si esto pasa, pero en el frontend (`rac-nuevo.ts`) el `error` callback de la subida de fotos llamaba al mismo `mostrarSwalYNavegar()` que el `next`, mostrando "RAC registrado ✓" igual aunque las fotos fallaran — el usuario nunca se enteraba.
+
+**Fix backend**: ninguno de código — los 3 IDs de SharePoint existen en `appsettings.Local.json`, pendiente que el usuario los agregue donde sea que viva la config real de producción (no es `appsettings.Production.json` del checkout local, gitignored y aparentemente no es lo que se despliega).
+
+**Fix frontend** (`rac-nuevo.ts`): el callback de error de subida de fotos ahora muestra un SweetAlert de advertencia distinto ("RAC registrado, pero las fotos no se pudieron subir") en vez de fingir éxito. Además, ahora las fotos son obligatorias (`canSubmit` exige `fotosSeleccionadas.length > 0`).
+
+### 2. Empresa Reportante y Empresa Reportada — antes opcionales, ahora obligatorias
+
+En `rac-nuevo.html`/`.ts`, existían checkboxes "Reportar de forma anónima" y "No identificar la empresa reportada" que permitían crear un RAC sin ninguna de las dos empresas — resultado: 11+ RAC de julio quedaron con `empresa_reportada_id = NULL`, invisibles en cualquier filtro/indicador por empresa. Se quitaron ambos checkboxes; `empresaReportanteId` y `empresaReportadaId` ahora son obligatorios en `canSubmit`.
+
+### 3. Indicadores proactivos mezclaban "empresa reportante" y "empresa reportada" en un solo conteo
+
+`IndicadoresProactivosRepository` (en los 4 sitios que llaman a `BuildMetaDto`, tanto en `GetMetasEmpresaAsync` como en el método bulk multi-proyecto) contaba **todo** por `EmpresaReportadaId` — tanto "RACS rep." como "RACS cerr." usaban la misma población (RACs atribuidos a la empresa), y no existía ningún conteo de cuántos RAC había *levantado* cada empresa como reportante. Esto también explicaba por qué un RAC con `EmpresaReportanteId` = Lumbreras no sumaba nada al indicador de Lumbreras (solo contaba para la empresa reportada).
+
+**Fix**: `BuildMetaDto` ahora recibe `actualRacsReportados` (por `EmpresaReportanteId`) separado de `actualRacsAtribuidos`/`actualRacsCerrados` (por `EmpresaReportadaId`). "RACS rep." = cuántos reportó la empresa (indicador proactivo); "RACS cerr." = de los que le fueron atribuidos, cuántos cerró (indicador de cumplimiento). Se agregó `ActualRacsAtribuidos` a `MetaEmpresaDto` para que el frontend use ese valor como "Prog" de la fila "RACS cerr." (antes reutilizaba `ActualRacs`, que ahora significa otra cosa).
+
+También se encontró y corrigió que "RACS rep." mostraba el valor topado a la meta (`Math.Min(actualRacs, metaRacs)`) en vez del conteo real — una empresa que reportó 10 RACs con meta de 2 solo veía "2" en pantalla. Reportar de más es deseable y no debía ocultarse; el `%` sigue limitado a 100 pero el número ahora es siempre el real.
+
+**Dashboard de RAC** (`RacService.GetDashboardAsync`, solo para vista contratista): se agregó `TotalReportados`/`TotalReportadosCerrados` (conteo por `EmpresaReportanteId`) como card nueva "RACs Levantados por Ti", antes inexistente.
+
+**Lista de RAC**: se agregaron columnas separadas "Reportante"/"Reportada" (antes solo mostraba una), filtro de mes/año (usa `FechaDesde`/`FechaHasta` que ya existían en el backend), y dos selects de empresa separados (`empresaReportanteId` / `empresaReportadaId`, antes uno solo que filtraba por reportada).
+
+### Archivos clave
+- `Features/SsomaModule/RacFeature/Services/RacService.cs` (`GetListAsync`, `GetDashboardAsync`)
+- `Features/SsomaModule/RacFeature/Dtos/RacDtos.cs` (`RacListQuery.EmpresaReportanteId`, `RacListItemDto.EmpresaReportanteNombre`, `RacDashboardDto.TotalReportados/TotalReportadosCerrados`)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Repositories/IndicadoresProactivosRepository.cs` (`BuildMetaDto` y sus 4 call sites)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Application/Dtos/IndicadoresProactivosDtos.cs` (`MetaEmpresaDto.ActualRacsAtribuidos`)
+- El fix real de fotos quedó pendiente en config de producción (no en este repo) — ver punto 1.
+
+### Pendiente
+- Confirmar con el usuario que agregó `RacFotosLibraryId`/`RacPdfLibraryId`/`RacFirmasLibraryId` en la config real de producción (no en `appsettings.Production.json` del checkout, que está gitignored y según el usuario "no tiene nada que ver con donde se hace deploy").
+- 11 RAC de julio con `empresa_reportada_id = NULL` (`RAC-2026-KAU-014,015,016,017,020,025,030,035,036,037,041,043,044` y similares) quedaron huérfanos — no se corrigieron manualmente en BD, pendiente que el usuario identifique a qué empresa corresponden.

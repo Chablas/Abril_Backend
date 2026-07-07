@@ -197,7 +197,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             resultado.Add(BuildMetaDto(null, "Casa", "Casa — Staff Propio", promCasa, diasCasa,
                 (int)Math.Ceiling(promCasa * 0.40m), (int)Math.Ceiling(promCasa * 0.10m),
                 (int)Math.Ceiling(promCasa * 0.30m), metaCasaCharlas, metaCasaInsp,
-                racsGenCasa, racsCerCasa, optCasa, atsCasa, charlasCasa, inspCasa));
+                racsGenCasa, racsGenCasa, racsCerCasa, optCasa, atsCasa, charlasCasa, inspCasa));
         }
 
         // ── CONTRATISTAS ──────────────────────────────────────────────────────
@@ -258,6 +258,9 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             var tieneWorkers = await empWorkerQ.AnyAsync();
 
             var racsGen = await ctx.SsomaRacs
+                .CountAsync(r => r.ProyectoId == proyectoId && r.EmpresaReportanteId == emp.EmpresaId
+                              && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
+            var racsAtribuidos = await ctx.SsomaRacs
                 .CountAsync(r => r.ProyectoId == proyectoId && r.EmpresaReportadaId == emp.EmpresaId
                               && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
             var racsCer = await ctx.SsomaRacs
@@ -297,14 +300,14 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             // herramienta de gestión proactiva ejecutada) no se muestra — no tiene sentido
             // llenar el dashboard con contratistas sin actividad real.
             var esActiva = promEmp >= 5
-                || racsGen > 0 || opt > 0 || ats > 0 || charlas > 0 || insp > 0;
+                || racsGen > 0 || racsAtribuidos > 0 || opt > 0 || ats > 0 || charlas > 0 || insp > 0;
             if (!esActiva) continue;
 
             resultado.Add(BuildMetaDto(emp.EmpresaId, "Contratista", emp.Nombre ?? $"Empresa {emp.EmpresaId}",
                 promEmp, diasEmp,
                 (int)Math.Ceiling(promEmp * 0.40m), (int)Math.Ceiling(promEmp * 0.10m),
                 (int)Math.Ceiling(promEmp * 0.30m), metaCharlas, metaInsp,
-                racsGen, racsCer, opt, ats, charlas, insp));
+                racsGen, racsAtribuidos, racsCer, opt, ats, charlas, insp));
         }
 
         return resultado;
@@ -354,7 +357,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var racsBulk = await ctx.SsomaRacs
             .Where(r => proyIds.Contains(r.ProyectoId)
                      && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte)
-            .Select(r => new { r.ProyectoId, r.EmpresaReportadaId, r.Estado })
+            .Select(r => new { r.ProyectoId, r.EmpresaReportadaId, r.EmpresaReportanteId, r.Estado })
             .ToListAsync();
 
         // 4. OPT por proyecto: contar OPTs distintos para casa y contratistas
@@ -464,10 +467,11 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 var charlasC = charlasBulk.Where(a => a.ProyectoId == pid && casaSetProy.Contains(a.WorkerId)).Select(a => a.Fecha).Distinct().Count();
                 var inspC = inspBulk.Count(i => i.ProyectoId == pid
                     && (i.EmpresaId == null || esAbrilIds.Contains(i.EmpresaId!.Value)));
+                var racsCCount = racsC.Count();
                 empresasDtos.Add(BuildMetaDto(null, "Casa", "Casa — Staff Propio", promC, diasC,
                     (int)Math.Ceiling(promC * 0.40m), (int)Math.Ceiling(promC * 0.10m),
                     (int)Math.Ceiling(promC * 0.30m), metaCharlasC, metaInspC,
-                    racsC.Count(), racsC.Count(r => r.Estado == "Cerrado"), optC, atsC, charlasC, inspC));
+                    racsCCount, racsCCount, racsC.Count(r => r.Estado == "Cerrado"), optC, atsC, charlasC, inspC));
             }
 
             // Contratistas
@@ -481,7 +485,11 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 var metaInspE = metaInspContratista;
                 var fechasE = te.Select(t => t.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
                 var metaCharlasE = ContarDiasHabilesConPresenciaDateTime(fechasE, mes, anio);
-                var racsE = racsBulk.Where(r => r.ProyectoId == pid && r.EmpresaReportadaId == emp.EmpresaId);
+                // "RACs reportados" = hallazgos que ESTA empresa levantó/reportó (EmpresaReportanteId) —
+                // indicador proactivo de cuánto reporta. "RACs cerrados" = de los hallazgos que le fueron
+                // atribuidos a ella (EmpresaReportadaId), cuántos ya cerró — indicador de cumplimiento.
+                var racsReportadosE = racsBulk.Where(r => r.ProyectoId == pid && r.EmpresaReportanteId == emp.EmpresaId);
+                var racsAtribuidosE = racsBulk.Where(r => r.ProyectoId == pid && r.EmpresaReportadaId == emp.EmpresaId);
                 var optE = wSet.Any() ? optBulk.Where(o => o.ProyectoId == pid && wSet.Contains(o.TrabajadorId)).Select(o => o.OptId).Distinct().Count() : 0;
                 var atsE = wSet.Any() ? atsBulk.Count(a => a.ProyectoId == pid && wSet.Contains(a.WorkerId)) : 0;
                 var charlasE = wSet.Any() ? charlasBulk.Where(a => a.ProyectoId == pid && wSet.Contains(a.WorkerId)).Select(a => a.Fecha).Distinct().Count() : 0;
@@ -489,16 +497,17 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
 
                 // Si la empresa está INACTIVA (promedio de trabajadores < 5 y ninguna
                 // herramienta de gestión proactiva ejecutada) no se muestra.
-                var racsGenE = racsE.Count();
+                var racsGenE = racsReportadosE.Count();
+                var racsAtribuidosCount = racsAtribuidosE.Count();
                 var esActiva = promE >= 5
-                    || racsGenE > 0 || optE > 0 || atsE > 0 || charlasE > 0 || inspE > 0;
+                    || racsGenE > 0 || racsAtribuidosCount > 0 || optE > 0 || atsE > 0 || charlasE > 0 || inspE > 0;
                 if (!esActiva) continue;
 
                 empresasDtos.Add(BuildMetaDto(emp.EmpresaId, "Contratista", emp.Nombre ?? $"Empresa {emp.EmpresaId}",
                     promE, diasE,
                     (int)Math.Ceiling(promE * 0.40m), (int)Math.Ceiling(promE * 0.10m),
                     (int)Math.Ceiling(promE * 0.30m), metaCharlasE, metaInspE,
-                    racsGenE, racsE.Count(r => r.Estado == "Cerrado"), optE, atsE, charlasE, inspE));
+                    racsGenE, racsAtribuidosCount, racsAtribuidosE.Count(r => r.Estado == "Cerrado"), optE, atsE, charlasE, inspE));
             }
 
             // No se omite el proyecto aunque no tenga tareo todavía: debe aparecer
@@ -776,23 +785,32 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         int? empresaId, string tipo, string nombre,
         decimal prom, int dias,
         int metaRacs, int metaOpt, int metaAts, int metaCharlas, int metaInsp,
-        int actualRacs, int actualRacsCer, int actualOpt, int actualAts, int actualCharlas, int actualInsp)
+        int actualRacsReportados, int actualRacsAtribuidos, int actualRacsCerrados,
+        int actualOpt, int actualAts, int actualCharlas, int actualInsp)
     {
+        // "Reportados" = RACs que ESTA empresa levantó/reportó (empresa reportante) — indicador
+        // proactivo de reporte. "Atribuidos"/"Cerrados" = RACs que le fueron cargados a ella
+        // (empresa reportada) y cuántos de esos ya cerró — indicador de cumplimiento. Son
+        // poblaciones distintas y no deben mezclarse en el mismo tope.
+        //
         // La contratista puede ejecutar más de lo programado, pero para el indicador
         // (y para lo que se suma al total del proyecto) solo cuenta hasta su propio tope
         // (meta) — no debe "contar de más". EsActiva sí usa los valores reales (sin tope)
         // para saber si hay actividad genuina.
-        var tieneActividadReal = actualRacs > 0 || actualOpt > 0 || actualAts > 0 || actualCharlas > 0 || actualInsp > 0;
+        var tieneActividadReal = actualRacsReportados > 0 || actualRacsAtribuidos > 0
+            || actualOpt > 0 || actualAts > 0 || actualCharlas > 0 || actualInsp > 0;
 
-        var racsTope = Math.Min(actualRacs, metaRacs);
-        var racsCerTope = Math.Min(actualRacsCer, racsTope);
+        // RACS: el "Ejec" mostrado es el conteo REAL (sin tope) — reportar de más es
+        // un comportamiento proactivo deseable y no debe ocultarse. El % sí se limita
+        // a 100 (vía Pct), pero el número visible siempre es el real.
+        var racsCerTope = Math.Min(actualRacsCerrados, actualRacsAtribuidos);
         var optTope = Math.Min(actualOpt, metaOpt);
         var atsTope = Math.Min(actualAts, metaAts);
         var charlasTope = Math.Min(actualCharlas, metaCharlas);
         var inspTope = Math.Min(actualInsp, metaInsp);
 
-        var pctRacs = Pct(racsTope, metaRacs);
-        var pctRacsCer = Pct(racsCerTope, racsTope);
+        var pctRacs = Pct(actualRacsReportados, metaRacs);
+        var pctRacsCer = Pct(racsCerTope, actualRacsAtribuidos);
         var pctOpt = Pct(optTope, metaOpt);
         var pctAts = Pct(atsTope, metaAts);
         var pctCharlas = Pct(charlasTope, metaCharlas);
@@ -814,7 +832,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             MetaAts = metaAts,
             MetaCharlas = metaCharlas,
             MetaInspecciones = metaInsp,
-            ActualRacs = racsTope,
+            ActualRacs = actualRacsReportados,
+            ActualRacsAtribuidos = actualRacsAtribuidos,
             ActualRacsCerrados = racsCerTope,
             ActualOpt = optTope,
             ActualAts = atsTope,

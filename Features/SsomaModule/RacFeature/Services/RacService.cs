@@ -60,6 +60,8 @@ public class RacService : IRacService
             query = query.Where(r => r.Tipo == q.Tipo);
         if (q.EmpresaReportadaId.HasValue)
             query = query.Where(r => r.EmpresaReportadaId == q.EmpresaReportadaId.Value);
+        if (q.EmpresaReportanteId.HasValue)
+            query = query.Where(r => r.EmpresaReportanteId == q.EmpresaReportanteId.Value);
         if (q.FechaDesde.HasValue)
             query = query.Where(r => r.FechaReporte >= q.FechaDesde.Value);
         if (q.FechaHasta.HasValue)
@@ -98,6 +100,12 @@ public class RacService : IRacService
                 EmpresaReportadaNombre = r.EmpresaReportadaId != null
                     ? ctx.Contributor
                         .Where(c => c.ContributorId == r.EmpresaReportadaId)
+                        .Select(c => c.ContributorName)
+                        .FirstOrDefault()
+                    : null,
+                EmpresaReportanteNombre = r.EmpresaReportanteId != null
+                    ? ctx.Contributor
+                        .Where(c => c.ContributorId == r.EmpresaReportanteId)
                         .Select(c => c.ContributorName)
                         .FirstOrDefault()
                     : null,
@@ -502,6 +510,16 @@ public class RacService : IRacService
         var altosAbiertos     = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.Severidad == "ALTO");
         var vencidosAbiertos  = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.PlazoLevantamiento < ahora);
 
+        // RACs que esta empresa levantó/reportó (independiente de los que le fueron reportados a ella).
+        var totalReportados = 0;
+        var totalReportadosCerrados = 0;
+        if (empresaIdContratista.HasValue)
+        {
+            var reportadosQuery = ctx.SsomaRacs.Where(r => r.EmpresaReportanteId == empresaIdContratista.Value);
+            totalReportados = await reportadosQuery.CountAsync();
+            totalReportadosCerrados = await reportadosQuery.CountAsync(r => r.Estado == "Cerrado");
+        }
+
         // ── PorProyecto ───────────────────────────────────────────────────────
         var porProyectoRaw = await baseQuery
             .GroupBy(r => r.ProyectoId)
@@ -576,6 +594,8 @@ public class RacService : IRacService
             CriticosAbiertos  = criticosAbiertos,
             AltosAbiertos     = altosAbiertos,
             VencidosAbiertos  = vencidosAbiertos,
+            TotalReportados         = totalReportados,
+            TotalReportadosCerrados = totalReportadosCerrados,
             PorProyecto       = porProyecto,
             PorCategoria      = porCategoria,
             Tendencia         = tendencia

@@ -125,12 +125,10 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var fechaFinOnly  = DateOnly.FromDateTime(fechaFin);
         var fechaCorteOnly = DateOnly.FromDateTime(fechaCorte);
 
-        // OPT/ATS/Charlas se atribuyen por dónde está el trabajador VINCULADO ACTUALMENTE
-        // (worker_vinculaciones con FechaFin == null), no por su razón social "dueña" ni por
-        // si la contratista fue tareada este mes: una contratista puede trabajar en varios
-        // proyectos a la vez, así que lo que importa es el proyecto vigente del trabajador
-        // al momento de registrar el indicador (igual que ya se hace con RACS/Inspecciones,
-        // que guardan el proyecto/empresa directo en el registro).
+        // OPT/ATS/Charlas se atribuyen a la empresa con la que el trabajador estaba vinculado
+        // EL DÍA DEL EVENTO (no la vinculación de hoy) — si cambió de contratista a mitad de
+        // mes, cada registro debe quedar con la empresa que correspondía en esa fecha, igual
+        // que RACS/Inspecciones (que guardan el proyecto/empresa directo en el registro).
         var vincActivaQ = ctx.WorkerVinculacion.Where(v => v.FechaFin == null);
 
         // Empresas marcadas Contributor.EsAbril son entidades internas/administrativas
@@ -138,10 +136,40 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         // actividad se cuenta como Casa, no como una contratista más en el dashboard.
         var esAbrilIds = await ctx.Contributor.Where(c => c.EsAbril).Select(c => c.ContributorId).ToListAsync();
 
-        // Subquery reutilizable — no carga IDs en memoria
+        // Todo el historial de vinculaciones del proyecto (no solo la activa hoy) para poder
+        // resolver "a qué empresa pertenecía este trabajador en la fecha X".
+        var vincHistProyecto = await ctx.WorkerVinculacion
+            .Where(v => v.ProyectoId == proyectoId)
+            .Select(v => new { v.WorkerId, v.EmpresaId, v.FechaInicio, v.FechaFin })
+            .ToListAsync();
+        var vincPorWorker = vincHistProyecto.GroupBy(v => v.WorkerId).ToDictionary(g => g.Key, g => g.ToList());
+
+        int? EmpresaDelTrabajadorEnFecha(int workerId, DateOnly fecha)
+        {
+            if (!vincPorWorker.TryGetValue(workerId, out var lista)) return null;
+            return lista.FirstOrDefault(v => v.FechaInicio <= fecha && (v.FechaFin == null || v.FechaFin >= fecha))?.EmpresaId;
+        }
+
+        // Subquery reutilizable — no carga IDs en memoria (solo para saber qué empresas
+        // mostrar aunque no tengan tareo; el conteo real usa EmpresaDelTrabajadorEnFecha).
         var casaWorkerQ = vincActivaQ
             .Where(v => v.ProyectoId == proyectoId && (v.EmpresaId == null || esAbrilIds.Contains(v.EmpresaId!.Value)))
             .Select(v => v.WorkerId);
+
+        // OPT/ATS/Charlas del mes completo, con fecha, para resolver empresa por evento.
+        var optMesRaw = await ctx.SsomaOpt
+            .Where(o => o.ProyectoId == proyectoId && o.Fecha >= fechaIni && o.Fecha < fechaCorte)
+            .SelectMany(o => o.Trabajadores.Select(t => new { o.Fecha, t.TrabajadorId, t.OptId }))
+            .ToListAsync();
+        var atsMesRaw = await ctx.SsomaAuditoriaAts
+            .Where(a => a.ProyectoId == proyectoId && a.Fecha >= fechaIniOnly && a.Fecha < fechaCorteOnly)
+            .Select(a => new { a.Fecha, WorkerId = a.AuditadoWorkerId })
+            .ToListAsync();
+        var charlasMesRaw = await ctx.SsCharlaAsistencias
+            .Where(a => a.Charla!.ProyectoId == proyectoId
+                     && a.Charla.Fecha >= fechaIni && a.Charla.Fecha < fechaCorte && a.Asistio)
+            .Select(a => new { Fecha = a.Charla!.Fecha.Date, a.WorkerId })
+            .ToListAsync();
 
         // ── CASA ──────────────────────────────────────────────────────────────
         var tareoCasa = await ctx.SsTareoDetalleCasa
@@ -171,23 +199,18 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                               && r.Estado == "Cerrado"
                               && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
 
-            var optCasa = await ctx.SsomaOpt
-                .Where(o => o.ProyectoId == proyectoId && o.Fecha >= fechaIni && o.Fecha < fechaCorte)
-                .SelectMany(o => o.Trabajadores)
-                .Where(t => casaWorkerQ.Contains(t.TrabajadorId))
-                .Select(t => t.OptId).Distinct().CountAsync();
+            bool EsCasa(int? empresaId) => empresaId == null || esAbrilIds.Contains(empresaId.Value);
 
-            var atsCasa = await ctx.SsomaAuditoriaAts
-                .Where(a => a.ProyectoId == proyectoId
-                         && a.Fecha >= fechaIniOnly && a.Fecha < fechaCorteOnly
-                         && casaWorkerQ.Contains(a.AuditadoWorkerId))
-                .CountAsync();
+            var optCasa = optMesRaw
+                .Where(x => EsCasa(EmpresaDelTrabajadorEnFecha(x.TrabajadorId, DateOnly.FromDateTime(x.Fecha))))
+                .Select(x => x.OptId).Distinct().Count();
 
-            var charlasCasa = await ctx.SsCharlaAsistencias
-                .Where(a => a.Charla!.ProyectoId == proyectoId
-                         && a.Charla.Fecha >= fechaIni && a.Charla.Fecha < fechaCorte
-                         && a.Asistio && casaWorkerQ.Contains(a.WorkerId))
-                .Select(a => a.Charla!.Fecha.Date).Distinct().CountAsync();
+            var atsCasa = atsMesRaw
+                .Count(x => EsCasa(EmpresaDelTrabajadorEnFecha(x.WorkerId, x.Fecha)));
+
+            var charlasCasa = charlasMesRaw
+                .Where(x => EsCasa(EmpresaDelTrabajadorEnFecha(x.WorkerId, DateOnly.FromDateTime(x.Fecha))))
+                .Select(x => x.Fecha).Distinct().Count();
 
             var inspCasa = await ctx.SsomaInspeccion
                 .CountAsync(i => i.ProyectoId == proyectoId
@@ -250,13 +273,6 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             var fechasPresencia = tareoEmp.Select(d => d.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
             var metaCharlas = ContarDiasHabilesConPresenciaDateTime(fechasPresencia, mes, anio);
 
-            // Subquery para workers vinculados actualmente a esta empresa EN ESTE proyecto
-            // — sin cargar IDs en memoria
-            var empWorkerQ = vincActivaQ
-                .Where(v => v.ProyectoId == proyectoId && v.EmpresaId == emp.EmpresaId)
-                .Select(v => v.WorkerId);
-            var tieneWorkers = await empWorkerQ.AnyAsync();
-
             var racsGen = await ctx.SsomaRacs
                 .CountAsync(r => r.ProyectoId == proyectoId && r.EmpresaReportanteId == emp.EmpresaId
                               && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
@@ -268,29 +284,16 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                               && r.Estado == "Cerrado"
                               && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
 
-            var opt = tieneWorkers
-                ? await ctx.SsomaOpt
-                    .Where(o => o.ProyectoId == proyectoId && o.Fecha >= fechaIni && o.Fecha < fechaCorte)
-                    .SelectMany(o => o.Trabajadores)
-                    .Where(t => empWorkerQ.Contains(t.TrabajadorId))
-                    .Select(t => t.OptId).Distinct().CountAsync()
-                : 0;
+            var opt = optMesRaw
+                .Where(x => EmpresaDelTrabajadorEnFecha(x.TrabajadorId, DateOnly.FromDateTime(x.Fecha)) == emp.EmpresaId)
+                .Select(x => x.OptId).Distinct().Count();
 
-            var ats = tieneWorkers
-                ? await ctx.SsomaAuditoriaAts
-                    .Where(a => a.ProyectoId == proyectoId
-                             && a.Fecha >= fechaIniOnly && a.Fecha < fechaCorteOnly
-                             && empWorkerQ.Contains(a.AuditadoWorkerId))
-                    .CountAsync()
-                : 0;
+            var ats = atsMesRaw
+                .Count(x => EmpresaDelTrabajadorEnFecha(x.WorkerId, x.Fecha) == emp.EmpresaId);
 
-            var charlas = tieneWorkers
-                ? await ctx.SsCharlaAsistencias
-                    .Where(a => a.Charla!.ProyectoId == proyectoId
-                             && a.Charla.Fecha >= fechaIni && a.Charla.Fecha < fechaCorte
-                             && a.Asistio && empWorkerQ.Contains(a.WorkerId))
-                    .Select(a => a.Charla!.Fecha.Date).Distinct().CountAsync()
-                : 0;
+            var charlas = charlasMesRaw
+                .Where(x => EmpresaDelTrabajadorEnFecha(x.WorkerId, DateOnly.FromDateTime(x.Fecha)) == emp.EmpresaId)
+                .Select(x => x.Fecha).Distinct().Count();
 
             var insp = await ctx.SsomaInspeccion
                 .CountAsync(i => i.ProyectoId == proyectoId && i.EmpresaId == emp.EmpresaId
@@ -363,14 +366,14 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         // 4. OPT por proyecto: contar OPTs distintos para casa y contratistas
         var optBulk = await ctx.SsomaOpt
             .Where(o => proyIds.Contains(o.ProyectoId) && o.Fecha >= fechaIni && o.Fecha < fechaCorte)
-            .SelectMany(o => o.Trabajadores.Select(t => new { o.ProyectoId, t.TrabajadorId, t.OptId }))
+            .SelectMany(o => o.Trabajadores.Select(t => new { o.ProyectoId, o.Fecha, t.TrabajadorId, t.OptId }))
             .ToListAsync();
 
         // 5. ATS por proyecto/trabajador
         var atsBulk = await ctx.SsomaAuditoriaAts
             .Where(a => a.ProyectoId != null && proyIds.Contains(a.ProyectoId!.Value)
                      && a.Fecha >= iniOnly && a.Fecha < corteOnly)
-            .Select(a => new { ProyectoId = a.ProyectoId!.Value, WorkerId = a.AuditadoWorkerId })
+            .Select(a => new { ProyectoId = a.ProyectoId!.Value, WorkerId = a.AuditadoWorkerId, a.Fecha })
             .ToListAsync();
 
         // 6. Charlas: días distintos con asistencia por proyecto/trabajador
@@ -394,15 +397,30 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         const int metaInspCasa = 20;
         const int metaInspContratista = 15;
 
-        // OPT/ATS/Charlas se atribuyen por dónde está el trabajador VINCULADO ACTUALMENTE
-        // (worker_vinculaciones con FechaFin == null), no por su razón social "dueña" ni por
-        // si la contratista fue tareada este mes: una contratista puede trabajar en varios
-        // proyectos a la vez, así que lo que importa es el proyecto vigente del trabajador
-        // (igual que RACS/Inspecciones, que guardan el proyecto/empresa directo al registrar).
+        // OPT/ATS/Charlas se atribuyen a la empresa con la que el trabajador estaba vinculado
+        // EL DÍA DEL EVENTO (no la vinculación de hoy) — si cambió de contratista a mitad de
+        // mes, cada registro debe quedar con la empresa que correspondía en esa fecha, igual
+        // que RACS/Inspecciones (que guardan el proyecto/empresa directo al registrar).
         var vincActivaBulk = await ctx.WorkerVinculacion
             .Where(v => v.FechaFin == null && v.ProyectoId != null && proyIds.Contains(v.ProyectoId!.Value))
             .Select(v => new { ProyectoId = v.ProyectoId!.Value, v.WorkerId, v.EmpresaId })
             .ToListAsync();
+
+        // Historial completo (no solo vinculación activa hoy) para resolver la empresa vigente
+        // en la fecha exacta de cada OPT/ATS/Charla.
+        var vincHistBulk = await ctx.WorkerVinculacion
+            .Where(v => v.ProyectoId != null && proyIds.Contains(v.ProyectoId!.Value))
+            .Select(v => new { ProyectoId = v.ProyectoId!.Value, v.WorkerId, v.EmpresaId, v.FechaInicio, v.FechaFin })
+            .ToListAsync();
+        var vincPorProyWorker = vincHistBulk
+            .GroupBy(v => (v.ProyectoId, v.WorkerId))
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        int? EmpresaDelTrabajadorEnFecha(int proyectoId, int workerId, DateOnly fecha)
+        {
+            if (!vincPorProyWorker.TryGetValue((proyectoId, workerId), out var lista)) return null;
+            return lista.FirstOrDefault(v => v.FechaInicio <= fecha && (v.FechaFin == null || v.FechaFin >= fecha))?.EmpresaId;
+        }
 
         // Empresas marcadas Contributor.EsAbril son entidades internas/administrativas
         // de Abril (ej. inmobiliarias propias), no contratistas de obra reales — su
@@ -446,12 +464,6 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
 
             var empresasDtos = new List<MetaEmpresaDto>();
 
-            // Casa: trabajadores vinculados actualmente a este proyecto sin empresa (staff propio)
-            // o vinculados a una empresa interna de Abril (EsAbril) — cuentan como Casa, no contratista
-            var casaSetProy = vincActivaBulk.Where(v => v.ProyectoId == pid
-                    && (v.EmpresaId == null || esAbrilIds.Contains(v.EmpresaId!.Value)))
-                .Select(v => v.WorkerId).ToHashSet();
-
             var tcCasa = tareoCasaBulk.Where(d => d.ProyectoId == pid && d.Total > 0).ToList();
             if (tcCasa.Any())
             {
@@ -462,9 +474,15 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 var metaCharlasC = ContarDiasHabilesConPresenciaDateTime(fechasC, mes, anio);
                 var racsC = racsBulk.Where(r => r.ProyectoId == pid
                     && (r.EmpresaReportadaId == null || esAbrilIds.Contains(r.EmpresaReportadaId!.Value)));
-                var optC = optBulk.Where(o => o.ProyectoId == pid && casaSetProy.Contains(o.TrabajadorId)).Select(o => o.OptId).Distinct().Count();
-                var atsC = atsBulk.Count(a => a.ProyectoId == pid && casaSetProy.Contains(a.WorkerId));
-                var charlasC = charlasBulk.Where(a => a.ProyectoId == pid && casaSetProy.Contains(a.WorkerId)).Select(a => a.Fecha).Distinct().Count();
+                bool EsCasaPid(int? empresaId) => empresaId == null || esAbrilIds.Contains(empresaId.Value);
+                var optC = optBulk.Where(o => o.ProyectoId == pid
+                        && EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, o.TrabajadorId, DateOnly.FromDateTime(o.Fecha))))
+                    .Select(o => o.OptId).Distinct().Count();
+                var atsC = atsBulk.Count(a => a.ProyectoId == pid
+                    && EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, a.Fecha)));
+                var charlasC = charlasBulk.Where(a => a.ProyectoId == pid
+                        && EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, DateOnly.FromDateTime(a.Fecha))))
+                    .Select(a => a.Fecha).Distinct().Count();
                 var inspC = inspBulk.Count(i => i.ProyectoId == pid
                     && (i.EmpresaId == null || esAbrilIds.Contains(i.EmpresaId!.Value)));
                 var racsCCount = racsC.Count();
@@ -480,8 +498,6 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 var te = tareoContrBulk.Where(t => t.ProyectoId == pid && t.EmpresaId == emp.EmpresaId).ToList();
                 var diasE = te.Count;
                 var promE = diasE > 0 ? (decimal)te.Sum(t => t.CantidadPersonas) / diasE : 0;
-                var wSet = vincActivaBulk.Where(v => v.ProyectoId == pid && v.EmpresaId == emp.EmpresaId)
-                    .Select(v => v.WorkerId).ToHashSet();
                 var metaInspE = metaInspContratista;
                 var fechasE = te.Select(t => t.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
                 var metaCharlasE = ContarDiasHabilesConPresenciaDateTime(fechasE, mes, anio);
@@ -490,9 +506,14 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 // atribuidos a ella (EmpresaReportadaId), cuántos ya cerró — indicador de cumplimiento.
                 var racsReportadosE = racsBulk.Where(r => r.ProyectoId == pid && r.EmpresaReportanteId == emp.EmpresaId);
                 var racsAtribuidosE = racsBulk.Where(r => r.ProyectoId == pid && r.EmpresaReportadaId == emp.EmpresaId);
-                var optE = wSet.Any() ? optBulk.Where(o => o.ProyectoId == pid && wSet.Contains(o.TrabajadorId)).Select(o => o.OptId).Distinct().Count() : 0;
-                var atsE = wSet.Any() ? atsBulk.Count(a => a.ProyectoId == pid && wSet.Contains(a.WorkerId)) : 0;
-                var charlasE = wSet.Any() ? charlasBulk.Where(a => a.ProyectoId == pid && wSet.Contains(a.WorkerId)).Select(a => a.Fecha).Distinct().Count() : 0;
+                var optE = optBulk.Where(o => o.ProyectoId == pid
+                        && EmpresaDelTrabajadorEnFecha(pid, o.TrabajadorId, DateOnly.FromDateTime(o.Fecha)) == emp.EmpresaId)
+                    .Select(o => o.OptId).Distinct().Count();
+                var atsE = atsBulk.Count(a => a.ProyectoId == pid
+                    && EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, a.Fecha) == emp.EmpresaId);
+                var charlasE = charlasBulk.Where(a => a.ProyectoId == pid
+                        && EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, DateOnly.FromDateTime(a.Fecha)) == emp.EmpresaId)
+                    .Select(a => a.Fecha).Distinct().Count();
                 var inspE = inspBulk.Count(i => i.ProyectoId == pid && i.EmpresaId == emp.EmpresaId);
 
                 // Si la empresa está INACTIVA (promedio de trabajadores < 5 y ninguna

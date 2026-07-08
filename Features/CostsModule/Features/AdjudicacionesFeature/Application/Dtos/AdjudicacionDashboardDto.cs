@@ -8,6 +8,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public decimal Value { get; set; }
     }
 
+    /// <summary>
+    /// Ítem del gráfico "por estado" con el detalle breve de las adjudicaciones en ese estado
+    /// ("CONTRATISTA — PARTIDA"), para mostrarlo en el tooltip de la barra.
+    /// </summary>
+    public class AdjudicacionEstadoChartItemDto : AdjudicacionChartItemDto
+    {
+        public List<string> Items { get; set; } = new();
+    }
+
     /// <summary>Monto adjudicado acumulado por moneda.</summary>
     public class AdjudicacionMoneyByCurrencyDto
     {
@@ -54,7 +63,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         /// <summary>Catálogos de filtros (solo en la primera carga; null cuando el cliente ya los tiene).</summary>
         public AdjudicacionDashboardFiltersDto? Filters { get; set; }
         public AdjudicacionDashboardSummaryDto Summary { get; set; } = new();
-        public List<AdjudicacionChartItemDto> PorEstado { get; set; } = new();
+        public List<AdjudicacionEstadoChartItemDto> PorEstado { get; set; } = new();
         public List<AdjudicacionChartItemDto> PorProyecto { get; set; } = new();
         public List<AdjudicacionChartItemDto> PorTipoContrato { get; set; } = new();
         public List<AdjudicacionChartItemDto> PorCategoria { get; set; } = new();

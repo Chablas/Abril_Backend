@@ -794,11 +794,27 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 .GroupBy(x => x.ProjectSubContractorStatusId)
                 .Select(g => new { EstadoId = g.Key, Count = g.Count() })
                 .ToListAsync();
-            var porEstado = estados.Select(e => new AdjudicacionChartItemDto
+            // Detalle breve de cada adjudicación ("CONTRATISTA — PARTIDA") agrupado por estado,
+            // para el tooltip de la barra en el gráfico "Adjudicaciones por estado".
+            var estadoDetalleRaw = await (
+                from x in baseQ
+                join contractor in ctx.Contractor on x.ContractorId equals contractor.ContractorId
+                join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
+                join w in ctx.WorkItem on x.WorkItemId equals w.WorkItemId
+                orderby x.ProjectSubContractorId descending
+                select new { x.ProjectSubContractorStatusId, c.ContributorName, w.WorkItemDescription }
+            ).ToListAsync();
+            var detallePorEstado = estadoDetalleRaw
+                .GroupBy(d => d.ProjectSubContractorStatusId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(d => $"{d.ContributorName} — {d.WorkItemDescription}").ToList());
+            var porEstado = estados.Select(e => new AdjudicacionEstadoChartItemDto
             {
                 Id = e.ProjectSubContractorStatusId,
                 Label = e.ProjectSubContractorStatusDescription,
-                Value = countByEstado.FirstOrDefault(c => c.EstadoId == e.ProjectSubContractorStatusId)?.Count ?? 0
+                Value = countByEstado.FirstOrDefault(c => c.EstadoId == e.ProjectSubContractorStatusId)?.Count ?? 0,
+                Items = detallePorEstado.GetValueOrDefault(e.ProjectSubContractorStatusId) ?? new List<string>()
             }).ToList();
 
             // ── Por proyecto (conteo) ───────────────────────────────────────────

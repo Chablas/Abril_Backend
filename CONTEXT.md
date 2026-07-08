@@ -4957,3 +4957,15 @@ También se encontró y corrigió que "RACS rep." mostraba el valor topado a la 
 ### Pendiente
 - Confirmar con el usuario que agregó `RacFotosLibraryId`/`RacPdfLibraryId`/`RacFirmasLibraryId` en la config real de producción (no en `appsettings.Production.json` del checkout, que está gitignored y según el usuario "no tiene nada que ver con donde se hace deploy").
 - 11 RAC de julio con `empresa_reportada_id = NULL` (`RAC-2026-KAU-014,015,016,017,020,025,030,035,036,037,041,043,044` y similares) quedaron huérfanos — no se corrigieron manualmente en BD, pendiente que el usuario identifique a qué empresa corresponden.
+
+### 4. OPT/ATS/Charlas se atribuían por vinculación ACTUAL, no por la vigente en la fecha del evento
+
+Al revisar si Inspecciones/OPT/Auditorías ATS contaban bien (a raíz de la revisión de RACs de este mismo día), se encontró que `IndicadoresProactivosRepository` atribuía OPT/ATS/Charlas a la empresa con la que el trabajador está vinculado **hoy** (`WorkerVinculacion.FechaFin == null`), no a la que tenía **el día que ocurrió el evento**. Un trabajador que cambió de contratista a mitad de mes hacía que sus OPT/ATS/Charlas pasadas se contaran para su empresa nueva, no la vieja. Inspecciones y RACs no tenían este problema porque guardan `EmpresaId`/`EmpresaReportadaId` directo en el registro.
+
+**Fix** en `GetMetasEmpresaAsync` (single-proyecto) y `GetSeguimientoTodosProyectosAsync` (bulk multi-proyecto): se trae el historial completo de `WorkerVinculacion` (no solo la activa) y se resuelve la empresa vigente por `(workerId, fecha)` con un helper local `EmpresaDelTrabajadorEnFecha`. Los bulk queries de OPT/ATS ahora incluyen la fecha del evento en la proyección (antes no la traían). Se eliminó el guard `tieneWorkers`/`wSet.Any()` en el método single-proyecto porque ya no aplica (el conteo ahora es por evento, no por vinculación activa).
+
+### Archivos clave (punto 4)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Repositories/IndicadoresProactivosRepository.cs` (`GetMetasEmpresaAsync`, `GetSeguimientoTodosProyectosAsync`)
+
+### Pendiente (punto 4)
+- Verificado que compila; no se pudo probar contra datos reales en esta sesión — pendiente que el usuario confirme en `/ssoma/gestion/indicadores-proactivos/indicadores-ssoma/seguimiento` con un caso conocido (ej. Lumbreras, RP Mural) tras el deploy.

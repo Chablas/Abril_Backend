@@ -7,6 +7,7 @@ public class RacListQuery
     public string? Severidad { get; set; }
     public string? Tipo { get; set; }
     public int? EmpresaReportadaId { get; set; }
+    public int? EmpresaReportanteId { get; set; }
     public DateTime? FechaDesde { get; set; }
     public DateTime? FechaHasta { get; set; }
     public bool? SoloConPenalidad { get; set; }
@@ -89,6 +90,7 @@ public class RacListItemDto
     public DateTime? PlazoLevantamiento { get; set; }
     public bool AplicaPenalidad { get; set; }
     public string? EmpresaReportadaNombre { get; set; }
+    public string? EmpresaReportanteNombre { get; set; }
     public string? ReportanteNombre { get; set; }
     public string Descripcion { get; set; } = "";
 }
@@ -141,6 +143,9 @@ public class RacDashboardDto
     public int CriticosAbiertos { get; set; }
     public int AltosAbiertos { get; set; }
     public int VencidosAbiertos { get; set; }
+    // RACs donde esta empresa es la que reportó/levantó el hallazgo (no la reportada).
+    public int TotalReportados { get; set; }
+    public int TotalReportadosCerrados { get; set; }
     public List<RacPorProyectoDto> PorProyecto { get; set; } = new();
     public List<RacPorCategoriaDto> PorCategoria { get; set; } = new();
     public List<RacTendenciaDto> Tendencia { get; set; } = new();

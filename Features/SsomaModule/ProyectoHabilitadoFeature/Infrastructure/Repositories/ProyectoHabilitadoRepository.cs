@@ -19,7 +19,6 @@ namespace Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastru
         {
             using var ctx = _factory.CreateDbContext();
             return await ctx.Project
-                .Where(p => p.Active)
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProyectoHabilitadoListDto
                 {
@@ -27,6 +26,7 @@ namespace Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Infrastru
                     ProyectoDescription = p.ProjectDescription,
                     Habilitado = ctx.SsProyectoHabilitado
                         .Any(h => h.ProyectoId == p.ProjectId && h.State && h.Active),
+                    ProyectoActivo = p.Active,
                 })
                 .ToListAsync();
         }

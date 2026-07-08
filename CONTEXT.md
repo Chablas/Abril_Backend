@@ -4779,3 +4779,193 @@ Tabla simple (`anio` único, `meta_indice_frecuencia/gravedad/accidentabilidad` 
 - Cedro 33 · 2025 (instancia vieja de PASO, 130 actividades con 3 duplicados) sin limpiar.
 - 4 accidentes 2026 sin regularizar (ver §4).
 - Cronograma de Hitos (`milestone-schedule`): el usuario reportó fechas que no coinciden con un Excel de referencia — se determinó que las fechas son 100% manuales (sin cálculo ni importación automática), no se investigó más a fondo por indicación del usuario ("me equivoqué, es otro tema").
+
+## Sesión 2026-07-07 — Bug "Nueva semana" no aparecía en Dossier del contratista
+
+Se investigó por qué "Nueva semana" en `habilitacion/gestion/dossier` (Panel Contratista) parecía no crear nada. Se descartó que fuera un problema de esquema (las tablas `ss_dossier_semana`, `ss_dossier_documento`, `ss_dossier_documento_archivo` ya existían en la BD) revisando el flujo completo (frontend → `DossierController` → `DossierService` → `DossierRepository.EnsureSemanaAsync`, que usa `INSERT ... ON CONFLICT DO NOTHING`). Confirmando con Network tab del navegador se vio que el registro sí se creaba (`GET /dossier` devolvía la semana nueva en estado "Borrador"), pero no se mostraba en la UI.
+
+Causa real: el bug estaba en el **frontend**, no en el backend. El getter `semanasFiltradas` (`Abril-Frontend/.../pages/dossier/dossier.ts`) ocultaba toda semana en estado `Borrador` con `docsSubidos === 0` — pensado para no ensuciar la vista admin con borradores vacíos, pero eso también ocultaba al contratista la semana que él mismo acababa de crear, dejándolo sin forma de empezar a subir documentos.
+
+Se generó adicionalmente `dossier_semanal_schema.sql` (DDL idempotente para las 3 tablas del dossier semanal) como respaldo por si alguna instalación no las tuviera aplicadas — regla del proyecto: cambios de esquema siempre en SQL manual para pgAdmin, nunca `dotnet ef migrations`.
+
+### Archivos clave
+- `Abril_Backend/Features/HabilitacionModule/Infrastructure/Repositories/DossierRepository.cs` (`EnsureSemanaAsync` — sin cambios, funcionaba bien)
+- `Abril_Backend/dossier_semanal_schema.sql` (nuevo, DDL de respaldo)
+- El fix real quedó en el repo frontend: `Abril-Frontend/src/app/features/habilitacion/pages/dossier/dossier.ts` (getter `semanasFiltradas`)
+
+### Pendiente
+- Ninguno para este bug — verificado con Network tab que la semana ya aparece tras el fix del getter.
+
+## Sesión 2026-07-05 — CronogramaActividades: preferencia última pestaña + fixes cascada/línea base
+
+Rama: `victor-backend`
+
+### 1. Feature nueva: recordar última pestaña de cronograma por usuario/proyecto
+
+Tabla `user_cronograma_preference` (PK compuesta `user_id, project_id`, columna `tipo_cronograma`, `updated_at` default `now()`). Verificado antes de implementar que no existía nada (ni tabla, ni endpoints `ultima-pestana`).
+
+- **Modelo:** `UserCronogramaPreference` (namespace `Abril_Backend.Shared.Models`, igual que `Feriado`/`ProjectActivity`, aunque vive físicamente en `Infrastructure/Models` de esta feature).
+- **DbSet + config PG:** en `AppContext.cs`.
+- **Endpoints** en `CronogramaActividadesController` (controller existente, no uno nuevo):
+  - `GET /api/v1/cronograma-actividades/{proyectoId}/ultima-pestana` → `{ tipoCronograma: string | null }`
+  - `PATCH /api/v1/cronograma-actividades/{proyectoId}/ultima-pestana` → upsert (find-or-create vía EF, mismo patrón que `ManagerSignatureRepository`).
+- **Migración EF:** `20260705162909_AddUserCronogramaPreference` — aislada a mano para que contenga *solo* esta tabla.
+- **Prod:** `_sql_prod/cronograma_user_preference.sql` (idempotente, sin bookkeeping de `__EFMigrationsHistory` — así son los demás scripts de `_sql_prod/`).
+
+**Hallazgo importante (no resuelto, no es de esta feature):** al correr `dotnet ef migrations add`, EF detectó drift preexistente entre modelos ya commiteados y migraciones — `workers.email_corporativo`/`worker_salida_jefe_id`, `invoice_status`, `invoice_observation_reason`, `vecino_lote`, `ga_salida_visibilidad_area`, etc. no tienen migración correspondiente. Si alguien corre `dotnet ef migrations add` de nuevo, ese drift va a volver a aparecer empaquetado. Vale la pena que alguien lo revise y genere la migración de catch-up correspondiente.
+
+### 2. Bug: fechas de cascada no se reflejaban en la respuesta del PATCH
+
+`CronogramaActividadesService.EditarActividadAsync` armaba el DTO `Actividad` con `request.PlannedStartDate/PlannedEndDate` (pre-cascada) y nunca lo refrescaba después de `AplicarCascadaAsync` (que sí persiste bien en BD). Fix: buscar el cambio propio en `cascada.Cambios` por `ProjectActivityId` y pisar `PlannedStartDate/PlannedEndDate` en el DTO antes de devolverlo.
+
+### 3. Feature: auto-fill de línea base (LB)
+
+Al guardar por primera vez INICIO/FIN PROG. (con LB vacía), se copia automáticamente a `BaselineStartDate`/`BaselineEndDate`. No mezcla (inicio no llena LB fin), no pisa si ya tiene valor, no aplica a nodos padre.
+
+- `CronogramaActividadesRepository.CrearActividadAsync`/`EditarActividadAsync`: fill inicial.
+- `CronogramaSchedulingService.CalcularCascadaAsync` (rama sucesor-hoja) y `DesplazarSubarbol` (rama sucesor-padre): mismo fill cuando la fecha llega por cascada, no por edición directa. En `DesplazarSubarbol` se agregó el guard `esHoja = !hijosDe.ContainsKey(rootId)` que no existía antes en este servicio.
+- `CascadaCambioDto` ahora incluye `BaselineStartDate`/`BaselineEndDate` para que el frontend pueda refrescar esas columnas sin recargar la página.
+
+### 4. Bug: fin se autocompletaba como inicio cuando la actividad no tenía fecha fin
+
+En `CalcularCascadaAsync`, rama sucesor-hoja: el diccionario `duracion` le daba `1` día por defecto a actividades sin `PlannedEndDate`, y `AddBusinessDays(nuevoInicio, 0, ...)` devolvía el mismo día → fin quedaba igual a inicio. Fix: `finNuevoDo` ahora es condicional a `act.PlannedEndDate.HasValue`; si la actividad nunca tuvo fin, se deja `null` (el usuario lo pone a mano). La rama sucesor-padre (`DesplazarSubarbol`) ya manejaba esto bien desde antes.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Application/Services/CronogramaSchedulingService.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Application/Services/CronogramaActividadesService.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Application/Dtos/CronogramaActividadesDtos.cs`
+
+### Pendiente
+- Sacar un `console.log // DEBUG` en el frontend (el usuario lo pidió aparte, no se tocó en esta sesión).
+- Drift de migraciones preexistente (ver punto 1) sin resolver.
+
+## Sesión 2026-07-05 (continuación) — CronogramaActividades: "Usar plantilla" (pestaña Proyecto)
+
+Rama: `victor-backend`
+
+### Feature: aplicar plantilla de actividades a un proyecto
+
+Plantilla fija de 81 items (20 padres agrupadores sin fecha, 61 hojas con predecesoras ya encadenadas por código) en `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Seeds/plantilla_proyecto_seed.json`. Agregada entrada `CopyToOutputDirectory: Always` en `Abril-Backend.csproj` (mismo patrón que las carpetas `Templates/` de otras features) para que el JSON se copie al `bin/` en cada build.
+
+**Endpoint:** `POST /api/v1/cronograma-actividades/{proyectoId}/aplicar-plantilla` con body `{ tipoCronograma }` (default `"PROYECTO"`), agregado al controller existente.
+
+**`CronogramaActividadesRepository.AplicarPlantillaAsync`:**
+- Lee y deserializa el JSON (`System.Text.Json`, `PropertyNameCaseInsensitive`).
+- Todo dentro de una transacción explícita (`ctx.Database.BeginTransactionAsync()` + `CommitAsync()` al final; si algo falla antes del commit, el `using` de la transacción hace rollback automático).
+- Pasada 1: inserta las 81 actividades con `ParentId = null` y fechas `null`, un solo `SaveChangesAsync()` para generar todos los IDs (mismo patrón de 2 pasadas que `ImportarMppAsync`, evita N+1).
+- Pasada 2: con los IDs ya generados, resuelve `parentCodigo` → `ParentId` real y agrega filas `ActivityPredecessor` por `predecesoraCodigo` — mismo efecto que `SetPredecesorasAsync` pero inline en el mismo `ctx`/transacción (no se llamó al método existente literalmente porque abre su propio `DbContext` por invocación, lo que rompería la atomicidad pedida al hacerlo 61 veces).
+
+No se agregó validación de existencia de proyecto — se mantuvo consistente con `CrearActividadAsync`, que tampoco la tiene.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Seeds/plantilla_proyecto_seed.json`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs`
+- `Abril-Backend.csproj`
+
+## Sesión 2026-07-06 — Fixes en aplicar-plantilla y cascada de fechas
+
+Rama: `victor-backend`
+
+### Bug 1: `InvalidOperationException` al aplicar plantilla (execution strategy)
+
+`AplicarPlantillaAsync` usaba una transacción manual (`BeginTransactionAsync`/`CommitAsync`) directo sobre el `DbContext`, pero el provider Npgsql tiene `EnableRetryOnFailure` (`NpgsqlRetryingExecutionStrategy`), y esa combinación no es compatible → `The configured execution strategy 'NpgsqlRetryingExecutionStrategy' does not support user-initiated transactions`.
+
+**Fix:** se envolvió toda la transacción (las 2 pasadas de inserts + commit) con la execution strategy correcta:
+
+```csharp
+var strategy = ctx.Database.CreateExecutionStrategy();
+await strategy.ExecuteAsync(async () =>
+{
+    await using var transaction = await ctx.Database.BeginTransactionAsync();
+    // ... pasada 1 + pasada 2 ...
+    await transaction.CommitAsync();
+});
+```
+
+`ImportarMppAsync` NO tiene este bug: no usa transacción manual, solo `SaveChangesAsync()` sueltos, así que no requirió cambio.
+
+### Bug 2: la cascada de fechas no se disparaba al editar solo la fecha de una actividad
+
+Al ponerle fecha a una actividad predecesora, su sucesora (vinculada correctamente en `ActivityPredecessors`) no recibía fechas por cascada; el PUT devolvía `"cascada": null`.
+
+Causa (descartada la sospecha inicial de tabla descalzada — ambos flujos usan la misma tabla `ActivityPredecessors`): en `CronogramaActividadesService.EditarActividadAsync`, la llamada a `AplicarCascadaAsync` estaba **encerrada dentro del `if (request.PredecessorIds != null)`**. Un PUT que solo cambia fechas (sin reenviar `predecessorIds`) se saltaba el bloque entero → la cascada nunca corría.
+
+**Fix:** se separó el bloque de predecesoras (`SetPredecesorasAsync` + `DetectCycleAsync`, que solo debe correr si el request trae `PredecessorIds`) del cálculo de cascada, que ahora corre siempre que cambien fechas o predecesoras. `Cascada` en la respuesta sigue siendo `null` cuando no hay cambios reales (se mantiene el contrato con el frontend).
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Application/Services/CronogramaActividadesService.cs`
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs`
+
+### Pendiente
+- El usuario iba a reprobar en el navegador el flujo de cascada (fecha en 2167 → 2168) tras el Bug 2; confirmar que quedó bien.
+
+## Sesión 2026-07-07 — Investigación: feriados en la cascada de fechas
+
+Rama: `victor-backend`. Sesión solo de investigación, sin cambios de código.
+
+### Hallazgo: dos sistemas de feriados desconectados
+
+`CronogramaSchedulingService.EsHabil` sí excluye feriados (no solo sábado/domingo), leyendo `ctx.Feriados` dentro de `CalcularCascadaAsync`. Pero existen **dos tablas de feriados separadas que no se comunican entre sí**:
+
+1. **`Feriados`** (`Shared/Models/Feriado.cs`, tabla `feriados`) — la que **realmente consulta** la cascada de cronograma. CRUD vía `CronogramaActividadesController` (`GET/POST/DELETE api/v1/.../feriados`).
+2. **`Holiday`** (`Features/ConfigurationModule/Features/HolidayFeature/`, tabla `holiday`) — módulo CRUD más completo (con `HolidayType`, `RecurringYearly`, soft-delete) expuesto en `api/v1/holiday`. **No lo usa la cascada** — es una tabla paralela sin relación con `Feriados`.
+
+Riesgo: si alguien carga feriados vía `api/v1/holiday` pensando que alimenta el cronograma, no tiene ningún efecto.
+
+### Cómo se actualizan los feriados hoy
+
+Seed hardcodeado en la migración `20260601002547_AddFeriadosAndActivityPredecessor.cs` con feriados nacionales de Perú para 2024-2026 (incluye Semana Santa movible calculada a mano por año). No hay generación automática ni job — para 2027+ hay que insertar manualmente vía nueva migración o los endpoints del `CronogramaActividadesController`.
+
+### Pendiente / posible mejora futura
+- Evaluar si conviene unificar `Feriados` y `Holiday` en una sola tabla, o al menos documentar/advertir que son sistemas distintos.
+- Cargar feriados 2027 antes de que termine 2026 (ni la tabla `Feriados` ni `Holiday` los tienen aún).
+
+## Sesión 2026-07-07 — RAC: fotos, empresa reportante vs reportada, indicadores
+
+### 1. Fotos de RAC no se subían/mostraban en producción
+
+Investigando un reclamo de que un contratista no podía ver fotos de evidencia en un RAC, se confirmó en pgAdmin que el RAC (`RAC-2026-GMZ-039`) no tenía ninguna fila en `ssoma_rac_foto` — la subida nunca llegó a guardarse. Causa raíz: `appsettings.Production.json` (gitignored, config real de producción vive en otro lado según el usuario) no tenía `RacFotosLibraryId`/`RacPdfLibraryId`/`RacFirmasLibraryId` bajo `SharePoint:Sites:SSOMAApps` — sin esos IDs, `SharePointHabService.GetDownloadUrlAsync`/`SubirArchivoEnRutaAsync` no puede resolver el drive de SharePoint. La subida (`RacSharePointService.SubirFotoAsync` → `SubirArchivoEnRutaAsync`) debería lanzar `AbrilException` 500 si esto pasa, pero en el frontend (`rac-nuevo.ts`) el `error` callback de la subida de fotos llamaba al mismo `mostrarSwalYNavegar()` que el `next`, mostrando "RAC registrado ✓" igual aunque las fotos fallaran — el usuario nunca se enteraba.
+
+**Fix backend**: ninguno de código — los 3 IDs de SharePoint existen en `appsettings.Local.json`, pendiente que el usuario los agregue donde sea que viva la config real de producción (no es `appsettings.Production.json` del checkout local, gitignored y aparentemente no es lo que se despliega).
+
+**Fix frontend** (`rac-nuevo.ts`): el callback de error de subida de fotos ahora muestra un SweetAlert de advertencia distinto ("RAC registrado, pero las fotos no se pudieron subir") en vez de fingir éxito. Además, ahora las fotos son obligatorias (`canSubmit` exige `fotosSeleccionadas.length > 0`).
+
+### 2. Empresa Reportante y Empresa Reportada — antes opcionales, ahora obligatorias
+
+En `rac-nuevo.html`/`.ts`, existían checkboxes "Reportar de forma anónima" y "No identificar la empresa reportada" que permitían crear un RAC sin ninguna de las dos empresas — resultado: 11+ RAC de julio quedaron con `empresa_reportada_id = NULL`, invisibles en cualquier filtro/indicador por empresa. Se quitaron ambos checkboxes; `empresaReportanteId` y `empresaReportadaId` ahora son obligatorios en `canSubmit`.
+
+### 3. Indicadores proactivos mezclaban "empresa reportante" y "empresa reportada" en un solo conteo
+
+`IndicadoresProactivosRepository` (en los 4 sitios que llaman a `BuildMetaDto`, tanto en `GetMetasEmpresaAsync` como en el método bulk multi-proyecto) contaba **todo** por `EmpresaReportadaId` — tanto "RACS rep." como "RACS cerr." usaban la misma población (RACs atribuidos a la empresa), y no existía ningún conteo de cuántos RAC había *levantado* cada empresa como reportante. Esto también explicaba por qué un RAC con `EmpresaReportanteId` = Lumbreras no sumaba nada al indicador de Lumbreras (solo contaba para la empresa reportada).
+
+**Fix**: `BuildMetaDto` ahora recibe `actualRacsReportados` (por `EmpresaReportanteId`) separado de `actualRacsAtribuidos`/`actualRacsCerrados` (por `EmpresaReportadaId`). "RACS rep." = cuántos reportó la empresa (indicador proactivo); "RACS cerr." = de los que le fueron atribuidos, cuántos cerró (indicador de cumplimiento). Se agregó `ActualRacsAtribuidos` a `MetaEmpresaDto` para que el frontend use ese valor como "Prog" de la fila "RACS cerr." (antes reutilizaba `ActualRacs`, que ahora significa otra cosa).
+
+También se encontró y corrigió que "RACS rep." mostraba el valor topado a la meta (`Math.Min(actualRacs, metaRacs)`) en vez del conteo real — una empresa que reportó 10 RACs con meta de 2 solo veía "2" en pantalla. Reportar de más es deseable y no debía ocultarse; el `%` sigue limitado a 100 pero el número ahora es siempre el real.
+
+**Dashboard de RAC** (`RacService.GetDashboardAsync`, solo para vista contratista): se agregó `TotalReportados`/`TotalReportadosCerrados` (conteo por `EmpresaReportanteId`) como card nueva "RACs Levantados por Ti", antes inexistente.
+
+**Lista de RAC**: se agregaron columnas separadas "Reportante"/"Reportada" (antes solo mostraba una), filtro de mes/año (usa `FechaDesde`/`FechaHasta` que ya existían en el backend), y dos selects de empresa separados (`empresaReportanteId` / `empresaReportadaId`, antes uno solo que filtraba por reportada).
+
+### Archivos clave
+- `Features/SsomaModule/RacFeature/Services/RacService.cs` (`GetListAsync`, `GetDashboardAsync`)
+- `Features/SsomaModule/RacFeature/Dtos/RacDtos.cs` (`RacListQuery.EmpresaReportanteId`, `RacListItemDto.EmpresaReportanteNombre`, `RacDashboardDto.TotalReportados/TotalReportadosCerrados`)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Repositories/IndicadoresProactivosRepository.cs` (`BuildMetaDto` y sus 4 call sites)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Application/Dtos/IndicadoresProactivosDtos.cs` (`MetaEmpresaDto.ActualRacsAtribuidos`)
+- El fix real de fotos quedó pendiente en config de producción (no en este repo) — ver punto 1.
+
+### Pendiente
+- Confirmar con el usuario que agregó `RacFotosLibraryId`/`RacPdfLibraryId`/`RacFirmasLibraryId` en la config real de producción (no en `appsettings.Production.json` del checkout, que está gitignored y según el usuario "no tiene nada que ver con donde se hace deploy").
+- 11 RAC de julio con `empresa_reportada_id = NULL` (`RAC-2026-KAU-014,015,016,017,020,025,030,035,036,037,041,043,044` y similares) quedaron huérfanos — no se corrigieron manualmente en BD, pendiente que el usuario identifique a qué empresa corresponden.
+
+### 4. OPT/ATS/Charlas se atribuían por vinculación ACTUAL, no por la vigente en la fecha del evento
+
+Al revisar si Inspecciones/OPT/Auditorías ATS contaban bien (a raíz de la revisión de RACs de este mismo día), se encontró que `IndicadoresProactivosRepository` atribuía OPT/ATS/Charlas a la empresa con la que el trabajador está vinculado **hoy** (`WorkerVinculacion.FechaFin == null`), no a la que tenía **el día que ocurrió el evento**. Un trabajador que cambió de contratista a mitad de mes hacía que sus OPT/ATS/Charlas pasadas se contaran para su empresa nueva, no la vieja. Inspecciones y RACs no tenían este problema porque guardan `EmpresaId`/`EmpresaReportadaId` directo en el registro.
+
+**Fix** en `GetMetasEmpresaAsync` (single-proyecto) y `GetSeguimientoTodosProyectosAsync` (bulk multi-proyecto): se trae el historial completo de `WorkerVinculacion` (no solo la activa) y se resuelve la empresa vigente por `(workerId, fecha)` con un helper local `EmpresaDelTrabajadorEnFecha`. Los bulk queries de OPT/ATS ahora incluyen la fecha del evento en la proyección (antes no la traían). Se eliminó el guard `tieneWorkers`/`wSet.Any()` en el método single-proyecto porque ya no aplica (el conteo ahora es por evento, no por vinculación activa).
+
+### Archivos clave (punto 4)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Repositories/IndicadoresProactivosRepository.cs` (`GetMetasEmpresaAsync`, `GetSeguimientoTodosProyectosAsync`)
+
+### Pendiente (punto 4)
+- Verificado que compila; no se pudo probar contra datos reales en esta sesión — pendiente que el usuario confirme en `/ssoma/gestion/indicadores-proactivos/indicadores-ssoma/seguimiento` con un caso conocido (ej. Lumbreras, RP Mural) tras el deploy.

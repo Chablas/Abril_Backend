@@ -100,6 +100,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<CostosCronogramaActividad> CostosCronogramaActividad { get; set; }
         public DbSet<CostosCronogramaActividadNodo> CostosCronogramaActividadNodo { get; set; }
         public DbSet<ProjectAdjudicacionFolder> ProjectAdjudicacionFolder { get; set; }
+        public DbSet<ProjectAdjudicacionFolderType> ProjectAdjudicacionFolderType { get; set; }
         public DbSet<InvoiceFolder> InvoiceFolder { get; set; }
         public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceDocumentType> InvoiceDocumentType { get; set; }
         public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceStatus> InvoiceStatus { get; set; }

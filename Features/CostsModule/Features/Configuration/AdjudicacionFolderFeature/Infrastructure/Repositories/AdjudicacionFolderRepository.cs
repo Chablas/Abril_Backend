@@ -31,12 +31,15 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.Adjudicacion
             var data = await (
                 from f in query
                 join p in _context.Project on f.ProjectId equals p.ProjectId
+                join t in _context.ProjectAdjudicacionFolderType on f.FolderTypeId equals t.ProjectAdjudicacionFolderTypeId
                 orderby f.ProjectAdjudicacionFolderId descending
                 select new AdjudicacionFolderDto
                 {
                     ProjectAdjudicacionFolderId = f.ProjectAdjudicacionFolderId,
                     ProjectId = f.ProjectId,
                     ProjectDescription = p.ProjectDescription,
+                    FolderTypeId = f.FolderTypeId,
+                    FolderTypeDescription = t.ProjectAdjudicacionFolderTypeDescription,
                     LinkUrl = f.LinkUrl,
                     DriveId = f.DriveId,
                     FolderId = f.FolderId,
@@ -72,13 +75,29 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.Adjudicacion
                 })
                 .ToListAsync();
 
-            return new AdjudicacionFolderFormDataDto { Projects = projects };
+            var folderTypes = await _context.ProjectAdjudicacionFolderType
+                .Where(x => x.State && x.Active)
+                .OrderBy(x => x.ProjectAdjudicacionFolderTypeId)
+                .Select(x => new FolderTypeSimpleDto
+                {
+                    FolderTypeId = x.ProjectAdjudicacionFolderTypeId,
+                    FolderTypeDescription = x.ProjectAdjudicacionFolderTypeDescription
+                })
+                .ToListAsync();
+
+            return new AdjudicacionFolderFormDataDto { Projects = projects, FolderTypes = folderTypes };
         }
 
-        public async Task<bool> ExistsForProjectAsync(int projectId)
+        public async Task<bool> ExistsForProjectAsync(int projectId, int folderTypeId)
         {
             return await _context.ProjectAdjudicacionFolder
-                .AnyAsync(x => x.ProjectId == projectId && x.State);
+                .AnyAsync(x => x.ProjectId == projectId && x.FolderTypeId == folderTypeId && x.State);
+        }
+
+        public async Task<bool> FolderTypeExistsAsync(int folderTypeId)
+        {
+            return await _context.ProjectAdjudicacionFolderType
+                .AnyAsync(x => x.ProjectAdjudicacionFolderTypeId == folderTypeId && x.State && x.Active);
         }
 
         public async Task<int?> GetProjectIdAsync(int projectAdjudicacionFolderId)
@@ -94,6 +113,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.Adjudicacion
             var record = new ProjectAdjudicacionFolder
             {
                 ProjectId = dto.ProjectId,
+                FolderTypeId = dto.FolderTypeId,
                 LinkUrl = dto.LinkUrl.Trim(),
                 DriveId = driveId,
                 FolderId = folderId,

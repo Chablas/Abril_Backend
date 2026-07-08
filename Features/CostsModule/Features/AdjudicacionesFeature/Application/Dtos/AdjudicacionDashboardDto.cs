@@ -8,6 +8,15 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public decimal Value { get; set; }
     }
 
+    /// <summary>Ítem para gráficos de doble barra: monto total adjudicado + monto del adelanto.</summary>
+    public class AdjudicacionAdvanceChartItemDto
+    {
+        public int Id { get; set; }
+        public string Label { get; set; } = null!;
+        public decimal Total { get; set; }
+        public decimal Advance { get; set; }
+    }
+
     /// <summary>
     /// Ítem del gráfico "por estado" con el detalle breve de las adjudicaciones en ese estado
     /// ("CONTRATISTA — PARTIDA"), para mostrarlo en el tooltip de la barra.
@@ -64,21 +73,24 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public AdjudicacionDashboardFiltersDto? Filters { get; set; }
         public AdjudicacionDashboardSummaryDto Summary { get; set; } = new();
         public List<AdjudicacionEstadoChartItemDto> PorEstado { get; set; } = new();
-        public List<AdjudicacionChartItemDto> PorProyecto { get; set; } = new();
-        public List<AdjudicacionChartItemDto> PorTipoContrato { get; set; } = new();
-        public List<AdjudicacionChartItemDto> PorCategoria { get; set; } = new();
-        public List<AdjudicacionChartItemDto> PorModalidad { get; set; } = new();
-        /// <summary>Cantidad de adjudicaciones por modalidad de pago (Adenda, Contrato con/sin adelanto).</summary>
-        public List<AdjudicacionChartItemDto> PorModalidadPago { get; set; } = new();
-        /// <summary>Paso 5: contratos llegados a Of. Central con vs sin observaciones.</summary>
-        public List<AdjudicacionChartItemDto> LlegadaObservaciones { get; set; } = new();
-        public List<AdjudicacionChartItemDto> PorMes { get; set; } = new();
         public List<AdjudicacionMoneyByCurrencyDto> MontoPorMoneda { get; set; } = new();
         /// <summary>Top subcontratistas por monto adjudicado en soles (PEN).</summary>
         public List<AdjudicacionChartItemDto> TopSubcontratistasPen { get; set; } = new();
         /// <summary>Top subcontratistas por monto adjudicado en dólares (USD).</summary>
         public List<AdjudicacionChartItemDto> TopSubcontratistasUsd { get; set; } = new();
-        /// <summary>Top subcontratistas por cantidad de adjudicaciones.</summary>
-        public List<AdjudicacionChartItemDto> TopContratistas { get; set; } = new();
+        /// <summary>
+        /// Top subcontratistas por monto en soles, solo contratos con adelanto
+        /// ("Contrato con adelanto" y "Pago a cuenta"), con monto total + monto del adelanto.
+        /// </summary>
+        public List<AdjudicacionAdvanceChartItemDto> TopSubcontratistasAdelantoPen { get; set; } = new();
+        /// <summary>Igual que <see cref="TopSubcontratistasAdelantoPen"/> pero en dólares (USD).</summary>
+        public List<AdjudicacionAdvanceChartItemDto> TopSubcontratistasAdelantoUsd { get; set; } = new();
+        /// <summary>
+        /// Adjudicaciones actualmente en el paso 2 (datos del contrato) por trabajador de Oficina
+        /// Técnica del proyecto (staff_project_email tipo Oficina Técnica). Items = "RAZÓN SOCIAL — PARTIDA".
+        /// </summary>
+        public List<AdjudicacionEstadoChartItemDto> PendientesOtPaso2 { get; set; } = new();
+        /// <summary>Igual que <see cref="PendientesOtPaso2"/> pero para el paso 4 (por enviar al SC).</summary>
+        public List<AdjudicacionEstadoChartItemDto> PendientesOtPaso4 { get; set; } = new();
     }
 }

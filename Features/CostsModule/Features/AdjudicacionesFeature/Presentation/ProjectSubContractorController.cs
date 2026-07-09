@@ -43,6 +43,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             [FromQuery] int? contractTypeId,
             [FromQuery] int? contractModalityId,
             [FromQuery] int? paymentMethodId,
+            [FromQuery] int? projectSubContractorStatusId,
             [FromQuery] int? createdUserId,
             [FromQuery] int page = 1)
         {
@@ -61,6 +62,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     ContractTypeId = contractTypeId,
                     ContractModalityId = contractModalityId,
                     PaymentMethodId = paymentMethodId,
+                    ProjectSubContractorStatusId = projectSubContractorStatusId,
                     CreatedUserId = createdUserId,
                     Page = page
                 };
@@ -77,7 +79,13 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
         [Authorize]
         [HttpGet("dashboard")]
-        public async Task<IActionResult> GetDashboard()
+        public async Task<IActionResult> GetDashboard(
+            [FromQuery] int? projectId,
+            [FromQuery] int? contractTypeId,
+            [FromQuery] int? contractModalityId,
+            [FromQuery] int? paymentMethodId,
+            [FromQuery] int? projectSubContractorStatusId,
+            [FromQuery] bool includeFilters = true)
         {
             try
             {
@@ -85,8 +93,17 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
+                var filter = new ProjectSubContractorFilterDTO
+                {
+                    ProjectId = projectId,
+                    ContractTypeId = contractTypeId,
+                    ContractModalityId = contractModalityId,
+                    PaymentMethodId = paymentMethodId,
+                    ProjectSubContractorStatusId = projectSubContractorStatusId
+                };
+
                 var userId = int.Parse(userIdClaim.Value);
-                var result = await _projectSubContractorService.GetDashboard(userId, RestrictToOwnProjects());
+                var result = await _projectSubContractorService.GetDashboard(filter, includeFilters, userId, RestrictToOwnProjects());
                 return Ok(result);
             }
             catch (Exception)
@@ -160,6 +177,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             [FromQuery] int? contractTypeId,
             [FromQuery] int? contractModalityId,
             [FromQuery] int? paymentMethodId,
+            [FromQuery] int? projectSubContractorStatusId,
             [FromQuery] int? createdUserId,
             [FromQuery] int page = 1)
         {
@@ -178,6 +196,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
                     ContractTypeId = contractTypeId,
                     ContractModalityId = contractModalityId,
                     PaymentMethodId = paymentMethodId,
+                    ProjectSubContractorStatusId = projectSubContractorStatusId,
                     CreatedUserId = createdUserId,
                     Page = page
                 };
@@ -595,7 +614,7 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
                 var userId = int.Parse(userIdClaim.Value);
                 await _projectSubContractorService.SendStep5LevantamientoEmailAsync(id, dto, userId);
-                return Ok(new { message = "Correo de levantamiento de observaciones enviado a Oficina Central exitosamente." });
+                return Ok(new { message = "Correo de levantamiento de observaciones enviado a Costos exitosamente." });
             }
             catch (AbrilException ex)
             {

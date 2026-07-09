@@ -363,6 +363,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     {
                         hab.Estado = "Falta";
                         hab.ArchivoUrl = null;
+                        hab.Vigencia = null;
                         hab.UpdatedAt = DateTime.UtcNow;
                     }
                 }

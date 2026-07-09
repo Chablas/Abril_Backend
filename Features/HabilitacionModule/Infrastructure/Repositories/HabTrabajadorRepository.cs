@@ -801,8 +801,28 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 foreach (var e in entregables)
                 {
                     e.Estado = "Falta";
+                    e.Vigencia = null;
+                    e.VigenciaPropuesta = null;
+                    e.ArchivoUrl = null;
                     e.UpdatedAt = DateTime.UtcNow;
                 }
+            }
+
+            // Cambio de empresa: sacar al trabajador de la "nomina" de polizas
+            // SCTR/Vida Ley de la empresa anterior. Si no se hace esto, la empresa
+            // anterior lo vuelve a aprobar automaticamente cada vez que renueva su
+            // poliza mensual, aunque el trabajador ya no trabaje ahi.
+            if (esCambioEmpresa && currentEmpresaId.HasValue)
+            {
+                var vinculosEmpresaAnterior = await ctx.SsSctrVidaLeyWorker
+                    .Where(svw => svw.WorkerId == workerId)
+                    .Join(ctx.SsSctrVidaley, svw => svw.SctrVidaLeyId, s => s.Id, (svw, s) => new { svw, s.EmpresaId })
+                    .Where(x => x.EmpresaId == currentEmpresaId.Value)
+                    .Select(x => x.svw)
+                    .ToListAsync();
+
+                if (vinculosEmpresaAnterior.Count > 0)
+                    ctx.SsSctrVidaLeyWorker.RemoveRange(vinculosEmpresaAnterior);
             }
 
             if (itemsToRestore.Count > 0)
@@ -1059,8 +1079,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 foreach (var e in entregables)
                 {
                     e.Estado = "Falta";
+                    e.Vigencia = null;
+                    e.VigenciaPropuesta = null;
+                    e.ArchivoUrl = null;
                     e.UpdatedAt = DateTime.UtcNow;
                 }
+            }
+
+            // Cambio de empresa en el reingreso: mismo cuidado que en CambiarObraAsync —
+            // sacar al trabajador de la nomina de polizas SCTR/Vida Ley de la empresa anterior.
+            if (esCambioEmpresa && currentEmpresaId.HasValue)
+            {
+                var vinculosEmpresaAnterior = await ctx.SsSctrVidaLeyWorker
+                    .Where(svw => svw.WorkerId == workerId)
+                    .Join(ctx.SsSctrVidaley, svw => svw.SctrVidaLeyId, s => s.Id, (svw, s) => new { svw, s.EmpresaId })
+                    .Where(x => x.EmpresaId == currentEmpresaId.Value)
+                    .Select(x => x.svw)
+                    .ToListAsync();
+
+                if (vinculosEmpresaAnterior.Count > 0)
+                    ctx.SsSctrVidaLeyWorker.RemoveRange(vinculosEmpresaAnterior);
             }
 
             var nowUtc = DateTime.UtcNow;

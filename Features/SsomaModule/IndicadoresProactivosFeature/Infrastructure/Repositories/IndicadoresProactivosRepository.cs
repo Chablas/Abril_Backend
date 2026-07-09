@@ -51,12 +51,13 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         if (datos is null) return false;
         if (datos.Id == WorkerIdSamuel) return true;
 
-        bool EsCoordSsoma(string? texto) =>
-            texto != null
-            && texto.Contains("Coordinador", StringComparison.OrdinalIgnoreCase)
-            && texto.Contains("SSOMA", StringComparison.OrdinalIgnoreCase);
+        // "Coordinador" y "SSOMA" pueden venir en el mismo campo (ej. Categoria=
+        // "Coordinador SSOMA") o repartidos entre Categoria y Ocupacion (ej.
+        // Categoria="Coordinador", Ocupacion="SSOMA") — se evalúa el texto combinado.
+        var textoCombinado = $"{datos.Categoria} {datos.Ocupacion}";
 
-        return EsCoordSsoma(datos.Ocupacion) || EsCoordSsoma(datos.Categoria);
+        return textoCombinado.Contains("Coordinador", StringComparison.OrdinalIgnoreCase)
+            && textoCombinado.Contains("SSOMA", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<HashSet<int>> GetEmpresaExcluidaIdsAsync()

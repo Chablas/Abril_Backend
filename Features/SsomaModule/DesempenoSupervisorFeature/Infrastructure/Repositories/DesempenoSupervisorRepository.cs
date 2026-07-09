@@ -35,12 +35,12 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
         if (datos is null) return false;
         if (datos.Id == WorkerIdSamuel) return true;
 
-        bool EsCoordSsoma(string? texto) =>
-            texto != null
-            && texto.Contains("Coordinador", StringComparison.OrdinalIgnoreCase)
-            && texto.Contains("SSOMA", StringComparison.OrdinalIgnoreCase);
+        // "Coordinador" y "SSOMA" pueden venir en el mismo campo o repartidos entre
+        // Categoria y Ocupacion (ej. Categoria="Coordinador", Ocupacion="SSOMA").
+        var textoCombinado = $"{datos.Categoria} {datos.Ocupacion}";
 
-        return EsCoordSsoma(datos.Ocupacion) || EsCoordSsoma(datos.Categoria);
+        return textoCombinado.Contains("Coordinador", StringComparison.OrdinalIgnoreCase)
+            && textoCombinado.Contains("SSOMA", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task OcultarAsync(int workerId, string? motivo, int userId)

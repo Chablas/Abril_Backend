@@ -7,6 +7,7 @@ using Abril_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
@@ -55,7 +56,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPost]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> Create([FromBody] InterconsultaCreateDto dto)
         {
             try
@@ -68,7 +69,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPut("{id:int}")]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> Update(int id, [FromBody] InterconsultaUpdateDto dto)
         {
             try
@@ -87,7 +88,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         /// </summary>
         [HttpPost("{id}/documentos")]
         [Consumes("multipart/form-data")]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> SubirDocumento(int id, [FromForm] IFormFile file)
         {
             try
@@ -131,7 +132,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPatch("{id:int}/resultado")]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> PatchResultado(int id, [FromBody] InterconsultaResultadoPatchDto dto)
         {
             try
@@ -144,7 +145,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPatch("{id:int}/derivacion")]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> PatchDerivacion(int id, [FromBody] InterconsultaDerivacionPatchDto dto)
         {
             try

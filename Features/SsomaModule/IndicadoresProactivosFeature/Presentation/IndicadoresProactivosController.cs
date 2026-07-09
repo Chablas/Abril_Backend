@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Interfaces;
@@ -36,7 +37,7 @@ public class IndicadoresProactivosController : ControllerBase
     /// </summary>
     private async Task<bool> PuedeOcultarAsync()
     {
-        if (User.IsInRole("ADMINISTRADOR DEL SISTEMA")) return true;
+        if (User.IsInRole(Roles.AdministradorSistema)) return true;
         return await _service.EsCoordinadorSsomaAsync(GetUserId());
     }
 

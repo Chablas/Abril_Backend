@@ -7,6 +7,7 @@ using Abril_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
@@ -148,7 +149,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 // se liga el EMO a su propia clinica desde el inicio (evita que las
                 // subidas de Aptitud/EMO Completo que siguen a la creacion choquen
                 // con el chequeo de propiedad de SubirDocumento).
-                if (dto.ClinicaId == null && User.IsInRole("CLINICA"))
+                if (dto.ClinicaId == null && User.IsInRole(Roles.Clinica))
                 {
                     var clinicaIdClaim = User.FindFirst("clinicaId")?.Value;
                     if (int.TryParse(clinicaIdClaim, out var clinicaIdActual))
@@ -206,7 +207,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                     ?? throw new AbrilException("EMO no encontrado.", 404);
 
                 // Si el solicitante es una clínica, validar que el EMO le pertenezca
-                if (User.IsInRole("CLINICA"))
+                if (User.IsInRole(Roles.Clinica))
                 {
                     var clinicaIdClaim = User.FindFirst("clinicaId")?.Value;
                     if (!int.TryParse(clinicaIdClaim, out var clinicaId))

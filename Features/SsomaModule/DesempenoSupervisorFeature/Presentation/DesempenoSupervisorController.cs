@@ -2,6 +2,7 @@ using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructu
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Presentation;
 
@@ -20,7 +21,7 @@ public class DesempenoSupervisorController(DesempenoSupervisorRepository repo) :
     /// </summary>
     private async Task<bool> PuedeOcultarAsync()
     {
-        if (User.IsInRole("ADMINISTRADOR DEL SISTEMA")) return true;
+        if (User.IsInRole(Roles.AdministradorSistema)) return true;
         return await repo.EsCoordinadorSsomaAsync(GetUserId());
     }
 

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Application.Dtos;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Application.Interfaces;
@@ -19,9 +20,9 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkF
             _service = service;
         }
 
-        private const string RolAdministrador  = "ADMINISTRADOR DE COSTOS Y PRESUPUESTOS";
-        private const string RolOficinaCentral = "USUARIO DE COSTOS Y PRESUPUESTOS DE OFICINA CENTRAL";
-        private const string RolOficinaTecnica = "USUARIO DE COSTOS Y PRESUPUESTOS DE OFICINA TÉCNICA";
+        private const string RolAdministrador  = Roles.CostosAdministrador;
+        private const string RolOficinaCentral = Roles.CostosOficinaCentral;
+        private const string RolOficinaTecnica = Roles.CostosOficinaTecnica;
 
         /// <summary>
         /// Oficina Técnica (sin Admin ni Of. Central) solo gestiona links de sus proyectos

@@ -4995,3 +4995,19 @@ Con esto, aprobar un descanso o editar un accidente invalida el caché al instan
 ### Pendiente
 - El usuario ya reinició el backend local para tomar el cambio; falta confirmar en el dashboard que Cedro 33 refleja los 30 días sin demora.
 - No se auditaron otros puntos de escritura que podrían afectar reactivos (p. ej. `AccidenteIncidenteRepository`/Flash Report vinculado a accidentes de tópico) — si en el futuro se reporta el mismo síntoma desde otro flujo, revisar si también necesita `Bump()`.
+
+## Sesión 2026-07-09 (2) — Fix: Coordinador SSOMA sin boton de ocultar/mostrar empresas
+
+Reporte del usuario: el mismo pudia ver y usar el boton de ocultar/mostrar empresas en `/ssoma/gestion/indicadores-proactivos/indicadores-ssoma/seguimiento` (es ADMINISTRADOR DEL SISTEMA), pero coordinadores SSOMA reales no lo veian.
+
+**Diagnostico** (confirmado por SQL que corrio el usuario sobre el worker de un coordinador afectado, ocerna@abril.pe): `categoria="Coordinador"` y `ocupacion="SSOMA"` estaban en campos separados. `EsCoordinadorSsomaAsync` (duplicado en `IndicadoresProactivosRepository` y `DesempenoSupervisorRepository`) exigia que ambas palabras aparecieran en el MISMO campo (`Ocupacion` o `Categoria` individualmente), asi que ningun campo por separado calificaba.
+
+**Fix**: en ambos repositorios, se combina `Categoria` + `Ocupacion` en un solo texto antes de buscar las dos palabras, en vez de evaluar cada campo por separado.
+
+### Archivos clave
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Repositories/IndicadoresProactivosRepository.cs` (`EsCoordinadorSsomaAsync`)
+- `Features/SsomaModule/DesempenoSupervisorFeature/Infrastructure/Repositories/DesempenoSupervisorRepository.cs` (`EsCoordinadorSsomaAsync`)
+
+### Pendiente
+- Los endpoints de seguimiento tienen cache de 10 min (`IMemoryCache`) — el usuario debe reiniciar el backend tras el deploy para que el cambio de permisos tome efecto de inmediato en vez de esperar hasta que expire el cache.
+- Confirmar con el usuario que ocerna@abril.pe (y otros coordinadores en la misma situacion) ya ven el boton tras el reinicio.

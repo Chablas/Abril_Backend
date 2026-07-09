@@ -4969,3 +4969,29 @@ Al revisar si Inspecciones/OPT/Auditorías ATS contaban bien (a raíz de la revi
 
 ### Pendiente (punto 4)
 - Verificado que compila; no se pudo probar contra datos reales en esta sesión — pendiente que el usuario confirme en `/ssoma/gestion/indicadores-proactivos/indicadores-ssoma/seguimiento` con un caso conocido (ej. Lumbreras, RP Mural) tras el deploy.
+
+## Sesión 2026-07-09 — Fix: caché de indicadores reactivos no se invalidaba
+
+Reporte del usuario: aprobó un descanso médico de 30 días vinculado a un accidente de Cedro 33, pero el dashboard de SSOMA (`indicadores-ssoma/dashboard`) seguía mostrando los días perdidos viejos.
+
+**Diagnóstico** (confirmado por SQL que corrió el usuario): el dato en BD estaba correcto — `ss_accidente_trabajo.dias_descanso_reales = 30` ya reflejaba la aprobación (`DescansoMedicoRepository.Aprobar` recalcula ese campo sumando `ss_descanso_medico` con `Estado = 'Aprobado'`). El problema era el **caché de 10 minutos** (`IMemoryCache`, `CacheTtl` en `IndicadoresProactivosController`) sobre `/reactivos` y `/reactivos/{proyectoId}`: no había ninguna invalidación cuando cambiaba un accidente o un descanso, así que el dashboard servía la respuesta vieja hasta que expiraba sola.
+
+**Fix**: en vez de enumerar/borrar claves de `IMemoryCache` (no soporta borrar por prefijo), se agregó un contador de versión:
+- `ReactivosCacheVersion` (nuevo, singleton) — `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/ReactivosCacheVersion.cs`. Expone `Current` y `Bump()`.
+- Registrado en `SsomaModule.cs` (`AddSingleton`).
+- `IndicadoresProactivosController`: las claves de caché de `GetReactivosProyecto` y `GetReactivosTodos` ahora incluyen `_v{_reactivosCacheVersion.Current}`.
+- `DescansoMedicoRepository.Aprobar` llama `Bump()` justo después de recalcular `DiasDescansoReales`.
+- `AccidenteTrabajoRepository.Create/Update/Cerrar/Delete` también llaman `Bump()` — cualquiera de esas acciones puede cambiar accidentes/días contabilizados en los reactivos.
+
+Con esto, aprobar un descanso o editar un accidente invalida el caché al instante en vez de esperar hasta 10 minutos.
+
+### Archivos clave
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/ReactivosCacheVersion.cs` (nuevo)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Presentation/IndicadoresProactivosController.cs`
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/DescansoMedicoRepository.cs`
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/AccidenteTrabajoRepository.cs`
+- `Features/SsomaModule/SsomaModule.cs`
+
+### Pendiente
+- El usuario ya reinició el backend local para tomar el cambio; falta confirmar en el dashboard que Cedro 33 refleja los 30 días sin demora.
+- No se auditaron otros puntos de escritura que podrían afectar reactivos (p. ej. `AccidenteIncidenteRepository`/Flash Report vinculado a accidentes de tópico) — si en el futuro se reporta el mismo síntoma desde otro flujo, revisar si también necesita `Bump()`.

@@ -801,6 +801,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 foreach (var e in entregables)
                 {
                     e.Estado = "Falta";
+                    e.Vigencia = null;
+                    e.VigenciaPropuesta = null;
+                    e.ArchivoUrl = null;
                     e.UpdatedAt = DateTime.UtcNow;
                 }
             }
@@ -1059,6 +1062,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 foreach (var e in entregables)
                 {
                     e.Estado = "Falta";
+                    e.Vigencia = null;
+                    e.VigenciaPropuesta = null;
+                    e.ArchivoUrl = null;
                     e.UpdatedAt = DateTime.UtcNow;
                 }
             }

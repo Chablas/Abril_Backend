@@ -79,8 +79,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var noAutorizadosIds = await ctx.SsHabTrabajador
                 .Where(h => workerIds.Contains(h.WorkerId) &&
-                            (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
-                             (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)))
+                            (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
+                             (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora) ||
+                             (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= ahora))))
                 .Select(h => h.WorkerId)
                 .Distinct()
                 .ToListAsync();
@@ -487,13 +488,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 {
                     hasPendientes = items.Any(h =>
                         h.ItemId != HabItemIds.LecturaEmo &&
-                        (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
-                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)));
+                        (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
+                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora) ||
+                        (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= ahora))));
 
                     faltantes = items
                         .Where(h => h.ItemId != HabItemIds.LecturaEmo &&
-                                    (h.Estado == "Falta" || h.Estado == "Rechazado" ||
-                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)))
+                                    (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Enviado" ||
+                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora) ||
+                                    (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= ahora))))
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)
                         .ToList();

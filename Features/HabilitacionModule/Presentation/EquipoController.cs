@@ -6,6 +6,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -14,7 +15,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     [Authorize]
     public class EquipoController : ControllerBase
     {
-        private static readonly string[] RolesAprobadores = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP", "ADMINISTRADOR ADMINISTRACION"];
+        private static readonly string[] RolesAprobadores = [Roles.AdministradorSsoma, Roles.AdministradorUdp, Roles.AdministradorAdministracion];
 
         private readonly IEquipoRepository _repo;
         private readonly ILogger<EquipoController> _logger;

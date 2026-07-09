@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Abril_Backend.Application.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces;
 using Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos;
 
@@ -18,9 +19,9 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
             _projectSubContractorService = projectSubContractorService;
         }
 
-        private const string RolAdministrador  = "ADMINISTRADOR DE COSTOS Y PRESUPUESTOS";
-        private const string RolOficinaCentral = "USUARIO DE COSTOS Y PRESUPUESTOS DE OFICINA CENTRAL";
-        private const string RolOficinaTecnica = "USUARIO DE COSTOS Y PRESUPUESTOS DE OFICINA TÉCNICA";
+        private const string RolAdministrador  = Roles.CostosAdministrador;
+        private const string RolOficinaCentral = Roles.CostosOficinaCentral;
+        private const string RolOficinaTecnica = Roles.CostosOficinaTecnica;
 
         /// <summary>
         /// Oficina Técnica (sin Admin ni Of. Central) solo ve adjudicaciones de sus proyectos

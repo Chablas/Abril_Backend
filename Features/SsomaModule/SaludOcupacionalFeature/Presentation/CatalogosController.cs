@@ -3,12 +3,13 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/catalogos")]
-    [Authorize(Roles = "ADMINISTRADOR SSOMA")]
+    [Authorize(Roles = Roles.AdministradorSsoma)]
     public class CatalogosController : ControllerBase
     {
         private readonly ICatalogosService _service;

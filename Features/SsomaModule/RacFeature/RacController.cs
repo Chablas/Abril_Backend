@@ -4,6 +4,7 @@ using Abril_Backend.Features.Ssoma.Rac.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.Rac;
 
@@ -25,7 +26,7 @@ public class RacController : ControllerBase
         int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
     private bool EsContratista() =>
-        User.FindFirst(ClaimTypes.Role)?.Value == "CONTRATISTA";
+        User.FindFirst(ClaimTypes.Role)?.Value == Roles.Contratista;
 
     /// <summary>
     /// Empresa del usuario contratista logueado (claim "empresaId" del JWT emitido

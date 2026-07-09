@@ -82,18 +82,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EstadoCalc =
                         (ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
                              h.ItemId != HabItemIds.LecturaEmo &&
-                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
-                              (h.Estado == "Enviado" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
+                             // Estados que NO habilitan:
+                             //  - Falta / Rechazado / Vencido: siempre bloquean.
+                             //  - Enviado: primera subida aún sin aprobar por Abril → SIEMPRE bloquea.
+                             //  - Renovando: renovación subida cuando el documento seguía aprobado y vigente.
+                             //    Bloquea SOLO si la vigencia anterior (conservada en Vigencia) ya venció o
+                             //    no existe; mientras siga vigente, el trabajador se mantiene habilitado
+                             //    aunque la renovación esté pendiente de aprobación.
+                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
+                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
                              !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)) &&
-                             // El item debe aplicarle de verdad al trabajador (misma regla que
-                             // decide qué se muestra en su checklist) — antes esto no se
-                             // validaba aquí, así que un ítem que no le corresponde (ej. Carnet
-                             // RETCC a un Ingeniero de Residencia) igual tumbaba a "No Autorizado".
+                             // El item debe aplicarle de verdad al trabajador. Se compara IGUAL que
+                             // el checklist (helper CsvContiene): por token exacto e ignorando
+                             // mayúsculas. Se envuelve el CSV y el valor con comas para no hacer
+                             // match por substring (","+csv+"," contiene ","+valor+","), y se
+                             // normaliza el espacio tras la coma para replicar el TrimEntries.
                              ctx.SsItemTrabajador.Any(i => i.Id == h.ItemId && i.Activo &&
-                                 (i.AplicaCategoria == null || i.AplicaCategoria.Contains(w.Categoria ?? "")) &&
-                                 (i.AplicaObraOficina == null || i.AplicaObraOficina.Contains(w.ObraOficina ?? "")) &&
-                                 (i.ExcluyeObraOficina == null || !i.ExcluyeObraOficina.Contains(w.ObraOficina ?? "")) &&
-                                 (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !i.ExcluyeCategoriaContratista.Contains(w.Categoria ?? ""))))
+                                 (i.AplicaCategoria == null || ("," + i.AplicaCategoria.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.Categoria ?? "") + ",").ToLower())) &&
+                                 (i.AplicaObraOficina == null || ("," + i.AplicaObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficina ?? "") + ",").ToLower())) &&
+                                 (i.ExcluyeObraOficina == null || !("," + i.ExcluyeObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficina ?? "") + ",").ToLower())) &&
+                                 (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !("," + i.ExcluyeCategoriaContratista.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.Categoria ?? "") + ",").ToLower()))))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
                         ? "No Autorizado"
@@ -351,6 +359,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         NombreItem = item.Nombre,
                         Estado = h.Estado,
                         Vigencia = h.Vigencia,
+                        VigenciaPropuesta = h.VigenciaPropuesta,
                         ArchivoUrl = h.ArchivoUrl,
                         ObsAbril = h.ObsAbril,
                         ObsContratista = h.ObsContratista,
@@ -413,6 +422,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ?? throw new AbrilException("Entregable no encontrado.", 404);
 
             var estadoAnterior = entregable.Estado;
+            var vigenciaAnterior = entregable.Vigencia;
 
             var esArchivoNuevo = !string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl;
             var esAprobacion = string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase);
@@ -468,6 +478,29 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     && !entregable.Vigencia.HasValue)
                     throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
             }
+
+            // Cierre de una renovación (el estado previo era "Renovando")
+            if (string.Equals(estadoAnterior, "Renovando", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Se aprueba la renovación: recién ahora se aplica la vigencia propuesta
+                    // (si el aprobador no envió una fecha nueva explícita).
+                    if (!dto.Vigencia.HasValue && entregable.VigenciaPropuesta.HasValue)
+                        entregable.Vigencia = entregable.VigenciaPropuesta;
+                    entregable.VigenciaPropuesta = null;
+                }
+                else if (string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Se rechaza la renovación, pero la aprobación anterior seguía vigente:
+                    // el trabajador no debe caerse. Se regresa a "Aprobado" conservando la
+                    // vigencia anterior y se descarta la propuesta. El motivo queda en ObsAbril.
+                    entregable.Estado = "Aprobado";
+                    entregable.Vigencia = vigenciaAnterior;
+                    entregable.VigenciaPropuesta = null;
+                }
+            }
+
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;

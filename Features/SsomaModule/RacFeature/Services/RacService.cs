@@ -62,6 +62,9 @@ public class RacService : IRacService
             query = query.Where(r => r.EmpresaReportadaId == q.EmpresaReportadaId.Value);
         if (q.EmpresaReportanteId.HasValue)
             query = query.Where(r => r.EmpresaReportanteId == q.EmpresaReportanteId.Value);
+        if (q.EmpresaIdContratista.HasValue)
+            query = query.Where(r => r.EmpresaReportadaId == q.EmpresaIdContratista.Value
+                                   || r.EmpresaReportanteId == q.EmpresaIdContratista.Value);
         if (q.FechaDesde.HasValue)
             query = query.Where(r => r.FechaReporte >= q.FechaDesde.Value);
         if (q.FechaHasta.HasValue)

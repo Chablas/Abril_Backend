@@ -62,7 +62,8 @@ public class AuditoriaAtsController : ControllerBase
         {
             var detalle = await _service.GetDetalleAsync(id);
             var empresaId = GetEmpresaIdContratista();
-            if (empresaId.HasValue && detalle.EmpresaId != empresaId.Value) return Forbid();
+            if (empresaId.HasValue && detalle.EmpresaId != empresaId.Value && detalle.EmpresaAuditorId != empresaId.Value)
+                return Forbid();
             return Ok(detalle);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

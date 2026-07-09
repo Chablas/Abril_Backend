@@ -45,6 +45,8 @@ public class AuditoriaAtsDetalleDto
     public int AuditadoWorkerId { get; set; }
     public string AuditadoNombre { get; set; } = string.Empty;
     public int? EmpresaId { get; set; }
+    /// <summary>Empresa del auditor (puede ser distinta a EmpresaId, la del auditado).</summary>
+    public int? EmpresaAuditorId { get; set; }
     public int? ProyectoId { get; set; }
     public string? ProyectoNombre { get; set; }
     public string? EmailAuditado { get; set; }

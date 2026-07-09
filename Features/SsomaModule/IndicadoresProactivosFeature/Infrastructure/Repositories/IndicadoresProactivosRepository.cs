@@ -30,6 +30,66 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
     public IndicadoresProactivosRepository(IDbContextFactory<AppDbContext> factory)
         => _factory = factory;
 
+    /// <summary>
+    /// Samuel Justiniani (sjustiniani@abril.pe) — excepción explícita a pedido suyo,
+    /// igual que en Desempeño Supervisor. Su ocupación real es "SSOMA", no calza con
+    /// el texto "Coordinador SSOMA" que sí usan los demás coordinadores.
+    /// </summary>
+    private const int WorkerIdSamuel = 12305;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // OCULTAR/MOSTRAR EMPRESAS EN EL SEGUIMIENTO
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public async Task<bool> EsCoordinadorSsomaAsync(int userId)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+        var datos = await ctx.Person
+            .Where(p => p.UserId == userId)
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => new { w.Id, w.Ocupacion, w.Categoria })
+            .FirstOrDefaultAsync();
+        if (datos is null) return false;
+        if (datos.Id == WorkerIdSamuel) return true;
+
+        bool EsCoordSsoma(string? texto) =>
+            texto != null
+            && texto.Contains("Coordinador", StringComparison.OrdinalIgnoreCase)
+            && texto.Contains("SSOMA", StringComparison.OrdinalIgnoreCase);
+
+        return EsCoordSsoma(datos.Ocupacion) || EsCoordSsoma(datos.Categoria);
+    }
+
+    public async Task<HashSet<int>> GetEmpresaExcluidaIdsAsync()
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+        var ids = await ctx.SsIndicadorEmpresaExcluidas.Select(e => e.EmpresaId).ToListAsync();
+        return ids.ToHashSet();
+    }
+
+    public async Task OcultarEmpresaAsync(int empresaId, string? motivo, int userId)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+        var existe = await ctx.SsIndicadorEmpresaExcluidas.FirstOrDefaultAsync(e => e.EmpresaId == empresaId);
+        if (existe is not null) return;
+        ctx.SsIndicadorEmpresaExcluidas.Add(new SsIndicadorEmpresaExcluida
+        {
+            EmpresaId = empresaId,
+            Motivo = motivo,
+            ExcluidoPor = userId,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task MostrarEmpresaAsync(int empresaId)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+        var existe = await ctx.SsIndicadorEmpresaExcluidas.FirstOrDefaultAsync(e => e.EmpresaId == empresaId);
+        if (existe is null) return;
+        ctx.SsIndicadorEmpresaExcluidas.Remove(existe);
+        await ctx.SaveChangesAsync();
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // PROGRAMACIÓN DE INSPECCIONES
     // ─────────────────────────────────────────────────────────────────────────

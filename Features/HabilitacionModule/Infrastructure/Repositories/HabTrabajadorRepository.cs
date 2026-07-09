@@ -84,7 +84,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                              h.ItemId != HabItemIds.LecturaEmo &&
                              (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
                               (h.Estado == "Enviado" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
-                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
+                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)) &&
+                             // El item debe aplicarle de verdad al trabajador (misma regla que
+                             // decide qué se muestra en su checklist) — antes esto no se
+                             // validaba aquí, así que un ítem que no le corresponde (ej. Carnet
+                             // RETCC a un Ingeniero de Residencia) igual tumbaba a "No Autorizado".
+                             ctx.SsItemTrabajador.Any(i => i.Id == h.ItemId && i.Activo &&
+                                 (i.AplicaCategoria == null || i.AplicaCategoria.Contains(w.Categoria ?? "")) &&
+                                 (i.AplicaObraOficina == null || i.AplicaObraOficina.Contains(w.ObraOficina ?? "")) &&
+                                 (i.ExcluyeObraOficina == null || !i.ExcluyeObraOficina.Contains(w.ObraOficina ?? "")) &&
+                                 (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !i.ExcluyeCategoriaContratista.Contains(w.Categoria ?? ""))))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
                         ? "No Autorizado"

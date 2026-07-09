@@ -287,6 +287,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaAuditoriaAts> SsomaAuditoriaAts => Set<SsomaAuditoriaAts>();
         public DbSet<SsomaAuditoriaAtsRespuesta> SsomaAuditoriaAtsRespuesta => Set<SsomaAuditoriaAtsRespuesta>();
         public DbSet<SsomaAuditoriaAtsFoto> SsomaAuditoriaAtsFoto => Set<SsomaAuditoriaAtsFoto>();
+        // ── Desempeño Supervisor ───────────────────────────────────────────────
+        public DbSet<Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Models.SsDesempenoSupervisorExcluido> SsDesempenoSupervisorExcluidos => Set<Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Models.SsDesempenoSupervisorExcluido>();
+        // ── Indicadores Proactivos (Seguimiento) ────────────────────────────────
+        public DbSet<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models.SsIndicadorEmpresaExcluida> SsIndicadorEmpresaExcluidas => Set<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models.SsIndicadorEmpresaExcluida>();
         // ── Charlas y Capacitaciones ───────────────────────────────────────────────
         public DbSet<SsCharlaPrograma> SsCharlaProgramas { get; set; }
         public DbSet<SsCharla> SsCharlas { get; set; }

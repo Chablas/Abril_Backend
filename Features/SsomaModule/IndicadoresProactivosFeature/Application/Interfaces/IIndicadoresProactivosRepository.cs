@@ -4,6 +4,12 @@ namespace Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Applic
 
 public interface IIndicadoresProactivosRepository
 {
+    // ── Ocultar/mostrar empresas en el seguimiento ────────────────────────────
+    Task<bool> EsCoordinadorSsomaAsync(int userId);
+    Task<HashSet<int>> GetEmpresaExcluidaIdsAsync();
+    Task OcultarEmpresaAsync(int empresaId, string? motivo, int userId);
+    Task MostrarEmpresaAsync(int empresaId);
+
     // ── Programación de inspecciones ──────────────────────────────────────────
 
     Task<List<InspeccionTipoDto>> GetTiposInspeccionAsync();

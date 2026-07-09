@@ -26,6 +26,46 @@ public class IndicadoresProactivosController : ControllerBase
     private int GetUserId() =>
         int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
 
+    /// <summary>
+    /// Quién puede VER y USAR el botón de ocultar/mostrar empresas (aplica a todas
+    /// las tarjetas por igual) — Coordinadores SSOMA, administradores del sistema, o Samuel.
+    /// </summary>
+    private async Task<bool> PuedeOcultarAsync()
+    {
+        if (User.IsInRole("ADMINISTRADOR DEL SISTEMA")) return true;
+        return await _service.EsCoordinadorSsomaAsync(GetUserId());
+    }
+
+    [HttpPatch("empresas/{empresaId:int}/ocultar")]
+    public async Task<IActionResult> OcultarEmpresa(int empresaId, [FromBody] OcultarEmpresaRequest? req)
+    {
+        try
+        {
+            if (!await PuedeOcultarAsync()) return Forbid();
+            await _service.OcultarEmpresaAsync(empresaId, req?.Motivo, GetUserId());
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    [HttpPatch("empresas/{empresaId:int}/mostrar")]
+    public async Task<IActionResult> MostrarEmpresa(int empresaId)
+    {
+        try
+        {
+            if (!await PuedeOcultarAsync()) return Forbid();
+            await _service.MostrarEmpresaAsync(empresaId);
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
     // ── CATÁLOGOS ─────────────────────────────────────────────────────────────
 
     /// <summary>Lista los 32 tipos de inspección del catálogo.</summary>
@@ -110,11 +150,27 @@ public class IndicadoresProactivosController : ControllerBase
     [HttpGet("seguimiento")]
     public async Task<IActionResult> GetSeguimiento(
         [FromQuery] int mes,
-        [FromQuery] int anio)
+        [FromQuery] int anio,
+        [FromQuery] bool incluirOcultos = false)
     {
         try
         {
-            var result = await GetOrCreateSeguimientoAsync(mes, anio);
+            var cacheado = await GetOrCreateSeguimientoAsync(mes, anio);
+            var excluidoIds = await _service.GetEmpresaExcluidaIdsAsync();
+            var puedeOcultar = await PuedeOcultarAsync();
+
+            var result = cacheado.Select(p => p with
+            {
+                Empresas = p.Empresas
+                    .Where(e => incluirOcultos || !e.EmpresaId.HasValue || !excluidoIds.Contains(e.EmpresaId.Value))
+                    .Select(e => e with
+                    {
+                        EsOculto = e.EmpresaId.HasValue && excluidoIds.Contains(e.EmpresaId.Value),
+                        PuedeOcultarse = puedeOcultar,
+                    })
+                    .ToList(),
+            }).ToList();
+
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -253,4 +309,9 @@ public class IndicadoresProactivosController : ControllerBase
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch { return StatusCode(500, new { message = "Error al guardar la meta anual." }); }
     }
+}
+
+public class OcultarEmpresaRequest
+{
+    public string? Motivo { get; set; }
 }

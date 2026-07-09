@@ -13,6 +13,14 @@ public class RacListQuery
     public bool? SoloConPenalidad { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
+
+    /// <summary>
+    /// Solo lo setea el controller (no viene del cliente): empresa del contratista
+    /// logueado. A diferencia de EmpresaReportadaId/EmpresaReportanteId (filtros AND
+    /// independientes para el admin), este se aplica como OR — un contratista debe
+    /// ver los RAC donde participa en cualquiera de los dos roles.
+    /// </summary>
+    public int? EmpresaIdContratista { get; set; }
 }
 
 public class RacPagedResult<T>

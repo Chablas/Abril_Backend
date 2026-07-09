@@ -69,6 +69,10 @@ public record MetaEmpresaDto
 
     // Promedio general (0-100+)
     public decimal PctProactivoGeneral { get; init; }
+
+    // Ocultar manualmente empresas cuyo % no refleja la realidad (ej. sin supervisores)
+    public bool EsOculto { get; init; } = false;
+    public bool PuedeOcultarse { get; init; } = false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

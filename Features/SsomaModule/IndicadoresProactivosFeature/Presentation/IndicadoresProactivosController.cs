@@ -5,6 +5,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Interfaces;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure;
 
 namespace Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Presentation;
 
@@ -15,12 +16,15 @@ public class IndicadoresProactivosController : ControllerBase
 {
     private readonly IIndicadoresProactivosService _service;
     private readonly IMemoryCache _cache;
+    private readonly ReactivosCacheVersion _reactivosCacheVersion;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
 
-    public IndicadoresProactivosController(IIndicadoresProactivosService service, IMemoryCache cache)
+    public IndicadoresProactivosController(
+        IIndicadoresProactivosService service, IMemoryCache cache, ReactivosCacheVersion reactivosCacheVersion)
     {
         _service = service;
         _cache = cache;
+        _reactivosCacheVersion = reactivosCacheVersion;
     }
 
     private int GetUserId() =>
@@ -250,7 +254,7 @@ public class IndicadoresProactivosController : ControllerBase
     {
         try
         {
-            var key = $"ind_reactivos_{proyectoId}_{mes}_{anio}";
+            var key = $"ind_reactivos_{proyectoId}_{mes}_{anio}_v{_reactivosCacheVersion.Current}";
             var result = await _cache.GetOrCreateAsync(key, async e =>
             {
                 e.AbsoluteExpirationRelativeToNow = CacheTtl;
@@ -270,7 +274,7 @@ public class IndicadoresProactivosController : ControllerBase
     {
         try
         {
-            var key = $"ind_reactivos_todos_{mes}_{anio}";
+            var key = $"ind_reactivos_todos_{mes}_{anio}_v{_reactivosCacheVersion.Current}";
             var result = await _cache.GetOrCreateAsync(key, async e =>
             {
                 e.AbsoluteExpirationRelativeToNow = CacheTtl;

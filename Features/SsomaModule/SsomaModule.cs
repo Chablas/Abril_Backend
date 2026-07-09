@@ -187,6 +187,7 @@ namespace Abril_Backend.Features.Ssoma
             // Indicadores Proactivos
             services.AddScoped<IIndicadoresProactivosRepository, IndicadoresProactivosRepository>();
             services.AddScoped<IIndicadoresProactivosService, IndicadoresProactivosService>();
+            services.AddSingleton<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.ReactivosCacheVersion>();
 
             // Desempeño Supervisor
             services.AddScoped<DesempenoSupervisorRepository>();

@@ -7,6 +7,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMed
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.EquipoPrestado;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,10 +17,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
     {
         private const int PageSize = 20;
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ReactivosCacheVersion _reactivosCacheVersion;
 
-        public AccidenteTrabajoRepository(IDbContextFactory<AppDbContext> factory)
+        public AccidenteTrabajoRepository(IDbContextFactory<AppDbContext> factory, ReactivosCacheVersion reactivosCacheVersion)
         {
             _factory = factory;
+            _reactivosCacheVersion = reactivosCacheVersion;
         }
 
         public async Task<PagedResult<AccidenteTrabajoListItemDto>> ListPaged(AccidenteFilterDto filter)
@@ -285,6 +288,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             ctx.SsAccidenteTrabajo.Add(entity);
             await ctx.SaveChangesAsync();
+            _reactivosCacheVersion.Bump();
             return entity.Id;
         }
 
@@ -314,6 +318,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             entity.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();
+            _reactivosCacheVersion.Bump();
         }
 
         public async Task Cerrar(int id, AccidenteCerrarDto dto, int? userId)
@@ -344,6 +349,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             entity.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();
+            _reactivosCacheVersion.Bump();
         }
 
         public async Task Delete(int id)
@@ -355,6 +361,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             ctx.SsAccidenteTrabajo.Remove(entity);
             await ctx.SaveChangesAsync();
+            _reactivosCacheVersion.Bump();
         }
 
         public async Task<int> CreateSeguimiento(int accidenteId, AccidenteSeguimientoCreateDto dto, int registradoPorId)

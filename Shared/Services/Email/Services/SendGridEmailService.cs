@@ -26,10 +26,11 @@ namespace Abril_Backend.Infrastructure.Services
             bool isHtml,
             List<string>? cc = null,
             List<string>? bcc = null,
-            List<EmailAttachment>? attachments = null)
+            List<EmailAttachment>? attachments = null,
+            string? fromOverride = null)
         {
             var client = new SendGridClient(_apiKey);
-            var from = new EmailAddress(_fromEmail, _fromName);
+            var from = new EmailAddress(fromOverride ?? _fromEmail, _fromName);
 
             var tos = to.Select(email => new EmailAddress(email)).ToList();
 

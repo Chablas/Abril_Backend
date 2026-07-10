@@ -5011,3 +5011,32 @@ Reporte del usuario: el mismo pudia ver y usar el boton de ocultar/mostrar empre
 ### Pendiente
 - Los endpoints de seguimiento tienen cache de 10 min (`IMemoryCache`) — el usuario debe reiniciar el backend tras el deploy para que el cambio de permisos tome efecto de inmediato en vez de esperar hasta que expire el cache.
 - Confirmar con el usuario que ocerna@abril.pe (y otros coordinadores en la misma situacion) ya ven el boton tras el reinicio.
+
+## Sesión 2026-07-10 — Interconsultas: filtros, envío de correos y resolución de jefatura
+
+Pantalla `Interconsultas` (Salud Ocupacional) rediseñada a pedido del usuario: filtros por proyecto/razón social/tipo, columnas de proyecto actual/jefatura/administrador/categoría-ocupación, selección múltiple + envío de correos, y varias rondas de fixes de datos reales verificados en Postgres local.
+
+**Filtros y datos base**:
+- `InterconsultaFilterDto`: `ProyectoId`, `ContributorId`, `ObraOficina` (si es `"Obra"` también matchea `obra_oficina` vacío/nulo, ya que solo Staff/Oficina Central se marcan explícitamente).
+- La consulta base ahora excluye contratistas (`contrata_casa != "Casa"`) y trabajadores retirados (`estado = "RETIRADO"`) — antes solo se ocultaban en los combos, ahora ni entran a la query.
+
+**Proyecto actual**: se descubrió que `worker_vinculaciones` está incompleta para varios trabajadores. La fuente confiable es `ss_hab_worker_proyecto` (la tabla detrás de Habilitación → Trabajadores → "Proyectos asignados"). Prioriza asignación activa (`fecha_fin is null`); si no hay ninguna, se deja en blanco (se probó cayendo al último proyecto cerrado, pero el usuario pidió revertir eso porque inducía a error con trabajadores que ya salieron de un proyecto). Cae a `worker_vinculaciones` solo si el trabajador no tiene ninguna fila en `ss_hab_worker_proyecto`.
+
+**Jefatura**: 3 fuentes en cascada (`InterconsultaRepository.ResolveJefePorArea` + lógica inline en `List`/`GetForEnvioCorreo`):
+1. `workers.worker_lesson_jefe_id` / `worker_salida_jefe_id` (jefe real asignado).
+2. Texto libre `workers.jefatura` + catálogo `cat_jefatura` (por nombre exacto).
+3. Árbol `area_scope` — mismo algoritmo que `ApproverResolver` (Solicitud de Salidas): camina ancestros buscando Jefe→Sub Gerente→Coordinador→Gerente; si nadie en la cadena de ancestros directos, busca cualquier Gerente que cuelgue de la **misma raíz** del árbol (cubre casos como "Residencia", que cuelga de "Gerencia de Proyectos" pero el Gerente real está en la rama hermana "Unidad de Proyectos", no en el nodo padre).
+
+**Correos**: nuevo endpoint `POST .../interconsultas/enviar-correos`. Staff/Oficina Central con correo propio reciben notificación individual (a él + jefatura); obreros sin correo se agrupan por proyecto en un solo correo al administrador encargado. Remitente fijo `medicinaocupacionalnm@abril.pe` vía nuevo parámetro `fromOverride` en `IEmailService.SendAsync` (agregado a SMTP/SendGrid/PowerAutomate, opcional y retrocompatible).
+
+**Categoría/Ocupación**: agregadas al DTO (`workers.categoria`, `workers.ocupacion`) para seguimiento; en el frontend se muestran compactas junto al DNI del trabajador en vez de sumar columnas nuevas.
+
+### Archivos clave (backend)
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/InterconsultaRepository.cs` — toda la lógica de resolución (proyecto, jefatura, filtros base) y los helpers `LoadAreaJefeContextAsync`/`ResolveJefePorArea`/`RootOf`.
+- `Features/SsomaModule/SaludOcupacionalFeature/Application/Services/InterconsultaService.cs` — `EnviarRecordatorios` (agrupamiento y armado de correos).
+- `Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/Interconsulta/` — `InterconsultaListDto`, `InterconsultaFilterDto`, nuevos `InterconsultaEnviarCorreoDto`/`InterconsultaEnvioInfoDto`.
+- `Shared/Services/Email/` — `IEmailService` + las 3 implementaciones (parámetro `fromOverride`).
+
+### Pendiente
+- El usuario pidió explícitamente no compilar en esta sesión (backend corriendo localmente, bloquea el .exe/.dll) — los últimos cambios (resolución de jefatura por área, fallback a Gerente de la raíz) **no se verificaron con build**. Correr `dotnet build` y avisar si sale algún error de tipos antes de dar por cerrado.
+- Falta que el usuario confirme en pantalla que la jefatura ahora resuelve bien para casos como María Sonia Alan Oceda (Residencia → debería caer a Carlos Fredy Oriundo Campos, Gerente de Unidad de Proyectos).

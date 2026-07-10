@@ -75,8 +75,8 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             {
                 Id = x.a.Id,
                 Fecha = x.a.Fecha.ToString("yyyy-MM-dd"),
-                AuditorNombre = x.auditor.ApellidoNombre ?? string.Empty,
-                AuditadoNombre = x.auditado.ApellidoNombre ?? string.Empty,
+                AuditorNombre = x.auditor.ApellidoNombre ?? (x.auditor.Person != null ? x.auditor.Person.FullName : null) ?? string.Empty,
+                AuditadoNombre = x.auditado.ApellidoNombre ?? (x.auditado.Person != null ? x.auditado.Person.FullName : null) ?? string.Empty,
                 ProyectoNombre = x.proj != null ? x.proj.ProjectDescription : null,
                 Actividad = x.a.Actividad,
                 Lugar = x.a.Lugar,
@@ -108,12 +108,12 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
 
         var auditorNombre = await ctx.Worker
             .Where(w => w.Id == auditoria.AuditorWorkerId)
-            .Select(w => w.ApellidoNombre ?? string.Empty)
+            .Select(w => w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty)
             .FirstOrDefaultAsync() ?? string.Empty;
 
         var auditadoNombre = await ctx.Worker
             .Where(w => w.Id == auditoria.AuditadoWorkerId)
-            .Select(w => w.ApellidoNombre ?? string.Empty)
+            .Select(w => w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty)
             .FirstOrDefaultAsync() ?? string.Empty;
 
         string? proyectoNombre = null;

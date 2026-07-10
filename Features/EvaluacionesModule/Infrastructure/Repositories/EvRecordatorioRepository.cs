@@ -141,6 +141,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       WHERE rw.ocupacion    = 'Residencia'
                         AND rw.estado      != 'Retirado'
+                        AND rw.id           != w.id
                         AND wv_r.proyecto_id = wv_e.proyecto_id
                   )
                   {(soloSinEvaluar ? @"AND EXISTS (
@@ -151,6 +152,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
                       WHERE rw.ocupacion    = 'Residencia'
                         AND rw.estado      != 'Retirado'
+                        AND rw.id           != w.id
                         AND wv_r.proyecto_id = wv_e.proyecto_id
                         AND NOT EXISTS (
                             SELECT 1 FROM ev_evaluacion_residente er

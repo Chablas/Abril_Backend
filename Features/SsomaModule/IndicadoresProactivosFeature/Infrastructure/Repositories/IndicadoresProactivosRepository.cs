@@ -250,7 +250,16 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             var fechasCasaPresencia = tareoCasa.Where(d => d.Total > 0).Select(d => d.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
             var metaCasaCharlas = ContarDiasHabilesConPresenciaDateTime(fechasCasaPresencia, mes, anio);
 
+            // "Reportados por Casa" usa EmpresaReportanteId (quién lo reportó), igual que el
+            // loop de contratistas más abajo — no EmpresaReportadaId (a quién se le reportó),
+            // que es un concepto distinto ("atribuidos"). Mezclar ambos campos duplicaba RACs
+            // (contados en Casa y en la contratista real a la vez) y perdía otros (reportados
+            // por una empresa Es Abril contra una contratista real, que no calzaban en ningún filtro).
             var racsGenCasa = await ctx.SsomaRacs
+                .CountAsync(r => r.ProyectoId == proyectoId
+                              && (r.EmpresaReportanteId == null || esAbrilIds.Contains(r.EmpresaReportanteId!.Value))
+                              && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
+            var racsAtribuidosCasa = await ctx.SsomaRacs
                 .CountAsync(r => r.ProyectoId == proyectoId
                               && (r.EmpresaReportadaId == null || esAbrilIds.Contains(r.EmpresaReportadaId!.Value))
                               && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
@@ -281,7 +290,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             resultado.Add(BuildMetaDto(null, "Casa", "Casa — Staff Propio", promCasa, diasCasa,
                 (int)Math.Ceiling(promCasa * 0.40m), (int)Math.Ceiling(promCasa * 0.10m),
                 (int)Math.Ceiling(promCasa * 0.30m), metaCasaCharlas, metaCasaInsp,
-                racsGenCasa, racsGenCasa, racsCerCasa, optCasa, atsCasa, charlasCasa, inspCasa));
+                racsGenCasa, racsAtribuidosCasa, racsCerCasa, optCasa, atsCasa, charlasCasa, inspCasa));
         }
 
         // ── CONTRATISTAS ──────────────────────────────────────────────────────
@@ -533,6 +542,11 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 var metaInspC = metaInspCasa;
                 var fechasC = tcCasa.Select(d => d.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
                 var metaCharlasC = ContarDiasHabilesConPresenciaDateTime(fechasC, mes, anio);
+                // "Reportados por Casa" usa EmpresaReportanteId (igual que las contratistas más
+                // abajo); "atribuidos a Casa" usa EmpresaReportadaId — mezclarlos duplicaba RACs
+                // (contados en Casa y en la contratista real a la vez).
+                var racsGenC = racsBulk.Where(r => r.ProyectoId == pid
+                    && (r.EmpresaReportanteId == null || esAbrilIds.Contains(r.EmpresaReportanteId!.Value)));
                 var racsC = racsBulk.Where(r => r.ProyectoId == pid
                     && (r.EmpresaReportadaId == null || esAbrilIds.Contains(r.EmpresaReportadaId!.Value)));
                 bool EsCasaPid(int? empresaId) => empresaId == null || esAbrilIds.Contains(empresaId.Value);
@@ -546,11 +560,12 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                     .Select(a => a.Fecha).Distinct().Count();
                 var inspC = inspBulk.Count(i => i.ProyectoId == pid
                     && (i.EmpresaId == null || esAbrilIds.Contains(i.EmpresaId!.Value)));
+                var racsGenCCount = racsGenC.Count();
                 var racsCCount = racsC.Count();
                 empresasDtos.Add(BuildMetaDto(null, "Casa", "Casa — Staff Propio", promC, diasC,
                     (int)Math.Ceiling(promC * 0.40m), (int)Math.Ceiling(promC * 0.10m),
                     (int)Math.Ceiling(promC * 0.30m), metaCharlasC, metaInspC,
-                    racsCCount, racsCCount, racsC.Count(r => r.Estado == "Cerrado"), optC, atsC, charlasC, inspC));
+                    racsGenCCount, racsCCount, racsC.Count(r => r.Estado == "Cerrado"), optC, atsC, charlasC, inspC));
             }
 
             // Contratistas

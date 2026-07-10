@@ -214,18 +214,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     UrlEmoCompleto = x.ue != null ? x.ue.UrlEmoCompleto : null,
                     UrlResultado = x.ue != null ? x.ue.UrlResultado : null,
                     RequiereInterconsulta = x.ue != null && x.ue.RequiereInterconsulta,
-                    InterconsultaId = x.ue != null
-                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => (int?)ic.Id).FirstOrDefault()
-                        : null,
-                    InterconsultaEspecialidad = x.ue != null
-                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => ic.Especialidad).FirstOrDefault()
-                        : null,
-                    InterconsultaEstado = x.ue != null
-                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => ic.Estado).FirstOrDefault()
-                        : null,
-                    InterconsultaUrlInforme = x.ue != null
-                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => ic.UrlInforme).FirstOrDefault()
-                        : null
+                    // Se busca por WorkerId (la interconsulta más reciente del trabajador), no por
+                    // el EmoId del EMO activo actual: cuando se registra un EMO de seguimiento que
+                    // resuelve la interconsulta, ese EMO pasa a ser "el activo" pero la interconsulta
+                    // sigue apuntando al EMO original (ya inactivo) — filtrar por EmoId la dejaba invisible.
+                    InterconsultaId = ctx.SsInterconsulta
+                        .Where(ic => ic.WorkerId == x.w.Id)
+                        .OrderByDescending(ic => ic.CreatedAt)
+                        .Select(ic => (int?)ic.Id).FirstOrDefault(),
+                    InterconsultaEspecialidad = ctx.SsInterconsulta
+                        .Where(ic => ic.WorkerId == x.w.Id)
+                        .OrderByDescending(ic => ic.CreatedAt)
+                        .Select(ic => ic.Especialidad).FirstOrDefault(),
+                    InterconsultaEstado = ctx.SsInterconsulta
+                        .Where(ic => ic.WorkerId == x.w.Id)
+                        .OrderByDescending(ic => ic.CreatedAt)
+                        .Select(ic => ic.Estado).FirstOrDefault(),
+                    InterconsultaUrlInforme = ctx.SsInterconsulta
+                        .Where(ic => ic.WorkerId == x.w.Id)
+                        .OrderByDescending(ic => ic.CreatedAt)
+                        .Select(ic => ic.UrlInforme).FirstOrDefault()
                 })
                 .ToListAsync();
 

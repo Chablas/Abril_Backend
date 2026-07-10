@@ -585,28 +585,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var tipoEmo = await ctx.SsEmoTipo.AsNoTracking()
                     .FirstOrDefaultAsync(t => t.Id == prog.TipoEmoId);
 
-                var clinica = prog.ClinicaId.HasValue
-                    ? await ctx.SsClinica.AsNoTracking().FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value)
-                    : null;
-
                 var workerNombre = worker.Person?.FullName ?? worker.Id.ToString();
                 var fechaStr = prog.FechaProgramada.ToString("dd/MM/yyyy");
                 var horaStr = prog.HoraProgramada.HasValue ? prog.HoraProgramada.Value.ToString("HH:mm") : "—";
                 var proyectoStr = proyecto?.ProjectDescription ?? "—";
                 var tipoStr = tipoEmo?.Nombre ?? "—";
-                var clinicaNombre = clinica?.Nombre ?? "—";
 
-                var html = $@"<h2>EMO Confirmado por Clínica</h2>
-<p>La clínica ha confirmado la programación del Examen Médico Ocupacional:</p>
+                var backendUrl = (_configuration["BackendSettings:PublicUrl"] ?? "http://localhost:5236").TrimEnd('/');
+                var recomendacionesImgUrl = $"{backendUrl}/emails/recomendaciones-emo.jpg";
+
+                var html = $@"<h2>EMO Confirmado</h2>
+<p>Se ha confirmado la programación del Examen Médico Ocupacional:</p>
 <table style='border-collapse:collapse;width:100%;max-width:500px'>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Trabajador</td><td style='padding:6px 12px'>{workerNombre}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Tipo EMO</td><td style='padding:6px 12px'>{tipoStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Fecha</td><td style='padding:6px 12px'>{fechaStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hora</td><td style='padding:6px 12px'>{horaStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Proyecto</td><td style='padding:6px 12px'>{proyectoStr}</td></tr>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Clínica</td><td style='padding:6px 12px'>{clinicaNombre}</td></tr>
 </table>
-<p style='margin-top:16px;color:#6b7280;font-size:0.9em'>El trabajador debe presentarse en la clínica en la fecha y hora indicadas.</p>";
+<p style='margin-top:16px;color:#6b7280;font-size:0.9em'>El trabajador debe presentarse en la clínica en la fecha y hora indicadas.</p>
+<img src='{recomendacionesImgUrl}' alt='Recomendaciones previas al Examen Médico Ocupacional' style='margin-top:16px;max-width:500px;width:100%' />";
 
                 await _emailService.SendAsync(
                     to: to,

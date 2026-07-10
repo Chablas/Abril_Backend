@@ -5,6 +5,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interconsul
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
@@ -257,9 +258,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             if (dto.Estado == "Atendida" || dto.Estado == "Completado")
             {
+                WorkerEmo? emo = null;
                 if (ent.EmoId.HasValue)
                 {
-                    var emo = await ctx.WorkerEmo.FirstOrDefaultAsync(e => e.Id == ent.EmoId.Value);
+                    emo = await ctx.WorkerEmo.FirstOrDefaultAsync(e => e.Id == ent.EmoId.Value);
                     if (emo != null)
                     {
                         emo.InterconsultaResuelta = true;
@@ -276,17 +278,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     lecturaEmo.UpdatedAt = DateTime.UtcNow;
                 }
 
-                var prog = await ctx.SsProgramacionEmo
-                    .Where(p => p.WorkerId == ent.WorkerId
-                             && p.Estado != "Completado"
-                             && p.Estado != "Cancelado"
-                             && p.Estado != "Rechazado por Clínica")
-                    .OrderByDescending(p => p.FechaProgramada)
-                    .FirstOrDefaultAsync();
+                // Se ubica la programación por el vínculo real (EmoResultadoId), no por heurística de
+                // "la más reciente del trabajador" — con varias programaciones abiertas esa heurística
+                // podía tocar la fila equivocada.
+                var prog = ent.EmoId.HasValue
+                    ? await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.EmoResultadoId == ent.EmoId.Value)
+                    : null;
+
                 if (prog != null)
                 {
                     prog.Estado = "En Atención";
                     prog.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+                else if (emo != null)
+                {
+                    // El EMO se registró sin pasar por una cita agendada (sin fila en
+                    // ss_programacion_emos que reabrir), así que se crea una para que el caso
+                    // aparezca en la bandeja de Atenciones y se pueda subir lectura/EMO y dar aptitud.
+                    ctx.SsProgramacionEmo.Add(new SsProgramacionEmo
+                    {
+                        WorkerId = ent.WorkerId,
+                        TipoEmoId = emo.TipoEmoId ?? 0,
+                        FechaProgramada = DateOnly.FromDateTime(DateTime.UtcNow),
+                        ClinicaId = emo.ClinicaId,
+                        MedicoId = emo.MedicoId,
+                        Estado = "En Atención",
+                        EmoResultadoId = emo.Id,
+                        Origen = "Interconsulta",
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow
+                    });
                 }
             }
 

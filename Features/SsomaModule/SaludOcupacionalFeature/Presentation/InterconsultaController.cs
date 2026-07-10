@@ -82,9 +82,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         /// <summary>
-        /// Sube el levantamiento (informe) de la interconsulta.
-        /// Solo la clínica puede hacer esto. Al subir el documento,
-        /// la interconsulta pasa a "Atendida" y la programación a "En Atención".
+        /// Sube el levantamiento (informe) de la interconsulta. Solo la clínica puede hacer
+        /// esto. El cambio de estado a "Atendida" y la reapertura de la programación se
+        /// hacen en el PATCH .../resultado, que el frontend invoca a continuación.
         /// </summary>
         [HttpPost("{id}/documentos")]
         [Consumes("multipart/form-data")]
@@ -103,26 +103,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 using var stream = file.OpenReadStream();
                 var path = await _sharePoint.SubirArchivoAsync(stream, file.FileName, "interconsulta");
                 interconsulta.UrlInforme = path;
-                interconsulta.Estado = "Atendida";
                 interconsulta.UpdatedAt = DateTimeOffset.UtcNow;
 
-                // Retornar la programación a "En Atención" para que la clínica pueda completar el proceso.
-                // No exigimos Estado == "En Interconsulta" exacto: si la programación ya quedó
-                // "Completado" por otra vía (p. ej. el EMO se registró sin marcar que requería
-                // interconsulta, y esta se creó aparte), igual debe poder avanzar al resolverse.
-                var prog = await ctx.SsProgramacionEmo
-                    .Where(p => p.WorkerId == interconsulta.WorkerId
-                             && p.Estado != "Completado"
-                             && p.Estado != "Cancelado"
-                             && p.Estado != "Rechazado por Clínica")
-                    .OrderByDescending(p => p.FechaProgramada)
-                    .FirstOrDefaultAsync();
-                if (prog != null)
-                {
-                    prog.Estado = "En Atención";
-                    prog.UpdatedAt = DateTimeOffset.UtcNow;
-                }
-
+                // El paso de "Atendida" y de reabrir la programación a "En Atención" (por el vínculo
+                // real EmoResultadoId, con creación de la fila si nunca existió) lo hace
+                // IInterconsultaService.UpdateResultado — el frontend llama a ese endpoint justo
+                // después de subir el documento. No duplicar esa lógica aquí para no correr dos
+                // heurísticas distintas sobre la misma interconsulta.
                 await ctx.SaveChangesAsync();
 
                 return Ok(new { url = path });

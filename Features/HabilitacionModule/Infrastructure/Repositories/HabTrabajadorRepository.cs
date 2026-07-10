@@ -317,9 +317,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            var workerType = string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase)
-                ? "CASA"
-                : "CONTRATISTA";
+            var esCasa = string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
+            var workerType = esCasa ? "CASA" : "CONTRATISTA";
 
             var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
 
@@ -337,7 +336,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)
                                           && i.Id != HabItemIds.LecturaEmo
-                                          && !esContratista).ToList();
+                                          && esCasa).ToList();
             var nonEmoItems = items.Except(emoItems).ToList();
             var nonEmoIds = nonEmoItems.Select(i => i.Id).ToList();
 

@@ -5,6 +5,9 @@ namespace Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Interfac
 public interface ICharlaContratistaService
 {
     Task<List<CharlaContratistaPendienteDto>> GetPendientesAsync(int empresaId, DateOnly fecha);
+
+    /// <summary>Días anteriores a hoy en que la empresa fue tareada y no subió su charla.</summary>
+    Task<List<CharlaContratistaPendienteDto>> GetDiasFaltantesAsync(int empresaId);
     Task<List<CharlaContratistaDto>> GetHistorialAsync(int empresaId, int page, int pageSize);
     Task<CharlaContratistaDto> SubirAsync(int empresaId, CharlaContratistaUploadRequest req, int userId);
 

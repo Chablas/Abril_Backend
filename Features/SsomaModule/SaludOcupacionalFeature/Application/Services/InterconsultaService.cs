@@ -134,22 +134,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         private static string BuildBodyIndividual(InterconsultaEnvioInfoDto item)
         {
-            var ubicacionLabel = item.EsOficinaCentral ? "Jefatura" : "Proyecto";
-            var ubicacionValor = item.EsOficinaCentral ? (item.Jefatura ?? "Oficina Central") : (item.ProyectoNombre ?? "—");
-
             return $@"
             <p>Estimados,</p>
-            <p>Se recuerda que el siguiente trabajador tiene una <strong>interconsulta pendiente</strong>:</p>
-            <table style='border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;'>
-                <tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Trabajador</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>{item.WorkerNombre}</td></tr>
-                <tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>DNI</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>{item.WorkerDni}</td></tr>
-                <tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Especialidad</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>{item.Especialidad}</td></tr>
-                <tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>{ubicacionLabel}</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>{ubicacionValor}</td></tr>
-                <tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Fecha de derivación</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>{item.FechaDerivacion:dd/MM/yyyy}</td></tr>
-                <tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Días pendiente</strong></td><td style='border: 1px solid #ddd; padding: 8px; color: #b00020;'><strong>{item.DiasPendiente} día(s)</strong></td></tr>
-            </table>
-            <p>Por favor coordinar la atención a la brevedad.</p>
-            <p style='font-size: 12px; color: #666;'>Este correo se generó desde el módulo de Interconsultas de Salud Ocupacional.</p>
+            <p>
+                Se informa que el trabajador <strong>{item.WorkerNombre}</strong> (DNI {item.WorkerDni})
+                registra una <strong>interconsulta médica pendiente</strong>, con
+                <strong style='color: #b00020;'>{item.DiasPendiente} día(s)</strong> de retraso.
+            </p>
+            <p>Se agradece coordinar su atención a la brevedad.</p>
+            <p style='font-size: 12px; color: #666; margin-top: 24px;'>
+                Este mensaje contiene información confidencial de salud ocupacional, de uso exclusivo del
+                destinatario. Módulo de Interconsultas — Salud Ocupacional.
+            </p>
             ";
         }
 
@@ -159,31 +155,29 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'>{it.WorkerNombre}</td>
                     <td style='border: 1px solid #ddd; padding: 8px;'>{it.WorkerDni}</td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{it.Especialidad}</td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{it.FechaDerivacion:dd/MM/yyyy}</td>
                     <td style='border: 1px solid #ddd; padding: 8px; color: #b00020;'><strong>{it.DiasPendiente} d.</strong></td>
                 </tr>"));
 
             return $@"
             <p>Estimados,</p>
             <p>
-                Se listan los trabajadores de <strong>{proyectoNombre}</strong>{(string.IsNullOrWhiteSpace(razonSocial) ? "" : $" ({razonSocial})")}
-                con <strong>interconsulta pendiente</strong>. Al no contar con correo propio, se solicita al
-                administrador encargado del proyecto coordinar la atención de cada uno:
+                Se informa que los siguientes trabajadores de <strong>{proyectoNombre}</strong>{(string.IsNullOrWhiteSpace(razonSocial) ? "" : $" ({razonSocial})")}
+                registran una <strong>interconsulta médica pendiente</strong>. Se agradece coordinar su atención a la brevedad:
             </p>
             <table style='border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px; width: 100%;'>
                 <thead>
                     <tr>
                         <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Trabajador</th>
                         <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>DNI</th>
-                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Especialidad</th>
-                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Derivación</th>
-                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Días pendiente</th>
+                        <th style='border: 1px solid #ddd; padding: 8px; background: #f3f4f6;'>Días de retraso</th>
                     </tr>
                 </thead>
                 <tbody>{filas}</tbody>
             </table>
-            <p style='font-size: 12px; color: #666;'>Este correo se generó desde el módulo de Interconsultas de Salud Ocupacional.</p>
+            <p style='font-size: 12px; color: #666; margin-top: 24px;'>
+                Este mensaje contiene información confidencial de salud ocupacional, de uso exclusivo del
+                destinatario. Módulo de Interconsultas — Salud Ocupacional.
+            </p>
             ";
         }
 

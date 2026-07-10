@@ -54,6 +54,43 @@ public class CharlaContratistaService : ICharlaContratistaService
             .ToList();
     }
 
+    public async Task<List<CharlaContratistaPendienteDto>> GetDiasFaltantesAsync(int empresaId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+        var tareados = await (
+            from t in ctx.SsTareo
+            join d in ctx.SsTareoDetalleContratista on t.Id equals d.TareoId
+            join p in ctx.Project on t.ProyectoId equals p.ProjectId
+            where t.Fecha < hoy && d.EmpresaId == empresaId
+            select new { t.ProyectoId, ProyectoNombre = p.ProjectDescription, t.Fecha, d.CantidadPersonas }
+        ).ToListAsync();
+
+        if (tareados.Count == 0) return new List<CharlaContratistaPendienteDto>();
+
+        var subidas = await ctx.SsCharlaContratista
+            .Where(c => c.State && c.EmpresaId == empresaId && c.Fecha < hoy)
+            .Select(c => new { c.ProyectoId, c.Fecha })
+            .ToListAsync();
+        var subidasSet = subidas.Select(s => (s.ProyectoId, s.Fecha)).ToHashSet();
+
+        return tareados
+            .GroupBy(t => new { t.ProyectoId, t.ProyectoNombre, t.Fecha })
+            .Where(g => !subidasSet.Contains((g.Key.ProyectoId, g.Key.Fecha)))
+            .Select(g => new CharlaContratistaPendienteDto
+            {
+                ProyectoId = g.Key.ProyectoId,
+                ProyectoNombre = g.Key.ProyectoNombre,
+                Fecha = g.Key.Fecha,
+                CantidadPersonasTareadas = g.Sum(x => x.CantidadPersonas),
+                YaSubida = false,
+            })
+            .OrderByDescending(p => p.Fecha)
+            .ThenBy(p => p.ProyectoNombre)
+            .ToList();
+    }
+
     public async Task<List<CharlaContratistaDto>> GetHistorialAsync(int empresaId, int page, int pageSize)
     {
         using var ctx = _factory.CreateDbContext();

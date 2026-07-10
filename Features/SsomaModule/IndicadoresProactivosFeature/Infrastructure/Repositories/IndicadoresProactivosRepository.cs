@@ -232,6 +232,15 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Select(a => new { Fecha = a.Charla!.Fecha.Date, a.WorkerId })
             .ToListAsync();
 
+        // Charla diaria obligatoria del contratista (evidencia subida por Tareo, no asistencia
+        // del módulo de Charlas de staff): para contratistas, "Capacitaciones" mide cuántas de
+        // las evidencias exigidas por sus días tareados efectivamente subieron.
+        var charlaContratistaMesRaw = await ctx.SsCharlaContratista
+            .Where(c => c.State && c.ProyectoId == proyectoId
+                     && c.Fecha >= fechaIniOnly && c.Fecha < fechaCorteOnly)
+            .Select(c => new { c.EmpresaId, c.Fecha })
+            .ToListAsync();
+
         // ── CASA ──────────────────────────────────────────────────────────────
         var tareoCasa = await ctx.SsTareoDetalleCasa
             .Where(d => d.Tareo!.ProyectoId == proyectoId
@@ -340,8 +349,9 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
 
             const int metaInsp = 15;
 
-            var fechasPresencia = tareoEmp.Select(d => d.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
-            var metaCharlas = ContarDiasHabilesConPresenciaDateTime(fechasPresencia, mes, anio);
+            // Meta de charlas = días efectivamente tareados (no solo días hábiles): si se
+            // tareó 10 días, debe haber 10 evidencias subidas.
+            var metaCharlas = diasEmp;
 
             var racsGen = await ctx.SsomaRacs
                 .CountAsync(r => r.ProyectoId == proyectoId && r.EmpresaReportanteId == emp.EmpresaId
@@ -361,8 +371,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             var ats = atsMesRaw
                 .Count(x => EmpresaDelTrabajadorEnFecha(x.WorkerId, x.Fecha) == emp.EmpresaId);
 
-            var charlas = charlasMesRaw
-                .Where(x => EmpresaDelTrabajadorEnFecha(x.WorkerId, DateOnly.FromDateTime(x.Fecha)) == emp.EmpresaId)
+            var charlas = charlaContratistaMesRaw
+                .Where(x => x.EmpresaId == emp.EmpresaId)
                 .Select(x => x.Fecha).Distinct().Count();
 
             var insp = await ctx.SsomaInspeccion
@@ -454,6 +464,15 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                      && a.Asistio)
             .Select(a => new { ProyectoId = a.Charla!.ProyectoId!.Value, a.WorkerId, Fecha = a.Charla.Fecha.Date })
             .Distinct()
+            .ToListAsync();
+
+        // 6b. Charla diaria obligatoria del contratista (evidencia subida por Tareo): para
+        // contratistas, "Capacitaciones" mide cuántas evidencias exigidas por sus días
+        // tareados efectivamente subieron, no asistencia del módulo de Charlas de staff.
+        var charlaContratistaBulk = await ctx.SsCharlaContratista
+            .Where(c => c.State && proyIds.Contains(c.ProyectoId)
+                     && c.Fecha >= iniOnly && c.Fecha < corteOnly)
+            .Select(c => new { c.ProyectoId, c.EmpresaId, c.Fecha })
             .ToListAsync();
 
         // 7. Inspecciones por proyecto/empresa
@@ -575,8 +594,9 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 var diasE = te.Count;
                 var promE = diasE > 0 ? (decimal)te.Sum(t => t.CantidadPersonas) / diasE : 0;
                 var metaInspE = metaInspContratista;
-                var fechasE = te.Select(t => t.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
-                var metaCharlasE = ContarDiasHabilesConPresenciaDateTime(fechasE, mes, anio);
+                // Meta de charlas = días efectivamente tareados: si se tareó 10 días,
+                // debe haber 10 evidencias subidas.
+                var metaCharlasE = diasE;
                 // "RACs reportados" = hallazgos que ESTA empresa levantó/reportó (EmpresaReportanteId) —
                 // indicador proactivo de cuánto reporta. "RACs cerrados" = de los hallazgos que le fueron
                 // atribuidos a ella (EmpresaReportadaId), cuántos ya cerró — indicador de cumplimiento.
@@ -587,9 +607,9 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                     .Select(o => o.OptId).Distinct().Count();
                 var atsE = atsBulk.Count(a => a.ProyectoId == pid
                     && EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, a.Fecha) == emp.EmpresaId);
-                var charlasE = charlasBulk.Where(a => a.ProyectoId == pid
-                        && EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, DateOnly.FromDateTime(a.Fecha)) == emp.EmpresaId)
-                    .Select(a => a.Fecha).Distinct().Count();
+                var charlasE = charlaContratistaBulk
+                    .Where(c => c.ProyectoId == pid && c.EmpresaId == emp.EmpresaId)
+                    .Select(c => c.Fecha).Distinct().Count();
                 var inspE = inspBulk.Count(i => i.ProyectoId == pid && i.EmpresaId == emp.EmpresaId);
 
                 // Si la empresa está INACTIVA (promedio de trabajadores < 5 y ninguna

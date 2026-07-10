@@ -1,3 +1,4 @@
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -110,6 +111,10 @@ public class OptController : ControllerBase
         {
             var id = await _service.CrearOptAsync(request);
             return StatusCode(201, new { id });
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
         }
         catch (Exception ex)
         {

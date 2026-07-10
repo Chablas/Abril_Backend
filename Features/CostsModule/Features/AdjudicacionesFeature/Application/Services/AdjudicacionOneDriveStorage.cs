@@ -15,6 +15,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IGraphSharePointService _graph;
         private readonly IProjectSubContractorRepository _repository;
 
+        // Carpeta padre obligatoria dentro de la carpeta 04_OBRAS configurada: la cadena
+        // Especialidad/Partida/Contratista/Adjudicación se crea siempre dentro de ella.
+        private const string ObrasIntranetFolderName = "ADJUDICACIONES DE INTRANET";
+
         // Mismo criterio que la sincronización de partidas: quita prefijos numéricos de orden
         // ("4. ELEVADORES" → "ELEVADORES", "1.2 PISOS" → "PISOS", "3) MUROS" → "MUROS").
         private static readonly Regex _folderPrefixRegex =
@@ -67,6 +71,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 ? RequireBackupFolder(pathData)
                 : RequireObrasFolder(pathData);
 
+            // En 04_OBRAS toda la estructura cuelga de una carpeta intermedia
+            // "ADJUDICACIONES DE INTRANET" dentro de la carpeta configurada; si no existe se crea.
+            // No aplica a 07_OT/BACK UP PROYECTO.
+            if (!isScanned)
+                rootFolderId = await FindOrCreateExactAsync(rootDriveId, rootFolderId, ObrasIntranetFolderName);
+
             var (driveId, folderId) = await EnsureFolderAsync(pathData, documentType, rootDriveId, rootFolderId);
 
             var result = await _graph.UploadToOneDriveFolderAsync(
@@ -101,8 +111,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             AdjudicacionPathDataDto data, AdjudicacionDocumentType documentType,
             string driveId, string contratosFolderId)
         {
-            // La carpeta configurada en Configuración → Carpeta de adjudicaciones es DIRECTAMENTE
-            // la carpeta de "Contratos" del proyecto: se usa tal cual como base de la estructura.
+            // Base de la estructura: para 07_OT/BACK UP es la carpeta configurada tal cual;
+            // para 04_OBRAS es la subcarpeta "ADJUDICACIONES DE INTRANET" ya resuelta por el caller.
 
             // 1) Especialidad — obligatoria para saber en qué rama guardar.
             if (string.IsNullOrWhiteSpace(data.WorkSpecialtyDescription))

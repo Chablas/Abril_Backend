@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
@@ -340,7 +341,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     to: destinatarios,
                     subject: subject,
                     body: body,
-                    isHtml: true);
+                    isHtml: true,
+                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
 
                 alerta.EnviadoEmail  = true;
                 alerta.FechaEnvio    = DateTimeOffset.UtcNow;

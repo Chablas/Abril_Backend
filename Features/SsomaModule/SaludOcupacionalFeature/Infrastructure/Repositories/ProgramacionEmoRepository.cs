@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
@@ -454,7 +455,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     to: to,
                     subject: $"[EMO Programado] {workerNombre} — {fechaStr}",
                     body: html,
-                    isHtml: true);
+                    isHtml: true,
+                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
 
                 prog.FechaNotificacion = DateTimeOffset.UtcNow;
             }
@@ -610,7 +612,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     to: to,
                     subject: $"[EMO Confirmado] {workerNombre} — {fechaStr}",
                     body: html,
-                    isHtml: true);
+                    isHtml: true,
+                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
             }
             catch (Exception ex)
             {
@@ -740,7 +743,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     to: to,
                     subject: $"[EMO Rechazado] {workerNombre} — {fechaStr}",
                     body: html,
-                    isHtml: true);
+                    isHtml: true,
+                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
             }
             catch (Exception ex)
             {

@@ -45,6 +45,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
 
             var trabajadores = await GetTrabajadoresAbril(ctx);
 
+            var temas = await GetTemas(ctx);
+
             var reuniones = await GetReunionesInterno(ctx, filtro);
 
             return new ReunionPaginaInicialDto
@@ -52,6 +54,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 Proyectos = proyectos,
                 ReunionEstados = estados,
                 Trabajadores = trabajadores,
+                Temas = temas,
                 Reuniones = reuniones,
             };
         }
@@ -273,6 +276,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                 .ToListAsync();
 
             detalle.Trabajadores = await GetTrabajadoresAbril(ctx);
+
+            detalle.Temas = await GetTemas(ctx);
 
             return detalle;
         }
@@ -807,6 +812,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
                         : (w.Ocupacion != null && w.Ocupacion.Trim() != "" ? w.Ocupacion : null),
                 }
             ).ToListAsync();
+        }
+
+        /// <summary>Temas predefinidos para el desplegable de "Tema de la reunión" al agendar.</summary>
+        private static async Task<List<CatalogoDto>> GetTemas(AppDbContext ctx)
+        {
+            return await ctx.ReunionTema
+                .Where(t => t.State && t.Active)
+                .OrderBy(t => t.ReunionTemaId)
+                .Select(t => new CatalogoDto { Id = t.ReunionTemaId, Descripcion = t.Descripcion })
+                .ToListAsync();
         }
 
         /// <summary>

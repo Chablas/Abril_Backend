@@ -66,6 +66,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public List<ProyectoFiltroDto> Proyectos { get; set; } = new();
         public List<CatalogoDto> ReunionEstados { get; set; } = new();
         public List<TrabajadorAbrilDto> Trabajadores { get; set; } = new();
+        /// <summary>Temas predefinidos para el desplegable de "Tema de la reunión" al agendar.</summary>
+        public List<CatalogoDto> Temas { get; set; } = new();
         public PagedResultDto<ReunionListItemDto> Reuniones { get; set; } = new();
     }
 
@@ -99,6 +101,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFe
         public List<ReunionReprogramacionDto> Reprogramaciones { get; set; } = new();
         public List<CatalogoDto> AcuerdoEstados { get; set; } = new();
         public List<TrabajadorAbrilDto> Trabajadores { get; set; } = new();
+        /// <summary>Temas predefinidos para el desplegable al "Agendar siguiente reunión".</summary>
+        public List<CatalogoDto> Temas { get; set; } = new();
     }
 
     public class ReunionParticipanteDto

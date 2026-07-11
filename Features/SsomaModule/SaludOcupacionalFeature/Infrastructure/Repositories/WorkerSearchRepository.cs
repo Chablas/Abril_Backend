@@ -148,6 +148,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (existeActivo)
                 throw new AbrilException("Ya existe un trabajador activo con ese DNI.", 409);
 
+            var esCasaDto = string.Equals(dto.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
+            if (esCasaDto)
+            {
+                var existeRetirado = await ctx.Worker
+                    .AnyAsync(w => w.Person != null && w.Person.DocumentIdentityCode != null
+                                && w.Person.DocumentIdentityCode.ToUpper() == dniUpper
+                                && w.Estado != "ACTIVO");
+                if (existeRetirado)
+                    throw new AbrilException("Ya existe un trabajador registrado con ese DNI (retirado). Use la opción de Reingreso en vez de crear uno nuevo.", 409);
+            }
+
             var workerExistente = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.DocumentIdentityCode != null
                          && w.Person.DocumentIdentityCode.ToUpper() == dniUpper)

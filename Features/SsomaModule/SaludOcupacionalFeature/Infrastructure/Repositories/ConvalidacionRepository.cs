@@ -45,6 +45,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (!string.IsNullOrWhiteSpace(filter.Resultado))
                 q = q.Where(x => x.cv.Resultado == filter.Resultado);
 
+            if (filter.EmpresaDestinoId.HasValue)
+                q = q.Where(x => x.cv.EmpresaDestinoId == filter.EmpresaDestinoId.Value);
+
+            if (filter.TipoEmoId.HasValue)
+                q = q.Where(x => x.e.TipoEmoId == filter.TipoEmoId.Value);
+
+            if (filter.ProyectoId.HasValue)
+                q = q.Where(x => ctx.WorkerVinculacion
+                    .Any(v => v.WorkerId == x.e.WorkerId && v.FechaFin == null && v.ProyectoId == filter.ProyectoId.Value));
+
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {
                 var term = filter.Search.ToLower().Trim();
@@ -70,7 +80,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerNombre = x.per != null ? x.per.FullName : null,
                     WorkerDni = x.per != null ? x.per.DocumentIdentityCode : null,
                     EmpresaOrigen = x.eo != null ? x.eo.ContributorName : null,
+                    EmpresaDestinoId = x.cv.EmpresaDestinoId,
                     EmpresaDestino = x.ed != null ? x.ed.ContributorName : null,
+                    Proyecto = (from v in ctx.WorkerVinculacion
+                                join pr in ctx.Project on v.ProyectoId equals (int?)pr.ProjectId
+                                where v.WorkerId == x.e.WorkerId && v.FechaFin == null
+                                orderby v.CreatedAt descending
+                                select (string?)pr.ProjectDescription)
+                               .FirstOrDefault(),
                     TipoEmo = x.et != null ? x.et.Nombre : null,
                     Medico = x.med != null ? x.med.ApellidoNombre : null,
                     FechaEmoOrigen = x.e.FechaEmo,
@@ -113,6 +130,50 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 TotalPages = (int)Math.Ceiling(total / (double)pageSize),
                 Data = items
             };
+        }
+
+        public async Task<ConvalidacionDetalleDto?> GetDetalleAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var row = await (
+                from cv in ctx.WorkerEmoConvalidacion
+                join e in ctx.WorkerEmo on cv.EmoId equals e.Id
+                join w in ctx.Worker on e.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals per.PersonId into perj
+                from per in perj.DefaultIfEmpty()
+                join et in ctx.SsEmoTipo on e.TipoEmoId equals et.Id into etj
+                from et in etj.DefaultIfEmpty()
+                join med in ctx.SsMedicoOcupacional on cv.MedicoId equals med.Id into medj
+                from med in medj.DefaultIfEmpty()
+                join eo in ctx.Contributor on e.EmpresaOrigenId equals eo.ContributorId into eoj
+                from eo in eoj.DefaultIfEmpty()
+                join ed in ctx.Contributor on cv.EmpresaDestinoId equals ed.ContributorId into edj
+                from ed in edj.DefaultIfEmpty()
+                where cv.Id == id
+                select new ConvalidacionDetalleDto
+                {
+                    Id = cv.Id,
+                    WorkerId = e.WorkerId,
+                    WorkerNombre = per != null ? per.FullName : "",
+                    WorkerDni = per != null ? per.DocumentIdentityCode : "",
+                    WorkerOcupacion = w.Ocupacion,
+                    TipoEmo = et != null ? et.Nombre : null,
+                    FechaEmoOrigen = e.FechaEmo,
+                    AptitudOrigen = e.Aptitud,
+                    EmpresaOrigen = eo != null ? eo.ContributorName : null,
+                    EmpresaDestino = ed != null ? ed.ContributorName : null,
+                    MedicoNombre = med != null ? med.ApellidoNombre : null,
+                    MedicoEspecialidad = med != null ? med.Especialidad : null,
+                    MedicoRegistroCmp = med != null ? med.Cmp : null,
+                    FechaConvalidacion = cv.FechaConvalidacion,
+                    FechaVencimiento = cv.FechaVencimiento,
+                    Resultado = cv.Resultado,
+                    Notas = cv.Observaciones
+                }
+            ).FirstOrDefaultAsync();
+
+            return row;
         }
 
         public async Task<int> Create(ConvalidacionCreateDto dto, int? userId)

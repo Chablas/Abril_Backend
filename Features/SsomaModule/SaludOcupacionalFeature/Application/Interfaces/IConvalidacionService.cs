@@ -8,5 +8,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task<PagedResponseDto<ConvalidacionListDto>> List(ConvalidacionFilterDto filter);
         Task<int> Create(ConvalidacionCreateDto dto, int? userId);
         Task Update(int id, ConvalidacionUpdateDto dto, int? userId);
+        Task<byte[]> GenerarPdfAsync(int id);
     }
 }

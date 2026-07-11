@@ -237,6 +237,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (dto.FechaProgramada == default)
                 throw new AbrilException("La fecha es obligatoria.", 400);
 
+            // Evita duplicados: si ya hay una programación activa para este trabajador
+            // y este tipo de EMO, no crear otra (antes solo el auto-programador validaba esto).
+            var yaTieneActiva = await ctx.SsProgramacionEmo.AnyAsync(p =>
+                p.WorkerId == dto.WorkerId &&
+                p.TipoEmoId == dto.TipoEmoId &&
+                p.Estado != "Completado" &&
+                p.Estado != "Cancelado" &&
+                p.Estado != "Rechazado por Clínica");
+            if (yaTieneActiva)
+                throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
+
             var empresaId = dto.EmpresaId;
             if (empresaId == null)
             {

@@ -88,8 +88,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var pageSize = Math.Clamp(filter.PageSize, 1, 2000);
                 var totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize);
 
+                // Con el historico creciendo, "traer todo sin filtro de fecha" (como hace la Agenda
+                // de clinica) puede superar pageSize y el ORDER BY antiguo (solo por fecha ascendente)
+                // cortaba las programaciones activas mas recientes dejandolas fuera de la pagina 1.
+                // Mostrar primero las no terminales garantiza que Programado/Aceptado/En Atencion
+                // nunca desaparezcan por el corte de pagina, sin cambiar el filtrado ni el conteo.
+                var estadosTerminales = new HashSet<string> { "Completado", "Cancelado", "Rechazado por Clínica", "No se presentó" };
+
                 var data = await q
-                    .OrderBy(x => x.p.FechaProgramada)
+                    .OrderBy(x => estadosTerminales.Contains(x.p.Estado) ? 1 : 0)
+                    .ThenByDescending(x => x.p.FechaProgramada)
                     .ThenBy(x => x.p.HoraProgramada)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)

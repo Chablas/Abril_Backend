@@ -5040,3 +5040,20 @@ Pantalla `Interconsultas` (Salud Ocupacional) rediseñada a pedido del usuario: 
 ### Pendiente
 - El usuario pidió explícitamente no compilar en esta sesión (backend corriendo localmente, bloquea el .exe/.dll) — los últimos cambios (resolución de jefatura por área, fallback a Gerente de la raíz) **no se verificaron con build**. Correr `dotnet build` y avisar si sale algún error de tipos antes de dar por cerrado.
 - Falta que el usuario confirme en pantalla que la jefatura ahora resuelve bien para casos como María Sonia Alan Oceda (Residencia → debería caer a Carlos Fredy Oriundo Campos, Gerente de Unidad de Proyectos).
+
+## Sesión 2026-07-11 — Agenda de clínica: programaciones "Programado" no aparecían pese a correo enviado
+
+Reporte de Katyana (clínica): trabajadores (Bocanegra Pisco, Flores Quispe, Elías Vílchez) recibían el correo de "Nueva programación EMO" pero no figuraban en la pestaña "Programados" de la Agenda de clínica (`/clinica/agenda`).
+
+**Diagnóstico** (confirmado con SQL contra producción): no era un problema de filtros (interconsulta pendiente, `EsAbril`, joins) — todos los registros pasaban esas condiciones. La causa real: la Agenda de clínica pide `GET .../programaciones` **sin filtro de fecha** (`selectedDate=''` por diseño, para mostrar todo lo pendiente sin importar la fecha), con `pageSize=500`. El total histórico de programaciones ya superaba ese límite (535 filas), y el `ORDER BY` anterior (`FechaProgramada ASC`) ponía las más viejas primero — las programaciones de HOY, al ser las más recientes, quedaban cortadas fuera de `Take(500)` sin ningún error visible.
+
+**Fix**: en `ProgramacionEmoRepository.List`, se cambió el orden para priorizar estados activos (`Programado`, `Aceptado por Clínica`, `En Atención`, etc. — todo lo que no sea `Completado`/`Cancelado`/`Rechazado por Clínica`/`No se presentó`) antes que por fecha. Así, sin importar cuánto crezca el histórico de exámenes ya completados, las programaciones pendientes nunca se cortan por el límite de página. No se tocó ningún filtro, ni el conteo total, ni el contrato de la API — solo el `ORDER BY`.
+
+De paso se detectaron (pero NO se corrigieron aún) 4 registros duplicados de programación "Ingreso" para el mismo trabajador/día (Bocanegra Pisco: ids 826, 827, 828, 832; Flores Quispe: ids 830, 831) creados vía "Registro directo"/"Manual" — no se tocaron por falta de tiempo/alcance de esta sesión.
+
+### Archivos clave
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/ProgramacionEmoRepository.cs` (método `List`, el `OrderBy`)
+
+### Pendiente
+- Revisar por qué se generan programaciones "Ingreso" duplicadas para el mismo trabajador/día vía "Registro directo" (posible doble submit del formulario de alta de trabajador, o el flujo de registro directo no verifica si ya existe una programación activa antes de crear una nueva). No confirmado con el usuario si ya lo notó/reportó como problema aparte.
+- Confirmar con Katyana que tras el fix los 3 trabajadores ya aparecen en "Programados".

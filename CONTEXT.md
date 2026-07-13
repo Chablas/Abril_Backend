@@ -4851,3 +4851,19 @@ Seed hardcodeado en la migración `20260601002547_AddFeriadosAndActivityPredeces
 ### Pendiente / posible mejora futura
 - Evaluar si conviene unificar `Feriados` y `Holiday` en una sola tabla, o al menos documentar/advertir que son sistemas distintos.
 - Cargar feriados 2027 antes de que termine 2026 (ni la tabla `Feriados` ni `Holiday` los tienen aún).
+
+## Sesión 2026-07-12 — Plantilla de anteproyecto en "Usar plantilla"
+
+Rama: `victor-backend`.
+
+### Qué se hizo
+- Se agregó soporte para la plantilla de **ANTEPROYECTO** en el flujo "Usar plantilla" del cronograma. Antes `AplicarPlantillaAsync` siempre leía `plantilla_proyecto_seed.json`; ahora selecciona el archivo según `tipoCronograma`: si es `"ANTEPROYECTO"` usa el nuevo `plantilla_anteproyecto_seed.json`, en cualquier otro caso mantiene `plantilla_proyecto_seed.json`.
+- Se creó el seed `plantilla_anteproyecto_seed.json` con las actividades base del anteproyecto.
+- Se agregó `.tokensave/` al `.gitignore` (estado local de la herramienta, no debe versionarse).
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs` — nueva ruta `PlantillaAnteproyectoPath` y selección de plantilla por `tipoCronograma` en `AplicarPlantillaAsync`.
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Seeds/plantilla_anteproyecto_seed.json` (nuevo).
+
+### Pendiente
+- Verificar en el navegador el flujo "Usar plantilla" para un cronograma de tipo Anteproyecto.

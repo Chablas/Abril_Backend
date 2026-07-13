@@ -1180,6 +1180,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             "Features", "UnidadDeProyectosModule", "Features", "CronogramaActividades",
             "Seeds", "plantilla_proyecto_seed.json");
 
+        private static readonly string PlantillaAnteproyectoPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Features", "UnidadDeProyectosModule", "Features", "CronogramaActividades",
+            "Seeds", "plantilla_anteproyecto_seed.json");
+
         private static readonly JsonSerializerOptions PlantillaJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
         private sealed class PlantillaItem
@@ -1194,7 +1199,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
         public async Task<AplicarPlantillaResultDto> AplicarPlantillaAsync(int proyectoId, string tipoCronograma, int userId)
         {
-            var json = await File.ReadAllTextAsync(PlantillaProyectoPath);
+            var plantillaPath = tipoCronograma == "ANTEPROYECTO" ? PlantillaAnteproyectoPath : PlantillaProyectoPath;
+            var json = await File.ReadAllTextAsync(plantillaPath);
             var items = JsonSerializer.Deserialize<List<PlantillaItem>>(json, PlantillaJsonOptions)
                 ?? throw new AbrilException("La plantilla de proyecto está vacía o es inválida.", 500);
 

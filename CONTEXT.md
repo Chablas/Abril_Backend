@@ -4904,3 +4904,7 @@ Seed hardcodeado en la migración `20260601002547_AddFeriadosAndActivityPredeces
 ### Pendiente / posible mejora futura
 - Evaluar si conviene unificar `Feriados` y `Holiday` en una sola tabla, o al menos documentar/advertir que son sistemas distintos.
 - Cargar feriados 2027 antes de que termine 2026 (ni la tabla `Feriados` ni `Holiday` los tienen aún).
+
+## Sesión 2026-07-13 — Sync master
+
+Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend` estaba limpio, se cambió a `master` y se corrió "guardar master" para sincronizar con `origin/master`.

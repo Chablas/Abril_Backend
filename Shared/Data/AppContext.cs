@@ -28,6 +28,7 @@ using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastruc
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Models;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -394,6 +395,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsControlSemanaLinea> SsControlSemanaLinea => Set<SsControlSemanaLinea>();
         public DbSet<SsKit> SsKit => Set<SsKit>();
         public DbSet<SsKitItem> SsKitItem => Set<SsKitItem>();
+
+        public DbSet<AcObservacion> AcObservaciones => Set<AcObservacion>();
+        public DbSet<AcObservacionFoto> AcObservacionFotos => Set<AcObservacionFoto>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

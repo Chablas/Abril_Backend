@@ -3,12 +3,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-desempeno-supervisor")]
 [Authorize]
+[RequireFeature("ssoma.gestion.indicadores-proactivos")]
 public class DesempenoSupervisorController(DesempenoSupervisorRepository repo) : ControllerBase
 {
     private int GetUserId() =>

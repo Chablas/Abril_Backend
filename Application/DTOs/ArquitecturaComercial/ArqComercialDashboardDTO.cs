@@ -55,6 +55,15 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public string FechaLimite   { get; set; } = string.Empty;
         public int    DiasRestantes { get; set; }
         public string Estado        { get; set; } = string.Empty;
+        public int    Semana        { get; set; }
+    }
+
+    public class SemanaDashboardDTO
+    {
+        public int    Numero { get; set; }
+        public string Label  { get; set; } = string.Empty;
+        public string Inicio { get; set; } = string.Empty;
+        public string Fin    { get; set; } = string.Empty;
     }
 
     public class CategoriaDashboardItemDTO
@@ -85,6 +94,8 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
         public CategoriaItemDTO[]             Categorias                  { get; set; } = [];
         public List<CategoriaDashboardItemDTO> DistribucionPorCategoria   { get; set; } = [];
         public List<ArqComercialChartItemDTO> DistribucionTipos           { get; set; } = [];
+        public SemanaDashboardDTO             SemanaActual                { get; set; } = new();
+        public string                          RangoUltimasSemanas        { get; set; } = string.Empty;
     }
 
     public class ArqComercialFilterOptionDTO

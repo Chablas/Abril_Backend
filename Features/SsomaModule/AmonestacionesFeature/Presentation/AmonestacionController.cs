@@ -1,13 +1,17 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-amonestaciones")]
+[Authorize]
+[RequireFeature("ssoma.gestion.amonestaciones")]
 public class AmonestacionController : ControllerBase
 {
     private readonly IAmonestacionService _service;

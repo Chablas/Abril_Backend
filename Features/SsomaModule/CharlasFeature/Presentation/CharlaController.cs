@@ -3,12 +3,14 @@ using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.CharlasFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-charlas")]
 [Authorize]
+[RequireFeature("ssoma.gestion.charlas")]
 public class CharlaController : ControllerBase
 {
     private readonly ICharlaService _svc;

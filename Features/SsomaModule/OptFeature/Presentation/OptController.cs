@@ -3,6 +3,7 @@ using Abril_Backend.Features.SsomaModule.OptFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.OptFeature.Presentation;
 
@@ -43,6 +44,7 @@ public class OptController : ControllerBase
     }
 
     [HttpGet]
+    [RequireFeature("ssoma.gestion.opt.lista")]
     public async Task<IActionResult> GetList(
         [FromQuery] int? proyectoId,
         [FromQuery] int? petId,
@@ -67,6 +69,7 @@ public class OptController : ControllerBase
     }
 
     [HttpGet("dashboard")]
+    [RequireFeature("ssoma.gestion.opt.dashboard")]
     public async Task<IActionResult> GetDashboard(
         [FromQuery] int? proyectoId,
         [FromQuery] int? anio)
@@ -83,6 +86,7 @@ public class OptController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [RequireFeature("ssoma.gestion.opt")]
     public async Task<IActionResult> GetDetalle(int id)
     {
         try
@@ -105,6 +109,7 @@ public class OptController : ControllerBase
     }
 
     [HttpPost]
+    [RequireFeature("ssoma.gestion.opt.nuevo")]
     public async Task<IActionResult> Crear([FromBody] CrearOptRequest request)
     {
         try

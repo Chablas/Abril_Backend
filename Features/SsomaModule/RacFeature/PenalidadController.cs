@@ -4,12 +4,14 @@ using Abril_Backend.Features.Ssoma.Rac.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.Ssoma.Rac;
 
 [ApiController]
 [Route("api/v1/ssoma-rac-penalidad")]
-[AllowAnonymous]
+[Authorize]
+[RequireFeature("ssoma.gestion.rac.penalidades")]
 public class PenalidadController : ControllerBase
 {
     private readonly IPenalidadService _service;

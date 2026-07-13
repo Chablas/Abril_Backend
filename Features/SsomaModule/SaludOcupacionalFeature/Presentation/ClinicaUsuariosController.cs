@@ -11,7 +11,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/catalogos/clinicas/{clinicaId:int}/usuarios")]
-    [AllowAnonymous]
+    [Authorize]
     public class ClinicaUsuariosController : ControllerBase
     {
         private readonly IClinicaUsuarioService _service;
@@ -25,7 +25,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 
         private string Ip => HttpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
 
-        [AllowAnonymous]
         [HttpGet]
         public async Task<IActionResult> GetUsuarios(int clinicaId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
         {

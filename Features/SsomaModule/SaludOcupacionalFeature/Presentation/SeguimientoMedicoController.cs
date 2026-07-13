@@ -4,6 +4,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.AltaMedica;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.CitaMedica;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.EquipoPrestado;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,6 +13,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional")]
     [Authorize]
+    [RequireFeature("ssoma.salud-ocupacional.accidentes")]
     public class SeguimientoMedicoController : ControllerBase
     {
         private readonly ICitaMedicaService _citas;

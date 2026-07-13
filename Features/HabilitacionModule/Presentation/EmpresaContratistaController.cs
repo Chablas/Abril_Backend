@@ -6,6 +6,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -137,7 +138,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             try
             {
                 var roles = User.FindAll(System.Security.Claims.ClaimTypes.Role).Select(c => c.Value).ToList();
-                string[] permitidos = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP"];
+                string[] permitidos = [Roles.AdministradorSsoma, Roles.AdministradorUdp];
                 if (!roles.Any(r => permitidos.Contains(r, StringComparer.OrdinalIgnoreCase)))
                     return StatusCode(403, new { message = "Solo ADMINISTRADOR SSOMA o ADMINISTRADOR DE UDP pueden reenviar la activación." });
 

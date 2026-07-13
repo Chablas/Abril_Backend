@@ -4,6 +4,7 @@ using Abril_Backend.Features.Ssoma.Rac.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.Rac;
 
@@ -25,7 +26,7 @@ public class RacController : ControllerBase
         int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
 
     private bool EsContratista() =>
-        User.FindFirst(ClaimTypes.Role)?.Value == "CONTRATISTA";
+        User.FindFirst(ClaimTypes.Role)?.Value == Roles.Contratista;
 
     /// <summary>
     /// Empresa del usuario contratista logueado (claim "empresaId" del JWT emitido
@@ -39,8 +40,7 @@ public class RacController : ControllerBase
     {
         try
         {
-            var empresaId = GetEmpresaIdContratista();
-            if (empresaId.HasValue) q.EmpresaReportadaId = empresaId.Value;
+            q.EmpresaIdContratista = GetEmpresaIdContratista();
             return Ok(await _service.GetListAsync(q));
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -94,7 +94,7 @@ public class RacController : ControllerBase
         {
             var r = await _service.GetDetalleAsync(id);
             if (r is null) return NotFound(new { message = "RAC no encontrado." });
-            if (!EsPropioDeContratista(r.EmpresaReportadaId)) return Forbid();
+            if (!EsPropioDeContratista(r.EmpresaReportadaId, r.EmpresaReportanteId)) return Forbid();
             return Ok(r);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -108,7 +108,7 @@ public class RacController : ControllerBase
         {
             var actual = await _service.GetDetalleAsync(id);
             if (actual is null) return NotFound(new { message = "RAC no encontrado." });
-            if (!EsPropioDeContratista(actual.EmpresaReportadaId)) return Forbid();
+            if (!EsPropioDeContratista(actual.EmpresaReportadaId, actual.EmpresaReportanteId)) return Forbid();
             return Ok(await _service.CerrarAsync(id, req, GetUserId()));
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -124,7 +124,7 @@ public class RacController : ControllerBase
         {
             var actual = await _service.GetDetalleAsync(id);
             if (actual is null) return NotFound(new { message = "RAC no encontrado." });
-            if (!EsPropioDeContratista(actual.EmpresaReportadaId)) return Forbid();
+            if (!EsPropioDeContratista(actual.EmpresaReportadaId, actual.EmpresaReportanteId)) return Forbid();
             return StatusCode(201, await _service.SubirFotoAsync(id, file, tipo, GetUserId()));
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -138,7 +138,7 @@ public class RacController : ControllerBase
         {
             var rac = await _service.GetDetalleAsync(id);
             if (rac is null) return NotFound(new { message = "RAC no encontrado." });
-            if (!EsPropioDeContratista(rac.EmpresaReportadaId)) return Forbid();
+            if (!EsPropioDeContratista(rac.EmpresaReportadaId, rac.EmpresaReportanteId)) return Forbid();
             if (string.IsNullOrWhiteSpace(rac.PdfUrl)) return NotFound(new { message = "PDF no disponible." });
             var url = "https://abrilinmob.sharepoint.com/sites/SSOMA-Powerapps/RacPDF2026/" + rac.PdfUrl;
             return Ok(new { url });
@@ -154,7 +154,7 @@ public class RacController : ControllerBase
         {
             var rac = await _service.GetDetalleAsync(id);
             if (rac is null) return NotFound(new { message = "RAC no encontrado." });
-            if (!EsPropioDeContratista(rac.EmpresaReportadaId)) return Forbid();
+            if (!EsPropioDeContratista(rac.EmpresaReportadaId, rac.EmpresaReportanteId)) return Forbid();
             var bytes = await _service.GetPdfAsync(id);
             return File(bytes, "application/pdf", $"RAC-{id}.pdf");
         }
@@ -164,11 +164,15 @@ public class RacController : ControllerBase
 
     /// <summary>
     /// Si el usuario es contratista, exige que el RAC pertenezca a su propia
-    /// empresa; los usuarios internos (admin/SSOMA Abril) ven todo.
+    /// empresa — ya sea como reportada O como reportante; los usuarios internos
+    /// (admin/SSOMA Abril) ven todo. Antes solo comparaba contra la empresa
+    /// reportada, lo que bloqueaba (403) a un contratista de ver/subir evidencia
+    /// a un RAC que él mismo reportó contra otra empresa.
     /// </summary>
-    private bool EsPropioDeContratista(int? empresaReportadaId)
+    private bool EsPropioDeContratista(int? empresaReportadaId, int? empresaReportanteId = null)
     {
         var empresaId = GetEmpresaIdContratista();
-        return !empresaId.HasValue || empresaReportadaId == empresaId.Value;
+        if (!empresaId.HasValue) return true;
+        return empresaReportadaId == empresaId.Value || empresaReportanteId == empresaId.Value;
     }
 }

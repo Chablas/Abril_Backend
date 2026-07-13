@@ -32,9 +32,9 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
     public Task<FlashReportInicializarDto> GetInicializarAsync() => _repo.GetInicializarAsync();
 
     public async Task<object> GetListAsync(int? proyectoId, int? tipoId, string? estado,
-        DateTime? fechaDesde, DateTime? fechaHasta, bool? soloEnviados, int page, int pageSize)
+        DateTime? fechaDesde, DateTime? fechaHasta, bool? soloEnviados, string? areaOrigen, int page, int pageSize)
     {
-        var (items, total) = await _repo.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, soloEnviados, page, pageSize);
+        var (items, total) = await _repo.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, soloEnviados, areaOrigen, page, pageSize);
         return new { items, total, page, pageSize, totalPages = (int)Math.Ceiling((double)total / pageSize) };
     }
 
@@ -46,6 +46,9 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
 
     public async Task<int> CrearAsync(CrearFlashReportRequest request, int? usuarioId)
     {
+        if (request.Trabajadores.Count > 1)
+            throw new AbrilException("Un Flash Report solo admite un trabajador afectado. Regístrese un reporte independiente por cada accidentado.", 400);
+
         // Obtener código del tipo
         var init = await _repo.GetInicializarAsync();
         var tipo = init.Tipos.FirstOrDefault(t => t.Id == request.TipoId)
@@ -66,6 +69,9 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
 
     public async Task ActualizarAsync(int id, ActualizarFlashReportRequest request)
     {
+        if (request.Trabajadores.Count > 1)
+            throw new AbrilException("Un Flash Report solo admite un trabajador afectado. Regístrese un reporte independiente por cada accidentado.", 400);
+
         var existente = await _repo.GetDetalleAsync(id)
             ?? throw new AbrilException("Flash Report no encontrado.", 404);
 
@@ -79,6 +85,9 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         await _repo.ActualizarAsync(id, request, urlFoto1, urlFoto2);
     }
 
+    public Task ActualizarSeveridadAsync(int id, int? consecuenciaRealPersonal, int? consecuenciaPotencialPersonal)
+        => _repo.ActualizarSeveridadAsync(id, consecuenciaRealPersonal, consecuenciaPotencialPersonal);
+
     public async Task EnviarFlashReportAsync(int id, bool enviarEmail = true)
     {
         var fr = await _repo.GetDetalleAsync(id)
@@ -86,6 +95,11 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
 
         if (fr.Enviado)
             throw new AbrilException("El Flash Report ya fue enviado.", 400);
+
+        var requiereSeveridad = fr.TipoCodigo.Equals("AC", StringComparison.OrdinalIgnoreCase)
+            || fr.TipoCodigo.Equals("IN", StringComparison.OrdinalIgnoreCase);
+        if (requiereSeveridad && (fr.ConsecuenciaRealPersonal == null || fr.ConsecuenciaPotencialPersonal == null))
+            throw new AbrilException("Debe registrar la consecuencia real y potencial antes de enviar el Flash Report.", 400);
 
         // Descargar fotos si existen
         byte[]? foto1Bytes = null;

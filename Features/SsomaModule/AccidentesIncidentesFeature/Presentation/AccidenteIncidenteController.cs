@@ -45,10 +45,11 @@ public class AccidenteIncidenteController : ControllerBase
         [FromQuery] DateTime? fechaDesde,
         [FromQuery] DateTime? fechaHasta,
         [FromQuery] bool? soloEnviados,
+        [FromQuery] string? areaOrigen,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        try { return Ok(await _service.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, soloEnviados, page, pageSize)); }
+        try { return Ok(await _service.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, soloEnviados, areaOrigen, page, pageSize)); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error lista flash reports"); return StatusCode(500, new { message = "Error del servidor." }); }
     }
@@ -84,6 +85,18 @@ public class AccidenteIncidenteController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error actualizar flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPatch("{id:int}/severidad")]
+    public async Task<IActionResult> ActualizarSeveridad(int id, [FromBody] ActualizarSeveridadRequest request)
+    {
+        try
+        {
+            await _service.ActualizarSeveridadAsync(id, request.ConsecuenciaRealPersonal, request.ConsecuenciaPotencialPersonal);
+            return Ok(new { message = "Severidad actualizada correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error actualizar severidad flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
     }
 
     [HttpPost("{id:int}/enviar")]

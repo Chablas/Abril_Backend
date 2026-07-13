@@ -10,6 +10,12 @@ using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleF
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Services;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Services;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Repositories;
+using Abril_Backend.Shared.Services.SharePoint.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Services;
 // Projects (paged-with-residents) — same feature
 using IProjectsRepo = Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces.IProjectsRepository;
 using ProjectsRepo  = Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Repositories.ProjectsRepository;
@@ -40,6 +46,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule
             // Projects (paged-with-residents)
             services.AddScoped<IProjectsRepo, ProjectsRepo>();
             services.AddScoped<IProjectsSvc, ProjectsSvc>();
+
+            // ActasReunion (usa SharePoint para los adjuntos cuando hay carpeta configurada;
+            // el registro de IGraphSharePointService es idempotente: también lo hacen otros módulos)
+            services.AddScoped<IGraphSharePointService, GraphSharePointService>();
+            services.AddScoped<IActasReunionRepository, ActasReunionRepository>();
+            services.AddScoped<IActasReunionService, ActasReunionService>();
 
             return services;
         }

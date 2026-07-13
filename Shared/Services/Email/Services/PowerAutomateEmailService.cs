@@ -24,7 +24,8 @@ namespace Abril_Backend.Infrastructure.Services
             bool isHtml,
             List<string>? cc = null,
             List<string>? bcc = null,
-            List<EmailAttachment>? attachments = null)
+            List<EmailAttachment>? attachments = null,
+            string? fromOverride = null)
         {
             var htmlBody = isHtml
                 ? body
@@ -36,6 +37,7 @@ namespace Abril_Backend.Infrastructure.Services
                 Subject = subject,
                 Body = htmlBody,
                 //IsHtml = isHtml,
+                From = fromOverride,
                 Cc = cc,
                 Bcc = bcc,
                 Attachments = attachments?.Select(a => new

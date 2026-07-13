@@ -18,11 +18,11 @@ namespace Abril_Backend.Features.AuthModule.Role.Application.Services
             _notifier = notifier;
         }
 
-        public async Task<PagedResult<RoleDto>> GetPaged(int page, int pageSize)
+        public async Task<PagedResult<RoleDto>> GetPaged(int page, int pageSize, string? search = null)
         {
             if (page < 1) page = 1;
             if (pageSize < 1) pageSize = 50;
-            return await _repository.GetPaged(page, pageSize);
+            return await _repository.GetPaged(page, pageSize, search);
         }
 
         public async Task Create(RoleCreateDto dto, int userId)

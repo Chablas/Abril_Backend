@@ -1,4 +1,5 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
 
@@ -46,8 +47,13 @@ public class OptService : IOptService
         return detalle;
     }
 
+    private const int MinimoFotosArea = 3;
+
     public async Task<int> CrearOptAsync(CrearOptRequest request)
     {
+        if (request.FotosAreaBase64.Count < MinimoFotosArea)
+            throw new AbrilException($"Debes adjuntar al menos {MinimoFotosArea} fotos de la actividad observada.", 400);
+
         // 1. Crear OPT sin firmas para obtener el optId real
         var optId = await _repo.CrearOptAsync(request, null, new Dictionary<int, string>(), []);
 

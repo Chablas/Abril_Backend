@@ -90,12 +90,14 @@ public class FlashReportListItemDto
     public DateTime Fecha { get; set; }
     public string TipoNombre { get; set; } = string.Empty;
     public string TipoCodigo { get; set; } = string.Empty;
+    public string AreaOrigen { get; set; } = "Produccion";
     public string? TrabajadorNombre { get; set; }
     public string Estado { get; set; } = string.Empty;
     public int? AccidenteTrabajoId { get; set; }
     public bool Enviado { get; set; }
     public DateTime? FechaEnvio { get; set; }
     public int? ConsecuenciaRealPersonal { get; set; }
+    public int? ConsecuenciaPotencialPersonal { get; set; }
     public string Descripcion { get; set; } = string.Empty;
     public int DiasPerdidos { get; set; }
 
@@ -127,6 +129,7 @@ public class FlashReportDetalleDto
     public int TipoId { get; set; }
     public string TipoNombre { get; set; } = string.Empty;
     public string TipoCodigo { get; set; } = string.Empty;
+    public string AreaOrigen { get; set; } = "Produccion";
     public DateTime Fecha { get; set; }
     public TimeSpan? Hora { get; set; }
     public string LugarExacto { get; set; } = string.Empty;
@@ -195,6 +198,7 @@ public class CrearFlashReportRequest
 {
     public int ProyectoId { get; set; }
     public int TipoId { get; set; }
+    public string AreaOrigen { get; set; } = "Produccion"; // Produccion | PostVenta | ArquitecturaComercial
     public DateTime Fecha { get; set; }
     public string? Hora { get; set; }   // "HH:mm"
     public string LugarExacto { get; set; } = string.Empty;
@@ -240,6 +244,12 @@ public class CrearFlashReportRequest
 }
 
 public class ActualizarFlashReportRequest : CrearFlashReportRequest { }
+
+public class ActualizarSeveridadRequest
+{
+    public int? ConsecuenciaRealPersonal { get; set; }
+    public int? ConsecuenciaPotencialPersonal { get; set; }
+}
 
 // ── Aliases legacy (no romper código existente) ───────────────────────────────
 

@@ -127,7 +127,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         {
             try
             {
-                var rolClaim = User.FindFirst(ClaimTypes.Role)?.Value;
+                // Etiqueta de "quién registró (por rol)" para mostrar; usa el nombre, no el ID.
+                var rolClaim = User.FindFirst("role_name")?.Value;
                 var seguimientoId = await _service.CreateSeguimiento(id, dto, CurrentUserId(), rolClaim);
                 return Ok(new { id = seguimientoId, message = "Seguimiento registrado exitosamente." });
             }

@@ -5,6 +5,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
@@ -30,7 +31,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         {
             try
             {
-                if (User.IsInRole("CLINICA") && !User.IsInRole("ADMINISTRADOR SSOMA") && !User.IsInRole("SSOMA") && !ClinicaClaimsHelper.ValidarAcceso(User, clinicaId))
+                if (User.IsInRole(Roles.Clinica) && !User.IsInRole(Roles.AdministradorSsoma) && !ClinicaClaimsHelper.ValidarAcceso(User, clinicaId))
                     return StatusCode(403, new { message = "Acceso no autorizado." });
                 return Ok(await _service.GetUsuariosByClinicaAsync(clinicaId, page, pageSize));
             }
@@ -43,7 +44,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         {
             try
             {
-                if (User.IsInRole("CLINICA") && !User.IsInRole("ADMINISTRADOR SSOMA") && !User.IsInRole("SSOMA") && !ClinicaClaimsHelper.ValidarAcceso(User, clinicaId))
+                if (User.IsInRole(Roles.Clinica) && !User.IsInRole(Roles.AdministradorSsoma) && !ClinicaClaimsHelper.ValidarAcceso(User, clinicaId))
                     return StatusCode(403, new { message = "Acceso no autorizado." });
                 return Ok(await _service.GetUsuarioByIdAsync(clinicaId, usuarioId));
             }

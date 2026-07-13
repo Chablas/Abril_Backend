@@ -100,6 +100,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<CostosCronogramaActividad> CostosCronogramaActividad { get; set; }
         public DbSet<CostosCronogramaActividadNodo> CostosCronogramaActividadNodo { get; set; }
         public DbSet<ProjectAdjudicacionFolder> ProjectAdjudicacionFolder { get; set; }
+        public DbSet<ProjectAdjudicacionFolderType> ProjectAdjudicacionFolderType { get; set; }
         public DbSet<InvoiceFolder> InvoiceFolder { get; set; }
         public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceDocumentType> InvoiceDocumentType { get; set; }
         public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceStatus> InvoiceStatus { get; set; }
@@ -287,6 +288,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaAuditoriaAts> SsomaAuditoriaAts => Set<SsomaAuditoriaAts>();
         public DbSet<SsomaAuditoriaAtsRespuesta> SsomaAuditoriaAtsRespuesta => Set<SsomaAuditoriaAtsRespuesta>();
         public DbSet<SsomaAuditoriaAtsFoto> SsomaAuditoriaAtsFoto => Set<SsomaAuditoriaAtsFoto>();
+        // ── Desempeño Supervisor ───────────────────────────────────────────────
+        public DbSet<Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Models.SsDesempenoSupervisorExcluido> SsDesempenoSupervisorExcluidos => Set<Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Models.SsDesempenoSupervisorExcluido>();
+        // ── Indicadores Proactivos (Seguimiento) ────────────────────────────────
+        public DbSet<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models.SsIndicadorEmpresaExcluida> SsIndicadorEmpresaExcluidas => Set<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models.SsIndicadorEmpresaExcluida>();
         // ── Charlas y Capacitaciones ───────────────────────────────────────────────
         public DbSet<SsCharlaPrograma> SsCharlaProgramas { get; set; }
         public DbSet<SsCharla> SsCharlas { get; set; }
@@ -324,6 +329,18 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoTipo> VecinoRequisitoTipo => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoTipo>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoEstado> VecinoRequisitoEstado => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoEstado>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisito> VecinoRequisito => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisito>();
+
+        // ── Actas de Reunión (Unidad de Proyectos) ──────────────────────
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.Reunion> Reunion => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.Reunion>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionEstado> ReunionEstado => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionEstado>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTema> ReunionTema => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTema>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionReprogramacion> ReunionReprogramacion => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionReprogramacion>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionParticipante> ReunionParticipante => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionParticipante>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdo> ReunionAcuerdo => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdo>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoEstado> ReunionAcuerdoEstado => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoEstado>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoResponsable> ReunionAcuerdoResponsable => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoResponsable>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionArchivo> ReunionArchivo => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionArchivo>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionFolder> ReunionFolder => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionFolder>();
 
         // ── Salud Ocupacional: Tópico, Accidentes, Descansos ──────────
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>     SsTopicoAtencion     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>();

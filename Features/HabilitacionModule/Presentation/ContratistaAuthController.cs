@@ -4,6 +4,7 @@ using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -96,7 +97,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         }
 
         [HttpPatch("cambiar-password")]
-        [Authorize(Roles = "CONTRATISTA")]
+        [Authorize(Roles = Roles.Contratista)]
         public async Task<IActionResult> CambiarPassword([FromBody] CambiarPasswordDto dto)
         {
             try

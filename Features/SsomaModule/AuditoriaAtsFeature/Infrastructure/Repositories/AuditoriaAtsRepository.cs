@@ -56,8 +56,11 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
         if (!string.IsNullOrEmpty(estado))
             query = query.Where(x => x.a.Estado == estado);
         if (empresaIdContratista.HasValue)
+            // El contratista debe ver auditorias donde participa su empresa, ya sea
+            // como auditada O como la que realizo la auditoria (antes solo se
+            // consideraba la auditada, igual que el bug ya corregido en RAC).
             query = query.Where(x => ctx.WorkerVinculacion.Any(v =>
-                v.WorkerId == x.a.AuditadoWorkerId
+                (v.WorkerId == x.a.AuditadoWorkerId || v.WorkerId == x.a.AuditorWorkerId)
                 && v.EmpresaId == empresaIdContratista.Value
                 && (v.FechaFin == null || v.FechaFin >= hoy)));
 
@@ -72,8 +75,8 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             {
                 Id = x.a.Id,
                 Fecha = x.a.Fecha.ToString("yyyy-MM-dd"),
-                AuditorNombre = x.auditor.ApellidoNombre ?? string.Empty,
-                AuditadoNombre = x.auditado.ApellidoNombre ?? string.Empty,
+                AuditorNombre = x.auditor.ApellidoNombre ?? (x.auditor.Person != null ? x.auditor.Person.FullName : null) ?? string.Empty,
+                AuditadoNombre = x.auditado.ApellidoNombre ?? (x.auditado.Person != null ? x.auditado.Person.FullName : null) ?? string.Empty,
                 ProyectoNombre = x.proj != null ? x.proj.ProjectDescription : null,
                 Actividad = x.a.Actividad,
                 Lugar = x.a.Lugar,
@@ -105,12 +108,12 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
 
         var auditorNombre = await ctx.Worker
             .Where(w => w.Id == auditoria.AuditorWorkerId)
-            .Select(w => w.ApellidoNombre ?? string.Empty)
+            .Select(w => w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty)
             .FirstOrDefaultAsync() ?? string.Empty;
 
         var auditadoNombre = await ctx.Worker
             .Where(w => w.Id == auditoria.AuditadoWorkerId)
-            .Select(w => w.ApellidoNombre ?? string.Empty)
+            .Select(w => w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty)
             .FirstOrDefaultAsync() ?? string.Empty;
 
         string? proyectoNombre = null;
@@ -146,6 +149,12 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             .Select(v => v.EmpresaId)
             .FirstOrDefaultAsync();
 
+        var empresaAuditorId = await ctx.WorkerVinculacion
+            .Where(v => v.WorkerId == auditoria.AuditorWorkerId && (v.FechaFin == null || v.FechaFin >= hoy))
+            .OrderByDescending(v => v.FechaInicio)
+            .Select(v => v.EmpresaId)
+            .FirstOrDefaultAsync();
+
         return new AuditoriaAtsDetalleDto
         {
             Id = auditoria.Id,
@@ -155,6 +164,7 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             AuditadoWorkerId = auditoria.AuditadoWorkerId,
             AuditadoNombre = auditadoNombre,
             EmpresaId = empresaId,
+            EmpresaAuditorId = empresaAuditorId,
             ProyectoId = auditoria.ProyectoId,
             ProyectoNombre = proyectoNombre,
             EmailAuditado = auditoria.EmailAuditado,

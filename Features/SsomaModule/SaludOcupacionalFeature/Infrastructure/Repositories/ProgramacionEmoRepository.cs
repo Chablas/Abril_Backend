@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
@@ -87,8 +88,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var pageSize = Math.Clamp(filter.PageSize, 1, 2000);
                 var totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize);
 
+                // Con el historico creciendo, "traer todo sin filtro de fecha" (como hace la Agenda
+                // de clinica) puede superar pageSize y el ORDER BY antiguo (solo por fecha ascendente)
+                // cortaba las programaciones activas mas recientes dejandolas fuera de la pagina 1.
+                // Mostrar primero las no terminales garantiza que Programado/Aceptado/En Atencion
+                // nunca desaparezcan por el corte de pagina, sin cambiar el filtrado ni el conteo.
+                var estadosTerminales = new HashSet<string> { "Completado", "Cancelado", "Rechazado por Clínica", "No se presentó" };
+
                 var data = await q
-                    .OrderBy(x => x.p.FechaProgramada)
+                    .OrderBy(x => estadosTerminales.Contains(x.p.Estado) ? 1 : 0)
+                    .ThenByDescending(x => x.p.FechaProgramada)
                     .ThenBy(x => x.p.HoraProgramada)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
@@ -227,6 +236,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             if (dto.FechaProgramada == default)
                 throw new AbrilException("La fecha es obligatoria.", 400);
+
+            // Evita duplicados: si ya hay una programación activa para este trabajador
+            // y este tipo de EMO, no crear otra (antes solo el auto-programador validaba esto).
+            var yaTieneActiva = await ctx.SsProgramacionEmo.AnyAsync(p =>
+                p.WorkerId == dto.WorkerId &&
+                p.TipoEmoId == dto.TipoEmoId &&
+                p.Estado != "Completado" &&
+                p.Estado != "Cancelado" &&
+                p.Estado != "Rechazado por Clínica");
+            if (yaTieneActiva)
+                throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
 
             var empresaId = dto.EmpresaId;
             if (empresaId == null)
@@ -454,7 +474,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     to: to,
                     subject: $"[EMO Programado] {workerNombre} — {fechaStr}",
                     body: html,
-                    isHtml: true);
+                    isHtml: true,
+                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
 
                 prog.FechaNotificacion = DateTimeOffset.UtcNow;
             }
@@ -585,34 +606,33 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var tipoEmo = await ctx.SsEmoTipo.AsNoTracking()
                     .FirstOrDefaultAsync(t => t.Id == prog.TipoEmoId);
 
-                var clinica = prog.ClinicaId.HasValue
-                    ? await ctx.SsClinica.AsNoTracking().FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value)
-                    : null;
-
                 var workerNombre = worker.Person?.FullName ?? worker.Id.ToString();
                 var fechaStr = prog.FechaProgramada.ToString("dd/MM/yyyy");
                 var horaStr = prog.HoraProgramada.HasValue ? prog.HoraProgramada.Value.ToString("HH:mm") : "—";
                 var proyectoStr = proyecto?.ProjectDescription ?? "—";
                 var tipoStr = tipoEmo?.Nombre ?? "—";
-                var clinicaNombre = clinica?.Nombre ?? "—";
 
-                var html = $@"<h2>EMO Confirmado por Clínica</h2>
-<p>La clínica ha confirmado la programación del Examen Médico Ocupacional:</p>
+                var backendUrl = (_configuration["BackendSettings:PublicUrl"] ?? "http://localhost:5236").TrimEnd('/');
+                var recomendacionesImgUrl = $"{backendUrl}/emails/recomendaciones-emo.jpg";
+
+                var html = $@"<h2>EMO Confirmado</h2>
+<p>Se ha confirmado la programación del Examen Médico Ocupacional:</p>
 <table style='border-collapse:collapse;width:100%;max-width:500px'>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Trabajador</td><td style='padding:6px 12px'>{workerNombre}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Tipo EMO</td><td style='padding:6px 12px'>{tipoStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Fecha</td><td style='padding:6px 12px'>{fechaStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hora</td><td style='padding:6px 12px'>{horaStr}</td></tr>
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Proyecto</td><td style='padding:6px 12px'>{proyectoStr}</td></tr>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Clínica</td><td style='padding:6px 12px'>{clinicaNombre}</td></tr>
 </table>
-<p style='margin-top:16px;color:#6b7280;font-size:0.9em'>El trabajador debe presentarse en la clínica en la fecha y hora indicadas.</p>";
+<p style='margin-top:16px;color:#6b7280;font-size:0.9em'>El trabajador debe presentarse en la clínica en la fecha y hora indicadas.</p>
+<img src='{recomendacionesImgUrl}' alt='Recomendaciones previas al Examen Médico Ocupacional' style='margin-top:16px;max-width:500px;width:100%' />";
 
                 await _emailService.SendAsync(
                     to: to,
                     subject: $"[EMO Confirmado] {workerNombre} — {fechaStr}",
                     body: html,
-                    isHtml: true);
+                    isHtml: true,
+                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
             }
             catch (Exception ex)
             {
@@ -742,7 +762,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     to: to,
                     subject: $"[EMO Rechazado] {workerNombre} — {fechaStr}",
                     body: html,
-                    isHtml: true);
+                    isHtml: true,
+                    fromOverride: SaludOcupacionalEmailConstants.Remitente);
             }
             catch (Exception ex)
             {

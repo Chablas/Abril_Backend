@@ -335,6 +335,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cWorkSpecialtyActive = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.Active));
             string cWorkSpecialtyState  = ctx.Col<WorkSpecialty>(nameof(WorkSpecialty.State));
 
+            // ProjectSubContractorStatus (pasos de la adjudicación)
+            string tStatus     = ctx.Table<ProjectSubContractorStatus>();
+            string cStatusId   = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusId));
+            string cStatusDesc = ctx.Col<ProjectSubContractorStatus>(nameof(ProjectSubContractorStatus.ProjectSubContractorStatusDescription));
+
             // Contractor + Contributor
             string tContractor          = ctx.Table<Contractor>();
             string cContractorId        = ctx.Col<Contractor>(nameof(Contractor.ContractorId));
@@ -412,6 +417,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                  WHERE {cWorkSpecialtyActive} = TRUE AND {cWorkSpecialtyState} = TRUE
                  ORDER BY {cWorkSpecialtyDesc};
 
+                SELECT {cStatusId} AS ""ProjectSubContractorStatusId"", {cStatusDesc} AS ""ProjectSubContractorStatusDescription""
+                  FROM {tStatus}
+                 ORDER BY {cStatusId};
+
                 SELECT ct.{cContractorId} AS contractor_id,
                        contrib.{cContributorId} AS contributor_id,
                        contrib.{cContributorName} AS contributor_name,
@@ -447,6 +456,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             var valorizationForms  = (await multi.ReadAsync<WorkItemValorizationFormSimpleDTO>()).ToList();
             var workItemCategories = (await multi.ReadAsync<WorkItemCategorySimpleDTO>()).ToList();
             var workSpecialties    = (await multi.ReadAsync<WorkSpecialtySimpleDTO>()).ToList();
+            var statuses           = (await multi.ReadAsync<ProjectSubContractorStatusSimpleDTO>()).ToList();
             var contractors        = (await multi.ReadAsync<ContributorFactoryDTO>()).ToList();
             var emails             = (await multi.ReadAsync<(int ContractorId, string Email)>()).ToList();
 
@@ -479,6 +489,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 WorkItems          = workItems,
                 WorkItemCategories = workItemCategories,
                 WorkSpecialties    = workSpecialties,
+                ProjectSubContractorStatuses = statuses,
                 Contributors       = contractors,
             };
         }
@@ -555,6 +566,9 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
 
             if (filter.PaymentMethodId.HasValue)
                 query = query.Where(x => x.psc.PaymentMethodId == filter.PaymentMethodId.Value);
+
+            if (filter.ProjectSubContractorStatusId.HasValue)
+                query = query.Where(x => x.psc.ProjectSubContractorStatusId == filter.ProjectSubContractorStatusId.Value);
 
             if (filter.CreatedUserId.HasValue)
                 query = query.Where(x => x.psc.CreatedUserId == filter.CreatedUserId.Value);
@@ -740,13 +754,25 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             return null;
         }
 
-        public async Task<AdjudicacionDashboardDto> GetDashboardAsync(List<int>? allowedProjectIds)
+        public async Task<AdjudicacionDashboardDto> GetDashboardAsync(ProjectSubContractorFilterDTO filter, bool includeFilterOptions)
         {
             using var ctx = _factory.CreateDbContext();
 
             var baseQ = ctx.ProjectSubContractor.Where(x => x.State && x.Active);
-            if (allowedProjectIds != null)
-                baseQ = baseQ.Where(x => allowedProjectIds.Contains(x.ProjectId));
+            if (filter.AllowedProjectIds != null)
+                baseQ = baseQ.Where(x => filter.AllowedProjectIds.Contains(x.ProjectId));
+
+            // Filtros del dashboard (afectan a todos los gráficos).
+            if (filter.ProjectId.HasValue)
+                baseQ = baseQ.Where(x => x.ProjectId == filter.ProjectId.Value);
+            if (filter.ContractTypeId.HasValue)
+                baseQ = baseQ.Where(x => x.ContractTypeId == filter.ContractTypeId.Value);
+            if (filter.ContractModalityId.HasValue)
+                baseQ = baseQ.Where(x => x.ContractModalityId == filter.ContractModalityId.Value);
+            if (filter.PaymentMethodId.HasValue)
+                baseQ = baseQ.Where(x => x.PaymentMethodId == filter.PaymentMethodId.Value);
+            if (filter.ProjectSubContractorStatusId.HasValue)
+                baseQ = baseQ.Where(x => x.ProjectSubContractorStatusId == filter.ProjectSubContractorStatusId.Value);
 
             // ── Resumen ────────────────────────────────────────────────────────
             var total = await baseQ.CountAsync();
@@ -768,91 +794,28 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 .GroupBy(x => x.ProjectSubContractorStatusId)
                 .Select(g => new { EstadoId = g.Key, Count = g.Count() })
                 .ToListAsync();
-            var porEstado = estados.Select(e => new AdjudicacionChartItemDto
+            // Detalle breve de cada adjudicación ("CONTRATISTA — PARTIDA") agrupado por estado,
+            // para el tooltip de la barra en el gráfico "Adjudicaciones por estado".
+            var estadoDetalleRaw = await (
+                from x in baseQ
+                join contractor in ctx.Contractor on x.ContractorId equals contractor.ContractorId
+                join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
+                join w in ctx.WorkItem on x.WorkItemId equals w.WorkItemId
+                orderby x.ProjectSubContractorId descending
+                select new { x.ProjectSubContractorStatusId, c.ContributorName, w.WorkItemDescription }
+            ).ToListAsync();
+            var detallePorEstado = estadoDetalleRaw
+                .GroupBy(d => d.ProjectSubContractorStatusId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(d => $"{d.ContributorName} — {d.WorkItemDescription}").ToList());
+            var porEstado = estados.Select(e => new AdjudicacionEstadoChartItemDto
             {
                 Id = e.ProjectSubContractorStatusId,
                 Label = e.ProjectSubContractorStatusDescription,
-                Value = countByEstado.FirstOrDefault(c => c.EstadoId == e.ProjectSubContractorStatusId)?.Count ?? 0
+                Value = countByEstado.FirstOrDefault(c => c.EstadoId == e.ProjectSubContractorStatusId)?.Count ?? 0,
+                Items = detallePorEstado.GetValueOrDefault(e.ProjectSubContractorStatusId) ?? new List<string>()
             }).ToList();
-
-            // ── Por proyecto (conteo) ───────────────────────────────────────────
-            var porProyecto = await (
-                from x in baseQ
-                join p in ctx.Project on x.ProjectId equals p.ProjectId
-                group x by new { x.ProjectId, p.ProjectDescription } into g
-                orderby g.Count() descending
-                select new AdjudicacionChartItemDto
-                {
-                    Id = g.Key.ProjectId,
-                    Label = g.Key.ProjectDescription,
-                    Value = g.Count()
-                }
-            ).ToListAsync();
-
-            // ── Por tipo de contrato ────────────────────────────────────────────
-            var porTipoContrato = await (
-                from x in baseQ
-                join ct in ctx.ContractType on x.ContractTypeId equals ct.ContractTypeId
-                group x by new { x.ContractTypeId, ct.ContractTypeDescription } into g
-                orderby g.Count() descending
-                select new AdjudicacionChartItemDto
-                {
-                    Id = g.Key.ContractTypeId,
-                    Label = g.Key.ContractTypeDescription,
-                    Value = g.Count()
-                }
-            ).ToListAsync();
-
-            // ── Por categoría de partida ────────────────────────────────────────
-            var porCategoria = await (
-                from x in baseQ
-                join wic in ctx.WorkItemCategory on x.WorkItemCategoryId equals wic.WorkItemCategoryId
-                group x by new { x.WorkItemCategoryId, wic.WorkItemCategoryDescription } into g
-                orderby g.Count() descending
-                select new AdjudicacionChartItemDto
-                {
-                    Id = g.Key.WorkItemCategoryId,
-                    Label = g.Key.WorkItemCategoryDescription,
-                    Value = g.Count()
-                }
-            ).ToListAsync();
-
-            // ── Por modalidad de contrato (excluye los que no tienen modalidad) ─
-            var porModalidad = await (
-                from x in baseQ.Where(e => e.ContractModalityId != null)
-                join cm in ctx.ContractModality on x.ContractModalityId equals (int?)cm.ContractModalityId
-                group x by new { x.ContractModalityId, cm.ContractModalityDescription } into g
-                orderby g.Count() descending
-                select new AdjudicacionChartItemDto
-                {
-                    Id = g.Key.ContractModalityId!.Value,
-                    Label = g.Key.ContractModalityDescription,
-                    Value = g.Count()
-                }
-            ).ToListAsync();
-
-            // ── Por modalidad de pago ───────────────────────────────────────────
-            var porModalidadPago = await (
-                from x in baseQ
-                join pm in ctx.PaymentMethod on x.PaymentMethodId equals pm.PaymentMethodId
-                group x by new { x.PaymentMethodId, pm.PaymentMethodDescription } into g
-                orderby g.Count() descending
-                select new AdjudicacionChartItemDto
-                {
-                    Id = g.Key.PaymentMethodId,
-                    Label = g.Key.PaymentMethodDescription,
-                    Value = g.Count()
-                }
-            ).ToListAsync();
-
-            // ── Llegada a Of. Central con/sin observaciones (paso 5) ────────────
-            var conObservaciones = await baseQ.CountAsync(x => x.ArrivedWithObservations == true);
-            var sinObservaciones = await baseQ.CountAsync(x => x.ArrivedWithObservations == false);
-            var llegadaObservaciones = new List<AdjudicacionChartItemDto>
-            {
-                new() { Id = 1, Label = "Con observaciones", Value = conObservaciones },
-                new() { Id = 0, Label = "Sin observaciones", Value = sinObservaciones }
-            };
 
             // ── Monto por moneda ────────────────────────────────────────────────
             var montoPorMoneda = await (
@@ -902,47 +865,147 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 }
             ).Take(TopN).ToListAsync();
 
-            // ── Top subcontratistas por cantidad de adjudicaciones ──────────────
-            var topContratistas = await (
+            // ── Top subcontratistas por monto, solo contratos con adelanto ──────
+            // "Contrato con adelanto" (2) y "Pago a cuenta" (4) — mismos ids que usa la
+            // generación de contratos/pagarés. El adelanto es el monto explícito o, si no
+            // se registró, el porcentaje aplicado al monto total.
+            var advancePaymentMethodIds = new[] { 2, 4 };
+
+            var topSubcontratistasAdelantoPen = await (
                 from x in baseQ
+                where advancePaymentMethodIds.Contains(x.PaymentMethodId)
+                join cur in ctx.Currency on x.CurrencyId equals cur.CurrencyId
+                where cur.CurrencyCode == "PEN"
                 join contractor in ctx.Contractor on x.ContractorId equals contractor.ContractorId
                 join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
                 group x by new { c.ContributorId, c.ContributorName } into g
-                orderby g.Count() descending
-                select new AdjudicacionChartItemDto
+                orderby g.Sum(e => e.Amount) descending
+                select new AdjudicacionAdvanceChartItemDto
                 {
                     Id = g.Key.ContributorId,
                     Label = g.Key.ContributorName,
-                    Value = g.Count()
+                    Total = g.Sum(e => e.Amount),
+                    Advance = g.Sum(e => e.AdvanceAmount ?? Math.Round(e.AdvancePercentage / 100m * e.Amount, 2))
                 }
             ).Take(TopN).ToListAsync();
 
-            // ── Por mes (desde el primer mes con registros hasta el mes actual) ─
-            var creaciones = await baseQ
-                .Select(x => x.CreatedDateTime)
-                .ToListAsync();
-            var porMes = new List<AdjudicacionChartItemDto>();
-            var meses = new[] { "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Set", "Oct", "Nov", "Dic" };
-            if (creaciones.Count > 0)
-            {
-                var primera = creaciones.Min();
-                var inicio = new DateTime(primera.Year, primera.Month, 1);
-                var hoy = DateTime.UtcNow;
-                var fin = new DateTime(hoy.Year, hoy.Month, 1);
-                for (var mes = inicio; mes <= fin; mes = mes.AddMonths(1))
+            var topSubcontratistasAdelantoUsd = await (
+                from x in baseQ
+                where advancePaymentMethodIds.Contains(x.PaymentMethodId)
+                join cur in ctx.Currency on x.CurrencyId equals cur.CurrencyId
+                where cur.CurrencyCode == "USD"
+                join contractor in ctx.Contractor on x.ContractorId equals contractor.ContractorId
+                join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
+                group x by new { c.ContributorId, c.ContributorName } into g
+                orderby g.Sum(e => e.Amount) descending
+                select new AdjudicacionAdvanceChartItemDto
                 {
-                    var count = creaciones.Count(d => d.Year == mes.Year && d.Month == mes.Month);
-                    porMes.Add(new AdjudicacionChartItemDto
-                    {
-                        Id = mes.Year * 100 + mes.Month,
-                        Label = $"{meses[mes.Month - 1]} {mes:yy}",
-                        Value = count
-                    });
+                    Id = g.Key.ContributorId,
+                    Label = g.Key.ContributorName,
+                    Total = g.Sum(e => e.Amount),
+                    Advance = g.Sum(e => e.AdvanceAmount ?? Math.Round(e.AdvancePercentage / 100m * e.Amount, 2))
                 }
+            ).Take(TopN).ToListAsync();
+
+            // ── Pendientes de Oficina Técnica por trabajador (pasos 2 y 4) ──────
+            // Los pasos 2 (datos del contrato) y 4 (por enviar al SC) los ejecuta OT.
+            // Cada adjudicación detenida en esos pasos se atribuye a los trabajadores de OT
+            // del proyecto (staff_project_email tipo 3), resolviendo el nombre por el correo
+            // corporativo del worker → person.full_name (si no hay person, se muestra el correo).
+            const int otEmailTypeId = 3;
+            var pendientesOtRaw = await (
+                from x in baseQ
+                where x.ProjectSubContractorStatusId == 2 || x.ProjectSubContractorStatusId == 4
+                join spe in ctx.StaffProjectEmail.Where(s =>
+                        s.State && s.Active && s.StaffProjectEmailTypeId == otEmailTypeId)
+                    on x.ProjectId equals spe.ProjectId
+                join contractor in ctx.Contractor on x.ContractorId equals contractor.ContractorId
+                join c in ctx.Contributor on contractor.ContributorId equals c.ContributorId
+                join wi in ctx.WorkItem on x.WorkItemId equals wi.WorkItemId
+                join w in ctx.Worker on spe.Email.ToLower() equals (w.EmailCorporativo ?? "").ToLower() into wg
+                from w in wg.DefaultIfEmpty()
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perg
+                from per in perg.DefaultIfEmpty()
+                select new
+                {
+                    x.ProjectSubContractorId,
+                    x.ProjectSubContractorStatusId,
+                    Email = spe.Email.ToLower(),
+                    WorkerName = per != null ? per.FullName : null,
+                    c.ContributorName,
+                    wi.WorkItemDescription,
+                }
+            ).ToListAsync();
+
+            List<AdjudicacionEstadoChartItemDto> PendientesOtPorPaso(int statusId) => pendientesOtRaw
+                .Where(r => r.ProjectSubContractorStatusId == statusId)
+                // Un mismo correo puede matchear más de un worker: nos quedamos con uno por
+                // adjudicación+correo, prefiriendo el que sí tiene nombre resuelto.
+                .GroupBy(r => new { r.ProjectSubContractorId, r.Email })
+                .Select(g => g.OrderBy(r => string.IsNullOrWhiteSpace(r.WorkerName) ? 1 : 0).First())
+                .GroupBy(r => new { r.Email, Label = string.IsNullOrWhiteSpace(r.WorkerName) ? r.Email : r.WorkerName! })
+                .Select(g => new AdjudicacionEstadoChartItemDto
+                {
+                    Id = 0,
+                    Label = g.Key.Label,
+                    Value = g.Count(),
+                    Items = g.Select(r => $"{r.ContributorName} — {r.WorkItemDescription}").ToList(),
+                })
+                .OrderByDescending(i => i.Value)
+                .ThenBy(i => i.Label)
+                .ToList();
+
+            var pendientesOtPaso2 = PendientesOtPorPaso(2);
+            var pendientesOtPaso4 = PendientesOtPorPaso(4);
+
+            // ── Catálogos de filtros (solo en la primera carga) ─────────────────
+            AdjudicacionDashboardFiltersDto? filtros = null;
+            if (includeFilterOptions)
+            {
+                var proyectosQ = ctx.Project.Where(p => p.Active && p.State);
+                if (filter.AllowedProjectIds != null)
+                    proyectosQ = proyectosQ.Where(p => filter.AllowedProjectIds.Contains(p.ProjectId));
+                var proyectosOpt = await proyectosQ
+                    .OrderBy(p => p.ProjectDescription)
+                    .Select(p => new AdjudicacionOptionDto { Id = p.ProjectId, Label = p.ProjectDescription })
+                    .ToListAsync();
+
+                var tiposContratoOpt = await ctx.ContractType
+                    .Where(ct => ct.Active)
+                    .OrderBy(ct => ct.ContractTypeDescription)
+                    .Select(ct => new AdjudicacionOptionDto { Id = ct.ContractTypeId, Label = ct.ContractTypeDescription! })
+                    .ToListAsync();
+
+                var modalidadesOpt = await ctx.ContractModality
+                    .Where(cm => cm.State)
+                    .OrderBy(cm => cm.ContractModalityId)
+                    .Select(cm => new AdjudicacionOptionDto { Id = cm.ContractModalityId, Label = cm.ContractModalityDescription! })
+                    .ToListAsync();
+
+                var modalidadesPagoOpt = await ctx.PaymentMethod
+                    .Where(pm => pm.Active)
+                    .OrderBy(pm => pm.PaymentMethodDescription)
+                    .Select(pm => new AdjudicacionOptionDto { Id = pm.PaymentMethodId, Label = pm.PaymentMethodDescription! })
+                    .ToListAsync();
+
+                var estadosOpt = await ctx.ProjectSubContractorStatus
+                    .OrderBy(e => e.ProjectSubContractorStatusId)
+                    .Select(e => new AdjudicacionOptionDto { Id = e.ProjectSubContractorStatusId, Label = e.ProjectSubContractorStatusDescription })
+                    .ToListAsync();
+
+                filtros = new AdjudicacionDashboardFiltersDto
+                {
+                    Projects = proyectosOpt,
+                    ContractTypes = tiposContratoOpt,
+                    ContractModalities = modalidadesOpt,
+                    PaymentMethods = modalidadesPagoOpt,
+                    Statuses = estadosOpt
+                };
             }
 
             return new AdjudicacionDashboardDto
             {
+                Filters = filtros,
                 Summary = new AdjudicacionDashboardSummaryDto
                 {
                     Total = total,
@@ -954,17 +1017,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                     PlazoPromedioDias = (int)Math.Round(plazoPromedio)
                 },
                 PorEstado = porEstado,
-                PorProyecto = porProyecto,
-                PorTipoContrato = porTipoContrato,
-                PorCategoria = porCategoria,
-                PorModalidad = porModalidad,
-                PorModalidadPago = porModalidadPago,
-                LlegadaObservaciones = llegadaObservaciones,
-                PorMes = porMes,
                 MontoPorMoneda = montoPorMoneda,
                 TopSubcontratistasPen = topSubcontratistasPen,
                 TopSubcontratistasUsd = topSubcontratistasUsd,
-                TopContratistas = topContratistas
+                TopSubcontratistasAdelantoPen = topSubcontratistasAdelantoPen,
+                TopSubcontratistasAdelantoUsd = topSubcontratistasAdelantoUsd,
+                PendientesOtPaso2 = pendientesOtPaso2,
+                PendientesOtPaso4 = pendientesOtPaso4
             };
         }
 
@@ -1223,6 +1282,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cCFFileName = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.OriginalFileName));
             string cCFState = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.State));
 
+            string tScannedFile = ctx.Table<ProjectSubContractorScannedDoc>();
+            string cSDPscId = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.ProjectSubContractorId));
+            string cSDSlot = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.Slot));
+            string cSDFileUrl = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.FileUrl));
+            string cSDFileName = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.OriginalFileName));
+            string cSDState = ctx.Col<ProjectSubContractorScannedDoc>(nameof(ProjectSubContractorScannedDoc.State));
+
             var parameters = new DynamicParameters();
             parameters.Add("@PageSize", pageSize);
             parameters.Add("@PageOffset", offset);
@@ -1270,6 +1336,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             {
                 whereConditions.Add($"psc.{cPscPaymentMethodId} = @PaymentMethodId");
                 parameters.Add("@PaymentMethodId", filter.PaymentMethodId.Value);
+            }
+
+            if (filter.ProjectSubContractorStatusId.HasValue)
+            {
+                whereConditions.Add($"psc.{cPscStatusId} = @ProjectSubContractorStatusId");
+                parameters.Add("@ProjectSubContractorStatusId", filter.ProjectSubContractorStatusId.Value);
             }
 
             if (filter.CreatedUserId.HasValue)
@@ -1456,6 +1528,7 @@ SELECT {cPaymentMethodId} AS ""PaymentMethodId"", {cPaymentMethodDesc} AS ""Paym
 SELECT {cCurrencyId} AS ""CurrencyId"", {cCurrencyDesc} AS ""CurrencyDescription"", {cCurrencyCode} AS ""CurrencyCode"", {cCurrencySymbol} AS ""CurrencySymbol"" FROM {tCurrency} WHERE {cCurrencyActive} = TRUE ORDER BY {cCurrencyCode};
 SELECT {cWorkItemId} AS ""WorkItemId"", {cWorkItemDesc} AS ""WorkItemDescription"" FROM {tWorkItem} WHERE {cWorkItemActive} = TRUE ORDER BY {cWorkItemDesc};
 SELECT {cWorkItemCategoryId} AS ""WorkItemCategoryId"", {cWorkItemCategoryDesc} AS ""WorkItemCategoryDescription"" FROM {tWorkItemCategory} WHERE {cWorkItemCategoryActive} = TRUE ORDER BY {cWorkItemCategoryDesc};
+SELECT {cStatusId} AS ""ProjectSubContractorStatusId"", {cStatusDesc} AS ""ProjectSubContractorStatusDescription"" FROM {tStatus} ORDER BY {cStatusId};
 SELECT ct.{cContractorId} AS ""ContractorId"", contrib.{cContributorId} AS ""ContributorId"", contrib.{cContributorName} AS ""ContributorName"", contrib.{cContributorRuc} AS ""ContributorRuc""
 FROM {tContractor} ct
 JOIN {tContributor} contrib ON contrib.{cContributorId} = ct.{cContractorContribId}
@@ -1466,6 +1539,7 @@ ORDER BY contrib.{cContributorName};
 SELECT {cCEContractorId} AS ""ContractorId"", {cCEEmail} AS ""Email"" FROM {tContractorEmail} WHERE {cCEActive} = TRUE;
 SELECT {cQFPscId} AS ""ProjectSubContractorId"", {cQFFileUrl} AS ""FileUrl"", {cQFFileName} AS ""OriginalFileName"" FROM {tQuotFile} WHERE {cQFState} = TRUE;
 SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {cCFFileName} AS ""OriginalFileName"" FROM {tCompFile} WHERE {cCFState} = TRUE;
+SELECT {cSDPscId} AS ""ProjectSubContractorId"", {cSDSlot} AS ""Slot"", {cSDFileUrl} AS ""FileUrl"", {cSDFileName} AS ""OriginalFileName"" FROM {tScannedFile} WHERE {cSDState} = TRUE;
 SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} AS concept, {cWorkItemValFormPercentage} AS percentage, {cWorkItemValFormSortOrder} AS sort_order FROM {tWorkItemValForm} WHERE {cWorkItemValFormState} = TRUE ORDER BY {cWorkItemValFormWorkItemId}, {cWorkItemValFormSortOrder};
             ";
 
@@ -1486,22 +1560,27 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
             var currencies = (await multi.ReadAsync<CurrencySimpleDTO>()).ToList();
             var workItems = (await multi.ReadAsync<WorkItemSimpleDTO>()).ToList();
             var workItemCategories = (await multi.ReadAsync<WorkItemCategorySimpleDTO>()).ToList();
+            var statuses = (await multi.ReadAsync<ProjectSubContractorStatusSimpleDTO>()).ToList();
             var contractors = (await multi.ReadAsync<ContributorFactoryDTO>()).ToList();
 
             // Read supporting data (using dynamic to avoid tuple-naming issues)
             var emailsRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var quotationFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var comparativeFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
+            var scannedFilesRaw = (await multi.ReadAsync<dynamic>()).ToList();
             var valorizationForms = (await multi.ReadAsync<WorkItemValorizationFormSimpleDTO>()).ToList();
 
             var emails = emailsRaw.Select(e => new { ContractorId = (int)e.ContractorId, Email = (string)e.Email }).ToList();
             var quotationFiles = quotationFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
             var comparativeFiles = comparativeFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
+            var scannedFiles = scannedFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, Slot = (int)f.Slot, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
 
             // Build dictionaries for supporting data
             var emailsByContractor = emails.GroupBy(e => e.ContractorId).ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
             var quotationByPsc = quotationFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
             var comparativeByPsc = comparativeFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
+            // Escaneados agrupados por adjudicación y luego por slot (1/2/3).
+            var scannedByPsc = scannedFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.ToDictionary(f => f.Slot));
             var formsByWorkItem = valorizationForms.GroupBy(f => f.WorkItemId).ToDictionary(g => g.Key, g => g.OrderBy(f => f.SortOrder).ToList());
 
             // Map contractors with emails (for form data / create dropdown)
@@ -1589,6 +1668,17 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 item.WorkItemValorizationForms = formsByWorkItem.GetValueOrDefault(item.WorkItemId, new());
                 item.QuotationFiles   = quotationByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
                 item.ComparativeFiles = comparativeByPsc.GetValueOrDefault(item.ProjectSubContractorId, new());
+
+                // Documentos escaneados del paso 7 (slots 1/2/3), para que se vean en los pasos 7 y 8.
+                if (scannedByPsc.TryGetValue(item.ProjectSubContractorId, out var slots))
+                {
+                    if (slots.TryGetValue(1, out var s1))
+                        item.ScannedDoc1 = new ProjectSubContractorFileDto { FileUrl = s1.FileUrl, OriginalFileName = s1.OriginalFileName };
+                    if (slots.TryGetValue(2, out var s2))
+                        item.ScannedDoc2 = new ProjectSubContractorFileDto { FileUrl = s2.FileUrl, OriginalFileName = s2.OriginalFileName };
+                    if (slots.TryGetValue(3, out var s3))
+                        item.ScannedDoc3 = new ProjectSubContractorFileDto { FileUrl = s3.FileUrl, OriginalFileName = s3.OriginalFileName };
+                }
             }
 
             var formDataDto = new ProjectSubContractorFormDataDTO
@@ -1600,6 +1690,7 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 Currencies = currencies,
                 WorkItems = workItems,
                 WorkItemCategories = workItemCategories,
+                ProjectSubContractorStatuses = statuses,
                 Contributors = contractors
             };
 
@@ -2067,9 +2158,14 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                 join wi     in ctx.WorkItem     on psc.WorkItemId   equals wi.WorkItemId
                 join wsj    in ctx.WorkSpecialty on psc.WorkSpecialtyId equals wsj.WorkSpecialtyId into wsg
                 from ws in wsg.DefaultIfEmpty()
-                join paf in ctx.ProjectAdjudicacionFolder.Where(f => f.Active && f.State)
-                    on psc.ProjectId equals paf.ProjectId into pafg
-                from folder in pafg.DefaultIfEmpty()
+                join pafObras in ctx.ProjectAdjudicacionFolder.Where(f =>
+                        f.Active && f.State && f.FolderTypeId == AdjudicacionFolderTypes.Obras)
+                    on psc.ProjectId equals pafObras.ProjectId into pafObrasG
+                from obrasFolder in pafObrasG.DefaultIfEmpty()
+                join pafBackup in ctx.ProjectAdjudicacionFolder.Where(f =>
+                        f.Active && f.State && f.FolderTypeId == AdjudicacionFolderTypes.BackupProyecto)
+                    on psc.ProjectId equals pafBackup.ProjectId into pafBackupG
+                from backupFolder in pafBackupG.DefaultIfEmpty()
                 where psc.ProjectSubContractorId == projectSubContractorId && psc.State
                 select new AdjudicacionPathDataDto
                 {
@@ -2081,9 +2177,10 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                     ContributorName          = contrib.ContributorName,
                     WorkItemDescription      = wi.WorkItemDescription,
                     WorkSpecialtyDescription = ws != null ? ws.WorkSpecialtyDescription : null,
-                    DriveId                  = folder != null ? folder.DriveId : null,
-                    ProjectFolderId          = folder != null ? folder.FolderId : null,
-                    ProjectFolderName        = folder != null ? folder.FolderName : null,
+                    ObrasDriveId             = obrasFolder != null ? obrasFolder.DriveId : null,
+                    ObrasFolderId            = obrasFolder != null ? obrasFolder.FolderId : null,
+                    BackupDriveId            = backupFolder != null ? backupFolder.DriveId : null,
+                    BackupFolderId           = backupFolder != null ? backupFolder.FolderId : null,
                     AdjudicacionFolderName   = psc.AdjudicacionFolderName,
                 }
             ).FirstOrDefaultAsync();

@@ -4780,6 +4780,22 @@ Tabla simple (`anio` único, `meta_indice_frecuencia/gravedad/accidentabilidad` 
 - 4 accidentes 2026 sin regularizar (ver §4).
 - Cronograma de Hitos (`milestone-schedule`): el usuario reportó fechas que no coinciden con un Excel de referencia — se determinó que las fechas son 100% manuales (sin cálculo ni importación automática), no se investigó más a fondo por indicación del usuario ("me equivoqué, es otro tema").
 
+## Sesión 2026-07-07 — Bug "Nueva semana" no aparecía en Dossier del contratista
+
+Se investigó por qué "Nueva semana" en `habilitacion/gestion/dossier` (Panel Contratista) parecía no crear nada. Se descartó que fuera un problema de esquema (las tablas `ss_dossier_semana`, `ss_dossier_documento`, `ss_dossier_documento_archivo` ya existían en la BD) revisando el flujo completo (frontend → `DossierController` → `DossierService` → `DossierRepository.EnsureSemanaAsync`, que usa `INSERT ... ON CONFLICT DO NOTHING`). Confirmando con Network tab del navegador se vio que el registro sí se creaba (`GET /dossier` devolvía la semana nueva en estado "Borrador"), pero no se mostraba en la UI.
+
+Causa real: el bug estaba en el **frontend**, no en el backend. El getter `semanasFiltradas` (`Abril-Frontend/.../pages/dossier/dossier.ts`) ocultaba toda semana en estado `Borrador` con `docsSubidos === 0` — pensado para no ensuciar la vista admin con borradores vacíos, pero eso también ocultaba al contratista la semana que él mismo acababa de crear, dejándolo sin forma de empezar a subir documentos.
+
+Se generó adicionalmente `dossier_semanal_schema.sql` (DDL idempotente para las 3 tablas del dossier semanal) como respaldo por si alguna instalación no las tuviera aplicadas — regla del proyecto: cambios de esquema siempre en SQL manual para pgAdmin, nunca `dotnet ef migrations`.
+
+### Archivos clave
+- `Abril_Backend/Features/HabilitacionModule/Infrastructure/Repositories/DossierRepository.cs` (`EnsureSemanaAsync` — sin cambios, funcionaba bien)
+- `Abril_Backend/dossier_semanal_schema.sql` (nuevo, DDL de respaldo)
+- El fix real quedó en el repo frontend: `Abril-Frontend/src/app/features/habilitacion/pages/dossier/dossier.ts` (getter `semanasFiltradas`)
+
+### Pendiente
+- Ninguno para este bug — verificado con Network tab que la semana ya aparece tras el fix del getter.
+
 ## Sesión 2026-07-05 — CronogramaActividades: preferencia última pestaña + fixes cascada/línea base
 
 Rama: `victor-backend`
@@ -4904,6 +4920,143 @@ Seed hardcodeado en la migración `20260601002547_AddFeriadosAndActivityPredeces
 ### Pendiente / posible mejora futura
 - Evaluar si conviene unificar `Feriados` y `Holiday` en una sola tabla, o al menos documentar/advertir que son sistemas distintos.
 - Cargar feriados 2027 antes de que termine 2026 (ni la tabla `Feriados` ni `Holiday` los tienen aún).
+
+## Sesión 2026-07-07 — RAC: fotos, empresa reportante vs reportada, indicadores
+
+### 1. Fotos de RAC no se subían/mostraban en producción
+
+Investigando un reclamo de que un contratista no podía ver fotos de evidencia en un RAC, se confirmó en pgAdmin que el RAC (`RAC-2026-GMZ-039`) no tenía ninguna fila en `ssoma_rac_foto` — la subida nunca llegó a guardarse. Causa raíz: `appsettings.Production.json` (gitignored, config real de producción vive en otro lado según el usuario) no tenía `RacFotosLibraryId`/`RacPdfLibraryId`/`RacFirmasLibraryId` bajo `SharePoint:Sites:SSOMAApps` — sin esos IDs, `SharePointHabService.GetDownloadUrlAsync`/`SubirArchivoEnRutaAsync` no puede resolver el drive de SharePoint. La subida (`RacSharePointService.SubirFotoAsync` → `SubirArchivoEnRutaAsync`) debería lanzar `AbrilException` 500 si esto pasa, pero en el frontend (`rac-nuevo.ts`) el `error` callback de la subida de fotos llamaba al mismo `mostrarSwalYNavegar()` que el `next`, mostrando "RAC registrado ✓" igual aunque las fotos fallaran — el usuario nunca se enteraba.
+
+**Fix backend**: ninguno de código — los 3 IDs de SharePoint existen en `appsettings.Local.json`, pendiente que el usuario los agregue donde sea que viva la config real de producción (no es `appsettings.Production.json` del checkout local, gitignored y aparentemente no es lo que se despliega).
+
+**Fix frontend** (`rac-nuevo.ts`): el callback de error de subida de fotos ahora muestra un SweetAlert de advertencia distinto ("RAC registrado, pero las fotos no se pudieron subir") en vez de fingir éxito. Además, ahora las fotos son obligatorias (`canSubmit` exige `fotosSeleccionadas.length > 0`).
+
+### 2. Empresa Reportante y Empresa Reportada — antes opcionales, ahora obligatorias
+
+En `rac-nuevo.html`/`.ts`, existían checkboxes "Reportar de forma anónima" y "No identificar la empresa reportada" que permitían crear un RAC sin ninguna de las dos empresas — resultado: 11+ RAC de julio quedaron con `empresa_reportada_id = NULL`, invisibles en cualquier filtro/indicador por empresa. Se quitaron ambos checkboxes; `empresaReportanteId` y `empresaReportadaId` ahora son obligatorios en `canSubmit`.
+
+### 3. Indicadores proactivos mezclaban "empresa reportante" y "empresa reportada" en un solo conteo
+
+`IndicadoresProactivosRepository` (en los 4 sitios que llaman a `BuildMetaDto`, tanto en `GetMetasEmpresaAsync` como en el método bulk multi-proyecto) contaba **todo** por `EmpresaReportadaId` — tanto "RACS rep." como "RACS cerr." usaban la misma población (RACs atribuidos a la empresa), y no existía ningún conteo de cuántos RAC había *levantado* cada empresa como reportante. Esto también explicaba por qué un RAC con `EmpresaReportanteId` = Lumbreras no sumaba nada al indicador de Lumbreras (solo contaba para la empresa reportada).
+
+**Fix**: `BuildMetaDto` ahora recibe `actualRacsReportados` (por `EmpresaReportanteId`) separado de `actualRacsAtribuidos`/`actualRacsCerrados` (por `EmpresaReportadaId`). "RACS rep." = cuántos reportó la empresa (indicador proactivo); "RACS cerr." = de los que le fueron atribuidos, cuántos cerró (indicador de cumplimiento). Se agregó `ActualRacsAtribuidos` a `MetaEmpresaDto` para que el frontend use ese valor como "Prog" de la fila "RACS cerr." (antes reutilizaba `ActualRacs`, que ahora significa otra cosa).
+
+También se encontró y corrigió que "RACS rep." mostraba el valor topado a la meta (`Math.Min(actualRacs, metaRacs)`) en vez del conteo real — una empresa que reportó 10 RACs con meta de 2 solo veía "2" en pantalla. Reportar de más es deseable y no debía ocultarse; el `%` sigue limitado a 100 pero el número ahora es siempre el real.
+
+**Dashboard de RAC** (`RacService.GetDashboardAsync`, solo para vista contratista): se agregó `TotalReportados`/`TotalReportadosCerrados` (conteo por `EmpresaReportanteId`) como card nueva "RACs Levantados por Ti", antes inexistente.
+
+**Lista de RAC**: se agregaron columnas separadas "Reportante"/"Reportada" (antes solo mostraba una), filtro de mes/año (usa `FechaDesde`/`FechaHasta` que ya existían en el backend), y dos selects de empresa separados (`empresaReportanteId` / `empresaReportadaId`, antes uno solo que filtraba por reportada).
+
+### Archivos clave
+- `Features/SsomaModule/RacFeature/Services/RacService.cs` (`GetListAsync`, `GetDashboardAsync`)
+- `Features/SsomaModule/RacFeature/Dtos/RacDtos.cs` (`RacListQuery.EmpresaReportanteId`, `RacListItemDto.EmpresaReportanteNombre`, `RacDashboardDto.TotalReportados/TotalReportadosCerrados`)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Repositories/IndicadoresProactivosRepository.cs` (`BuildMetaDto` y sus 4 call sites)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Application/Dtos/IndicadoresProactivosDtos.cs` (`MetaEmpresaDto.ActualRacsAtribuidos`)
+- El fix real de fotos quedó pendiente en config de producción (no en este repo) — ver punto 1.
+
+### Pendiente
+- Confirmar con el usuario que agregó `RacFotosLibraryId`/`RacPdfLibraryId`/`RacFirmasLibraryId` en la config real de producción (no en `appsettings.Production.json` del checkout, que está gitignored y según el usuario "no tiene nada que ver con donde se hace deploy").
+- 11 RAC de julio con `empresa_reportada_id = NULL` (`RAC-2026-KAU-014,015,016,017,020,025,030,035,036,037,041,043,044` y similares) quedaron huérfanos — no se corrigieron manualmente en BD, pendiente que el usuario identifique a qué empresa corresponden.
+
+### 4. OPT/ATS/Charlas se atribuían por vinculación ACTUAL, no por la vigente en la fecha del evento
+
+Al revisar si Inspecciones/OPT/Auditorías ATS contaban bien (a raíz de la revisión de RACs de este mismo día), se encontró que `IndicadoresProactivosRepository` atribuía OPT/ATS/Charlas a la empresa con la que el trabajador está vinculado **hoy** (`WorkerVinculacion.FechaFin == null`), no a la que tenía **el día que ocurrió el evento**. Un trabajador que cambió de contratista a mitad de mes hacía que sus OPT/ATS/Charlas pasadas se contaran para su empresa nueva, no la vieja. Inspecciones y RACs no tenían este problema porque guardan `EmpresaId`/`EmpresaReportadaId` directo en el registro.
+
+**Fix** en `GetMetasEmpresaAsync` (single-proyecto) y `GetSeguimientoTodosProyectosAsync` (bulk multi-proyecto): se trae el historial completo de `WorkerVinculacion` (no solo la activa) y se resuelve la empresa vigente por `(workerId, fecha)` con un helper local `EmpresaDelTrabajadorEnFecha`. Los bulk queries de OPT/ATS ahora incluyen la fecha del evento en la proyección (antes no la traían). Se eliminó el guard `tieneWorkers`/`wSet.Any()` en el método single-proyecto porque ya no aplica (el conteo ahora es por evento, no por vinculación activa).
+
+### Archivos clave (punto 4)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Repositories/IndicadoresProactivosRepository.cs` (`GetMetasEmpresaAsync`, `GetSeguimientoTodosProyectosAsync`)
+
+### Pendiente (punto 4)
+- Verificado que compila; no se pudo probar contra datos reales en esta sesión — pendiente que el usuario confirme en `/ssoma/gestion/indicadores-proactivos/indicadores-ssoma/seguimiento` con un caso conocido (ej. Lumbreras, RP Mural) tras el deploy.
+
+## Sesión 2026-07-09 — Fix: caché de indicadores reactivos no se invalidaba
+
+Reporte del usuario: aprobó un descanso médico de 30 días vinculado a un accidente de Cedro 33, pero el dashboard de SSOMA (`indicadores-ssoma/dashboard`) seguía mostrando los días perdidos viejos.
+
+**Diagnóstico** (confirmado por SQL que corrió el usuario): el dato en BD estaba correcto — `ss_accidente_trabajo.dias_descanso_reales = 30` ya reflejaba la aprobación (`DescansoMedicoRepository.Aprobar` recalcula ese campo sumando `ss_descanso_medico` con `Estado = 'Aprobado'`). El problema era el **caché de 10 minutos** (`IMemoryCache`, `CacheTtl` en `IndicadoresProactivosController`) sobre `/reactivos` y `/reactivos/{proyectoId}`: no había ninguna invalidación cuando cambiaba un accidente o un descanso, así que el dashboard servía la respuesta vieja hasta que expiraba sola.
+
+**Fix**: en vez de enumerar/borrar claves de `IMemoryCache` (no soporta borrar por prefijo), se agregó un contador de versión:
+- `ReactivosCacheVersion` (nuevo, singleton) — `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/ReactivosCacheVersion.cs`. Expone `Current` y `Bump()`.
+- Registrado en `SsomaModule.cs` (`AddSingleton`).
+- `IndicadoresProactivosController`: las claves de caché de `GetReactivosProyecto` y `GetReactivosTodos` ahora incluyen `_v{_reactivosCacheVersion.Current}`.
+- `DescansoMedicoRepository.Aprobar` llama `Bump()` justo después de recalcular `DiasDescansoReales`.
+- `AccidenteTrabajoRepository.Create/Update/Cerrar/Delete` también llaman `Bump()` — cualquiera de esas acciones puede cambiar accidentes/días contabilizados en los reactivos.
+
+Con esto, aprobar un descanso o editar un accidente invalida el caché al instante en vez de esperar hasta 10 minutos.
+
+### Archivos clave
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/ReactivosCacheVersion.cs` (nuevo)
+- `Features/SsomaModule/IndicadoresProactivosFeature/Presentation/IndicadoresProactivosController.cs`
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/DescansoMedicoRepository.cs`
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/AccidenteTrabajoRepository.cs`
+- `Features/SsomaModule/SsomaModule.cs`
+
+### Pendiente
+- El usuario ya reinició el backend local para tomar el cambio; falta confirmar en el dashboard que Cedro 33 refleja los 30 días sin demora.
+- No se auditaron otros puntos de escritura que podrían afectar reactivos (p. ej. `AccidenteIncidenteRepository`/Flash Report vinculado a accidentes de tópico) — si en el futuro se reporta el mismo síntoma desde otro flujo, revisar si también necesita `Bump()`.
+
+## Sesión 2026-07-09 (2) — Fix: Coordinador SSOMA sin boton de ocultar/mostrar empresas
+
+Reporte del usuario: el mismo pudia ver y usar el boton de ocultar/mostrar empresas en `/ssoma/gestion/indicadores-proactivos/indicadores-ssoma/seguimiento` (es ADMINISTRADOR DEL SISTEMA), pero coordinadores SSOMA reales no lo veian.
+
+**Diagnostico** (confirmado por SQL que corrio el usuario sobre el worker de un coordinador afectado, ocerna@abril.pe): `categoria="Coordinador"` y `ocupacion="SSOMA"` estaban en campos separados. `EsCoordinadorSsomaAsync` (duplicado en `IndicadoresProactivosRepository` y `DesempenoSupervisorRepository`) exigia que ambas palabras aparecieran en el MISMO campo (`Ocupacion` o `Categoria` individualmente), asi que ningun campo por separado calificaba.
+
+**Fix**: en ambos repositorios, se combina `Categoria` + `Ocupacion` en un solo texto antes de buscar las dos palabras, en vez de evaluar cada campo por separado.
+
+### Archivos clave
+- `Features/SsomaModule/IndicadoresProactivosFeature/Infrastructure/Repositories/IndicadoresProactivosRepository.cs` (`EsCoordinadorSsomaAsync`)
+- `Features/SsomaModule/DesempenoSupervisorFeature/Infrastructure/Repositories/DesempenoSupervisorRepository.cs` (`EsCoordinadorSsomaAsync`)
+
+### Pendiente
+- Los endpoints de seguimiento tienen cache de 10 min (`IMemoryCache`) — el usuario debe reiniciar el backend tras el deploy para que el cambio de permisos tome efecto de inmediato en vez de esperar hasta que expire el cache.
+- Confirmar con el usuario que ocerna@abril.pe (y otros coordinadores en la misma situacion) ya ven el boton tras el reinicio.
+
+## Sesión 2026-07-10 — Interconsultas: filtros, envío de correos y resolución de jefatura
+
+Pantalla `Interconsultas` (Salud Ocupacional) rediseñada a pedido del usuario: filtros por proyecto/razón social/tipo, columnas de proyecto actual/jefatura/administrador/categoría-ocupación, selección múltiple + envío de correos, y varias rondas de fixes de datos reales verificados en Postgres local.
+
+**Filtros y datos base**:
+- `InterconsultaFilterDto`: `ProyectoId`, `ContributorId`, `ObraOficina` (si es `"Obra"` también matchea `obra_oficina` vacío/nulo, ya que solo Staff/Oficina Central se marcan explícitamente).
+- La consulta base ahora excluye contratistas (`contrata_casa != "Casa"`) y trabajadores retirados (`estado = "RETIRADO"`) — antes solo se ocultaban en los combos, ahora ni entran a la query.
+
+**Proyecto actual**: se descubrió que `worker_vinculaciones` está incompleta para varios trabajadores. La fuente confiable es `ss_hab_worker_proyecto` (la tabla detrás de Habilitación → Trabajadores → "Proyectos asignados"). Prioriza asignación activa (`fecha_fin is null`); si no hay ninguna, se deja en blanco (se probó cayendo al último proyecto cerrado, pero el usuario pidió revertir eso porque inducía a error con trabajadores que ya salieron de un proyecto). Cae a `worker_vinculaciones` solo si el trabajador no tiene ninguna fila en `ss_hab_worker_proyecto`.
+
+**Jefatura**: 3 fuentes en cascada (`InterconsultaRepository.ResolveJefePorArea` + lógica inline en `List`/`GetForEnvioCorreo`):
+1. `workers.worker_lesson_jefe_id` / `worker_salida_jefe_id` (jefe real asignado).
+2. Texto libre `workers.jefatura` + catálogo `cat_jefatura` (por nombre exacto).
+3. Árbol `area_scope` — mismo algoritmo que `ApproverResolver` (Solicitud de Salidas): camina ancestros buscando Jefe→Sub Gerente→Coordinador→Gerente; si nadie en la cadena de ancestros directos, busca cualquier Gerente que cuelgue de la **misma raíz** del árbol (cubre casos como "Residencia", que cuelga de "Gerencia de Proyectos" pero el Gerente real está en la rama hermana "Unidad de Proyectos", no en el nodo padre).
+
+**Correos**: nuevo endpoint `POST .../interconsultas/enviar-correos`. Staff/Oficina Central con correo propio reciben notificación individual (a él + jefatura); obreros sin correo se agrupan por proyecto en un solo correo al administrador encargado. Remitente fijo `medicinaocupacionalnm@abril.pe` vía nuevo parámetro `fromOverride` en `IEmailService.SendAsync` (agregado a SMTP/SendGrid/PowerAutomate, opcional y retrocompatible).
+
+**Categoría/Ocupación**: agregadas al DTO (`workers.categoria`, `workers.ocupacion`) para seguimiento; en el frontend se muestran compactas junto al DNI del trabajador en vez de sumar columnas nuevas.
+
+### Archivos clave (backend)
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/InterconsultaRepository.cs` — toda la lógica de resolución (proyecto, jefatura, filtros base) y los helpers `LoadAreaJefeContextAsync`/`ResolveJefePorArea`/`RootOf`.
+- `Features/SsomaModule/SaludOcupacionalFeature/Application/Services/InterconsultaService.cs` — `EnviarRecordatorios` (agrupamiento y armado de correos).
+- `Features/SsomaModule/SaludOcupacionalFeature/Application/Dtos/Interconsulta/` — `InterconsultaListDto`, `InterconsultaFilterDto`, nuevos `InterconsultaEnviarCorreoDto`/`InterconsultaEnvioInfoDto`.
+- `Shared/Services/Email/` — `IEmailService` + las 3 implementaciones (parámetro `fromOverride`).
+
+### Pendiente
+- El usuario pidió explícitamente no compilar en esta sesión (backend corriendo localmente, bloquea el .exe/.dll) — los últimos cambios (resolución de jefatura por área, fallback a Gerente de la raíz) **no se verificaron con build**. Correr `dotnet build` y avisar si sale algún error de tipos antes de dar por cerrado.
+- Falta que el usuario confirme en pantalla que la jefatura ahora resuelve bien para casos como María Sonia Alan Oceda (Residencia → debería caer a Carlos Fredy Oriundo Campos, Gerente de Unidad de Proyectos).
+
+## Sesión 2026-07-11 — Agenda de clínica: programaciones "Programado" no aparecían pese a correo enviado
+
+Reporte de Katyana (clínica): trabajadores (Bocanegra Pisco, Flores Quispe, Elías Vílchez) recibían el correo de "Nueva programación EMO" pero no figuraban en la pestaña "Programados" de la Agenda de clínica (`/clinica/agenda`).
+
+**Diagnóstico** (confirmado con SQL contra producción): no era un problema de filtros (interconsulta pendiente, `EsAbril`, joins) — todos los registros pasaban esas condiciones. La causa real: la Agenda de clínica pide `GET .../programaciones` **sin filtro de fecha** (`selectedDate=''` por diseño, para mostrar todo lo pendiente sin importar la fecha), con `pageSize=500`. El total histórico de programaciones ya superaba ese límite (535 filas), y el `ORDER BY` anterior (`FechaProgramada ASC`) ponía las más viejas primero — las programaciones de HOY, al ser las más recientes, quedaban cortadas fuera de `Take(500)` sin ningún error visible.
+
+**Fix**: en `ProgramacionEmoRepository.List`, se cambió el orden para priorizar estados activos (`Programado`, `Aceptado por Clínica`, `En Atención`, etc. — todo lo que no sea `Completado`/`Cancelado`/`Rechazado por Clínica`/`No se presentó`) antes que por fecha. Así, sin importar cuánto crezca el histórico de exámenes ya completados, las programaciones pendientes nunca se cortan por el límite de página. No se tocó ningún filtro, ni el conteo total, ni el contrato de la API — solo el `ORDER BY`.
+
+De paso se detectaron (pero NO se corrigieron aún) 4 registros duplicados de programación "Ingreso" para el mismo trabajador/día (Bocanegra Pisco: ids 826, 827, 828, 832; Flores Quispe: ids 830, 831) creados vía "Registro directo"/"Manual" — no se tocaron por falta de tiempo/alcance de esta sesión.
+
+### Archivos clave
+- `Features/SsomaModule/SaludOcupacionalFeature/Infrastructure/Repositories/ProgramacionEmoRepository.cs` (método `List`, el `OrderBy`)
+
+### Pendiente
+- Revisar por qué se generan programaciones "Ingreso" duplicadas para el mismo trabajador/día vía "Registro directo" (posible doble submit del formulario de alta de trabajador, o el flujo de registro directo no verifica si ya existe una programación activa antes de crear una nueva). No confirmado con el usuario si ya lo notó/reportó como problema aparte.
+- Confirmar con Katyana que tras el fix los 3 trabajadores ya aparecen en "Programados".
 
 ## Sesión 2026-07-13 — Sync master
 

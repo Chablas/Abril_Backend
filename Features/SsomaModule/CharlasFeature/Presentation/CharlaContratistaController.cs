@@ -49,6 +49,19 @@ public class CharlaContratistaController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error pendientes charla contratista"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
+    [HttpGet("dias-faltantes")]
+    public async Task<IActionResult> GetDiasFaltantes()
+    {
+        try
+        {
+            var empresaId = GetEmpresaIdContratista();
+            if (!empresaId.HasValue) return Forbid();
+            return Ok(await _service.GetDiasFaltantesAsync(empresaId.Value));
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error días faltantes charla contratista"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
     [HttpGet("historial")]
     public async Task<IActionResult> GetHistorial([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {

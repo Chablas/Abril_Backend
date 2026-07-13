@@ -307,12 +307,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(h => h.ItemId)
                 .ToListAsync();
 
-            var itemsFalta = new HashSet<int> { 12, 13 };
-
-            var hoy = DateTime.UtcNow;
-            var vigenciaInicial = new DateTime(hoy.Year, hoy.Month, 1, 0, 0, 0, DateTimeKind.Utc)
-                .AddMonths(1).AddDays(26);
-
             var faltantes = items
                 .Where(i => !existentesIds.Contains(i.Id))
                 .Select(i => new SsHabEmpresa
@@ -320,8 +314,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EmpresaId = empresaId,
                     ProyectoId = proyectoId,
                     ItemId = i.Id,
-                    Estado = itemsFalta.Contains(i.Id) ? "Falta" : "Aprobado",
-                    Vigencia = itemsFalta.Contains(i.Id) ? null : vigenciaInicial,
+                    Estado = "Falta",
+                    Vigencia = null,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 })

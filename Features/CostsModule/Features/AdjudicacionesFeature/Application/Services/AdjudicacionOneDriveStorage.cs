@@ -15,6 +15,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         private readonly IGraphSharePointService _graph;
         private readonly IProjectSubContractorRepository _repository;
 
+        // Carpeta padre obligatoria dentro de la carpeta 04_OBRAS configurada: la cadena
+        // Especialidad/Partida/Contratista/Adjudicación se crea siempre dentro de ella.
+        private const string ObrasIntranetFolderName = "ADJUDICACIONES DE INTRANET";
+
         // Mismo criterio que la sincronización de partidas: quita prefijos numéricos de orden
         // ("4. ELEVADORES" → "ELEVADORES", "1.2 PISOS" → "PISOS", "3) MUROS" → "MUROS").
         private static readonly Regex _folderPrefixRegex =
@@ -57,7 +61,23 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             string contentType,
             bool autoRenameOnLock = false)
         {
-            var (driveId, folderId) = await EnsureFolderAsync(pathData, documentType);
+            var isScanned = documentType is AdjudicacionDocumentType.ScannedDoc1
+                or AdjudicacionDocumentType.ScannedDoc2
+                or AdjudicacionDocumentType.ScannedDoc3;
+
+            // El contrato firmado escaneado (paso 7) va SOLO a 07_OT/BACK UP PROYECTO (solo Oficina
+            // Central); todo lo demás va a 04_OBRAS (visible también para Oficina Técnica).
+            var (rootDriveId, rootFolderId) = isScanned
+                ? RequireBackupFolder(pathData)
+                : RequireObrasFolder(pathData);
+
+            // En 04_OBRAS toda la estructura cuelga de una carpeta intermedia
+            // "ADJUDICACIONES DE INTRANET" dentro de la carpeta configurada; si no existe se crea.
+            // No aplica a 07_OT/BACK UP PROYECTO.
+            if (!isScanned)
+                rootFolderId = await FindOrCreateExactAsync(rootDriveId, rootFolderId, ObrasIntranetFolderName);
+
+            var (driveId, folderId) = await EnsureFolderAsync(pathData, documentType, rootDriveId, rootFolderId);
 
             var result = await _graph.UploadToOneDriveFolderAsync(
                 driveId, folderId, fileName, content, contentType, autoRenameOnLock)
@@ -77,23 +97,22 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             IReadOnlyList<(string ItemId, bool AlreadyPdf)> items)
         {
             var pathData = await _repository.GetPathDataAsync(projectSubContractorId);
-            var driveId = RequireProjectFolder(pathData).DriveId;
+            var driveId = RequireObrasFolder(pathData).DriveId;
             return await _graph.DownloadMultipleAsPdfFromOneDriveAsync(driveId, items);
         }
 
         // ── Resolución de la cadena de carpetas en OneDrive ──────────────────────
 
         /// <summary>
-        /// Asegura {Proyecto}/Contratos/{Especialidad}/{Partida}/{RUC - Razón social}/{Id - Partida}/{Subcarpeta}
-        /// y devuelve (driveId, itemId de la subcarpeta final).
+        /// Asegura {CarpetaConfigurada}/{Especialidad}/{Partida}/{RUC - Razón social}/{ADJUDICACIÓN N° X}/{Subcarpeta}
+        /// dentro de la raíz indicada y devuelve (driveId, itemId de la subcarpeta final).
         /// </summary>
         private async Task<(string DriveId, string FolderId)> EnsureFolderAsync(
-            AdjudicacionPathDataDto data, AdjudicacionDocumentType documentType)
+            AdjudicacionPathDataDto data, AdjudicacionDocumentType documentType,
+            string driveId, string contratosFolderId)
         {
-            var (driveId, contratosFolderId) = RequireProjectFolder(data);
-
-            // La carpeta configurada en Configuración → Carpeta de adjudicaciones es DIRECTAMENTE
-            // la carpeta de "Contratos" del proyecto: se usa tal cual como base de la estructura.
+            // Base de la estructura: para 07_OT/BACK UP es la carpeta configurada tal cual;
+            // para 04_OBRAS es la subcarpeta "ADJUDICACIONES DE INTRANET" ya resuelta por el caller.
 
             // 1) Especialidad — obligatoria para saber en qué rama guardar.
             if (string.IsNullOrWhiteSpace(data.WorkSpecialtyDescription))
@@ -125,14 +144,24 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return (driveId, subfolderId);
         }
 
-        private static (string DriveId, string ProjectFolderId) RequireProjectFolder(AdjudicacionPathDataDto data)
+        private static (string DriveId, string FolderId) RequireObrasFolder(AdjudicacionPathDataDto data)
         {
-            if (string.IsNullOrWhiteSpace(data.DriveId) || string.IsNullOrWhiteSpace(data.ProjectFolderId))
+            if (string.IsNullOrWhiteSpace(data.ObrasDriveId) || string.IsNullOrWhiteSpace(data.ObrasFolderId))
                 throw new AbrilException(
-                    $"El proyecto '{data.ProjectDescription}' no tiene configurada una carpeta de adjudicaciones. " +
+                    $"El proyecto '{data.ProjectDescription}' no tiene configurada una carpeta de adjudicaciones de tipo 04_OBRAS. " +
                     "Configúrela en Configuración → Carpeta de adjudicaciones y vuelva a intentarlo.", 422);
 
-            return (data.DriveId!, data.ProjectFolderId!);
+            return (data.ObrasDriveId!, data.ObrasFolderId!);
+        }
+
+        private static (string DriveId, string FolderId) RequireBackupFolder(AdjudicacionPathDataDto data)
+        {
+            if (string.IsNullOrWhiteSpace(data.BackupDriveId) || string.IsNullOrWhiteSpace(data.BackupFolderId))
+                throw new AbrilException(
+                    $"El proyecto '{data.ProjectDescription}' no tiene configurada una carpeta de adjudicaciones de tipo 07_OT/BACK UP PROYECTO. " +
+                    "Configúrela en Configuración → Carpeta de adjudicaciones y vuelva a intentarlo.", 422);
+
+            return (data.BackupDriveId!, data.BackupFolderId!);
         }
 
         // Reconoce carpetas "ADJUDICACIÓN N° 1", "ADJUDICACION N°2", "ADJUDICACIÓN Nº 3", etc.

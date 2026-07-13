@@ -79,8 +79,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var noAutorizadosIds = await ctx.SsHabTrabajador
                 .Where(h => workerIds.Contains(h.WorkerId) &&
-                            (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
-                             (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)))
+                            (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
+                             (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora) ||
+                             (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= ahora))))
                 .Select(h => h.WorkerId)
                 .Distinct()
                 .ToListAsync();
@@ -438,6 +439,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(w => w.Id)
                 .ToHashSet();
 
+            // Para trabajadores "Casa" el EMO se gestiona vía módulo SSOMA (WorkerEmo), no vía
+            // SsHabTrabajador. Estos ids se excluyen del cómputo genérico más abajo para evitar
+            // que el registro crudo (normalmente "Falta", nunca aprobado manualmente) se cuente
+            // como pendiente duplicado junto al estado real calculado desde WorkerEmo.
+            var itemsEmoIds = itemCatalog
+                .Where(kv => kv.Value.Contains("EMO", StringComparison.OrdinalIgnoreCase) && kv.Key != HabItemIds.LecturaEmo)
+                .Select(kv => kv.Key)
+                .ToHashSet();
+
             Dictionary<int, WorkerEmo> emoByWorker = [];
             if (!esOficinaCentral && casaIds.Count > 0)
             {
@@ -485,27 +495,36 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 }
                 else
                 {
-                    hasPendientes = items.Any(h =>
-                        h.ItemId != HabItemIds.LecturaEmo &&
-                        (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
-                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)));
+                    var esCasa = casaIds.Contains(w.Id);
+                    // Para trabajadores Casa, el/los ítem(s) EMO se excluyen del cómputo genérico:
+                    // su estado real se calcula más abajo desde WorkerEmo, no desde este registro crudo.
+                    var itemsGenerico = esCasa
+                        ? items.Where(h => !itemsEmoIds.Contains(h.ItemId)).ToList()
+                        : items;
 
-                    faltantes = items
+                    hasPendientes = itemsGenerico.Any(h =>
+                        h.ItemId != HabItemIds.LecturaEmo &&
+                        (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
+                        (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora) ||
+                        (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= ahora))));
+
+                    faltantes = itemsGenerico
                         .Where(h => h.ItemId != HabItemIds.LecturaEmo &&
-                                    (h.Estado == "Falta" || h.Estado == "Rechazado" ||
-                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora)))
+                                    (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Enviado" ||
+                                    (h.Estado == "Aprobado" && h.Vigencia.HasValue && h.Vigencia.Value <= ahora) ||
+                                    (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= ahora))))
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)
                         .ToList();
 
-                    porVencer = items
+                    porVencer = itemsGenerico
                         .Where(h => h.Estado == "Aprobado" && h.Vigencia.HasValue
                                     && h.Vigencia.Value > ahora && h.Vigencia.Value <= en7dias)
                         .Select(h => itemCatalog.TryGetValue(h.ItemId, out var n) ? n : null)
                         .Where(n => n != null).Select(n => n!)
                         .ToList();
 
-                    entregables = items
+                    entregables = itemsGenerico
                         .Select(h => new EntregableResumenDto
                         {
                             Nombre = itemCatalog.TryGetValue(h.ItemId, out var n) ? n : "",
@@ -515,7 +534,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         .Where(e => e.Nombre != "")
                         .ToList();
 
-                    if (casaIds.Contains(w.Id))
+                    if (esCasa)
                     {
                         emoByWorker.TryGetValue(w.Id, out var emo);
 

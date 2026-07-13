@@ -29,7 +29,12 @@ namespace Abril_Backend.Infrastructure.Services
 
             foreach (var role in user.Roles)
             {
-                claims.Add(new Claim(ClaimTypes.Role, role.RoleDescription));
+                // El role claim lleva el ID (estable), no el nombre: lo consumen las
+                // autorizaciones del backend ([Authorize(Roles=...)], User.IsInRole) y el
+                // frontend. Ver Shared/Constants/Roles.cs y core/constants/roles.ts.
+                claims.Add(new Claim(ClaimTypes.Role, role.RoleId.ToString()));
+                // Nombre solo para mostrar (p. ej. "realizado por rol"); nunca para autorizar.
+                claims.Add(new Claim("role_name", role.RoleDescription));
             }
 
             var key = new SymmetricSecurityKey(

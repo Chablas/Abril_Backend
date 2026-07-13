@@ -58,5 +58,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ConvalidacionController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        [HttpGet("{id:int}/pdf")]
+        public async Task<IActionResult> GetPdf(int id)
+        {
+            try
+            {
+                var bytes = await _service.GenerarPdfAsync(id);
+                return File(bytes, "application/pdf", $"Convalidacion_{id}.pdf");
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error generando PDF de convalidación"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

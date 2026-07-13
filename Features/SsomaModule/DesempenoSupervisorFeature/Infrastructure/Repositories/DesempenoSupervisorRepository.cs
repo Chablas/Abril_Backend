@@ -1,4 +1,5 @@
 using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Application.Dtos;
+using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,27 +15,103 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
     private const int MetaEvalContratista = 1;
     private const int MetaEvalResidente   = 1;
 
-    public async Task<List<DesempenoSupervisorDto>> GetDesempenoAsync(int mes, int anio, int? proyectoId)
+    // Samuel Justiniani (sjustiniani@abril.pe) — excepción explícita a pedido suyo
+    // ("los Coordinadores SSOMA y yo"). Su ocupación real es "SSOMA", no calza con el
+    // texto "Coordinador SSOMA" que sí usan los demás coordinadores.
+    private const int WorkerIdSamuel = 12305;
+
+    /// <summary>
+    /// El usuario logueado tiene permiso para ocultar/mostrar (cualquier tarjeta) si
+    /// su propio worker es Coordinador SSOMA — revisa tanto "ocupacion" como
+    /// "categoria" porque ese dato no siempre vive en el mismo campo — o si es Samuel.
+    /// </summary>
+    public async Task<bool> EsCoordinadorSsomaAsync(int userId)
+    {
+        await using var ctx = await factory.CreateDbContextAsync();
+        var datos = await ctx.Person
+            .Where(p => p.UserId == userId)
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => new { w.Id, w.Ocupacion, w.Categoria })
+            .FirstOrDefaultAsync();
+        if (datos is null) return false;
+        if (datos.Id == WorkerIdSamuel) return true;
+
+        // "Coordinador" y "SSOMA" pueden venir en el mismo campo o repartidos entre
+        // Categoria y Ocupacion (ej. Categoria="Coordinador", Ocupacion="SSOMA").
+        var textoCombinado = $"{datos.Categoria} {datos.Ocupacion}";
+
+        return textoCombinado.Contains("Coordinador", StringComparison.OrdinalIgnoreCase)
+            && textoCombinado.Contains("SSOMA", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task OcultarAsync(int workerId, string? motivo, int userId)
+    {
+        await using var ctx = await factory.CreateDbContextAsync();
+
+        var existe = await ctx.SsDesempenoSupervisorExcluidos.FirstOrDefaultAsync(e => e.WorkerId == workerId);
+        if (existe is not null) return;
+        ctx.SsDesempenoSupervisorExcluidos.Add(new SsDesempenoSupervisorExcluido
+        {
+            WorkerId = workerId,
+            Motivo = motivo,
+            ExcluidoPor = userId,
+            CreatedAt = DateTime.UtcNow
+        });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task MostrarAsync(int workerId)
+    {
+        await using var ctx = await factory.CreateDbContextAsync();
+        var existe = await ctx.SsDesempenoSupervisorExcluidos.FirstOrDefaultAsync(e => e.WorkerId == workerId);
+        if (existe is null) return;
+        ctx.SsDesempenoSupervisorExcluidos.Remove(existe);
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<List<DesempenoSupervisorDto>> GetDesempenoAsync(int mes, int anio, int? proyectoId, bool incluirOcultos = false, bool puedeOcultar = false)
     {
         await using var ctx = await factory.CreateDbContextAsync();
 
         var inicio = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
         var fin    = inicio.AddMonths(1);
 
+        var excluidoIds = (await ctx.SsDesempenoSupervisorExcluidos
+            .Select(e => e.WorkerId)
+            .ToListAsync())
+            .ToHashSet();
+
         // ── 1. Base: staff activo con proyecto ACTUAL (ss_hab_worker_proyecto, no
         // worker_vinculaciones — esa tabla es de vinculación laboral/empresa, no de
         // asignación de obra). No importa el rol del usuario ni si tiene cuenta.
-        var proyectoActualQuery = ctx.WorkerProyecto.Where(wp => wp.FechaFin == null);
-        if (proyectoId.HasValue)
-            proyectoActualQuery = proyectoActualQuery.Where(wp => wp.ProyectoId == proyectoId.Value);
-
-        var staffBase = await ctx.Worker
-            .Where(w => w.ObraOficina == "Staff" && w.Estado == "ACTIVO")
-            .Join(proyectoActualQuery,
-                w => w.Id,
-                wp => wp.WorkerId,
-                (w, wp) => new { WorkerId = w.Id, w.PersonId, w.Ocupacion, w.ApellidoNombre, ProyectoId = wp.ProyectoId })
+        //
+        // El "proyecto actual" de un worker es su vinculación activa en worker_vinculaciones
+        // (1 sola fila con fecha_fin IS NULL) — la misma fuente que usa la ficha del
+        // trabajador en Habilitación para el campo "OBRA". ss_hab_worker_proyecto
+        // (WorkerProyecto) es otra cosa: la lista de "Proyectos asignados", que sí
+        // admite varias filas activas a la vez a propósito — no sirve para "actual".
+        var vinculacionesActivas = await ctx.WorkerVinculacion
+            .Where(v => v.FechaFin == null && v.ProyectoId != null)
             .ToListAsync();
+
+        var proyectoActualPorWorker = vinculacionesActivas
+            .GroupBy(v => v.WorkerId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(x => x.FechaInicio).ThenByDescending(x => x.Id).First().ProyectoId!.Value);
+
+        var staffBase = (await ctx.Worker
+            .Where(w => w.ObraOficina == "Staff" && w.Estado == "ACTIVO")
+            .Select(w => new { WorkerId = w.Id, w.PersonId, w.Ocupacion, w.ApellidoNombre })
+            .ToListAsync())
+            .Where(s => proyectoActualPorWorker.ContainsKey(s.WorkerId))
+            .Select(s => new { s.WorkerId, s.PersonId, s.Ocupacion, s.ApellidoNombre, ProyectoId = proyectoActualPorWorker[s.WorkerId] })
+            .ToList();
+
+        if (proyectoId.HasValue)
+            staffBase = staffBase.Where(s => s.ProyectoId == proyectoId.Value).ToList();
+
+        if (!incluirOcultos)
+            staffBase = staffBase.Where(s => !excluidoIds.Contains(s.WorkerId)).ToList();
 
         if (!staffBase.Any()) return [];
 
@@ -302,7 +379,9 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                 FechaLogro100:            fechaLogro100,
                 EsPrimeroEnProyecto:      false,
                 PctGeneralMesAnterior:    null,
-                EsResidente:              residenteWorkerIds.Contains(supId)
+                EsResidente:              residenteWorkerIds.Contains(supId),
+                EsOculto:                 excluidoIds.Contains(supId),
+                PuedeOcultarse:           puedeOcultar
             ));
         }
 

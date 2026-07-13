@@ -5,6 +5,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Controllers
 {
@@ -96,11 +97,11 @@ namespace Abril_Backend.Controllers
             [FromQuery] int porPagina = 100)
         {
             var rolesUsuario = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-            var esGestor = rolesUsuario.Contains("GESTOR DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase);
+            var esGestor = rolesUsuario.Contains(Roles.GestorArquitecturaComercial, StringComparer.OrdinalIgnoreCase);
             bool esUsuarioAc;
             if (esGestor)
                 esUsuarioAc = false;
-            else if (rolesUsuario.Contains("USUARIO DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase))
+            else if (rolesUsuario.Contains(Roles.UsuarioArquitecturaComercial, StringComparer.OrdinalIgnoreCase))
                 esUsuarioAc = true;
             else
                 return Forbid();
@@ -354,10 +355,10 @@ namespace Abril_Backend.Controllers
             try
             {
                 var rolesUsuario = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                var esGestor = rolesUsuario.Contains("GESTOR DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase);
+                var esGestor = rolesUsuario.Contains(Roles.GestorArquitecturaComercial, StringComparer.OrdinalIgnoreCase);
                 if (!esGestor)
                 {
-                    if (rolesUsuario.Contains("USUARIO DE ARQUITECTURA COMERCIAL", StringComparer.OrdinalIgnoreCase))
+                    if (rolesUsuario.Contains(Roles.UsuarioArquitecturaComercial, StringComparer.OrdinalIgnoreCase))
                     {
                         if (int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid))
                             filtro.UserId = uid;

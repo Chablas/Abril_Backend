@@ -22,11 +22,12 @@ namespace Abril_Backend.Infrastructure.Services
             bool isHtml,
             List<string>? cc = null,
             List<string>? bcc = null,
-            List<EmailAttachment>? attachments = null)
+            List<EmailAttachment>? attachments = null,
+            string? fromOverride = null)
         {
             using var message = new MailMessage
             {
-                From = new MailAddress(_settings.FromEmail, _settings.FromName),
+                From = new MailAddress(fromOverride ?? _settings.FromEmail, _settings.FromName),
                 Subject = subject,
                 Body = body,
                 IsBodyHtml = isHtml

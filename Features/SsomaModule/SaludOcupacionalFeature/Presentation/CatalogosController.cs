@@ -187,7 +187,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         // ===== Empresas =====
-        [AllowAnonymous]
+        // Antes [AllowAnonymous]: quedaban públicos sin querer (ningún flujo público los usa —
+        // el registro de contratistas tiene su propio ContractorRegistrationController separado).
+        // [Authorize] a secas (sin Roles) sobrescribe el [Authorize(Roles = AdministradorSsoma)]
+        // de la clase, porque el listado lo consumen RAC/Inspecciones/Habilitación/Configuración
+        // desde muchos roles distintos, no solo AdministradorSsoma.
+        [Authorize]
         [HttpGet("empresas")]
         public async Task<IActionResult> GetEmpresas([FromQuery] bool soloActivas = true)
         {
@@ -197,7 +202,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         /// <summary>Consulta de RUC a SUNAT para el alta de una razón social.</summary>
-        [AllowAnonymous]
+        [Authorize]
         [HttpGet("empresas/ruc/{ruc}")]
         public async Task<IActionResult> GetEmpresaByRuc(string ruc)
         {
@@ -213,7 +218,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         /// <summary>Alta de una razón social (contribuyente).</summary>
-        [AllowAnonymous]
+        [Authorize]
         [HttpPost("empresas")]
         public async Task<IActionResult> CreateEmpresa([FromBody] EmpresaCreateDto dto)
         {

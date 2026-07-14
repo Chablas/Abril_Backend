@@ -71,12 +71,12 @@ namespace Abril_Backend.Controllers
         }
 
         [HttpGet("supervisores-ac")]
-        public async Task<IActionResult> GetSupervisoresAc()
+        public async Task<IActionResult> GetSupervisoresAc([FromQuery] bool soloObreros = false)
         {
             try
             {
 
-                var result = await _service.GetSupervisoresAc();
+                var result = await _service.GetSupervisoresAc(soloObreros);
                 return Ok(result);
             }
             catch (Exception)

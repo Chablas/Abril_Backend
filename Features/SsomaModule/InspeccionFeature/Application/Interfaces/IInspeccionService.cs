@@ -15,5 +15,5 @@ public interface IInspeccionService
     Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null);
     Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null);
     Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto);
-    Task<int?> GetEmpresaIdDeHallazgoAsync(int hallazgoId);
+    Task<(int? EmpresaId, int? EmpresaInspectoraId)> GetEmpresaIdDeHallazgoAsync(int hallazgoId);
 }

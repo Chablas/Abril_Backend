@@ -314,12 +314,45 @@ namespace Abril_Backend.Infrastructure.Repositories
             return proyectos.OrderBy(p => p.Nombre).ToList();
         }
 
-        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc()
+        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc(bool soloObreros = false)
         {
             using var ctx = _factory.CreateDbContext();
 
+            if (!soloObreros)
+            {
+                return await ctx.Worker
+                    .Where(w => w.Estado == "ACTIVO" && w.Subarea == "Arquitectura Comercial")
+                    .OrderBy(w => w.Person != null ? w.Person.FullName : null)
+                    .Select(w => new SupervisorAcDTO
+                    {
+                        Id = w.Id,
+                        ApellidoNombre = (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
+                    })
+                    .ToListAsync();
+            }
+
+            // "Obrero de Arquitectura Comercial" = trabajador cuyo PROYECTO ACTUAL es, literalmente,
+            // el proyecto llamado "Arquitectura Comercial" (el mismo que aparece como opción en el
+            // filtro de proyecto de Ingreso de Trabajadores/Habilitación) — no un flag booleano en
+            // otros proyectos (TieneArquitecturaComercial solo marca qué proyectos aparecen en el
+            // módulo de Observaciones, no de qué trabajadores son AC). "Proyecto actual" usa el mismo
+            // criterio que HabTrabajadorRepository.GetPaged ("LatestVincActiva"): la vinculación con
+            // FechaFin == null más reciente (CreatedAt, luego Id) por trabajador.
+            // El staff ya tiene su propio correo/usuario individual y no pasa por este selector; a
+            // este solo llegan cuentas de campo compartidas (operarioscomercial@abril.pe).
+            var vinculacionActivaPorWorker = ctx.WorkerVinculacion
+                .Where(v => v.FechaFin == null)
+                .Where(v => !ctx.WorkerVinculacion.Any(otra =>
+                    otra.WorkerId == v.WorkerId &&
+                    otra.FechaFin == null &&
+                    (otra.CreatedAt > v.CreatedAt || (otra.CreatedAt == v.CreatedAt && otra.Id > v.Id))));
+
+            var workerIdsConProyectoAcActual = vinculacionActivaPorWorker
+                .Where(v => v.ProyectoId != null)
+                .Join(ctx.Project.Where(p => p.ProjectDescription != null && p.ProjectDescription.ToLower() == "arquitectura comercial"), v => v.ProyectoId, p => p.ProjectId, (v, p) => v.WorkerId);
+
             return await ctx.Worker
-                .Where(w => w.Estado == "ACTIVO" && w.Subarea == "Arquitectura Comercial")
+                .Where(w => w.Estado == "ACTIVO" && workerIdsConProyectoAcActual.Contains(w.Id))
                 .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                 .Select(w => new SupervisorAcDTO
                 {

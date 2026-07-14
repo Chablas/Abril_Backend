@@ -14,8 +14,13 @@ namespace Abril_Backend.Features.SsomaModule.CharlasFeature.Presentation;
 public class CharlaController : ControllerBase
 {
     private readonly ICharlaService _svc;
+    private readonly ILogger<CharlaController> _logger;
 
-    public CharlaController(ICharlaService svc) => _svc = svc;
+    public CharlaController(ICharlaService svc, ILogger<CharlaController> logger)
+    {
+        _svc = svc;
+        _logger = logger;
+    }
 
     // ── Project detection ─────────────────────────────────────────────────────
 
@@ -28,7 +33,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener el proyecto." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener el proyecto."); return StatusCode(500, new { message = "Error al obtener el proyecto." }); }
     }
 
     [HttpGet("proyectos")]
@@ -39,7 +44,7 @@ public class CharlaController : ControllerBase
             var result = await _svc.GetTodosProyectosAsync();
             return Ok(result);
         }
-        catch { return StatusCode(500, new { message = "Error al obtener proyectos." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener proyectos."); return StatusCode(500, new { message = "Error al obtener proyectos." }); }
     }
 
     [HttpGet("resumen")]
@@ -51,7 +56,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener resumen." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener resumen."); return StatusCode(500, new { message = "Error al obtener resumen." }); }
     }
 
     // ── Staff ─────────────────────────────────────────────────────────────────
@@ -65,7 +70,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener staff." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener staff."); return StatusCode(500, new { message = "Error al obtener staff." }); }
     }
 
     // ── Tab 1: Asistencia ─────────────────────────────────────────────────────
@@ -79,7 +84,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener charlas." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener charlas."); return StatusCode(500, new { message = "Error al obtener charlas." }); }
     }
 
     [HttpPost("charlas")]
@@ -91,7 +96,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al crear charla." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al crear charla."); return StatusCode(500, new { message = "Error al crear charla." }); }
     }
 
     [HttpDelete("charlas/{id}")]
@@ -103,7 +108,7 @@ public class CharlaController : ControllerBase
             return NoContent();
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al eliminar charla." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al eliminar charla."); return StatusCode(500, new { message = "Error al eliminar charla." }); }
     }
 
     [HttpGet("charlas/{charlaId}/asistencia")]
@@ -115,7 +120,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener asistencia." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener asistencia."); return StatusCode(500, new { message = "Error al obtener asistencia." }); }
     }
 
     [HttpPost("charlas/{charlaId}/asistencia")]
@@ -127,7 +132,7 @@ public class CharlaController : ControllerBase
             return NoContent();
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al guardar asistencia." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al guardar asistencia."); return StatusCode(500, new { message = "Error al guardar asistencia." }); }
     }
 
     // ── Tab 2: Capacitaciones Staff ───────────────────────────────────────────
@@ -141,7 +146,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener capacitaciones." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener capacitaciones."); return StatusCode(500, new { message = "Error al obtener capacitaciones." }); }
     }
 
     [HttpPost("capacitaciones/mi-evidencia")]
@@ -154,7 +159,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al subir capacitación." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al subir capacitación."); return StatusCode(500, new { message = "Error al subir capacitación." }); }
     }
 
     [HttpPost("capacitaciones/mi-evidencia-multi")]
@@ -173,7 +178,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al subir capacitación." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al subir capacitación."); return StatusCode(500, new { message = "Error al subir capacitación." }); }
     }
 
     [HttpPost("capacitaciones/{workerId}")]
@@ -186,7 +191,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al subir capacitación." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al subir capacitación."); return StatusCode(500, new { message = "Error al subir capacitación." }); }
     }
 
     [HttpPut("capacitaciones/{id}/estado")]
@@ -198,7 +203,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al cambiar estado." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al cambiar estado."); return StatusCode(500, new { message = "Error al cambiar estado." }); }
     }
 
     [HttpDelete("capacitaciones/{id}")]
@@ -210,7 +215,7 @@ public class CharlaController : ControllerBase
             return NoContent();
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al eliminar capacitación." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al eliminar capacitación."); return StatusCode(500, new { message = "Error al eliminar capacitación." }); }
     }
 
     // ── NEW: Tab 1 — Dashboard Asistencia Supervisores ────────────────────────
@@ -224,7 +229,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener dashboard de supervisores." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener dashboard de supervisores."); return StatusCode(500, new { message = "Error al obtener dashboard de supervisores." }); }
     }
 
     // ── NEW: Tab 2 — Comparativo ──────────────────────────────────────────────
@@ -238,7 +243,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener comparativo." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener comparativo."); return StatusCode(500, new { message = "Error al obtener comparativo." }); }
     }
 
     // ── NEW: Tab 3 — Crear nueva charla ──────────────────────────────────────
@@ -252,7 +257,7 @@ public class CharlaController : ControllerBase
             return StatusCode(201, result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al crear charla." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al crear charla."); return StatusCode(500, new { message = "Error al crear charla." }); }
     }
 
     // ── NEW: Tab 4 — Lista paginada ───────────────────────────────────────────
@@ -270,7 +275,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener lista de charlas." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener lista de charlas."); return StatusCode(500, new { message = "Error al obtener lista de charlas." }); }
     }
 
     [HttpGet("{id:int}/detalle")]
@@ -282,7 +287,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener detalle." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener detalle."); return StatusCode(500, new { message = "Error al obtener detalle." }); }
     }
 
     [HttpPut("{id:int}/aprobar")]
@@ -294,7 +299,7 @@ public class CharlaController : ControllerBase
             return Ok(new { message = "Charla aprobada." });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al aprobar charla." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al aprobar charla."); return StatusCode(500, new { message = "Error al aprobar charla." }); }
     }
 
     [HttpPut("{id:int}/rechazar")]
@@ -306,7 +311,7 @@ public class CharlaController : ControllerBase
             return Ok(new { message = "Charla rechazada." });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al rechazar charla." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al rechazar charla."); return StatusCode(500, new { message = "Error al rechazar charla." }); }
     }
 
     [HttpGet("dashboard-personal")]
@@ -314,7 +319,7 @@ public class CharlaController : ControllerBase
     {
         try { return Ok(await _svc.GetDashPersonalAsync(proyectoId, mes, anio)); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener dashboard personal." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener dashboard personal."); return StatusCode(500, new { message = "Error al obtener dashboard personal." }); }
     }
 
     [HttpGet("dashboard-proyectos")]
@@ -322,7 +327,7 @@ public class CharlaController : ControllerBase
     {
         try { return Ok(await _svc.GetDashProyectosAsync(mes, anio)); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener dashboard proyectos." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener dashboard proyectos."); return StatusCode(500, new { message = "Error al obtener dashboard proyectos." }); }
     }
 
     [HttpPut("charlas/{charlaId}/asistencia")]
@@ -334,7 +339,7 @@ public class CharlaController : ControllerBase
             return NoContent();
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al editar asistencia." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al editar asistencia."); return StatusCode(500, new { message = "Error al editar asistencia." }); }
     }
 
     [HttpGet("charlas-proyecto")]
@@ -346,7 +351,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener charlas del proyecto." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener charlas del proyecto."); return StatusCode(500, new { message = "Error al obtener charlas del proyecto." }); }
     }
 
     // ── NEW: Mis capacitaciones ───────────────────────────────────────────────
@@ -360,7 +365,7 @@ public class CharlaController : ControllerBase
             return Ok(result);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-        catch { return StatusCode(500, new { message = "Error al obtener mis capacitaciones." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener mis capacitaciones."); return StatusCode(500, new { message = "Error al obtener mis capacitaciones." }); }
     }
 
     // ── NEW: Supervisor search ────────────────────────────────────────────────
@@ -373,6 +378,6 @@ public class CharlaController : ControllerBase
             var result = await _svc.GetSupervisoresAsync(search);
             return Ok(result);
         }
-        catch { return StatusCode(500, new { message = "Error al obtener supervisores." }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en CharlaController: {Message}", "Error al obtener supervisores."); return StatusCode(500, new { message = "Error al obtener supervisores." }); }
     }
 }

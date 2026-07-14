@@ -9,9 +9,12 @@ public interface IObservacionRepository
     Task<ObservacionListItemDTO?> GetObservacionById(int id);
     Task<ObservacionFiltrosDTO> GetFiltros();
     Task<ObservacionDashboardDTO> GetDashboard(DateTime? desde, DateTime? hasta, int? proyectoId);
+    Task<ObservacionStatsDTO> GetStats(DateTime? desde, DateTime? hasta, int? proyectoId);
     Task<AcObservacion> CreateObservacion(CreateObservacionDTO body, string codigo);
     Task<AcObservacionFoto> AgregarFoto(int observacionId, string tipo, string url, int orden);
-    Task<ObservacionListItemDTO?> LevantarObservacion(int id);
+    Task<AcObservacionFoto?> GetFotoById(int fotoId);
+    Task ActualizarFoto(int fotoId, string url);
+    Task<ObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId);
     Task<int> GetProximoCorrelativo(string prefijoProyecto, int anio);
     Task<string> GetProyectoAbbreviation(int proyectoId);
     Task<ObservacionListItemDTO?> UpdateObservacion(int id, UpdateObservacionDTO body);

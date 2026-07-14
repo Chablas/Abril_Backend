@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
@@ -30,7 +31,15 @@ public class AcObservacion
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? FechaLevantamiento { get; set; }
 
+    /// <summary>Trabajador (Subarea = "Arquitectura Comercial") que levantó la observación — el
+    /// login de campo es una sola cuenta compartida (operarioscomercial@abril.pe), así que quién
+    /// levantó no se puede inferir de la sesión y hay que registrarlo explícitamente.</summary>
+    public int? LevantaPorWorkerId { get; set; }
+
     public Project? Proyecto { get; set; }
+
+    [ForeignKey(nameof(LevantaPorWorkerId))]
+    public Worker? LevantaPor { get; set; }
     public ICollection<AcObservacionFoto> Fotos { get; set; } = [];
 }
 

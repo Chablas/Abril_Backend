@@ -114,7 +114,9 @@ public class RacController : ControllerBase
         {
             var actual = await _service.GetDetalleAsync(id);
             if (actual is null) return NotFound(new { message = "RAC no encontrado." });
-            if (!EsPropioDeContratista(actual.EmpresaReportadaId, actual.EmpresaReportanteId)) return Forbid();
+            // Cerrar/levantar es solo de la empresa reportada (a quien se le observó);
+            // la empresa reportante puede ver el RAC pero no levantarlo por ella.
+            if (!EsPropioDeContratista(actual.EmpresaReportadaId)) return Forbid();
             return Ok(await _service.CerrarAsync(id, req, GetUserId()));
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -135,6 +137,23 @@ public class RacController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.SubirFoto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}/fotos/{fotoId:int}")]
+    public async Task<IActionResult> GetFoto(int id, int fotoId)
+    {
+        try
+        {
+            var actual = await _service.GetDetalleAsync(id);
+            if (actual is null) return NotFound(new { message = "RAC no encontrado." });
+            if (!EsPropioDeContratista(actual.EmpresaReportadaId, actual.EmpresaReportanteId)) return Forbid();
+            if (!actual.Fotos.Any(f => f.Id == fotoId)) return NotFound(new { message = "Foto no encontrada." });
+            var bytes = await _service.GetFotoBytesAsync(fotoId);
+            if (bytes is null) return NotFound(new { message = "Foto no disponible." });
+            return File(bytes, "image/jpeg");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetFoto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     [HttpGet("{id:int}/reporte")]

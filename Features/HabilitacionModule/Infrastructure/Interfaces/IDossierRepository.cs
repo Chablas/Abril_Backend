@@ -18,4 +18,6 @@ public interface IDossierRepository
     Task EliminarArchivoAsync(int archivoId);
     Task RevertirABorradorAsync(int dossierId);
     Task<string?> GetArchivoPathByIdAsync(int archivoId);
+    Task<int?> GetContributorIdDeDocumentoAsync(int docId);
+    Task<int?> GetContributorIdDeArchivoAsync(int archivoId);
 }

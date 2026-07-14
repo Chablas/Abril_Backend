@@ -15,7 +15,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/interconsultas")]
     [Authorize]
-    [RequireFeature("ssoma.salud-ocupacional.interconsultas")]
+    [RequireFeature("ssoma.salud-ocupacional.interconsultas", "clinica.agenda")]
     public class InterconsultaController : ControllerBase
     {
         private readonly IInterconsultaService _service;

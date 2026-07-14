@@ -73,7 +73,14 @@ public class InspeccionController : ControllerBase
     [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> GetDetalle(int id)
     {
-        try { return Ok(await _service.GetDetalleAsync(id)); }
+        try
+        {
+            var detalle = await _service.GetDetalleAsync(id);
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue && detalle.EmpresaId != empresaId.Value && detalle.EmpresaInspectoraId != empresaId.Value)
+                return Forbid();
+            return Ok(detalle);
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error detalle inspeccion {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -88,6 +95,7 @@ public class InspeccionController : ControllerBase
                 return BadRequest(new { message = "El tipo de inspección es requerido." });
             if (request.ProyectoId <= 0)
                 return BadRequest(new { message = "El proyecto es requerido." });
+            request.EmpresaInspectoraId = GetEmpresaIdContratista();
             var id = await _service.CrearInspeccionAsync(request);
             return Ok(new { id, message = "Inspección registrada correctamente." });
         }
@@ -107,7 +115,7 @@ public class InspeccionController : ControllerBase
             if (empresaId.HasValue)
             {
                 var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(id);
-                if (empresaHallazgo != empresaId.Value) return Forbid();
+                if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
             }
             await _service.CerrarHallazgoAsync(id, request);
             return Ok(new { message = "Hallazgo cerrado correctamente." });
@@ -123,6 +131,9 @@ public class InspeccionController : ControllerBase
         try
         {
             var detalle = await _service.GetDetalleAsync(id);
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue && detalle.EmpresaId != empresaId.Value && detalle.EmpresaInspectoraId != empresaId.Value)
+                return Forbid();
             var pdf = await _pdfService.GenerarPdfAsync(detalle);
             return File(pdf, "application/pdf", $"Inspeccion_{id}_{DateTime.Now:yyyyMMdd}.pdf");
         }
@@ -154,7 +165,7 @@ public class InspeccionController : ControllerBase
             if (empresaId.HasValue)
             {
                 var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(hallazgoId);
-                if (empresaHallazgo != empresaId.Value) return Forbid();
+                if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
             }
             await _service.LevantarHallazgoAsync(hallazgoId, dto);
             return Ok(new { message = "Hallazgo actualizado correctamente." });

@@ -15,5 +15,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         Task UpdateContributorLocationAsync(int contributorId, string? district, string? province, string? department);
         Task UpdateEmails(int id, ProjectEmailsUpdateDto dto);
         Task<ProjectEmailsUpdateDto?> GetEmails(int projectId);
+        Task<bool?> ToggleArquitecturaComercial(int projectId);
     }
 }

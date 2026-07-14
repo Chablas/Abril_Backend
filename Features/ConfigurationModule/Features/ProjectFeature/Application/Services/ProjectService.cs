@@ -114,5 +114,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         {
             return await _repository.GetEmails(projectId);
         }
+
+        public async Task<bool?> ToggleArquitecturaComercial(int projectId)
+        {
+            return await _repository.ToggleArquitecturaComercial(projectId);
+        }
     }
 }

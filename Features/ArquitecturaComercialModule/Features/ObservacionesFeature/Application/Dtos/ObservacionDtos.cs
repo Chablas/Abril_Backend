@@ -71,6 +71,20 @@ public class LevantarObservacionDTO
     public string? Comentario { get; set; }
 }
 
+/// <summary>
+/// Edición de una observación ya reportada (requiere el featureKey
+/// "arquitectura-comercial.observaciones.editar", asignado por rol desde
+/// Configuración > Roles y Permisos). Campos null = no tocar.
+/// </summary>
+public class UpdateObservacionDTO
+{
+    public string? Lugar { get; set; }
+    public string? Descripcion { get; set; }
+    public string? PartidaReportada { get; set; }
+    public string? AreaResponsable { get; set; }
+    public string? PersonaReporta { get; set; }
+}
+
 public class ObservacionDashboardSupervisorDTO
 {
     public string PersonaReporta { get; set; } = string.Empty;

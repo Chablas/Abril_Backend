@@ -64,6 +64,9 @@ public class ObservacionService : IObservacionService
         return await _repository.LevantarObservacion(id);
     }
 
+    public Task<ObservacionListItemDTO?> UpdateObservacion(int id, UpdateObservacionDTO body)
+        => _repository.UpdateObservacion(id, body);
+
     private static string GetContentType(string fileName)
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant();

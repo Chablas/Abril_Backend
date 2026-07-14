@@ -14,4 +14,5 @@ public interface IObservacionRepository
     Task<ObservacionListItemDTO?> LevantarObservacion(int id);
     Task<int> GetProximoCorrelativo(string prefijoProyecto, int anio);
     Task<string> GetProyectoAbbreviation(int proyectoId);
+    Task<ObservacionListItemDTO?> UpdateObservacion(int id, UpdateObservacionDTO body);
 }

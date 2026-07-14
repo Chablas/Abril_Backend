@@ -10,4 +10,5 @@ public interface IObservacionService
     Task<ObservacionDashboardDTO> GetDashboard(DateTime? desde, DateTime? hasta, int? proyectoId);
     Task<ObservacionListItemDTO> CreateObservacion(CreateObservacionDTO body, Stream? fotoStream, string? fotoFileName);
     Task<ObservacionListItemDTO?> LevantarObservacion(int id, Stream? fotoStream, string? fotoFileName, LevantarObservacionDTO body);
+    Task<ObservacionListItemDTO?> UpdateObservacion(int id, UpdateObservacionDTO body);
 }

@@ -135,4 +135,24 @@ public class ObservacionesController : ControllerBase
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
+
+    [HttpPut("{id:int}")]
+    [RequireFeature("arquitectura-comercial.observaciones.editar")]
+    public async Task<IActionResult> Update(int id, [FromBody] UpdateObservacionDTO body)
+    {
+        try
+        {
+            var result = await _service.UpdateObservacion(id, body);
+            if (result == null) return NotFound(new { message = "No se encontró la observación." });
+            return Ok(result);
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
 }

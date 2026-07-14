@@ -88,11 +88,12 @@ public class ObservacionRepository : IObservacionRepository
     {
         using var ctx = _factory.CreateDbContext();
 
-        var proyectos = await ctx.AcObservaciones
-            .Include(o => o.Proyecto)
-            .Where(o => o.Proyecto != null)
-            .Select(o => new ProyectoFiltroDTO { Id = o.ProyectoId, Nombre = o.Proyecto!.ProjectDescription })
-            .Distinct()
+        // Antes se derivaba de observaciones ya existentes (un proyecto sin observaciones
+        // previas nunca aparecía). Ahora sale del flag TieneArquitecturaComercial en Project,
+        // que el usuario controla desde el ícono de activar/desactivar en la lista.
+        var proyectos = await ctx.Project
+            .Where(p => p.TieneArquitecturaComercial && p.State)
+            .Select(p => new ProyectoFiltroDTO { Id = p.ProjectId, Nombre = p.ProjectDescription })
             .OrderBy(p => p.Nombre)
             .ToListAsync();
 
@@ -218,6 +219,24 @@ public class ObservacionRepository : IObservacionRepository
 
         o.Estado = "Completado";
         o.FechaLevantamiento = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+
+        return await GetObservacionById(id);
+    }
+
+    public async Task<ObservacionListItemDTO?> UpdateObservacion(int id, UpdateObservacionDTO body)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var o = await ctx.AcObservaciones.FirstOrDefaultAsync(x => x.Id == id);
+        if (o == null) return null;
+
+        // null = no tocar; string vacío si se quiere vaciar el campo (mismo criterio que UpdateEmails de Project).
+        if (body.Lugar != null) o.Lugar = string.IsNullOrWhiteSpace(body.Lugar) ? null : body.Lugar.Trim();
+        if (body.Descripcion != null && !string.IsNullOrWhiteSpace(body.Descripcion)) o.Descripcion = body.Descripcion.Trim();
+        if (body.PartidaReportada != null) o.PartidaReportada = string.IsNullOrWhiteSpace(body.PartidaReportada) ? null : body.PartidaReportada.Trim();
+        if (body.AreaResponsable != null) o.AreaResponsable = string.IsNullOrWhiteSpace(body.AreaResponsable) ? null : body.AreaResponsable.Trim();
+        if (body.PersonaReporta != null) o.PersonaReporta = string.IsNullOrWhiteSpace(body.PersonaReporta) ? null : body.PersonaReporta.Trim();
+
         await ctx.SaveChangesAsync();
 
         return await GetObservacionById(id);

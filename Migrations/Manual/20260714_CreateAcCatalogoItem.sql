@@ -2,7 +2,7 @@
 -- Responsable). Antes eran texto libre / valores distintos ya usados; ahora
 -- son listas curadas, editables desde un modal en el frontend.
 
-CREATE TABLE IF NOT EXISTS ac_catalogo_item (
+CREATE TABLE IF NOT EXISTS ac_catalogo_items (
     id          SERIAL PRIMARY KEY,
     tipo        VARCHAR(30)  NOT NULL,
     nombre      VARCHAR(150) NOT NULL,
@@ -11,10 +11,10 @@ CREATE TABLE IF NOT EXISTS ac_catalogo_item (
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS ix_ac_catalogo_item_tipo ON ac_catalogo_item (tipo);
+CREATE INDEX IF NOT EXISTS ix_ac_catalogo_items_tipo ON ac_catalogo_items (tipo);
 
 -- Seed: Partidas (PartidasArqComercial.csv)
-INSERT INTO ac_catalogo_item (tipo, nombre, orden, activo)
+INSERT INTO ac_catalogo_items (tipo, nombre, orden, activo)
 SELECT 'Partida', v.nombre, v.orden, TRUE
 FROM (VALUES
     ('Carpintería en madera', 1),

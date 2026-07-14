@@ -1,3 +1,4 @@
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Interfaces;
@@ -16,7 +17,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Applic
         public Task<VisibilidadInicialDto> GetInitialDataAsync()
             => _repo.GetInitialDataAsync();
 
-        public Task<List<VisibilidadAreaNodeDto>> GetAreaTreeAsync()
+        public Task<List<GaAreaNodeDto>> GetAreaTreeAsync()
             => _repo.GetAreaTreeAsync();
 
         public Task<List<VisibilidadAsignacionDto>> GetWorkerAsignacionesAsync(int workerId)

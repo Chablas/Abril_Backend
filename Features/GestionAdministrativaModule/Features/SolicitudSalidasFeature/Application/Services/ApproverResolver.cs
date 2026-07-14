@@ -5,6 +5,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Services
 {
+    // ══════════════════════════════════════════════════════════════════════════
+    // JefeResolver (ApproverResolver) — SIN USO desde 2026-07-13.
+    //
+    // Este algoritmo de jerarquía (árbol area_scope + categoría del trabajador)
+    // fue reemplazado por la tabla `workers_revisores` (n revisores por trabajador,
+    // por prioridad) con fallback al área de GTH (area_scope.email). Ver
+    // SalidaRevisorResolver. Se conserva el código por si se necesita retomar el
+    // algoritmo en el futuro — buscar "JefeResolver" para llegar rápido aquí.
+    // ══════════════════════════════════════════════════════════════════════════
     /// <summary>
     /// Resuelve el correo del aprobador para una solicitud de salida usando el árbol
     /// <c>area_scope</c> y la categoría del trabajador.

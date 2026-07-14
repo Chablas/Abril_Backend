@@ -134,6 +134,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string Motivo { get; set; } = string.Empty;
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
+        /// <summary>webUrl del documento adjunto del trayecto (motivos con requiere_adjunto). Null si no tiene.</summary>
+        public string? AdjuntoUrl { get; set; }
+        public string? AdjuntoFilename { get; set; }
         public List<GestionSalidaCapturaDto> Capturas { get; set; } = new();
         /// <summary>Monto del catálogo ga_trayecto si aplica (worker TI + match origen/destino).</summary>
         public decimal? MontoCatalogo { get; set; }

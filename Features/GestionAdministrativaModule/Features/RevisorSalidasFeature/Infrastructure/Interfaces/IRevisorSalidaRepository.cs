@@ -4,13 +4,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastruc
 {
     public interface IRevisorSalidaRepository
     {
-        /// <summary>Trabajadores con correo @abril.pe + su revisor de salidas asignado (si lo tiene).</summary>
-        Task<List<WorkerRevisorSalidaItemDto>> GetWorkerRevisoresAsync();
+        /// <summary>Carga inicial: trabajadores con sus revisores + opciones + árbol de áreas, en una sola conexión.</summary>
+        Task<RevisorSalidaInicialDto> GetInitialDataAsync();
 
-        /// <summary>Opciones para el selector de revisor: workers con correo corporativo @abril.pe.</summary>
-        Task<List<WorkerRevisorSalidaOptionDto>> GetWorkerRevisorOptionsAsync();
-
-        /// <summary>Asigna (o limpia con null) el revisor de salidas de un trabajador.</summary>
-        Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId);
+        /// <summary>Reemplaza el conjunto de revisores vivos de un trabajador (diff con soft-delete).</summary>
+        Task UpdateWorkerRevisoresAsync(int workerId, List<WorkerRevisorAsignacionDto> revisores);
     }
 }

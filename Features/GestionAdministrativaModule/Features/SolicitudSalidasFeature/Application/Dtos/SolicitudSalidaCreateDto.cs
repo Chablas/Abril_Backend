@@ -18,6 +18,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public string Motivo { get; set; } = string.Empty;
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
+        /// <summary>webUrl del documento adjunto del trayecto (motivos con requiere_adjunto). Null si no tiene.</summary>
+        public string? AdjuntoUrl { get; set; }
+        public string? AdjuntoFilename { get; set; }
         public List<SolicitudSalidaCapturaDto> Capturas { get; set; } = new();
         /// <summary>
         /// Monto del catálogo <c>ga_trayecto</c> que matchea (origen, destino) — solo poblado
@@ -68,6 +71,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     {
         public DateOnly FechaSalida { get; set; }
         public List<TrayectoCreateDto> Trayectos { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Resultado de la subida a SharePoint del documento adjunto de un trayecto
+    /// (interno del backend: lo arma el service tras subir el archivo, no viene del cliente).
+    /// </summary>
+    public class TrayectoAdjuntoSubidoDto
+    {
+        public string Url { get; set; } = string.Empty;
+        public string? ItemId { get; set; }
+        public string DriveId { get; set; } = string.Empty;
+        public string Filename { get; set; } = string.Empty;
     }
 
     public class SolicitudSalidaFiltersDto

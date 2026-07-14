@@ -1,5 +1,7 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
@@ -28,14 +30,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
             return new VisibilidadInicialDto
             {
                 Workers = await LoadWorkersAsync(ctx),
-                AreaTree = await LoadAreaTreeAsync(ctx),
+                AreaTree = await GaAreaTreeLoader.LoadAsync(ctx),
             };
         }
 
-        public async Task<List<VisibilidadAreaNodeDto>> GetAreaTreeAsync()
+        public async Task<List<GaAreaNodeDto>> GetAreaTreeAsync()
         {
             using var ctx = _factory.CreateDbContext();
-            return await LoadAreaTreeAsync(ctx);
+            return await GaAreaTreeLoader.LoadAsync(ctx);
         }
 
         private static async Task<List<VisibilidadWorkerItemDto>> LoadWorkersAsync(AppDbContext ctx)
@@ -70,27 +72,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
                 if (counts.TryGetValue(w.WorkerId, out var n)) w.AreasAsignadas = n;
 
             return workers;
-        }
-
-        private static async Task<List<VisibilidadAreaNodeDto>> LoadAreaTreeAsync(AppDbContext ctx)
-        {
-            return await (
-                from s in ctx.AreaScope
-                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
-                join at in ctx.AreaType on ai.AreaTypeId equals at.AreaTypeId
-                where s.State && ai.State && at.State
-                orderby s.DisplayOrder
-                select new VisibilidadAreaNodeDto
-                {
-                    AreaScopeId = s.AreaScopeId,
-                    AreaItemId = s.AreaItemId,
-                    AreaItemName = ai.AreaItemName,
-                    AreaTypeId = ai.AreaTypeId,
-                    AreaTypeName = at.AreaTypeName,
-                    AreaScopeParentId = s.AreaScopeParentId,
-                    DisplayOrder = s.DisplayOrder,
-                }
-            ).ToListAsync();
         }
 
         public async Task<List<VisibilidadAsignacionDto>> GetWorkerAsignacionesAsync(int workerId)

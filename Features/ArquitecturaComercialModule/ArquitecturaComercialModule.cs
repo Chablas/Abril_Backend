@@ -17,6 +17,9 @@ public static class ArquitecturaComercialModule
         services.AddScoped<IObservacionSharePointService, ObservacionSharePointService>();
         services.AddScoped<IObservacionService, ObservacionService>();
 
+        services.AddScoped<ICatalogoRepository, CatalogoRepository>();
+        services.AddScoped<ICatalogoService, CatalogoService>();
+
         return services;
     }
 }

@@ -398,6 +398,7 @@ namespace Abril_Backend.Infrastructure.Data
 
         public DbSet<AcObservacion> AcObservaciones => Set<AcObservacion>();
         public DbSet<AcObservacionFoto> AcObservacionFotos => Set<AcObservacionFoto>();
+        public DbSet<AcCatalogoItem> AcCatalogoItems => Set<AcCatalogoItem>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

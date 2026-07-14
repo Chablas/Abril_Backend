@@ -187,12 +187,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         // ===== Empresas =====
-        // Antes [AllowAnonymous]: quedaban públicos sin querer (ningún flujo público los usa —
-        // el registro de contratistas tiene su propio ContractorRegistrationController separado).
-        // [Authorize] a secas (sin Roles) sobrescribe el [Authorize(Roles = AdministradorSsoma)]
-        // de la clase, porque el listado lo consumen RAC/Inspecciones/Habilitación/Configuración
-        // desde muchos roles distintos, no solo AdministradorSsoma.
-        [Authorize]
+        // [AllowAnonymous], igual que el resto de catálogos GET de esta clase (clinicas, medicos,
+        // emo-tipos, etc.): lo consumen RAC/Inspecciones/Habilitación/Configuración desde muchos
+        // roles distintos, no solo AdministradorSsoma. Un intento anterior de poner [Authorize] a
+        // secas para exigir login sin admin rompió producción: en ASP.NET Core los [Authorize] de
+        // clase y de método se COMBINAN (AND), no se sobrescriben — el [Authorize(Roles=
+        // AdministradorSsoma)] de la clase seguía aplicando igual, así que cualquier usuario sin
+        // ese rol específico (la mayoría de quienes crean RAC) recibía 403 al abrir "Nuevo RAC".
+        [AllowAnonymous]
         [HttpGet("empresas")]
         public async Task<IActionResult> GetEmpresas([FromQuery] bool soloActivas = true)
         {

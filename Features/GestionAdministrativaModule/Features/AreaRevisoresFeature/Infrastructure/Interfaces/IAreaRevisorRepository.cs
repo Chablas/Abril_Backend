@@ -4,7 +4,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
 {
     public interface IAreaRevisorRepository
     {
-        Task<AreaRevisorInicialDto> GetInitialDataAsync();
+        /// <param name="userId">Usuario autenticado (app_user).</param>
+        /// <param name="verTodas">true = ve todas las áreas (rol ADMINISTRADOR DE SOLICITUD DE SALIDAS).</param>
+        Task<AreaRevisorInicialDto> GetInitialDataAsync(int userId, bool verTodas);
         Task UpdateAreaRevisoresAsync(int areaScopeId, List<AreaRevisorAsignacionDto> revisores);
     }
 }

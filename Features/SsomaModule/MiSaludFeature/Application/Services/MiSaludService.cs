@@ -42,14 +42,16 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
 
             var workerId = await _repo.ResolverWorkerIdAsync(userId);
 
-            string? urlCertificado = null;
-            if (dto.Documento != null && dto.Documento.Length > 0)
+            var adjuntos = new List<(string Url, string Nombre)>();
+            foreach (var documento in dto.Documentos ?? [])
             {
+                if (documento.Length <= 0) continue;
                 try
                 {
-                    using var stream = dto.Documento.OpenReadStream();
-                    urlCertificado = await _sharePoint.SubirArchivoAsync(
-                        stream, dto.Documento.FileName, "descanso-medico");
+                    using var stream = documento.OpenReadStream();
+                    var url = await _sharePoint.SubirArchivoAsync(
+                        stream, documento.FileName, "descanso-medico");
+                    adjuntos.Add((url, documento.FileName));
                 }
                 catch (Exception ex)
                 {
@@ -57,7 +59,7 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
                 }
             }
 
-            return await _repo.CreateDescanso(workerId, dto, userId, urlCertificado);
+            return await _repo.CreateDescanso(workerId, dto, userId, adjuntos);
         }
     }
 }

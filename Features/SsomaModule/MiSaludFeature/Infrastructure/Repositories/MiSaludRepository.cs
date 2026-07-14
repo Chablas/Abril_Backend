@@ -12,6 +12,9 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
     public class MiSaludRepository : IMiSaludRepository
     {
         private const int PageSize = 10;
+        // Regla de negocio: los descansos registrados por el propio trabajador
+        // se guardan siempre con este tipo (el valor vive en ss_descanso_tipo).
+        private const string TipoPorDefecto = "Particular";
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public MiSaludRepository(IDbContextFactory<AppDbContext> factory)
@@ -72,6 +75,13 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
                 .Select(d => new { d.Estado, d.FechaFin })
                 .FirstOrDefaultAsync();
 
+            // Catálogo de motivos para el formulario de registro
+            var motivos = await ctx.SsDescansoMotivo
+                .Where(m => m.State && m.Active)
+                .OrderBy(m => m.Nombre)
+                .Select(m => new DescansoMotivoDto { Id = m.Id, Nombre = m.Nombre })
+                .ToListAsync();
+
             DateOnly? fechaVenc = emo?.e.FechaVencimientoCalculada ?? emo?.e.FechaVencimiento;
 
             return new MiSaludResumenDto
@@ -88,6 +98,7 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
                 RestriccionesVigentes = restricciones,
                 UltimoDescansoEstado  = ultimoDescanso?.Estado,
                 UltimoDescansoFechaFin = ultimoDescanso?.FechaFin,
+                MotivosDescanso = motivos,
             };
         }
 
@@ -102,26 +113,49 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
             var total = await q.CountAsync();
             var pg    = page < 1 ? 1 : page;
 
-            var items = await q
-                .Skip((pg - 1) * PageSize)
-                .Take(PageSize)
-                .Select(d => new MiDescansoDto
+            var items = await (
+                from d in q
+                join m in ctx.SsDescansoMotivo on d.MotivoId equals m.Id into mj
+                from m in mj.DefaultIfEmpty()
+                select new MiDescansoDto
                 {
                     Id               = d.Id,
                     Tipo             = d.Tipo,
                     FechaInicio      = d.FechaInicio,
                     FechaFin         = d.FechaFin,
                     Dias             = d.Dias,
-                    Motivo           = d.Motivo,
+                    Motivo           = m != null ? m.Nombre : d.Motivo,
                     Diagnostico      = d.Diagnostico,
-                    DiagnosticoCie10 = d.DiagnosticoCie10,
                     Estado           = d.Estado,
                     MotivoRechazo    = d.MotivoRechazo,
                     UrlCertificado   = d.UrlCertificado,
                     UrlDocumento     = d.UrlDocumento,
                     CreatedAt        = d.CreatedAt,
                 })
+                .Skip((pg - 1) * PageSize)
+                .Take(PageSize)
                 .ToListAsync();
+
+            // Adjuntos de los descansos de la página (una sola consulta, sin N+1)
+            var ids = items.Select(i => i.Id).ToList();
+            if (ids.Count > 0)
+            {
+                var adjuntos = await ctx.SsDescansoMedicoAdjunto
+                    .Where(a => a.State && ids.Contains(a.DescansoId))
+                    .OrderBy(a => a.Id)
+                    .Select(a => new { a.DescansoId, a.Url, a.NombreArchivo })
+                    .ToListAsync();
+
+                var porDescanso = adjuntos
+                    .GroupBy(a => a.DescansoId)
+                    .ToDictionary(g => g.Key, g => g
+                        .Select(a => new MiDescansoAdjuntoDto { Url = a.Url, Nombre = a.NombreArchivo })
+                        .ToList());
+
+                foreach (var item in items)
+                    if (porDescanso.TryGetValue(item.Id, out var lista))
+                        item.Adjuntos = lista;
+            }
 
             return new PagedResult<MiDescansoDto>
             {
@@ -133,21 +167,34 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
             };
         }
 
-        public async Task<int> CreateDescanso(int workerId, CrearMiDescansoDto dto, int? userId, string? urlCertificado)
+        public async Task<int> CreateDescanso(int workerId, CrearMiDescansoDto dto, int? userId, List<(string Url, string Nombre)> adjuntos)
         {
             using var ctx = _factory.CreateDbContext();
+
+            var tipo = await ctx.SsDescansoTipo
+                .FirstOrDefaultAsync(t => t.State && t.Nombre == TipoPorDefecto)
+                ?? throw new AbrilException($"No se encontró el tipo de descanso '{TipoPorDefecto}' en el catálogo.", 500);
+
+            SsDescansoMotivo? motivo = null;
+            if (dto.MotivoId.HasValue)
+            {
+                motivo = await ctx.SsDescansoMotivo
+                    .FirstOrDefaultAsync(m => m.Id == dto.MotivoId.Value && m.State)
+                    ?? throw new AbrilException("El motivo seleccionado no es válido.", 400);
+            }
 
             var entity = new SsDescansoMedico
             {
                 WorkerId               = workerId,
-                Tipo                   = dto.Tipo,
+                Tipo                   = tipo.Nombre,
+                TipoId                 = tipo.Id,
                 FechaInicio            = dto.FechaInicio,
                 FechaFin               = dto.FechaFin,
                 Dias                   = dto.Dias ?? (dto.FechaFin.DayNumber - dto.FechaInicio.DayNumber + 1),
-                Motivo                 = dto.Motivo,
+                Motivo                 = motivo?.Nombre,
+                MotivoId               = motivo?.Id,
                 Diagnostico            = dto.Diagnostico,
-                DiagnosticoCie10       = dto.DiagnosticoCie10,
-                UrlCertificado         = urlCertificado,
+                UrlCertificado         = adjuntos.Count > 0 ? adjuntos[0].Url : null,
                 Estado                 = "Pendiente",
                 ReportadoPorTrabajador = true,
                 RegistradoPorId        = userId ?? workerId,
@@ -157,6 +204,20 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
             };
 
             ctx.SsDescansoMedico.Add(entity);
+
+            foreach (var (url, nombre) in adjuntos)
+            {
+                ctx.SsDescansoMedicoAdjunto.Add(new SsDescansoMedicoAdjunto
+                {
+                    Descanso      = entity,
+                    Url           = url,
+                    NombreArchivo = nombre,
+                    State         = true,
+                    CreatedAt     = DateTimeOffset.UtcNow,
+                    UpdatedAt     = DateTimeOffset.UtcNow,
+                });
+            }
+
             await ctx.SaveChangesAsync();
             return entity.Id;
         }

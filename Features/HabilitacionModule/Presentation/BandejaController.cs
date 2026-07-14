@@ -25,6 +25,15 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             _logger = logger;
         }
 
+        private bool EsContratista() => User.FindFirst("tipo")?.Value == "CONTRATISTA";
+
+        /// <summary>Bandeja es la cola de APROBACIÓN interna (revisor de Abril aprueba/rechaza lo
+        /// que sube el contratista) — no tenía ningún control server-side: ni de empresa en las
+        /// listas, ni de rol en las acciones de Aprobar*. Un contratista podía listar y aprobar
+        /// entregables de cualquier otra empresa, o aprobarse a sí mismo.</summary>
+        private int? GetEmpresaIdContratista() =>
+            EsContratista() && int.TryParse(User.FindFirst("empresaId")?.Value, out var id) ? id : null;
+
         [HttpGet]
         public async Task<IActionResult> GetPendientes(
             [FromQuery] string? tipo,
@@ -37,6 +46,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                var empresaContratista = GetEmpresaIdContratista();
+                if (empresaContratista.HasValue) empresaId = empresaContratista.Value;
+
                 var proyectosFiltro = ContratistaProyectosHelper.GetProyectosFiltro(User);
                 if (proyectosFiltro != null && proyectoId == null)
                 {
@@ -67,7 +79,13 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         [HttpGet("proyectos")]
         public async Task<IActionResult> GetProyectosUnicos()
         {
-            try { return Ok(await _repo.GetProyectosUnicosAsync()); }
+            try
+            {
+                // Filtro auxiliar de la bandeja del revisor interno — un contratista no tiene uso
+                // legítimo para esto (solo ve su propia empresa/proyectos igual).
+                if (EsContratista()) return Forbid();
+                return Ok(await _repo.GetProyectosUnicosAsync());
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetProyectosUnicos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
@@ -75,7 +93,11 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         [HttpGet("empresas")]
         public async Task<IActionResult> GetEmpresasUnicas()
         {
-            try { return Ok(await _repo.GetEmpresasUnicasAsync()); }
+            try
+            {
+                if (EsContratista()) return Forbid();
+                return Ok(await _repo.GetEmpresasUnicasAsync());
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en BandejaController.GetEmpresasUnicas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
@@ -92,6 +114,9 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                var empresaContratista = GetEmpresaIdContratista();
+                if (empresaContratista.HasValue) empresaId = empresaContratista.Value;
+
                 var proyectosFiltro = ContratistaProyectosHelper.GetProyectosFiltro(User);
                 if (proyectosFiltro != null && proyectoId == null)
                 {
@@ -114,6 +139,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                if (EsContratista()) return Forbid();
                 var userId = ParseUserIdOrZero();
                 var entity = await _repo.AprobarTrabajadorAsync(id, dto, userId);
                 if (entity is null) return NotFound(new { message = "Entregable no encontrado." });
@@ -128,6 +154,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                if (EsContratista()) return Forbid();
                 var userId = ParseUserIdOrZero();
                 var entity = await _repo.AprobarEmpresaAsync(id, dto, userId);
                 if (entity is null) return NotFound(new { message = "Entregable no encontrado." });
@@ -142,6 +169,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                if (EsContratista()) return Forbid();
                 await _induccionRepo.AprobarAsync(id);
                 return Ok(new { message = "Inducción aprobada." });
             }
@@ -154,6 +182,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                if (EsContratista()) return Forbid();
                 var userId = ParseUserIdOrZero();
                 var entity = await _repo.AprobarEquipoAsync(id, dto, userId);
                 if (entity is null) return NotFound(new { message = "Entregable no encontrado." });
@@ -168,6 +197,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
+                if (EsContratista()) return Forbid();
                 if (dto.Ids == null || dto.Ids.Count == 0)
                     return BadRequest(new { message = "Debe enviar al menos un id." });
 

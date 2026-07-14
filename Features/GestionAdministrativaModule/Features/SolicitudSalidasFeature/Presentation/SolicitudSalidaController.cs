@@ -4,6 +4,7 @@ using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presentation
 {
@@ -95,14 +96,52 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
         }
 
+        /// <summary>
+        /// Crea la solicitud. Multipart: <c>data</c> = JSON del SolicitudSalidaCreateDto;
+        /// <c>adjuntos</c> + <c>adjuntosTrayectoIndex</c> = documentos adjuntos por índice de
+        /// trayecto (0-based), obligatorios cuando el motivo tiene requiere_adjunto = true.
+        /// </summary>
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] SolicitudSalidaCreateDto dto)
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB total
+        public async Task<IActionResult> Create(
+            [FromForm] string data,
+            [FromForm] List<IFormFile>? adjuntos,
+            [FromForm] List<string>? adjuntosTrayectoIndex)
         {
             try
             {
                 var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id)
                     ? id : (int?)null;
-                var newId = await _service.Create(dto, userId);
+
+                SolicitudSalidaCreateDto? dto;
+                try
+                {
+                    // Web defaults = mismas convenciones (camelCase, TimeOnly "HH:mm") que el body JSON anterior.
+                    dto = JsonSerializer.Deserialize<SolicitudSalidaCreateDto>(
+                        data, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                }
+                catch (JsonException)
+                {
+                    return BadRequest(new { message = "El campo 'data' no es un JSON válido." });
+                }
+                if (dto == null)
+                    return BadRequest(new { message = "Datos de la solicitud no recibidos." });
+
+                var files = adjuntos ?? new List<IFormFile>();
+                var indices = adjuntosTrayectoIndex ?? new List<string>();
+                if (files.Count != indices.Count)
+                    return BadRequest(new { message = "La cantidad de adjuntos y de índices de trayecto debe coincidir." });
+
+                var pares = new List<(int TrayectoIndex, IFormFile File)>(files.Count);
+                for (int i = 0; i < files.Count; i++)
+                {
+                    if (!int.TryParse(indices[i], out var trayectoIndex))
+                        return BadRequest(new { message = $"Índice de trayecto inválido en la posición {i + 1}: '{indices[i]}'." });
+                    pares.Add((trayectoIndex, files[i]));
+                }
+
+                var newId = await _service.Create(dto, userId, pares);
                 return Ok(new { id = newId, message = "Solicitud de salida registrada exitosamente." });
             }
             catch (AbrilException ex)

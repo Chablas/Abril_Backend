@@ -3,6 +3,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -97,10 +98,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (aprobId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacionId == aprobId.Value);
 
-            // Visibilidad obligatoria (server-side): el usuario ve las solicitudes en las que él
-            // es el aprobador resuelto (aprobador_worker_id → su user), MÁS las de los trabajadores
-            // que pertenecen a las áreas (area_scope) que tiene permitido ver. Si SeesAll = true no
-            // se aplica restricción por área. El servicio ya resolvió el alcance (override o algoritmo).
+            // Visibilidad obligatoria (server-side): el usuario ve las solicitudes que le fueron
+            // enviadas para revisar (enviado_a_correo → su email_corporativo), las que él decidió
+            // (aprobador_worker_id → su user; también cubre solicitudes antiguas donde ese campo
+            // guardaba al revisor al que se envió), MÁS las de los trabajadores que pertenecen a
+            // las áreas (area_scope) que tiene permitido ver. Si SeesAll = true no se aplica
+            // restricción por área. El servicio ya resolvió el alcance (override o algoritmo).
             if (filters.CurrentUserId.HasValue && !filters.SeesAll)
             {
                 var uid = filters.CurrentUserId.Value;
@@ -108,6 +111,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 solicitudQuery = solicitudQuery.Where(s =>
                     (s.AprobadorWorkerId != null &&
                      ctx.Worker.Any(w => w.Id == s.AprobadorWorkerId &&
+                         ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
+                    ||
+                    (s.EnviadoACorreo != null &&
+                     ctx.Worker.Any(w => w.EmailCorporativo != null &&
+                         w.EmailCorporativo.Trim().ToLower() == s.EnviadoACorreo.Trim().ToLower() &&
                          ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
                     ||
                     ctx.Worker.Any(w => w.Id == s.WorkerId &&
@@ -310,7 +318,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente)
                 throw new AbrilException("Solo se pueden aprobar solicitudes en estado Pendiente.", 400);
             s.EstadoAprobacionId = EstadosSalida.Aprobacion.Aprobado;
+            s.FechaDecision      = DateTimeOffset.UtcNow;
             s.UpdatedAt          = DateTimeOffset.UtcNow;
+            // Decisión desde la web: el aprobador real es el worker del usuario logueado.
+            await SalidaAprobadorHelper.AsignarPorUsuarioAsync(ctx, s, reviewerUserId);
             await ctx.SaveChangesAsync();
         }
 
@@ -322,7 +333,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente)
                 throw new AbrilException("Solo se pueden rechazar solicitudes en estado Pendiente.", 400);
             s.EstadoAprobacionId = EstadosSalida.Aprobacion.Rechazado;
+            s.FechaDecision      = DateTimeOffset.UtcNow;
             s.UpdatedAt          = DateTimeOffset.UtcNow;
+            // Decisión desde la web: quien decide (rechaza) es el worker del usuario logueado.
+            await SalidaAprobadorHelper.AsignarPorUsuarioAsync(ctx, s, reviewerUserId);
             await ctx.SaveChangesAsync();
         }
 
@@ -514,6 +528,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                         Orden       = t.Orden,
                         HoraSalida  = t.HoraSalida,
                         HoraRetorno = t.HoraRetorno,
+                        AdjuntoUrl      = t.AdjuntoUrl,
+                        AdjuntoFilename = t.AdjuntoFilename,
                         Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
                         LugarOrigen = lo == null ? t.LugarOrigenLibre
                                     : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")

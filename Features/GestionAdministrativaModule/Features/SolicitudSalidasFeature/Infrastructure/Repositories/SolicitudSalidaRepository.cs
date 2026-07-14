@@ -1,4 +1,5 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
@@ -24,7 +25,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var motivos = await ctx.GaMotivoSalida
                 .Where(m => m.Activo)
                 .OrderBy(m => m.Descripcion)
-                .Select(m => new MotivoSalidaDto { Id = m.Id, Descripcion = m.Descripcion })
+                .Select(m => new MotivoSalidaDto { Id = m.Id, Descripcion = m.Descripcion, RequiereAdjunto = m.RequiereAdjunto })
                 .ToListAsync();
 
             var lugares = await (
@@ -147,7 +148,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             return result;
         }
 
-        public async Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId)
+        public async Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId, Dictionary<int, TrayectoAdjuntoSubidoDto>? adjuntosPorIndice = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -178,17 +179,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 UpdatedAt        = now,
             };
 
-            var trayectosEnts = dto.Trayectos.Select((t, idx) => new GaSolicitudTrayecto
+            var trayectosEnts = dto.Trayectos.Select((t, idx) =>
             {
-                Orden             = idx,
-                HoraSalida        = t.HoraSalida,
-                HoraRetorno       = t.HoraRetorno,
-                MotivoId          = t.MotivoId,
-                MotivoLibre       = string.IsNullOrWhiteSpace(t.MotivoLibre) ? null : t.MotivoLibre.Trim(),
-                LugarOrigenId     = t.LugarOrigenId,
-                LugarOrigenLibre  = string.IsNullOrWhiteSpace(t.LugarOrigenLibre) ? null : t.LugarOrigenLibre.Trim(),
-                LugarDestinoId    = t.LugarDestinoId,
-                LugarDestinoLibre = string.IsNullOrWhiteSpace(t.LugarDestinoLibre) ? null : t.LugarDestinoLibre.Trim(),
+                var adj = adjuntosPorIndice != null && adjuntosPorIndice.TryGetValue(idx, out var a) ? a : null;
+                return new GaSolicitudTrayecto
+                {
+                    Orden             = idx,
+                    HoraSalida        = t.HoraSalida,
+                    HoraRetorno       = t.HoraRetorno,
+                    MotivoId          = t.MotivoId,
+                    MotivoLibre       = string.IsNullOrWhiteSpace(t.MotivoLibre) ? null : t.MotivoLibre.Trim(),
+                    LugarOrigenId     = t.LugarOrigenId,
+                    LugarOrigenLibre  = string.IsNullOrWhiteSpace(t.LugarOrigenLibre) ? null : t.LugarOrigenLibre.Trim(),
+                    LugarDestinoId    = t.LugarDestinoId,
+                    LugarDestinoLibre = string.IsNullOrWhiteSpace(t.LugarDestinoLibre) ? null : t.LugarDestinoLibre.Trim(),
+                    AdjuntoUrl        = adj?.Url,
+                    AdjuntoItemId     = adj?.ItemId,
+                    AdjuntoDriveId    = adj?.DriveId,
+                    AdjuntoFilename   = adj?.Filename,
+                    AdjuntoUploadedAt = adj != null ? now : null,
+                };
             }).ToList();
 
             // Transacción explícita (Npgsql retry strategy compatible)
@@ -211,12 +221,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             return (solicitud, trayectosEnts, solicitante);
         }
 
-        public async Task SetAprobadorWorkerId(int solicitudId, int aprobadorWorkerId)
+        public async Task SetEnviadoACorreo(int solicitudId, string correo)
         {
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId);
             if (s == null) return;
-            s.AprobadorWorkerId = aprobadorWorkerId;
+            s.EnviadoACorreo = correo.Trim();
             s.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }
@@ -229,6 +239,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             s.EstadoAprobacionId = EstadosSalida.Aprobacion.Aprobado;
             s.FechaDecision    = DateTimeOffset.UtcNow;
             s.UpdatedAt        = DateTimeOffset.UtcNow;
+            // Decisión vía email: atribuir al dueño del correo destinatario (worker o área GTH).
+            await SalidaAprobadorHelper.AsignarPorCorreoEnviadoAsync(ctx, s);
             await ctx.SaveChangesAsync();
             return s;
         }
@@ -242,6 +254,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             s.MotivoRechazo    = string.IsNullOrWhiteSpace(motivoRechazo) ? null : motivoRechazo.Trim();
             s.FechaDecision    = DateTimeOffset.UtcNow;
             s.UpdatedAt        = DateTimeOffset.UtcNow;
+            // Decisión vía email: atribuir al dueño del correo destinatario (worker o área GTH).
+            await SalidaAprobadorHelper.AsignarPorCorreoEnviadoAsync(ctx, s);
             await ctx.SaveChangesAsync();
             return s;
         }
@@ -291,6 +305,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                         Orden       = t.Orden,
                         HoraSalida  = t.HoraSalida,
                         HoraRetorno = t.HoraRetorno,
+                        AdjuntoUrl      = t.AdjuntoUrl,
+                        AdjuntoFilename = t.AdjuntoFilename,
                         Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
                         LugarOrigen = lo == null ? t.LugarOrigenLibre
                                     : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")

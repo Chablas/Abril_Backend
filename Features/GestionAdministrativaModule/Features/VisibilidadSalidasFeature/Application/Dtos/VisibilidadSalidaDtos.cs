@@ -1,3 +1,5 @@
+using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+
 namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Dtos
 {
     /// <summary>Una fila por trabajador con correo @abril.pe en la lista de configuración.</summary>
@@ -18,19 +20,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Applic
     public class VisibilidadInicialDto
     {
         public List<VisibilidadWorkerItemDto> Workers { get; set; } = new();
-        public List<VisibilidadAreaNodeDto> AreaTree { get; set; } = new();
-    }
-
-    /// <summary>Nodo del árbol area_scope para el modal (lista plana; el frontend arma la jerarquía).</summary>
-    public class VisibilidadAreaNodeDto
-    {
-        public int AreaScopeId { get; set; }
-        public int AreaItemId { get; set; }
-        public string AreaItemName { get; set; } = string.Empty;
-        public int AreaTypeId { get; set; }
-        public string AreaTypeName { get; set; } = string.Empty;
-        public int? AreaScopeParentId { get; set; }
-        public int DisplayOrder { get; set; }
+        public List<GaAreaNodeDto> AreaTree { get; set; } = new();
     }
 
     /// <summary>Una asignación de visibilidad: un nodo + si incluye sus descendientes.</summary>

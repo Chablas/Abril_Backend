@@ -26,6 +26,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     {
         public int Id { get; set; }
         public string Descripcion { get; set; } = string.Empty;
+        /// <summary>Si true, el frontend exige subir un documento adjunto al elegir este motivo.</summary>
+        public bool RequiereAdjunto { get; set; }
     }
 
     public class LugarSalidaDto

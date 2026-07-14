@@ -198,6 +198,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaRendicion> GaRendicion { get; set; }
         public DbSet<GaTrayecto> GaTrayecto { get; set; }
         public DbSet<GaSalidaVisibilidadArea> GaSalidaVisibilidadArea { get; set; }
+        public DbSet<WorkersRevisores> WorkersRevisores { get; set; }
+        public DbSet<AreaRevisores> AreaRevisores { get; set; }
+        public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
         // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();

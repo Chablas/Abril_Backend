@@ -1,3 +1,4 @@
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
@@ -16,7 +17,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     public class SolicitudSalidaService : ISolicitudSalidaService
     {
         private readonly ISolicitudSalidaRepository    _repo;
-        private readonly IApproverResolver             _approverResolver;
+        private readonly ISalidaRevisorResolver        _revisorResolver;
         private readonly ISolicitudSalidaTokenService  _tokenService;
         private readonly IEmailService                 _emailService;
         private readonly IDbContextFactory<AppDbContext> _factory;
@@ -30,7 +31,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         public SolicitudSalidaService(
             ISolicitudSalidaRepository repo,
-            IApproverResolver approverResolver,
+            ISalidaRevisorResolver revisorResolver,
             ISolicitudSalidaTokenService tokenService,
             IEmailService emailService,
             IDbContextFactory<AppDbContext> factory,
@@ -39,7 +40,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             IGraphSharePointService sharePointService)
         {
             _repo             = repo;
-            _approverResolver = approverResolver;
+            _revisorResolver  = revisorResolver;
             _tokenService     = tokenService;
             _emailService     = emailService;
             _factory          = factory;
@@ -65,9 +66,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                         .FirstOrDefaultAsync();
                     if (solicitante != null)
                     {
-                        // Aprobador (best-effort): el correo se deriva del worker resuelto.
-                        var aprobador = await _approverResolver.ResolveApproverAsync(solicitante);
-                        data.AprobadorEmail = aprobador?.Email;
+                        // Correo del revisor (best-effort): workers_revisores → fallback GTH.
+                        var revisor = await _revisorResolver.ResolveAsync(solicitante.Id);
+                        data.AprobadorEmail = revisor?.Email;
 
                         // Si el trabajador es TI, exponer el catálogo de trayectos para que el
                         // frontend muestre el monto automático al seleccionar origen+destino.
@@ -100,7 +101,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         public Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId) => _repo.GetFilterData(userId);
 
-        public async Task<int> Create(SolicitudSalidaCreateDto dto, int? userId)
+        public async Task<int> Create(SolicitudSalidaCreateDto dto, int? userId, IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos = null)
         {
             if (dto.Trayectos == null || dto.Trayectos.Count == 0)
                 throw new AbrilException("Debe registrar al menos un trayecto.", 400);
@@ -132,10 +133,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     throw new AbrilException($"Trayecto {pos}: el lugar de origen y el lugar de destino no pueden ser iguales.", 400);
             }
 
-            // 1. Persistir solicitud + trayectos
-            var (solicitud, trayectos, solicitante) = await _repo.Create(dto, userId);
+            // 1. Subir los documentos adjuntos ANTES de persistir: los motivos con
+            //    requiere_adjunto exigen archivo, y así una falla de subida no deja
+            //    solicitudes creadas sin su adjunto obligatorio.
+            var adjuntosPorIndice = await SubirAdjuntosAsync(dto, adjuntos);
 
-            // 2. Resolver aprobador + enviar emails (best-effort)
+            // 2. Persistir solicitud + trayectos (con las referencias de los adjuntos)
+            var (solicitud, trayectos, solicitante) = await _repo.Create(dto, userId, adjuntosPorIndice);
+
+            // 3. Resolver aprobador + enviar emails (best-effort)
             //    Hacemos UNA sola resolución de trayectos en memoria y la compartimos
             //    entre los dos correos (al aprobador y de confirmación al solicitante).
             try
@@ -148,23 +154,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
                 var trayectosResueltos = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
-                // 2a. Email al aprobador. Se guarda el worker aprobador (FK) y el correo se
-                //     deriva de su email_corporativo.
-                var aprobador = await _approverResolver.ResolveApproverAsync(solicitante);
-                var aprobadorEmail = aprobador?.Email;
-                if (aprobador != null && !string.IsNullOrWhiteSpace(aprobador.Email))
+                // 3a. Email al revisor resuelto (workers_revisores → fallback GTH). Se guarda
+                //     el correo al que se envió (enviado_a_correo); el aprobador real
+                //     (aprobador_worker_id / aprobador_area_scope_id) se llena recién al
+                //     momento de la decisión.
+                var revisor = await _revisorResolver.ResolveAsync(solicitante.Id);
+                var aprobadorEmail = revisor?.Email;
+                if (revisor != null && !string.IsNullOrWhiteSpace(revisor.Email))
                 {
-                    await _repo.SetAprobadorWorkerId(solicitud.Id, aprobador.WorkerId);
-                    await SendNotificacionAprobadorAsync(solicitud, trayectosResueltos, aprobador.Email, nombreSolicitante);
+                    await _repo.SetEnviadoACorreo(solicitud.Id, revisor.Email);
+                    // Los documentos adjuntos de la solicitud van SOLO en este correo (revisor);
+                    // la confirmación al solicitante y demás correos no los llevan.
+                    var adjuntosEmail = await BuildAdjuntosEmailAsync(adjuntos);
+                    await SendNotificacionAprobadorAsync(solicitud, trayectosResueltos, revisor.Email, nombreSolicitante, adjuntosEmail);
                 }
                 else
                 {
                     _logger.LogWarning(
-                        "No se pudo resolver aprobador para solicitud {SolicitudId} (worker {WorkerId} - area={Area} subarea={Subarea} categoria={Categoria})",
-                        solicitud.Id, solicitante.Id, solicitante.Area, solicitante.Subarea, solicitante.Categoria);
+                        "No se pudo resolver revisor para solicitud {SolicitudId} (worker {WorkerId}): sin revisores en workers_revisores y sin correo GTH configurado en area_scope.email",
+                        solicitud.Id, solicitante.Id);
                 }
 
-                // 2b. Email de confirmación al solicitante (al mismo usuario que registró la solicitud)
+                // 3b. Email de confirmación al solicitante (al mismo usuario que registró la solicitud)
                 if (userId.HasValue)
                 {
                     try
@@ -183,6 +194,112 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             }
 
             return solicitud.Id;
+        }
+
+        /// <summary>
+        /// Valida y sube los documentos adjuntos de la solicitud (uno por trayecto cuyo motivo
+        /// tenga requiere_adjunto = true) a la carpeta configurada de SharePoint/OneDrive
+        /// (ga_adjunto_folder). Devuelve el resultado por índice de trayecto (0-based),
+        /// o null si la solicitud no trae ningún adjunto ni lo necesita.
+        /// </summary>
+        private async Task<Dictionary<int, TrayectoAdjuntoSubidoDto>?> SubirAdjuntosAsync(
+            SolicitudSalidaCreateDto dto,
+            IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos)
+        {
+            var files = (adjuntos ?? Array.Empty<(int, IFormFile)>())
+                .Where(a => a.File != null && a.File.Length > 0)
+                .ToList();
+
+            if (files.Any(a => a.TrayectoIndex < 0 || a.TrayectoIndex >= dto.Trayectos.Count))
+                throw new AbrilException("Adjunto asociado a un trayecto inexistente.", 400);
+
+            if (files.GroupBy(a => a.TrayectoIndex).Any(g => g.Count() > 1))
+                throw new AbrilException("Solo se permite un documento adjunto por trayecto.", 400);
+
+            var porIndice = files.ToDictionary(a => a.TrayectoIndex, a => a.File);
+
+            // Motivos que exigen adjunto: todo trayecto con uno de esos motivos debe traer archivo.
+            var motivoIds = dto.Trayectos.Where(t => t.MotivoId.HasValue).Select(t => t.MotivoId!.Value).Distinct().ToList();
+            if (motivoIds.Count > 0)
+            {
+                using var ctx = _factory.CreateDbContext();
+                var requieren = (await ctx.GaMotivoSalida
+                        .Where(m => motivoIds.Contains(m.Id) && m.RequiereAdjunto)
+                        .Select(m => m.Id)
+                        .ToListAsync())
+                    .ToHashSet();
+
+                for (int i = 0; i < dto.Trayectos.Count; i++)
+                {
+                    var t = dto.Trayectos[i];
+                    if (t.MotivoId.HasValue && requieren.Contains(t.MotivoId.Value) && !porIndice.ContainsKey(i))
+                        throw new AbrilException($"Trayecto {i + 1}: el motivo seleccionado requiere un documento adjunto.", 400);
+                }
+            }
+
+            if (porIndice.Count == 0) return null;
+
+            // Validar tipos permitidos (documento de prueba: PDF o imagen).
+            var allowed = new[] { ".pdf", ".jpg", ".jpeg", ".png", ".webp" };
+            foreach (var f in porIndice.Values)
+            {
+                var ext = Path.GetExtension(f.FileName).ToLowerInvariant();
+                if (!allowed.Contains(ext))
+                    throw new AbrilException($"Tipo de archivo no permitido: {f.FileName}. Solo PDF/JPG/PNG/WEBP.", 400);
+            }
+
+            // Carpeta destino configurada (Configuración → Carpeta Adjuntos).
+            string driveId, folderId;
+            using (var ctx = _factory.CreateDbContext())
+            {
+                var carpeta = await ctx.GaAdjuntoFolder
+                    .Where(f => f.State && f.Active)
+                    .OrderBy(f => f.GaAdjuntoFolderId)
+                    .Select(f => new { f.DriveId, f.FolderId })
+                    .FirstOrDefaultAsync()
+                    ?? throw new AbrilException(
+                        "No se ha configurado la carpeta donde guardar los documentos adjuntos. " +
+                        "Pide al administrador configurarla en Configuración → Carpeta Adjuntos.", 409);
+                driveId = carpeta.DriveId;
+                folderId = carpeta.FolderId;
+            }
+
+            var resultado = new Dictionary<int, TrayectoAdjuntoSubidoDto>();
+            try
+            {
+                foreach (var (idx, f) in porIndice.OrderBy(kv => kv.Key))
+                {
+                    var ext      = Path.GetExtension(f.FileName).ToLowerInvariant();
+                    var safeName = SanitizeFilename(Path.GetFileNameWithoutExtension(f.FileName));
+                    var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+                    var filename = $"adjunto_{stamp}_t{idx + 1}_{safeName}{ext}";
+
+                    using var stream = f.OpenReadStream();
+                    var result = await _sharePointService.UploadToOneDriveFolderAsync(
+                        driveId, folderId, filename, stream,
+                        f.ContentType ?? "application/octet-stream",
+                        autoRenameOnLock: true);
+
+                    if (result?.WebUrl is null)
+                        throw new AbrilException($"No se pudo subir el documento {f.FileName}.", 502);
+
+                    resultado[idx] = new TrayectoAdjuntoSubidoDto
+                    {
+                        Url      = result.WebUrl,
+                        ItemId   = result.ItemId,
+                        DriveId  = driveId,
+                        Filename = result.FileName ?? filename,
+                    };
+                }
+            }
+            catch (AbrilException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló la subida de adjuntos de la solicitud de salida");
+                throw new AbrilException("Error al subir los documentos adjuntos a SharePoint.", 502);
+            }
+
+            return resultado;
         }
 
         // ── Aprobar / Rechazar desde el email ────────────────────────────────
@@ -277,7 +394,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             GaSolicitudSalida solicitud,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
             string aprobadorEmail,
-            string nombreSolicitante)
+            string nombreSolicitante,
+            List<EmailAttachment>? adjuntosEmail = null)
         {
             var tokenAprobar  = _tokenService.Generate(solicitud.Id, SolicitudSalidaAction.Aprobar,  TimeSpan.FromDays(30));
             var tokenRechazar = _tokenService.Generate(solicitud.Id, SolicitudSalidaAction.Rechazar, TimeSpan.FromDays(30));
@@ -294,7 +412,37 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 to: new List<string> { aprobadorEmail },
                 subject: subject,
                 body: body,
-                isHtml: true);
+                isHtml: true,
+                attachments: adjuntosEmail);
+        }
+
+        /// <summary>
+        /// Convierte los documentos adjuntos de la solicitud (motivos con requiere_adjunto)
+        /// en adjuntos de correo. Null si la solicitud no trae ninguno.
+        /// </summary>
+        private static async Task<List<EmailAttachment>?> BuildAdjuntosEmailAsync(
+            IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos)
+        {
+            var files = (adjuntos ?? Array.Empty<(int, IFormFile)>())
+                .Where(a => a.File != null && a.File.Length > 0)
+                .OrderBy(a => a.TrayectoIndex)
+                .ToList();
+            if (files.Count == 0) return null;
+
+            var result = new List<EmailAttachment>(files.Count);
+            foreach (var (_, f) in files)
+            {
+                using var ms = new MemoryStream();
+                using (var stream = f.OpenReadStream())
+                    await stream.CopyToAsync(ms);
+                result.Add(new EmailAttachment
+                {
+                    FileName    = Path.GetFileName(f.FileName),
+                    ContentType = string.IsNullOrWhiteSpace(f.ContentType) ? "application/octet-stream" : f.ContentType,
+                    Content     = ms.ToArray(),
+                });
+            }
+            return result;
         }
 
         private async Task SendConfirmacionSolicitanteAsync(

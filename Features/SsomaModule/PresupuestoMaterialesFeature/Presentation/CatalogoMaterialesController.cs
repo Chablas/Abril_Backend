@@ -4,6 +4,7 @@ using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Applicatio
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presentation
 {
@@ -15,6 +16,7 @@ namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presen
     [ApiController]
     [Route("api/v1/ssoma/presupuesto-materiales/catalogo")]
     [Authorize]
+    [RequireFeature("ssoma.gestion.presupuesto-materiales")]
     public class CatalogoMaterialesController : ControllerBase
     {
         private readonly ICatalogoMaterialesService _service;

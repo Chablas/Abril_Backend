@@ -4,12 +4,14 @@ using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Applicatio
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma/presupuesto-materiales/control")]
 [Authorize]
+[RequireFeature("ssoma.gestion.presupuesto-materiales")]
 public class ControlConsumoController : ControllerBase
 {
     private readonly IControlConsumoService _service;

@@ -5,6 +5,7 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Dtos;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Presentation
 {
@@ -179,6 +180,30 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             catch (AbrilException ex)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Activa/desactiva rápidamente si el proyecto aparece en los selectores de
+        /// Arquitectura Comercial (Observaciones, etc.) sin pasar por el formulario
+        /// completo de edición de proyecto.
+        /// </summary>
+        [Authorize]
+        [RequireFeature("arquitectura-comercial.observaciones")]
+        [HttpPatch("{id}/arquitectura-comercial")]
+        public async Task<IActionResult> ToggleArquitecturaComercial(int id)
+        {
+            try
+            {
+                var nuevoValor = await _service.ToggleArquitecturaComercial(id);
+                if (nuevoValor == null)
+                    return NotFound(new { message = "Proyecto no encontrado." });
+
+                return Ok(new { tieneArquitecturaComercial = nuevoValor.Value });
             }
             catch (Exception)
             {

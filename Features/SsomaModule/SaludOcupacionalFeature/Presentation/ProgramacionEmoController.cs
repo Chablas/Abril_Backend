@@ -5,12 +5,14 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/programaciones")]
     [Authorize]
+    [RequireFeature("ssoma.salud-ocupacional.programaciones", "clinica.agenda", "clinica.programaciones")]
     public class ProgramacionEmoController : ControllerBase
     {
         private readonly IProgramacionEmoService _service;

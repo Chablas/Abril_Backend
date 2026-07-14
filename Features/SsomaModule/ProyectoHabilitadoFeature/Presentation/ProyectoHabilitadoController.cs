@@ -3,6 +3,7 @@ using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Application.D
 using Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Presentation
 {
@@ -27,6 +28,7 @@ namespace Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Presentat
 
         /// <summary>Lista todos los proyectos activos con su estado de habilitación SSOMA (pantalla de administración).</summary>
         [HttpGet]
+        [RequireFeature("ssoma.gestion.proyectos-habilitados")]
         public async Task<IActionResult> GetTodos()
         {
             try
@@ -51,6 +53,7 @@ namespace Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Presentat
 
         /// <summary>Habilita o deshabilita un proyecto para el módulo SSOMA.</summary>
         [HttpPatch("{proyectoId:int}")]
+        [RequireFeature("ssoma.gestion.proyectos-habilitados")]
         public async Task<IActionResult> SetHabilitado(int proyectoId, [FromBody] ProyectoHabilitadoToggleDto dto)
         {
             try

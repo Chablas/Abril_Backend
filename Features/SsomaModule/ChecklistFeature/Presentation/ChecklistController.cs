@@ -3,12 +3,14 @@ using Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/checklist")]
     [Authorize]
+    [RequireFeature("ssoma.gestion.checklist")]
     public class ChecklistController : ControllerBase
     {
         private readonly IChecklistService _service;

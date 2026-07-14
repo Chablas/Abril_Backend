@@ -4,6 +4,7 @@ using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interface
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Presentation;
 
@@ -46,6 +47,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet]
+    [RequireFeature("ssoma.gestion.inspeccion.lista")]
     public async Task<IActionResult> GetList(
         [FromQuery] int? proyectoId, [FromQuery] int? tipoId,
         [FromQuery] string? estado,
@@ -58,6 +60,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet("dashboard")]
+    [RequireFeature("ssoma.gestion.inspeccion.dashboard")]
     public async Task<IActionResult> GetDashboard(
         [FromQuery] int? proyectoId, [FromQuery] int? anio)
     {
@@ -67,6 +70,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> GetDetalle(int id)
     {
         try { return Ok(await _service.GetDetalleAsync(id)); }
@@ -75,6 +79,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpPost]
+    [RequireFeature("ssoma.gestion.inspeccion.nueva")]
     public async Task<IActionResult> Crear([FromBody] CrearInspeccionRequest request)
     {
         try
@@ -91,6 +96,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpPatch("~/api/v1/ssoma-inspeccion-hallazgo/{id:int}/cerrar")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> CerrarHallazgo(int id, [FromBody] CerrarHallazgoRequest request)
     {
         try
@@ -111,6 +117,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet("{id:int}/pdf")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> GenerarPdf(int id)
     {
         try
@@ -124,6 +131,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet("hallazgos")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> GetHallazgos(
         [FromQuery] string? estado,
         [FromQuery] string? proyecto,
@@ -137,6 +145,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpPatch("hallazgos/{hallazgoId:int}/levantar")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> LevantarHallazgo(int hallazgoId, [FromBody] LevantarHallazgoDto dto)
     {
         try

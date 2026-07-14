@@ -34,6 +34,7 @@ using Abril_Backend.Features.Evaluaciones;
 using Abril_Backend.Features.VecinosModule;
 using Abril_Backend.Features.AccountingModule;
 using Abril_Backend.Features.BoletinModule;
+using Abril_Backend.Features.ArquitecturaComercialModule;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using Abril_Backend.Shared.Interceptors;
@@ -49,6 +50,8 @@ Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -144,6 +147,7 @@ builder.Services.AddMejoraContinuaModule();
 builder.Services.AddVecinosModule();
 builder.Services.AddAccountingModule();
 builder.Services.AddBoletinModule();
+builder.Services.AddArquitecturaComercialModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();

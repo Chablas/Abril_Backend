@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,6 +11,7 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Presentation
     [ApiController]
     [Route("api/v1/ssoma/mi-salud")]
     [Authorize]
+    [RequireFeature("ssoma.salud-ocupacional.mi-salud")]
     public class MiSaludController : ControllerBase
     {
         private readonly IMiSaludService _service;

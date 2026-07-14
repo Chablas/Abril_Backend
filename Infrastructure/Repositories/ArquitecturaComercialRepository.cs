@@ -1303,23 +1303,65 @@ namespace Abril_Backend.Infrastructure.Repositories
             }
 
             var actividades = await query.ToListAsync();
-            var total       = actividades.Count;
-            var culminadas  = actividades.Count(a => a.FinEfectivo != null);
-            var enProceso   = actividades.Count(a => a.InicioEfectivo != null && a.FinEfectivo == null);
             var vencidas    = actividades.Count(a => a.FinProgramado.HasValue
                                  && a.FinProgramado.Value < today
                                  && a.FinEfectivo == null);
-            var pendientes  = actividades.Count(a => a.InicioProgramado.HasValue
-                                 && a.InicioProgramado.Value > today
-                                 && a.InicioEfectivo == null);
 
             var spiVals = actividades.Where(a => a.Spi.HasValue && a.Spi.Value > 0)
                 .Select(a => (double)a.Spi!.Value).ToList();
             var eficienciaMedia = spiVals.Count > 0 ? Math.Round(spiVals.Average(), 2) : 0.0;
-            var progresoGlobal  = total > 0 ? Math.Round((double)culminadas / total * 100, 1) : 0.0;
 
-            var semLunes   = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            // ── Semana de control (viernes): actual, o la seleccionada por filtro ──
+            DateOnly semLunes;
+            if (filtro.Semana.HasValue)
+            {
+                var anioSem   = filtro.Anio ?? today.Year;
+                var jan1Sem   = new DateOnly(anioSem, 1, 1);
+                var dowSem    = (int)jan1Sem.DayOfWeek;
+                var offsetSem = dowSem == 0 ? 6 : dowSem - 1;
+                semLunes = jan1Sem.AddDays((filtro.Semana.Value - 1) * 7 - offsetSem);
+            }
+            else
+            {
+                semLunes = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            }
             var semDomingo = semLunes.AddDays(6);
+            var semanaActualInfo = new SemanaDashboardDTO
+            {
+                Numero = ISOWeek.GetWeekOfYear(semLunes.ToDateTime(TimeOnly.MinValue)),
+                Inicio = semLunes.ToString("dd/MM/yyyy"),
+                Fin    = semDomingo.ToString("dd/MM/yyyy"),
+                Label  = $"Semana {ISOWeek.GetWeekOfYear(semLunes.ToDateTime(TimeOnly.MinValue))}: {semLunes:dd/MM} - {semDomingo:dd/MM}",
+            };
+
+            // ── Ventana "últimas 2 semanas" (default de las cards superiores) ──
+            var dosSemanasInicio = filtro.Semana.HasValue ? semLunes : semLunes.AddDays(-7);
+            var rangoUltimasSemanas = $"Últimas 2 semanas: {dosSemanasInicio:dd/MM} - {semDomingo:dd/MM}";
+
+            bool EnVentana(AcActividad a, DateOnly desde, DateOnly hasta) =>
+                (a.InicioProgramado.HasValue && a.InicioProgramado.Value <= hasta
+                    && (a.FinProgramado ?? DateOnly.MaxValue) >= desde)
+                || (a.FinProgramado.HasValue && a.FinProgramado.Value < desde && a.FinEfectivo == null);
+
+            // Cards superiores (KPI bar): últimas 2 semanas por defecto, o la semana filtrada si aplica
+            var actividadesUltimasSemanas = filtro.Semana.HasValue || filtro.Mes.HasValue
+                ? actividades
+                : actividades.Where(a => EnVentana(a, dosSemanasInicio, semDomingo)).ToList();
+
+            var totalCards      = actividadesUltimasSemanas.Count;
+            var culminadasCards = actividadesUltimasSemanas.Count(a => a.FinEfectivo != null);
+            var enProcesoCards  = actividadesUltimasSemanas.Count(a => a.InicioEfectivo != null && a.FinEfectivo == null);
+            var vencidasCards   = actividadesUltimasSemanas.Count(a => a.FinProgramado.HasValue
+                                     && a.FinProgramado.Value < today && a.FinEfectivo == null);
+            var pendientesCards = actividadesUltimasSemanas.Count(a => a.InicioProgramado.HasValue
+                                     && a.InicioProgramado.Value > today && a.InicioEfectivo == null);
+
+            // Semana actual: progreso global, distribución de carga y ranking de eficiencia (foto de la semana)
+            var actividadesSemanaActual = actividades.Where(a => EnVentana(a, semLunes, semDomingo)).ToList();
+            var totalSemana      = actividadesSemanaActual.Count;
+            var culminadasSemana = actividadesSemanaActual.Count(a => a.FinEfectivo != null);
+            var progresoGlobalSemana = totalSemana > 0
+                ? Math.Round((double)culminadasSemana / totalSemana * 100, 1) : 0.0;
 
             var alertas = new ArqComercialAlertDTO
             {
@@ -1343,7 +1385,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .Where(p => p.ResponsableArqComId != null)
                 .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
 
-            var workerIds = actividades
+            var workerIds = actividadesSemanaActual
                 .SelectMany(a =>
                 {
                     var resp1 = a.UserId ??
@@ -1359,9 +1401,10 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var workerNameMap = workers.ToDictionary(w => w.Id, w => w.Person?.FullName ?? $"Worker {w.Id}");
 
+            // Distribución de carga y ranking de eficiencia: solo actividades de la semana en control (foto semanal)
             var tareasPorArquitectoDetalle = workerIds.Select(uid =>
             {
-                var tareas     = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
+                var tareas     = actividadesSemanaActual.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
                 var completadas = tareas.Count(a => a.FinEfectivo != null);
                 // Carga actual = NO culminadas que ya llegaron a su fecha de inicio
                 var pendientes  = tareas.Where(a => a.FinEfectivo == null
@@ -1383,7 +1426,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             var supervisores = workerIds
                 .Select(uid =>
                 {
-                    var tareas = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
+                    var tareas = actividadesSemanaActual.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
                     var total  = tareas.Count;
                     if (total == 0) return null;
 
@@ -1445,41 +1488,54 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Estado        = ComputeEstado(a.InicioProgramado, a.FinProgramado, a.InicioEfectivo, a.FinEfectivo, today),
                 FechaLimite   = a.FinProgramado?.ToString("dd/MM/yyyy") ?? "",
                 DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
+                Semana        = a.FinProgramado.HasValue ? ISOWeek.GetWeekOfYear(a.FinProgramado.Value.ToDateTime(TimeOnly.MinValue)) : 0,
             }).ToList();
 
             var hace8Semanas = today.AddDays(-56);
-            var semanaRaw = await ctx.AcAvanceSemanal
-                .Where(s => s.Semana >= hace8Semanas)
-                .GroupBy(s => s.Semana)
-                .Select(g => new { Semana = g.Key, Real = g.Average(x => x.PorcentajeAvance) })
-                .OrderBy(s => s.Semana)
-                .ToListAsync();
 
-            // Fix: programado calculado independientemente — cuántas actividades debían estar cerradas en esa semana
+            // Solo se cuenta lo proyectado esa semana: la actividad debía estar en curso durante la semana del snapshot
+            var avanceConActividad = await (
+                from s in ctx.AcAvanceSemanal
+                join a in ctx.AcActividad on s.ActividadId equals a.Id
+                where s.Semana >= hace8Semanas
+                   && a.InicioProgramado.HasValue && a.FinProgramado.HasValue
+                   && a.InicioProgramado.Value <= s.Semana.AddDays(6)
+                   && a.FinProgramado.Value >= s.Semana
+                select new { s.Semana, s.PorcentajeAvance, s.Spi, FinProgramado = a.FinProgramado!.Value }
+            ).ToListAsync();
+
+            var semanaRaw = avanceConActividad
+                .GroupBy(s => s.Semana)
+                .Select(g => new { Semana = g.Key, Real = g.Average(x => (double)x.PorcentajeAvance), Total = g.Count() })
+                .OrderBy(s => s.Semana)
+                .ToList();
+
+            // Programado = cuántas de las actividades proyectadas esa semana debían estar cerradas para esa fecha
             var semanas = semanaRaw.Select(s =>
             {
-                var programadoPct = total > 0
-                    ? Math.Round((double)actividades.Count(a => a.FinProgramado.HasValue && a.FinProgramado.Value <= s.Semana) / total * 100, 2)
+                var proyectadasEsaSemana = avanceConActividad.Where(x => x.Semana == s.Semana).ToList();
+                var programadoPct = proyectadasEsaSemana.Count > 0
+                    ? Math.Round((double)proyectadasEsaSemana.Count(x => x.FinProgramado <= s.Semana) / proyectadasEsaSemana.Count * 100, 2)
                     : 0.0;
                 return new AvanceSemanalDTO
                 {
                     Semana     = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
-                    Real       = s.Real,
+                    Real       = (decimal)s.Real,
                     Programado = (decimal)programadoPct,
                 };
             }).ToList();
 
-            var spiRaw = await ctx.AcAvanceSemanal
-                .Where(s => s.Semana >= hace8Semanas)
+            var spiRaw = avanceConActividad
                 .GroupBy(s => s.Semana)
-                .Select(g => new { Semana = g.Key, Spi = g.Average(x => x.Spi) })
+                .Select(g => new { Semana = g.Key, Spi = g.Average(x => (double)x.Spi) })
                 .OrderBy(s => s.Semana)
-                .ToListAsync();
+                .ToList();
 
             var eficienciaSpi = spiRaw.Select(s => new EficienciaSpiDTO
             {
-                Semana = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
-                Spi    = s.Spi,
+                Semana   = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
+                Spi      = (decimal)s.Spi,
+                Esperado = 1.0m,
             }).ToList();
 
             var categoriasRaw = await ctx.AcCategoria
@@ -1522,23 +1578,25 @@ namespace Abril_Backend.Infrastructure.Repositories
             {
                 Kpis = new ArqComercialKpiDTO
                 {
-                    TotalActividades = total,
-                    Culminadas       = culminadas,
-                    EnProceso        = enProceso,
-                    Vencidas         = vencidas,
-                    Pendientes       = pendientes,
+                    TotalActividades = totalCards,
+                    Culminadas       = culminadasCards,
+                    EnProceso        = enProcesoCards,
+                    Vencidas         = vencidasCards,
+                    Pendientes       = pendientesCards,
                     EficienciaMedia  = eficienciaMedia,
-                    ProgresoGlobal   = progresoGlobal,
+                    ProgresoGlobal   = progresoGlobalSemana,
                 },
                 Alertas            = alertas,
                 Supervisores       = supervisores,
                 HitosCriticos      = hitosCriticos,
+                SemanaActual       = semanaActualInfo,
+                RangoUltimasSemanas= rangoUltimasSemanas,
                 DistribucionEstado = new List<ArqComercialChartItemDTO>
                 {
-                    new() { Label = "Culminadas", Value = culminadas },
-                    new() { Label = "En Proceso", Value = enProceso  },
-                    new() { Label = "Vencidas",   Value = vencidas   },
-                    new() { Label = "Pendientes", Value = pendientes  },
+                    new() { Label = "Culminadas", Value = culminadasCards },
+                    new() { Label = "En Proceso", Value = enProcesoCards  },
+                    new() { Label = "Vencidas",   Value = vencidasCards   },
+                    new() { Label = "Pendientes", Value = pendientesCards  },
                 },
                 RankingEficiencia  = tareasPorArquitectoDetalle.Select(t => new ArqComercialChartItemDTO
                 {

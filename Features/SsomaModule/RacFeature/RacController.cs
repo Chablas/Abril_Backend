@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.Ssoma.Rac;
 
@@ -36,6 +37,7 @@ public class RacController : ControllerBase
         EsContratista() && int.TryParse(User.FindFirst("empresaId")?.Value, out var id) ? id : null;
 
     [HttpGet]
+    [RequireFeature("ssoma.gestion.rac.lista")]
     public async Task<IActionResult> GetList([FromQuery] RacListQuery q)
     {
         try
@@ -48,6 +50,7 @@ public class RacController : ControllerBase
     }
 
     [HttpGet("dashboard")]
+    [RequireFeature("ssoma.gestion.rac.dashboard")]
     public async Task<IActionResult> GetDashboard()
     {
         try { return Ok(await _service.GetDashboardAsync(GetEmpresaIdContratista())); }
@@ -80,6 +83,7 @@ public class RacController : ControllerBase
     }
 
     [HttpPost]
+    [RequireFeature("ssoma.gestion.rac.crear")]
     public async Task<IActionResult> Crear([FromBody] RacCreateRequest req)
     {
         try { return StatusCode(201, await _service.CrearAsync(req, GetUserId())); }
@@ -88,6 +92,7 @@ public class RacController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [RequireFeature("ssoma.gestion.rac.detalle")]
     public async Task<IActionResult> GetDetalle(int id)
     {
         try
@@ -102,6 +107,7 @@ public class RacController : ControllerBase
     }
 
     [HttpPatch("{id:int}/cerrar")]
+    [RequireFeature("ssoma.gestion.rac.cerrar")]
     public async Task<IActionResult> Cerrar(int id, [FromBody] RacCerrarRequest req)
     {
         try

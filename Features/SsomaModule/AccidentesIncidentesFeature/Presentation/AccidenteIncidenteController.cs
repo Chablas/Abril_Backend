@@ -8,12 +8,14 @@ using Abril_Backend.Infrastructure.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-accidentes-incidentes")]
 [Authorize]
+[RequireFeature("ssoma.gestion.accidentes-incidentes")]
 public class AccidenteIncidenteController : ControllerBase
 {
     private readonly IAccidenteIncidenteService _service;

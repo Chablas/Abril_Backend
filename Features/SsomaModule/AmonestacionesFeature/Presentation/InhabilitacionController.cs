@@ -1,12 +1,20 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Presentation;
 
+/// <summary>
+/// Restringido a Jefe SSOMA (9), Administrador de Obra (60) y Coordinador SSOMA (70) —
+/// espejo exacto de ROLES_INHABILITACION en amonestaciones.ts (frontend). No usa featureKey
+/// porque "Inhabilitados" es un tab dentro de Amonestaciones, no una ruta propia.
+/// </summary>
 [ApiController]
 [Route("api/v1/ssoma-inhabilitacion")]
+[Authorize(Roles = $"{Roles.AdministradorSsoma},{Roles.AdministradorDeObra},{Roles.CoordinadorSsoma}")]
 public class InhabilitacionController : ControllerBase
 {
     private readonly SsomaInhabilitacionService _svc;

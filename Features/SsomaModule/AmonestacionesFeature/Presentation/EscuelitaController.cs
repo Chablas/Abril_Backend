@@ -1,12 +1,16 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-escuelita")]
+[Authorize]
+[RequireFeature("ssoma.gestion.amonestaciones")]
 public class EscuelitaController : ControllerBase
 {
     private readonly SsomaEscuelitaService _svc;

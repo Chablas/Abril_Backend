@@ -8,12 +8,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/interconsultas")]
     [Authorize]
+    [RequireFeature("ssoma.salud-ocupacional.interconsultas")]
     public class InterconsultaController : ControllerBase
     {
         private readonly IInterconsultaService _service;

@@ -3,12 +3,14 @@ using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.HorasHombreFeature.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma-horas-hombre")]
     [Authorize]
+    [RequireFeature("ssoma.gestion.horas-hombre")]
     public class HorasHombreController : ControllerBase
     {
         private readonly IHorasHombreService _service;

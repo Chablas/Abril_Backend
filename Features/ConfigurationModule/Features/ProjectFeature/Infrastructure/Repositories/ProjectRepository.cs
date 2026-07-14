@@ -247,6 +247,18 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             await _context.SaveChangesAsync();
         }
 
+        public async Task<bool?> ToggleArquitecturaComercial(int projectId)
+        {
+            var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId && p.State);
+            if (project == null) return null;
+
+            project.TieneArquitecturaComercial = !project.TieneArquitecturaComercial;
+            project.UpdatedDateTime = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            return project.TieneArquitecturaComercial;
+        }
+
         public async Task UpdateContributorLocationAsync(int contributorId, string? district, string? province, string? department)
         {
             var contributor = await _context.Contributor.FindAsync(contributorId);

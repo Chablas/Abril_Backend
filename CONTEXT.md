@@ -5057,3 +5057,7 @@ De paso se detectaron (pero NO se corrigieron aún) 4 registros duplicados de pr
 ### Pendiente
 - Revisar por qué se generan programaciones "Ingreso" duplicadas para el mismo trabajador/día vía "Registro directo" (posible doble submit del formulario de alta de trabajador, o el flujo de registro directo no verifica si ya existe una programación activa antes de crear una nueva). No confirmado con el usuario si ya lo notó/reportó como problema aparte.
 - Confirmar con Katyana que tras el fix los 3 trabajadores ya aparecen en "Programados".
+
+## Sesión 2026-07-13 — Sync master
+
+Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend` estaba limpio, se cambió a `master` y se corrió "guardar master" para sincronizar con `origin/master`.

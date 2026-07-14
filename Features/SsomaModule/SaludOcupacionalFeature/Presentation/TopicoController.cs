@@ -3,6 +3,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Topico;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,6 +12,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional")]
     [Authorize]
+    [RequireFeature("ssoma.salud-ocupacional.topico")]
     public class TopicoController : ControllerBase
     {
         private readonly ITopicoService _service;

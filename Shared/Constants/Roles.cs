@@ -29,7 +29,7 @@ namespace Abril_Backend.Shared.Constants
         public const string CostosOficinaCentral              = "6";  // USUARIO DE COSTOS Y PRESUPUESTOS DE OFICINA CENTRAL
         public const string CostosAdministrador               = "7";  // ADMINISTRADOR DE COSTOS Y PRESUPUESTOS
         public const string UsuarioArquitecturaComercial      = "8";  // USUARIO DE ARQUITECTURA COMERCIAL
-        public const string AdministradorSsoma                = "9";  // ADMINISTRADOR SSOMA
+        public const string AdministradorSsoma                = "9";  // JEFE SSOMA (antes ADMINISTRADOR SSOMA)
         public const string AdministradorAdministracion       = "10"; // ADMINISTRADOR ADMINISTRACION
         public const string Contratista                       = "11"; // CONTRATISTA
         public const string UsuarioDeAbril                    = "12"; // USUARIO DE ABRIL
@@ -40,7 +40,7 @@ namespace Abril_Backend.Shared.Constants
         public const string ServicioVigilancia                = "49"; // SERVICIO DE VIGILANCIA
         public const string GestorArquitecturaComercial       = "51"; // GESTOR DE ARQUITECTURA COMERCIAL
         public const string UsuarioRecepcion                  = "52"; // USUARIO DE RECEPCIÓN
-        public const string SaludOcupacional                  = "53"; // SALUD OCUPACIONAL
+        public const string SaludOcupacional                  = "53"; // MÉDICO OCUPACIONAL (antes SALUD OCUPACIONAL)
         public const string VisualizadorEvaluaciones          = "56"; // VISUALIZADOR DE EVALUACIONES
         public const string Evaluador                         = "57"; // EVALUADOR
         public const string AdministradorEvaluaciones         = "58"; // ADMINISTRADOR DE EVALUACIONES
@@ -51,5 +51,9 @@ namespace Abril_Backend.Shared.Constants
         public const string ContabilidadUsuario               = "64"; // USUARIO DE CONTABILIDAD
         public const string VisualizadorDashboardResidentes   = "65"; // VISUALIZADOR DE DASHBOARD RESIDENTES
         public const string UsuarioTrabajadores               = "66"; // USUARIO DE TRABAJADORES
+        public const string CoordinadorSsoma                  = "70"; // COORDINADOR SSOMA
+        public const string AsistentaSocial                   = "71"; // ASISTENTA SOCIAL
+        public const string Prevencionista                    = "72"; // PREVENCIONISTA
+        public const string ContratistaSupervisorCampo        = "74"; // CONTRATISTA - SUPERVISOR DE CAMPO
     }
 }

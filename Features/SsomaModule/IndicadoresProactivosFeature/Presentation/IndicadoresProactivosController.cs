@@ -7,12 +7,14 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-indicadores-proactivos")]
 [Authorize]
+[RequireFeature("ssoma.gestion.indicadores-proactivos")]
 public class IndicadoresProactivosController : ControllerBase
 {
     private readonly IIndicadoresProactivosService _service;

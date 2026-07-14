@@ -15,11 +15,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
     /// no se lista, para no confundir a los usuarios con subáreas). Estos revisores
     /// aplican a los trabajadores del subárbol del nodo que no tengan revisores
     /// propios en workers_revisores; sin revisores de área, el fallback es GTH.
+    ///
+    /// Visibilidad: el rol ADMINISTRADOR DE SOLICITUD DE SALIDAS ve todas las áreas;
+    /// un trabajador con categoría (workers_category) Jefe, Coordinador o Gerente ve
+    /// solo el área estándar a la que pertenece (subiendo el árbol desde su
+    /// workers.area_scope_id); el resto no ve ninguna.
     /// </summary>
     public class AreaRevisorRepository : IAreaRevisorRepository
     {
         private const string EmailDomainCorp = "@abril.pe";
         private const string AreaTypeEstandar = "Área Estándar";
+
+        /// <summary>Categorías de workers_category cuyo trabajador puede ver su propia área.</summary>
+        private static readonly string[] CategoriasConVista = { "jefe", "coordinador", "gerente" };
 
         private readonly IDbContextFactory<AppDbContext> _factory;
 
@@ -28,7 +36,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             _factory = factory;
         }
 
-        public async Task<AreaRevisorInicialDto> GetInitialDataAsync()
+        public async Task<AreaRevisorInicialDto> GetInitialDataAsync(int userId, bool verTodas)
         {
             // Tabla + opciones en una sola conexión.
             using var ctx = _factory.CreateDbContext();
@@ -37,6 +45,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             //    qué nodos son el primer "Área Estándar" de su rama.
             var nodos = await LoadNodosAsync(ctx);
             var elegibles = FirstStandardNodes(nodos);
+
+            if (!verTodas)
+            {
+                // Jefe/Coordinador/Gerente: solo el área estándar a la que pertenece
+                // su worker. Cualquier otro usuario: ninguna.
+                var areaVisible = await GetAreaVisibleDelUsuarioAsync(ctx, userId, nodos, elegibles);
+                if (areaVisible == null)
+                    return new AreaRevisorInicialDto();
+                elegibles = elegibles.Where(n => n.AreaScopeId == areaVisible.Value).ToList();
+            }
 
             var areas = elegibles
                 .OrderBy(n => n.AreaItemName)
@@ -50,10 +68,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 })
                 .ToList();
 
-            // 2) Todos los revisores vivos, con los datos del revisor resueltos (una sola query).
+            // 2) Revisores vivos de las áreas listadas, con los datos del revisor resueltos (una sola query).
+            var areaIds = areas.Select(a => a.AreaScopeId).ToList();
             var asignaciones = await (
                 from r in ctx.AreaRevisores
-                where r.State
+                where r.State && areaIds.Contains(r.AreaScopeId)
                 join w in ctx.Worker on r.RevisorId equals w.Id
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
@@ -84,19 +103,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 if (porArea.TryGetValue(a.AreaScopeId, out var revs)) a.Revisores = revs;
 
             // 3) Opciones del selector (mismo criterio que Revisores de Trabajadores).
-            var options = await (
-                from w in ctx.Worker
-                where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains(EmailDomainCorp)
-                join p in ctx.Person on w.PersonId equals p.PersonId
-                where p.State == true
-                orderby p.FullName
-                select new AreaRevisorOptionDto
-                {
-                    WorkerId = w.Id,
-                    FullName = p.FullName,
-                    Email = w.EmailCorporativo
-                }
-            ).ToListAsync();
+            //    Solo el administrador puede editar revisores, así que solo él las necesita.
+            var options = !verTodas
+                ? new List<AreaRevisorOptionDto>()
+                : await (
+                    from w in ctx.Worker
+                    where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains(EmailDomainCorp)
+                    join p in ctx.Person on w.PersonId equals p.PersonId
+                    where p.State == true
+                    orderby p.FullName
+                    select new AreaRevisorOptionDto
+                    {
+                        WorkerId = w.Id,
+                        FullName = p.FullName,
+                        Email = w.EmailCorporativo
+                    }
+                ).ToListAsync();
 
             return new AreaRevisorInicialDto
             {
@@ -185,6 +207,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             }
 
             await ctx.SaveChangesAsync();
+        }
+
+        // ── Visibilidad por usuario ─────────────────────────────────────────
+
+        /// <summary>
+        /// area_scope_id (de los nodos elegibles) que el usuario puede ver, o null si
+        /// no puede ver ninguno. Solo ven su área los trabajadores cuya categoría
+        /// (workers_category) es Jefe, Coordinador o Gerente: se parte del
+        /// workers.area_scope_id del trabajador y se sube el árbol hasta el primer
+        /// nodo estándar listado en la pantalla.
+        /// </summary>
+        private static async Task<int?> GetAreaVisibleDelUsuarioAsync(
+            AppDbContext ctx, int userId, List<NodoArea> nodos, List<NodoArea> elegibles)
+        {
+            var areaScopeWorker = await (
+                from w in ctx.Worker
+                where w.Person != null && w.Person.UserId == userId && w.AreaScopeId != null
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                where CategoriasConVista.Contains(c.Name.ToLower())
+                select w.AreaScopeId
+            ).FirstOrDefaultAsync();
+            if (areaScopeWorker == null) return null;
+
+            var byId = nodos.ToDictionary(n => n.AreaScopeId);
+            var elegiblesIds = elegibles.Select(n => n.AreaScopeId).ToHashSet();
+            var visitados = new HashSet<int>();
+            int? actual = areaScopeWorker;
+            while (actual != null && visitados.Add(actual.Value))
+            {
+                if (elegiblesIds.Contains(actual.Value)) return actual.Value;
+                actual = byId.TryGetValue(actual.Value, out var nodo) ? nodo.AreaScopeParentId : null;
+            }
+            return null;
         }
 
         // ── Árbol de áreas ──────────────────────────────────────────────────

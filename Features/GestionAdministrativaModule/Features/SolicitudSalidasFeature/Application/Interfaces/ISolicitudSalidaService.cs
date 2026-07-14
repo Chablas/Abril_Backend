@@ -25,5 +25,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         /// <summary>Envía email de confirmación al solicitante de que su solicitud fue aprobada. Best-effort, no lanza.</summary>
         Task NotifySolicitanteAprobada(int solicitudId);
+
+        /// <summary>Envía email al solicitante de que su solicitud fue rechazada (mismos destinatarios/copias que el de aprobación). Best-effort, no lanza.</summary>
+        Task NotifySolicitanteRechazada(int solicitudId);
     }
 }

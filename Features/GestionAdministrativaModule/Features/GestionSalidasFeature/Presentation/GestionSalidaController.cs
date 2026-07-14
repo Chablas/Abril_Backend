@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -37,6 +38,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     EstadoAprobacion    = estadoAprobacion,
                     FilterAreaScopeIds  = areaScopeIds,
                     CurrentUserId       = currentUserId,
+                    SeesAllOverride     = User.IsInRole(Roles.UsuarioRecepcion),
                     Page                = page < 1 ? 1 : page,
                     SortBy              = sortBy,
                     SortDir             = sortDir,
@@ -70,6 +72,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     EstadoAprobacion   = estadoAprobacion,
                     FilterAreaScopeIds = areaScopeIds,
                     CurrentUserId      = currentUserId,
+                    SeesAllOverride    = User.IsInRole(Roles.UsuarioRecepcion),
                 };
                 var bytes = await _service.GetExcel(filters);
                 return File(

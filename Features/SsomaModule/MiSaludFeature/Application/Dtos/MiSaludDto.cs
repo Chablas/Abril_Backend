@@ -20,6 +20,15 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos
         // Último descanso
         public string? UltimoDescansoEstado { get; set; }
         public DateOnly? UltimoDescansoFechaFin { get; set; }
+
+        // Catálogo para el formulario de registro (evita otro roundtrip al abrir el modal)
+        public List<DescansoMotivoDto> MotivosDescanso { get; set; } = [];
+    }
+
+    public class DescansoMotivoDto
+    {
+        public int Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
     }
 
     public class MiDescansoDto
@@ -31,24 +40,28 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos
         public int? Dias { get; set; }
         public string? Motivo { get; set; }
         public string? Diagnostico { get; set; }
-        public string? DiagnosticoCie10 { get; set; }
         public string? Estado { get; set; }
         public string? MotivoRechazo { get; set; }
         public string? UrlCertificado { get; set; }
         public string? UrlDocumento { get; set; }
+        public List<MiDescansoAdjuntoDto> Adjuntos { get; set; } = [];
         public DateTimeOffset CreatedAt { get; set; }
+    }
+
+    public class MiDescansoAdjuntoDto
+    {
+        public string Url { get; set; } = string.Empty;
+        public string? Nombre { get; set; }
     }
 
     public class CrearMiDescansoDto
     {
-        public string Tipo { get; set; } = "Particular";
         public DateOnly FechaInicio { get; set; }
         public DateOnly FechaFin { get; set; }
         public int? Dias { get; set; }
-        public string? Motivo { get; set; }
+        public int? MotivoId { get; set; }
         public string? Diagnostico { get; set; }
-        public string? DiagnosticoCie10 { get; set; }
-        public IFormFile? Documento { get; set; }
+        public List<IFormFile>? Documentos { get; set; }
     }
 
     public class MiDescansosFiltroDto

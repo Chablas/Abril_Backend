@@ -34,7 +34,7 @@ namespace Abril_Backend.Shared.Constants
         public const string Contratista                       = "11"; // CONTRATISTA
         public const string UsuarioDeAbril                    = "12"; // USUARIO DE ABRIL
         public const string Clinica                           = "14"; // CLINICA
-        public const string AdministradorGestionAdministrativa = "15"; // ADMINISTRADOR DE GESTIÓN ADMINISTRATIVA
+        // 15 (ADMINISTRADOR DE GESTIÓN ADMINISTRATIVA) eliminado el 2026-07-14; lo reemplaza el 76.
         public const string ContabilidadFirmante              = "16"; // USUARIO FIRMANTE DE FACTURAS DE CONTABILIDAD
         public const string AdministradorMejoraContinua       = "48"; // ADMINISTRADOR DE MEJORA CONTINUA
         public const string ServicioVigilancia                = "49"; // SERVICIO DE VIGILANCIA
@@ -55,5 +55,6 @@ namespace Abril_Backend.Shared.Constants
         public const string AsistentaSocial                   = "71"; // ASISTENTA SOCIAL
         public const string Prevencionista                    = "72"; // PREVENCIONISTA
         public const string ContratistaSupervisorCampo        = "74"; // CONTRATISTA - SUPERVISOR DE CAMPO
+        public const string AdministradorSolicitudSalidas     = "76"; // ADMINISTRADOR DE SOLICITUD DE SALIDAS
     }
 }

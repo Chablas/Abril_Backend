@@ -1,6 +1,8 @@
+using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -20,11 +22,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
             _logger  = logger;
         }
 
-        /// <summary>Carga inicial: áreas estándar (primer nodo de cada rama) con sus n revisores + opciones.</summary>
+        /// <summary>
+        /// Carga inicial: áreas estándar (primer nodo de cada rama) con sus n revisores + opciones.
+        /// ADMINISTRADOR DE SOLICITUD DE SALIDAS ve todas las áreas; un trabajador con
+        /// categoría Jefe/Coordinador/Gerente ve solo su área; el resto no ve ninguna.
+        /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetInitialData()
         {
-            try   { return Ok(await _service.GetInitialDataAsync()); }
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id)
+                    ? id : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                var verTodas = User.IsInRole(Roles.AdministradorSolicitudSalidas);
+                return Ok(await _service.GetInitialDataAsync(userId.Value, verTodas));
+            }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {
@@ -33,8 +48,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
             }
         }
 
-        /// <summary>Reemplaza el conjunto de revisores de un área (nodo area_scope).</summary>
+        /// <summary>
+        /// Reemplaza el conjunto de revisores de un área (nodo area_scope).
+        /// Solo el ADMINISTRADOR DE SOLICITUD DE SALIDAS puede editar.
+        /// </summary>
         [HttpPut("{areaScopeId:int}")]
+        [Authorize(Roles = Roles.AdministradorSolicitudSalidas)]
         public async Task<IActionResult> UpdateRevisores(int areaScopeId, [FromBody] AreaRevisoresUpdateDto dto)
         {
             try

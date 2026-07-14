@@ -49,11 +49,11 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Presentation
 
         [HttpPost("descansos")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> CreateDescanso([FromForm] CrearMiDescansoDto dto, [FromForm] IFormFile? documento)
+        public async Task<IActionResult> CreateDescanso([FromForm] CrearMiDescansoDto dto, [FromForm] List<IFormFile>? documentos)
         {
             try
             {
-                dto.Documento = documento;
+                dto.Documentos = documentos;
                 var id = await _service.CreateDescanso(CurrentUserId(), dto);
                 return Ok(new { id, message = "Descanso médico registrado exitosamente. Pendiente de aprobación." });
             }

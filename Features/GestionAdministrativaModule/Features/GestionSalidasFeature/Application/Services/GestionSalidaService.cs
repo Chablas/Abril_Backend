@@ -66,6 +66,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         private async Task ApplyVisibilityAsync(GestionSalidaFiltersDto filters)
         {
             if (!filters.CurrentUserId.HasValue) return;
+            // USUARIO DE RECEPCIÓN se sobrepone al alcance por área: ve todo, sin resolver.
+            if (filters.SeesAllOverride)
+            {
+                filters.SeesAll = true;
+                return;
+            }
             var vis = await _visibilityResolver.ResolveAsync(filters.CurrentUserId.Value);
             filters.SeesAll = vis.SeesAll;
             filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
@@ -151,8 +157,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             await _solicitudSalidaService.NotifySolicitanteAprobada(id);
         }
 
-        public Task Rechazar(int id, int reviewerUserId)
-            => _repo.Rechazar(id, reviewerUserId);
+        public async Task Rechazar(int id, int reviewerUserId)
+        {
+            await _repo.Rechazar(id, reviewerUserId);
+            // Email de rechazo al solicitante (best-effort, no rompe el flujo si falla)
+            await _solicitudSalidaService.NotifySolicitanteRechazada(id);
+        }
 
         public Task SetHoraSalidaReal(int id, TimeOnly? hora, int registradaPorUserId)
             => _repo.SetHoraSalidaReal(id, hora, registradaPorUserId);

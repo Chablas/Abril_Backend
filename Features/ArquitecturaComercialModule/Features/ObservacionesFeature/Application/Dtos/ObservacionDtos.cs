@@ -78,6 +78,7 @@ public class ObservacionDashboardSupervisorDTO
     public int TotalReportadas { get; set; }
     public int TotalCompletadas { get; set; }
     public int TotalPendientes { get; set; }
+    public int TotalEnProceso { get; set; }
     public decimal PctAvance { get; set; }
     public List<ObservacionPorPartidaDTO> PorPartida { get; set; } = new();
 }

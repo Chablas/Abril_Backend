@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Application.Dtos;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,6 +10,7 @@ namespace Abril_Backend.Features.ArquitecturaComercialModule.Features.Observacio
 [Authorize]
 [ApiController]
 [Route("api/v1/arquitectura-comercial/observaciones")]
+[RequireFeature("arquitectura-comercial.observaciones")]
 public class ObservacionesController : ControllerBase
 {
     private readonly IObservacionService _service;

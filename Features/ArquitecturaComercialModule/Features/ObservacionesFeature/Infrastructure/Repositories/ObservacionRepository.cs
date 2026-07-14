@@ -131,7 +131,8 @@ public class ObservacionRepository : IObservacionRepository
                 ProyectoNombre = g.Key.Proyecto,
                 TotalReportadas = g.Count(),
                 TotalCompletadas = g.Count(o => o.Estado == "Completado"),
-                TotalPendientes = g.Count(o => o.Estado != "Completado"),
+                TotalPendientes = g.Count(o => o.Estado == "Pendiente"),
+                TotalEnProceso = g.Count(o => o.Estado == "En Proceso"),
                 PctAvance = g.Count() == 0 ? 0 : Math.Round(g.Count(o => o.Estado == "Completado") * 100m / g.Count(), 1),
                 PorPartida = g.GroupBy(o => o.PartidaReportada ?? "Otros")
                     .Select(pg => new ObservacionPorPartidaDTO

@@ -13,12 +13,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## EF Core migrations
 
 ```bash
-# Add a migration (run from the project root)
+# Add a migration (run from the project root) — this part is fine to run locally
 dotnet ef migrations add <MigrationName> --project Abril-Backend.csproj
-
-# Apply pending migrations
-dotnet ef database update --project Abril-Backend.csproj
 ```
+
+**Do not run `dotnet ef database update` against the real environments.** Applying migrations is done manually: generate the migration's SQL (`dotnet ef migrations script`) and apply it directly via SQL/pgAdmin against the target database. `Migrations_Manual/` holds hand-written SQL for changes that didn't go through an EF migration at all — check there before assuming a schema change must be an EF migration.
 
 The connection string used comes from whichever `appsettings.*.json` / `appsettings.Local.json` is active. Run migrations against the target provider before deploying. Both providers share one `AppDbContext`; if PG overrides are needed, add them in `ConfigurePostgreSQL` before generating the migration.
 
@@ -56,16 +55,41 @@ Shared/
 
 ### Vertical slice (Features/)
 
+The nesting depth varies by module — three flavors coexist, don't "fix" one to match another:
+
 ```
+# Most common: Module -> Features/ -> <Feature>Feature -> layers
 Features/<Module>Module/
   <Module>Module.cs          -> static class with AddXxxModule(this IServiceCollection) DI registration
-  <Feature>Feature/
+  Features/<Feature>Feature/
     Application/{Interfaces,Services,Dtos}
     Infrastructure/{Interfaces,Repositories[,Models]}
     Presentation/*Controller.cs
+
+# No extra "Features/" wrapper (SsomaModule, BoletinModule): Module -> <Feature>Feature -> layers directly
+Features/SsomaModule/<Feature>Feature/{Application,Infrastructure,Presentation}
+
+# Single-feature module, no per-feature subfolder (EvaluacionesModule, HabilitacionModule):
+Features/<Module>Module/{Application,Infrastructure,Presentation}
 ```
 
-Existing modules: `ContractorsModule` (ContractorRegistration, ContractorManagement), `CostsModule` (Adjudicaciones), `MicrosoftAuthModule` (MicrosoftLogin, MicrosoftProfile), `SsomaModule` (SaludOcupacional — Catalogos, EMO, Convalidacion, ProgramacionEmo, Interconsulta, Dashboard, WorkerSearch). Each module's `AddXxxModule` extension is the only thing wired in `Program.cs` — keep internal registrations inside the module file, not in `Program.cs`.
+Modules wired in `Program.cs` (each `AddXxxModule` call is the only thing registered there — keep internal DI inside the module file, not in `Program.cs`):
+
+- `AuthModule` — internal JWT login, `MicrosoftLoginFeature`/`MicrosoftProfileFeature` (Entra ID), `RoleFeature`, `UserFeature`, `ContractorCredentialsFeature`. (Supersedes the old standalone "MicrosoftAuthModule" name — it's a feature inside `AuthModule` now.)
+- `ContractorsModule` — `ContractorRegistrationFeature`, `ContractorManagementFeature`.
+- `CostsModule` — `AdjudicacionesFeature`, `CronogramaFeature`, `Configuration`.
+- `ConfigurationModule` — `AreaFeature`, `HolidayFeature`, `ProjectFeature`.
+- `SsomaModule` (largest — flat, no `Features/` wrapper) — `SaludOcupacionalFeature`, `MiSaludFeature`, `AccidentesIncidentesFeature`, `AmonestacionesFeature`, `AuditoriaAtsFeature`, `CharlasFeature`, `ChecklistFeature`, `DesempenoSupervisorFeature`, `HorasHombreFeature`, `IndicadoresProactivosFeature`, `InspeccionFeature`, `OptFeature`, `PasoFeature`, `PresupuestoMaterialesFeature`, `ProyectoHabilitadoFeature`, `RacFeature`.
+- `GestionAdministrativaModule` — `SolicitudSalidasFeature`, `GestionSalidasFeature`, `LugaresFeature`, `MotivosSalidaFeature`, `TrayectosFeature`, `RevisorSalidasFeature`, `VisibilidadSalidasFeature` (viáticos/movilidad: solicitud → aprobación → rendición workflow, mirrored by the frontend's `gestion-administrativa/features/{solicitud-salidas,gestion-salidas}`).
+- `HabilitacionModule` (flat, no per-feature subfolder) — worker onboarding (SCTR/VidaLey, EMO, company assignment).
+- `EvaluacionesModule` (flat, no per-feature subfolder) — evaluations.
+- `UnidadDeProyectosModule` — `ActasReunionFeature`, `CronogramaActividades`, `MilestoneScheduleFeature`, `ProjectsDashboard`.
+- `MejoraContinuaModule` — `LessonsLearnedFeature`, `LessonsDashboardFeature`, `Configuracion`.
+- `VecinosModule` — `GestionVecinosFeature`, `ControlVencimientosFeature`, `CroquisFeature`.
+- `AccountingModule` — `InvoicesFeature`, `Configuration`.
+- `BoletinModule` (flat) — `BirthdayClubFeature`.
+
+`ArquitecturaComercial` stays in the traditional layer (see below), not under `Features/`, despite being a large active domain.
 
 SSOMA entities use the `Ss*` prefix (e.g. `SsClinica`, `SsMedicoOcupacional`, `SsEmoTipo`, `SsEmoExamenDetalle`, `SsInterconsulta`, `SsProgramacionEmo`). These are distinct from the `Worker*` entities (`Worker`, `WorkerEmo`, `WorkerEmoConvalidacion`, `WorkerVinculacion`) which are shared across AC and SSOMA domains.
 
@@ -73,7 +97,7 @@ Feature entities are still registered as `DbSet`s on the single shared `AppDbCon
 
 ## Conventions to preserve
 
-- **Repositories use `IDbContextFactory<AppDbContext>`** and open a short-lived context per call (`using var ctx = _factory.CreateDbContext()`), not an injected `AppDbContext`. Follow this pattern for new repos — several repos run parallel queries and rely on distinct contexts. Some older traditional-layer repos (e.g. `AreaRepository`, `LayerRepository`, `PersonRepository`) are registered directly as concrete types without an interface (`builder.Services.AddScoped<AreaRepository>()`) and injected by concrete type in controllers — this is a legacy pattern; new repos should use the interface-backed pattern.
+- **Repositories use `IDbContextFactory<AppDbContext>`** and open a short-lived context per call (`using var ctx = _factory.CreateDbContext()`), not an injected `AppDbContext`. Follow this pattern for new repos — several repos run parallel queries and rely on distinct contexts. Some older traditional-layer repos (e.g. `AreaRepository`, `PersonRepository`) are registered directly as concrete types without an interface (`builder.Services.AddScoped<AreaRepository>()`) and injected by concrete type in controllers — this is a legacy pattern; new repos should use the interface-backed pattern.
 - **Controllers wrap calls in try/catch** with this shape: catch `AbrilException` → return `StatusCode(ex.StatusCode, new { message = ex.Message })`; catch generic `Exception` → return 500 with a fixed Spanish message. Throw `AbrilException(message, statusCode)` from services/repos for expected failures; let unexpected ones bubble to the 500 handler.
 - **Auth**: two JWT schemes are registered — `"Bearer"` (internal JWT signed with `Jwt:Key`) and `"AzureAd"` (Microsoft Entra). The default authorization policy accepts both. Endpoints are authenticated by default unless `[AllowAnonymous]` is used. `NameClaimType` is `ClaimTypes.NameIdentifier` for internal JWT — read the current user id via `User.FindFirst(ClaimTypes.NameIdentifier)`.
 - **Rate limiting**: the `sunat-ruc` policy (5/hour per IP for unauthenticated callers, unlimited for authenticated) is configured in `Program.cs`. Apply with `[EnableRateLimiting("sunat-ruc")]` on relevant endpoints.
@@ -87,3 +111,4 @@ Feature entities are still registered as `DbSet`s on the single shared `AppDbCon
 - `wwwroot/uploads` is the local storage fallback; do not commit user-uploaded artifacts.
 - The `obj/` and `bin/` folders are gitignored but present locally — avoid scanning into them for source.
 - When adding a `DbSet`, PG column-name collisions (reserved words, case, `order`/`phase_order`-style reshaping) must be handled in `ConfigurePostgreSQL` or queries will fail only on the PostgreSQL provider.
+- `Migracionfinal/` (one-off Python data-migration scripts + source spreadsheets) and `Migrations_Manual/` (hand-written SQL not generated by EF) are historical/manual artifacts, not part of the app's runtime or the `Migrations/` EF pipeline — don't treat them as current schema source of truth.

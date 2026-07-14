@@ -14,13 +14,14 @@ public class InspeccionRepository : IInspeccionRepository
     public InspeccionRepository(IDbContextFactory<AppDbContext> factory)
         => _factory = factory;
 
-    public async Task<int?> GetEmpresaIdDeHallazgoAsync(int hallazgoId)
+    public async Task<(int? EmpresaId, int? EmpresaInspectoraId)> GetEmpresaIdDeHallazgoAsync(int hallazgoId)
     {
         using var ctx = _factory.CreateDbContext();
-        return await ctx.SsomaInspeccionHallazgo
+        var row = await ctx.SsomaInspeccionHallazgo
             .Where(h => h.Id == hallazgoId)
-            .Select(h => h.Inspeccion!.EmpresaId)
+            .Select(h => new { h.Inspeccion!.EmpresaId, h.Inspeccion!.EmpresaInspectoraId })
             .FirstOrDefaultAsync();
+        return (row?.EmpresaId, row?.EmpresaInspectoraId);
     }
 
     public async Task<List<InspeccionTipoDto>> GetTiposAsync()
@@ -80,6 +81,7 @@ public class InspeccionRepository : IInspeccionRepository
             ProyectoId = request.ProyectoId,
             TipoId = request.TipoId,
             EmpresaId = request.EmpresaId,
+            EmpresaInspectoraId = request.EmpresaInspectoraId,
             EsPlanificada = request.EsPlanificada,
             Fecha = DateTime.SpecifyKind(request.Fecha.Date, DateTimeKind.Utc),
             HoraInicio = horaInicio,
@@ -259,6 +261,7 @@ public class InspeccionRepository : IInspeccionRepository
             TipoAmbito = insp.Tipo?.Ambito ?? "",
             EmpresaId = insp.EmpresaId,
             EmpresaNombre = insp.Empresa?.ContributorNombreComercial,
+            EmpresaInspectoraId = insp.EmpresaInspectoraId,
             EsPlanificada = insp.EsPlanificada,
             Fecha = insp.Fecha,
             HoraInicio = insp.HoraInicio?.ToString("HH:mm"),
@@ -341,7 +344,7 @@ public class InspeccionRepository : IInspeccionRepository
         if (!string.IsNullOrEmpty(estado)) q = q.Where(i => i.Estado == estado);
         if (fechaDesde.HasValue) q = q.Where(i => i.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
         if (fechaHasta.HasValue) q = q.Where(i => i.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
-        if (empresaIdContratista.HasValue) q = q.Where(i => i.EmpresaId == empresaIdContratista.Value);
+        if (empresaIdContratista.HasValue) q = q.Where(i => i.EmpresaId == empresaIdContratista.Value || i.EmpresaInspectoraId == empresaIdContratista.Value);
 
         return await q
             .OrderByDescending(i => i.Fecha)
@@ -378,7 +381,7 @@ public class InspeccionRepository : IInspeccionRepository
         if (!string.IsNullOrEmpty(estado)) q = q.Where(i => i.Estado == estado);
         if (fechaDesde.HasValue) q = q.Where(i => i.Fecha >= DateTime.SpecifyKind(fechaDesde.Value.Date, DateTimeKind.Utc));
         if (fechaHasta.HasValue) q = q.Where(i => i.Fecha <= DateTime.SpecifyKind(fechaHasta.Value.Date, DateTimeKind.Utc));
-        if (empresaIdContratista.HasValue) q = q.Where(i => i.EmpresaId == empresaIdContratista.Value);
+        if (empresaIdContratista.HasValue) q = q.Where(i => i.EmpresaId == empresaIdContratista.Value || i.EmpresaInspectoraId == empresaIdContratista.Value);
         return await q.CountAsync();
     }
 
@@ -390,7 +393,7 @@ public class InspeccionRepository : IInspeccionRepository
 
         var q = ctx.SsomaInspeccion.Include(i => i.Tipo).Include(i => i.Hallazgos).AsQueryable();
         if (proyectoId.HasValue) q = q.Where(i => i.ProyectoId == proyectoId.Value);
-        if (empresaIdContratista.HasValue) q = q.Where(i => i.EmpresaId == empresaIdContratista.Value);
+        if (empresaIdContratista.HasValue) q = q.Where(i => i.EmpresaId == empresaIdContratista.Value || i.EmpresaInspectoraId == empresaIdContratista.Value);
 
         var all = await q.ToListAsync();
         var delAnio = all.Where(i => i.Fecha.Year == anioFiltro).ToList();
@@ -500,7 +503,8 @@ public class InspeccionRepository : IInspeccionRepository
             query = query.Where(h => h.Inspeccion!.Proyecto != null &&
                 h.Inspeccion!.Proyecto!.ProjectDescription.ToLower().Contains(proyecto.ToLower()));
         if (empresaIdContratista.HasValue)
-            query = query.Where(h => h.Inspeccion!.EmpresaId == empresaIdContratista.Value);
+            query = query.Where(h => h.Inspeccion!.EmpresaId == empresaIdContratista.Value
+                || h.Inspeccion!.EmpresaInspectoraId == empresaIdContratista.Value);
 
         var lista = await query
             .Select(h => new HallazgoListItemDto

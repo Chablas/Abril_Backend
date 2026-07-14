@@ -15,7 +15,8 @@ public class ObservacionRepository : IObservacionRepository
     public async Task<ObservacionListResponseDTO> GetObservaciones(int? proyectoId, string? estado, string? partida, DateTime? desde, DateTime? hasta, string? search, int pagina, int porPagina)
     {
         using var ctx = _factory.CreateDbContext();
-        var query = ctx.AcObservaciones.Include(o => o.Proyecto).Include(o => o.Fotos).AsQueryable();
+        var query = ctx.AcObservaciones.Include(o => o.Proyecto).Include(o => o.Fotos)
+            .Include(o => o.LevantaPor).AsQueryable();
 
         if (proyectoId.HasValue) query = query.Where(o => o.ProyectoId == proyectoId.Value);
         if (!string.IsNullOrWhiteSpace(estado)) query = query.Where(o => o.Estado == estado);
@@ -49,6 +50,8 @@ public class ObservacionRepository : IObservacionRepository
                 AreaResponsable = o.AreaResponsable,
                 Ejecutor = o.Ejecutor,
                 Origen = o.Origen,
+                LevantaPorWorkerId = o.LevantaPorWorkerId,
+                LevantaPorNombre = o.LevantaPor != null ? o.LevantaPor.ApellidoNombre : null,
                 Fotos = o.Fotos.Select(f => new ObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
             })
             .ToListAsync();
@@ -59,7 +62,7 @@ public class ObservacionRepository : IObservacionRepository
     public async Task<ObservacionListItemDTO?> GetObservacionById(int id)
     {
         using var ctx = _factory.CreateDbContext();
-        var o = await ctx.AcObservaciones.Include(x => x.Proyecto).Include(x => x.Fotos).FirstOrDefaultAsync(x => x.Id == id);
+        var o = await ctx.AcObservaciones.Include(x => x.Proyecto).Include(x => x.Fotos).Include(x => x.LevantaPor).FirstOrDefaultAsync(x => x.Id == id);
         if (o == null) return null;
 
         return new ObservacionListItemDTO
@@ -80,6 +83,8 @@ public class ObservacionRepository : IObservacionRepository
             AreaResponsable = o.AreaResponsable,
             Ejecutor = o.Ejecutor,
             Origen = o.Origen,
+            LevantaPorWorkerId = o.LevantaPorWorkerId,
+            LevantaPorNombre = o.LevantaPor?.ApellidoNombre,
             Fotos = o.Fotos.Select(f => new ObservacionFotoDTO { Id = f.Id, Tipo = f.Tipo, Url = f.Url, Orden = f.Orden }).ToList()
         };
     }
@@ -149,6 +154,29 @@ public class ObservacionRepository : IObservacionRepository
         return new ObservacionDashboardDTO { Supervisores = supervisores };
     }
 
+    /// <summary>
+    /// Los 4 totales de las cards, calculados con COUNT en SQL (sin traer filas a memoria).
+    /// La Lista llama a este endpoint en vez de GetDashboard: no necesita el desglose por
+    /// supervisor/partida, solo estos 4 números.
+    /// </summary>
+    public async Task<ObservacionStatsDTO> GetStats(DateTime? desde, DateTime? hasta, int? proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var query = ctx.AcObservaciones.AsQueryable();
+
+        if (desde.HasValue) query = query.Where(o => o.Fecha >= desde.Value);
+        if (hasta.HasValue) query = query.Where(o => o.Fecha <= hasta.Value);
+        if (proyectoId.HasValue) query = query.Where(o => o.ProyectoId == proyectoId.Value);
+
+        return new ObservacionStatsDTO
+        {
+            Reportados = await query.CountAsync(),
+            Completados = await query.CountAsync(o => o.Estado == "Completado"),
+            Pendientes = await query.CountAsync(o => o.Estado == "Pendiente"),
+            EnProceso = await query.CountAsync(o => o.Estado == "En Proceso")
+        };
+    }
+
     public async Task<int> GetProximoCorrelativo(string prefijoProyecto, int anio)
     {
         using var ctx = _factory.CreateDbContext();
@@ -181,12 +209,14 @@ public class ObservacionRepository : IObservacionRepository
         {
             ProyectoId = body.ProyectoId,
             Codigo = codigo,
-            Fecha = body.Fecha,
+            Fecha = DateTime.SpecifyKind(body.Fecha, DateTimeKind.Utc),
             PersonaReporta = body.PersonaReporta,
             EmpresaReporta = body.EmpresaReporta,
             Lugar = body.Lugar,
             Descripcion = body.Descripcion,
-            PlazoLevantamiento = body.PlazoLevantamiento,
+            PlazoLevantamiento = body.PlazoLevantamiento.HasValue
+                ? DateTime.SpecifyKind(body.PlazoLevantamiento.Value, DateTimeKind.Utc)
+                : (DateTime?)null,
             PartidaReportada = body.PartidaReportada,
             TipoObservacion = body.TipoObservacion,
             AreaResponsable = body.AreaResponsable,
@@ -211,7 +241,22 @@ public class ObservacionRepository : IObservacionRepository
         return foto;
     }
 
-    public async Task<ObservacionListItemDTO?> LevantarObservacion(int id)
+    public async Task<AcObservacionFoto?> GetFotoById(int fotoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.AcObservacionFotos.Include(f => f.Observacion).FirstOrDefaultAsync(f => f.Id == fotoId);
+    }
+
+    public async Task ActualizarFoto(int fotoId, string url)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var foto = await ctx.AcObservacionFotos.FirstOrDefaultAsync(f => f.Id == fotoId);
+        if (foto == null) return;
+        foto.Url = url;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<ObservacionListItemDTO?> LevantarObservacion(int id, int? levantaPorWorkerId)
     {
         using var ctx = _factory.CreateDbContext();
         var o = await ctx.AcObservaciones.FirstOrDefaultAsync(x => x.Id == id);
@@ -219,6 +264,7 @@ public class ObservacionRepository : IObservacionRepository
 
         o.Estado = "Completado";
         o.FechaLevantamiento = DateTime.UtcNow;
+        if (levantaPorWorkerId.HasValue) o.LevantaPorWorkerId = levantaPorWorkerId.Value;
         await ctx.SaveChangesAsync();
 
         return await GetObservacionById(id);

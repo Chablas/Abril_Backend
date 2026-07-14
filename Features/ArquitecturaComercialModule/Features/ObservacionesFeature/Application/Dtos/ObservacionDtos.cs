@@ -26,6 +26,8 @@ public class ObservacionListItemDTO
     public string? AreaResponsable { get; set; }
     public string? Ejecutor { get; set; }
     public string Origen { get; set; } = string.Empty;
+    public int? LevantaPorWorkerId { get; set; }
+    public string? LevantaPorNombre { get; set; }
     public List<ObservacionFotoDTO> Fotos { get; set; } = new();
 }
 
@@ -69,6 +71,11 @@ public class CreateObservacionDTO
 public class LevantarObservacionDTO
 {
     public string? Comentario { get; set; }
+
+    /// <summary>Worker.Id de quien levanta (catálogo de trabajadores Subarea = "Arquitectura
+    /// Comercial", mismo que alimenta SupervisorAcDTO). Obligatorio: la cuenta de campo es
+    /// compartida, no hay forma de inferirlo de la sesión.</summary>
+    public int? LevantaPorWorkerId { get; set; }
 }
 
 /// <summary>
@@ -107,4 +114,17 @@ public class ObservacionPorPartidaDTO
 public class ObservacionDashboardDTO
 {
     public List<ObservacionDashboardSupervisorDTO> Supervisores { get; set; } = new();
+}
+
+/// <summary>
+/// Los 4 totales que muestran las cards (Reportados/Completados/Pendientes/En Proceso).
+/// Separado de <see cref="ObservacionDashboardDTO"/> a propósito: la Lista solo necesita
+/// estos 4 números y no debe pagar el costo de traer/agrupar el desglose por supervisor.
+/// </summary>
+public class ObservacionStatsDTO
+{
+    public int Reportados { get; set; }
+    public int Completados { get; set; }
+    public int Pendientes { get; set; }
+    public int EnProceso { get; set; }
 }

@@ -274,4 +274,22 @@ public class DossierRepository : IDossierRepository
             .Select(a => a.ArchivoPath)
             .FirstOrDefaultAsync();
     }
+
+    public async Task<int?> GetContributorIdDeDocumentoAsync(int docId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsDossierDocumento
+            .Where(d => d.Id == docId)
+            .Select(d => (int?)d.Dossier!.ContributorId)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<int?> GetContributorIdDeArchivoAsync(int archivoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsDossierDocumentoArchivo
+            .Where(a => a.Id == archivoId)
+            .Select(a => (int?)a.Documento!.Dossier!.ContributorId)
+            .FirstOrDefaultAsync();
+    }
 }

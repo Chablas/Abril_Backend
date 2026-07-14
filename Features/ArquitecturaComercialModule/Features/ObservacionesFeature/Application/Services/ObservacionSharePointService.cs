@@ -43,4 +43,18 @@ public class ObservacionSharePointService : IObservacionSharePointService
 
         return result?.WebUrl ?? throw new InvalidOperationException("SharePoint no devolvió una URL para la foto de levantamiento.");
     }
+
+    public async Task<(byte[] Bytes, string ContentType)> DescargarFotoAsync(string url)
+    {
+        var bytes = await _sharePoint.DownloadFromSharePointAsync(_site, url);
+        var ext = Path.GetExtension(new Uri(url).AbsolutePath).ToLowerInvariant();
+        var contentType = ext switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            _ => "image/jpeg"
+        };
+        return (bytes, contentType);
+    }
 }

@@ -115,7 +115,7 @@ public class InspeccionService : IInspeccionService
     public Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null)
         => _repo.GetHallazgosAsync(estado, proyecto, area, fechaLimiteHasta, empresaIdContratista);
 
-    public Task<int?> GetEmpresaIdDeHallazgoAsync(int hallazgoId) => _repo.GetEmpresaIdDeHallazgoAsync(hallazgoId);
+    public Task<(int? EmpresaId, int? EmpresaInspectoraId)> GetEmpresaIdDeHallazgoAsync(int hallazgoId) => _repo.GetEmpresaIdDeHallazgoAsync(hallazgoId);
 
     public async Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto)
     {

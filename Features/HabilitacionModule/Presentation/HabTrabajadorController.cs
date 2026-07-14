@@ -45,21 +45,42 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                if (User.FindFirst("tipo")?.Value == "CONTRATISTA" && !soloVerificacion)
+                // pageSize sin tope permitía pedir 9999 filas de golpe (usado hoy por el buscador de
+                // trabajadores de RAC) — con contratistas sin filtro de empresa esto escaneaba toda la
+                // tabla de trabajadores del sistema. Cap defensivo para todos los llamantes.
+                if (pageSize > 200) pageSize = 200;
+
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
+                if (esContratista)
                 {
                     if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))
                         return StatusCode(403, new { message = "Token de contratista inválido." });
-                    empresaId = empresaJwt;
-                }
 
-                var proyectosFiltro = ContratistaProyectosHelper.GetProyectosFiltro(User);
-                if (proyectosFiltro != null && proyectoId == null)
-                {
-                    if (proyectosFiltro.Count == 1)
-                        proyectoId = proyectosFiltro[0];
-                    else if (proyectosFiltro.Count == 0)
-                        return Ok(new PagedResult<object> { Data = new() });
-                    // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
+                    var proyectosFiltro = ContratistaProyectosHelper.GetProyectosFiltro(User);
+                    if (proyectosFiltro != null)
+                    {
+                        // scope POR_PROYECTO: puede buscar entre empresas dentro de SUS proyectos
+                        // asignados (necesario para RAC/Inspecciones contra otra empresa en su obra),
+                        // pero nunca fuera de esos proyectos — no se salta el filtro aunque pida
+                        // soloVerificacion=true.
+                        if (proyectoId == null)
+                        {
+                            if (proyectosFiltro.Count == 1)
+                                proyectoId = proyectosFiltro[0];
+                            else if (proyectosFiltro.Count == 0)
+                                return Ok(new PagedResult<object> { Data = new() });
+                            // Múltiples proyectos: no hay un único proyectoId para acotar aquí — se
+                            // implementa después. Al menos queda acotado por su propia empresa abajo.
+                        }
+                        if (!soloVerificacion) empresaId = empresaJwt;
+                    }
+                    else
+                    {
+                        // scope TODOS: no hay lista de proyectos verificada contra la cual acotar la
+                        // búsqueda cross-empresa, así que SIEMPRE se restringe a su propia empresa —
+                        // nunca "todo el sistema", ni siquiera con soloVerificacion=true.
+                        empresaId = empresaJwt;
+                    }
                 }
 
                 var (items, total) = await _repo.GetWorkersHabilitacionAsync(

@@ -95,6 +95,20 @@ public class ObservacionesController : ControllerBase
         }
     }
 
+    [HttpGet("stats")]
+    public async Task<IActionResult> GetStats([FromQuery] DateTime? desde, [FromQuery] DateTime? hasta, [FromQuery] int? proyectoId)
+    {
+        try
+        {
+            var result = await _service.GetStats(desde, hasta, proyectoId);
+            return Ok(result);
+        }
+        catch (Exception)
+        {
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
     [HttpPost]
     [RequestSizeLimit(20_000_000)]
     public async Task<IActionResult> CreateObservacion([FromForm] CreateObservacionDTO body, IFormFile? foto)
@@ -152,6 +166,57 @@ public class ObservacionesController : ControllerBase
         }
         catch (Exception)
         {
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    /// <summary>Reemplaza el archivo de una foto ya subida (se equivocaron de foto al reportar o al levantar).</summary>
+    [HttpPatch("fotos/{fotoId:int}")]
+    [RequestSizeLimit(20_000_000)]
+    public async Task<IActionResult> ReemplazarFoto(int fotoId, IFormFile file)
+    {
+        try
+        {
+            if (file == null || file.Length == 0) return BadRequest(new { message = "Debe adjuntar un archivo." });
+            using var stream = file.OpenReadStream();
+            var url = await _service.ReemplazarFoto(fotoId, stream, file.FileName);
+            return Ok(new { url });
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reemplazando foto {FotoId}", fotoId);
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    /// <summary>
+    /// Sirve el contenido de una foto desde nuestro propio dominio en vez de la webUrl cruda de
+    /// SharePoint. El &lt;img src&gt; que apuntaba directo a SharePoint solo cargaba en navegadores
+    /// con sesión de Microsoft 365 activa (ambiente de escritorio de oficina) — en celular, sin esa
+    /// sesión, SharePoint devolvía una página de login en vez de la imagen y la miniatura salía rota.
+    /// Acepta el JWT por query string (?access_token=) porque un &lt;img&gt; no puede mandar el
+    /// header Authorization — mismo mecanismo que ya se usa para /hubs (ver Program.cs).
+    /// </summary>
+    [HttpGet("fotos/{fotoId:int}/contenido")]
+    public async Task<IActionResult> GetFotoContenido(int fotoId)
+    {
+        try
+        {
+            var foto = await _service.GetFotoContenido(fotoId);
+            if (foto == null) return NotFound();
+            return File(foto.Value.Bytes, foto.Value.ContentType);
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sirviendo contenido de foto {FotoId}", fotoId);
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }

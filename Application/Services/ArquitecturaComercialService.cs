@@ -39,9 +39,9 @@ namespace Abril_Backend.Application.Services
             return await _repository.GetProyectosConActividades();
         }
 
-        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc()
+        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc(bool soloObreros = false)
         {
-            return await _repository.GetSupervisoresAc();
+            return await _repository.GetSupervisoresAc(soloObreros);
         }
 
         public async Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina, int? userId, bool esUsuarioAc)

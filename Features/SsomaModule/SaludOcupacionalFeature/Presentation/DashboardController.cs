@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/dashboard")]
     [Authorize]
-    [RequireFeature("ssoma.salud-ocupacional.dashboard")]
+    [RequireFeature("ssoma.salud-ocupacional.dashboard", "clinica.agenda")]
     public class DashboardController : ControllerBase
     {
         private readonly IDashboardService _service;

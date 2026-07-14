@@ -14,7 +14,7 @@ SELECT
   STRING_AGG(DISTINCT p.full_name, ' | ') AS nombres_candidatos
 FROM ssoma_opt o
 LEFT JOIN person p ON UPPER(TRIM(p.full_name)) = UPPER(TRIM(o.observador_nombre))
-LEFT JOIN worker w ON w.person_id = p.person_id
+LEFT JOIN workers w ON w.person_id = p.person_id
 WHERE o.observador_id IS NULL
   AND o.observador_nombre IS NOT NULL
   AND TRIM(o.observador_nombre) <> ''
@@ -31,7 +31,7 @@ WITH match_unico AS (
     COUNT(w.id) AS candidatos
   FROM ssoma_opt o
   JOIN person p ON UPPER(TRIM(p.full_name)) = UPPER(TRIM(o.observador_nombre))
-  JOIN worker w ON w.person_id = p.person_id
+  JOIN workers w ON w.person_id = p.person_id
   WHERE o.observador_id IS NULL
     AND o.observador_nombre IS NOT NULL
     AND TRIM(o.observador_nombre) <> ''

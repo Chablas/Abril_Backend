@@ -32,6 +32,12 @@ public class SsomaInspeccion
     public int ProyectoId { get; set; }
     public int TipoId { get; set; }
     public int? EmpresaId { get; set; }
+    /// <summary>
+    /// Empresa contratista que subió/registró la inspección (puede ser distinta de EmpresaId,
+    /// la empresa inspeccionada). Permite que un contratista vea inspecciones que él mismo
+    /// levantó contra otra empresa, igual que EmpresaReportanteId en RAC.
+    /// </summary>
+    public int? EmpresaInspectoraId { get; set; }
     public bool EsPlanificada { get; set; } = true;
     public DateTime Fecha { get; set; }
     public TimeOnly? HoraInicio { get; set; }

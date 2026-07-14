@@ -476,6 +476,14 @@ public class RacService : IRacService
             NombreArchivo = foto.NombreArchivo ?? file.FileName
         };
     }
+    public async Task<byte[]?> GetFotoBytesAsync(int fotoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var foto = await ctx.SsomaRacFotos.FirstOrDefaultAsync(f => f.Id == fotoId)
+            ?? throw new AbrilException("Foto no encontrada.", 404);
+        return await _spService.DescargarFotoAsync(foto.Url);
+    }
+
     public Task<byte[]> GenerarPdf(RacDetalleDto rac) => RacPdfService.GenerarPdfAsync(rac, new List<(string Tipo, byte[] Bytes)>());
 
     public async Task<byte[]> GetPdfAsync(int id)

@@ -5061,3 +5061,33 @@ De paso se detectaron (pero NO se corrigieron aún) 4 registros duplicados de pr
 ## Sesión 2026-07-13 — Sync master
 
 Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend` estaba limpio, se cambió a `master` y se corrió "guardar master" para sincronizar con `origin/master`.
+
+## Sesión 2026-07-14 — Observaciones (Arquitectura Comercial): performance, fotos, quién-levanta; permisos Clínica; logging Charlas
+
+**Permisos Clínica** (mismo patrón repetido en varios controllers): `[RequireFeature]` solo aceptaba la clave `ssoma.salud-ocupacional.*`, sin el fallback `"clinica.agenda"` que sí tenían `EmoController`/`ProgramacionEmoController`. Corregido en `InterconsultaController` y `DashboardController` (Salud Ocupacional) para que acepten también `"clinica.agenda"`, igual que los otros dos.
+
+**CharlaController**: los 28 `catch { }` de la clase eran ciegos (sin `ILogger`) — cualquier excepción real quedaba enterrada detrás de un mensaje genérico. Se agregó `ILogger<CharlaController>` y ahora todos loguean la excepción real antes de responder 500. Sospecha sin confirmar: `SharePoint:Sites:SSOMAApps:CharlasLibraryId` podría faltar en el config de producción (no está en `appsettings.local.json`) — pendiente de confirmar con logs reales la próxima vez que falle una subida.
+
+**Observaciones (Arquitectura Comercial)** — módulo completo revisado a pedido del usuario:
+- **Performance**: `GetDashboard` traía toda la tabla `ac_observaciones` a memoria y agrupaba en C# — usado también por la Lista solo para 4 totales. Nuevo endpoint `GET .../observaciones/stats` con `COUNT` en SQL; la Lista ya no llama a `/dashboard`.
+- **Quién levanta**: nueva columna `ac_observaciones.levanta_por_worker_id` (FK a `workers`, migración manual `Migrations/Manual/20260714_AddLevantaPorAObservaciones.sql`, ya corrida). `LevantarObservacionDTO.LevantaPorWorkerId` es obligatorio (400 si falta). **Ojo con el mapeo EF**: la navegación `AcObservacion.LevantaPor` necesitó `[ForeignKey(nameof(LevantaPorWorkerId))]` explícito — sin eso EF Core inventaba una FK sombra `LevantaPorId` que no existe en la tabla y tiraba `column a.levanta_por_id does not exist` en cualquier query que tocara `AcObservaciones`.
+- **Catálogo de "obreros" para el selector**: `ArquitecturaComercialRepository.GetSupervisoresAc(soloObreros: true)`. Pasó por 3 iteraciones hasta dar con el criterio correcto — dejar constancia para no repetir el ciclo:
+  1. ~~`Worker.Subarea == "Arquitectura Comercial"`~~ — es el criterio de "Responsable 1" en Actividades (staff/supervisores), no de obreros de campo.
+  2. ~~`Worker.ObraOficina != "Staff"`~~ — devolvía prácticamente todos los no-staff de toda la empresa.
+  3. ~~Proyecto actual vía `ss_hab_worker_proyecto` + `Project.TieneArquitecturaComercial`~~ — ese flag solo marca qué proyectos aparecen en el módulo de Observaciones (p. ej. "Villar", "9 Nogales"), NO que sus trabajadores sean de AC; devolvía 190 personas.
+  4. **Correcto**: el trabajador debe tener como proyecto actual, literalmente, el proyecto llamado **"Arquitectura Comercial"** (comparación case-insensitive contra `Project.ProjectDescription`) — el mismo que aparece como opción de proyecto en Ingreso de Trabajadores. "Proyecto actual" = vinculación activa (`worker_vinculaciones.fecha_fin IS NULL`, la más reciente por `created_at`/`id`) — **mismo criterio exacto que ya usa `HabTrabajadorRepository.GetPaged` (`LatestVincActiva`)**. Verificado con el usuario contra datos reales: 19 trabajadores, nombres correctos vía `Worker.Person.FullName`.
+  - **Nota de fuente de verdad en conflicto**: la sesión 2026-07-10 (Interconsultas) dejó escrito que `worker_vinculaciones` está incompleta y que `ss_hab_worker_proyecto` es la fuente confiable para "proyecto actual" en ese contexto. En Observaciones se usó `worker_vinculaciones` porque es el mismo criterio de Ingreso de Trabajadores y el usuario lo verificó con SQL real dando el resultado esperado — pero si en el futuro este selector empieza a fallar para algunos trabajadores, revisar si son casos sin fila en `worker_vinculaciones` (el mismo hueco de datos que motivó el fallback en Interconsultas).
+- **Reemplazar foto ya subida**: nuevo endpoint `PATCH .../observaciones/fotos/{fotoId}` (`ObservacionRepository.ActualizarFoto`/`GetFotoById`) — antes solo existía `AgregarFoto` (insert-only).
+- **Miniaturas rotas en celular**: las fotos se mostraban con la `webUrl` cruda de SharePoint en `<img src>`, que solo carga si el navegador tiene sesión de Microsoft 365 activa (funcionaba en escritorio por SSO de Office, no en celular). Nuevo endpoint proxy `GET .../observaciones/fotos/{fotoId}/contenido` que trae los bytes vía `IGraphSharePointService.DownloadFromSharePointAsync` con permisos de aplicación. Como un `<img>` no manda headers custom, el JWT viaja por query string (`?access_token=`) — se extendió el mismo `OnMessageReceived` de `Program.cs` que ya aceptaba esto para `/hubs` (SignalR), ahora también para rutas que terminan en `/contenido`.
+
+### Archivos clave
+- `Features/ArquitecturaComercialModule/Features/ObservacionesFeature/**` (Controller, Service, Repository, DTOs, Model)
+- `Infrastructure/Repositories/ArquitecturaComercialRepository.cs` (`GetSupervisoresAc`)
+- `Features/SsomaModule/CharlasFeature/Presentation/CharlaController.cs`
+- `Features/SsomaModule/SaludOcupacionalFeature/Presentation/{InterconsultaController,DashboardController}.cs`
+- `Program.cs` (JWT por query string en rutas `/contenido`)
+- `Migrations/Manual/20260714_AddLevantaPorAObservaciones.sql`
+
+### Pendiente
+- Confirmar con el usuario que las miniaturas ya cargan en celular tras el fix del proxy.
+- Si alguna vez el selector "Quién levanta" queda vacío para un trabajador que debería aparecer, revisar si tiene fila vigente en `worker_vinculaciones` (ver nota de fuente en conflicto arriba).

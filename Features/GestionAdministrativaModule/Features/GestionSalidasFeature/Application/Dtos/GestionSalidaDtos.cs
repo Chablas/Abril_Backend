@@ -50,6 +50,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public bool SeesAll { get; set; }
 
         /// <summary>
+        /// True cuando el usuario autenticado tiene el rol USUARIO DE RECEPCIÓN (lo setea el
+        /// controller desde los claims). El rol se sobrepone al alcance por área: fuerza
+        /// <see cref="SeesAll"/> sin correr el resolver de visibilidad.
+        /// </summary>
+        public bool SeesAllOverride { get; set; }
+
+        /// <summary>
         /// Nodos area_scope cuyos trabajadores puede ver el usuario. El usuario también ve
         /// siempre las solicitudes donde él es el aprobador resuelto (aprobador_worker_id).
         /// </summary>

@@ -330,6 +330,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (s == null)
                 return RenderResultPage("Solicitud ya procesada", "Esta solicitud ya había sido aprobada o rechazada anteriormente.", isSuccess: false);
 
+            // Notificar al solicitante (best-effort, no rompe la respuesta HTML)
+            await NotifySolicitanteRechazada(s.Id);
+
             return RenderResultPage("Solicitud rechazada", $"Has rechazado la solicitud de salida #{s.Id}.", isSuccess: true);
         }
 
@@ -584,6 +587,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
       <p style=""margin:0 0 12px""><b>{esc(nombre)}</b> ha registrado una solicitud de salida que requiere tu aprobación:</p>
       <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
       {trayectosHtml}
+      {RecordatorioRecuperacionHtml}
       <div style=""text-align:center;margin-top:18px"">
         <a href=""{urlAprobar}"" style=""display:inline-block;background:#009C87;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Aprobar</a>
         <a href=""{urlRechazar}"" style=""display:inline-block;background:#D30000;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Rechazar</a>
@@ -593,6 +597,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
   </div>
 </body></html>";
         }
+
+        /// <summary>Recordatorio que va en los correos de solicitud/aprobación (al solicitante y al revisor).</summary>
+        private const string RecordatorioRecuperacionHtml =
+            @"<p style=""margin:14px 0 0;color:#92400E;font-size:13px;background:#FEF9C3;padding:10px 14px;border-radius:8px"">
+                 <b>Recuerda:</b> no olvides coordinar la recuperación de las horas dentro del mes calendario.
+               </p>";
 
         private static string BuildEmailConfirmacionSolicitante(
             string nombre, int numeroUsuario, DateOnly fechaSalida,
@@ -642,6 +652,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
       <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
       {trayectosHtml}
       {aprobadorBloque}
+      {RecordatorioRecuperacionHtml}
       <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
     </div>
   </div>
@@ -803,6 +814,124 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             }
         }
 
+        public async Task NotifySolicitanteRechazada(int solicitudId)
+        {
+            try
+            {
+                using var ctx = _factory.CreateDbContext();
+
+                // 1. Datos de cabecera + worker + email del solicitante en una query
+                var info = await (
+                    from s in ctx.GaSolicitudSalida
+                    join w in ctx.Worker on s.WorkerId equals w.Id
+                    join p in ctx.Person on w.PersonId equals (int?)p.PersonId into pg
+                    from p in pg.DefaultIfEmpty()
+                    join u in ctx.User on (p != null ? p.UserId : null) equals (int?)u.UserId into ug
+                    from u in ug.DefaultIfEmpty()
+                    where s.Id == solicitudId
+                    select new
+                    {
+                        s.Id, s.FechaSalida, s.EstadoAprobacionId, s.WorkerId, s.MotivoRechazo,
+                        Nombre = p != null ? (p.FullName ?? "Trabajador") : "Trabajador",
+                        Email  = u != null ? u.Email : null,
+                    }
+                ).FirstOrDefaultAsync();
+
+                if (info == null)
+                {
+                    _logger.LogWarning("NotifySolicitanteRechazada: solicitud {SolicitudId} no encontrada.", solicitudId);
+                    return;
+                }
+                if (info.EstadoAprobacionId != EstadosSalida.Aprobacion.Rechazado)
+                {
+                    _logger.LogWarning("NotifySolicitanteRechazada: solicitud {SolicitudId} no está en estado Rechazado (estado actual: {Estado}). Email no enviado.", solicitudId, EstadosSalida.Aprobacion.Nombre(info.EstadoAprobacionId));
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(info.Email))
+                {
+                    _logger.LogWarning("NotifySolicitanteRechazada: solicitud {SolicitudId} — el solicitante no tiene email registrado.", solicitudId);
+                    return;
+                }
+
+                // 2. Trayectos para mostrar en el email
+                var trayectos = await ctx.GaSolicitudTrayecto
+                    .Where(t => t.SolicitudId == solicitudId)
+                    .OrderBy(t => t.Orden)
+                    .ToListAsync();
+
+                var resueltos = await ResolveTrayectosForEmailAsync(ctx, trayectos);
+
+                var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id);
+
+                var body    = BuildEmailRechazoSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, info.MotivoRechazo);
+                var subject = $"Solicitud de salida #{numeroUsuario} RECHAZADA - {info.FechaSalida:dd/MM/yyyy}";
+
+                var cc = await GetCcRecepcionAsync(ctx);
+
+                await _emailService.SendAsync(
+                    to: new List<string> { info.Email },
+                    subject: subject,
+                    body: body,
+                    isHtml: true,
+                    cc: cc,
+                    bcc: new List<string> { BccRecepcionMonitoreo });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error enviando email de rechazo al solicitante para solicitud {SolicitudId}", solicitudId);
+            }
+        }
+
+        private static string BuildEmailRechazoSolicitante(
+            string nombre, int numeroUsuario, DateOnly fechaSalida,
+            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
+            string? motivoRechazo)
+        {
+            string esc(string s) => WebUtility.HtmlEncode(s);
+
+            string trayectoBloque((int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino) t)
+            {
+                var titulo = trayectos.Count > 1 ? $"Trayecto {t.Orden}" : "Trayecto";
+                return $@"<div style=""border:1px solid #E2E2E2;border-radius:8px;padding:12px 16px;margin-bottom:10px"">
+                    <div style=""font-weight:600;color:#D30000;margin-bottom:6px;font-size:13px"">{esc(titulo)}</div>
+                    <table style=""width:100%;border-collapse:collapse;font-size:13px"">
+                      <tr><td style=""padding:3px 0;color:#777;width:40%"">Hora de salida</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraSalida)}</td></tr>
+                      <tr><td style=""padding:3px 0;color:#777"">Hora de retorno</td><td style=""padding:3px 0;color:#222"">{esc(t.HoraRetorno)}</td></tr>
+                      <tr><td style=""padding:3px 0;color:#777"">Motivo</td><td style=""padding:3px 0;color:#222"">{esc(t.Motivo)}</td></tr>
+                      <tr><td style=""padding:3px 0;color:#777"">Origen</td><td style=""padding:3px 0;color:#222"">{esc(t.Origen)}</td></tr>
+                      <tr><td style=""padding:3px 0;color:#777"">Destino</td><td style=""padding:3px 0;color:#222"">{esc(t.Destino)}</td></tr>
+                    </table>
+                  </div>";
+            }
+
+            var trayectosHtml = string.Concat(trayectos.Select(trayectoBloque));
+
+            var motivoBloque = string.IsNullOrWhiteSpace(motivoRechazo)
+                ? ""
+                : $@"<p style=""margin:14px 0 0;color:#991B1B;font-size:13px;background:#FEE2E2;padding:10px 14px;border-radius:8px"">
+                      <b>Motivo del rechazo:</b> {esc(motivoRechazo.Trim())}
+                    </p>";
+
+            return $@"<!DOCTYPE html><html><body style=""font-family:Segoe UI,Arial,sans-serif;background:#f5f5f5;margin:0;padding:24px;color:#222"">
+  <div style=""max-width:620px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)"">
+    <div style=""background:#D30000;padding:20px 24px;color:#fff"">
+      <h2 style=""margin:0;font-size:18px"">✕ Tu solicitud fue rechazada</h2>
+    </div>
+    <div style=""padding:24px"">
+      <p style=""margin:0 0 12px"">Hola <b>{esc(nombre)}</b>,</p>
+      <p style=""margin:0 0 16px;color:#444;font-size:14px"">
+        Tu solicitud de salida <b>#{numeroUsuario}</b> fue <b style=""color:#D30000"">rechazada</b>.
+        Si tienes dudas, coordina directamente con tu jefatura.
+      </p>
+      <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
+      {trayectosHtml}
+      {motivoBloque}
+      <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
+    </div>
+  </div>
+</body></html>";
+        }
+
         private static string BuildEmailAprobacionSolicitante(
             string nombre, int numeroUsuario, DateOnly fechaSalida,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos)
@@ -839,6 +968,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
       </p>
       <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
       {trayectosHtml}
+      {RecordatorioRecuperacionHtml}
       <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
     </div>
   </div>

@@ -244,7 +244,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 p.TipoEmoId == dto.TipoEmoId &&
                 p.Estado != "Completado" &&
                 p.Estado != "Cancelado" &&
-                p.Estado != "Rechazado por Clínica");
+                p.Estado != "Rechazado por Clínica" &&
+                p.Estado != "No se presentó");
             if (yaTieneActiva)
                 throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
 

@@ -15,7 +15,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional")]
     [Authorize]
-    [RequireFeature("ssoma.salud-ocupacional.emos")]
+    [RequireFeature("ssoma.salud-ocupacional.emos", "clinica.agenda")]
     public class EmoController : ControllerBase
     {
         private readonly IEmoService _service;

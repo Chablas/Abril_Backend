@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
@@ -27,6 +28,9 @@ public class OptController : ControllerBase
             ? id
             : null;
 
+    private int GetUserId() =>
+        int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
+
     [HttpGet("catalogos")]
     public async Task<IActionResult> GetCatalogos()
     {
@@ -52,6 +56,8 @@ public class OptController : ControllerBase
         [FromQuery] DateTime? fechaDesde,
         [FromQuery] DateTime? fechaHasta,
         [FromQuery] int? trabajadorId,
+        [FromQuery] int? empresaObservadorId,
+        [FromQuery] int? empresaTrabajadorId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
     {
@@ -59,7 +65,7 @@ public class OptController : ControllerBase
         {
             return Ok(await _service.GetListAsync(
                 proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, page, pageSize,
-                GetEmpresaIdContratista()));
+                GetEmpresaIdContratista(), empresaObservadorId, empresaTrabajadorId));
         }
         catch (Exception ex)
         {
@@ -114,7 +120,7 @@ public class OptController : ControllerBase
     {
         try
         {
-            var id = await _service.CrearOptAsync(request);
+            var id = await _service.CrearOptAsync(request, GetUserId());
             return StatusCode(201, new { id });
         }
         catch (AbrilException ex)

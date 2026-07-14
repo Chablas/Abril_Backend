@@ -15,14 +15,19 @@ namespace Abril_Backend.Shared.Filters
     /// Los role_id del usuario viajan como múltiples claims ClaimTypes.Role (ver JWTService.cs).
     /// Se compara contra role_feature/feature igual que RoleFeatureRepository.GetRoleFeatureIds.
     /// </summary>
+    /// <summary>
+    /// Acepta uno o más featureKeys (OR): basta con que el rol tenga acceso a alguno.
+    /// Necesario para controllers compartidos por más de un frontend con distinto
+    /// featureKey (p. ej. EmoController/ProgramacionEmoController: SSOMA y Clínica).
+    /// </summary>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false)]
     public class RequireFeatureAttribute : Attribute, IAsyncAuthorizationFilter
     {
-        private readonly string _featureKey;
+        private readonly string[] _featureKeys;
 
-        public RequireFeatureAttribute(string featureKey)
+        public RequireFeatureAttribute(params string[] featureKeys)
         {
-            _featureKey = featureKey;
+            _featureKeys = featureKeys;
         }
 
         public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
@@ -51,7 +56,7 @@ namespace Abril_Backend.Shared.Filters
                 SELECT 1 AS "Value"
                 FROM role_feature rf
                 JOIN feature f ON f.feature_id = rf.feature_id
-                WHERE f.feature_key = {_featureKey}
+                WHERE f.feature_key = ANY({_featureKeys})
                   AND rf.role_id = ANY({roleIds})
                 LIMIT 1
                 """)

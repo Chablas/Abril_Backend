@@ -670,6 +670,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (worker.Estado == "INHABILITADO_SSOMA")
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
+            if (worker.Estado == "RETIRADO")
+                throw new AbrilException("El trabajador está retirado. Use la opción de Reingreso en vez de Cambiar obra.", 400);
+
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -941,7 +944,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (worker.Estado == "INHABILITADO_SSOMA")
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
-            await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId);
+            // Solo valida conflicto de empresa cuando el usuario realmente elige una nueva
+            // razón social. Si el campo viene null (quiere mantener la actual), no hay
+            // cambio real y por tanto no puede haber conflicto contra sí misma.
+            if (dto.NuevaEmpresaId.HasValue)
+                await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId);
 
             var fechaReingreso = dto.FechaReingreso ?? DateOnly.FromDateTime(DateTime.Today);
             var now = DateTimeOffset.UtcNow;

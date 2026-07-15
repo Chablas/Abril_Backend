@@ -1569,29 +1569,55 @@ namespace Abril_Backend.Infrastructure.Repositories
                    && a.InicioProgramado.HasValue && a.FinProgramado.HasValue
                    && a.InicioProgramado.Value <= s.Semana.AddDays(6)
                    && a.FinProgramado.Value >= s.Semana
-                select new { s.Semana, s.PorcentajeAvance, s.Spi, FinProgramado = a.FinProgramado!.Value }
+                select new
+                {
+                    s.ActividadId, s.Semana, s.PorcentajeAvance, s.Spi,
+                    InicioProgramado = a.InicioProgramado!.Value, FinProgramado = a.FinProgramado!.Value,
+                }
             ).ToListAsync();
 
-            var semanaRaw = avanceConActividad
-                .GroupBy(s => s.Semana)
-                .Select(g => new { Semana = g.Key, Real = g.Average(x => (double)x.PorcentajeAvance), Total = g.Count() })
-                .OrderBy(s => s.Semana)
+            // Curva de avance = delta semanal (cuánto avanzó cada actividad de una semana a la siguiente),
+            // no el nivel acumulado promedio: promediar el % acumulado sobre un grupo cuya composición
+            // cambia semana a semana (entran actividades recién arrancadas, salen las que ya cerraron)
+            // producía subidas/bajadas que no reflejaban avance real, solo el cambio de quién entraba al grupo.
+            static double AvanceEsperadoAcumulado(DateOnly inicio, DateOnly fin, DateOnly asOf)
+            {
+                var dias = (fin.ToDateTime(TimeOnly.MinValue) - inicio.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (dias <= 0) return 0.0;
+                var transcurridos = (asOf.ToDateTime(TimeOnly.MinValue) - inicio.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                return Math.Min(100.0, Math.Max(0.0, transcurridos / dias * 100.0));
+            }
+
+            var deltasPorActividad = avanceConActividad
+                .GroupBy(x => x.ActividadId)
+                .SelectMany(g =>
+                {
+                    var ordenado = g.OrderBy(x => x.Semana).ToList();
+                    var deltas = new List<(DateOnly Semana, double DeltaReal, double DeltaEsperado)>();
+                    for (int i = 1; i < ordenado.Count; i++)
+                    {
+                        var prev = ordenado[i - 1];
+                        var cur  = ordenado[i];
+                        var esperadoPrev = AvanceEsperadoAcumulado(prev.InicioProgramado, prev.FinProgramado, prev.Semana.AddDays(6));
+                        var esperadoCur  = AvanceEsperadoAcumulado(cur.InicioProgramado, cur.FinProgramado, cur.Semana.AddDays(6));
+                        deltas.Add((cur.Semana,
+                            (double)cur.PorcentajeAvance - (double)prev.PorcentajeAvance,
+                            esperadoCur - esperadoPrev));
+                    }
+                    return deltas;
+                })
                 .ToList();
 
-            // Programado = cuántas de las actividades proyectadas esa semana debían estar cerradas para esa fecha
-            var semanas = semanaRaw.Select(s =>
-            {
-                var proyectadasEsaSemana = avanceConActividad.Where(x => x.Semana == s.Semana).ToList();
-                var programadoPct = proyectadasEsaSemana.Count > 0
-                    ? Math.Round((double)proyectadasEsaSemana.Count(x => x.FinProgramado <= s.Semana) / proyectadasEsaSemana.Count * 100, 2)
-                    : 0.0;
-                return new AvanceSemanalDTO
+            var semanas = deltasPorActividad
+                .GroupBy(x => x.Semana)
+                .OrderBy(g => g.Key)
+                .Select(g => new AvanceSemanalDTO
                 {
-                    Semana     = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
-                    Real       = (decimal)s.Real,
-                    Programado = (decimal)programadoPct,
-                };
-            }).ToList();
+                    Semana     = $"Sem {ISOWeek.GetWeekOfYear(g.Key.ToDateTime(TimeOnly.MinValue))}",
+                    Real       = (decimal)Math.Round(g.Average(x => x.DeltaReal), 2),
+                    Programado = (decimal)Math.Round(g.Average(x => x.DeltaEsperado), 2),
+                })
+                .ToList();
 
             var spiRaw = avanceConActividad
                 .GroupBy(s => s.Semana)

@@ -274,6 +274,24 @@ public class RacService : IRacService
             }
         }
 
+        // Fallback: la cuenta autenticada no tiene una Person vinculada (común en cuentas
+        // internas/contratistas), así que se usa el observador elegido en el formulario
+        // en vez de dejar el reportante y cargo vacíos.
+        if (string.IsNullOrEmpty(reportanteNombre) && req.ReportanteId.HasValue)
+        {
+            var workerReportante = await ctx.Worker
+                .Where(w => w.Id == req.ReportanteId.Value)
+                .Select(w => new { w.ApellidoNombre, w.Ocupacion, w.Categoria })
+                .FirstOrDefaultAsync();
+            if (workerReportante is not null)
+            {
+                reportanteNombre = workerReportante.ApellidoNombre;
+                reportanteCargo = !string.IsNullOrEmpty(req.ReportanteCargo)
+                    ? req.ReportanteCargo
+                    : (workerReportante.Ocupacion ?? workerReportante.Categoria);
+            }
+        }
+
         // ── Transacción ───────────────────────────────────────────────────────
         var strategy  = ctx.Database.CreateExecutionStrategy();
         RacCreadoDto resultado = default!;

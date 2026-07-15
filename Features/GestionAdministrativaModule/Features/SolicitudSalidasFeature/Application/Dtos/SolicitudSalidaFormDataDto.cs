@@ -28,6 +28,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public string Descripcion { get; set; } = string.Empty;
         /// <summary>Si true, el frontend exige subir un documento adjunto al elegir este motivo.</summary>
         public bool RequiereAdjunto { get; set; }
+        /// <summary>Si true, las horas declaradas con este motivo son estimadas (cambia la etiqueta
+        /// de la hora de retorno en el formulario y recepción no registra hora real).</summary>
+        public bool EsHoraEstimada { get; set; }
     }
 
     public class LugarSalidaDto

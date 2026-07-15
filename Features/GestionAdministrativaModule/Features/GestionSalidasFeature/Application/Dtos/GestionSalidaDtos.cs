@@ -27,6 +27,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// <summary>Hora real de retorno registrada por recepción. Dato extra, opcional.</summary>
         public TimeOnly? HoraRetornoReal { get; set; }
         /// <summary>
+        /// True cuando TODOS los trayectos tienen motivos con es_hora_estimada: las horas declaradas
+        /// son estimadas y recepción no registra hora real de salida/retorno. Si al menos un trayecto
+        /// tiene motivo de hora exacta (o motivo libre), se sigue registrando.
+        /// </summary>
+        public bool EsHoraEstimada { get; set; }
+        /// <summary>
         /// True si el usuario logueado puede aprobar/rechazar ESTA salida. Es false cuando la salida
         /// es propia (worker del propio usuario) y el usuario no es Gerente — nadie aprueba sus
         /// propias salidas salvo los gerentes. Solo afecta Aprobar/Rechazar, no la rendición.

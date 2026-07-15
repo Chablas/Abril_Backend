@@ -188,6 +188,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     t.Id, t.SolicitudId, t.Orden, t.HoraSalida, t.HoraRetorno,
                     t.LugarOrigenId, t.LugarDestinoId,
                     Motivo = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                    // Motivo libre (sin catálogo) cuenta como hora exacta → se registra hora real.
+                    EsHoraEstimada = m != null && m.EsHoraEstimada,
                     LugarOrigen = lo == null ? t.LugarOrigenLibre
                                 : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                 : lo.Nombre,
@@ -270,6 +272,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     PuedeRendirse    = puedeRendir,
                     HoraSalidaReal   = s.HoraSalidaReal,
                     HoraRetornoReal  = s.HoraRetornoReal,
+                    // Solo se omite la hora real si TODOS los trayectos son de hora estimada.
+                    EsHoraEstimada   = trList.Count > 0 && trList.All(t => t.EsHoraEstimada),
                     PuedeDecidir     = esGerente || !misWorkerIds.Contains(s.WorkerId),
                 });
             }

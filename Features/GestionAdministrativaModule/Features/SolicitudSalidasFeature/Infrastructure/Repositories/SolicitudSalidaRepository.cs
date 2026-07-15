@@ -25,7 +25,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var motivos = await ctx.GaMotivoSalida
                 .Where(m => m.Activo)
                 .OrderBy(m => m.Descripcion)
-                .Select(m => new MotivoSalidaDto { Id = m.Id, Descripcion = m.Descripcion, RequiereAdjunto = m.RequiereAdjunto })
+                .Select(m => new MotivoSalidaDto { Id = m.Id, Descripcion = m.Descripcion, RequiereAdjunto = m.RequiereAdjunto, EsHoraEstimada = m.EsHoraEstimada })
                 .ToListAsync();
 
             var lugares = await (

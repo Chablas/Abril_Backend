@@ -8,6 +8,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// <summary>Si true, al solicitar una salida con este motivo se exige un documento
         /// adjunto (a modo de prueba, ej. constancia de capacitación o cita médica).</summary>
         public bool RequiereAdjunto { get; set; }
+        /// <summary>Si true, las horas declaradas con este motivo son estimadas: recepción
+        /// no registra la hora real de salida/retorno para estas solicitudes.</summary>
+        public bool EsHoraEstimada { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }
 }

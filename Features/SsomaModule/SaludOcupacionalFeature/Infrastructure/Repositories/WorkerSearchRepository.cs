@@ -41,9 +41,38 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     && (v.FechaFin == null || v.FechaFin >= hoy)));
             }
 
-            var baseList = await workers
-                .OrderBy(w => w.Person != null ? w.Person.FullName : null)
-                .Take(limit)
+            return await EnrichAsync(ctx, workers.OrderBy(w => w.Person != null ? w.Person.FullName : null).Take(limit), hoy);
+        }
+
+        public async Task<WorkerSearchResultDto?> GetByUserId(int userId, bool esContratista)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            IQueryable<Worker> workers;
+            if (esContratista)
+            {
+                // El login de un contratista no tiene Person propia: el vínculo a su ficha de
+                // trabajador va por ss_contratista_usuario.worker_id (asignado al dar de alta el
+                // acceso), no por Person.UserId.
+                var workerId = await ctx.SsContratistaUsuarios
+                    .Where(cu => cu.UserId == userId && cu.Activo && cu.WorkerId != null)
+                    .Select(cu => cu.WorkerId)
+                    .FirstOrDefaultAsync();
+                workers = ctx.Worker.Where(w => w.Id == workerId).Take(1);
+            }
+            else
+            {
+                workers = ctx.Worker.Where(w => w.Person != null && w.Person.UserId == userId).Take(1);
+            }
+
+            var result = await EnrichAsync(ctx, workers, hoy);
+            return result.FirstOrDefault();
+        }
+
+        private static async Task<List<WorkerSearchResultDto>> EnrichAsync(AppDbContext ctx, IQueryable<Worker> workersQuery, DateOnly hoy)
+        {
+            var baseList = await workersQuery
                 .Select(w => new
                 {
                     w.Id,

@@ -5,6 +5,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
     public interface IWorkerSearchRepository
     {
         Task<List<WorkerSearchResultDto>> Search(string? q, int limit, int? empresaIdContratista = null);
+        Task<WorkerSearchResultDto?> GetByUserId(int userId, bool esContratista);
         Task<List<DocumentTypeDto>> GetDocumentTypes();
         Task<int> Create(WorkerCreateDto dto);
         Task Update(int id, WorkerUpdateDto dto);

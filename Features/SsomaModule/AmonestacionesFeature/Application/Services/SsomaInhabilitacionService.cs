@@ -98,6 +98,7 @@ public class SsomaInhabilitacionService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error evaluando inhabilitación SSOMA para worker {WorkerId}", workerId);
+            throw;
         }
     }
 
@@ -123,6 +124,7 @@ public class SsomaInhabilitacionService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error evaluando desbloqueo SSOMA para worker {WorkerId}", workerId);
+            throw;
         }
     }
 

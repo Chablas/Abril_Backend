@@ -136,6 +136,8 @@ public class RacDetalleDto
     public string Estado { get; set; } = "";
     public DateTime? FechaCierre { get; set; }
     public string? CierreDescripcion { get; set; }
+    public string? CerradoPorNombre { get; set; }
+    public string? CerradoPorCargo { get; set; }
     public bool AplicaPenalidad { get; set; }
     public string? PdfUrl { get; set; }
     public DateTime CreatedAt { get; set; }

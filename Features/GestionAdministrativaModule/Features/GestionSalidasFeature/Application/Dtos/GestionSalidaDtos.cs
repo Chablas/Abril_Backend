@@ -22,8 +22,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public DateTimeOffset CreatedAt { get; set; }
         /// <summary>True si todos los trayectos tienen al menos una captura — habilita la rendición.</summary>
         public bool PuedeRendirse { get; set; }
-        /// <summary>Hora real registrada por recepción. Dato extra, opcional.</summary>
+        /// <summary>Hora real de salida registrada por recepción. Dato extra, opcional.</summary>
         public TimeOnly? HoraSalidaReal { get; set; }
+        /// <summary>Hora real de retorno registrada por recepción. Dato extra, opcional.</summary>
+        public TimeOnly? HoraRetornoReal { get; set; }
         /// <summary>
         /// True si el usuario logueado puede aprobar/rechazar ESTA salida. Es false cuando la salida
         /// es propia (worker del propio usuario) y el usuario no es Gerente — nadie aprueba sus
@@ -36,6 +38,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     {
         /// <summary>"HH:mm" o null para limpiar.</summary>
         public TimeOnly? HoraSalidaReal { get; set; }
+    }
+
+    public class RegistrarHoraRetornoRealDto
+    {
+        /// <summary>"HH:mm" o null para limpiar.</summary>
+        public TimeOnly? HoraRetornoReal { get; set; }
     }
 
     public class GestionSalidaFiltersDto

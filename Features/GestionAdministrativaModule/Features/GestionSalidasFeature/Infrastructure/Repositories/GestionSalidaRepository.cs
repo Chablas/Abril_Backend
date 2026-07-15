@@ -159,7 +159,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt,
-                    s.HoraSalidaReal
+                    s.HoraSalidaReal, s.HoraRetornoReal
                 }
             ).ToListAsync();
 
@@ -269,6 +269,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     CreatedAt        = s.CreatedAt,
                     PuedeRendirse    = puedeRendir,
                     HoraSalidaReal   = s.HoraSalidaReal,
+                    HoraRetornoReal  = s.HoraRetornoReal,
                     PuedeDecidir     = esGerente || !misWorkerIds.Contains(s.WorkerId),
                 });
             }
@@ -842,6 +843,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             s.HoraSalidaReal                = hora;
             s.HoraSalidaRealRegistradaPorId = hora.HasValue ? registradaPorUserId : (int?)null;
             s.HoraSalidaRealRegistradaAt    = hora.HasValue ? DateTimeOffset.UtcNow : (DateTimeOffset?)null;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task SetHoraRetornoReal(int solicitudId, TimeOnly? hora, int registradaPorUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId)
+                ?? throw new AbrilException("Solicitud no encontrada.", 404);
+
+            s.HoraRetornoReal                = hora;
+            s.HoraRetornoRealRegistradaPorId = hora.HasValue ? registradaPorUserId : (int?)null;
+            s.HoraRetornoRealRegistradaAt    = hora.HasValue ? DateTimeOffset.UtcNow : (DateTimeOffset?)null;
             await ctx.SaveChangesAsync();
         }
 

@@ -58,5 +58,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>Registra (o limpia) la hora real en la que la persona salió. Solo se actualiza el campo extra; no afecta el flujo principal.</summary>
         Task SetHoraSalidaReal(int solicitudId, TimeOnly? hora, int registradaPorUserId);
+
+        /// <summary>Registra (o limpia) la hora real en la que la persona retornó. Solo se actualiza el campo extra; no afecta el flujo principal.</summary>
+        Task SetHoraRetornoReal(int solicitudId, TimeOnly? hora, int registradaPorUserId);
     }
 }

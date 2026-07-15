@@ -37,6 +37,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public TimeOnly? HoraSalidaReal { get; set; }
         public int? HoraSalidaRealRegistradaPorId { get; set; }
         public DateTimeOffset? HoraSalidaRealRegistradaAt { get; set; }
+        /// <summary>Hora real en la que la persona retornó, registrada por recepción. Dato extra — no bloquea ningún flujo.</summary>
+        public TimeOnly? HoraRetornoReal { get; set; }
+        public int? HoraRetornoRealRegistradaPorId { get; set; }
+        public DateTimeOffset? HoraRetornoRealRegistradaAt { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
     }

@@ -34,5 +34,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
         /// <summary>Registra (o limpia) la hora real de salida. Para uso del rol USUARIO DE RECEPCIÓN.</summary>
         Task SetHoraSalidaReal(int id, TimeOnly? hora, int registradaPorUserId);
+
+        /// <summary>Registra (o limpia) la hora real de retorno. Para uso del rol USUARIO DE RECEPCIÓN.</summary>
+        Task SetHoraRetornoReal(int id, TimeOnly? hora, int registradaPorUserId);
     }
 }

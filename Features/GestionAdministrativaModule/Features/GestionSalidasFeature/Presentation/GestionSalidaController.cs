@@ -206,6 +206,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             }
         }
 
+        [HttpPatch("{id:int}/hora-retorno-real")]
+        public async Task<IActionResult> SetHoraRetornoReal(int id, [FromBody] RegistrarHoraRetornoRealDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                await _service.SetHoraRetornoReal(id, dto.HoraRetornoReal, userId.Value);
+                return Ok(new { message = "Hora real registrada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionSalidaController.SetHoraRetornoReal");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPatch("marcar-rendidas")]
         public async Task<IActionResult> MarcarRendidas([FromBody] MarcarRendidasBulkDto dto)
         {

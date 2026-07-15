@@ -185,6 +185,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public Task SetHoraSalidaReal(int id, TimeOnly? hora, int registradaPorUserId)
             => _repo.SetHoraSalidaReal(id, hora, registradaPorUserId);
 
+        public Task SetHoraRetornoReal(int id, TimeOnly? hora, int registradaPorUserId)
+            => _repo.SetHoraRetornoReal(id, hora, registradaPorUserId);
+
         public async Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId, int? ownerUserId = null)
         {
             var idsList = ids?.Distinct().ToList() ?? new List<int>();

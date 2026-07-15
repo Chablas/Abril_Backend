@@ -5091,3 +5091,39 @@ Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend
 ### Pendiente
 - Confirmar con el usuario que las miniaturas ya cargan en celular tras el fix del proxy.
 - Si alguna vez el selector "Quién levanta" queda vacío para un trabajador que debería aparecer, revisar si tiene fila vigente en `worker_vinculaciones` (ver nota de fuente en conflicto arriba).
+
+## Sesión 2026-07-15 — Módulo Gestión de Revisiones (nuevo) + fixes de Observaciones y migraciones históricas
+
+**Módulo nuevo `RevisionesFeature`** (`Features/ArquitecturaComercialModule/Features/RevisionesFeature/`), clon del patrón de Observaciones con una capa extra de agrupación:
+- Entidad `AcRevision` = catálogo de "revisiones" por proyecto (Tipo fijo en código `R1|R2|R1-AC|R2-AC|RF-AC` vía `TipoRevision.Valores`, Lugar = catálogo `AcCatalogoItem` tipo `LugarRevision` o texto libre, Nombre autogenerado `"{Tipo}-{ProyectoNombre}-{Lugar}"`).
+- `AcRevisionObservacion` / `AcRevisionObservacionFoto` = mismo shape que `AcObservacion`/`AcObservacionFoto` pero con FK a `AcRevision` en vez de proyecto directo, y `ZonaAmbiente` en vez de `Lugar` (para no chocar con el `Lugar` de la revisión). **Decisión explícita del usuario**: tablas nuevas separadas, NO reusar `ac_observaciones` — cero riesgo sobre el módulo que ya está en producción.
+- SharePoint: mismo site key `ObservacionesArqCom`, librería distinta `BRevisionesArqComercial` (confirmado con el archivo real `BibliotecaRevision.xlsx` que compartió el usuario).
+- Endpoints bajo `api/v1/arquitectura-comercial/revisiones`: catálogo (`GET/POST/DELETE .../catalogo`) + observaciones (mismo set que Observaciones: lista paginada, filtros, dashboard, stats, crear, levantar, editar, fotos).
+- Features nuevas en tabla `feature` (module_id=1, insertadas a mano vía SQL — **el catálogo de features/permisos NO se autogenera desde `[RequireFeature]`, hay que insertarlo manual cada vez que se crea un endpoint nuevo protegido**): `arquitectura-comercial.revisiones{,.dashboard,.lista,.editar}`.
+
+**Bugs reales encontrados y corregidos en el camino** (dejar constancia, son trampas que se van a repetir):
+1. **`GetFiltros` de Revisiones sacaba los proyectos de `AcRevisiones` en vez de `Project.TieneArquitecturaComercial`** — huevo-y-gallina: sin revisiones creadas, el combo de proyectos salía vacío en todos lados (ni se podía crear la primera revisión). Corregido para usar el mismo criterio que `ObservacionRepository.GetFiltros`.
+2. **IDs de proyecto del CSV histórico (`DBRevisionesComercial.csv`, export de SharePoint) NO coinciden con los `project_id` reales de Abril** (ej. Kaurí es `IDProyecto=43` en SharePoint pero `project_id=7` en la BD real). El import se rehizo uniendo por **nombre de proyecto** (`upper(project_description)`) contra la tabla `project` real en vez de hardcodear IDs — ese patrón (join por nombre, nunca por ID de un sistema externo) hay que repetirlo para cualquier import histórico futuro desde los CSVs de SharePoint/Power Apps.
+3. **Columnas `timestamp` de `ac_revisiones`/`ac_revision_observaciones` rechazaban cualquier insert** (`Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with time zone'`). Npgsql por defecto mapea `DateTime` de C# a `timestamp with time zone` y exige `Kind=Utc`, sin importar que la columna física sea `TIMESTAMP` (sin tz). Fix: overrides `.HasColumnType("timestamp without time zone")` en `AppContext.ConfigurePostgreSQL` para las 3 entidades nuevas. **Sospecha sin confirmar**: `AcObservacion` probablemente tiene el mismo problema latente (nunca se probó crear una observación nueva vía UI en esta sesión, todo lo visible viene del import histórico por SQL directo) — revisar si alguna vez falla un `POST /observaciones` nuevo.
+4. **`GetStats` con 4 `CountAsync()` secuenciales** (Observaciones y ahora Revisiones) — optimizado a una sola query con `GroupBy(o => 1)` + agregación condicional.
+5. **Falta de índice en `fecha`** en Observaciones (agregado ahora, `20260714_AddIndexFechaObservaciones.sql`) — para Revisiones se creó el índice desde el día 1 en la migración original, no hubo que parchear después.
+
+**Migraciones manuales corridas** (todas ya ejecutadas y verificadas por el usuario contra la BD real):
+- `20260714_AddIndexFechaObservaciones.sql` — índice en `ac_observaciones.fecha` y `partida_reportada`.
+- `20260714_CreateAcRevisiones.sql` — tablas `ac_revisiones`, `ac_revision_observaciones`, `ac_revision_observacion_fotos` + índices + seed del catálogo `LugarRevision` (5 valores).
+- `20260715_ImportRevisionesHistorico.sql` — import de 22 revisiones históricas, join por nombre de proyecto (ver bug #2 arriba). Verificado: 22/22 importadas.
+- Insert manual (no versionado en archivo, corrido directo por el usuario) de las 4 features nuevas en la tabla `feature`.
+
+**Sin resolver — pendiente para la próxima sesión/cuenta**:
+- **"Nueva observación" tarda en cargar los proyectos, tanto en Observaciones como en Revisiones, a pesar de que el request `/filtros` mide <1s en Network tab.** Se aplicó `cdr.markForCheck()` en todos los callbacks async de ambas páginas de lista (mismo patrón que ya usaban los dashboards) como mitigación de un posible problema de change detection con Zone.js + `withFetch()`, pero **no se confirmó que esto resuelva la demora real** — quedó sin verificar con el usuario tras el último cambio. Si sigue lento, el problema no es de red ni de query SQL (ya descartado con evidencia real), hay que investigar en el frontend con más profundidad (Angular DevTools / Performance tab, no asumir).
+- Relacionado: el botón "Nueva observación" depende de que `filtrosListos` (poblado por `/filtros`) esté en `true` para habilitarse — eso significa que, aunque el fetch sea rápido, la UX obliga a esperar ese roundtrip antes de poder hacer clic. No se evaluó si conviene desacoplar eso (ej. habilitar el botón de entrada y que el combo de Proyecto cargue dentro del modal en vez de bloquear el FAB entero) — quedó pendiente de decidir con el usuario.
+- No se probó de punta a punta el flujo completo de Revisiones en el navegador (crear revisión → crear observación → levantar) tras el último fix de timestamps — el usuario iba a probarlo pero la sesión se cortó por límite de tokens.
+
+### Archivos clave (sesión 2026-07-15)
+- `Features/ArquitecturaComercialModule/Features/RevisionesFeature/**` (módulo completo nuevo)
+- `Features/ArquitecturaComercialModule/Features/ObservacionesFeature/Infrastructure/Repositories/ObservacionRepository.cs` (GetStats optimizado, endpoint AgregarFotoObservacion)
+- `Features/ArquitecturaComercialModule/Features/ObservacionesFeature/Infrastructure/Models/AcCatalogoItem.cs` (tipo `LugarRevision`)
+- `Shared/Data/AppContext.cs` (DbSets de Revisiones + overrides de timestamp)
+- `Migrations/Manual/20260714_AddIndexFechaObservaciones.sql`
+- `Migrations/Manual/20260714_CreateAcRevisiones.sql`
+- `Migrations/Manual/20260715_ImportRevisionesHistorico.sql`

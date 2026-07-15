@@ -45,11 +45,6 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                // pageSize sin tope permitía pedir 9999 filas de golpe (usado hoy por el buscador de
-                // trabajadores de RAC) — con contratistas sin filtro de empresa esto escaneaba toda la
-                // tabla de trabajadores del sistema. Cap defensivo para todos los llamantes.
-                if (pageSize > 200) pageSize = 200;
-
                 var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
                 if (esContratista)
                 {
@@ -82,6 +77,15 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                         empresaId = empresaJwt;
                     }
                 }
+
+                // pageSize sin tope permitía pedir 9999 filas de golpe. Solo es peligroso cuando queda
+                // sin acotar por empresa/proyecto (contratista de scope TODOS sin proyectosFiltro, o
+                // POR_PROYECTO con múltiples proyectos + soloVerificacion=true) — ahí sí escanearía toda
+                // la tabla de trabajadores del sistema. El personal interno de Abril (no contratista)
+                // necesita la lista completa para los buscadores de Observador/Trabajador en RAC/OPT/
+                // Inspección/Auditoría ATS/Amonestaciones/Accidentes, así que no se le aplica el cap.
+                if (esContratista && empresaId == null && proyectoId == null && pageSize > 200)
+                    pageSize = 200;
 
                 var (items, total) = await _repo.GetWorkersHabilitacionAsync(
                     search, empresaId, proyectoId, estadoHabilitacion, contratistaCasa, page, pageSize, soloRetirados, soloSinEmo, soloEmoVencido, soloSinVidaLey);

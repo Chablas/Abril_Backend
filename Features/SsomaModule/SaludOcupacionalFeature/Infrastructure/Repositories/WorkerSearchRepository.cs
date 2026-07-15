@@ -41,9 +41,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     && (v.FechaFin == null || v.FechaFin >= hoy)));
             }
 
-            var baseList = await workers
-                .OrderBy(w => w.Person != null ? w.Person.FullName : null)
-                .Take(limit)
+            return await EnrichAsync(ctx, workers.OrderBy(w => w.Person != null ? w.Person.FullName : null).Take(limit), hoy);
+        }
+
+        public async Task<WorkerSearchResultDto?> GetByUserId(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            var workers = ctx.Worker.Where(w => w.Person != null && w.Person.UserId == userId).Take(1);
+            var result = await EnrichAsync(ctx, workers, hoy);
+            return result.FirstOrDefault();
+        }
+
+        private static async Task<List<WorkerSearchResultDto>> EnrichAsync(AppDbContext ctx, IQueryable<Worker> workersQuery, DateOnly hoy)
+        {
+            var baseList = await workersQuery
                 .Select(w => new
                 {
                     w.Id,

@@ -64,7 +64,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 if (claim == null || !int.TryParse(claim.Value, out var userId))
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var worker = await _service.GetByUserId(userId);
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
+                var worker = await _service.GetByUserId(userId, esContratista);
                 if (worker == null) return NotFound(new { message = "Tu usuario no está vinculado a una ficha de trabajador." });
 
                 return Ok(worker);

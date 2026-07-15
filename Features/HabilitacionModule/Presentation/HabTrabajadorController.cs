@@ -55,7 +55,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     if (proyectosFiltro != null)
                     {
                         // scope POR_PROYECTO: puede buscar entre empresas dentro de SUS proyectos
-                        // asignados (necesario para RAC/Inspecciones contra otra empresa en su obra),
+                        // asignados (necesario para RAC/OPT/Inspecciones contra otra empresa en su obra),
                         // pero nunca fuera de esos proyectos — no se salta el filtro aunque pida
                         // soloVerificacion=true.
                         if (proyectoId == null)
@@ -71,20 +71,23 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     }
                     else
                     {
-                        // scope TODOS: no hay lista de proyectos verificada contra la cual acotar la
-                        // búsqueda cross-empresa, así que SIEMPRE se restringe a su propia empresa —
-                        // nunca "todo el sistema", ni siquiera con soloVerificacion=true.
-                        empresaId = empresaJwt;
+                        // scope TODOS: mismo criterio que POR_PROYECTO — un contratista puede reportar
+                        // RAC/OPT/Inspecciones contra el trabajador de OTRA empresa en su propio
+                        // proyecto/obra, así que soloVerificacion=true tampoco se acota por empresa acá.
+                        // Fuera de ese caso (listados de habilitación propios, gestión de sus propios
+                        // trabajadores) sí se restringe siempre a su propia empresa.
+                        if (!soloVerificacion) empresaId = empresaJwt;
                     }
                 }
 
-                // pageSize sin tope permitía pedir 9999 filas de golpe. Solo es peligroso cuando queda
-                // sin acotar por empresa/proyecto (contratista de scope TODOS sin proyectosFiltro, o
-                // POR_PROYECTO con múltiples proyectos + soloVerificacion=true) — ahí sí escanearía toda
-                // la tabla de trabajadores del sistema. El personal interno de Abril (no contratista)
-                // necesita la lista completa para los buscadores de Observador/Trabajador en RAC/OPT/
-                // Inspección/Auditoría ATS/Amonestaciones/Accidentes, así que no se le aplica el cap.
-                if (esContratista && empresaId == null && proyectoId == null && pageSize > 200)
+                // pageSize sin tope permitía pedir 9999 filas de golpe. El cap defensivo solo aplica
+                // a listados de habilitación "normales" (soloVerificacion=false) de un contratista sin
+                // acotar por empresa/proyecto — ahí sí escanearía toda la tabla del sistema. Con
+                // soloVerificacion=true (buscador de Observador/Trabajador en RAC/OPT/Inspección/
+                // Auditoría ATS/Accidentes) el contratista necesita la lista completa igual que el
+                // personal interno de Abril, incluso cross-empresa: si se capea acá, la lista queda
+                // truncada alfabéticamente (ej. corta en la letra B) y faltan nombres reales.
+                if (esContratista && !soloVerificacion && empresaId == null && proyectoId == null && pageSize > 200)
                     pageSize = 200;
 
                 var (items, total) = await _repo.GetWorkersHabilitacionAsync(

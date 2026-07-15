@@ -180,6 +180,24 @@ public class RacService : IRacService
                 .FirstOrDefaultAsync();
         }
 
+        string? cerradoPorNombre = null;
+        string? cerradoPorCargo = null;
+        if (rac.CerradoPorId.HasValue)
+        {
+            var personaCierre = await ctx.Person
+                .Where(p => p.UserId == rac.CerradoPorId.Value)
+                .Select(p => new { p.PersonId, p.FullName })
+                .FirstOrDefaultAsync();
+            if (personaCierre is not null)
+            {
+                cerradoPorNombre = personaCierre.FullName;
+                cerradoPorCargo = await ctx.Worker
+                    .Where(w => w.PersonId == personaCierre.PersonId)
+                    .Select(w => w.Ocupacion)
+                    .FirstOrDefaultAsync();
+            }
+        }
+
         return new RacDetalleDto
         {
             Id                      = rac.Id,
@@ -213,6 +231,8 @@ public class RacService : IRacService
             Estado                  = rac.Estado,
             FechaCierre             = rac.FechaCierre,
             CierreDescripcion       = rac.CierreDescripcion,
+            CerradoPorNombre        = cerradoPorNombre,
+            CerradoPorCargo         = cerradoPorCargo,
             AplicaPenalidad         = rac.AplicaPenalidad,
             PdfUrl                  = rac.PdfUrl,
             CreatedAt               = rac.CreatedAt,

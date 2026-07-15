@@ -24,5 +24,10 @@ public static class AcCatalogoTipo
     public const string Partida = "Partida";
     public const string AreaResponsable = "AreaResponsable";
 
-    public static bool EsValido(string tipo) => tipo == Partida || tipo == AreaResponsable;
+    /// <summary>Catálogo de "Lugar a revisar" en Gestión de Revisiones (Sala de ventas,
+    /// Pilotos, Sala de juegos de niños, Comedor, Áreas comunes) — el usuario puede además
+    /// escribir uno manual desde el checkbox "Otro lugar" del formulario.</summary>
+    public const string LugarRevision = "LugarRevision";
+
+    public static bool EsValido(string tipo) => tipo == Partida || tipo == AreaResponsable || tipo == LugarRevision;
 }

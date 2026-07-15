@@ -72,6 +72,21 @@ public class ObservacionService : IObservacionService
     public Task<ObservacionListItemDTO?> UpdateObservacion(int id, UpdateObservacionDTO body)
         => _repository.UpdateObservacion(id, body);
 
+    /// <summary>Sube la foto de "Observacion" cuando la observación se creó sin ella —
+    /// caso distinto de <see cref="ReemplazarFoto"/>, que requiere una foto ya existente.</summary>
+    public async Task<string> AgregarFotoObservacion(int observacionId, Stream fotoStream, string fotoFileName)
+    {
+        var observacion = await _repository.GetObservacionById(observacionId);
+        if (observacion == null) throw new AbrilException("No se encontró la observación.", 404);
+        if (observacion.Fotos.Any(f => f.Tipo == "Observacion"))
+            throw new AbrilException("La observación ya tiene una foto. Use reemplazar en su lugar.", 400);
+
+        var contentType = GetContentType(fotoFileName);
+        var url = await _sharePoint.SubirFotoObservacionAsync(fotoStream, fotoFileName, contentType, observacion.ProyectoId, observacionId);
+        var foto = await _repository.AgregarFoto(observacionId, "Observacion", url, 0);
+        return foto.Url;
+    }
+
     /// <summary>Reemplaza el archivo de una foto ya subida (observación o levantamiento) — el
     /// caso "me equivoqué de foto" que antes no tenía solución sin recrear la observación.</summary>
     public async Task<string> ReemplazarFoto(int fotoId, Stream fotoStream, string fotoFileName)

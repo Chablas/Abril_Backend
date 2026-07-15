@@ -18,10 +18,11 @@ public class CatalogoService : ICatalogoService
         {
             "partidas" => AcCatalogoTipo.Partida,
             "areas-responsables" => AcCatalogoTipo.AreaResponsable,
+            "lugares-revision" => AcCatalogoTipo.LugarRevision,
             _ => tipo,
         };
         if (!AcCatalogoTipo.EsValido(normalizado))
-            throw new AbrilException("Tipo de catálogo inválido. Use 'partidas' o 'areas-responsables'.", 400);
+            throw new AbrilException("Tipo de catálogo inválido. Use 'partidas', 'areas-responsables' o 'lugares-revision'.", 400);
         return normalizado;
     }
 

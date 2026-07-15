@@ -2,6 +2,10 @@ using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesF
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Application.Services;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Application.Interfaces;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Application.Services;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Repositories;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Services;
 
@@ -19,6 +23,10 @@ public static class ArquitecturaComercialModule
 
         services.AddScoped<ICatalogoRepository, CatalogoRepository>();
         services.AddScoped<ICatalogoService, CatalogoService>();
+
+        services.AddScoped<IRevisionRepository, RevisionRepository>();
+        services.AddScoped<IRevisionSharePointService, RevisionSharePointService>();
+        services.AddScoped<IRevisionService, RevisionService>();
 
         return services;
     }

@@ -29,6 +29,7 @@ using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastruc
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Models;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Models;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -405,6 +406,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcObservacion> AcObservaciones => Set<AcObservacion>();
         public DbSet<AcObservacionFoto> AcObservacionFotos => Set<AcObservacionFoto>();
         public DbSet<AcCatalogoItem> AcCatalogoItems => Set<AcCatalogoItem>();
+
+        public DbSet<AcRevision> AcRevisiones => Set<AcRevision>();
+        public DbSet<AcRevisionObservacion> AcRevisionObservaciones => Set<AcRevisionObservacion>();
+        public DbSet<AcRevisionObservacionFoto> AcRevisionObservacionFotos => Set<AcRevisionObservacionFoto>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -866,6 +871,28 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<User>(entity =>
             {
                 entity.ToTable("app_user");
+            });
+
+            // Las columnas fecha/*_at de ac_revisiones y ac_revision_observaciones se crearon
+            // como TIMESTAMP (sin zona horaria) en la migración manual, pero Npgsql por defecto
+            // mapea DateTime a "timestamp with time zone" y exige Kind=Utc — sin este override
+            // cualquier insert con Kind=Unspecified (el que llega de [FromForm]) rompe con
+            // "Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with
+            // time zone'". Esto hace que el tipo de columna que EF genera coincida con el real.
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevision>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevisionObservacion>(entity =>
+            {
+                entity.Property(e => e.Fecha).HasColumnType("timestamp without time zone");
+                entity.Property(e => e.PlazoLevantamiento).HasColumnType("timestamp without time zone");
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
+                entity.Property(e => e.FechaLevantamiento).HasColumnType("timestamp without time zone");
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevisionObservacionFoto>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
             });
 
             modelBuilder.Entity<ProjectSubContractor>(entity =>

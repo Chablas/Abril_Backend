@@ -168,12 +168,25 @@ public class ObservacionRepository : IObservacionRepository
         if (hasta.HasValue) query = query.Where(o => o.Fecha <= hasta.Value);
         if (proyectoId.HasValue) query = query.Where(o => o.ProyectoId == proyectoId.Value);
 
+        // Un solo round-trip con agregación condicional en vez de 4 CountAsync()
+        // secuenciales (antes cada card esperaba a la anterior).
+        var porEstado = await query
+            .GroupBy(o => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                Completados = g.Count(o => o.Estado == "Completado"),
+                Pendientes = g.Count(o => o.Estado == "Pendiente"),
+                EnProceso = g.Count(o => o.Estado == "En Proceso")
+            })
+            .FirstOrDefaultAsync();
+
         return new ObservacionStatsDTO
         {
-            Reportados = await query.CountAsync(),
-            Completados = await query.CountAsync(o => o.Estado == "Completado"),
-            Pendientes = await query.CountAsync(o => o.Estado == "Pendiente"),
-            EnProceso = await query.CountAsync(o => o.Estado == "En Proceso")
+            Reportados = porEstado?.Total ?? 0,
+            Completados = porEstado?.Completados ?? 0,
+            Pendientes = porEstado?.Pendientes ?? 0,
+            EnProceso = porEstado?.EnProceso ?? 0
         };
     }
 

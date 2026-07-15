@@ -12,6 +12,7 @@ public interface IObservacionService
     Task<ObservacionListItemDTO> CreateObservacion(CreateObservacionDTO body, Stream? fotoStream, string? fotoFileName);
     Task<ObservacionListItemDTO?> LevantarObservacion(int id, Stream? fotoStream, string? fotoFileName, LevantarObservacionDTO body);
     Task<ObservacionListItemDTO?> UpdateObservacion(int id, UpdateObservacionDTO body);
+    Task<string> AgregarFotoObservacion(int observacionId, Stream fotoStream, string fotoFileName);
     Task<string> ReemplazarFoto(int fotoId, Stream fotoStream, string fotoFileName);
     Task<(byte[] Bytes, string ContentType)?> GetFotoContenido(int fotoId);
 }

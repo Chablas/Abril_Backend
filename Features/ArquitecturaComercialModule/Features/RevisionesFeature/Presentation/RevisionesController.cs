@@ -1,29 +1,81 @@
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Application.Dtos;
-using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Application.Interfaces;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Application.Dtos;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Application.Interfaces;
 using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Presentation;
+namespace Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Presentation;
 
 [Authorize]
 [ApiController]
-[Route("api/v1/arquitectura-comercial/observaciones")]
-[RequireFeature("arquitectura-comercial.observaciones")]
-public class ObservacionesController : ControllerBase
+[Route("api/v1/arquitectura-comercial/revisiones")]
+[RequireFeature("arquitectura-comercial.revisiones")]
+public class RevisionesController : ControllerBase
 {
-    private readonly IObservacionService _service;
-    private readonly ILogger<ObservacionesController> _logger;
+    private readonly IRevisionService _service;
+    private readonly ILogger<RevisionesController> _logger;
 
-    public ObservacionesController(IObservacionService service, ILogger<ObservacionesController> logger)
+    public RevisionesController(IRevisionService service, ILogger<RevisionesController> logger)
     {
         _service = service;
         _logger = logger;
     }
 
+    // ── Catálogo de revisiones (proyecto + tipo + lugar → nombre autogenerado) ──
+
+    [HttpGet("catalogo")]
+    public async Task<IActionResult> GetCatalogo([FromQuery] int? proyectoId, [FromQuery] bool soloActivas = true)
+    {
+        try
+        {
+            var result = await _service.GetRevisiones(proyectoId, soloActivas);
+            return Ok(result);
+        }
+        catch (Exception)
+        {
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    [HttpPost("catalogo")]
+    public async Task<IActionResult> CreateCatalogo([FromBody] CreateRevisionDTO body)
+    {
+        try
+        {
+            var result = await _service.CreateRevision(body);
+            return Ok(result);
+        }
+        catch (AbrilException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
+        catch (Exception)
+        {
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    [HttpDelete("catalogo/{id:int}")]
+    public async Task<IActionResult> DeleteCatalogo(int id)
+    {
+        try
+        {
+            var eliminado = await _service.DeleteRevision(id);
+            if (!eliminado) return NotFound(new { message = "No se encontró la revisión." });
+            return Ok(new { message = "Revisión eliminada." });
+        }
+        catch (Exception)
+        {
+            return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+        }
+    }
+
+    // ── Observaciones dentro de una revisión ──
+
     [HttpGet]
     public async Task<IActionResult> GetObservaciones(
+        [FromQuery] int? revisionId,
         [FromQuery] int? proyectoId,
         [FromQuery] string? estado,
         [FromQuery] string? partida,
@@ -35,7 +87,7 @@ public class ObservacionesController : ControllerBase
     {
         try
         {
-            var result = await _service.GetObservaciones(proyectoId, estado, partida, desde, hasta, search, pagina, porPagina);
+            var result = await _service.GetObservaciones(revisionId, proyectoId, estado, partida, desde, hasta, search, pagina, porPagina);
             return Ok(result);
         }
         catch (AbrilException ex)
@@ -111,7 +163,7 @@ public class ObservacionesController : ControllerBase
 
     [HttpPost]
     [RequestSizeLimit(20_000_000)]
-    public async Task<IActionResult> CreateObservacion([FromForm] CreateObservacionDTO body, IFormFile? foto)
+    public async Task<IActionResult> CreateObservacion([FromForm] CreateRevisionObservacionDTO body, IFormFile? foto)
     {
         try
         {
@@ -131,7 +183,7 @@ public class ObservacionesController : ControllerBase
 
     [HttpPost("{id:int}/levantar")]
     [RequestSizeLimit(20_000_000)]
-    public async Task<IActionResult> Levantar(int id, [FromForm] LevantarObservacionDTO body, IFormFile? foto)
+    public async Task<IActionResult> Levantar(int id, [FromForm] LevantarRevisionObservacionDTO body, IFormFile? foto)
     {
         try
         {
@@ -151,8 +203,8 @@ public class ObservacionesController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
-    [RequireFeature("arquitectura-comercial.observaciones.editar")]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateObservacionDTO body)
+    [RequireFeature("arquitectura-comercial.revisiones.editar")]
+    public async Task<IActionResult> Update(int id, [FromBody] UpdateRevisionObservacionDTO body)
     {
         try
         {
@@ -170,7 +222,6 @@ public class ObservacionesController : ControllerBase
         }
     }
 
-    /// <summary>Sube la foto de "Observacion" cuando la observación se creó sin ella.</summary>
     [HttpPost("{id:int}/fotos")]
     [RequestSizeLimit(20_000_000)]
     public async Task<IActionResult> AgregarFoto(int id, IFormFile file)
@@ -188,12 +239,11 @@ public class ObservacionesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error agregando foto a observación {ObservacionId}", id);
+            _logger.LogError(ex, "Error agregando foto a observación de revisión {Id}", id);
             return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
         }
     }
 
-    /// <summary>Reemplaza el archivo de una foto ya subida (se equivocaron de foto al reportar o al levantar).</summary>
     [HttpPatch("fotos/{fotoId:int}")]
     [RequestSizeLimit(20_000_000)]
     public async Task<IActionResult> ReemplazarFoto(int fotoId, IFormFile file)
@@ -216,14 +266,6 @@ public class ObservacionesController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Sirve el contenido de una foto desde nuestro propio dominio en vez de la webUrl cruda de
-    /// SharePoint. El &lt;img src&gt; que apuntaba directo a SharePoint solo cargaba en navegadores
-    /// con sesión de Microsoft 365 activa (ambiente de escritorio de oficina) — en celular, sin esa
-    /// sesión, SharePoint devolvía una página de login en vez de la imagen y la miniatura salía rota.
-    /// Acepta el JWT por query string (?access_token=) porque un &lt;img&gt; no puede mandar el
-    /// header Authorization — mismo mecanismo que ya se usa para /hubs (ver Program.cs).
-    /// </summary>
     [HttpGet("fotos/{fotoId:int}/contenido")]
     public async Task<IActionResult> GetFotoContenido(int fotoId)
     {

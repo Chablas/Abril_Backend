@@ -21,6 +21,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
         [Column("area_scope_id")]
         public int AreaScopeId { get; set; }
 
+        /// <summary>
+        /// Proyecto (project.project_id) cuando el área está marcada como "filtrar por proyecto"
+        /// (ga_salidas_area_config.filtra_por_proyecto). NULL = revisor a nivel de área (comportamiento
+        /// por defecto/histórico); con valor = revisor específico de ese proyecto dentro del área.
+        /// </summary>
+        [Column("project_id")]
+        public int? ProjectId { get; set; }
+
         /// <summary>Trabajador (workers.id) que revisa/aprueba las salidas de los trabajadores del área.</summary>
         [Column("revisor_id")]
         public int RevisorId { get; set; }

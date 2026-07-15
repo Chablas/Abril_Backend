@@ -14,6 +14,10 @@ using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Int
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Interfaces;
@@ -85,6 +89,11 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // Visibilidad de salidas (configuración: override manual de áreas visibles por trabajador)
             services.AddScoped<IVisibilidadSalidaRepository, VisibilidadSalidaRepository>();
             services.AddScoped<IVisibilidadSalidaService, VisibilidadSalidaService>();
+
+            // Delegación de Revisión (funcionalidad principal: el propio revisor autogestiona los
+            // revisores de su área/proyecto — delegar suplentes y tomar/soltar el puesto)
+            services.AddScoped<IDelegacionRevisionRepository, DelegacionRevisionRepository>();
+            services.AddScoped<IDelegacionRevisionService, DelegacionRevisionService>();
 
             return services;
         }

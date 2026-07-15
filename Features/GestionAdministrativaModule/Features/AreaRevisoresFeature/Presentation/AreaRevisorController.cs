@@ -49,8 +49,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
         }
 
         /// <summary>
-        /// Reemplaza el conjunto de revisores de un área (nodo area_scope).
-        /// Solo el ADMINISTRADOR DE SOLICITUD DE SALIDAS puede editar.
+        /// Reemplaza el conjunto de revisores de un área (nodo area_scope) o de un proyecto
+        /// dentro del área (dto.ProjectId con valor). Solo el ADMINISTRADOR DE SOLICITUD DE SALIDAS puede editar.
         /// </summary>
         [HttpPut("{areaScopeId:int}")]
         [Authorize(Roles = Roles.AdministradorSolicitudSalidas)]
@@ -58,13 +58,35 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
         {
             try
             {
-                await _service.UpdateAreaRevisoresAsync(areaScopeId, dto?.Revisores ?? new List<AreaRevisorAsignacionDto>());
+                await _service.UpdateAreaRevisoresAsync(areaScopeId, dto?.ProjectId, dto?.Revisores ?? new List<AreaRevisorAsignacionDto>());
                 return Ok(new { message = "Revisores del área actualizados exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en AreaRevisorController.UpdateRevisores");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Marca/desmarca "filtrar por proyecto" para un área. Al activarse, el área se
+        /// subdivide por proyecto y sus revisores se asignan por proyecto.
+        /// Solo el ADMINISTRADOR DE SOLICITUD DE SALIDAS puede editar.
+        /// </summary>
+        [HttpPut("{areaScopeId:int}/filtro-proyecto")]
+        [Authorize(Roles = Roles.AdministradorSolicitudSalidas)]
+        public async Task<IActionResult> SetFiltroProyecto(int areaScopeId, [FromBody] AreaFiltroProyectoUpdateDto dto)
+        {
+            try
+            {
+                await _service.SetFiltroProyectoAsync(areaScopeId, dto?.FiltraPorProyecto ?? false);
+                return Ok(new { message = "Configuración del área actualizada exitosamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en AreaRevisorController.SetFiltroProyecto");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

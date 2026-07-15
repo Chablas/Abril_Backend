@@ -118,7 +118,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         {
             try
             {
-                return Ok(await _service.GetFilterData());
+                var currentUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+
+                return Ok(await _service.GetFilterData(currentUserId, User.IsInRole(Roles.UsuarioRecepcion)));
             }
             catch (AbrilException ex)
             {

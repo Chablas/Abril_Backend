@@ -16,7 +16,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application
         public Task<AreaRevisorInicialDto> GetInitialDataAsync(int userId, bool verTodas)
             => _repo.GetInitialDataAsync(userId, verTodas);
 
-        public Task UpdateAreaRevisoresAsync(int areaScopeId, List<AreaRevisorAsignacionDto> revisores)
-            => _repo.UpdateAreaRevisoresAsync(areaScopeId, revisores);
+        public Task UpdateAreaRevisoresAsync(int areaScopeId, int? projectId, List<AreaRevisorAsignacionDto> revisores)
+            => _repo.UpdateAreaRevisoresAsync(areaScopeId, projectId, revisores);
+
+        public Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto)
+            => _repo.SetFiltroProyectoAsync(areaScopeId, filtraPorProyecto);
     }
 }

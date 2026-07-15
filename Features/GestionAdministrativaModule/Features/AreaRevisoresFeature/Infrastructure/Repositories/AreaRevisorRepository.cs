@@ -69,6 +69,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 .ToList();
 
             // 2) Revisores vivos de las áreas listadas, con los datos del revisor resueltos (una sola query).
+            //    Se trae también el project_id: NULL = revisor a nivel de área; con valor = revisor
+            //    de ese proyecto dentro del área (áreas "filtradas por proyecto").
             var areaIds = areas.Select(a => a.AreaScopeId).ToList();
             var asignaciones = await (
                 from r in ctx.AreaRevisores
@@ -82,6 +84,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 select new
                 {
                     r.AreaScopeId,
+                    r.ProjectId,
                     Dto = new AreaRevisorAsignadoDto
                     {
                         Id = r.AreaRevisoresId,
@@ -95,14 +98,57 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 }
             ).ToListAsync();
 
+            // Revisores a nivel de área (project_id NULL).
             var porArea = asignaciones
+                .Where(a => a.ProjectId == null)
                 .GroupBy(a => a.AreaScopeId)
                 .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
 
-            foreach (var a in areas)
-                if (porArea.TryGetValue(a.AreaScopeId, out var revs)) a.Revisores = revs;
+            // Revisores por proyecto (project_id con valor).
+            var porAreaProyecto = asignaciones
+                .Where(a => a.ProjectId != null)
+                .GroupBy(a => (a.AreaScopeId, ProjectId: a.ProjectId!.Value))
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
 
-            // 3) Opciones del selector (mismo criterio que Revisores de Trabajadores).
+            // 3) Flags "filtrar por proyecto" (ga_salidas_area_config) de las áreas listadas.
+            var flags = await ctx.GaSalidasAreaConfig
+                .Where(f => f.State && areaIds.Contains(f.AreaScopeId))
+                .Select(f => new { f.AreaScopeId, f.FiltraPorProyecto })
+                .ToListAsync();
+            var flagByArea = flags
+                .GroupBy(f => f.AreaScopeId)
+                .ToDictionary(g => g.Key, g => g.First().FiltraPorProyecto);
+
+            // 4) Catálogo de proyectos activos (para subfilas y selector de proyecto).
+            var proyectos = await (
+                from pr in ctx.Project
+                where pr.State && pr.Active
+                orderby pr.ProjectDescription
+                select new ProyectoOptionDto { ProjectId = pr.ProjectId, ProjectName = pr.ProjectDescription }
+            ).ToListAsync();
+
+            foreach (var a in areas)
+            {
+                if (porArea.TryGetValue(a.AreaScopeId, out var revs)) a.Revisores = revs;
+                a.FiltraPorProyecto = flagByArea.TryGetValue(a.AreaScopeId, out var f) && f;
+
+                if (a.FiltraPorProyecto)
+                {
+                    // Solo los proyectos que ya tienen algún revisor asignado en esta área;
+                    // el frontend arma la subfila de cada proyecto desde la lista global.
+                    a.Proyectos = proyectos
+                        .Where(pr => porAreaProyecto.ContainsKey((a.AreaScopeId, pr.ProjectId)))
+                        .Select(pr => new AreaProyectoRevisoresDto
+                        {
+                            ProjectId = pr.ProjectId,
+                            ProjectName = pr.ProjectName,
+                            Revisores = porAreaProyecto[(a.AreaScopeId, pr.ProjectId)],
+                        })
+                        .ToList();
+                }
+            }
+
+            // 5) Opciones del selector de revisor (mismo criterio que Revisores de Trabajadores).
             //    Solo el administrador puede editar revisores, así que solo él las necesita.
             var options = !verTodas
                 ? new List<AreaRevisorOptionDto>()
@@ -124,10 +170,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             {
                 Areas = areas,
                 Options = options,
+                Proyectos = verTodas ? proyectos : new List<ProyectoOptionDto>(),
             };
         }
 
-        public async Task UpdateAreaRevisoresAsync(int areaScopeId, List<AreaRevisorAsignacionDto> revisores)
+        public async Task UpdateAreaRevisoresAsync(int areaScopeId, int? projectId, List<AreaRevisorAsignacionDto> revisores)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -137,6 +184,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             var area = FirstStandardNodes(nodos).FirstOrDefault(n => n.AreaScopeId == areaScopeId);
             if (area == null)
                 throw new AbrilException("El área no existe o no admite revisores (solo áreas de tipo Área Estándar).", 404);
+
+            // Si se especifica proyecto, debe existir y estar vivo.
+            if (projectId != null)
+            {
+                var proyectoValido = await ctx.Project.AnyAsync(p => p.ProjectId == projectId.Value && p.State);
+                if (!proyectoValido)
+                    throw new AbrilException("El proyecto no existe.", 404);
+            }
 
             var deseados = revisores ?? new List<AreaRevisorAsignacionDto>();
 
@@ -164,10 +219,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                     throw new AbrilException("Uno o más revisores no existen o no tienen correo corporativo @abril.pe.", 400);
             }
 
-            // ── Diff con las filas vivas (mismo patrón que workers_revisores) ─
+            // ── Diff con las filas vivas del mismo alcance (área o área+proyecto) ─
             var now = DateTimeOffset.UtcNow;
             var vivos = await ctx.AreaRevisores
-                .Where(r => r.State && r.AreaScopeId == areaScopeId)
+                .Where(r => r.State && r.AreaScopeId == areaScopeId && r.ProjectId == projectId)
                 .ToListAsync();
             var vivosByRevisor = vivos.ToDictionary(r => r.RevisorId);
 
@@ -187,6 +242,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                     ctx.AreaRevisores.Add(new AreaRevisoresModel
                     {
                         AreaScopeId = areaScopeId,
+                        ProjectId = projectId,
                         RevisorId = d.RevisorWorkerId,
                         OrdenPrioridad = d.OrdenPrioridad,
                         Active = d.Active,
@@ -204,6 +260,40 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                     row.State = false;
                     row.UpdatedAt = now;
                 }
+            }
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task SetFiltroProyectoAsync(int areaScopeId, bool filtraPorProyecto)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // El área debe ser un nodo elegible (primer "Área Estándar" de su rama).
+            var nodos = await LoadNodosAsync(ctx);
+            var area = FirstStandardNodes(nodos).FirstOrDefault(n => n.AreaScopeId == areaScopeId);
+            if (area == null)
+                throw new AbrilException("El área no existe o no admite configuración (solo áreas de tipo Área Estándar).", 404);
+
+            var now = DateTimeOffset.UtcNow;
+            var config = await ctx.GaSalidasAreaConfig
+                .FirstOrDefaultAsync(f => f.State && f.AreaScopeId == areaScopeId);
+
+            if (config == null)
+            {
+                ctx.GaSalidasAreaConfig.Add(new Shared.Models.GaSalidasAreaConfig
+                {
+                    AreaScopeId = areaScopeId,
+                    FiltraPorProyecto = filtraPorProyecto,
+                    State = true,
+                    Active = true,
+                    CreatedAt = now,
+                });
+            }
+            else if (config.FiltraPorProyecto != filtraPorProyecto)
+            {
+                config.FiltraPorProyecto = filtraPorProyecto;
+                config.UpdatedAt = now;
             }
 
             await ctx.SaveChangesAsync();

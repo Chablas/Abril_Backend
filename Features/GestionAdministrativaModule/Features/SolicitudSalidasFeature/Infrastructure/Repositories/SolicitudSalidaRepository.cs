@@ -55,14 +55,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         {
             using var ctx = _factory.CreateDbContext();
 
-            var workerId = await ctx.Worker
+            var workerInfo = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.UserId == userId)
-                .Select(w => (int?)w.Id)
+                .Select(w => new { w.Id, w.Subarea })
                 .FirstOrDefaultAsync();
-            if (workerId == null) return new();
+            if (workerInfo == null) return new();
 
             var query = ctx.GaSolicitudSalida
-                .Where(s => s.WorkerId == workerId.Value);
+                .Where(s => s.WorkerId == workerInfo.Id);
 
             if (filters != null)
             {
@@ -109,6 +109,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 select new
                 {
                     t.Id, t.SolicitudId, t.Orden, t.HoraSalida, t.HoraRetorno,
+                    t.LugarOrigenId, t.LugarDestinoId,
                     Motivo       = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
                     LugarOrigen  = lo == null ? t.LugarOrigenLibre
                                  : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
@@ -122,6 +123,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             var trayectosBySolicitud = trayectos.GroupBy(t => t.SolicitudId)
                 .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Orden).ToList());
 
+            // Trayectos con al menos 1 captura — misma regla de cobertura que Gestión de Salidas.
+            var trayectoIds = trayectos.Select(t => t.Id).ToList();
+            var trayectosConCapturas = trayectoIds.Count == 0
+                ? new HashSet<int>()
+                : (await ctx.GaSolicitudCaptura
+                    .Where(c => trayectoIds.Contains(c.TrayectoId))
+                    .Select(c => c.TrayectoId)
+                    .Distinct()
+                    .ToListAsync()).ToHashSet();
+
+            // Regla relajada para TI: un trayecto también se considera cubierto si su
+            // (origen, destino) está en el catálogo ga_trayecto.
+            var esTI = string.Equals(workerInfo.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase);
+            var catalogoMap = esTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
+
             var result = new List<SolicitudSalidaListItemDto>(solicitudes.Count);
             foreach (var s in solicitudes)
             {
@@ -129,6 +145,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 trList ??= new();
                 var first = trList.FirstOrDefault();
                 var last  = trList.LastOrDefault();
+
+                bool trayectoCubierto(int trayectoId, int? origenId, int? destinoId)
+                {
+                    if (trayectosConCapturas.Contains(trayectoId)) return true;
+                    if (!esTI) return false;
+                    if (!origenId.HasValue || !destinoId.HasValue) return false;
+                    return catalogoMap.ContainsKey((origenId.Value, destinoId.Value));
+                }
+                var puedeRendir = trList.Count > 0
+                    && trList.All(t => trayectoCubierto(t.Id, t.LugarOrigenId, t.LugarDestinoId));
 
                 result.Add(new SolicitudSalidaListItemDto
                 {
@@ -143,12 +169,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     EstadoAprobacion = EstadosSalida.Aprobacion.Nombre(s.EstadoAprobacionId),
                     EstadoRendicion  = EstadosSalida.Rendicion.Nombre(s.EstadoRendicionId),
                     CreatedAt        = s.CreatedAt,
+                    PuedeRendirse    = puedeRendir,
                 });
             }
             return result;
         }
 
-        public async Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId, Dictionary<int, TrayectoAdjuntoSubidoDto>? adjuntosPorIndice = null)
+        public async Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId, Dictionary<int, List<TrayectoAdjuntoSubidoDto>>? adjuntosPorIndice = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -180,9 +207,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             };
 
             var trayectosEnts = dto.Trayectos.Select((t, idx) =>
-            {
-                var adj = adjuntosPorIndice != null && adjuntosPorIndice.TryGetValue(idx, out var a) ? a : null;
-                return new GaSolicitudTrayecto
+                new GaSolicitudTrayecto
                 {
                     Orden             = idx,
                     HoraSalida        = t.HoraSalida,
@@ -193,13 +218,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     LugarOrigenLibre  = string.IsNullOrWhiteSpace(t.LugarOrigenLibre) ? null : t.LugarOrigenLibre.Trim(),
                     LugarDestinoId    = t.LugarDestinoId,
                     LugarDestinoLibre = string.IsNullOrWhiteSpace(t.LugarDestinoLibre) ? null : t.LugarDestinoLibre.Trim(),
-                    AdjuntoUrl        = adj?.Url,
-                    AdjuntoItemId     = adj?.ItemId,
-                    AdjuntoDriveId    = adj?.DriveId,
-                    AdjuntoFilename   = adj?.Filename,
-                    AdjuntoUploadedAt = adj != null ? now : null,
-                };
-            }).ToList();
+                    // Los adjuntos nuevos se guardan en ga_solicitud_trayecto_adjunto (ver más abajo),
+                    // no en estas columnas embebidas (legacy, se conservan para históricos).
+                }).ToList();
 
             // Transacción explícita (Npgsql retry strategy compatible)
             var strategy = ctx.Database.CreateExecutionStrategy();
@@ -215,6 +236,36 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 }
                 ctx.GaSolicitudTrayecto.AddRange(trayectosEnts);
                 await ctx.SaveChangesAsync();
+
+                // Adjuntos por trayecto (N por trayecto). Ya subidos a SharePoint por el service.
+                if (adjuntosPorIndice != null && adjuntosPorIndice.Count > 0)
+                {
+                    var adjuntoEnts = new List<GaSolicitudTrayectoAdjunto>();
+                    for (int idx = 0; idx < trayectosEnts.Count; idx++)
+                    {
+                        if (!adjuntosPorIndice.TryGetValue(idx, out var subidos) || subidos.Count == 0)
+                            continue;
+                        foreach (var a in subidos)
+                        {
+                            adjuntoEnts.Add(new GaSolicitudTrayectoAdjunto
+                            {
+                                TrayectoId      = trayectosEnts[idx].Id,
+                                AdjuntoUrl      = a.Url,
+                                AdjuntoItemId   = a.ItemId,
+                                AdjuntoDriveId  = a.DriveId,
+                                AdjuntoFilename = a.Filename,
+                                UploadedById    = userId,
+                                UploadedAt      = now,
+                            });
+                        }
+                    }
+                    if (adjuntoEnts.Count > 0)
+                    {
+                        ctx.GaSolicitudTrayectoAdjunto.AddRange(adjuntoEnts);
+                        await ctx.SaveChangesAsync();
+                    }
+                }
+
                 await tx.CommitAsync();
             });
 
@@ -271,12 +322,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 .FirstOrDefaultAsync();
             if (workerInfo == null) return null;
 
-            var solicitud = await ctx.GaSolicitudSalida
-                .Where(s => s.Id == solicitudId && s.WorkerId == workerInfo.Id)
-                .Select(s => new
+            var solicitud = await (
+                from s in ctx.GaSolicitudSalida
+                join r in ctx.GaRendicion on s.RendicionId equals (int?)r.Id into rGroup
+                from r in rGroup.DefaultIfEmpty()
+                where s.Id == solicitudId && s.WorkerId == workerInfo.Id
+                select new
                 {
                     s.Id, s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId,
-                    s.CreatedAt, s.MotivoRechazo
+                    s.CreatedAt, s.MotivoRechazo,
+                    Rendicion = r == null ? null : new SolicitudSalidaRendicionDto
+                    {
+                        Id          = r.Id,
+                        PdfUrl      = r.PdfUrl,
+                        PdfFilename = r.PdfFilename,
+                        RendidoAt   = r.RendidoAt,
+                    },
                 })
                 .FirstOrDefaultAsync();
             if (solicitud == null) return null;
@@ -305,8 +366,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                         Orden       = t.Orden,
                         HoraSalida  = t.HoraSalida,
                         HoraRetorno = t.HoraRetorno,
-                        AdjuntoUrl      = t.AdjuntoUrl,
-                        AdjuntoFilename = t.AdjuntoFilename,
                         Motivo      = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
                         LugarOrigen = lo == null ? t.LugarOrigenLibre
                                     : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
@@ -317,6 +376,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                     },
                     t.LugarOrigenId,
                     t.LugarDestinoId,
+                    // Adjunto legacy embebido (modelo anterior 1:1). Se combina con la tabla nueva.
+                    t.AdjuntoUrl,
+                    t.AdjuntoFilename,
                 }
             ).ToListAsync();
 
@@ -324,6 +386,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
 
             // Capturas
             var trayectoIds = trayectosListado.Select(t => t.Id).ToList();
+
+            // Adjuntos (tabla nueva ga_solicitud_trayecto_adjunto, N por trayecto).
+            var adjuntosByTrayecto = new Dictionary<int, List<TrayectoAdjuntoDto>>();
+            if (trayectoIds.Count > 0)
+            {
+                var adjRaw = await ctx.GaSolicitudTrayectoAdjunto
+                    .Where(a => trayectoIds.Contains(a.TrayectoId))
+                    .OrderBy(a => a.UploadedAt).ThenBy(a => a.Id)
+                    .Select(a => new { a.TrayectoId, a.AdjuntoUrl, a.AdjuntoFilename })
+                    .ToListAsync();
+
+                adjuntosByTrayecto = adjRaw.GroupBy(a => a.TrayectoId)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => g.Select(a => new TrayectoAdjuntoDto { Url = a.AdjuntoUrl, Filename = a.AdjuntoFilename }).ToList());
+            }
+
+            // Combinar: adjunto legacy embebido (si existe) + adjuntos de la tabla nueva.
+            foreach (var raw in trayectosRaw)
+            {
+                var lista = new List<TrayectoAdjuntoDto>();
+                if (!string.IsNullOrWhiteSpace(raw.AdjuntoUrl))
+                    lista.Add(new TrayectoAdjuntoDto { Url = raw.AdjuntoUrl, Filename = raw.AdjuntoFilename ?? "Ver documento" });
+                if (adjuntosByTrayecto.TryGetValue(raw.Dto.Id, out var nuevos))
+                    lista.AddRange(nuevos);
+                raw.Dto.Adjuntos = lista;
+            }
             var capsByTrayecto = new Dictionary<int, List<SolicitudSalidaCapturaDto>>();
             if (trayectoIds.Count > 0)
             {
@@ -378,6 +467,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 EstadoRendicion  = EstadosSalida.Rendicion.Nombre(solicitud.EstadoRendicionId),
                 CreatedAt        = solicitud.CreatedAt,
                 MotivoRechazo    = solicitud.MotivoRechazo,
+                Rendicion        = solicitud.Rendicion,
                 Trayectos        = trayectosListado,
             };
         }

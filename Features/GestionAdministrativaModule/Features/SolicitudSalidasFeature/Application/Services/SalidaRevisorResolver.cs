@@ -74,6 +74,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// Busca revisores de área para el solicitante: cadena de nodos desde su
         /// area_scope hacia la raíz; en el primer nodo con revisores válidos devuelve
         /// el de mayor prioridad. El propio solicitante no puede ser su revisor.
+        ///
+        /// Si un nodo está marcado como "filtrar por proyecto" (ga_salidas_area_config),
+        /// se usa el revisor del proyecto al que pertenece el solicitante
+        /// (ga_salidas_workers_project → area_revisores.project_id); si ese nodo no tiene
+        /// revisor para ese proyecto (o el solicitante no tiene proyecto), se cae al
+        /// revisor a nivel de área del mismo nodo (project_id NULL). Los nodos no filtrados
+        /// usan siempre el revisor a nivel de área. Todo se generaliza por configuración,
+        /// sin reglas especiales por nombre de área.
         /// </summary>
         private async Task<SalidaRevisorResolution?> ResolveByAreaAsync(AppDbContext ctx, int solicitanteWorkerId)
         {
@@ -100,7 +108,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             }
             if (cadena.Count == 0) return null;
 
-            // Revisores vivos + activos con correo válido de cualquier nodo de la cadena.
+            // Proyecto del solicitante (si pertenece a alguno) y nodos de la cadena que filtran por proyecto.
+            var proyectoSolicitante = await ctx.GaSalidasWorkersProject
+                .Where(wp => wp.State && wp.WorkerId == solicitanteWorkerId)
+                .Select(wp => (int?)wp.ProjectId)
+                .FirstOrDefaultAsync();
+
+            var nodosFiltranProyecto = (await ctx.GaSalidasAreaConfig
+                .Where(f => f.State && f.FiltraPorProyecto && cadena.Contains(f.AreaScopeId))
+                .Select(f => f.AreaScopeId)
+                .ToListAsync()).ToHashSet();
+
+            // Revisores vivos + activos con correo válido de cualquier nodo de la cadena (con project_id).
             var candidatos = await (
                 from r in ctx.AreaRevisores
                 where r.State && r.Active && cadena.Contains(r.AreaScopeId)
@@ -108,10 +127,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 where w.Id != solicitanteWorkerId
                       && w.EmailCorporativo != null
                       && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
-                select new { r.AreaScopeId, r.OrdenPrioridad, r.AreaRevisoresId, w.Id, w.EmailCorporativo }
+                select new { r.AreaScopeId, r.ProjectId, r.OrdenPrioridad, r.AreaRevisoresId, w.Id, w.EmailCorporativo }
             ).ToListAsync();
 
-            var elegido = candidatos
+            // Conjunto efectivo de candidatos por nodo según el filtro por proyecto.
+            var efectivos = candidatos
+                .GroupBy(c => c.AreaScopeId)
+                .SelectMany(grupoNodo =>
+                {
+                    // Nodo no filtrado: revisor a nivel de área (project_id NULL).
+                    if (!nodosFiltranProyecto.Contains(grupoNodo.Key))
+                        return grupoNodo.Where(c => c.ProjectId == null);
+
+                    // Nodo filtrado: preferir revisor del proyecto del solicitante; si no hay, área (NULL).
+                    var porProyecto = grupoNodo
+                        .Where(c => proyectoSolicitante != null && c.ProjectId == proyectoSolicitante)
+                        .ToList();
+                    return porProyecto.Count > 0
+                        ? porProyecto.AsEnumerable()
+                        : grupoNodo.Where(c => c.ProjectId == null);
+                })
+                .ToList();
+
+            var elegido = efectivos
                 .OrderBy(c => cadena.IndexOf(c.AreaScopeId)) // nodo más cercano al solicitante primero
                 .ThenBy(c => c.OrdenPrioridad)
                 .ThenBy(c => c.AreaRevisoresId)

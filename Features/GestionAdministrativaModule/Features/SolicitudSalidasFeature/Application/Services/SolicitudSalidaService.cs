@@ -197,12 +197,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         }
 
         /// <summary>
-        /// Valida y sube los documentos adjuntos de la solicitud (uno por trayecto cuyo motivo
+        /// Valida y sube los documentos adjuntos de la solicitud (N por trayecto cuyo motivo
         /// tenga requiere_adjunto = true) a la carpeta configurada de SharePoint/OneDrive
-        /// (ga_adjunto_folder). Devuelve el resultado por índice de trayecto (0-based),
-        /// o null si la solicitud no trae ningún adjunto ni lo necesita.
+        /// (ga_adjunto_folder). Devuelve el resultado por índice de trayecto (0-based) —
+        /// cada trayecto puede tener varios— o null si la solicitud no trae ningún adjunto ni lo necesita.
         /// </summary>
-        private async Task<Dictionary<int, TrayectoAdjuntoSubidoDto>?> SubirAdjuntosAsync(
+        private async Task<Dictionary<int, List<TrayectoAdjuntoSubidoDto>>?> SubirAdjuntosAsync(
             SolicitudSalidaCreateDto dto,
             IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos)
         {
@@ -213,12 +213,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             if (files.Any(a => a.TrayectoIndex < 0 || a.TrayectoIndex >= dto.Trayectos.Count))
                 throw new AbrilException("Adjunto asociado a un trayecto inexistente.", 400);
 
-            if (files.GroupBy(a => a.TrayectoIndex).Any(g => g.Count() > 1))
-                throw new AbrilException("Solo se permite un documento adjunto por trayecto.", 400);
+            // Agrupamos por índice de trayecto: un trayecto puede traer N documentos.
+            var porIndice = files
+                .GroupBy(a => a.TrayectoIndex)
+                .ToDictionary(g => g.Key, g => g.Select(a => a.File).ToList());
 
-            var porIndice = files.ToDictionary(a => a.TrayectoIndex, a => a.File);
-
-            // Motivos que exigen adjunto: todo trayecto con uno de esos motivos debe traer archivo.
+            // Motivos que exigen adjunto: todo trayecto con uno de esos motivos debe traer al menos un archivo.
             var motivoIds = dto.Trayectos.Where(t => t.MotivoId.HasValue).Select(t => t.MotivoId!.Value).Distinct().ToList();
             if (motivoIds.Count > 0)
             {
@@ -232,8 +232,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 for (int i = 0; i < dto.Trayectos.Count; i++)
                 {
                     var t = dto.Trayectos[i];
-                    if (t.MotivoId.HasValue && requieren.Contains(t.MotivoId.Value) && !porIndice.ContainsKey(i))
-                        throw new AbrilException($"Trayecto {i + 1}: el motivo seleccionado requiere un documento adjunto.", 400);
+                    if (t.MotivoId.HasValue && requieren.Contains(t.MotivoId.Value) &&
+                        (!porIndice.TryGetValue(i, out var lst) || lst.Count == 0))
+                        throw new AbrilException($"Trayecto {i + 1}: el motivo seleccionado requiere al menos un documento adjunto.", 400);
                 }
             }
 
@@ -241,7 +242,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             // Validar tipos permitidos (documento de prueba: PDF o imagen).
             var allowed = new[] { ".pdf", ".jpg", ".jpeg", ".png", ".webp" };
-            foreach (var f in porIndice.Values)
+            foreach (var f in porIndice.Values.SelectMany(l => l))
             {
                 var ext = Path.GetExtension(f.FileName).ToLowerInvariant();
                 if (!allowed.Contains(ext))
@@ -264,32 +265,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 folderId = carpeta.FolderId;
             }
 
-            var resultado = new Dictionary<int, TrayectoAdjuntoSubidoDto>();
+            var resultado = new Dictionary<int, List<TrayectoAdjuntoSubidoDto>>();
             try
             {
-                foreach (var (idx, f) in porIndice.OrderBy(kv => kv.Key))
+                foreach (var (idx, lista) in porIndice.OrderBy(kv => kv.Key))
                 {
-                    var ext      = Path.GetExtension(f.FileName).ToLowerInvariant();
-                    var safeName = SanitizeFilename(Path.GetFileNameWithoutExtension(f.FileName));
-                    var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-                    var filename = $"adjunto_{stamp}_t{idx + 1}_{safeName}{ext}";
-
-                    using var stream = f.OpenReadStream();
-                    var result = await _sharePointService.UploadToOneDriveFolderAsync(
-                        driveId, folderId, filename, stream,
-                        f.ContentType ?? "application/octet-stream",
-                        autoRenameOnLock: true);
-
-                    if (result?.WebUrl is null)
-                        throw new AbrilException($"No se pudo subir el documento {f.FileName}.", 502);
-
-                    resultado[idx] = new TrayectoAdjuntoSubidoDto
+                    var subidos = new List<TrayectoAdjuntoSubidoDto>(lista.Count);
+                    for (int n = 0; n < lista.Count; n++)
                     {
-                        Url      = result.WebUrl,
-                        ItemId   = result.ItemId,
-                        DriveId  = driveId,
-                        Filename = result.FileName ?? filename,
-                    };
+                        var f        = lista[n];
+                        var ext      = Path.GetExtension(f.FileName).ToLowerInvariant();
+                        var safeName = SanitizeFilename(Path.GetFileNameWithoutExtension(f.FileName));
+                        var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+                        var filename = $"adjunto_{stamp}_t{idx + 1}_{n + 1}_{safeName}{ext}";
+
+                        using var stream = f.OpenReadStream();
+                        var result = await _sharePointService.UploadToOneDriveFolderAsync(
+                            driveId, folderId, filename, stream,
+                            f.ContentType ?? "application/octet-stream",
+                            autoRenameOnLock: true);
+
+                        if (result?.WebUrl is null)
+                            throw new AbrilException($"No se pudo subir el documento {f.FileName}.", 502);
+
+                        subidos.Add(new TrayectoAdjuntoSubidoDto
+                        {
+                            Url      = result.WebUrl,
+                            ItemId   = result.ItemId,
+                            DriveId  = driveId,
+                            Filename = result.FileName ?? filename,
+                        });
+                    }
+                    resultado[idx] = subidos;
                 }
             }
             catch (AbrilException) { throw; }

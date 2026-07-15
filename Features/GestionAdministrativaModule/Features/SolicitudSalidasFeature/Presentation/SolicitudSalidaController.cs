@@ -1,4 +1,6 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -14,11 +16,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
     public class SolicitudSalidaController : ControllerBase
     {
         private readonly ISolicitudSalidaService _service;
+        private readonly IGestionSalidaService _gestionSalidaService;
         private readonly ILogger<SolicitudSalidaController> _logger;
 
-        public SolicitudSalidaController(ISolicitudSalidaService service, ILogger<SolicitudSalidaController> logger)
+        public SolicitudSalidaController(
+            ISolicitudSalidaService service,
+            IGestionSalidaService gestionSalidaService,
+            ILogger<SolicitudSalidaController> logger)
         {
             _service = service;
+            _gestionSalidaService = gestionSalidaService;
             _logger = logger;
         }
 
@@ -215,6 +222,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en SolicitudSalidaController.UploadCapturasTrayecto");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// El propio trabajador rinde sus solicitudes seleccionadas (aprobadas + con todas sus capturas)
+        /// y descarga la planilla de gasto por movilidad. Reutiliza la misma lógica de Gestión de Salidas,
+        /// pero restringida a solicitudes del propio usuario (guard de propiedad).
+        /// </summary>
+        [HttpPatch("marcar-rendidas")]
+        public async Task<IActionResult> MarcarRendidas([FromBody] MarcarRendidasBulkDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                if (dto?.Ids == null || dto.Ids.Count == 0)
+                    return BadRequest(new { message = "Debes seleccionar al menos una solicitud." });
+
+                var (pdfBytes, count) = await _gestionSalidaService.RendirYGenerarPlanilla(dto.Ids, userId.Value, ownerUserId: userId.Value);
+
+                Response.Headers.Append("X-Rendidas-Count", count.ToString());
+                Response.Headers.Append("Access-Control-Expose-Headers", "X-Rendidas-Count, Content-Disposition");
+
+                var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
+                return File(pdfBytes, "application/pdf", filename);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.MarcarRendidas");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

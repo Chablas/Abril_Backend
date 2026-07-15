@@ -5,6 +5,7 @@ using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Abril_Backend.Shared.Filters;
+using System.Security.Claims;
 
 namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Presentation;
 
@@ -29,6 +30,9 @@ public class InspeccionController : ControllerBase
             && int.TryParse(User.FindFirst("empresaId")?.Value, out var id)
             ? id
             : null;
+
+    private int? GetUserId() =>
+        int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
 
     [HttpGet("catalogos")]
     public async Task<IActionResult> GetCatalogos()
@@ -96,7 +100,7 @@ public class InspeccionController : ControllerBase
             if (request.ProyectoId <= 0)
                 return BadRequest(new { message = "El proyecto es requerido." });
             request.EmpresaInspectoraId = GetEmpresaIdContratista();
-            var id = await _service.CrearInspeccionAsync(request);
+            var id = await _service.CrearInspeccionAsync(request, GetUserId());
             return Ok(new { id, message = "Inspección registrada correctamente." });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

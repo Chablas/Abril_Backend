@@ -29,5 +29,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<List<ActividadAlertaDTO>>   GetActividadesPorAlerta(string tipoAlerta, DashboardFiltroDTO filtro);
         Task                             EnviarAlertasActividades(List<int> actividadIds, string tipoAlerta, List<string> emailsGestores, IEmailService emailService);
         Task                             RecalcularTodosSpi();
+        Task<SupervisorHistoricoDTO?>    GetSupervisorHistorico(int userId);
     }
 }

@@ -58,7 +58,7 @@ public class InspeccionRepository : IInspeccionRepository
 
     public async Task<int> CrearInspeccionAsync(CrearInspeccionRequest request,
         string? firmaInspectorUrl, string? firmaRepresentanteUrl,
-        Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls)
+        Dictionary<int, List<string>> fotosHallazgoUrls, List<string> fotosAreaUrls, int? userId = null)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -97,6 +97,7 @@ public class InspeccionRepository : IInspeccionRepository
             FirmaRepresentanteUrl = firmaRepresentanteUrl,
             DescripcionCausas = request.DescripcionCausas,
             Conclusiones = request.Conclusiones,
+            CreatedBy = userId,
             TotalItems = request.Respuestas.Count,
             TotalCumple = totalCumple,
             TotalNoCumple = totalNoCumple,

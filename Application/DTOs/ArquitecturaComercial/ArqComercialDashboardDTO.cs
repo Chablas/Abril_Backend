@@ -41,10 +41,37 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
 
     public class SupervisorProgresoDTO
     {
+        public int UserId { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public double Progreso { get; set; }
         public int Total { get; set; }
         public int Completadas { get; set; }
+        /// <summary>Actividades vencidas de semanas anteriores (no de la semana en control) que
+        /// el supervisor sigue arrastrando sin cerrar. Informativo — no afecta el IES.</summary>
+        public int DeudaAnterior { get; set; }
+        /// <summary>true si no tenía nada que vencer ni arrancar esta semana — se muestra aparte,
+        /// no participa del IES ni del promedio del equipo.</summary>
+        public bool SinCompromisos { get; set; }
+    }
+
+    /// <summary>Histórico completo de un supervisor (todo el tiempo, no solo la semana en control) —
+    /// para el modal "Eficiencia a lo largo del tiempo" del ranking.</summary>
+    public class SupervisorHistoricoDTO
+    {
+        public string Nombre { get; set; } = string.Empty;
+        public int TotalActividades { get; set; }
+        public int Culminadas { get; set; }
+        public int EnProceso { get; set; }
+        public int Vencidas { get; set; }
+        public int Pendientes { get; set; }
+        /// <summary>Culminadas ÷ total, histórico completo (el indicador "de siempre", antes de
+        /// restringir el ranking a la semana en control).</summary>
+        public double EficienciaHistorica { get; set; }
+        /// <summary>SPI promedio histórico de sus actividades con SPI válido.</summary>
+        public double SpiPromedio { get; set; }
+        /// <summary>Tasa de cierre semanal (culminadas ÷ vencían esa semana) de las últimas 8 semanas —
+        /// para ver si viene mejorando o empeorando.</summary>
+        public List<EficienciaSemanalDTO> TendenciaSemanal { get; set; } = new();
     }
 
     public class HitoCriticoDTO

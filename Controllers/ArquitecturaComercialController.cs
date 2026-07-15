@@ -372,6 +372,19 @@ namespace Abril_Backend.Controllers
             catch (Exception ex) { _logger.LogError(ex, "Error dashboard AC v2"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("dashboard/supervisor/{userId}/historico")]
+        public async Task<IActionResult> GetSupervisorHistorico(int userId)
+        {
+            try
+            {
+                var result = await _service.GetSupervisorHistorico(userId);
+                if (result == null) return NotFound(new { message = "Supervisor no encontrado." });
+                return Ok(result);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error histórico de supervisor AC"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("alertas/{tipoAlerta}")]
         public async Task<IActionResult> GetActividadesPorAlerta(
             string tipoAlerta, [FromQuery] DashboardFiltroDTO filtro)

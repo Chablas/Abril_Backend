@@ -145,6 +145,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (estados.Any(e => e == "Rechazado")) return "Rechazado";
             if (estados.Any(e => e == "Enviado")) return "Enviado";
             if (estados.Any(e => e == "Falta")) return "Falta";
+            // "En Plazo" (mes marcado con una fecha límite acordada, aún sin documento) no debía
+            // caer nunca en la rama "Aprobado", pero tampoco estaba contemplado en ninguna rama
+            // anterior — el fallback final lo mandaba siempre a "Falta" sin importar lo guardado.
+            if (estados.Any(e => e == "En Plazo")) return "En Plazo";
             if (estados.All(e => e == "Aprobado")) return "Aprobado";
             return "Falta";
         }

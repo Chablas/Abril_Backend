@@ -179,7 +179,36 @@ public class AmonestacionService : IAmonestacionService
         // Evaluar inhabilitación SSOMA
         await _inhabilitacion.EvaluarTrasBmonestacionAsync(req.WorkerId, req.TipoSancionId, userId);
 
+        // Retiro definitivo del proyecto: pasa también a la lista negra real (Habilitación)
+        if (req.TipoSancionId == TIPO_SANCION_RETIRO_DEFINITIVO)
+        {
+            var detalleCreado = await _repo.GetDetalleAsync(id);
+            if (detalleCreado is not null)
+                await RegistrarEnListaNegraAsync(detalleCreado);
+        }
+
         return new AmonestacionCreadaDto { Id = id, Codigo = codigo };
+    }
+
+    private async Task RegistrarEnListaNegraAsync(AmonestacionDetalleDto detalle)
+    {
+        try
+        {
+            await _restringido.CreateAsync(new TrabajadorRestringidoCreateDto
+            {
+                WorkerId         = detalle.WorkerId,
+                Dni              = detalle.WorkerDni,
+                ApellidoNombre   = detalle.WorkerNombre,
+                Motivo           = $"Retiro definitivo del proyecto — {detalle.Descripcion}",
+                ProyectoOrigen   = detalle.ProyectoNombre,
+                FechaRestriccion = DateOnly.FromDateTime(detalle.Fecha),
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error registrando trabajador restringido para amonestacion {Id}", detalle.Id);
+            throw;
+        }
     }
 
     public async Task<AmonestacionCreadaDto> ConfirmarAsync(int id)
@@ -230,7 +259,13 @@ public class AmonestacionService : IAmonestacionService
         // Evaluar inhabilitación SSOMA al confirmar
         var detalleConf = await _repo.GetDetalleAsync(id);
         if (detalleConf is not null)
+        {
             await _inhabilitacion.EvaluarTrasBmonestacionAsync(detalleConf.WorkerId, detalleConf.TipoSancionId, 0);
+
+            // Retiro definitivo del proyecto: pasa también a la lista negra real (Habilitación)
+            if (detalleConf.TipoSancionId == TIPO_SANCION_RETIRO_DEFINITIVO)
+                await RegistrarEnListaNegraAsync(detalleConf);
+        }
 
         return new AmonestacionCreadaDto { Id = id, Codigo = detalle.Codigo };
     }

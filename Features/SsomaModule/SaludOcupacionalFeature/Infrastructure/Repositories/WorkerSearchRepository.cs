@@ -404,6 +404,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             worker.WorkerCategoryId = dto.WorkerCategoryId;
 
+            // Se guarda en minúsculas: todas las comparaciones del sistema hacen ToLower().
+            var emailCorporativo = dto.EmailCorporativo?.Trim().ToLower();
+            if (string.IsNullOrEmpty(emailCorporativo))
+            {
+                worker.EmailCorporativo = null;
+            }
+            else
+            {
+                var arroba = emailCorporativo.IndexOf('@');
+                if (arroba <= 0 || arroba == emailCorporativo.Length - 1 || emailCorporativo.Contains(' '))
+                    throw new AbrilException("El correo corporativo no tiene un formato válido.", 400);
+                worker.EmailCorporativo = emailCorporativo;
+            }
+
             worker.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();

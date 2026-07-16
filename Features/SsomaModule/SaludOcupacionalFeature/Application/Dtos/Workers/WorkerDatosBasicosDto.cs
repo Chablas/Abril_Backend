@@ -21,5 +21,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public int? AreaScopeId { get; set; }
         /// <summary>FK al catálogo <c>workers_category</c> (workers.worker_category_id). Null = sin categoría normalizada.</summary>
         public int? WorkerCategoryId { get; set; }
+        /// <summary>Correo corporativo del trabajador (workers.email_corporativo). Null/vacío = sin correo.</summary>
+        public string? EmailCorporativo { get; set; }
     }
 }

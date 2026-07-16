@@ -21,6 +21,13 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Presen
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("{areaScopeId}/workers")]
+        public async Task<IActionResult> GetWorkers(int areaScopeId)
+        {
+            try { return Ok(await _service.GetWorkersAsync(areaScopeId)); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPost("branch")]
         public async Task<IActionResult> CreateBranch([FromBody] AreaScopeBranchDto dto)
         {

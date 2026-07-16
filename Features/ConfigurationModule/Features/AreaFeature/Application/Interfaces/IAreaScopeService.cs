@@ -5,6 +5,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Applic
     public interface IAreaScopeService
     {
         Task<List<AreaScopeTreeDto>> GetTreeAsync();
+        Task<List<AreaScopeWorkerDto>> GetWorkersAsync(int areaScopeId);
         Task CreateBranchAsync(AreaScopeBranchDto dto);
         Task DeleteAsync(int areaScopeId);
     }

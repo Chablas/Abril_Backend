@@ -15,6 +15,8 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
         // Regla de negocio: los descansos registrados por el propio trabajador
         // se guardan siempre con este tipo (el valor vive en ss_descanso_tipo).
         private const string TipoPorDefecto = "Particular";
+        /// <summary>Nombre exacto del área en area_item cuyo area_scope.email es el correo de GTH.</summary>
+        private const string AreaGthNombre = "Gestión del Talento Humano";
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public MiSaludRepository(IDbContextFactory<AppDbContext> factory)
@@ -220,6 +222,52 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
 
             await ctx.SaveChangesAsync();
             return entity.Id;
+        }
+
+        public async Task<DescansoNotificacionDatosDto> GetDatosNotificacionDescansoAsync(int workerId, int userId, int? motivoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var worker = await ctx.Worker
+                .Where(w => w.Id == workerId)
+                .Select(w => new
+                {
+                    Nombre = w.Person != null ? w.Person.FullName : null,
+                    w.EmailCorporativo,
+                })
+                .FirstOrDefaultAsync();
+
+            var userEmail = await ctx.User
+                .Where(u => u.UserId == userId)
+                .Select(u => u.Email)
+                .FirstOrDefaultAsync();
+
+            // Correo del área GTH: configurable en area_scope.email (mismo criterio que
+            // el fallback de solicitud-salidas) para no hardcodear el correo del área.
+            var gthEmail = await (
+                from s in ctx.AreaScope
+                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
+                where s.State && ai.State
+                      && ai.AreaItemName == AreaGthNombre
+                      && s.Email != null && s.Email != ""
+                orderby s.AreaScopeId
+                select s.Email
+            ).FirstOrDefaultAsync();
+
+            string? motivoNombre = null;
+            if (motivoId.HasValue)
+                motivoNombre = await ctx.SsDescansoMotivo
+                    .Where(m => m.Id == motivoId.Value)
+                    .Select(m => m.Nombre)
+                    .FirstOrDefaultAsync();
+
+            return new DescansoNotificacionDatosDto
+            {
+                WorkerNombre = worker?.Nombre,
+                WorkerEmail  = !string.IsNullOrWhiteSpace(userEmail) ? userEmail.Trim() : worker?.EmailCorporativo?.Trim(),
+                GthEmail     = gthEmail?.Trim(),
+                MotivoNombre = motivoNombre,
+            };
         }
     }
 }

@@ -10,7 +10,17 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Applic
         public int? AreaScopeParentId { get; set; }
         public int DisplayOrder { get; set; }
         public bool Active { get; set; }
+        /// <summary>Cantidad de trabajadores activos asignados directamente a este nodo (workers.area_scope_id).</summary>
+        public int WorkersCount { get; set; }
         public List<AreaScopeTreeDto> Children { get; set; } = new();
+    }
+
+    /// <summary>Trabajador asignado a un nodo del árbol (workers.area_scope_id).</summary>
+    public class AreaScopeWorkerDto
+    {
+        public int WorkerId { get; set; }
+        public string? FullName { get; set; }
+        public string? EmailCorporativo { get; set; }
     }
 
     /// <summary>Nodo dentro de una nueva rama. tempId es un identificador local del cliente.</summary>

@@ -37,16 +37,41 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                 }
             ).ToListAsync();
 
+            // Trabajadores activos asignados directamente a cada nodo (workers.area_scope_id).
+            var workerCounts = await _context.Worker
+                .Where(w => w.AreaScopeId != null && w.Estado == "ACTIVO")
+                .GroupBy(w => w.AreaScopeId!.Value)
+                .Select(g => new { AreaScopeId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.AreaScopeId, g => g.Count);
+
             var byId = flat.ToDictionary(n => n.AreaScopeId);
             var roots = new List<AreaScopeTreeDto>();
             foreach (var n in flat)
             {
+                n.WorkersCount = workerCounts.GetValueOrDefault(n.AreaScopeId);
                 if (n.AreaScopeParentId.HasValue && byId.TryGetValue(n.AreaScopeParentId.Value, out var p))
                     p.Children.Add(n);
                 else
                     roots.Add(n);
             }
             return roots;
+        }
+
+        public async Task<List<AreaScopeWorkerDto>> GetWorkersAsync(int areaScopeId)
+        {
+            return await (
+                from w in _context.Worker
+                where w.AreaScopeId == areaScopeId && w.Estado == "ACTIVO"
+                join p in _context.Person on w.PersonId equals p.PersonId into pj
+                from p in pj.DefaultIfEmpty()
+                orderby (p != null && p.FullName != null ? p.FullName : w.ApellidoNombre)
+                select new AreaScopeWorkerDto
+                {
+                    WorkerId         = w.Id,
+                    FullName         = p != null && p.FullName != null ? p.FullName : w.ApellidoNombre,
+                    EmailCorporativo = w.EmailCorporativo,
+                }
+            ).ToListAsync();
         }
 
         /// <summary>

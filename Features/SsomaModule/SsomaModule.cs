@@ -153,6 +153,10 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IDescansoMedicoRepository, DescansoMedicoRepository>();
             services.AddScoped<IDescansoMedicoService, DescansoMedicoService>();
 
+            // Revisión de solicitudes de descanso médico (médico ocupacional)
+            services.AddScoped<IRevisionDescansosRepository, RevisionDescansosRepository>();
+            services.AddScoped<IRevisionDescansosService, RevisionDescansosService>();
+
             // SCTR — Asistente Social
             services.AddScoped<ISctrGestionRepository, SctrGestionRepository>();
             services.AddScoped<ISctrGestionService, SctrGestionService>();

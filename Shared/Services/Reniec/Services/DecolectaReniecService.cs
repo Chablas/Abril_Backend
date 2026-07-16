@@ -1,9 +1,5 @@
-using System.Net;
-using Abril_Backend.Infrastructure.Models;
-using Abril_Backend.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
-using Abril_Backend.Application.DTOs;
-using Abril_Backend.Application.Exceptions;
+using System.Net.Http.Json;
+using Abril_Backend.Shared.Services.Decolecta.Interfaces;
 using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Abril_Backend.Shared.Services.Reniec.Dtos;
 
@@ -11,30 +7,21 @@ namespace Abril_Backend.Shared.Services.Reniec.Services
 {
     public class ReniecService : IReniecService
     {
-        private readonly HttpClient _httpClient;
+        private readonly IDecolectaApiClient _api;
 
-        public ReniecService(HttpClient httpClient)
+        public ReniecService(IDecolectaApiClient api)
         {
-            _httpClient = httpClient;
+            _api = api;
         }
 
         public async Task<ReniecPersonDto?> GetByDniAsync(string dni)
         {
-            var response = await _httpClient.GetAsync($"/v1/reniec/dni?numero={dni}");
-            if (!response.IsSuccessStatusCode)
-            {
-                // 401/403/429 = problema de credencial o de cuota del proveedor (no es un "no encontrado").
-                if (response.StatusCode is HttpStatusCode.Unauthorized
-                    or HttpStatusCode.Forbidden
-                    or HttpStatusCode.TooManyRequests)
-                {
-                    throw new AbrilException(
-                        "Se agotaron las consultas disponibles del servicio de consulta de DNI. Por favor, contacte con el administrador del sistema.",
-                        503);
-                }
+            // La rotación de tokens y el error de cuota agotada (503) los maneja IDecolectaApiClient.
+            using var response = await _api.GetAsync($"/v1/reniec/dni?numero={dni}",
+                "Se agotaron las consultas disponibles del servicio de consulta de DNI. Por favor, contacte con el administrador del sistema.");
 
+            if (!response.IsSuccessStatusCode)
                 return null;
-            }
 
             return await response.Content.ReadFromJsonAsync<ReniecPersonDto>();
         }

@@ -414,6 +414,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcRevisionObservacion> AcRevisionObservaciones => Set<AcRevisionObservacion>();
         public DbSet<AcRevisionObservacionFoto> AcRevisionObservacionFotos => Set<AcRevisionObservacionFoto>();
 
+        public DbSet<DecolectaToken> DecolectaToken => Set<DecolectaToken>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             if (_provider == "PostgreSQL")
@@ -920,6 +922,12 @@ namespace Abril_Backend.Infrastructure.Data
             // Un solo requisito activo por vecino + tipo: índice único parcial sobre state = true.
             modelBuilder.Entity<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisito>()
                 .HasIndex(r => new { r.VecinoId, r.VecinoRequisitoTipoId })
+                .IsUnique()
+                .HasFilter("state = true");
+
+            // Un mismo token de Decolecta no puede estar activo dos veces: índice único parcial sobre state = true.
+            modelBuilder.Entity<DecolectaToken>()
+                .HasIndex(t => t.Token)
                 .IsUnique()
                 .HasFilter("state = true");
 

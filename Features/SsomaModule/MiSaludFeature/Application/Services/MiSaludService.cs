@@ -4,23 +4,30 @@ using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Interfaces;
+using Abril_Backend.Infrastructure.Interfaces;
 
 namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
 {
     public class MiSaludService : IMiSaludService
     {
+        private const string EmailAsistentaSocial   = "pquispe@abril.pe";
+        private const string EmailMedicoOcupacional = "mediconm@abril.pe";
+
         private readonly IMiSaludRepository _repo;
         private readonly ISharePointHabService _sharePoint;
+        private readonly IEmailService _emailService;
         private readonly ILogger<MiSaludService> _logger;
 
         public MiSaludService(
             IMiSaludRepository repo,
             ISharePointHabService sharePoint,
+            IEmailService emailService,
             ILogger<MiSaludService> logger)
         {
-            _repo       = repo;
-            _sharePoint = sharePoint;
-            _logger     = logger;
+            _repo         = repo;
+            _sharePoint   = sharePoint;
+            _emailService = emailService;
+            _logger       = logger;
         }
 
         public async Task<MiSaludResumenDto> GetResumen(int userId)
@@ -59,7 +66,71 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
                 }
             }
 
-            return await _repo.CreateDescanso(workerId, dto, userId, adjuntos);
+            var descansoId = await _repo.CreateDescanso(workerId, dto, userId, adjuntos);
+
+            // Notificación por correo (best-effort): el registro nunca falla por el email.
+            try
+            {
+                await SendNotificacionDescansoAsync(workerId, userId, dto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error enviando notificación de descanso médico {DescansoId} (worker {WorkerId})", descansoId, workerId);
+            }
+
+            return descansoId;
+        }
+
+        /// <summary>
+        /// Correo al registrar un descanso médico: destinatario principal el propio
+        /// trabajador; en copia la asistenta social, el área GTH (area_scope.email)
+        /// y el médico ocupacional.
+        /// </summary>
+        private async Task SendNotificacionDescansoAsync(int workerId, int userId, CrearMiDescansoDto dto)
+        {
+            var datos = await _repo.GetDatosNotificacionDescansoAsync(workerId, userId, dto.MotivoId);
+
+            if (string.IsNullOrWhiteSpace(datos.WorkerEmail))
+            {
+                _logger.LogWarning(
+                    "No se envió notificación de descanso médico: el trabajador {WorkerId} no tiene correo registrado.",
+                    workerId);
+                return;
+            }
+
+            var cc = new List<string> { EmailAsistentaSocial, EmailMedicoOcupacional };
+            if (!string.IsNullOrWhiteSpace(datos.GthEmail))
+                cc.Insert(1, datos.GthEmail);
+            else
+                _logger.LogWarning("Notificación de descanso médico sin copia a GTH: no hay correo configurado en area_scope.email.");
+            cc = cc.Where(c => !c.Equals(datos.WorkerEmail, StringComparison.OrdinalIgnoreCase))
+                   .Distinct(StringComparer.OrdinalIgnoreCase)
+                   .ToList();
+
+            var nombre = datos.WorkerNombre ?? "Trabajador";
+            var dias   = dto.Dias ?? (dto.FechaFin.DayNumber - dto.FechaInicio.DayNumber + 1);
+
+            var subject = $"Descanso médico registrado - {nombre} - {dto.FechaInicio:dd/MM/yyyy}";
+            var body = $"""
+                <p>Se ha registrado un <strong>descanso médico</strong> en la intranet, pendiente de aprobación.</p>
+                <table style="border-collapse:collapse;font-family:Arial;font-size:13px;">
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Trabajador</td><td>{nombre}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Fecha de inicio</td><td>{dto.FechaInicio:dd/MM/yyyy}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Fecha de fin</td><td>{dto.FechaFin:dd/MM/yyyy}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Días</td><td>{dias}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Motivo</td><td>{datos.MotivoNombre ?? "—"}</td></tr>
+                  {(string.IsNullOrWhiteSpace(dto.Diagnostico) ? "" : $"<tr><td style='padding:4px 12px;font-weight:bold;'>Diagnóstico</td><td>{dto.Diagnostico}</td></tr>")}
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Estado</td><td>Pendiente de aprobación</td></tr>
+                </table>
+                <p style="color:#666;font-size:11px;margin-top:16px;">Sistema SSOMA - Abril</p>
+                """;
+
+            await _emailService.SendAsync(
+                to: new List<string> { datos.WorkerEmail },
+                subject: subject,
+                body: body,
+                isHtml: true,
+                cc: cc);
         }
     }
 }

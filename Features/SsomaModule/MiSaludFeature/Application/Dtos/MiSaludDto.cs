@@ -68,4 +68,16 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos
     {
         public int Page { get; set; } = 1;
     }
+
+    /// <summary>
+    /// Datos para la notificación por correo al registrar un descanso médico:
+    /// trabajador (destinatario principal) + correo del área GTH (area_scope.email).
+    /// </summary>
+    public class DescansoNotificacionDatosDto
+    {
+        public string? WorkerNombre { get; set; }
+        public string? WorkerEmail { get; set; }
+        public string? GthEmail { get; set; }
+        public string? MotivoNombre { get; set; }
+    }
 }

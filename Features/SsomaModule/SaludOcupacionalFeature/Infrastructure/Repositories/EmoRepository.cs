@@ -203,6 +203,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Ocupacion = x.w.Ocupacion,
                     OcupacionId = x.w.OcupacionId,
                     Puesto = x.w.Puesto,
+                    AreaScopeId = x.w.AreaScopeId,
+                    WorkerCategoryId = x.w.WorkerCategoryId,
                     TieneEmo = x.ue != null,
                     EmoId = x.ue != null ? x.ue.Id : (int?)null,
                     TipoEmo = x.t != null ? x.t.Nombre : null,

@@ -90,6 +90,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             }
         }
 
+        [HttpGet("worker-categories")]
+        public async Task<IActionResult> GetWorkerCategories()
+        {
+            try { return Ok(await _service.GetWorkerCategories()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en WorkersController.GetWorkerCategories");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] WorkerCreateDto dto)
         {

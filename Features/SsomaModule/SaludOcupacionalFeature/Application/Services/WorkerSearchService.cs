@@ -27,6 +27,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<List<DocumentTypeDto>> GetDocumentTypes() => _repo.GetDocumentTypes();
 
+        public Task<List<WorkerCategoryDto>> GetWorkerCategories() => _repo.GetWorkerCategories();
+
         public Task<int> Create(WorkerCreateDto dto) => _repo.Create(dto);
 
         public Task Update(int id, WorkerUpdateDto dto) => _repo.Update(id, dto);

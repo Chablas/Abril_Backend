@@ -164,6 +164,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .ToListAsync();
         }
 
+        public async Task<List<WorkerCategoryDto>> GetWorkerCategories()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.WorkersCategory
+                .Where(c => c.Active && c.State)
+                .OrderBy(c => c.Name)
+                .Select(c => new WorkerCategoryDto
+                {
+                    Id = c.WorkersCategoryId,
+                    Nombre = c.Name,
+                })
+                .ToListAsync();
+        }
+
         public async Task<int> Create(WorkerCreateDto dto)
         {
             using var ctx = _factory.CreateDbContext();
@@ -371,6 +385,25 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.Ocupacion = dto.Ocupacion;
             worker.OcupacionId = dto.OcupacionId;
             worker.Puesto = dto.Puesto;
+
+            if (dto.AreaScopeId.HasValue && dto.AreaScopeId != worker.AreaScopeId)
+            {
+                var existeNodo = await ctx.AreaScope
+                    .AnyAsync(s => s.AreaScopeId == dto.AreaScopeId.Value && s.State);
+                if (!existeNodo)
+                    throw new AbrilException("El área seleccionada no existe en la jerarquía de áreas.", 400);
+            }
+            worker.AreaScopeId = dto.AreaScopeId;
+
+            if (dto.WorkerCategoryId.HasValue && dto.WorkerCategoryId != worker.WorkerCategoryId)
+            {
+                var existeCategoria = await ctx.WorkersCategory
+                    .AnyAsync(c => c.WorkersCategoryId == dto.WorkerCategoryId.Value && c.State);
+                if (!existeCategoria)
+                    throw new AbrilException("La categoría seleccionada no existe.", 400);
+            }
+            worker.WorkerCategoryId = dto.WorkerCategoryId;
+
             worker.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();

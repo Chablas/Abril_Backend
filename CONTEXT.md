@@ -4867,3 +4867,19 @@ Rama: `victor-backend`.
 
 ### Pendiente
 - Verificar en el navegador el flujo "Usar plantilla" para un cronograma de tipo Anteproyecto.
+
+## Sesión 2026-07-15 — Migración de feature "Cronograma de Hitos" a Mejora Continua (prod)
+
+Rama: `victor-backend`. No hubo cambios de código; fue una migración de datos directa en la BD de producción vía túnel SSH (puerto 5544).
+
+### Qué se hizo
+- Se movió el feature `projects.milestone-schedule` (Cronograma de Hitos, `feature_id = 5`) del módulo **Proyectos** (`module_id = 6`) al módulo **Mejora Continua** (`module_id = 11`), y se renombró su `feature_key` a `mejora-continua.milestone-schedule`.
+- Investigación previa (solo SELECT) confirmó: `module_id` real de Mejora Continua en prod es `11` (no asumir que coincide con local); la fila de `feature` a modificar; y que 4 filas en `role_feature` referencian `feature_id = 5` (permisos existentes, no tocados por el UPDATE).
+- `UPDATE feature SET module_id = 11, feature_key = 'mejora-continua.milestone-schedule' WHERE feature_key = 'projects.milestone-schedule';` → 1 fila afectada, como se esperaba. `role_feature` quedó intacto (mismo `feature_id`, los 4 roles conservan acceso).
+
+### Incidente
+- Al armar el comando de conexión a psql se expuso por error la contraseña de PostgreSQL de producción en la salida de un comando intermedio (`grep`/`echo` sobre `appsettings.Production.json`). Quedó registrada en el historial de esa conversación. Recomendado rotar la contraseña de la BD Aiven si esto es una preocupación.
+
+### Pendiente
+- Verificar en el frontend que "Cronograma de Hitos" aparezca ahora bajo Mejora Continua para los roles que ya tenían acceso.
+- Evaluar si conviene rotar la contraseña de Postgres de producción (Aiven) por el incidente de exposición mencionado arriba.

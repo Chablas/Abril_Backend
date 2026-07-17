@@ -158,6 +158,14 @@ public class AccidenteIncidenteController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error subir archivo entregable {Id}", entregableId); return StatusCode(500, new { message = "Error del servidor." }); }
     }
 
+    [HttpDelete("entregables/archivo/{archivoId:int}")]
+    public async Task<IActionResult> EliminarArchivoEntregable(int archivoId)
+    {
+        try { await _service.EliminarArchivoEntregableAsync(archivoId); return Ok(new { message = "Archivo eliminado." }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error eliminar archivo entregable {Id}", archivoId); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
     // ── RM-050 ───────────────────────────────────────────────────────────────
 
     [HttpGet("{id:int}/rm050")]

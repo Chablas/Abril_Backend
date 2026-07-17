@@ -156,8 +156,15 @@ public class DossierRepository : IDossierRepository
     public async Task MarcarNaAsync(int docId)
     {
         using var ctx = _factory.CreateDbContext();
-        var doc = await ctx.SsDossierDocumento.FindAsync(docId)
+        var doc = await ctx.SsDossierDocumento
+            .Include(d => d.Archivos)
+            .FirstOrDefaultAsync(d => d.Id == docId)
             ?? throw new AbrilException("Documento no encontrado.", 404);
+
+        if (doc.Estado != "NA" && (doc.Estado == "Subido" || doc.Archivos.Count > 0))
+            throw new AbrilException(
+                "No se puede marcar como No Aplica un documento que ya tiene un archivo subido.", 400);
+
         doc.Estado = doc.Estado == "NA" ? "Pendiente" : "NA";
         doc.NombreArchivo = null;
         doc.ArchivoPath = null;

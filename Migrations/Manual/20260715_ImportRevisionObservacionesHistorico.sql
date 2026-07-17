@@ -1100,12 +1100,40 @@ WHERE m.revision_id IS NOT NULL
       AND existente.descripcion = m.descripcion
   );
 
--- Verificacion: cuantas hay en total tras la importacion
-SELECT count(*) AS observaciones_importadas FROM ac_revision_observaciones;
+-- Verificacion: avisa el total importado en el panel de "Messages" de
+-- pgAdmin (no en "Data Output"), para que se vea siempre sin importar
+-- cual fue la ultima sentencia del script.
+DO $$
+DECLARE
+  v_total integer;
+  v_sin_mapear integer;
+BEGIN
+  SELECT count(*) INTO v_total FROM ac_revision_observaciones WHERE origen = 'Import';
+
+  SELECT count(*) INTO v_sin_mapear
+  FROM staging_revision_obs s
+  LEFT JOIN project p ON upper(p.project_description) = s.proyecto_nombre
+  LEFT JOIN ac_revisiones rev ON rev.proyecto_id = p.project_id
+    AND rev.tipo = s.tipo
+    AND (
+      (s.lugar_resuelto IS NOT NULL AND rev.lugar = s.lugar_resuelto)
+      OR (
+        s.lugar_resuelto IS NULL
+        AND (SELECT count(*) FROM ac_revisiones r2 WHERE r2.proyecto_id = p.project_id AND r2.tipo = s.tipo) = 1
+      )
+    )
+  WHERE rev.id IS NULL;
+
+  RAISE NOTICE 'Observaciones importadas (origen=Import): %', v_total;
+  RAISE NOTICE 'Filas del CSV sin mapear a ninguna revision: %', v_sin_mapear;
+END $$;
 
 -- Filas del CSV que NO se pudieron mapear a ninguna revision existente
 -- (proyecto no encontrado en project, proyecto+tipo sin revision
--- catalogada, o ambiguedad no resuelta -- ej. Kaurí R1 sin pista de lugar).
+-- catalogada, o ambiguedad no resuelta). Esta es la ULTIMA sentencia del
+-- script a proposito: pgAdmin (Execute Script / F5) solo muestra en
+-- "Data Output" el resultado de la ultima consulta -- si esta tabla sale
+-- vacia, quiere decir que se mapeo el 100% de las filas.
 -- Revisar a mano: puede requerir crear una revision adicional en el
 -- catalogo (modulo Gestion de Revisiones > boton "Revisiones") o asignar
 -- el lugar correcto antes de reintentar.
@@ -1123,5 +1151,3 @@ LEFT JOIN ac_revisiones rev ON rev.proyecto_id = p.project_id
   )
 WHERE rev.id IS NULL
 ORDER BY s.proyecto_nombre, s.tipo;
-
-DROP TABLE staging_revision_obs;

@@ -322,6 +322,9 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         return url;
     }
 
+    public Task EliminarArchivoEntregableAsync(int archivoId)
+        => _repo.EliminarArchivoEntregableAsync(archivoId);
+
     // ── RM-050 ────────────────────────────────────────────────────────────────
 
     public async Task<Rm050Dto> GetRm050Async(int accidenteId)

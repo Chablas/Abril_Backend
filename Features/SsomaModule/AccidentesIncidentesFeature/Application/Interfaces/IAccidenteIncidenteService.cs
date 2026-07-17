@@ -16,6 +16,7 @@ public interface IAccidenteIncidenteService
     Task<List<EntregableDto>> GetEntregablesAsync(int accidenteId);
     Task ActualizarEntregableAsync(int entregableId, ActualizarEntregableRequest req);
     Task<string> SubirArchivoEntregableAsync(int entregableId, IFormFile archivo);
+    Task EliminarArchivoEntregableAsync(int archivoId);
 
     // RM-050
     Task<Rm050Dto> GetRm050Async(int accidenteId);

@@ -493,24 +493,60 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ? await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.EmoResultadoId == ent.EmoId.Value)
                     : null;
 
+                // Si el EMO ya tiene una aptitud TERMINAL (se leyó/calificó en algún momento,
+                // incluso antes de que se levantara esta interconsulta), el caso ya está resuelto
+                // de verdad: no hay nada más que "atender". "Pendiente" y "Observado" NO cuentan:
+                // "Pendiente" es el valor por defecto sin evaluar, y "Observado" es justo el valor
+                // que dispara la creación de la interconsulta (EmoService.ValidarComun exige
+                // Aptitud == "Observado" para RequiereInterconsulta) — tratarlo como resuelto
+                // cerraría el caso antes de que el médico dé un veredicto final. Tampoco cuenta un
+                // EMO "Anulado" (registro invalidado/reemplazado).
+                //
+                // Sin este chequeo se creaba/reabría la programación en "En Atención" con un
+                // resultado que ya tenía meses, quedando pegada ahí para siempre porque nadie en
+                // clínica tiene un examen pendiente que completar (ver programación #798:
+                // EmoResultadoId ya apuntaba a un WorkerEmo "Vigente" con aptitud "Apto con
+                // Restricciones" desde mayo, pero la fila se creó en "En Atención" en julio).
+                var aptitudesTerminales = new HashSet<string> { "Apto", "Apto con Restricciones", "No Apto" };
+                var yaResuelto = emo != null
+                    && emo.Estado != "Anulado"
+                    && !string.IsNullOrWhiteSpace(emo.Aptitud)
+                    && aptitudesTerminales.Contains(emo.Aptitud);
+                var estadoResultante = yaResuelto ? "Completado" : "En Atención";
+
                 if (prog != null)
                 {
-                    prog.Estado = "En Atención";
+                    prog.Estado = estadoResultante;
                     prog.UpdatedAt = DateTimeOffset.UtcNow;
                 }
                 else if (emo != null)
                 {
                     // El EMO se registró sin pasar por una cita agendada (sin fila en
                     // ss_programacion_emos que reabrir), así que se crea una para que el caso
-                    // aparezca en la bandeja de Atenciones y se pueda subir lectura/EMO y dar aptitud.
+                    // aparezca en la bandeja de Atenciones (o directo en Completado si ya tiene
+                    // aptitud) y se pueda subir lectura/EMO y dar aptitud.
+                    //
+                    // EmpresaId es obligatorio: Agenda (ProgramacionEmoRepository.List) descarta
+                    // toda fila con empresa nula o EsAbril=false, así que sin esto la programación
+                    // queda "En Atención" para siempre — invisible en Agenda, pero visible como
+                    // huérfana en Habilitación/Trabajadores (no filtra por empresa). Se resuelve
+                    // igual que ProgramacionEmoRepository.Create(): última vinculación activa.
+                    var hoyVinc = DateOnly.FromDateTime(DateTime.Today);
+                    var empresaId = await ctx.WorkerVinculacion
+                        .Where(v => v.WorkerId == ent.WorkerId && (v.FechaFin == null || v.FechaFin >= hoyVinc))
+                        .OrderByDescending(v => v.FechaInicio)
+                        .Select(v => (int?)v.EmpresaId)
+                        .FirstOrDefaultAsync();
+
                     ctx.SsProgramacionEmo.Add(new SsProgramacionEmo
                     {
                         WorkerId = ent.WorkerId,
+                        EmpresaId = empresaId,
                         TipoEmoId = emo.TipoEmoId ?? 0,
                         FechaProgramada = DateOnly.FromDateTime(DateTime.UtcNow),
                         ClinicaId = emo.ClinicaId,
                         MedicoId = emo.MedicoId,
-                        Estado = "En Atención",
+                        Estado = estadoResultante,
                         EmoResultadoId = emo.Id,
                         Origen = "Interconsulta",
                         CreatedAt = DateTimeOffset.UtcNow,

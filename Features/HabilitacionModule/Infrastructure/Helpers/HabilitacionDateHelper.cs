@@ -47,6 +47,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Helpers
 
             if (string.Equals(estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
             {
+                if (ItemsCentinela.Contains(itemId))
+                    return DateTime.SpecifyKind(new DateOnly(2040, 12, 31).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
                 if (dtoVigencia.HasValue) return AsUtc(dtoVigencia);
                 return vigenciaActual;
             }

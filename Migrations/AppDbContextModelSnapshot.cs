@@ -11985,6 +11985,78 @@ namespace Abril_Backend.Migrations
                     b.ToTable("ss_control_semana_linea", (string)null);
                 });
 
+            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKit", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<DateTimeOffset>("CreadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creado_en");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("nombre");
+
+                    b.Property<int>("TipoId")
+                        .HasColumnType("integer")
+                        .HasColumnName("tipo_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ss_kit");
+
+                    b.HasIndex("TipoId")
+                        .HasDatabaseName("ix_ss_kit_tipo_id");
+
+                    b.ToTable("ss_kit", (string)null);
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKitItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("CantidadPorKit")
+                        .HasColumnType("numeric")
+                        .HasColumnName("cantidad_por_kit");
+
+                    b.Property<bool>("EsConsumible")
+                        .HasColumnType("boolean")
+                        .HasColumnName("es_consumible");
+
+                    b.Property<int>("FamiliaId")
+                        .HasColumnType("integer")
+                        .HasColumnName("familia_id");
+
+                    b.Property<int>("KitId")
+                        .HasColumnType("integer")
+                        .HasColumnName("kit_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ss_kit_item");
+
+                    b.HasIndex("FamiliaId")
+                        .HasDatabaseName("ix_ss_kit_item_familia_id");
+
+                    b.HasIndex("KitId")
+                        .HasDatabaseName("ix_ss_kit_item_kit_id");
+
+                    b.ToTable("ss_kit_item", (string)null);
+                });
+
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialAlias", b =>
                 {
                     b.Property<int>("Id")
@@ -12097,78 +12169,6 @@ namespace Abril_Backend.Migrations
                         .HasDatabaseName("ix_ss_material_familia_tipo_id");
 
                     b.ToTable("ss_material_familia", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKit", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("Activo")
-                        .HasColumnType("boolean")
-                        .HasColumnName("activo");
-
-                    b.Property<DateTimeOffset>("CreadoEn")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("creado_en");
-
-                    b.Property<string>("Nombre")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("nombre");
-
-                    b.Property<int>("TipoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("tipo_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_kit");
-
-                    b.HasIndex("TipoId")
-                        .HasDatabaseName("ix_ss_kit_tipo_id");
-
-                    b.ToTable("ss_kit", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKitItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<decimal>("CantidadPorKit")
-                        .HasColumnType("numeric")
-                        .HasColumnName("cantidad_por_kit");
-
-                    b.Property<bool>("EsConsumible")
-                        .HasColumnType("boolean")
-                        .HasColumnName("es_consumible");
-
-                    b.Property<int>("FamiliaId")
-                        .HasColumnType("integer")
-                        .HasColumnName("familia_id");
-
-                    b.Property<int>("KitId")
-                        .HasColumnType("integer")
-                        .HasColumnName("kit_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ss_kit_item");
-
-                    b.HasIndex("FamiliaId")
-                        .HasDatabaseName("ix_ss_kit_item_familia_id");
-
-                    b.HasIndex("KitId")
-                        .HasDatabaseName("ix_ss_kit_item_kit_id");
-
-                    b.ToTable("ss_kit_item", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialHito", b =>
@@ -16350,34 +16350,6 @@ namespace Abril_Backend.Migrations
                     b.ToTable("project_activity", (string)null);
                 });
 
-            modelBuilder.Entity("Abril_Backend.Shared.Models.UserCronogramaPreference", b =>
-                {
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
-
-                    b.Property<int>("ProjectId")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_id");
-
-                    b.Property<string>("TipoCronograma")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("tipo_cronograma");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at")
-                        .HasDefaultValueSql("now()");
-
-                    b.HasKey("UserId", "ProjectId")
-                        .HasName("pk_user_cronograma_preference");
-
-                    b.ToTable("user_cronograma_preference", (string)null);
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.Invoice", b =>
                 {
                     b.HasOne("Abril_Backend.Features.CostsModule.Shared.Models.Contributor", "AbrilContributor")
@@ -18492,6 +18464,39 @@ namespace Abril_Backend.Migrations
                         .HasConstraintName("fk_ss_control_semana_linea_ss_material_familia_familia_id");
                 });
 
+            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKit", b =>
+                {
+                    b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialTipo", "Tipo")
+                        .WithMany()
+                        .HasForeignKey("TipoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_ss_kit_ss_material_tipo_tipo_id");
+
+                    b.Navigation("Tipo");
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKitItem", b =>
+                {
+                    b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialFamilia", "Familia")
+                        .WithMany()
+                        .HasForeignKey("FamiliaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_ss_kit_item_ss_material_familia_familia_id");
+
+                    b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKit", "Kit")
+                        .WithMany("Items")
+                        .HasForeignKey("KitId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_ss_kit_item_ss_kit_kit_id");
+
+                    b.Navigation("Familia");
+
+                    b.Navigation("Kit");
+                });
+
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialAlias", b =>
                 {
                     b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialItem", "Item")
@@ -19243,39 +19248,6 @@ namespace Abril_Backend.Migrations
                         .HasConstraintName("fk_project_activity_project_activity_parent_id");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKit", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialTipo", "Tipo")
-                        .WithMany()
-                        .HasForeignKey("TipoId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_ss_kit_ss_material_tipo_tipo_id");
-
-                    b.Navigation("Tipo");
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKitItem", b =>
-                {
-                    b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKit", "Kit")
-                        .WithMany("Items")
-                        .HasForeignKey("KitId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_ss_kit_item_ss_kit_kit_id");
-
-                    b.HasOne("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialFamilia", "Familia")
-                        .WithMany()
-                        .HasForeignKey("FamiliaId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_ss_kit_item_ss_material_familia_familia_id");
-
-                    b.Navigation("Familia");
-
-                    b.Navigation("Kit");
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models.ProjectSubContractor", b =>
                 {
                     b.Navigation("ComparativeFiles");
@@ -19389,11 +19361,6 @@ namespace Abril_Backend.Migrations
                     b.Navigation("Fotos");
                 });
 
-            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKit", b =>
-                {
-                    b.Navigation("Items");
-                });
-
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Infrastructure.Models.SsomaAuditoriaAts", b =>
                 {
                     b.Navigation("Fotos");
@@ -19463,6 +19430,11 @@ namespace Abril_Backend.Migrations
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsConsumoCarga", b =>
                 {
                     b.Navigation("Lineas");
+                });
+
+            modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsKit", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models.SsMaterialFamilia", b =>

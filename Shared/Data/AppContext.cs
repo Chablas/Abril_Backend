@@ -278,6 +278,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaEntregableTipo> SsomaEntregableTipo => Set<SsomaEntregableTipo>();
         public DbSet<SsomaEntregable> SsomaEntregable => Set<SsomaEntregable>();
         public DbSet<SsomaEntregableResponsable> SsomaEntregableResponsable => Set<SsomaEntregableResponsable>();
+        public DbSet<SsomaEntregableArchivo> SsomaEntregableArchivo => Set<SsomaEntregableArchivo>();
         public DbSet<SsomaInvestigacionRm050> SsomaInvestigacionRm050 => Set<SsomaInvestigacionRm050>();
         public DbSet<SsomaAccionCorrectiva> SsomaAccionCorrectiva => Set<SsomaAccionCorrectiva>();
         // ── Inspecciones ───────────────────────────────────────────────────────
@@ -833,6 +834,12 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaEntregableTipo>().ToTable("ss_entregable_tipo");
             modelBuilder.Entity<SsomaEntregable>().ToTable("ss_entregable");
             modelBuilder.Entity<SsomaEntregableResponsable>().ToTable("ss_entregable_responsable");
+            modelBuilder.Entity<SsomaEntregableArchivo>().ToTable("ss_entregable_archivo");
+            modelBuilder.Entity<SsomaEntregableArchivo>()
+                .HasOne<SsomaEntregable>()
+                .WithMany(e => e.Archivos)
+                .HasForeignKey(a => a.EntregableId)
+                .HasConstraintName("fk_ss_entregable_archivo_entregable_id");
             modelBuilder.Entity<SsomaInvestigacionRm050>().ToTable("ss_investigacion_rm050");
             modelBuilder.Entity<SsomaAccionCorrectiva>().ToTable("ss_accion_correctiva");
             modelBuilder.Entity<SsomaAccionCorrectiva>()

@@ -267,6 +267,14 @@ public class EntregableResponsableDto
     public string Nombre { get; set; } = string.Empty;
 }
 
+public class EntregableArchivoDto
+{
+    public int Id { get; set; }
+    public string UrlArchivo { get; set; } = string.Empty;
+    public string NombreArchivo { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
 public class EntregableDto
 {
     public int Id { get; set; }
@@ -275,11 +283,10 @@ public class EntregableDto
     public int Orden { get; set; }
     public string Estado { get; set; } = string.Empty;
     public DateOnly? FechaLimite { get; set; }
-    public string? UrlArchivo { get; set; }
-    public string? NombreArchivo { get; set; }
     public string? Observacion { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public List<EntregableResponsableDto> Responsables { get; set; } = [];
+    public List<EntregableArchivoDto> Archivos { get; set; } = [];
 }
 
 public class ActualizarEntregableRequest

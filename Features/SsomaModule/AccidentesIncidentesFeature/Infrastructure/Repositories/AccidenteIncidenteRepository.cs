@@ -188,18 +188,27 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
 
     public async Task<string> GenerarCodigoAsync(int proyectoId, string tipoCodigoCorto)
     {
+        // El correlativo se calcula a partir del máximo número YA USADO dentro de
+        // códigos que calzan con el patrón "{ABREV}-{TIPO}-NN" del proyecto/tipo actual,
+        // no con COUNT(*) de filas: COUNT(*) se desalinea cuando hay registros legacy
+        // (importados de SharePoint) que no siguen el patrón, o cuando se elimina un registro,
+        // provocando que se reasigne un correlativo ya usado (código duplicado).
         const string sql = """
             SELECT COALESCE(p.abbreviation, 'XXX') FROM project p WHERE p.project_id = @pid;
-            SELECT COUNT(*) FROM ss_accidente_incidente
-            WHERE proyecto_id = @pid AND tipo_id = (SELECT id FROM ssoma_flash_tipo WHERE codigo = @tipoCodigo);
+            SELECT COALESCE(MAX((regexp_match(a.codigo, '-([0-9]+)$'))[1]::int), 0)
+            FROM ss_accidente_incidente a
+            JOIN project p ON p.project_id = a.proyecto_id
+            WHERE a.proyecto_id = @pid
+              AND a.tipo_id = (SELECT id FROM ssoma_flash_tipo WHERE codigo = @tipoCodigo)
+              AND a.codigo ~ ('^' || UPPER(p.abbreviation) || '-' || @tipoCodigo || '-[0-9]+$');
             """;
 
         await using var conn = Conn();
         await conn.OpenAsync();
         await using var multi = await conn.QueryMultipleAsync(sql, new { pid = proyectoId, tipoCodigo = tipoCodigoCorto });
         var abrev = (await multi.ReadFirstAsync<string>()).ToUpperInvariant();
-        var count = await multi.ReadFirstAsync<int>();
-        var correlativo = (count + 1).ToString("D2");
+        var maxCorrelativo = await multi.ReadFirstAsync<int>();
+        var correlativo = (maxCorrelativo + 1).ToString("D2");
         return $"{abrev}-{tipoCodigoCorto}-{correlativo}";
     }
 
@@ -489,7 +498,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
     {
         const string sql = """
             SELECT e.id, e.tipo_id, t.nombre AS tipo_nombre, t.orden, e.estado,
-                   e.fecha_limite, e.url_archivo, e.nombre_archivo, e.observacion, e.updated_at
+                   e.fecha_limite, e.observacion, e.updated_at
             FROM ss_entregable e
             JOIN ss_entregable_tipo t ON t.id = e.tipo_id
             WHERE e.accidente_incidente_id = @id
@@ -500,6 +509,12 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             FROM ss_entregable_responsable r
             JOIN ss_entregable e ON e.id = r.entregable_id
             WHERE e.accidente_incidente_id = @id;
+
+            SELECT a.id, a.entregable_id, a.url_archivo, a.nombre_archivo, a.created_at
+            FROM ss_entregable_archivo a
+            JOIN ss_entregable e ON e.id = a.entregable_id
+            WHERE e.accidente_incidente_id = @id
+            ORDER BY a.created_at;
             """;
 
         await using var conn = Conn();
@@ -508,8 +523,10 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
 
         var entregables = (await multi.ReadAsync<EntregableDto>()).ToList();
         var responsables = (await multi.ReadAsync<dynamic>()).ToList();
+        var archivos = (await multi.ReadAsync<dynamic>()).ToList();
 
         foreach (var e in entregables)
+        {
             e.Responsables = responsables
                 .Where(r => r.entregable_id == e.Id)
                 .Select(r => new EntregableResponsableDto
@@ -518,6 +535,17 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                     WorkerId = r.worker_id,
                     Nombre = r.nombre
                 }).ToList();
+
+            e.Archivos = archivos
+                .Where(a => a.entregable_id == e.Id)
+                .Select(a => new EntregableArchivoDto
+                {
+                    Id = a.id,
+                    UrlArchivo = a.url_archivo,
+                    NombreArchivo = a.nombre_archivo,
+                    CreatedAt = a.created_at
+                }).ToList();
+        }
 
         return entregables;
     }
@@ -550,10 +578,25 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         using var ctx = _factory.CreateDbContext();
         var entity = await ctx.Set<SsomaEntregable>().FindAsync(entregableId)
             ?? throw new AbrilException("Entregable no encontrado.", 404);
-        entity.UrlArchivo = urlArchivo;
-        entity.NombreArchivo = nombreArchivo;
+
+        ctx.Set<SsomaEntregableArchivo>().Add(new SsomaEntregableArchivo
+        {
+            EntregableId = entregableId,
+            UrlArchivo = urlArchivo,
+            NombreArchivo = nombreArchivo,
+        });
+
         if (entity.Estado == "Pendiente") entity.Estado = "Presentado";
         entity.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task EliminarArchivoEntregableAsync(int archivoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = await ctx.Set<SsomaEntregableArchivo>().FindAsync(archivoId)
+            ?? throw new AbrilException("Archivo no encontrado.", 404);
+        ctx.Set<SsomaEntregableArchivo>().Remove(entity);
         await ctx.SaveChangesAsync();
     }
 

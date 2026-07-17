@@ -239,7 +239,8 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(opts => opts.JsonSerializerOptions.Converters.Add(new Abril_Backend.Shared.Helpers.NullableDateOnlyJsonConverter()));
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IRealtimeNotifier, RealtimeNotifier>();
 builder.Services.AddCors(options =>

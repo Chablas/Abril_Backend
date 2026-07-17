@@ -152,7 +152,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     .Select(p => p.FullName)
                     .FirstOrDefaultAsync() ?? "Trabajador";
 
-                var trayectosResueltos = await ResolveTrayectosForEmailAsync(ctx, trayectos);
+                var (trayectosResueltos, mostrarRecordatorio) = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
                 // 3a. Email al revisor resuelto (workers_revisores → fallback GTH). Se guarda
                 //     el correo al que se envió (enviado_a_correo); el aprobador real
@@ -166,7 +166,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     // Los documentos adjuntos de la solicitud van SOLO en este correo (revisor);
                     // la confirmación al solicitante y demás correos no los llevan.
                     var adjuntosEmail = await BuildAdjuntosEmailAsync(adjuntos);
-                    await SendNotificacionAprobadorAsync(solicitud, trayectosResueltos, revisor.Email, nombreSolicitante, adjuntosEmail);
+                    await SendNotificacionAprobadorAsync(solicitud, trayectosResueltos, mostrarRecordatorio, revisor.Email, nombreSolicitante, adjuntosEmail);
                 }
                 else
                 {
@@ -180,7 +180,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 {
                     try
                     {
-                        await SendConfirmacionSolicitanteAsync(ctx, solicitud, trayectosResueltos, nombreSolicitante, userId.Value, aprobadorEmail);
+                        await SendConfirmacionSolicitanteAsync(ctx, solicitud, trayectosResueltos, mostrarRecordatorio, nombreSolicitante, userId.Value, aprobadorEmail);
                     }
                     catch (Exception ex)
                     {
@@ -375,34 +375,45 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// <summary>
         /// Resuelve los trayectos de la entidad a tuplas listas para embeber en el cuerpo del email.
         /// Hace lookups por motivo y por lugar (origen/destino) para mostrar nombres legibles.
+        /// Devuelve además si corresponde mostrar el recordatorio de recuperación de horas:
+        /// solo se oculta cuando TODOS los trayectos tienen motivo de hora estimada
+        /// (el motivo libre cuenta como hora exacta) — misma regla multi-trayecto que gestión de salidas.
         /// </summary>
-        private static async Task<List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)>>
+        private static async Task<(List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> Trayectos, bool MostrarRecordatorio)>
             ResolveTrayectosForEmailAsync(AppDbContext ctx, List<GaSolicitudTrayecto> trayectos)
         {
             var resueltos = new List<(int, string, string, string, string, string)>();
+            var algunaHoraExacta = false;
             foreach (var t in trayectos.OrderBy(t => t.Orden))
             {
                 string motivo;
                 if (t.MotivoId.HasValue)
                 {
-                    motivo = await ctx.GaMotivoSalida
+                    var m = await ctx.GaMotivoSalida
                         .Where(m => m.Id == t.MotivoId.Value)
-                        .Select(m => m.Descripcion)
-                        .FirstOrDefaultAsync() ?? "—";
+                        .Select(m => new { m.Descripcion, m.EsHoraEstimada })
+                        .FirstOrDefaultAsync();
+                    motivo = m?.Descripcion ?? "—";
+                    if (m == null || !m.EsHoraEstimada) algunaHoraExacta = true;
                 }
-                else motivo = t.MotivoLibre ?? "—";
+                else
+                {
+                    motivo = t.MotivoLibre ?? "—";
+                    algunaHoraExacta = true;
+                }
 
                 var origen  = await ResolveLugarDisplay(ctx, t.LugarOrigenId,  t.LugarOrigenLibre);
                 var destino = await ResolveLugarDisplay(ctx, t.LugarDestinoId, t.LugarDestinoLibre);
                 var horaRet = t.HoraRetorno.HasValue ? t.HoraRetorno.Value.ToString("HH:mm") : "Sin retorno";
                 resueltos.Add((t.Orden + 1, t.HoraSalida.ToString("HH:mm"), horaRet, motivo, origen, destino));
             }
-            return resueltos;
+            return (resueltos, algunaHoraExacta);
         }
 
         private async Task SendNotificacionAprobadorAsync(
             GaSolicitudSalida solicitud,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
+            bool mostrarRecordatorio,
             string aprobadorEmail,
             string nombreSolicitante,
             List<EmailAttachment>? adjuntosEmail = null)
@@ -415,7 +426,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var urlAprobar  = $"{backendUrl}{basePath}/aprobar?token={WebUtility.UrlEncode(tokenAprobar)}";
             var urlRechazar = $"{backendUrl}{basePath}/rechazar?token={WebUtility.UrlEncode(tokenRechazar)}";
 
-            var body    = BuildEmailBody(nombreSolicitante, solicitud.FechaSalida, trayectos, urlAprobar, urlRechazar);
+            var body    = BuildEmailBody(nombreSolicitante, solicitud.FechaSalida, trayectos, mostrarRecordatorio, urlAprobar, urlRechazar);
             var subject = $"Solicitud de salida - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
 
             await _emailService.SendAsync(
@@ -459,6 +470,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             AppDbContext ctx,
             GaSolicitudSalida solicitud,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
+            bool mostrarRecordatorio,
             string nombreSolicitante,
             int userId,
             string? aprobadorEmail)
@@ -478,7 +490,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, solicitud.WorkerId, solicitud.Id);
 
-            var body    = BuildEmailConfirmacionSolicitante(nombreSolicitante, numeroUsuario, solicitud.FechaSalida, trayectos, aprobadorEmail);
+            var body    = BuildEmailConfirmacionSolicitante(nombreSolicitante, numeroUsuario, solicitud.FechaSalida, trayectos, mostrarRecordatorio, aprobadorEmail);
             var subject = $"Tu solicitud de salida #{numeroUsuario} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
 
             var cc = await GetCcRecepcionAsync(ctx);
@@ -564,6 +576,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private static string BuildEmailBody(
             string nombre, DateOnly fechaSalida,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
+            bool mostrarRecordatorio,
             string urlAprobar, string urlRechazar)
         {
             string esc(string s) => WebUtility.HtmlEncode(s);
@@ -594,7 +607,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
       <p style=""margin:0 0 12px""><b>{esc(nombre)}</b> ha registrado una solicitud de salida que requiere tu aprobación:</p>
       <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
       {trayectosHtml}
-      {RecordatorioRecuperacionHtml}
+      {(mostrarRecordatorio ? RecordatorioRecuperacionHtml : "")}
       <div style=""text-align:center;margin-top:18px"">
         <a href=""{urlAprobar}"" style=""display:inline-block;background:#009C87;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Aprobar</a>
         <a href=""{urlRechazar}"" style=""display:inline-block;background:#D30000;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;margin:0 8px;font-weight:600"">Rechazar</a>
@@ -605,7 +618,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 </body></html>";
         }
 
-        /// <summary>Recordatorio que va en los correos de solicitud/aprobación (al solicitante y al revisor).</summary>
+        /// <summary>
+        /// Recordatorio que va en los correos de solicitud/aprobación (al solicitante y al revisor).
+        /// Solo aplica a solicitudes con al menos un trayecto de hora exacta: si TODOS los motivos
+        /// son de hora estimada, el bloque se omite (ver ResolveTrayectosForEmailAsync).
+        /// </summary>
         private const string RecordatorioRecuperacionHtml =
             @"<p style=""margin:14px 0 0;color:#92400E;font-size:13px;background:#FEF9C3;padding:10px 14px;border-radius:8px"">
                  <b>Recuerda:</b> no olvides coordinar la recuperación de las horas dentro del mes calendario.
@@ -614,6 +631,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private static string BuildEmailConfirmacionSolicitante(
             string nombre, int numeroUsuario, DateOnly fechaSalida,
             List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
+            bool mostrarRecordatorio,
             string? aprobadorEmail)
         {
             string esc(string s) => WebUtility.HtmlEncode(s);
@@ -659,7 +677,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
       <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
       {trayectosHtml}
       {aprobadorBloque}
-      {RecordatorioRecuperacionHtml}
+      {(mostrarRecordatorio ? RecordatorioRecuperacionHtml : "")}
       <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
     </div>
   </div>
@@ -798,11 +816,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     .OrderBy(t => t.Orden)
                     .ToListAsync();
 
-                var resueltos = await ResolveTrayectosForEmailAsync(ctx, trayectos);
+                var (resueltos, mostrarRecordatorio) = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
                 var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id);
 
-                var body    = BuildEmailAprobacionSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos);
+                var body    = BuildEmailAprobacionSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, mostrarRecordatorio);
                 var subject = $"Solicitud de salida #{numeroUsuario} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
 
                 var cc = await GetCcRecepcionAsync(ctx);
@@ -866,7 +884,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     .OrderBy(t => t.Orden)
                     .ToListAsync();
 
-                var resueltos = await ResolveTrayectosForEmailAsync(ctx, trayectos);
+                var (resueltos, _) = await ResolveTrayectosForEmailAsync(ctx, trayectos);
 
                 var numeroUsuario = await GetUserSolicitudNumeroAsync(ctx, info.WorkerId, info.Id);
 
@@ -941,7 +959,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         private static string BuildEmailAprobacionSolicitante(
             string nombre, int numeroUsuario, DateOnly fechaSalida,
-            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos)
+            List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> trayectos,
+            bool mostrarRecordatorio)
         {
             string esc(string s) => WebUtility.HtmlEncode(s);
 
@@ -975,7 +994,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
       </p>
       <p style=""margin:0 0 16px;color:#777;font-size:13px""><b>Fecha:</b> {esc(fechaSalida.ToString("dd/MM/yyyy"))}{(trayectos.Count > 1 ? $" — {trayectos.Count} trayectos" : "")}</p>
       {trayectosHtml}
-      {RecordatorioRecuperacionHtml}
+      {(mostrarRecordatorio ? RecordatorioRecuperacionHtml : "")}
       <p style=""color:#999;font-size:12px;margin-top:24px"">Este es un correo automático, no respondas a este mensaje.</p>
     </div>
   </div>

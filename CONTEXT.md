@@ -5061,3 +5061,9 @@ De paso se detectaron (pero NO se corrigieron aún) 4 registros duplicados de pr
 ## Sesión 2026-07-13 — Sync master
 
 Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend` estaba limpio, se cambió a `master` y se corrió "guardar master" para sincronizar con `origin/master`.
+
+## Sesión 2026-07-17 — Sync master
+
+Rama: `master`. Sesión sin cambios de código en `master`: `git status` estaba limpio al invocar "guardar master" (nada que commitear), build local en 0 errores, y se sincronizó con `origin/master` (fetch + merge sin conflictos).
+
+El trabajo real de la sesión (investigación de `responsable_udp`/`responsable_udp_id` en `Project` para "ingeniero residente", dos rondas de implementación que terminaron revertidas al confirmarse que Cronograma de Hitos usa `ProjectResident` y no `responsable_udp`, y el fix de `ex.StatusCode` en `ProjectController.cs` que sí quedó) está documentado en el `CONTEXT.md` de la rama `victor-backend` (commit `0a2eb930`), no en este archivo de `master`. **Ese trabajo todavía no está mergeado a `master`** — solo llegó a `origin/victor-backend`.

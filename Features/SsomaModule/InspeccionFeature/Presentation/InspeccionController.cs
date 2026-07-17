@@ -4,6 +4,8 @@ using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interface
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
+using System.Security.Claims;
 
 namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Presentation;
 
@@ -29,6 +31,9 @@ public class InspeccionController : ControllerBase
             ? id
             : null;
 
+    private int? GetUserId() =>
+        int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
+
     [HttpGet("catalogos")]
     public async Task<IActionResult> GetCatalogos()
     {
@@ -46,6 +51,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet]
+    [RequireFeature("ssoma.gestion.inspeccion.lista")]
     public async Task<IActionResult> GetList(
         [FromQuery] int? proyectoId, [FromQuery] int? tipoId,
         [FromQuery] string? estado,
@@ -58,6 +64,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet("dashboard")]
+    [RequireFeature("ssoma.gestion.inspeccion.dashboard")]
     public async Task<IActionResult> GetDashboard(
         [FromQuery] int? proyectoId, [FromQuery] int? anio)
     {
@@ -67,14 +74,23 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> GetDetalle(int id)
     {
-        try { return Ok(await _service.GetDetalleAsync(id)); }
+        try
+        {
+            var detalle = await _service.GetDetalleAsync(id);
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue && detalle.EmpresaId != empresaId.Value && detalle.EmpresaInspectoraId != empresaId.Value)
+                return Forbid();
+            return Ok(detalle);
+        }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error detalle inspeccion {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     [HttpPost]
+    [RequireFeature("ssoma.gestion.inspeccion.nueva")]
     public async Task<IActionResult> Crear([FromBody] CrearInspeccionRequest request)
     {
         try
@@ -83,7 +99,8 @@ public class InspeccionController : ControllerBase
                 return BadRequest(new { message = "El tipo de inspección es requerido." });
             if (request.ProyectoId <= 0)
                 return BadRequest(new { message = "El proyecto es requerido." });
-            var id = await _service.CrearInspeccionAsync(request);
+            request.EmpresaInspectoraId = GetEmpresaIdContratista();
+            var id = await _service.CrearInspeccionAsync(request, GetUserId());
             return Ok(new { id, message = "Inspección registrada correctamente." });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -91,6 +108,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpPatch("~/api/v1/ssoma-inspeccion-hallazgo/{id:int}/cerrar")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> CerrarHallazgo(int id, [FromBody] CerrarHallazgoRequest request)
     {
         try
@@ -101,7 +119,7 @@ public class InspeccionController : ControllerBase
             if (empresaId.HasValue)
             {
                 var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(id);
-                if (empresaHallazgo != empresaId.Value) return Forbid();
+                if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
             }
             await _service.CerrarHallazgoAsync(id, request);
             return Ok(new { message = "Hallazgo cerrado correctamente." });
@@ -111,11 +129,15 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet("{id:int}/pdf")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> GenerarPdf(int id)
     {
         try
         {
             var detalle = await _service.GetDetalleAsync(id);
+            var empresaId = GetEmpresaIdContratista();
+            if (empresaId.HasValue && detalle.EmpresaId != empresaId.Value && detalle.EmpresaInspectoraId != empresaId.Value)
+                return Forbid();
             var pdf = await _pdfService.GenerarPdfAsync(detalle);
             return File(pdf, "application/pdf", $"Inspeccion_{id}_{DateTime.Now:yyyyMMdd}.pdf");
         }
@@ -124,6 +146,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpGet("hallazgos")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> GetHallazgos(
         [FromQuery] string? estado,
         [FromQuery] string? proyecto,
@@ -137,6 +160,7 @@ public class InspeccionController : ControllerBase
     }
 
     [HttpPatch("hallazgos/{hallazgoId:int}/levantar")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
     public async Task<IActionResult> LevantarHallazgo(int hallazgoId, [FromBody] LevantarHallazgoDto dto)
     {
         try
@@ -145,7 +169,7 @@ public class InspeccionController : ControllerBase
             if (empresaId.HasValue)
             {
                 var empresaHallazgo = await _service.GetEmpresaIdDeHallazgoAsync(hallazgoId);
-                if (empresaHallazgo != empresaId.Value) return Forbid();
+                if (empresaHallazgo.EmpresaId != empresaId.Value && empresaHallazgo.EmpresaInspectoraId != empresaId.Value) return Forbid();
             }
             await _service.LevantarHallazgoAsync(hallazgoId, dto);
             return Ok(new { message = "Hallazgo actualizado correctamente." });

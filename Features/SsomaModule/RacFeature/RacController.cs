@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.Ssoma.Rac;
 
@@ -36,6 +37,7 @@ public class RacController : ControllerBase
         EsContratista() && int.TryParse(User.FindFirst("empresaId")?.Value, out var id) ? id : null;
 
     [HttpGet]
+    [RequireFeature("ssoma.gestion.rac.lista")]
     public async Task<IActionResult> GetList([FromQuery] RacListQuery q)
     {
         try
@@ -48,6 +50,7 @@ public class RacController : ControllerBase
     }
 
     [HttpGet("dashboard")]
+    [RequireFeature("ssoma.gestion.rac.dashboard")]
     public async Task<IActionResult> GetDashboard()
     {
         try { return Ok(await _service.GetDashboardAsync(GetEmpresaIdContratista())); }
@@ -80,6 +83,7 @@ public class RacController : ControllerBase
     }
 
     [HttpPost]
+    [RequireFeature("ssoma.gestion.rac.crear")]
     public async Task<IActionResult> Crear([FromBody] RacCreateRequest req)
     {
         try { return StatusCode(201, await _service.CrearAsync(req, GetUserId())); }
@@ -88,6 +92,7 @@ public class RacController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [RequireFeature("ssoma.gestion.rac.detalle")]
     public async Task<IActionResult> GetDetalle(int id)
     {
         try
@@ -102,13 +107,16 @@ public class RacController : ControllerBase
     }
 
     [HttpPatch("{id:int}/cerrar")]
+    [RequireFeature("ssoma.gestion.rac.cerrar")]
     public async Task<IActionResult> Cerrar(int id, [FromBody] RacCerrarRequest req)
     {
         try
         {
             var actual = await _service.GetDetalleAsync(id);
             if (actual is null) return NotFound(new { message = "RAC no encontrado." });
-            if (!EsPropioDeContratista(actual.EmpresaReportadaId, actual.EmpresaReportanteId)) return Forbid();
+            // Cerrar/levantar es solo de la empresa reportada (a quien se le observó);
+            // la empresa reportante puede ver el RAC pero no levantarlo por ella.
+            if (!EsPropioDeContratista(actual.EmpresaReportadaId)) return Forbid();
             return Ok(await _service.CerrarAsync(id, req, GetUserId()));
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -129,6 +137,23 @@ public class RacController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en RacController.SubirFoto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("{id:int}/fotos/{fotoId:int}")]
+    public async Task<IActionResult> GetFoto(int id, int fotoId)
+    {
+        try
+        {
+            var actual = await _service.GetDetalleAsync(id);
+            if (actual is null) return NotFound(new { message = "RAC no encontrado." });
+            if (!EsPropioDeContratista(actual.EmpresaReportadaId, actual.EmpresaReportanteId)) return Forbid();
+            if (!actual.Fotos.Any(f => f.Id == fotoId)) return NotFound(new { message = "Foto no encontrada." });
+            var bytes = await _service.GetFotoBytesAsync(fotoId);
+            if (bytes is null) return NotFound(new { message = "Foto no disponible." });
+            return File(bytes, "image/jpeg");
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error en RacController.GetFoto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     [HttpGet("{id:int}/reporte")]

@@ -10,10 +10,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
         Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId);
 
-        /// <summary>Crea la solicitud + sus trayectos en una transacción. Devuelve la solicitud (con trayectos) y el worker solicitante.</summary>
-        Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId);
+        /// <summary>Crea la solicitud + sus trayectos en una transacción. Devuelve la solicitud (con trayectos) y el worker solicitante.
+        /// <paramref name="adjuntosPorIndice"/>: documentos adjuntos ya subidos a SharePoint por índice de trayecto (0-based); cada trayecto puede tener N.</summary>
+        Task<(GaSolicitudSalida Solicitud, List<GaSolicitudTrayecto> Trayectos, Worker Solicitante)> Create(SolicitudSalidaCreateDto dto, int? userId, Dictionary<int, List<TrayectoAdjuntoSubidoDto>>? adjuntosPorIndice = null);
 
-        Task SetAprobadorWorkerId(int solicitudId, int aprobadorWorkerId);
+        /// <summary>Guarda el correo al que se envió la solicitud para aprobación (enviado_a_correo).</summary>
+        Task SetEnviadoACorreo(int solicitudId, string correo);
         Task<GaSolicitudSalida?> Aprobar(int solicitudId);
         Task<GaSolicitudSalida?> Rechazar(int solicitudId, string? motivoRechazo);
 

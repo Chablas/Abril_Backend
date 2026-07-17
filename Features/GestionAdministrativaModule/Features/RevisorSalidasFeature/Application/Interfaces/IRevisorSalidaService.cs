@@ -4,8 +4,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Applicatio
 {
     public interface IRevisorSalidaService
     {
-        Task<List<WorkerRevisorSalidaItemDto>> GetWorkerRevisoresAsync();
-        Task<List<WorkerRevisorSalidaOptionDto>> GetWorkerRevisorOptionsAsync();
-        Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId);
+        /// <summary>Carga inicial de la página: trabajadores con sus revisores + opciones + árbol de áreas.</summary>
+        Task<RevisorSalidaInicialDto> GetInitialDataAsync();
+
+        /// <summary>Reemplaza el conjunto de revisores de un trabajador.</summary>
+        Task UpdateWorkerRevisoresAsync(int workerId, List<WorkerRevisorAsignacionDto> revisores);
     }
 }

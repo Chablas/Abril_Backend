@@ -10,10 +10,10 @@ public interface IInspeccionService
         string? estado, DateTime? fechaDesde, DateTime? fechaHasta, int page, int pageSize,
         int? empresaIdContratista = null);
     Task<InspeccionDetalleDto> GetDetalleAsync(int id);
-    Task<int> CrearInspeccionAsync(CrearInspeccionRequest request);
+    Task<int> CrearInspeccionAsync(CrearInspeccionRequest request, int? userId = null);
     Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request);
     Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null);
     Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null);
     Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto);
-    Task<int?> GetEmpresaIdDeHallazgoAsync(int hallazgoId);
+    Task<(int? EmpresaId, int? EmpresaInspectoraId)> GetEmpresaIdDeHallazgoAsync(int hallazgoId);
 }

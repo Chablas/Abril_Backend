@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -37,6 +38,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     EstadoAprobacion    = estadoAprobacion,
                     FilterAreaScopeIds  = areaScopeIds,
                     CurrentUserId       = currentUserId,
+                    SeesAllOverride     = User.IsInRole(Roles.UsuarioRecepcion),
                     Page                = page < 1 ? 1 : page,
                     SortBy              = sortBy,
                     SortDir             = sortDir,
@@ -70,6 +72,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
                     EstadoAprobacion   = estadoAprobacion,
                     FilterAreaScopeIds = areaScopeIds,
                     CurrentUserId      = currentUserId,
+                    SeesAllOverride    = User.IsInRole(Roles.UsuarioRecepcion),
                 };
                 var bytes = await _service.GetExcel(filters);
                 return File(
@@ -115,7 +118,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
         {
             try
             {
-                return Ok(await _service.GetFilterData());
+                var currentUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+
+                return Ok(await _service.GetFilterData(currentUserId, User.IsInRole(Roles.UsuarioRecepcion)));
             }
             catch (AbrilException ex)
             {
@@ -196,6 +202,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Presentati
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en GestionSalidaController.SetHoraSalidaReal");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpPatch("{id:int}/hora-retorno-real")]
+        public async Task<IActionResult> SetHoraRetornoReal(int id, [FromBody] RegistrarHoraRetornoRealDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                await _service.SetHoraRetornoReal(id, dto.HoraRetornoReal, userId.Value);
+                return Ok(new { message = "Hora real registrada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionSalidaController.SetHoraRetornoReal");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

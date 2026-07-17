@@ -3,12 +3,14 @@ using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-auditoria-ats")]
 [Authorize]
+[RequireFeature("ssoma.gestion.auditoria-ats")]
 public class AuditoriaAtsController : ControllerBase
 {
     private readonly IAuditoriaAtsService _service;

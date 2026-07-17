@@ -19,5 +19,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public string? LugarOrigenLibre { get; set; }
         public int? LugarDestinoId { get; set; }
         public string? LugarDestinoLibre { get; set; }
+
+        // ── Documento adjunto (prueba) ───────────────────────────────────────
+        // Se llena al crear la solicitud cuando el motivo elegido tiene
+        // requiere_adjunto = true. El archivo vive en la carpeta configurada de
+        // SharePoint/OneDrive (ga_adjunto_folder).
+        /// <summary>webUrl del archivo en SharePoint/OneDrive (para abrirlo desde el detalle).</summary>
+        public string? AdjuntoUrl { get; set; }
+        public string? AdjuntoItemId { get; set; }
+        public string? AdjuntoDriveId { get; set; }
+        public string? AdjuntoFilename { get; set; }
+        public DateTimeOffset? AdjuntoUploadedAt { get; set; }
     }
 }

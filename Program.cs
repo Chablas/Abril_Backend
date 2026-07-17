@@ -34,8 +34,11 @@ using Abril_Backend.Features.Evaluaciones;
 using Abril_Backend.Features.VecinosModule;
 using Abril_Backend.Features.AccountingModule;
 using Abril_Backend.Features.BoletinModule;
+using Abril_Backend.Features.ArquitecturaComercialModule;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
+using Abril_Backend.Shared.Services.Decolecta.Interfaces;
+using Abril_Backend.Shared.Services.Decolecta.Services;
 using Abril_Backend.Shared.Interceptors;
 using FluentValidation;
 using FluentValidation.AspNetCore;
@@ -49,6 +52,8 @@ Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(args);
+
+//builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -144,6 +149,7 @@ builder.Services.AddMejoraContinuaModule();
 builder.Services.AddVecinosModule();
 builder.Services.AddAccountingModule();
 builder.Services.AddBoletinModule();
+builder.Services.AddArquitecturaComercialModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();
@@ -182,12 +188,19 @@ builder.Services.Configure<EmailSettings>(
 );
 
 builder.Services.Configure<FrontendSettings>(builder.Configuration.GetSection("FrontendSettings"));
-builder.Services.AddHttpClient<IReniecService, ReniecService>(client =>
+// Cliente único hacia la API de Decolecta (RENIEC + SUNAT) con rotación de tokens desde
+// la tabla decolecta_token: el token ya no va fijo en DefaultRequestHeaders porque
+// DecolectaApiClient lo pone por request y rota al siguiente cuando uno agota su cuota.
+builder.Services.AddScoped<IDecolectaTokenStore, DecolectaTokenStore>();
+builder.Services.AddHttpClient<IDecolectaApiClient, DecolectaApiClient>(client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["Reniec:ReniecService"]!);
-    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", builder.Configuration["Reniec:Token"]!);
+    var baseUrl = builder.Configuration["Sunat:BaseUrl"]
+        ?? builder.Configuration["Reniec:ReniecService"]
+        ?? "https://api.decolecta.com";
+    client.BaseAddress = new Uri(baseUrl);
     client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 });
+builder.Services.AddScoped<IReniecService, ReniecService>();
 builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>(client =>
 {
     client.BaseAddress = new Uri("https://graph.microsoft.com/");
@@ -197,16 +210,7 @@ builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>
 // Registrado globalmente para que cualquier módulo lo pueda inyectar (p. ej. recordatorios
 // de lecciones aprendidas vía PowerAutomate). Lo implementa GraphUserService.
 builder.Services.AddScoped<IEmailGroupResolver, GraphUserService>();
-builder.Services.AddHttpClient<ISunatService, DecolectaSunatService>(client =>
-{
-    var baseUrl = builder.Configuration["Sunat:BaseUrl"];
-    if (!string.IsNullOrEmpty(baseUrl))
-        client.BaseAddress = new Uri(baseUrl);
-
-    var token = builder.Configuration["Sunat:Token"];
-    if (!string.IsNullOrEmpty(token))
-        client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
-});
+builder.Services.AddScoped<ISunatService, DecolectaSunatService>();
 builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("sunat-ruc", httpContext =>
@@ -235,7 +239,8 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(opts => opts.JsonSerializerOptions.Converters.Add(new Abril_Backend.Shared.Helpers.NullableDateOnlyJsonConverter()));
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IRealtimeNotifier, RealtimeNotifier>();
 builder.Services.AddCors(options =>
@@ -290,13 +295,17 @@ builder.Services.AddAuthentication("Bearer")
 
         // El cliente de SignalR (WebSocket) no puede mandar el header Authorization,
         // así que envía el JWT por query string; lo leemos solo para las rutas /hubs.
+        // Mismo truco para las rutas .../contenido: son <img src="...">, y el navegador
+        // no manda headers custom en un <img> — por eso ahí también se acepta el token
+        // por query string (ver ObservacionesController.GetFotoContenido).
         options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
         {
             OnMessageReceived = context =>
             {
                 var accessToken = context.Request.Query["access_token"];
                 var path = context.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    (path.StartsWithSegments("/hubs") || path.Value!.EndsWith("/contenido")))
                 {
                     context.Token = accessToken;
                 }

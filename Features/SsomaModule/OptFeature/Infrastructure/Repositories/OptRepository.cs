@@ -47,7 +47,7 @@ public class OptRepository : IOptRepository
     }
 
     public async Task<int> CrearOptAsync(CrearOptRequest request, string? firmaObservadorUrl,
-        Dictionary<int, string> firmasTrabajadorUrls, List<string> fotosAreaUrls)
+        Dictionary<int, string> firmasTrabajadorUrls, List<string> fotosAreaUrls, int userId = 0)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -70,6 +70,7 @@ public class OptRepository : IOptRepository
             CuentaConPet          = request.CuentaConPet,
             Area                  = request.Area,
             SeInformaTrabajador   = request.SeInformaTrabajador,
+            ObservadorId          = request.ObservadorId,
             ObservadorNombre      = request.ObservadorNombre,
             ObservadorCargo       = request.ObservadorCargo,
             FirmaObservadorUrl    = firmaObservadorUrl,
@@ -84,7 +85,8 @@ public class OptRepository : IOptRepository
             TotalInseguros        = totalInseguros,
             ScorePct              = scorePct,
             Estado                = "Completado",
-            CreatedAt             = DateTime.UtcNow
+            CreatedAt             = DateTime.UtcNow,
+            CreatedBy             = userId > 0 ? userId : null
         };
 
         ctx.SsomaOpt.Add(opt);
@@ -159,11 +161,26 @@ public class OptRepository : IOptRepository
 
         var hoy = DateOnly.FromDateTime(DateTime.Today);
         var trabajadorIds = opt.Trabajadores.Select(t => t.TrabajadorId).ToList();
-        var empresaVigentePorTrabajador = await ctx.WorkerVinculacion
-            .Where(v => trabajadorIds.Contains(v.WorkerId) && (v.FechaFin == null || v.FechaFin >= hoy))
+        var workerIdsParaEmpresa = trabajadorIds.ToList();
+        if (opt.ObservadorId.HasValue) workerIdsParaEmpresa.Add(opt.ObservadorId.Value);
+
+        var empresaVigentePorWorker = await ctx.WorkerVinculacion
+            .Where(v => workerIdsParaEmpresa.Contains(v.WorkerId) && (v.FechaFin == null || v.FechaFin >= hoy))
             .GroupBy(v => v.WorkerId)
             .Select(g => g.OrderByDescending(v => v.FechaInicio).First())
             .ToDictionaryAsync(v => v.WorkerId, v => v.EmpresaId);
+
+        var empresaIds = empresaVigentePorWorker.Values.Where(e => e.HasValue).Select(e => e!.Value).Distinct().ToList();
+        var nombreEmpresaPorId = await ctx.Contributor
+            .Where(c => empresaIds.Contains(c.ContributorId))
+            .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorNombreComercial ?? c.ContributorName);
+
+        string? EmpresaNombreDe(int workerId) =>
+            empresaVigentePorWorker.TryGetValue(workerId, out var eid) && eid.HasValue
+                && nombreEmpresaPorId.TryGetValue(eid.Value, out var nombre) ? nombre : null;
+
+        int? observadorEmpresaId = opt.ObservadorId.HasValue
+            && empresaVigentePorWorker.TryGetValue(opt.ObservadorId.Value, out var oeid) ? oeid : null;
 
         return new OptDetalleDto
         {
@@ -178,8 +195,11 @@ public class OptRepository : IOptRepository
             CuentaConPet            = opt.CuentaConPet,
             Area                    = opt.Area,
             SeInformaTrabajador     = opt.SeInformaTrabajador,
+            ObservadorId            = opt.ObservadorId,
             ObservadorNombre        = opt.ObservadorNombre,
             ObservadorCargo         = opt.ObservadorCargo,
+            ObservadorEmpresaId     = observadorEmpresaId,
+            ObservadorEmpresaNombre = observadorEmpresaId.HasValue && nombreEmpresaPorId.TryGetValue(observadorEmpresaId.Value, out var oen) ? oen : null,
             FirmaObservadorUrl      = opt.FirmaObservadorUrl,
             SeFelicito              = opt.SeFelicito,
             SeRecibieronComentarios = opt.SeRecibieronComentarios,
@@ -204,7 +224,8 @@ public class OptRepository : IOptRepository
                 TiempoEnObra       = t.TiempoEnObra,
                 AniosExperiencia   = t.AniosExperiencia,
                 FirmaTrabajadorUrl = t.FirmaTrabajadorUrl,
-                EmpresaId          = empresaVigentePorTrabajador.TryGetValue(t.TrabajadorId, out var eid) ? eid : null
+                EmpresaId          = empresaVigentePorWorker.TryGetValue(t.TrabajadorId, out var eid) ? eid : null,
+                EmpresaNombre      = EmpresaNombreDe(t.TrabajadorId)
             }).ToList(),
             Verificaciones = opt.Verificaciones
                 .OrderBy(v => v.Criterio?.Orden)
@@ -232,7 +253,8 @@ public class OptRepository : IOptRepository
 
     public async Task<List<OptListItemDto>> GetListAsync(int? proyectoId, int? petId,
         string? tipoObservacion, DateTime? fechaDesde, DateTime? fechaHasta,
-        int? trabajadorId, int page, int pageSize, int? empresaIdContratista = null)
+        int? trabajadorId, int page, int pageSize, int? empresaIdContratista = null,
+        int? empresaObservadorId = null, int? empresaTrabajadorId = null)
     {
         using var ctx = _factory.CreateDbContext();
         var hoy = DateOnly.FromDateTime(DateTime.Today);
@@ -253,20 +275,32 @@ public class OptRepository : IOptRepository
                 v.WorkerId == t.TrabajadorId
                 && v.EmpresaId == empresaIdContratista.Value
                 && (v.FechaFin == null || v.FechaFin >= hoy))));
+        if (empresaObservadorId.HasValue)
+            q = q.Where(o => o.ObservadorId.HasValue && ctx.WorkerVinculacion.Any(v =>
+                v.WorkerId == o.ObservadorId.Value
+                && v.EmpresaId == empresaObservadorId.Value
+                && (v.FechaFin == null || v.FechaFin >= hoy)));
+        if (empresaTrabajadorId.HasValue)
+            q = q.Where(o => o.Trabajadores.Any(t => ctx.WorkerVinculacion.Any(v =>
+                v.WorkerId == t.TrabajadorId
+                && v.EmpresaId == empresaTrabajadorId.Value
+                && (v.FechaFin == null || v.FechaFin >= hoy))));
 
-        return await q
+        var pagina = await q
             .OrderByDescending(o => o.Fecha)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(o => new OptListItemDto
+            .Select(o => new
             {
-                Id                  = o.Id,
-                ProyectoNombre      = o.Proyecto != null ? o.Proyecto.ProjectDescription : "",
-                PetNombre           = o.Pet != null ? o.Pet.Nombre : null,
-                Fecha               = o.Fecha,
-                TipoObservacion     = o.TipoObservacion,
-                Area                = o.Area,
-                ObservadorNombre    = o.ObservadorNombre,
+                o.Id,
+                ProyectoNombre = o.Proyecto != null ? o.Proyecto.ProjectDescription : "",
+                PetNombre = o.Pet != null ? o.Pet.Nombre : null,
+                o.Fecha,
+                o.TipoObservacion,
+                o.Area,
+                o.ObservadorNombre,
+                o.ObservadorId,
+                TrabajadorPrincipalId = o.Trabajadores.OrderBy(t => t.Id).Select(t => (int?)t.TrabajadorId).FirstOrDefault(),
                 TrabajadoresPrincipal = o.Trabajadores
                     .OrderBy(t => t.Id)
                     .Select(t => t.Trabajador != null && t.Trabajador.Person != null
@@ -274,18 +308,53 @@ public class OptRepository : IOptRepository
                           ?? $"{t.Trabajador.Person.FirstName} {t.Trabajador.Person.FirstLastName}".Trim()
                         : "")
                     .FirstOrDefault() ?? "",
-                TotalTrabajadores   = o.Trabajadores.Count,
-                ScorePct            = o.ScorePct,
-                AccionRequerida     = o.AccionRequerida,
-                Estado              = o.Estado,
-                CreatedAt           = o.CreatedAt
+                TotalTrabajadores = o.Trabajadores.Count,
+                o.ScorePct,
+                o.AccionRequerida,
+                o.Estado,
+                o.CreatedAt
             })
             .ToListAsync();
+
+        var workerIds = pagina.SelectMany(o => new[] { o.ObservadorId, o.TrabajadorPrincipalId })
+            .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+        var empresaVigentePorWorker = await ctx.WorkerVinculacion
+            .Where(v => workerIds.Contains(v.WorkerId) && (v.FechaFin == null || v.FechaFin >= hoy))
+            .GroupBy(v => v.WorkerId)
+            .Select(g => g.OrderByDescending(v => v.FechaInicio).First())
+            .ToDictionaryAsync(v => v.WorkerId, v => v.EmpresaId);
+        var empresaIds = empresaVigentePorWorker.Values.Where(e => e.HasValue).Select(e => e!.Value).Distinct().ToList();
+        var nombreEmpresaPorId = await ctx.Contributor
+            .Where(c => empresaIds.Contains(c.ContributorId))
+            .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorNombreComercial ?? c.ContributorName);
+
+        string? EmpresaNombreDe(int? workerId) =>
+            workerId.HasValue && empresaVigentePorWorker.TryGetValue(workerId.Value, out var eid) && eid.HasValue
+                && nombreEmpresaPorId.TryGetValue(eid.Value, out var nombre) ? nombre : null;
+
+        return pagina.Select(o => new OptListItemDto
+        {
+            Id                      = o.Id,
+            ProyectoNombre          = o.ProyectoNombre,
+            PetNombre               = o.PetNombre,
+            Fecha                   = o.Fecha,
+            TipoObservacion         = o.TipoObservacion,
+            Area                    = o.Area,
+            ObservadorNombre        = o.ObservadorNombre,
+            ObservadorEmpresaNombre = EmpresaNombreDe(o.ObservadorId),
+            TrabajadoresPrincipal   = o.TrabajadoresPrincipal,
+            TrabajadorPrincipalEmpresaNombre = EmpresaNombreDe(o.TrabajadorPrincipalId),
+            TotalTrabajadores       = o.TotalTrabajadores,
+            ScorePct                = o.ScorePct,
+            AccionRequerida         = o.AccionRequerida,
+            Estado                  = o.Estado,
+            CreatedAt               = o.CreatedAt
+        }).ToList();
     }
 
     public async Task<int> GetListCountAsync(int? proyectoId, int? petId,
         string? tipoObservacion, DateTime? fechaDesde, DateTime? fechaHasta, int? trabajadorId,
-        int? empresaIdContratista = null)
+        int? empresaIdContratista = null, int? empresaObservadorId = null, int? empresaTrabajadorId = null)
     {
         using var ctx = _factory.CreateDbContext();
         var hoy = DateOnly.FromDateTime(DateTime.Today);
@@ -300,6 +369,16 @@ public class OptRepository : IOptRepository
             q = q.Where(o => o.Trabajadores.Any(t => ctx.WorkerVinculacion.Any(v =>
                 v.WorkerId == t.TrabajadorId
                 && v.EmpresaId == empresaIdContratista.Value
+                && (v.FechaFin == null || v.FechaFin >= hoy))));
+        if (empresaObservadorId.HasValue)
+            q = q.Where(o => o.ObservadorId.HasValue && ctx.WorkerVinculacion.Any(v =>
+                v.WorkerId == o.ObservadorId.Value
+                && v.EmpresaId == empresaObservadorId.Value
+                && (v.FechaFin == null || v.FechaFin >= hoy)));
+        if (empresaTrabajadorId.HasValue)
+            q = q.Where(o => o.Trabajadores.Any(t => ctx.WorkerVinculacion.Any(v =>
+                v.WorkerId == t.TrabajadorId
+                && v.EmpresaId == empresaTrabajadorId.Value
                 && (v.FechaFin == null || v.FechaFin >= hoy))));
         return await q.CountAsync();
     }

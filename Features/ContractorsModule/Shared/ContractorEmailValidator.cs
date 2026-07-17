@@ -7,17 +7,17 @@ namespace Abril_Backend.Features.ContractorsModule.Shared
     /// Validación de correos compartida por las features del módulo de contratistas
     /// (registro y gestión).
     ///
-    /// Regla: el correo solo puede contener letras y números, además del '@' y el '.'.
-    /// No se permiten símbolos como ' &lt; &gt; + - _ etc., y no puede empezar con un símbolo
-    /// (debe empezar con una letra o número). Debe tener exactamente un '@' y un dominio
-    /// con al menos un punto.
+    /// Regla: el correo solo puede contener letras y números, además del '@', '.', '_' y '-'.
+    /// No se permiten otros símbolos como ' &lt; &gt; + etc., no puede empezar ni terminar con un
+    /// símbolo (debe empezar y terminar con una letra o número) ni tener símbolos consecutivos.
+    /// Debe tener exactamente un '@' y un dominio con al menos un punto.
     /// </summary>
     public static partial class ContractorEmailValidator
     {
-        [GeneratedRegex(@"^[A-Za-z0-9]+(\.[A-Za-z0-9]+)*@[A-Za-z0-9]+(\.[A-Za-z0-9]+)+$")]
+        [GeneratedRegex(@"^[A-Za-z0-9]+([._-][A-Za-z0-9]+)*@[A-Za-z0-9]+(-[A-Za-z0-9]+)*(\.[A-Za-z0-9]+(-[A-Za-z0-9]+)*)+$")]
         private static partial Regex EmailRegex();
 
-        /// <summary>Devuelve true si el correo cumple con la regla (solo letras, números, '@' y '.').</summary>
+        /// <summary>Devuelve true si el correo cumple con la regla (letras, números, '@', '.', '_' y '-').</summary>
         public static bool IsValid(string? email)
         {
             return !string.IsNullOrWhiteSpace(email) && EmailRegex().IsMatch(email.Trim());
@@ -37,7 +37,7 @@ namespace Abril_Backend.Features.ContractorsModule.Shared
 
                 if (!IsValid(trimmed))
                     throw new AbrilException(
-                        $"El correo \"{trimmed}\" no es válido. Solo puede contener letras, números, \"@\" y \".\", y no puede empezar con un símbolo.",
+                        $"El correo \"{trimmed}\" no es válido. Solo puede contener letras, números, \"@\", \".\", \"_\" y \"-\", y no puede empezar ni terminar con un símbolo.",
                         400);
             }
         }

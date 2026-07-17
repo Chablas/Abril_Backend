@@ -5062,8 +5062,74 @@ De paso se detectaron (pero NO se corrigieron aún) 4 registros duplicados de pr
 
 Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend` estaba limpio, se cambió a `master` y se corrió "guardar master" para sincronizar con `origin/master`.
 
+## Sesión 2026-07-14 — Observaciones (Arquitectura Comercial): performance, fotos, quién-levanta; permisos Clínica; logging Charlas
+
+**Permisos Clínica** (mismo patrón repetido en varios controllers): `[RequireFeature]` solo aceptaba la clave `ssoma.salud-ocupacional.*`, sin el fallback `"clinica.agenda"` que sí tenían `EmoController`/`ProgramacionEmoController`. Corregido en `InterconsultaController` y `DashboardController` (Salud Ocupacional) para que acepten también `"clinica.agenda"`, igual que los otros dos.
+
+**CharlaController**: los 28 `catch { }` de la clase eran ciegos (sin `ILogger`) — cualquier excepción real quedaba enterrada detrás de un mensaje genérico. Se agregó `ILogger<CharlaController>` y ahora todos loguean la excepción real antes de responder 500. Sospecha sin confirmar: `SharePoint:Sites:SSOMAApps:CharlasLibraryId` podría faltar en el config de producción (no está en `appsettings.local.json`) — pendiente de confirmar con logs reales la próxima vez que falle una subida.
+
+**Observaciones (Arquitectura Comercial)** — módulo completo revisado a pedido del usuario:
+- **Performance**: `GetDashboard` traía toda la tabla `ac_observaciones` a memoria y agrupaba en C# — usado también por la Lista solo para 4 totales. Nuevo endpoint `GET .../observaciones/stats` con `COUNT` en SQL; la Lista ya no llama a `/dashboard`.
+- **Quién levanta**: nueva columna `ac_observaciones.levanta_por_worker_id` (FK a `workers`, migración manual `Migrations/Manual/20260714_AddLevantaPorAObservaciones.sql`, ya corrida). `LevantarObservacionDTO.LevantaPorWorkerId` es obligatorio (400 si falta). **Ojo con el mapeo EF**: la navegación `AcObservacion.LevantaPor` necesitó `[ForeignKey(nameof(LevantaPorWorkerId))]` explícito — sin eso EF Core inventaba una FK sombra `LevantaPorId` que no existe en la tabla y tiraba `column a.levanta_por_id does not exist` en cualquier query que tocara `AcObservaciones`.
+- **Catálogo de "obreros" para el selector**: `ArquitecturaComercialRepository.GetSupervisoresAc(soloObreros: true)`. Pasó por 3 iteraciones hasta dar con el criterio correcto — dejar constancia para no repetir el ciclo:
+  1. ~~`Worker.Subarea == "Arquitectura Comercial"`~~ — es el criterio de "Responsable 1" en Actividades (staff/supervisores), no de obreros de campo.
+  2. ~~`Worker.ObraOficina != "Staff"`~~ — devolvía prácticamente todos los no-staff de toda la empresa.
+  3. ~~Proyecto actual vía `ss_hab_worker_proyecto` + `Project.TieneArquitecturaComercial`~~ — ese flag solo marca qué proyectos aparecen en el módulo de Observaciones (p. ej. "Villar", "9 Nogales"), NO que sus trabajadores sean de AC; devolvía 190 personas.
+  4. **Correcto**: el trabajador debe tener como proyecto actual, literalmente, el proyecto llamado **"Arquitectura Comercial"** (comparación case-insensitive contra `Project.ProjectDescription`) — el mismo que aparece como opción de proyecto en Ingreso de Trabajadores. "Proyecto actual" = vinculación activa (`worker_vinculaciones.fecha_fin IS NULL`, la más reciente por `created_at`/`id`) — **mismo criterio exacto que ya usa `HabTrabajadorRepository.GetPaged` (`LatestVincActiva`)**. Verificado con el usuario contra datos reales: 19 trabajadores, nombres correctos vía `Worker.Person.FullName`.
+  - **Nota de fuente de verdad en conflicto**: la sesión 2026-07-10 (Interconsultas) dejó escrito que `worker_vinculaciones` está incompleta y que `ss_hab_worker_proyecto` es la fuente confiable para "proyecto actual" en ese contexto. En Observaciones se usó `worker_vinculaciones` porque es el mismo criterio de Ingreso de Trabajadores y el usuario lo verificó con SQL real dando el resultado esperado — pero si en el futuro este selector empieza a fallar para algunos trabajadores, revisar si son casos sin fila en `worker_vinculaciones` (el mismo hueco de datos que motivó el fallback en Interconsultas).
+- **Reemplazar foto ya subida**: nuevo endpoint `PATCH .../observaciones/fotos/{fotoId}` (`ObservacionRepository.ActualizarFoto`/`GetFotoById`) — antes solo existía `AgregarFoto` (insert-only).
+- **Miniaturas rotas en celular**: las fotos se mostraban con la `webUrl` cruda de SharePoint en `<img src>`, que solo carga si el navegador tiene sesión de Microsoft 365 activa (funcionaba en escritorio por SSO de Office, no en celular). Nuevo endpoint proxy `GET .../observaciones/fotos/{fotoId}/contenido` que trae los bytes vía `IGraphSharePointService.DownloadFromSharePointAsync` con permisos de aplicación. Como un `<img>` no manda headers custom, el JWT viaja por query string (`?access_token=`) — se extendió el mismo `OnMessageReceived` de `Program.cs` que ya aceptaba esto para `/hubs` (SignalR), ahora también para rutas que terminan en `/contenido`.
+
+### Archivos clave
+- `Features/ArquitecturaComercialModule/Features/ObservacionesFeature/**` (Controller, Service, Repository, DTOs, Model)
+- `Infrastructure/Repositories/ArquitecturaComercialRepository.cs` (`GetSupervisoresAc`)
+- `Features/SsomaModule/CharlasFeature/Presentation/CharlaController.cs`
+- `Features/SsomaModule/SaludOcupacionalFeature/Presentation/{InterconsultaController,DashboardController}.cs`
+- `Program.cs` (JWT por query string en rutas `/contenido`)
+- `Migrations/Manual/20260714_AddLevantaPorAObservaciones.sql`
+
+### Pendiente
+- Confirmar con el usuario que las miniaturas ya cargan en celular tras el fix del proxy.
+- Si alguna vez el selector "Quién levanta" queda vacío para un trabajador que debería aparecer, revisar si tiene fila vigente en `worker_vinculaciones` (ver nota de fuente en conflicto arriba).
+
+## Sesión 2026-07-15 — Módulo Gestión de Revisiones (nuevo) + fixes de Observaciones y migraciones históricas
+
+**Módulo nuevo `RevisionesFeature`** (`Features/ArquitecturaComercialModule/Features/RevisionesFeature/`), clon del patrón de Observaciones con una capa extra de agrupación:
+- Entidad `AcRevision` = catálogo de "revisiones" por proyecto (Tipo fijo en código `R1|R2|R1-AC|R2-AC|RF-AC` vía `TipoRevision.Valores`, Lugar = catálogo `AcCatalogoItem` tipo `LugarRevision` o texto libre, Nombre autogenerado `"{Tipo}-{ProyectoNombre}-{Lugar}"`).
+- `AcRevisionObservacion` / `AcRevisionObservacionFoto` = mismo shape que `AcObservacion`/`AcObservacionFoto` pero con FK a `AcRevision` en vez de proyecto directo, y `ZonaAmbiente` en vez de `Lugar` (para no chocar con el `Lugar` de la revisión). **Decisión explícita del usuario**: tablas nuevas separadas, NO reusar `ac_observaciones` — cero riesgo sobre el módulo que ya está en producción.
+- SharePoint: mismo site key `ObservacionesArqCom`, librería distinta `BRevisionesArqComercial` (confirmado con el archivo real `BibliotecaRevision.xlsx` que compartió el usuario).
+- Endpoints bajo `api/v1/arquitectura-comercial/revisiones`: catálogo (`GET/POST/DELETE .../catalogo`) + observaciones (mismo set que Observaciones: lista paginada, filtros, dashboard, stats, crear, levantar, editar, fotos).
+- Features nuevas en tabla `feature` (module_id=1, insertadas a mano vía SQL — **el catálogo de features/permisos NO se autogenera desde `[RequireFeature]`, hay que insertarlo manual cada vez que se crea un endpoint nuevo protegido**): `arquitectura-comercial.revisiones{,.dashboard,.lista,.editar}`.
+
+**Bugs reales encontrados y corregidos en el camino** (dejar constancia, son trampas que se van a repetir):
+1. **`GetFiltros` de Revisiones sacaba los proyectos de `AcRevisiones` en vez de `Project.TieneArquitecturaComercial`** — huevo-y-gallina: sin revisiones creadas, el combo de proyectos salía vacío en todos lados (ni se podía crear la primera revisión). Corregido para usar el mismo criterio que `ObservacionRepository.GetFiltros`.
+2. **IDs de proyecto del CSV histórico (`DBRevisionesComercial.csv`, export de SharePoint) NO coinciden con los `project_id` reales de Abril** (ej. Kaurí es `IDProyecto=43` en SharePoint pero `project_id=7` en la BD real). El import se rehizo uniendo por **nombre de proyecto** (`upper(project_description)`) contra la tabla `project` real en vez de hardcodear IDs — ese patrón (join por nombre, nunca por ID de un sistema externo) hay que repetirlo para cualquier import histórico futuro desde los CSVs de SharePoint/Power Apps.
+3. **Columnas `timestamp` de `ac_revisiones`/`ac_revision_observaciones` rechazaban cualquier insert** (`Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with time zone'`). Npgsql por defecto mapea `DateTime` de C# a `timestamp with time zone` y exige `Kind=Utc`, sin importar que la columna física sea `TIMESTAMP` (sin tz). Fix: overrides `.HasColumnType("timestamp without time zone")` en `AppContext.ConfigurePostgreSQL` para las 3 entidades nuevas. **Sospecha sin confirmar**: `AcObservacion` probablemente tiene el mismo problema latente (nunca se probó crear una observación nueva vía UI en esta sesión, todo lo visible viene del import histórico por SQL directo) — revisar si alguna vez falla un `POST /observaciones` nuevo.
+4. **`GetStats` con 4 `CountAsync()` secuenciales** (Observaciones y ahora Revisiones) — optimizado a una sola query con `GroupBy(o => 1)` + agregación condicional.
+5. **Falta de índice en `fecha`** en Observaciones (agregado ahora, `20260714_AddIndexFechaObservaciones.sql`) — para Revisiones se creó el índice desde el día 1 en la migración original, no hubo que parchear después.
+
+**Migraciones manuales corridas** (todas ya ejecutadas y verificadas por el usuario contra la BD real):
+- `20260714_AddIndexFechaObservaciones.sql` — índice en `ac_observaciones.fecha` y `partida_reportada`.
+- `20260714_CreateAcRevisiones.sql` — tablas `ac_revisiones`, `ac_revision_observaciones`, `ac_revision_observacion_fotos` + índices + seed del catálogo `LugarRevision` (5 valores).
+- `20260715_ImportRevisionesHistorico.sql` — import de 22 revisiones históricas, join por nombre de proyecto (ver bug #2 arriba). Verificado: 22/22 importadas.
+- Insert manual (no versionado en archivo, corrido directo por el usuario) de las 4 features nuevas en la tabla `feature`.
+
+**Sin resolver — pendiente para la próxima sesión/cuenta**:
+- **"Nueva observación" tarda en cargar los proyectos, tanto en Observaciones como en Revisiones, a pesar de que el request `/filtros` mide <1s en Network tab.** Se aplicó `cdr.markForCheck()` en todos los callbacks async de ambas páginas de lista (mismo patrón que ya usaban los dashboards) como mitigación de un posible problema de change detection con Zone.js + `withFetch()`, pero **no se confirmó que esto resuelva la demora real** — quedó sin verificar con el usuario tras el último cambio. Si sigue lento, el problema no es de red ni de query SQL (ya descartado con evidencia real), hay que investigar en el frontend con más profundidad (Angular DevTools / Performance tab, no asumir).
+- Relacionado: el botón "Nueva observación" depende de que `filtrosListos` (poblado por `/filtros`) esté en `true` para habilitarse — eso significa que, aunque el fetch sea rápido, la UX obliga a esperar ese roundtrip antes de poder hacer clic. No se evaluó si conviene desacoplar eso (ej. habilitar el botón de entrada y que el combo de Proyecto cargue dentro del modal en vez de bloquear el FAB entero) — quedó pendiente de decidir con el usuario.
+- No se probó de punta a punta el flujo completo de Revisiones en el navegador (crear revisión → crear observación → levantar) tras el último fix de timestamps — el usuario iba a probarlo pero la sesión se cortó por límite de tokens.
+
+### Archivos clave (sesión 2026-07-15)
+- `Features/ArquitecturaComercialModule/Features/RevisionesFeature/**` (módulo completo nuevo)
+- `Features/ArquitecturaComercialModule/Features/ObservacionesFeature/Infrastructure/Repositories/ObservacionRepository.cs` (GetStats optimizado, endpoint AgregarFotoObservacion)
+- `Features/ArquitecturaComercialModule/Features/ObservacionesFeature/Infrastructure/Models/AcCatalogoItem.cs` (tipo `LugarRevision`)
+- `Shared/Data/AppContext.cs` (DbSets de Revisiones + overrides de timestamp)
+- `Migrations/Manual/20260714_AddIndexFechaObservaciones.sql`
+- `Migrations/Manual/20260714_CreateAcRevisiones.sql`
+- `Migrations/Manual/20260715_ImportRevisionesHistorico.sql`
+
 ## Sesión 2026-07-17 — Sync master
 
-Rama: `master`. Sesión sin cambios de código en `master`: `git status` estaba limpio al invocar "guardar master" (nada que commitear), build local en 0 errores, y se sincronizó con `origin/master` (fetch + merge sin conflictos).
+Rama: `master`. Sesión sin cambios de código en `master`: `git status` estaba limpio al invocar "guardar master" (nada que commitear), build local en 0 errores, y se sincronizó con `origin/master` (fetch + merge — un conflicto trivial de orden en `CONTEXT.md` con las sesiones 07-14/07-15 recién traídas, resuelto dejando las tres en orden cronológico, sin descartar contenido de ningún lado).
 
 El trabajo real de la sesión (investigación de `responsable_udp`/`responsable_udp_id` en `Project` para "ingeniero residente", dos rondas de implementación que terminaron revertidas al confirmarse que Cronograma de Hitos usa `ProjectResident` y no `responsable_udp`, y el fix de `ex.StatusCode` en `ProjectController.cs` que sí quedó) está documentado en el `CONTEXT.md` de la rama `victor-backend` (commit `0a2eb930`), no en este archivo de `master`. **Ese trabajo todavía no está mergeado a `master`** — solo llegó a `origin/victor-backend`.

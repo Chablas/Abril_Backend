@@ -1,8 +1,10 @@
+using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.OptFeature.Presentation;
 
@@ -26,6 +28,9 @@ public class OptController : ControllerBase
             ? id
             : null;
 
+    private int GetUserId() =>
+        int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
+
     [HttpGet("catalogos")]
     public async Task<IActionResult> GetCatalogos()
     {
@@ -43,6 +48,7 @@ public class OptController : ControllerBase
     }
 
     [HttpGet]
+    [RequireFeature("ssoma.gestion.opt.lista")]
     public async Task<IActionResult> GetList(
         [FromQuery] int? proyectoId,
         [FromQuery] int? petId,
@@ -50,6 +56,8 @@ public class OptController : ControllerBase
         [FromQuery] DateTime? fechaDesde,
         [FromQuery] DateTime? fechaHasta,
         [FromQuery] int? trabajadorId,
+        [FromQuery] int? empresaObservadorId,
+        [FromQuery] int? empresaTrabajadorId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
     {
@@ -57,7 +65,7 @@ public class OptController : ControllerBase
         {
             return Ok(await _service.GetListAsync(
                 proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, page, pageSize,
-                GetEmpresaIdContratista()));
+                GetEmpresaIdContratista(), empresaObservadorId, empresaTrabajadorId));
         }
         catch (Exception ex)
         {
@@ -67,6 +75,7 @@ public class OptController : ControllerBase
     }
 
     [HttpGet("dashboard")]
+    [RequireFeature("ssoma.gestion.opt.dashboard")]
     public async Task<IActionResult> GetDashboard(
         [FromQuery] int? proyectoId,
         [FromQuery] int? anio)
@@ -83,6 +92,7 @@ public class OptController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [RequireFeature("ssoma.gestion.opt")]
     public async Task<IActionResult> GetDetalle(int id)
     {
         try
@@ -105,11 +115,12 @@ public class OptController : ControllerBase
     }
 
     [HttpPost]
+    [RequireFeature("ssoma.gestion.opt.nuevo")]
     public async Task<IActionResult> Crear([FromBody] CrearOptRequest request)
     {
         try
         {
-            var id = await _service.CrearOptAsync(request);
+            var id = await _service.CrearOptAsync(request, GetUserId());
             return StatusCode(201, new { id });
         }
         catch (AbrilException ex)

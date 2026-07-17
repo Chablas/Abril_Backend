@@ -53,6 +53,7 @@ public class CrearOptRequest
     public bool CuentaConPet { get; set; }
     public string? Area { get; set; }
     public bool SeInformaTrabajador { get; set; }
+    public int? ObservadorId { get; set; }
     public string? ObservadorNombre { get; set; }
     public string? ObservadorCargo { get; set; }
     public string? FirmaObservadorBase64 { get; set; }
@@ -81,6 +82,7 @@ public class OptTrabajadorDto
     public string? AniosExperiencia { get; set; }
     public string? FirmaTrabajadorUrl { get; set; }
     public int? EmpresaId { get; set; }
+    public string? EmpresaNombre { get; set; }
 }
 
 public class OptVerificacionDto
@@ -114,8 +116,11 @@ public class OptDetalleDto
     public bool CuentaConPet { get; set; }
     public string? Area { get; set; }
     public bool SeInformaTrabajador { get; set; }
+    public int? ObservadorId { get; set; }
     public string? ObservadorNombre { get; set; }
     public string? ObservadorCargo { get; set; }
+    public int? ObservadorEmpresaId { get; set; }
+    public string? ObservadorEmpresaNombre { get; set; }
     public string? FirmaObservadorUrl { get; set; }
     public bool SeFelicito { get; set; }
     public bool SeRecibieronComentarios { get; set; }
@@ -144,7 +149,9 @@ public class OptListItemDto
     public string TipoObservacion { get; set; } = string.Empty;
     public string? Area { get; set; }
     public string? ObservadorNombre { get; set; }
+    public string? ObservadorEmpresaNombre { get; set; }
     public string TrabajadoresPrincipal { get; set; } = string.Empty;
+    public string? TrabajadorPrincipalEmpresaNombre { get; set; }
     public int TotalTrabajadores { get; set; }
     public decimal? ScorePct { get; set; }
     public string? AccionRequerida { get; set; }

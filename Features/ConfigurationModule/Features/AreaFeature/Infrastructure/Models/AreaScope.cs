@@ -22,6 +22,14 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
         [Column("display_order")]
         public int DisplayOrder { get; set; }
 
+        /// <summary>
+        /// Correo del área (nullable). Hoy solo lo usa "Gestión del Talento Humano":
+        /// es el correo al que se envían las solicitudes de salida cuando un trabajador
+        /// no tiene ningún revisor válido en workers_revisores (fallback GTH).
+        /// </summary>
+        [Column("email")]
+        public string? Email { get; set; }
+
         [Column("active")]
         public bool Active { get; set; }
 

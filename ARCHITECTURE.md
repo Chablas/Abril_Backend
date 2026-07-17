@@ -116,4 +116,7 @@ Cada acción de la página que necesite de datos debe de pedir los datos justos 
 Nunca usar Task.WhenAll con la base de datos puesto que usa más conexiones innecesarias. Solo usar Task.WhenAll en 'servicios más grandes' como lo es Microsoft Graph Api.
 Evitar el problema N+1.
 Para evitar los roundtrips a la base de datos puedes usar Dapper.
+
+## Consideraciones para pruebas
+Cuando termines de hacer/escribir código compila el proyecto para buscar posibles errores y corrígelos. No hagas previews, yo testearé para verificar si está bien o no.
 ```

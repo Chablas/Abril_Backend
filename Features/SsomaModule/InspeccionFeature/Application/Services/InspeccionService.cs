@@ -43,14 +43,14 @@ public class InspeccionService : IInspeccionService
     public async Task<InspeccionDashboardDto> GetDashboardAsync(int? proyectoId, int? anio, int? empresaIdContratista = null)
         => await _repo.GetDashboardAsync(proyectoId, anio, empresaIdContratista);
 
-    public async Task<int> CrearInspeccionAsync(CrearInspeccionRequest request)
+    public async Task<int> CrearInspeccionAsync(CrearInspeccionRequest request, int? userId = null)
     {
         if (request.TipoId <= 0)
             throw new AbrilException("El tipo de inspección es requerido.", 400);
 
         // PASO 1: Crear inspección sin firmas para obtener el ID
         var fotosHallazgoUrls = new Dictionary<int, List<string>>();
-        var id = await _repo.CrearInspeccionAsync(request, null, null, fotosHallazgoUrls, []);
+        var id = await _repo.CrearInspeccionAsync(request, null, null, fotosHallazgoUrls, [], userId);
 
         // PASO 2: Subir firmas y fotos con el ID real
         string? firmaInspectorUrl = null;
@@ -115,7 +115,7 @@ public class InspeccionService : IInspeccionService
     public Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null)
         => _repo.GetHallazgosAsync(estado, proyecto, area, fechaLimiteHasta, empresaIdContratista);
 
-    public Task<int?> GetEmpresaIdDeHallazgoAsync(int hallazgoId) => _repo.GetEmpresaIdDeHallazgoAsync(hallazgoId);
+    public Task<(int? EmpresaId, int? EmpresaInspectoraId)> GetEmpresaIdDeHallazgoAsync(int hallazgoId) => _repo.GetEmpresaIdDeHallazgoAsync(hallazgoId);
 
     public async Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto)
     {

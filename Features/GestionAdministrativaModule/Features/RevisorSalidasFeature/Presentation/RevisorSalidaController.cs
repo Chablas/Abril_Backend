@@ -20,42 +20,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Presentati
             _logger  = logger;
         }
 
+        /// <summary>Carga inicial: trabajadores con sus n revisores + opciones + árbol de áreas.</summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<IActionResult> GetInitialData()
         {
-            try   { return Ok(await _service.GetWorkerRevisoresAsync()); }
+            try   { return Ok(await _service.GetInitialDataAsync()); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en RevisorSalidaController.GetAll");
+                _logger.LogError(ex, "Error en RevisorSalidaController.GetInitialData");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
 
-        [HttpGet("options")]
-        public async Task<IActionResult> GetOptions()
-        {
-            try   { return Ok(await _service.GetWorkerRevisorOptionsAsync()); }
-            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error en RevisorSalidaController.GetOptions");
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
+        /// <summary>Reemplaza el conjunto de revisores de un trabajador.</summary>
         [HttpPut("{workerId:int}")]
-        public async Task<IActionResult> UpdateRevisor(int workerId, [FromBody] WorkerRevisorSalidaUpdateDto dto)
+        public async Task<IActionResult> UpdateRevisores(int workerId, [FromBody] WorkerRevisoresUpdateDto dto)
         {
             try
             {
-                await _service.UpdateWorkerRevisorAsync(workerId, dto.JefeWorkerId);
-                return Ok(new { message = "Revisor de salidas actualizado exitosamente." });
+                await _service.UpdateWorkerRevisoresAsync(workerId, dto?.Revisores ?? new List<WorkerRevisorAsignacionDto>());
+                return Ok(new { message = "Revisores de salidas actualizados exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en RevisorSalidaController.UpdateRevisor");
+                _logger.LogError(ex, "Error en RevisorSalidaController.UpdateRevisores");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

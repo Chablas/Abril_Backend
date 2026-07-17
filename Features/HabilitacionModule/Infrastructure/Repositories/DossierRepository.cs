@@ -156,8 +156,15 @@ public class DossierRepository : IDossierRepository
     public async Task MarcarNaAsync(int docId)
     {
         using var ctx = _factory.CreateDbContext();
-        var doc = await ctx.SsDossierDocumento.FindAsync(docId)
+        var doc = await ctx.SsDossierDocumento
+            .Include(d => d.Archivos)
+            .FirstOrDefaultAsync(d => d.Id == docId)
             ?? throw new AbrilException("Documento no encontrado.", 404);
+
+        if (doc.Estado != "NA" && (doc.Estado == "Subido" || doc.Archivos.Count > 0))
+            throw new AbrilException(
+                "No se puede marcar como No Aplica un documento que ya tiene un archivo subido.", 400);
+
         doc.Estado = doc.Estado == "NA" ? "Pendiente" : "NA";
         doc.NombreArchivo = null;
         doc.ArchivoPath = null;
@@ -272,6 +279,24 @@ public class DossierRepository : IDossierRepository
         return await ctx.SsDossierDocumentoArchivo
             .Where(a => a.Id == archivoId)
             .Select(a => a.ArchivoPath)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<int?> GetContributorIdDeDocumentoAsync(int docId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsDossierDocumento
+            .Where(d => d.Id == docId)
+            .Select(d => (int?)d.Dossier!.ContributorId)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<int?> GetContributorIdDeArchivoAsync(int archivoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsDossierDocumentoArchivo
+            .Where(a => a.Id == archivoId)
+            .Select(a => (int?)a.Documento!.Dossier!.ContributorId)
             .FirstOrDefaultAsync();
     }
 }

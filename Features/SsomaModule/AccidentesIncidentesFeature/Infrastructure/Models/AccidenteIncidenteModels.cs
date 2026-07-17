@@ -181,6 +181,7 @@ public class SsomaEntregable
 
     public SsomaEntregableTipo? Tipo { get; set; }
     public ICollection<SsomaEntregableResponsable> Responsables { get; set; } = [];
+    public ICollection<SsomaEntregableArchivo> Archivos { get; set; } = [];
 }
 
 public class SsomaEntregableResponsable
@@ -189,6 +190,18 @@ public class SsomaEntregableResponsable
     public int EntregableId { get; set; }
     public int? WorkerId { get; set; }
     public string Nombre { get; set; } = string.Empty;
+}
+
+// Un entregable (fila del catálogo, ej. "ATS") puede recibir varios archivos a lo
+// largo del tiempo — ej. subir un ATS y luego otro ATS adicional — por eso es
+// una colección y no un único UrlArchivo/NombreArchivo como antes.
+public class SsomaEntregableArchivo
+{
+    public int Id { get; set; }
+    public int EntregableId { get; set; }
+    public string UrlArchivo { get; set; } = string.Empty;
+    public string NombreArchivo { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 // ── Investigación RM-050 ──────────────────────────────────────────────────────

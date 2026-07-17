@@ -22,5 +22,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public string EstadoAprobacion { get; set; } = string.Empty;
         public string EstadoRendicion { get; set; } = "No rendido";
         public DateTimeOffset CreatedAt { get; set; }
+        /// <summary>True si todos los trayectos están cubiertos (captura por trayecto, o catálogo TI) — habilita la rendición.</summary>
+        public bool PuedeRendirse { get; set; }
     }
 }

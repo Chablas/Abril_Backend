@@ -244,7 +244,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 p.TipoEmoId == dto.TipoEmoId &&
                 p.Estado != "Completado" &&
                 p.Estado != "Cancelado" &&
-                p.Estado != "Rechazado por Clínica");
+                p.Estado != "Rechazado por Clínica" &&
+                p.Estado != "No se presentó");
             if (yaTieneActiva)
                 throw new AbrilException("Este trabajador ya tiene una programación activa para este tipo de EMO.", 409);
 
@@ -303,6 +304,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             await ctx.SaveChangesAsync();
         }
 
+        // Estados que solo debe asignar el flujo de la clínica (Agenda → ClinicaAccion),
+        // el cual siempre completa ClinicaId/EmpresaId (y CheckInHora para "En Atención").
+        // Sin esta validación, UpdateEstado permitía dejar programaciones "En Atención"
+        // sin clínica ni empresa: invisibles en la Agenda (que exige empresa) pero
+        // visibles como huérfanas en Habilitación/Trabajadores (ver programación #798).
+        private static readonly HashSet<string> EstadosRequierenClinica = new()
+        {
+            "Aceptado por Clínica", "En Atención"
+        };
+
         public async Task UpdateEstado(int id, string estado, int? emoResultadoId, int? userId)
         {
             if (estado == "Completado")
@@ -311,6 +322,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             using var ctx = _factory.CreateDbContext();
             var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id)
                 ?? throw new AbrilException("Programación no encontrada.", 404);
+
+            if (EstadosRequierenClinica.Contains(estado) && (ent.ClinicaId is null || ent.EmpresaId is null))
+                throw new AbrilException(
+                    $"No se puede asignar el estado '{estado}' sin clínica y empresa asignadas. Use el flujo de la clínica (Agenda).",
+                    400);
+
             ent.Estado = estado;
             if (emoResultadoId.HasValue) ent.EmoResultadoId = emoResultadoId;
             ent.UpdatedAt = DateTimeOffset.UtcNow;

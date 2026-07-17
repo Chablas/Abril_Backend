@@ -123,4 +123,8 @@ public class DossierService : IDossierService
             throw new AbrilException("No se pudo obtener la URL del archivo.", 502);
         return url;
     }
+
+    public Task<int?> GetContributorIdDeDocumentoAsync(int docId) => _repo.GetContributorIdDeDocumentoAsync(docId);
+
+    public Task<int?> GetContributorIdDeArchivoAsync(int archivoId) => _repo.GetContributorIdDeArchivoAsync(archivoId);
 }

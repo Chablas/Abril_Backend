@@ -66,26 +66,70 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
 
         var total = await query.CountAsync();
 
-        var items = await query
+        var rows = await query
             .OrderByDescending(x => x.a.Fecha)
             .ThenByDescending(x => x.a.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(x => new AuditoriaAtsListItemDto
+            .Select(x => new
             {
-                Id = x.a.Id,
-                Fecha = x.a.Fecha.ToString("yyyy-MM-dd"),
+                x.a.Id,
+                x.a.Fecha,
+                AuditorWorkerId = x.auditor.Id,
                 AuditorNombre = x.auditor.ApellidoNombre ?? (x.auditor.Person != null ? x.auditor.Person.FullName : null) ?? string.Empty,
+                AuditorCategoria = x.auditor.Categoria,
+                AuditorOcupacion = x.auditor.Ocupacion,
+                AuditadoWorkerId = x.auditado.Id,
                 AuditadoNombre = x.auditado.ApellidoNombre ?? (x.auditado.Person != null ? x.auditado.Person.FullName : null) ?? string.Empty,
+                AuditadoCategoria = x.auditado.Categoria,
+                AuditadoOcupacion = x.auditado.Ocupacion,
                 ProyectoNombre = x.proj != null ? x.proj.ProjectDescription : null,
-                Actividad = x.a.Actividad,
-                Lugar = x.a.Lugar,
-                PuntajePromedio = x.a.PuntajePromedio,
-                Nivel = x.a.Nivel,
-                Estado = x.a.Estado,
-                CreatedAt = x.a.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                x.a.Actividad,
+                x.a.Lugar,
+                x.a.PuntajePromedio,
+                x.a.Nivel,
+                x.a.Estado,
+                x.a.CreatedAt,
             })
             .ToListAsync();
+
+        var workerIds = rows.Select(r => r.AuditorWorkerId).Concat(rows.Select(r => r.AuditadoWorkerId)).Distinct().ToList();
+
+        var empresaVigentePorWorker = await ctx.WorkerVinculacion
+            .Where(v => workerIds.Contains(v.WorkerId) && (v.FechaFin == null || v.FechaFin >= hoy))
+            .GroupBy(v => v.WorkerId)
+            .Select(g => g.OrderByDescending(v => v.FechaInicio).First())
+            .ToDictionaryAsync(v => v.WorkerId, v => v.EmpresaId);
+
+        var empresaIds = empresaVigentePorWorker.Values.Where(e => e.HasValue).Select(e => e!.Value).Distinct().ToList();
+        var nombreEmpresaPorId = await ctx.Contributor
+            .Where(c => empresaIds.Contains(c.ContributorId))
+            .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorNombreComercial ?? c.ContributorName);
+
+        string? EmpresaNombreDe(int workerId) =>
+            empresaVigentePorWorker.TryGetValue(workerId, out var eid) && eid.HasValue
+                && nombreEmpresaPorId.TryGetValue(eid.Value, out var nombre) ? nombre : null;
+
+        var items = rows.Select(x => new AuditoriaAtsListItemDto
+        {
+            Id = x.Id,
+            Fecha = x.Fecha.ToString("yyyy-MM-dd"),
+            AuditorNombre = x.AuditorNombre,
+            AuditorEmpresaNombre = EmpresaNombreDe(x.AuditorWorkerId),
+            AuditorCategoria = x.AuditorCategoria,
+            AuditorOcupacion = x.AuditorOcupacion,
+            AuditadoNombre = x.AuditadoNombre,
+            AuditadoEmpresaNombre = EmpresaNombreDe(x.AuditadoWorkerId),
+            AuditadoCategoria = x.AuditadoCategoria,
+            AuditadoOcupacion = x.AuditadoOcupacion,
+            ProyectoNombre = x.ProyectoNombre,
+            Actividad = x.Actividad,
+            Lugar = x.Lugar,
+            PuntajePromedio = x.PuntajePromedio,
+            Nivel = x.Nivel,
+            Estado = x.Estado,
+            CreatedAt = x.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+        }).ToList();
 
         return (items, total);
     }
@@ -106,15 +150,28 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
 
         if (auditoria is null) return null;
 
-        var auditorNombre = await ctx.Worker
+        var auditorInfo = await ctx.Worker
             .Where(w => w.Id == auditoria.AuditorWorkerId)
-            .Select(w => w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty)
-            .FirstOrDefaultAsync() ?? string.Empty;
+            .Select(w => new
+            {
+                Nombre = w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
+                w.Categoria,
+                w.Ocupacion,
+            })
+            .FirstOrDefaultAsync();
 
-        var auditadoNombre = await ctx.Worker
+        var auditadoInfo = await ctx.Worker
             .Where(w => w.Id == auditoria.AuditadoWorkerId)
-            .Select(w => w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty)
-            .FirstOrDefaultAsync() ?? string.Empty;
+            .Select(w => new
+            {
+                Nombre = w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
+                w.Categoria,
+                w.Ocupacion,
+            })
+            .FirstOrDefaultAsync();
+
+        var auditorNombre = auditorInfo?.Nombre ?? string.Empty;
+        var auditadoNombre = auditadoInfo?.Nombre ?? string.Empty;
 
         string? proyectoNombre = null;
         if (auditoria.ProyectoId.HasValue)
@@ -155,14 +212,25 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             .Select(v => v.EmpresaId)
             .FirstOrDefaultAsync();
 
+        var empresaIds = new[] { empresaId, empresaAuditorId }.Where(e => e.HasValue).Select(e => e!.Value).Distinct().ToList();
+        var nombreEmpresaPorId = await ctx.Contributor
+            .Where(c => empresaIds.Contains(c.ContributorId))
+            .ToDictionaryAsync(c => c.ContributorId, c => c.ContributorNombreComercial ?? c.ContributorName);
+
         return new AuditoriaAtsDetalleDto
         {
             Id = auditoria.Id,
             Fecha = auditoria.Fecha.ToString("yyyy-MM-dd"),
             AuditorWorkerId = auditoria.AuditorWorkerId,
             AuditorNombre = auditorNombre,
+            AuditorEmpresaNombre = empresaAuditorId.HasValue && nombreEmpresaPorId.TryGetValue(empresaAuditorId.Value, out var an) ? an : null,
+            AuditorCategoria = auditorInfo?.Categoria,
+            AuditorOcupacion = auditorInfo?.Ocupacion,
             AuditadoWorkerId = auditoria.AuditadoWorkerId,
             AuditadoNombre = auditadoNombre,
+            AuditadoEmpresaNombre = empresaId.HasValue && nombreEmpresaPorId.TryGetValue(empresaId.Value, out var dn) ? dn : null,
+            AuditadoCategoria = auditadoInfo?.Categoria,
+            AuditadoOcupacion = auditadoInfo?.Ocupacion,
             EmpresaId = empresaId,
             EmpresaAuditorId = empresaAuditorId,
             ProyectoId = auditoria.ProyectoId,

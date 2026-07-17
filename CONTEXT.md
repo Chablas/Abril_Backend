@@ -4883,3 +4883,30 @@ Rama: `victor-backend`. No hubo cambios de código; fue una migración de datos 
 ### Pendiente
 - Verificar en el frontend que "Cronograma de Hitos" aparezca ahora bajo Mejora Continua para los roles que ya tenían acceso.
 - Evaluar si conviene rotar la contraseña de Postgres de producción (Aiven) por el incidente de exposición mencionado arriba.
+
+## Sesión 2026-07-17 — Investigación de campo "ingeniero residente" en Project (sin cambios netos de feature)
+
+Rama: `victor-backend`. Sesión larga de investigación + dos implementaciones que terminaron revertidas; el único cambio que sobrevivió es un fix de bug real encontrado en el camino.
+
+### Investigación de esquema (Project)
+- No existe columna `caracteristica_proyecto`. Lo más cercano a "característica del proyecto" es `level_description` (`LevelDescription`), texto libre tipo "20 pisos + azotea + 4 sótanos" — **ya era editable** desde antes vía `PUT /api/v1/project` (`ProjectEditDto`), no hizo falta agregar nada ahí.
+- "Ingeniero residente" se investigó como candidato a `responsable_udp`/`responsable_udp_id` (distinto de `responsable_arq_com`/`Id`, que es el responsable de Arquitectura Comercial y ya tenía endpoint de edición). Confirmado con dato real de producción: en "MÁXIMO ABRIL" (`project_id=11`) `responsable_udp_id=14031` = "COLONIO BARRUETO VICTOR ALEJANDRO".
+- **Hallazgo clave que invalidó el enfoque**: la pantalla real "Cronograma de Hitos" (`Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Infrastructure/Repositories/ProjectsRepository.cs`, método `GetPagedWithResidents`) **no lee `responsable_udp` en absoluto** — obtiene el/los residente(s) de una tabla `ProjectResident` (N:M `project_id ↔ user_id`, join con `User`/`Person.FullName`), soporta múltiples residentes por proyecto. `responsable_udp`/`responsable_udp_id` sigue siendo un campo aparte, usado solo por `CronogramaActividades` y `ProjectsDashboard` (Cronograma de *Actividades*, no de *Hitos*).
+
+### Qué se implementó y se revirtió (dos rondas)
+1. Primera ronda: se agregó `responsableUdpId` a `PatchProyectoDTO`/`ProyectoConActividadesDTO` reutilizando el endpoint `PATCH /api/v1/arquitectura-comercial/proyectos/{id}` — revertido por decisión del usuario (semánticamente no pertenece a Arquitectura Comercial).
+2. Segunda ronda: se agregó `responsableUdpId` a `ProjectEditDto` (`PUT /api/v1/project`) con resolución server-side `Worker → Person.FullName` — revertido tras confirmarse que Cronograma de Hitos no consume ese campo (ver hallazgo arriba). `ProjectEditDto.cs` quedó idéntico a `git HEAD` (diff vacío).
+- Estado final: `responsable_udp`/`responsable_udp_id` siguen siendo **solo lectura** en todo el código (confirmado por grep, sin ningún `.ResponsableUdp(Id)? =` fuera del entity model).
+
+### Fix real que sí quedó (único cambio de esta sesión)
+- `Features/ConfigurationModule/Features/ProjectFeature/Presentation/ProjectController.cs`, endpoint `PUT` (`Update`): el `catch (AbrilException ex)` ignoraba `ex.StatusCode` y siempre devolvía `400 BadRequest`, distinto al patrón documentado en CLAUDE.md (`StatusCode(ex.StatusCode, ...)`) que sí siguen otros controllers (ej. `ArquitecturaComercialController`). Corregido a `return StatusCode(ex.StatusCode, new { message = ex.Message });`.
+
+### Métricas de completitud de `responsable_udp` (solo lectura, vía conexión directa a Postgres de prod con el connection string de `appsettings.Production.json` — sin necesidad de túnel SSH, la BD es alcanzable directo)
+- Tabla `project`: 33 filas totales, 32 con `state=true`.
+- Subset que consulta Cronograma de Hitos (`active AND state AND tiene_unidad_de_proyectos`): 12 filas — **100% con `responsable_udp`/`responsable_udp_id` cargado** (aunque, como se documentó arriba, esa pantalla no lee este campo).
+- Tabla completa: 13/33 con valor, 20/33 en NULL (fuera del subset activo de UDP).
+- `responsable_udp` y `responsable_udp_id` están siempre sincronizados (0 inconsistencias en las 33 filas).
+
+### Pendiente / decisión de negocio abierta
+- Si en algún momento se quiere que Cronograma de Hitos muestre/edite un residente único a nivel proyecto (vs. la lista actual vía `ProjectResident`), hay que decidir conscientemente cuál de los dos mecanismos (`responsable_udp` escalar vs. `ProjectResident` N:M) es la fuente de verdad — hoy conviven sin relación entre sí.
+- `responsable_udp`/`responsable_udp_id` en Project siguen sin ningún endpoint de escritura.

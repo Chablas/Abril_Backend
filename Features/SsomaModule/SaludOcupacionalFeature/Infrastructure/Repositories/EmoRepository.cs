@@ -134,14 +134,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             q = q.Where(x => x.em != null && x.em.EsAbril);
 
+            // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
+            // (alineada con app-search-input del front: "perez juan" coincide con "JUAN PÉREZ").
+            // Cada palabra debe estar en el nombre o en el DNI.
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {
-                var term = filter.Search.Trim();
-                q = q.Where(x =>
-                    (x.w.Person != null && x.w.Person.FullName != null &&
-                     EF.Functions.ILike(x.w.Person.FullName, $"%{term}%"))
-                    || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null &&
-                     EF.Functions.ILike(x.w.Person.DocumentIdentityCode, $"%{term}%")));
+                foreach (var word in filter.Search.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var pattern = $"%{word}%";
+                    q = q.Where(x =>
+                        (x.w.Person != null && x.w.Person.FullName != null &&
+                         EF.Functions.ILike(AppDbContext.Unaccent(x.w.Person.FullName), AppDbContext.Unaccent(pattern)))
+                        || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null &&
+                         EF.Functions.ILike(x.w.Person.DocumentIdentityCode, pattern)));
+                }
             }
             if (!string.IsNullOrWhiteSpace(filter.Aptitud))
                 q = q.Where(x => x.ue != null && x.ue.Aptitud == filter.Aptitud);

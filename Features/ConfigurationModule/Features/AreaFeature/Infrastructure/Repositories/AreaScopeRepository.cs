@@ -64,12 +64,15 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                 where w.AreaScopeId == areaScopeId && w.Estado == "ACTIVO"
                 join p in _context.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
+                join wc in _context.WorkersCategory on w.WorkerCategoryId equals wc.WorkersCategoryId into wcj
+                from wc in wcj.DefaultIfEmpty()
                 orderby (p != null && p.FullName != null ? p.FullName : w.ApellidoNombre)
                 select new AreaScopeWorkerDto
                 {
                     WorkerId         = w.Id,
                     FullName         = p != null && p.FullName != null ? p.FullName : w.ApellidoNombre,
                     EmailCorporativo = w.EmailCorporativo,
+                    CategoryName     = wc != null ? wc.Name : null,
                 }
             ).ToListAsync();
         }
@@ -146,6 +149,62 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
 
             if (newlyInserted == 0)
                 throw new AbrilException("Esta rama ya existe.");
+        }
+
+        /// <summary>
+        /// Reasigna el padre de un nodo (el nodo se mueve junto con todo su subárbol).
+        /// newParentAreaScopeId null = mover a la raíz. Valida existencia, ciclos
+        /// (el nuevo padre no puede ser el propio nodo ni un descendiente) y duplicados
+        /// (no puede existir otro nodo vivo con la misma área bajo el mismo padre).
+        /// </summary>
+        public async Task UpdateParentAsync(int areaScopeId, int? newParentAreaScopeId)
+        {
+            var entity = await _context.AreaScope.FirstOrDefaultAsync(s => s.State && s.AreaScopeId == areaScopeId);
+            if (entity == null)
+                throw new AbrilException("El nodo no existe.");
+
+            if (entity.AreaScopeParentId == newParentAreaScopeId)
+                throw new AbrilException("El nodo ya se encuentra bajo ese padre.");
+
+            if (newParentAreaScopeId.HasValue)
+            {
+                if (newParentAreaScopeId.Value == areaScopeId)
+                    throw new AbrilException("Un nodo no puede ser su propio padre.");
+
+                // Un solo roundtrip: pares (id → parent) vivos para validar existencia y ciclos en memoria.
+                var parentById = await _context.AreaScope
+                    .Where(s => s.State)
+                    .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
+                    .ToDictionaryAsync(s => s.AreaScopeId, s => s.AreaScopeParentId);
+
+                if (!parentById.ContainsKey(newParentAreaScopeId.Value))
+                    throw new AbrilException("El nuevo nodo padre no existe.");
+
+                int? cursor = newParentAreaScopeId;
+                int safety = parentById.Count + 1;
+                while (cursor.HasValue && safety-- > 0)
+                {
+                    if (cursor.Value == areaScopeId)
+                        throw new AbrilException("No se puede mover: el nuevo padre es un descendiente del nodo.");
+                    cursor = parentById.GetValueOrDefault(cursor.Value);
+                }
+            }
+
+            var duplicate = await _context.AreaScope.AnyAsync(s =>
+                s.State &&
+                s.AreaScopeId != areaScopeId &&
+                s.AreaItemId == entity.AreaItemId &&
+                s.AreaScopeParentId == newParentAreaScopeId);
+            if (duplicate)
+                throw new AbrilException("Ya existe un nodo con esta área bajo el padre seleccionado.");
+
+            var maxOrder = await _context.AreaScope
+                .Where(s => s.State && s.AreaScopeParentId == newParentAreaScopeId && s.AreaScopeId != areaScopeId)
+                .MaxAsync(s => (int?)s.DisplayOrder) ?? 0;
+
+            entity.AreaScopeParentId = newParentAreaScopeId;
+            entity.DisplayOrder = maxOrder + 1;
+            await _context.SaveChangesAsync();
         }
 
         /// <summary>Soft delete: marca state = false (el registro se mantiene en BD para auditoría).</summary>

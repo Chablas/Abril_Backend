@@ -40,6 +40,18 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Presen
             catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPut("{areaScopeId}/parent")]
+        public async Task<IActionResult> UpdateParent(int areaScopeId, [FromBody] AreaScopeUpdateParentDto dto)
+        {
+            try
+            {
+                await _service.UpdateParentAsync(areaScopeId, dto.NewParentAreaScopeId);
+                return Ok(new { message = "Nodo padre actualizado." });
+            }
+            catch (AbrilException ex) { return BadRequest(new { message = ex.Message }); }
+            catch (Exception) { return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpDelete("{areaScopeId}")]
         public async Task<IActionResult> Delete(int areaScopeId)
         {

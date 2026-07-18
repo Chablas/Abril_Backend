@@ -392,7 +392,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             // Proyectos que tienen al menos una lección activa (para el filtro).
             var projects = await (
                 from p in ctx.Project
-                where ctx.Lesson.Any(l => l.ProjectId == p.ProjectId && l.Active && l.State)
+                where p.Active && ctx.Lesson.Any(l => l.ProjectId == p.ProjectId && l.Active && l.State)
                 orderby p.ProjectDescription
                 select new DashboardProjectDTO
                 {

@@ -28,7 +28,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
 
             // Una sola query trae las columnas necesarias; las 3 listas se derivan en memoria.
             var rows = await ctx.Project
-                .Where(p => p.State && p.TieneUnidadDeProyectos)
+                .Where(p => p.State && p.Active && p.TieneUnidadDeProyectos)
                 .Select(p => new
                 {
                     p.ProjectId,

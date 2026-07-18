@@ -24,7 +24,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             using var ctx = _factory.CreateDbContext();
 
             var proyectos = await ctx.Project
-                .Where(p => p.State && p.TieneUnidadDeProyectos)
+                .Where(p => p.State && p.Active && p.TieneUnidadDeProyectos)
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProyectoSimpleCronogramaDto
                 {

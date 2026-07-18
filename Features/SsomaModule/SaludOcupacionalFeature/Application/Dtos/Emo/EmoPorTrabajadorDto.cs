@@ -23,6 +23,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public int? OcupacionId { get; set; }
         /// <summary>Puesto final del trabajador (para prellenar el modal de edición).</summary>
         public string? Puesto { get; set; }
+        /// <summary>Nodo del árbol de áreas asignado (workers.area_scope_id, para prellenar el modal de edición).</summary>
+        public int? AreaScopeId { get; set; }
+        /// <summary>Categoría normalizada (workers.worker_category_id, para prellenar el modal de edición).</summary>
+        public int? WorkerCategoryId { get; set; }
+        /// <summary>Correo corporativo del trabajador (workers.email_corporativo, para prellenar el modal de edición).</summary>
+        public string? EmailCorporativo { get; set; }
         public bool TieneEmo { get; set; }
         public int? EmoId { get; set; }
         public string? TipoEmo { get; set; }

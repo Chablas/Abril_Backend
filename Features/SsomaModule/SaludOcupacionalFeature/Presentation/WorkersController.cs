@@ -55,6 +55,29 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             }
         }
 
+        [HttpGet("me")]
+        public async Task<IActionResult> GetMe()
+        {
+            try
+            {
+                var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (claim == null || !int.TryParse(claim.Value, out var userId))
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
+                var worker = await _service.GetByUserId(userId, esContratista);
+                if (worker == null) return NotFound(new { message = "Tu usuario no está vinculado a una ficha de trabajador." });
+
+                return Ok(worker);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en WorkersController.GetMe");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet("document-types")]
         public async Task<IActionResult> GetDocumentTypes()
         {
@@ -63,6 +86,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en WorkersController.GetDocumentTypes");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [HttpGet("worker-categories")]
+        public async Task<IActionResult> GetWorkerCategories()
+        {
+            try { return Ok(await _service.GetWorkerCategories()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en WorkersController.GetWorkerCategories");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

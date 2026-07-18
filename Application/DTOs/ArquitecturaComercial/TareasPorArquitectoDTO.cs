@@ -20,8 +20,9 @@ public class AvanceSemanalDTO
 
 public class EficienciaSpiDTO
 {
-    public string  Semana { get; set; } = "";
-    public decimal Spi    { get; set; }
+    public string  Semana   { get; set; } = "";
+    public decimal Spi      { get; set; }
+    public decimal Esperado { get; set; } = 1.0m;
 }
 
 public class CategoriaItemDTO

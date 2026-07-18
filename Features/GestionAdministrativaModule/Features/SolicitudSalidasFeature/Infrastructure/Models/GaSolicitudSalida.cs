@@ -13,9 +13,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         /// <summary>FK a <c>ga_estado_rendicion</c>. Ver <see cref="EstadosSalida.Rendicion"/>.</summary>
         public int EstadoRendicionId { get; set; } = EstadosSalida.Rendicion.NoRendido;
         public int? RegistradoPorId { get; set; }
-        /// <summary>FK a <c>workers.id</c> del trabajador que es la jefatura que debe aprobar.
-        /// El correo del aprobador se deriva de <c>workers.email_corporativo</c>.</summary>
+        /// <summary>
+        /// FK a <c>workers.id</c> del trabajador que APROBÓ/RECHAZÓ realmente la solicitud
+        /// (se llena al momento de la decisión). Excluyente con <see cref="AprobadorAreaScopeId"/>:
+        /// el CHECK <c>chk_ga_solicitud_salida_aprobador_unico</c> impide ambos llenos.
+        /// En solicitudes antiguas guardaba al revisor al que se envió el correo; ese dato
+        /// ahora vive en <see cref="EnviadoACorreo"/>.
+        /// </summary>
         public int? AprobadorWorkerId { get; set; }
+        /// <summary>
+        /// FK a <c>area_scope.area_scope_id</c> cuando la decisión la tomó un área (correo
+        /// grupal, ej. GTH vía gthnm@abril.pe) y no un trabajador puntual. Excluyente con
+        /// <see cref="AprobadorWorkerId"/>.
+        /// </summary>
+        public int? AprobadorAreaScopeId { get; set; }
+        /// <summary>Correo al que se envió la solicitud para su aprobación (revisor resuelto
+        /// por workers_revisores, o el correo del área GTH como fallback).</summary>
+        public string? EnviadoACorreo { get; set; }
         public DateTimeOffset? FechaDecision { get; set; }
         public string? MotivoRechazo { get; set; }
         public int? RendicionId { get; set; }
@@ -23,6 +37,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public TimeOnly? HoraSalidaReal { get; set; }
         public int? HoraSalidaRealRegistradaPorId { get; set; }
         public DateTimeOffset? HoraSalidaRealRegistradaAt { get; set; }
+        /// <summary>Hora real en la que la persona retornó, registrada por recepción. Dato extra — no bloquea ningún flujo.</summary>
+        public TimeOnly? HoraRetornoReal { get; set; }
+        public int? HoraRetornoRealRegistradaPorId { get; set; }
+        public DateTimeOffset? HoraRetornoRealRegistradaAt { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
     }

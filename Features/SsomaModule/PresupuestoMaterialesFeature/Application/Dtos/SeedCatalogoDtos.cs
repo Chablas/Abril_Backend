@@ -9,6 +9,8 @@ public class SeedMaterialItemDto
     public string TipoMaterial { get; set; } = null!;
     public bool PerteneceSsoma { get; set; }
     public string VariableBase { get; set; } = null!;
+    /// <summary>Unidades reales contenidas en 1 "Recurso" comprado (columna CantidadComprada del CSV). Default 1.</summary>
+    public decimal CantidadComprada { get; set; } = 1;
 }
 
 public class SeedCatalogoRequestDto

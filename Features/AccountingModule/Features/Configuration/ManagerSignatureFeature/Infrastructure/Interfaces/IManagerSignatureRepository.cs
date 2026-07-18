@@ -4,13 +4,13 @@ namespace Abril_Backend.Features.AccountingModule.Features.Configuration.Manager
 {
     public interface IManagerSignatureRepository
     {
-        /// <summary>Firma única vigente (como data URL) o null si aún no se configuró.</summary>
-        Task<ManagerSignatureDto?> GetSingleton();
+        /// <summary>Firma (como data URL) del usuario indicado, o null si aún no la configuró.</summary>
+        Task<ManagerSignatureDto?> GetByUserId(int userId);
 
-        /// <summary>Crea o actualiza (upsert) la firma única.</summary>
-        Task Upsert(byte[] imageBytes, string mime, int userId);
+        /// <summary>Crea o actualiza (upsert) la firma del usuario indicado.</summary>
+        Task Upsert(int userId, byte[] imageBytes, string mime);
 
-        /// <summary>Bytes de la firma vigente (para estampar) o null si no hay firma configurada.</summary>
-        Task<(byte[] Bytes, string Mime)?> GetActiveBytes();
+        /// <summary>Bytes de la firma del usuario indicado (para estampar) o null si no la configuró.</summary>
+        Task<(byte[] Bytes, string Mime)?> GetActiveBytesByUserId(int userId);
     }
 }

@@ -17,6 +17,18 @@ public class IndicadoresProactivosService : IIndicadoresProactivosService
         _checklistRepo = checklistRepo;
     }
 
+    public Task<bool> EsCoordinadorSsomaAsync(int userId)
+        => _repo.EsCoordinadorSsomaAsync(userId);
+
+    public Task<HashSet<int>> GetEmpresaExcluidaIdsAsync()
+        => _repo.GetEmpresaExcluidaIdsAsync();
+
+    public Task OcultarEmpresaAsync(int empresaId, string? motivo, int userId)
+        => _repo.OcultarEmpresaAsync(empresaId, motivo, userId);
+
+    public Task MostrarEmpresaAsync(int empresaId)
+        => _repo.MostrarEmpresaAsync(empresaId);
+
     public Task<List<InspeccionTipoDto>> GetTiposInspeccionAsync()
         => _repo.GetTiposInspeccionAsync();
 
@@ -85,4 +97,10 @@ public class IndicadoresProactivosService : IIndicadoresProactivosService
 
     public Task<List<IndicadorReactivoProyectoDto>> GetIndicadoresReactivosTodosAsync(int mes, int anio)
         => _repo.GetIndicadoresReactivosTodosAsync(mes, anio);
+
+    public Task<MetaAnualDto> GetMetaAnualAsync(int anio)
+        => _repo.GetMetaAnualAsync(anio);
+
+    public Task<MetaAnualDto> GuardarMetaAnualAsync(GuardarMetaAnualRequest request, int userId)
+        => _repo.GuardarMetaAnualAsync(request, userId);
 }

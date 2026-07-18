@@ -9,6 +9,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public DateTimeOffset UploadedAt { get; set; }
     }
 
+    /// <summary>Un documento adjunto (prueba) de un trayecto, para mostrar en el detalle.</summary>
+    public class TrayectoAdjuntoDto
+    {
+        public string Url { get; set; } = string.Empty;
+        public string Filename { get; set; } = string.Empty;
+    }
+
     public class TrayectoDetalleDto
     {
         public int Id { get; set; }
@@ -18,6 +25,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public string Motivo { get; set; } = string.Empty;
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
+        /// <summary>Documentos adjuntos del trayecto (motivos con requiere_adjunto). Vacío si no tiene.</summary>
+        public List<TrayectoAdjuntoDto> Adjuntos { get; set; } = new();
         public List<SolicitudSalidaCapturaDto> Capturas { get; set; } = new();
         /// <summary>
         /// Monto del catálogo <c>ga_trayecto</c> que matchea (origen, destino) — solo poblado
@@ -34,6 +43,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public decimal MontoTotal { get; set; }
     }
 
+    /// <summary>PDF de la planilla de rendición (SharePoint) asociado a la solicitud. Null si aún no se rindió.</summary>
+    public class SolicitudSalidaRendicionDto
+    {
+        public int Id { get; set; }
+        public string PdfUrl { get; set; } = string.Empty;
+        public string PdfFilename { get; set; } = string.Empty;
+        public DateTimeOffset RendidoAt { get; set; }
+    }
+
     public class SolicitudSalidaDetalleDto
     {
         public int Id { get; set; }
@@ -42,6 +60,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public string EstadoRendicion { get; set; } = "No rendido";
         public DateTimeOffset CreatedAt { get; set; }
         public string? MotivoRechazo { get; set; }
+        /// <summary>PDF de la planilla de rendición. Null si la solicitud aún no fue rendida.</summary>
+        public SolicitudSalidaRendicionDto? Rendicion { get; set; }
         public List<TrayectoDetalleDto> Trayectos { get; set; } = new();
     }
 
@@ -68,6 +88,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     {
         public DateOnly FechaSalida { get; set; }
         public List<TrayectoCreateDto> Trayectos { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Resultado de la subida a SharePoint del documento adjunto de un trayecto
+    /// (interno del backend: lo arma el service tras subir el archivo, no viene del cliente).
+    /// </summary>
+    public class TrayectoAdjuntoSubidoDto
+    {
+        public string Url { get; set; } = string.Empty;
+        public string? ItemId { get; set; }
+        public string DriveId { get; set; } = string.Empty;
+        public string Filename { get; set; } = string.Empty;
     }
 
     public class SolicitudSalidaFiltersDto

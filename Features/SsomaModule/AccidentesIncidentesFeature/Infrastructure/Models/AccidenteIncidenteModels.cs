@@ -47,6 +47,12 @@ public class SsomaAccidenteIncidente
     public string Codigo { get; set; } = string.Empty;           // GAR-AC-01
     public int ProyectoId { get; set; }
     public int TipoId { get; set; }
+
+    // Área organizacional de origen del evento (Producción/construcción, Post Venta, Arquitectura Comercial).
+    // Independiente del proyecto: un mismo proyecto puede tener eventos de más de un área
+    // (ej. post venta en un proyecto ya culminado, o arq. comercial en la sala de ventas antes de obra).
+    public string AreaOrigen { get; set; } = "Produccion"; // Produccion | PostVenta | ArquitecturaComercial
+
     public DateTime Fecha { get; set; }
     public TimeSpan? Hora { get; set; }
     public string LugarExacto { get; set; } = string.Empty;
@@ -175,6 +181,7 @@ public class SsomaEntregable
 
     public SsomaEntregableTipo? Tipo { get; set; }
     public ICollection<SsomaEntregableResponsable> Responsables { get; set; } = [];
+    public ICollection<SsomaEntregableArchivo> Archivos { get; set; } = [];
 }
 
 public class SsomaEntregableResponsable
@@ -183,6 +190,18 @@ public class SsomaEntregableResponsable
     public int EntregableId { get; set; }
     public int? WorkerId { get; set; }
     public string Nombre { get; set; } = string.Empty;
+}
+
+// Un entregable (fila del catálogo, ej. "ATS") puede recibir varios archivos a lo
+// largo del tiempo — ej. subir un ATS y luego otro ATS adicional — por eso es
+// una colección y no un único UrlArchivo/NombreArchivo como antes.
+public class SsomaEntregableArchivo
+{
+    public int Id { get; set; }
+    public int EntregableId { get; set; }
+    public string UrlArchivo { get; set; } = string.Empty;
+    public string NombreArchivo { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 // ── Investigación RM-050 ──────────────────────────────────────────────────────

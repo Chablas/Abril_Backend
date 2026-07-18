@@ -60,6 +60,11 @@ public class RacService : IRacService
             query = query.Where(r => r.Tipo == q.Tipo);
         if (q.EmpresaReportadaId.HasValue)
             query = query.Where(r => r.EmpresaReportadaId == q.EmpresaReportadaId.Value);
+        if (q.EmpresaReportanteId.HasValue)
+            query = query.Where(r => r.EmpresaReportanteId == q.EmpresaReportanteId.Value);
+        if (q.EmpresaIdContratista.HasValue)
+            query = query.Where(r => r.EmpresaReportadaId == q.EmpresaIdContratista.Value
+                                   || r.EmpresaReportanteId == q.EmpresaIdContratista.Value);
         if (q.FechaDesde.HasValue)
             query = query.Where(r => r.FechaReporte >= q.FechaDesde.Value);
         if (q.FechaHasta.HasValue)
@@ -98,6 +103,12 @@ public class RacService : IRacService
                 EmpresaReportadaNombre = r.EmpresaReportadaId != null
                     ? ctx.Contributor
                         .Where(c => c.ContributorId == r.EmpresaReportadaId)
+                        .Select(c => c.ContributorName)
+                        .FirstOrDefault()
+                    : null,
+                EmpresaReportanteNombre = r.EmpresaReportanteId != null
+                    ? ctx.Contributor
+                        .Where(c => c.ContributorId == r.EmpresaReportanteId)
                         .Select(c => c.ContributorName)
                         .FirstOrDefault()
                     : null,
@@ -169,6 +180,24 @@ public class RacService : IRacService
                 .FirstOrDefaultAsync();
         }
 
+        string? cerradoPorNombre = null;
+        string? cerradoPorCargo = null;
+        if (rac.CerradoPorId.HasValue)
+        {
+            var personaCierre = await ctx.Person
+                .Where(p => p.UserId == rac.CerradoPorId.Value)
+                .Select(p => new { p.PersonId, p.FullName })
+                .FirstOrDefaultAsync();
+            if (personaCierre is not null)
+            {
+                cerradoPorNombre = personaCierre.FullName;
+                cerradoPorCargo = await ctx.Worker
+                    .Where(w => w.PersonId == personaCierre.PersonId)
+                    .Select(w => w.Ocupacion)
+                    .FirstOrDefaultAsync();
+            }
+        }
+
         return new RacDetalleDto
         {
             Id                      = rac.Id,
@@ -202,6 +231,8 @@ public class RacService : IRacService
             Estado                  = rac.Estado,
             FechaCierre             = rac.FechaCierre,
             CierreDescripcion       = rac.CierreDescripcion,
+            CerradoPorNombre        = cerradoPorNombre,
+            CerradoPorCargo         = cerradoPorCargo,
             AplicaPenalidad         = rac.AplicaPenalidad,
             PdfUrl                  = rac.PdfUrl,
             CreatedAt               = rac.CreatedAt,
@@ -260,6 +291,24 @@ public class RacService : IRacService
                     .FirstOrDefaultAsync();
                 if (!string.IsNullOrEmpty(worker?.Ocupacion))
                     reportanteCargo = worker.Ocupacion;
+            }
+        }
+
+        // Fallback: la cuenta autenticada no tiene una Person vinculada (común en cuentas
+        // internas/contratistas), así que se usa el observador elegido en el formulario
+        // en vez de dejar el reportante y cargo vacíos.
+        if (string.IsNullOrEmpty(reportanteNombre) && req.ReportanteId.HasValue)
+        {
+            var workerReportante = await ctx.Worker
+                .Where(w => w.Id == req.ReportanteId.Value)
+                .Select(w => new { w.ApellidoNombre, w.Ocupacion, w.Categoria })
+                .FirstOrDefaultAsync();
+            if (workerReportante is not null)
+            {
+                reportanteNombre = workerReportante.ApellidoNombre;
+                reportanteCargo = !string.IsNullOrEmpty(req.ReportanteCargo)
+                    ? req.ReportanteCargo
+                    : (workerReportante.Ocupacion ?? workerReportante.Categoria);
             }
         }
 
@@ -465,6 +514,14 @@ public class RacService : IRacService
             NombreArchivo = foto.NombreArchivo ?? file.FileName
         };
     }
+    public async Task<byte[]?> GetFotoBytesAsync(int fotoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var foto = await ctx.SsomaRacFotos.FirstOrDefaultAsync(f => f.Id == fotoId)
+            ?? throw new AbrilException("Foto no encontrada.", 404);
+        return await _spService.DescargarFotoAsync(foto.Url);
+    }
+
     public Task<byte[]> GenerarPdf(RacDetalleDto rac) => RacPdfService.GenerarPdfAsync(rac, new List<(string Tipo, byte[] Bytes)>());
 
     public async Task<byte[]> GetPdfAsync(int id)
@@ -501,6 +558,16 @@ public class RacService : IRacService
         var criticosAbiertos  = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.Severidad == "CRITICO");
         var altosAbiertos     = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.Severidad == "ALTO");
         var vencidosAbiertos  = await baseQuery.CountAsync(r => r.Estado == "Abierto" && r.PlazoLevantamiento < ahora);
+
+        // RACs que esta empresa levantó/reportó (independiente de los que le fueron reportados a ella).
+        var totalReportados = 0;
+        var totalReportadosCerrados = 0;
+        if (empresaIdContratista.HasValue)
+        {
+            var reportadosQuery = ctx.SsomaRacs.Where(r => r.EmpresaReportanteId == empresaIdContratista.Value);
+            totalReportados = await reportadosQuery.CountAsync();
+            totalReportadosCerrados = await reportadosQuery.CountAsync(r => r.Estado == "Cerrado");
+        }
 
         // ── PorProyecto ───────────────────────────────────────────────────────
         var porProyectoRaw = await baseQuery
@@ -576,6 +643,8 @@ public class RacService : IRacService
             CriticosAbiertos  = criticosAbiertos,
             AltosAbiertos     = altosAbiertos,
             VencidosAbiertos  = vencidosAbiertos,
+            TotalReportados         = totalReportados,
+            TotalReportadosCerrados = totalReportadosCerrados,
             PorProyecto       = porProyecto,
             PorCategoria      = porCategoria,
             Tendencia         = tendencia

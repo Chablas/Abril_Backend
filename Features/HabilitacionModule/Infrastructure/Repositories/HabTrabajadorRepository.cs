@@ -82,9 +82,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EstadoCalc =
                         (ctx.SsHabTrabajador.Any(h => h.WorkerId == w.Id &&
                              h.ItemId != HabItemIds.LecturaEmo &&
-                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" ||
-                              (h.Estado == "Enviado" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
-                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)))
+                             // Estados que NO habilitan:
+                             //  - Falta / Rechazado / Vencido: siempre bloquean.
+                             //  - Enviado: primera subida aún sin aprobar por Abril → SIEMPRE bloquea.
+                             //  - Renovando: renovación subida cuando el documento seguía aprobado y vigente.
+                             //    Bloquea SOLO si la vigencia anterior (conservada en Vigencia) ya venció o
+                             //    no existe; mientras siga vigente, el trabajador se mantiene habilitado
+                             //    aunque la renovación esté pendiente de aprobación.
+                             (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
+                              (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
+                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)) &&
+                             // El item debe aplicarle de verdad al trabajador. Se compara IGUAL que
+                             // el checklist (helper CsvContiene): por token exacto e ignorando
+                             // mayúsculas. Se envuelve el CSV y el valor con comas para no hacer
+                             // match por substring (","+csv+"," contiene ","+valor+","), y se
+                             // normaliza el espacio tras la coma para replicar el TrimEntries.
+                             ctx.SsItemTrabajador.Any(i => i.Id == h.ItemId && i.Activo &&
+                                 (i.AplicaCategoria == null || ("," + i.AplicaCategoria.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.Categoria ?? "") + ",").ToLower())) &&
+                                 (i.AplicaObraOficina == null || ("," + i.AplicaObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficina ?? "") + ",").ToLower())) &&
+                                 (i.ExcluyeObraOficina == null || !("," + i.ExcluyeObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficina ?? "") + ",").ToLower())) &&
+                                 (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !("," + i.ExcluyeCategoriaContratista.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.Categoria ?? "") + ",").ToLower()))))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
                         ? "No Autorizado"
@@ -300,9 +317,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-            var workerType = string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase)
-                ? "CASA"
-                : "CONTRATISTA";
+            var esCasa = string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
+            var workerType = esCasa ? "CASA" : "CONTRATISTA";
 
             var esContratista = string.Equals(worker.ContrataCasa?.Trim(), "Contratista", StringComparison.OrdinalIgnoreCase);
 
@@ -320,7 +336,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             var emoItems = items.Where(i => i.Nombre.Contains("EMO", StringComparison.OrdinalIgnoreCase)
                                           && i.Id != HabItemIds.LecturaEmo
-                                          && !esContratista).ToList();
+                                          && esCasa).ToList();
             var nonEmoItems = items.Except(emoItems).ToList();
             var nonEmoIds = nonEmoItems.Select(i => i.Id).ToList();
 
@@ -342,6 +358,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         NombreItem = item.Nombre,
                         Estado = h.Estado,
                         Vigencia = h.Vigencia,
+                        VigenciaPropuesta = h.VigenciaPropuesta,
                         ArchivoUrl = h.ArchivoUrl,
                         ObsAbril = h.ObsAbril,
                         ObsContratista = h.ObsContratista,
@@ -404,6 +421,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ?? throw new AbrilException("Entregable no encontrado.", 404);
 
             var estadoAnterior = entregable.Estado;
+            var vigenciaAnterior = entregable.Vigencia;
 
             var esArchivoNuevo = !string.IsNullOrWhiteSpace(dto.ArchivoUrl) && dto.ArchivoUrl != entregable.ArchivoUrl;
             var esAprobacion = string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase);
@@ -459,6 +477,29 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     && !entregable.Vigencia.HasValue)
                     throw new AbrilException("Este documento requiere fecha de vigencia.", 400);
             }
+
+            // Cierre de una renovación (el estado previo era "Renovando")
+            if (string.Equals(estadoAnterior, "Renovando", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Se aprueba la renovación: recién ahora se aplica la vigencia propuesta
+                    // (si el aprobador no envió una fecha nueva explícita).
+                    if (!dto.Vigencia.HasValue && entregable.VigenciaPropuesta.HasValue)
+                        entregable.Vigencia = entregable.VigenciaPropuesta;
+                    entregable.VigenciaPropuesta = null;
+                }
+                else if (string.Equals(dto.Estado, "Rechazado", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Se rechaza la renovación, pero la aprobación anterior seguía vigente:
+                    // el trabajador no debe caerse. Se regresa a "Aprobado" conservando la
+                    // vigencia anterior y se descarta la propuesta. El motivo queda en ObsAbril.
+                    entregable.Estado = "Aprobado";
+                    entregable.Vigencia = vigenciaAnterior;
+                    entregable.VigenciaPropuesta = null;
+                }
+            }
+
             if (dto.ArchivoUrl is not null) entregable.ArchivoUrl = dto.ArchivoUrl;
             if (dto.ObsAbril is not null) entregable.ObsAbril = dto.ObsAbril;
             if (dto.ObsContratista is not null) entregable.ObsContratista = dto.ObsContratista;
@@ -629,6 +670,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (worker.Estado == "INHABILITADO_SSOMA")
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
+            if (worker.Estado == "RETIRADO")
+                throw new AbrilException("El trabajador está retirado. Use la opción de Reingreso en vez de Cambiar obra.", 400);
+
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -759,8 +803,28 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 foreach (var e in entregables)
                 {
                     e.Estado = "Falta";
+                    e.Vigencia = null;
+                    e.VigenciaPropuesta = null;
+                    e.ArchivoUrl = null;
                     e.UpdatedAt = DateTime.UtcNow;
                 }
+            }
+
+            // Cambio de empresa: sacar al trabajador de la "nomina" de polizas
+            // SCTR/Vida Ley de la empresa anterior. Si no se hace esto, la empresa
+            // anterior lo vuelve a aprobar automaticamente cada vez que renueva su
+            // poliza mensual, aunque el trabajador ya no trabaje ahi.
+            if (esCambioEmpresa && currentEmpresaId.HasValue)
+            {
+                var vinculosEmpresaAnterior = await ctx.SsSctrVidaLeyWorker
+                    .Where(svw => svw.WorkerId == workerId)
+                    .Join(ctx.SsSctrVidaley, svw => svw.SctrVidaLeyId, s => s.Id, (svw, s) => new { svw, s.EmpresaId })
+                    .Where(x => x.EmpresaId == currentEmpresaId.Value)
+                    .Select(x => x.svw)
+                    .ToListAsync();
+
+                if (vinculosEmpresaAnterior.Count > 0)
+                    ctx.SsSctrVidaLeyWorker.RemoveRange(vinculosEmpresaAnterior);
             }
 
             if (itemsToRestore.Count > 0)
@@ -880,7 +944,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (worker.Estado == "INHABILITADO_SSOMA")
                 throw new AbrilException("Trabajador inhabilitado por SSOMA. Comuníquese con el Administrador del Proyecto.", 403);
 
-            await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId);
+            // Solo valida conflicto de empresa cuando el usuario realmente elige una nueva
+            // razón social. Si el campo viene null (quiere mantener la actual), no hay
+            // cambio real y por tanto no puede haber conflicto contra sí misma.
+            if (dto.NuevaEmpresaId.HasValue)
+                await VerificarNoActivoEnOtraEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId);
 
             var fechaReingreso = dto.FechaReingreso ?? DateOnly.FromDateTime(DateTime.Today);
             var now = DateTimeOffset.UtcNow;
@@ -1017,8 +1085,26 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 foreach (var e in entregables)
                 {
                     e.Estado = "Falta";
+                    e.Vigencia = null;
+                    e.VigenciaPropuesta = null;
+                    e.ArchivoUrl = null;
                     e.UpdatedAt = DateTime.UtcNow;
                 }
+            }
+
+            // Cambio de empresa en el reingreso: mismo cuidado que en CambiarObraAsync —
+            // sacar al trabajador de la nomina de polizas SCTR/Vida Ley de la empresa anterior.
+            if (esCambioEmpresa && currentEmpresaId.HasValue)
+            {
+                var vinculosEmpresaAnterior = await ctx.SsSctrVidaLeyWorker
+                    .Where(svw => svw.WorkerId == workerId)
+                    .Join(ctx.SsSctrVidaley, svw => svw.SctrVidaLeyId, s => s.Id, (svw, s) => new { svw, s.EmpresaId })
+                    .Where(x => x.EmpresaId == currentEmpresaId.Value)
+                    .Select(x => x.svw)
+                    .ToListAsync();
+
+                if (vinculosEmpresaAnterior.Count > 0)
+                    ctx.SsSctrVidaLeyWorker.RemoveRange(vinculosEmpresaAnterior);
             }
 
             var nowUtc = DateTime.UtcNow;

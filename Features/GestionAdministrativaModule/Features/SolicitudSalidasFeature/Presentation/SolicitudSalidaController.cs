@@ -1,9 +1,12 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presentation
 {
@@ -13,11 +16,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
     public class SolicitudSalidaController : ControllerBase
     {
         private readonly ISolicitudSalidaService _service;
+        private readonly IGestionSalidaService _gestionSalidaService;
         private readonly ILogger<SolicitudSalidaController> _logger;
 
-        public SolicitudSalidaController(ISolicitudSalidaService service, ILogger<SolicitudSalidaController> logger)
+        public SolicitudSalidaController(
+            ISolicitudSalidaService service,
+            IGestionSalidaService gestionSalidaService,
+            ILogger<SolicitudSalidaController> logger)
         {
             _service = service;
+            _gestionSalidaService = gestionSalidaService;
             _logger = logger;
         }
 
@@ -95,14 +103,52 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
         }
 
+        /// <summary>
+        /// Crea la solicitud. Multipart: <c>data</c> = JSON del SolicitudSalidaCreateDto;
+        /// <c>adjuntos</c> + <c>adjuntosTrayectoIndex</c> = documentos adjuntos por índice de
+        /// trayecto (0-based), obligatorios cuando el motivo tiene requiere_adjunto = true.
+        /// </summary>
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] SolicitudSalidaCreateDto dto)
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(50 * 1024 * 1024)] // 50 MB total
+        public async Task<IActionResult> Create(
+            [FromForm] string data,
+            [FromForm] List<IFormFile>? adjuntos,
+            [FromForm] List<string>? adjuntosTrayectoIndex)
         {
             try
             {
                 var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id)
                     ? id : (int?)null;
-                var newId = await _service.Create(dto, userId);
+
+                SolicitudSalidaCreateDto? dto;
+                try
+                {
+                    // Web defaults = mismas convenciones (camelCase, TimeOnly "HH:mm") que el body JSON anterior.
+                    dto = JsonSerializer.Deserialize<SolicitudSalidaCreateDto>(
+                        data, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                }
+                catch (JsonException)
+                {
+                    return BadRequest(new { message = "El campo 'data' no es un JSON válido." });
+                }
+                if (dto == null)
+                    return BadRequest(new { message = "Datos de la solicitud no recibidos." });
+
+                var files = adjuntos ?? new List<IFormFile>();
+                var indices = adjuntosTrayectoIndex ?? new List<string>();
+                if (files.Count != indices.Count)
+                    return BadRequest(new { message = "La cantidad de adjuntos y de índices de trayecto debe coincidir." });
+
+                var pares = new List<(int TrayectoIndex, IFormFile File)>(files.Count);
+                for (int i = 0; i < files.Count; i++)
+                {
+                    if (!int.TryParse(indices[i], out var trayectoIndex))
+                        return BadRequest(new { message = $"Índice de trayecto inválido en la posición {i + 1}: '{indices[i]}'." });
+                    pares.Add((trayectoIndex, files[i]));
+                }
+
+                var newId = await _service.Create(dto, userId, pares);
                 return Ok(new { id = newId, message = "Solicitud de salida registrada exitosamente." });
             }
             catch (AbrilException ex)
@@ -176,6 +222,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error en SolicitudSalidaController.UploadCapturasTrayecto");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// El propio trabajador rinde sus solicitudes seleccionadas (aprobadas + con todas sus capturas)
+        /// y descarga la planilla de gasto por movilidad. Reutiliza la misma lógica de Gestión de Salidas,
+        /// pero restringida a solicitudes del propio usuario (guard de propiedad).
+        /// </summary>
+        [HttpPatch("marcar-rendidas")]
+        public async Task<IActionResult> MarcarRendidas([FromBody] MarcarRendidasBulkDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                if (dto?.Ids == null || dto.Ids.Count == 0)
+                    return BadRequest(new { message = "Debes seleccionar al menos una solicitud." });
+
+                var (pdfBytes, count) = await _gestionSalidaService.RendirYGenerarPlanilla(dto.Ids, userId.Value, ownerUserId: userId.Value);
+
+                Response.Headers.Append("X-Rendidas-Count", count.ToString());
+                Response.Headers.Append("Access-Control-Expose-Headers", "X-Rendidas-Count, Content-Disposition");
+
+                var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
+                return File(pdfBytes, "application/pdf", filename);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.MarcarRendidas");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }

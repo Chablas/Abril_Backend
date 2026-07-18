@@ -51,6 +51,8 @@ public record MetaEmpresaDto
 
     // Actuals
     public int ActualRacs { get; init; }
+    // RACs atribuidos a esta empresa (empresa reportada) — base sobre la que se mide el cierre.
+    public int ActualRacsAtribuidos { get; init; }
     public int ActualRacsCerrados { get; init; }
     public int ActualOpt { get; init; }
     public int ActualAts { get; init; }
@@ -67,6 +69,10 @@ public record MetaEmpresaDto
 
     // Promedio general (0-100+)
     public decimal PctProactivoGeneral { get; init; }
+
+    // Ocultar manualmente empresas cuyo % no refleja la realidad (ej. sin supervisores)
+    public bool EsOculto { get; init; } = false;
+    public bool PuedeOcultarse { get; init; } = false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

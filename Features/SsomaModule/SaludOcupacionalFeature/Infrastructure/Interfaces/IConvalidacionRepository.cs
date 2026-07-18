@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
     public interface IConvalidacionRepository
     {
         Task<PagedResponseDto<ConvalidacionListDto>> List(ConvalidacionFilterDto filter);
+        Task<ConvalidacionDetalleDto?> GetDetalleAsync(int id);
         Task<int> Create(ConvalidacionCreateDto dto, int? userId);
         Task Update(int id, ConvalidacionUpdateDto dto, int? userId);
     }

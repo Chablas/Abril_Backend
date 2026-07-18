@@ -4,6 +4,7 @@ using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -12,7 +13,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     [Authorize]
     public class TrabajadorRestringidoController : ControllerBase
     {
-        private static readonly string[] RolesPermitidos = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR ADMINISTRACION"];
+        private static readonly string[] RolesPermitidos = [Roles.AdministradorSsoma, Roles.AdministradorAdministracion];
         private const string EmailAutorizadoParaBorrar = "sjustiniani@abril.pe";
 
         private readonly ITrabajadorRestringidoService _service;

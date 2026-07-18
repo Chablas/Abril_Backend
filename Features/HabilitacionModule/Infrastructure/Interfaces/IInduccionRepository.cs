@@ -11,6 +11,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<InduccionTrabajadorDto>> GetTrabajadoresPorProgramarAsync(int? empresaId, int proyectoId, string? search = null);
         Task AprobarAsync(int id);
         Task AprobarBatchAsync(List<int> ids);
+        Task RechazarAsync(int id);
         Task<int> ResetFaltaAsync();
     }
 }

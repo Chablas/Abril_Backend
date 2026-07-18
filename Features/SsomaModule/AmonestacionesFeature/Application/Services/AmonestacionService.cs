@@ -3,6 +3,7 @@ using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Restringidos;
 using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.Services;
 using Abril_Backend.Infrastructure.Data;
@@ -13,10 +14,14 @@ namespace Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Application.S
 
 public class AmonestacionService : IAmonestacionService
 {
+    // Id del tipo sanción "Retiro definitivo del proyecto" en ssoma_amonestacion_tipo_sanciones
+    private const int TIPO_SANCION_RETIRO_DEFINITIVO = 4;
+
     private readonly IAmonestacionRepository _repo;
     private readonly AmonestacionNotificationService _notif;
     private readonly ISharePointHabService _sharePoint;
     private readonly SsomaInhabilitacionService _inhabilitacion;
+    private readonly ITrabajadorRestringidoService _restringido;
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly ILogger<AmonestacionService> _logger;
     private readonly string _logoPath;
@@ -26,6 +31,7 @@ public class AmonestacionService : IAmonestacionService
         AmonestacionNotificationService notif,
         ISharePointHabService sharePoint,
         SsomaInhabilitacionService inhabilitacion,
+        ITrabajadorRestringidoService restringido,
         IDbContextFactory<AppDbContext> factory,
         ILogger<AmonestacionService> logger,
         IWebHostEnvironment env)
@@ -34,6 +40,7 @@ public class AmonestacionService : IAmonestacionService
         _notif          = notif;
         _sharePoint     = sharePoint;
         _inhabilitacion = inhabilitacion;
+        _restringido    = restringido;
         _factory        = factory;
         _logger         = logger;
         _logoPath   = new[] {
@@ -52,6 +59,11 @@ public class AmonestacionService : IAmonestacionService
 
         if (req.AplicaPenalizacion && req.SancionInfraccionId is null)
             throw new AbrilException("Debe seleccionar una sanción si aplica penalización.", 400);
+
+        // Retiro definitivo del proyecto: siempre son 10 puntos,
+        // sin importar lo que se haya seleccionado/enviado en el formulario.
+        if (req.TipoSancionId == TIPO_SANCION_RETIRO_DEFINITIVO)
+            req.PuntosInfraccion = 10;
 
         var codigo = await _repo.GenerarCodigoAsync(req.ProyectoId);
 
@@ -167,7 +179,36 @@ public class AmonestacionService : IAmonestacionService
         // Evaluar inhabilitación SSOMA
         await _inhabilitacion.EvaluarTrasBmonestacionAsync(req.WorkerId, req.TipoSancionId, userId);
 
+        // Retiro definitivo del proyecto: pasa también a la lista negra real (Habilitación)
+        if (req.TipoSancionId == TIPO_SANCION_RETIRO_DEFINITIVO)
+        {
+            var detalleCreado = await _repo.GetDetalleAsync(id);
+            if (detalleCreado is not null)
+                await RegistrarEnListaNegraAsync(detalleCreado);
+        }
+
         return new AmonestacionCreadaDto { Id = id, Codigo = codigo };
+    }
+
+    private async Task RegistrarEnListaNegraAsync(AmonestacionDetalleDto detalle)
+    {
+        try
+        {
+            await _restringido.CreateAsync(new TrabajadorRestringidoCreateDto
+            {
+                WorkerId         = detalle.WorkerId,
+                Dni              = detalle.WorkerDni,
+                ApellidoNombre   = detalle.WorkerNombre,
+                Motivo           = $"Retiro definitivo del proyecto — {detalle.Descripcion}",
+                ProyectoOrigen   = detalle.ProyectoNombre,
+                FechaRestriccion = DateOnly.FromDateTime(detalle.Fecha),
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error registrando trabajador restringido para amonestacion {Id}", detalle.Id);
+            throw;
+        }
     }
 
     public async Task<AmonestacionCreadaDto> ConfirmarAsync(int id)
@@ -218,7 +259,13 @@ public class AmonestacionService : IAmonestacionService
         // Evaluar inhabilitación SSOMA al confirmar
         var detalleConf = await _repo.GetDetalleAsync(id);
         if (detalleConf is not null)
+        {
             await _inhabilitacion.EvaluarTrasBmonestacionAsync(detalleConf.WorkerId, detalleConf.TipoSancionId, 0);
+
+            // Retiro definitivo del proyecto: pasa también a la lista negra real (Habilitación)
+            if (detalleConf.TipoSancionId == TIPO_SANCION_RETIRO_DEFINITIVO)
+                await RegistrarEnListaNegraAsync(detalleConf);
+        }
 
         return new AmonestacionCreadaDto { Id = id, Codigo = detalle.Codigo };
     }

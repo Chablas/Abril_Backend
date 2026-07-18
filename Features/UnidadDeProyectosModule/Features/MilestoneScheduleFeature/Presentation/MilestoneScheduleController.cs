@@ -70,5 +70,33 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
+
+        /// <summary>
+        /// Marca o desmarca un hito como "crítico" (corte real de etapa constructiva). Los hitos
+        /// críticos son los que usa SSOMA para segmentar consumo de materiales y dotación de
+        /// personal por fase; los no críticos son informativos (entregas, comercial, etc.).
+        /// </summary>
+        [Authorize]
+        [HttpPatch("{milestoneScheduleId:int}/marcar-critico")]
+        public async Task<IActionResult> MarcarCritico(int milestoneScheduleId, [FromBody] MilestoneScheduleMarcarCriticoRequest request)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                await _service.MarcarCriticoAsync(milestoneScheduleId, request.EsHitoCritico, userId);
+                var message = request.EsHitoCritico
+                    ? "Hito marcado como crítico."
+                    : "Hito desmarcado como crítico.";
+                return Ok(new { message });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
     }
 }

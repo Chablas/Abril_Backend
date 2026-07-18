@@ -51,7 +51,7 @@ public class ConsumoRepository : IConsumoRepository
             .ToListAsync();
     }
 
-    public async Task ActualizarLineaEstandarizadaAsync(long lineaId, int itemId, bool perteneceSsoma, string metodo, decimal score, string? estadoRevision)
+    public async Task ActualizarLineaEstandarizadaAsync(long lineaId, int itemId, bool perteneceSsoma, string metodo, decimal score, string? estadoRevision, decimal factorConversion = 1)
     {
         using var ctx = _factory.CreateDbContext();
         var linea = await ctx.SsConsumoLinea.FindAsync(lineaId);
@@ -62,6 +62,8 @@ public class ConsumoRepository : IConsumoRepository
         linea.MetodoMatch = metodo;
         linea.ScoreMatch = score;
         linea.EstadoRevision = estadoRevision;
+        linea.CantidadReal = linea.Cantidad * factorConversion;
+        linea.PrecioUnitarioReal = linea.CantidadReal > 0 ? linea.PrecioTotal / linea.CantidadReal : 0;
         await ctx.SaveChangesAsync();
     }
 
@@ -122,10 +124,92 @@ public class ConsumoRepository : IConsumoRepository
             .ToListAsync();
     }
 
+    public async Task<List<MaterialPendienteGlobalDto>> ObtenerPendientesRevisionGlobalAsync()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsConsumoLinea
+            .Where(l => l.EstadoRevision == "PENDIENTE")
+            .Include(l => l.Item).ThenInclude(i => i!.Familia)
+            .Include(l => l.Proyecto)
+            .OrderByDescending(l => l.PrecioTotal)
+            .Select(l => new MaterialPendienteGlobalDto
+            {
+                LineaId = l.Id,
+                ProjectId = l.ProjectId,
+                ProjectDescription = l.Proyecto.ProjectDescription ?? string.Empty,
+                RecursoCrudo = l.RecursoCrudo,
+                Cantidad = l.Cantidad,
+                PrecioUnitario = l.PrecioUnitario,
+                PrecioTotal = l.PrecioTotal,
+                FechaGuia = l.FechaGuia,
+                NombreItemSugerido = l.Item != null ? l.Item.Nombre : null,
+                NombreFamiliaSugerida = l.Item != null ? l.Item.Familia.Nombre : null,
+                ItemIdSugerido = l.ItemId,
+                ScoreMatch = l.ScoreMatch,
+                MetodoMatch = l.MetodoMatch,
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<MaterialNoSsomaDto>> ObtenerNoSsomaAsync()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsConsumoLinea
+            .Where(l => !l.PerteneceSsoma || l.EstadoRevision == "RECHAZADO")
+            .Include(l => l.Proyecto)
+            .OrderByDescending(l => l.FechaGuia)
+            .Select(l => new MaterialNoSsomaDto
+            {
+                LineaId = l.Id,
+                ProjectId = l.ProjectId,
+                ProjectDescription = l.Proyecto.ProjectDescription ?? string.Empty,
+                RecursoCrudo = l.RecursoCrudo,
+                PrecioTotal = l.PrecioTotal,
+                FechaGuia = l.FechaGuia,
+                EstadoRevision = l.EstadoRevision,
+            })
+            .ToListAsync();
+    }
+
     public async Task<SsConsumoLinea?> ObtenerLineaPorIdAsync(long lineaId)
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsConsumoLinea.FindAsync(lineaId);
+    }
+
+    /// <summary>
+    /// Asigna hito_id a cada línea de consumo del proyecto cruzando fecha_guia contra el cronograma
+    /// real de hitos (milestone_schedule) de la versión activa del proyecto. A cada línea le
+    /// corresponde el hito más reciente cuya fecha planeada sea &lt;= fecha_guia — el hito "cubre"
+    /// desde su propia fecha hasta la fecha del siguiente hito. Solo se consideran hitos marcados
+    /// como críticos (es_hito_critico = true): los informativos no cortan etapa.
+    /// </summary>
+    public async Task<int> AsignarHitosPorFechaAsync(int projectId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.Database.ExecuteSqlInterpolatedAsync($"""
+            WITH cronograma AS (
+                SELECT ms.milestone_schedule_id, ms.planned_start_date
+                FROM milestone_schedule ms
+                JOIN milestone_schedule_history msh
+                  ON msh.milestone_schedule_history_id = ms.milestone_schedule_history_id
+                WHERE msh.project_id = {projectId}
+                  AND msh.is_equal_to_last_version = true
+                  AND msh.active = true
+                  AND ms.active = true
+                  AND ms.planned_start_date IS NOT NULL
+                  AND ms.es_hito_critico = true
+            )
+            UPDATE ss_consumo_linea l
+            SET hito_id = c.milestone_schedule_id
+            FROM cronograma c
+            WHERE l.project_id = {projectId}
+              AND c.planned_start_date = (
+                  SELECT MAX(c2.planned_start_date)
+                  FROM cronograma c2
+                  WHERE c2.planned_start_date <= l.fecha_guia
+              )
+            """);
     }
 
     public async Task ActualizarRevisionAsync(long lineaId, string decision, int? itemIdConfirmado)
@@ -135,7 +219,12 @@ public class ConsumoRepository : IConsumoRepository
         if (linea == null) return;
         linea.EstadoRevision = decision;
         if (itemIdConfirmado.HasValue)
+        {
             linea.ItemId = itemIdConfirmado.Value;
+            // El item confirmado en revisión siempre genera un alias nuevo con factor 1 (ver RevisionMaterialesService).
+            linea.CantidadReal = linea.Cantidad;
+            linea.PrecioUnitarioReal = linea.Cantidad > 0 ? linea.PrecioTotal / linea.Cantidad : 0;
+        }
         await ctx.SaveChangesAsync();
     }
 }

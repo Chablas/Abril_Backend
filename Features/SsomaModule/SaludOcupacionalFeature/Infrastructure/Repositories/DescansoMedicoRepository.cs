@@ -4,6 +4,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMedico;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,10 +14,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
     {
         private const int PageSize = 20;
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly ReactivosCacheVersion _reactivosCacheVersion;
 
-        public DescansoMedicoRepository(IDbContextFactory<AppDbContext> factory)
+        public DescansoMedicoRepository(IDbContextFactory<AppDbContext> factory, ReactivosCacheVersion reactivosCacheVersion)
         {
             _factory = factory;
+            _reactivosCacheVersion = reactivosCacheVersion;
         }
 
         public async Task<PagedResult<DescansoMedicoListItemDto>> ListPaged(DescansoMedicoFilterDto filter)
@@ -270,6 +273,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     accidente.DiasDescansoReales = totalDias;
                     accidente.UpdatedAt = DateTimeOffset.UtcNow;
                     await ctx2.SaveChangesAsync();
+                    _reactivosCacheVersion.Bump();
                 }
             }
         }

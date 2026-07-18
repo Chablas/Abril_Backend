@@ -138,6 +138,11 @@ namespace Abril_Backend.Application.Services
                 Console.WriteLine("⏰ Día 1 del mes: aviso de publicación de lecciones aprendidas");
                 await SendLessonsLearnedPublicationAsync(today);
                 Console.WriteLine("📧 Aviso de publicación enviado correctamente");
+
+                // Reporte mensual de cambios de cronograma del mes que acaba de cerrar.
+                Console.WriteLine("⏰ Día 1 del mes: reporte de cambios en cronograma de hitos");
+                await SendMilestoneScheduleMonthlyReminderAsync(today);
+                Console.WriteLine("📧 Reporte de cambios de cronograma enviado correctamente");
             }
 
             // Ventana de los últimos 5 días hábiles del mes:
@@ -162,6 +167,11 @@ namespace Abril_Backend.Application.Services
                 // el periodLabel del correo y el canal de staff sean consistentes.
                 await SendLessonsLearnedMonthlyRemindersAsync(today, isLastUploadDay);
                 Console.WriteLine("📧 Recordatorios enviados correctamente");
+
+                // Misma ventana: recordatorio a quienes aún no registraron cronograma este mes.
+                Console.WriteLine($"⏰ Día {ordinal}/5 hábil final: recordatorio de cronograma de hitos pendiente");
+                await SendMilestoneScheduleHistoryMonthlyRemindersAsync(today);
+                Console.WriteLine("📧 Recordatorio de cronograma pendiente enviado correctamente");
             }
             else if (ordinal == 4)
             {

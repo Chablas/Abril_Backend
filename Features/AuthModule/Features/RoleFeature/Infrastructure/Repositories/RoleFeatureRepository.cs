@@ -17,17 +17,30 @@ namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Repositories
             _factory = factory;
         }
 
-        public async Task<PagedResult<RoleDto>> GetPaged(int page, int pageSize)
+        public async Task<PagedResult<RoleDto>> GetPaged(int page, int pageSize, string? search = null)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var query = ctx.Role
-                .Where(r => r.State)
-                .OrderByDescending(r => r.RoleId);
+            var query = ctx.Role.Where(r => r.State);
+
+            // Búsqueda por palabras en cualquier orden: cada palabra debe aparecer en la
+            // descripción (misma semántica que SearchInput.matches del frontend).
+            // Así "obra admin" encuentra a "ADMINISTRADOR DE OBRA".
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var words = search.Trim().ToLower()
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (var word in words)
+                {
+                    var w = word;
+                    query = query.Where(r => r.RoleDescription.ToLower().Contains(w));
+                }
+            }
 
             var totalRecords = await query.CountAsync();
 
             var data = await query
+                .OrderByDescending(r => r.RoleId)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .Select(r => new RoleDto

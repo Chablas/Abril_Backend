@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.AuthModule.Role.Infrastructure.Interfaces
 {
     public interface IRoleFeatureRepository
     {
-        Task<PagedResult<RoleDto>> GetPaged(int page, int pageSize);
+        Task<PagedResult<RoleDto>> GetPaged(int page, int pageSize, string? search = null);
         Task Create(RoleCreateDto dto, int userId);
         Task<List<FeatureDto>> GetAllFeatures();
         Task<List<int>> GetRoleFeatureIds(int roleId);

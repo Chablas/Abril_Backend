@@ -56,8 +56,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             return await _repo.GetPaged(filters);
         }
 
-        public Task<GestionSalidaFilterDataDto> GetFilterData()
-            => _repo.GetFilterData();
+        public async Task<GestionSalidaFilterDataDto> GetFilterData(int? currentUserId, bool seesAllOverride)
+        {
+            // Resuelve el alcance del usuario y recorta trabajadores + árbol de áreas a ese alcance
+            // (área del usuario hacia abajo). Recepción / GTH / sin usuario → ve todo, sin recorte.
+            //   • El árbol: los nodos tope del conjunto visible (cuyo padre queda fuera) los toma el
+            //     frontend como raíces del cascada, así un jefe arranca en su área y un gerente en su
+            //     gerencia sin lógica adicional en el cliente.
+            //   • Los trabajadores: solo los de las áreas visibles (más el propio usuario).
+            bool seesAll = seesAllOverride || !currentUserId.HasValue;
+            var visibleIds = new List<int>();
+
+            if (!seesAll)
+            {
+                var vis = await _visibilityResolver.ResolveAsync(currentUserId!.Value);
+                seesAll = vis.SeesAll;
+                visibleIds = vis.AreaScopeIds.ToList();
+            }
+
+            return await _repo.GetFilterData(seesAll, visibleIds, currentUserId);
+        }
 
         /// <summary>
         /// Resuelve el alcance de visibilidad del usuario actual y lo escribe en el filtro
@@ -66,6 +84,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         private async Task ApplyVisibilityAsync(GestionSalidaFiltersDto filters)
         {
             if (!filters.CurrentUserId.HasValue) return;
+            // USUARIO DE RECEPCIÓN se sobrepone al alcance por área: ve todo, sin resolver.
+            if (filters.SeesAllOverride)
+            {
+                filters.SeesAll = true;
+                return;
+            }
             var vis = await _visibilityResolver.ResolveAsync(filters.CurrentUserId.Value);
             filters.SeesAll = vis.SeesAll;
             filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
@@ -151,16 +175,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             await _solicitudSalidaService.NotifySolicitanteAprobada(id);
         }
 
-        public Task Rechazar(int id, int reviewerUserId)
-            => _repo.Rechazar(id, reviewerUserId);
+        public async Task Rechazar(int id, int reviewerUserId)
+        {
+            await _repo.Rechazar(id, reviewerUserId);
+            // Email de rechazo al solicitante (best-effort, no rompe el flujo si falla)
+            await _solicitudSalidaService.NotifySolicitanteRechazada(id);
+        }
 
         public Task SetHoraSalidaReal(int id, TimeOnly? hora, int registradaPorUserId)
             => _repo.SetHoraSalidaReal(id, hora, registradaPorUserId);
 
-        public async Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId)
+        public Task SetHoraRetornoReal(int id, TimeOnly? hora, int registradaPorUserId)
+            => _repo.SetHoraRetornoReal(id, hora, registradaPorUserId);
+
+        public async Task<(byte[] Pdf, int Count)> RendirYGenerarPlanilla(IEnumerable<int> ids, int userId, int? ownerUserId = null)
         {
+            var idsList = ids?.Distinct().ToList() ?? new List<int>();
+
+            // 0. Guard de propiedad: cuando la rendición la dispara el propio trabajador desde su
+            //    autoservicio, solo puede rendir solicitudes suyas.
+            if (ownerUserId.HasValue)
+            {
+                var ajenas = await _repo.GetIdsNotOwnedByUser(idsList, ownerUserId.Value);
+                if (ajenas.Count > 0)
+                    throw new AbrilException("Solo puedes rendir tus propias solicitudes de salida.", 403);
+            }
+
             // 1. Pre-flight: ¿cuáles serían marcables? — sin tocar BD.
-            var elegiblesIds = await _repo.GetEligibleIdsForRendicion(ids);
+            var elegiblesIds = await _repo.GetEligibleIdsForRendicion(idsList);
             if (elegiblesIds.Count == 0)
                 throw new AbrilException("No hay solicitudes elegibles para rendir (deben estar aprobadas y no rendidas).", 400);
 

@@ -7,7 +7,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         Task<SolicitudSalidaFormDataDto> GetFormData(int? userId);
         Task<List<SolicitudSalidaListItemDto>> GetByUserId(int userId, SolicitudSalidaFiltersDto? filters = null);
         Task<SolicitudSalidaFilterDataDto> GetFilterData(int userId);
-        Task<int> Create(SolicitudSalidaCreateDto dto, int? userId);
+        /// <summary>
+        /// Crea la solicitud. <paramref name="adjuntos"/> trae los documentos adjuntos por índice
+        /// de trayecto (0-based); son obligatorios para los trayectos cuyo motivo tiene
+        /// requiere_adjunto = true y se suben a la carpeta configurada (ga_adjunto_folder).
+        /// </summary>
+        Task<int> Create(SolicitudSalidaCreateDto dto, int? userId, IReadOnlyList<(int TrayectoIndex, IFormFile File)>? adjuntos = null);
 
         Task<string> ProcessAprobarFromEmail(string token);
         Task<string> ProcessRechazarFromEmail(string token, string? motivoRechazo);
@@ -20,5 +25,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         /// <summary>Envía email de confirmación al solicitante de que su solicitud fue aprobada. Best-effort, no lanza.</summary>
         Task NotifySolicitanteAprobada(int solicitudId);
+
+        /// <summary>Envía email al solicitante de que su solicitud fue rechazada (mismos destinatarios/copias que el de aprobación). Best-effort, no lanza.</summary>
+        Task NotifySolicitanteRechazada(int solicitudId);
     }
 }

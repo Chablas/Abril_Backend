@@ -11,6 +11,8 @@ public class MatchResult
     public bool PerteneceSsoma { get; set; }
     public decimal Score { get; set; }
     public string Metodo { get; set; } = null!;
+    /// <summary>Del alias matcheado (si aplica). Default 1 cuando el match no viene de un alias específico.</summary>
+    public decimal FactorConversion { get; set; } = 1;
 }
 
 public interface IEstandarizacionRepository

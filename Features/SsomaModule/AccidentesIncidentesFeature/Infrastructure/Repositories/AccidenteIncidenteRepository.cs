@@ -25,7 +25,11 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
     public async Task<FlashReportInicializarDto> GetInicializarAsync()
     {
         const string sql = """
-            SELECT project_id AS id, project_description AS nombre, abbreviation AS abreviatura, email_coord_ssoma AS emailCoordsoma FROM project WHERE active = true ORDER BY project_description;
+            SELECT DISTINCT p.project_id AS id, p.project_description AS nombre, p.abbreviation AS abreviatura, p.email_coord_ssoma AS emailCoordsoma
+            FROM project p
+            LEFT JOIN ss_proyecto_habilitado h ON h.proyecto_id = p.project_id AND h.state = true AND h.active = true
+            WHERE p.active = true OR h.id IS NOT NULL
+            ORDER BY p.project_description;
             SELECT id, nombre, codigo FROM ssoma_flash_tipo ORDER BY orden;
             SELECT id, nombre FROM ssoma_flash_etapa_proyecto ORDER BY nombre;
             SELECT id, nombre FROM ssoma_flash_parte_afectada ORDER BY nombre;
@@ -72,7 +76,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
     public async Task<(List<FlashReportListItemDto> Items, int Total)> GetListAsync(
         int? proyectoId, int? tipoId, string? estado,
         DateTime? fechaDesde, DateTime? fechaHasta,
-        bool? soloEnviados, int page, int pageSize)
+        bool? soloEnviados, string? areaOrigen, int page, int pageSize)
     {
         var where = new List<string>();
         var p = new DynamicParameters();
@@ -85,18 +89,33 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         if (fechaDesde.HasValue)  { where.Add("a.fecha >= @fd"); p.Add("fd", fechaDesde.Value.Date); }
         if (fechaHasta.HasValue)  { where.Add("a.fecha <= @fh"); p.Add("fh", fechaHasta.Value.Date); }
         if (soloEnviados == true) { where.Add("a.enviado = true"); }
+        if (!string.IsNullOrEmpty(areaOrigen)) { where.Add("a.area_origen = @area"); p.Add("area", areaOrigen); }
 
         var whereClause = where.Count > 0 ? "WHERE " + string.Join(" AND ", where) : "";
 
         var sql = $"""
             SELECT
                 a.id, a.codigo, p.project_description AS proyecto_nombre, a.fecha,
-                t.nombre AS tipo_nombre, t.codigo AS tipo_codigo,
-                a.trabajador_nombre, a.estado, a.enviado, a.fecha_envio,
-                a.consecuencia_real_personal
+                t.nombre AS tipo_nombre, t.codigo AS tipo_codigo, a.area_origen,
+                COALESCE(a.trabajador_nombre, (
+                    SELECT t.trabajador_nombre FROM ssoma_accidente_trabajador t
+                    WHERE t.accidente_incidente_id = a.id ORDER BY t.id LIMIT 1
+                )) AS trabajador_nombre,
+                a.estado, a.enviado, a.fecha_envio,
+                a.consecuencia_real_personal, a.consecuencia_potencial_personal, a.descripcion,
+                at_vinc.id AS accidente_trabajo_id,
+                CASE WHEN at_vinc.id IS NULL THEN NULL
+                     ELSE (at_vinc.estado = 'Cerrado' AND at_vinc.fecha_alta IS NOT NULL)
+                END AS cerrado_con_alta_medica,
+                COALESCE((
+                    SELECT SUM((d.fecha_fin::date - d.fecha_inicio::date) + 1)
+                    FROM ssoma_flash_descanso d
+                    WHERE d.accidente_incidente_id = a.id
+                ), 0) AS dias_perdidos
             FROM ss_accidente_incidente a
             JOIN project p ON p.project_id = a.proyecto_id
             JOIN ssoma_flash_tipo t ON t.id = a.tipo_id
+            LEFT JOIN ss_accidente_trabajo at_vinc ON at_vinc.flash_report_id = a.id
             {whereClause}
             ORDER BY a.fecha DESC, a.id DESC
             LIMIT @limit OFFSET @offset;
@@ -118,7 +137,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             SELECT
                 a.id, a.codigo,
                 a.proyecto_id, p.project_description AS proyecto_nombre, p.abbreviation AS proyecto_abreviatura,
-                a.tipo_id, t.nombre AS tipo_nombre, t.codigo AS tipo_codigo,
+                a.tipo_id, t.nombre AS tipo_nombre, t.codigo AS tipo_codigo, a.area_origen,
                 a.fecha, a.hora, a.lugar_exacto, a.descripcion, a.estado,
                 a.empresa_abril_id, ea.contributor_name AS empresa_abril_nombre,
                 a.contributor_id, c.contributor_name AS contributor_nombre,
@@ -169,18 +188,27 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
 
     public async Task<string> GenerarCodigoAsync(int proyectoId, string tipoCodigoCorto)
     {
+        // El correlativo se calcula a partir del máximo número YA USADO dentro de
+        // códigos que calzan con el patrón "{ABREV}-{TIPO}-NN" del proyecto/tipo actual,
+        // no con COUNT(*) de filas: COUNT(*) se desalinea cuando hay registros legacy
+        // (importados de SharePoint) que no siguen el patrón, o cuando se elimina un registro,
+        // provocando que se reasigne un correlativo ya usado (código duplicado).
         const string sql = """
             SELECT COALESCE(p.abbreviation, 'XXX') FROM project p WHERE p.project_id = @pid;
-            SELECT COUNT(*) FROM ss_accidente_incidente
-            WHERE proyecto_id = @pid AND tipo_id = (SELECT id FROM ssoma_flash_tipo WHERE codigo = @tipoCodigo);
+            SELECT COALESCE(MAX((regexp_match(a.codigo, '-([0-9]+)$'))[1]::int), 0)
+            FROM ss_accidente_incidente a
+            JOIN project p ON p.project_id = a.proyecto_id
+            WHERE a.proyecto_id = @pid
+              AND a.tipo_id = (SELECT id FROM ssoma_flash_tipo WHERE codigo = @tipoCodigo)
+              AND a.codigo ~ ('^' || UPPER(p.abbreviation) || '-' || @tipoCodigo || '-[0-9]+$');
             """;
 
         await using var conn = Conn();
         await conn.OpenAsync();
         await using var multi = await conn.QueryMultipleAsync(sql, new { pid = proyectoId, tipoCodigo = tipoCodigoCorto });
         var abrev = (await multi.ReadFirstAsync<string>()).ToUpperInvariant();
-        var count = await multi.ReadFirstAsync<int>();
-        var correlativo = (count + 1).ToString("D2");
+        var maxCorrelativo = await multi.ReadFirstAsync<int>();
+        var correlativo = (maxCorrelativo + 1).ToString("D2");
         return $"{abrev}-{tipoCodigoCorto}-{correlativo}";
     }
 
@@ -197,6 +225,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             Codigo = codigo,
             ProyectoId = req.ProyectoId,
             TipoId = req.TipoId,
+            AreaOrigen = string.IsNullOrWhiteSpace(req.AreaOrigen) ? "Produccion" : req.AreaOrigen,
             Fecha = DateTime.SpecifyKind(req.Fecha.Date, DateTimeKind.Utc),
             Hora = hora,
             LugarExacto = req.LugarExacto,
@@ -328,6 +357,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             hora = ts;
 
         entity.TipoId = req.TipoId;
+        entity.AreaOrigen = string.IsNullOrWhiteSpace(req.AreaOrigen) ? "Produccion" : req.AreaOrigen;
         entity.Fecha = DateTime.SpecifyKind(req.Fecha.Date, DateTimeKind.Utc);
         entity.Hora = hora;
         entity.LugarExacto = req.LugarExacto;
@@ -394,6 +424,17 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         await ctx.SaveChangesAsync();
     }
 
+    public async Task ActualizarSeveridadAsync(int id, int? consecuenciaRealPersonal, int? consecuenciaPotencialPersonal)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = await ctx.Set<SsomaAccidenteIncidente>().FindAsync(id)
+            ?? throw new AbrilException("Flash Report no encontrado.", 404);
+        entity.ConsecuenciaRealPersonal = consecuenciaRealPersonal;
+        entity.ConsecuenciaPotencialPersonal = consecuenciaPotencialPersonal;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
     public async Task MarcarEnviadoAsync(int id, string urlPdf)
     {
         using var ctx = _factory.CreateDbContext();
@@ -457,7 +498,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
     {
         const string sql = """
             SELECT e.id, e.tipo_id, t.nombre AS tipo_nombre, t.orden, e.estado,
-                   e.fecha_limite, e.url_archivo, e.nombre_archivo, e.observacion, e.updated_at
+                   e.fecha_limite, e.observacion, e.updated_at
             FROM ss_entregable e
             JOIN ss_entregable_tipo t ON t.id = e.tipo_id
             WHERE e.accidente_incidente_id = @id
@@ -468,6 +509,12 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             FROM ss_entregable_responsable r
             JOIN ss_entregable e ON e.id = r.entregable_id
             WHERE e.accidente_incidente_id = @id;
+
+            SELECT a.id, a.entregable_id, a.url_archivo, a.nombre_archivo, a.created_at
+            FROM ss_entregable_archivo a
+            JOIN ss_entregable e ON e.id = a.entregable_id
+            WHERE e.accidente_incidente_id = @id
+            ORDER BY a.created_at;
             """;
 
         await using var conn = Conn();
@@ -476,8 +523,10 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
 
         var entregables = (await multi.ReadAsync<EntregableDto>()).ToList();
         var responsables = (await multi.ReadAsync<dynamic>()).ToList();
+        var archivos = (await multi.ReadAsync<dynamic>()).ToList();
 
         foreach (var e in entregables)
+        {
             e.Responsables = responsables
                 .Where(r => r.entregable_id == e.Id)
                 .Select(r => new EntregableResponsableDto
@@ -486,6 +535,17 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
                     WorkerId = r.worker_id,
                     Nombre = r.nombre
                 }).ToList();
+
+            e.Archivos = archivos
+                .Where(a => a.entregable_id == e.Id)
+                .Select(a => new EntregableArchivoDto
+                {
+                    Id = a.id,
+                    UrlArchivo = a.url_archivo,
+                    NombreArchivo = a.nombre_archivo,
+                    CreatedAt = a.created_at
+                }).ToList();
+        }
 
         return entregables;
     }
@@ -518,10 +578,25 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
         using var ctx = _factory.CreateDbContext();
         var entity = await ctx.Set<SsomaEntregable>().FindAsync(entregableId)
             ?? throw new AbrilException("Entregable no encontrado.", 404);
-        entity.UrlArchivo = urlArchivo;
-        entity.NombreArchivo = nombreArchivo;
+
+        ctx.Set<SsomaEntregableArchivo>().Add(new SsomaEntregableArchivo
+        {
+            EntregableId = entregableId,
+            UrlArchivo = urlArchivo,
+            NombreArchivo = nombreArchivo,
+        });
+
         if (entity.Estado == "Pendiente") entity.Estado = "Presentado";
         entity.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task EliminarArchivoEntregableAsync(int archivoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var entity = await ctx.Set<SsomaEntregableArchivo>().FindAsync(archivoId)
+            ?? throw new AbrilException("Archivo no encontrado.", 404);
+        ctx.Set<SsomaEntregableArchivo>().Remove(entity);
         await ctx.SaveChangesAsync();
     }
 

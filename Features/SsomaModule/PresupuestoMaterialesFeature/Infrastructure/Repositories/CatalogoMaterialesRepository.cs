@@ -1,4 +1,6 @@
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +26,52 @@ public class CatalogoMaterialesRepository : ICatalogoMaterialesRepository
     {
         using var ctx = _factory.CreateDbContext();
         return await ctx.SsMaterialFamilia.AsNoTracking().ToListAsync();
+    }
+
+    public async Task<List<FamiliaCatalogoDto>> ListarFamiliasDetalladoAsync(string? q, int? tipoId, bool? perteneceSsoma)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var query = ctx.SsMaterialFamilia.AsNoTracking().Include(f => f.Tipo).AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(q))
+            query = query.Where(f => f.Nombre.ToLower().Contains(q.ToLower()));
+        if (tipoId.HasValue)
+            query = query.Where(f => f.TipoId == tipoId.Value);
+        if (perteneceSsoma.HasValue)
+            query = query.Where(f => f.PerteneceSsoma == perteneceSsoma.Value);
+
+        return await query
+            .OrderBy(f => f.Tipo.Nombre).ThenBy(f => f.Nombre)
+            .Select(f => new FamiliaCatalogoDto
+            {
+                Id = f.Id,
+                Nombre = f.Nombre,
+                TipoId = f.TipoId,
+                NombreTipo = f.Tipo.Nombre,
+                VariableBase = f.VariableBase,
+                UnidadMedida = f.UnidadMedida,
+                PerteneceSsoma = f.PerteneceSsoma,
+                Activo = f.Activo,
+            })
+            .ToListAsync();
+    }
+
+    public async Task ActualizarFamiliaAsync(int id, ActualizarFamiliaDto dto)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var familia = await ctx.SsMaterialFamilia.FindAsync(id);
+        if (familia == null) throw new AbrilException("Familia no encontrada.", 404);
+
+        familia.Nombre = dto.Nombre;
+        familia.NombreNormalizado = Application.Services.TextoNormalizador.Normalizar(dto.Nombre);
+        familia.TipoId = dto.TipoId;
+        familia.VariableBase = dto.VariableBase;
+        familia.UnidadMedida = dto.UnidadMedida;
+        familia.PerteneceSsoma = dto.PerteneceSsoma;
+        familia.Activo = dto.Activo;
+        familia.ActualizadoEn = DateTimeOffset.UtcNow;
+
+        await ctx.SaveChangesAsync();
     }
 
     public async Task<List<SsMaterialItem>> GetItemsAsync()
@@ -98,11 +146,20 @@ public class CatalogoMaterialesRepository : ICatalogoMaterialesRepository
     }
 
     public async Task<bool> CreateAliasIfNotExistsAsync(
-        string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal? confianza)
+        string textoCrudo, string textoCrudoNorm, int itemId, string origen, decimal? confianza,
+        decimal factorConversion = 1)
     {
         using var ctx = _factory.CreateDbContext();
-        var existe = await ctx.SsMaterialAlias.AnyAsync(a => a.TextoCrudoNorm == textoCrudoNorm);
-        if (existe) return false;
+        var existente = await ctx.SsMaterialAlias.FirstOrDefaultAsync(a => a.TextoCrudoNorm == textoCrudoNorm);
+        if (existente != null)
+        {
+            if (existente.FactorConversion != factorConversion)
+            {
+                existente.FactorConversion = factorConversion;
+                await ctx.SaveChangesAsync();
+            }
+            return false;
+        }
 
         ctx.SsMaterialAlias.Add(new SsMaterialAlias
         {
@@ -111,6 +168,7 @@ public class CatalogoMaterialesRepository : ICatalogoMaterialesRepository
             ItemId = itemId,
             Origen = origen,
             Confianza = confianza,
+            FactorConversion = factorConversion,
             CreadoEn = DateTimeOffset.UtcNow
         });
         await ctx.SaveChangesAsync();

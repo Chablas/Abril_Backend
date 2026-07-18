@@ -9,7 +9,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>Igual que <see cref="GetAll"/> pero ordenado por la columna indicada y paginado.</summary>
         Task<PagedResult<GestionSalidaListItemDto>> GetPaged(GestionSalidaFiltersDto filters);
-        Task<GestionSalidaFilterDataDto> GetFilterData();
+        /// <summary>
+        /// Datos de los filtros (trabajadores, lugares y árbol de áreas). Cuando
+        /// <paramref name="seesAll"/> es false, tanto los trabajadores como el árbol de áreas se
+        /// recortan a <paramref name="visibleAreaScopeIds"/> (área del usuario hacia abajo). El
+        /// propio trabajador del usuario siempre se incluye en la lista de trabajadores.
+        /// </summary>
+        Task<GestionSalidaFilterDataDto> GetFilterData(bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId);
         Task Aprobar(int id, int reviewerUserId);
         Task Rechazar(int id, int reviewerUserId);
 
@@ -32,6 +38,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         Task<List<int>> GetEligibleIdsForRendicion(IEnumerable<int> ids);
 
         /// <summary>
+        /// Del set dado, devuelve los IDs que NO pertenecen al trabajador del usuario indicado
+        /// (worker → person → user). Se usa como guard cuando el propio trabajador rinde sus salidas
+        /// desde el autoservicio: solo puede rendir lo suyo.
+        /// </summary>
+        Task<List<int>> GetIdsNotOwnedByUser(IEnumerable<int> ids, int userId);
+
+        /// <summary>
         /// Del set dado, devuelve solicitudes que tienen al menos UN trayecto SIN ninguna captura.
         /// (Una solicitud sin trayectos también se incluye como incompleta).
         /// </summary>
@@ -45,5 +58,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
         /// <summary>Registra (o limpia) la hora real en la que la persona salió. Solo se actualiza el campo extra; no afecta el flujo principal.</summary>
         Task SetHoraSalidaReal(int solicitudId, TimeOnly? hora, int registradaPorUserId);
+
+        /// <summary>Registra (o limpia) la hora real en la que la persona retornó. Solo se actualiza el campo extra; no afecta el flujo principal.</summary>
+        Task SetHoraRetornoReal(int solicitudId, TimeOnly? hora, int registradaPorUserId);
     }
 }

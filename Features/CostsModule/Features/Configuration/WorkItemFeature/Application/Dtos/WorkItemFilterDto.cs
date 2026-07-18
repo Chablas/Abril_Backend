@@ -10,6 +10,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemFeat
         public bool? HasValorizationForm { get; set; }
         /// <summary>Filtra las partidas por la partida de control a la que pertenecen. null: todas.</summary>
         public int? WorkItemCategoryId { get; set; }
+        /// <summary>true: solo activas · false: solo inactivas · null: todas.</summary>
+        public bool? Active { get; set; }
         public int Page { get; set; } = 1;
     }
 }

@@ -42,9 +42,17 @@ public class AuditoriaAtsDetalleDto
     public string Fecha { get; set; } = string.Empty;
     public int AuditorWorkerId { get; set; }
     public string AuditorNombre { get; set; } = string.Empty;
+    public string? AuditorEmpresaNombre { get; set; }
+    public string? AuditorCategoria { get; set; }
+    public string? AuditorOcupacion { get; set; }
     public int AuditadoWorkerId { get; set; }
     public string AuditadoNombre { get; set; } = string.Empty;
+    public string? AuditadoEmpresaNombre { get; set; }
+    public string? AuditadoCategoria { get; set; }
+    public string? AuditadoOcupacion { get; set; }
     public int? EmpresaId { get; set; }
+    /// <summary>Empresa del auditor (puede ser distinta a EmpresaId, la del auditado).</summary>
+    public int? EmpresaAuditorId { get; set; }
     public int? ProyectoId { get; set; }
     public string? ProyectoNombre { get; set; }
     public string? EmailAuditado { get; set; }
@@ -64,7 +72,13 @@ public class AuditoriaAtsListItemDto
     public int Id { get; set; }
     public string Fecha { get; set; } = string.Empty;
     public string AuditorNombre { get; set; } = string.Empty;
+    public string? AuditorEmpresaNombre { get; set; }
+    public string? AuditorCategoria { get; set; }
+    public string? AuditorOcupacion { get; set; }
     public string AuditadoNombre { get; set; } = string.Empty;
+    public string? AuditadoEmpresaNombre { get; set; }
+    public string? AuditadoCategoria { get; set; }
+    public string? AuditadoOcupacion { get; set; }
     public string? ProyectoNombre { get; set; }
     public string? Actividad { get; set; }
     public string? Lugar { get; set; }

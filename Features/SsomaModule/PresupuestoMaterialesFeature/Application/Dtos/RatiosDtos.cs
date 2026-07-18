@@ -25,6 +25,8 @@ public class RatioProyectoDto
     public decimal ValorDriver { get; set; }
     public decimal RatioCantidad { get; set; }
     public bool EsOutlier { get; set; }
+    public bool IncluidoManualRatio { get; set; } = true;
+    public bool IncluidoManualPrecio { get; set; } = true;
 }
 
 // ─── Comparación entre proyectos ──────────────────────────────────────────────
@@ -52,6 +54,25 @@ public class RatioProyectoItemDto
     public decimal CantidadTotal { get; set; }
     public decimal ValorDriver { get; set; }
     public bool EsOutlier { get; set; }
+    public bool IncluidoManualRatio { get; set; } = true;
+    public bool IncluidoManualPrecio { get; set; } = true;
+}
+
+public class ActualizarIncluidoManualDto
+{
+    public bool Incluir { get; set; }
+    /// <summary>RATIO | PRECIO — cuál cálculo afecta esta inclusión/exclusión.</summary>
+    public string Campo { get; set; } = "RATIO";
+}
+
+public class FamiliaConRatioDto
+{
+    public int FamiliaId { get; set; }
+    public string NombreFamilia { get; set; } = null!;
+    public string TipoMaterial { get; set; } = null!;
+    public string VariableBase { get; set; } = null!;
+    public int NProyectos { get; set; }
+    public int NOutliers { get; set; }
 }
 
 // ─── Resumen general ──────────────────────────────────────────────────────────

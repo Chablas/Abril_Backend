@@ -145,6 +145,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (estados.Any(e => e == "Rechazado")) return "Rechazado";
             if (estados.Any(e => e == "Enviado")) return "Enviado";
             if (estados.Any(e => e == "Falta")) return "Falta";
+            // "En Plazo" (mes marcado con una fecha límite acordada, aún sin documento) no debía
+            // caer nunca en la rama "Aprobado", pero tampoco estaba contemplado en ninguna rama
+            // anterior — el fallback final lo mandaba siempre a "Falta" sin importar lo guardado.
+            if (estados.Any(e => e == "En Plazo")) return "En Plazo";
             if (estados.All(e => e == "Aprobado")) return "Aprobado";
             return "Falta";
         }
@@ -307,12 +311,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Select(h => h.ItemId)
                 .ToListAsync();
 
-            var itemsFalta = new HashSet<int> { 12, 13 };
-
-            var hoy = DateTime.UtcNow;
-            var vigenciaInicial = new DateTime(hoy.Year, hoy.Month, 1, 0, 0, 0, DateTimeKind.Utc)
-                .AddMonths(1).AddDays(26);
-
             var faltantes = items
                 .Where(i => !existentesIds.Contains(i.Id))
                 .Select(i => new SsHabEmpresa
@@ -320,8 +318,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     EmpresaId = empresaId,
                     ProyectoId = proyectoId,
                     ItemId = i.Id,
-                    Estado = itemsFalta.Contains(i.Id) ? "Falta" : "Aprobado",
-                    Vigencia = itemsFalta.Contains(i.Id) ? null : vigenciaInicial,
+                    Estado = "Falta",
+                    Vigencia = null,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 })

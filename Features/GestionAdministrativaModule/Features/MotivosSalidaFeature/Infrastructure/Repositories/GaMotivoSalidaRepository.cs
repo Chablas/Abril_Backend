@@ -24,10 +24,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
                 .OrderBy(m => m.Descripcion)
                 .Select(m => new GaMotivoSalidaConfigItemDto
                 {
-                    Id          = m.Id,
-                    Descripcion = m.Descripcion,
-                    Activo      = m.Activo,
-                    CreatedAt   = m.CreatedAt,
+                    Id              = m.Id,
+                    Descripcion     = m.Descripcion,
+                    Activo          = m.Activo,
+                    RequiereAdjunto = m.RequiereAdjunto,
+                    EsHoraEstimada  = m.EsHoraEstimada,
+                    CreatedAt       = m.CreatedAt,
                 })
                 .ToListAsync();
         }
@@ -49,9 +51,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
 
             ctx.GaMotivoSalida.Add(new GaMotivoSalida
             {
-                Descripcion = descripcion,
-                Activo      = true,
-                CreatedAt   = DateTimeOffset.UtcNow,
+                Descripcion     = descripcion,
+                Activo          = true,
+                RequiereAdjunto = dto.RequiereAdjunto,
+                EsHoraEstimada  = dto.EsHoraEstimada,
+                CreatedAt       = DateTimeOffset.UtcNow,
             });
 
             await ctx.SaveChangesAsync();
@@ -87,7 +91,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastruct
             if (existe)
                 throw new AbrilException("Ya existe un motivo con esa descripción.", 409);
 
-            motivo.Descripcion = descripcion;
+            motivo.Descripcion     = descripcion;
+            motivo.RequiereAdjunto = dto.RequiereAdjunto;
+            motivo.EsHoraEstimada  = dto.EsHoraEstimada;
             await ctx.SaveChangesAsync();
         }
     }

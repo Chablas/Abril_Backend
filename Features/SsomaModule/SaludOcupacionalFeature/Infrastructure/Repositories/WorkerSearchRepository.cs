@@ -41,9 +41,38 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     && (v.FechaFin == null || v.FechaFin >= hoy)));
             }
 
-            var baseList = await workers
-                .OrderBy(w => w.Person != null ? w.Person.FullName : null)
-                .Take(limit)
+            return await EnrichAsync(ctx, workers.OrderBy(w => w.Person != null ? w.Person.FullName : null).Take(limit), hoy);
+        }
+
+        public async Task<WorkerSearchResultDto?> GetByUserId(int userId, bool esContratista)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+
+            IQueryable<Worker> workers;
+            if (esContratista)
+            {
+                // El login de un contratista no tiene Person propia: el vínculo a su ficha de
+                // trabajador va por ss_contratista_usuario.worker_id (asignado al dar de alta el
+                // acceso), no por Person.UserId.
+                var workerId = await ctx.SsContratistaUsuarios
+                    .Where(cu => cu.UserId == userId && cu.Activo && cu.WorkerId != null)
+                    .Select(cu => cu.WorkerId)
+                    .FirstOrDefaultAsync();
+                workers = ctx.Worker.Where(w => w.Id == workerId).Take(1);
+            }
+            else
+            {
+                workers = ctx.Worker.Where(w => w.Person != null && w.Person.UserId == userId).Take(1);
+            }
+
+            var result = await EnrichAsync(ctx, workers, hoy);
+            return result.FirstOrDefault();
+        }
+
+        private static async Task<List<WorkerSearchResultDto>> EnrichAsync(AppDbContext ctx, IQueryable<Worker> workersQuery, DateOnly hoy)
+        {
+            var baseList = await workersQuery
                 .Select(w => new
                 {
                     w.Id,
@@ -135,6 +164,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .ToListAsync();
         }
 
+        public async Task<List<WorkerCategoryDto>> GetWorkerCategories()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.WorkersCategory
+                .Where(c => c.Active && c.State)
+                .OrderBy(c => c.Name)
+                .Select(c => new WorkerCategoryDto
+                {
+                    Id = c.WorkersCategoryId,
+                    Nombre = c.Name,
+                })
+                .ToListAsync();
+        }
+
         public async Task<int> Create(WorkerCreateDto dto)
         {
             using var ctx = _factory.CreateDbContext();
@@ -147,6 +190,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                             && w.Estado == "ACTIVO");
             if (existeActivo)
                 throw new AbrilException("Ya existe un trabajador activo con ese DNI.", 409);
+
+            var esCasaDto = string.Equals(dto.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
+            if (esCasaDto)
+            {
+                var existeRetirado = await ctx.Worker
+                    .AnyAsync(w => w.Person != null && w.Person.DocumentIdentityCode != null
+                                && w.Person.DocumentIdentityCode.ToUpper() == dniUpper
+                                && w.Estado != "ACTIVO");
+                if (existeRetirado)
+                    throw new AbrilException("Ya existe un trabajador registrado con ese DNI (retirado). Use la opción de Reingreso en vez de crear uno nuevo.", 409);
+            }
 
             var workerExistente = await ctx.Worker
                 .Where(w => w.Person != null && w.Person.DocumentIdentityCode != null
@@ -331,6 +385,39 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.Ocupacion = dto.Ocupacion;
             worker.OcupacionId = dto.OcupacionId;
             worker.Puesto = dto.Puesto;
+
+            if (dto.AreaScopeId.HasValue && dto.AreaScopeId != worker.AreaScopeId)
+            {
+                var existeNodo = await ctx.AreaScope
+                    .AnyAsync(s => s.AreaScopeId == dto.AreaScopeId.Value && s.State);
+                if (!existeNodo)
+                    throw new AbrilException("El área seleccionada no existe en la jerarquía de áreas.", 400);
+            }
+            worker.AreaScopeId = dto.AreaScopeId;
+
+            if (dto.WorkerCategoryId.HasValue && dto.WorkerCategoryId != worker.WorkerCategoryId)
+            {
+                var existeCategoria = await ctx.WorkersCategory
+                    .AnyAsync(c => c.WorkersCategoryId == dto.WorkerCategoryId.Value && c.State);
+                if (!existeCategoria)
+                    throw new AbrilException("La categoría seleccionada no existe.", 400);
+            }
+            worker.WorkerCategoryId = dto.WorkerCategoryId;
+
+            // Se guarda en minúsculas: todas las comparaciones del sistema hacen ToLower().
+            var emailCorporativo = dto.EmailCorporativo?.Trim().ToLower();
+            if (string.IsNullOrEmpty(emailCorporativo))
+            {
+                worker.EmailCorporativo = null;
+            }
+            else
+            {
+                var arroba = emailCorporativo.IndexOf('@');
+                if (arroba <= 0 || arroba == emailCorporativo.Length - 1 || emailCorporativo.Contains(' '))
+                    throw new AbrilException("El correo corporativo no tiene un formato válido.", 400);
+                worker.EmailCorporativo = emailCorporativo;
+            }
+
             worker.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();

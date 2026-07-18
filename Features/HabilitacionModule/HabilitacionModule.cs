@@ -12,6 +12,7 @@ namespace Abril_Backend.Features.Habilitacion
             services.AddHttpClient();
 
             services.AddScoped<IContratistaAuthService, ContratistaAuthService>();
+            services.AddScoped<IObreroAuthService, ObreroAuthService>();
             services.AddScoped<ICatalogosHabilitacionRepository, CatalogosHabilitacionRepository>();
             services.AddScoped<IEmpresaContratistaRepository, EmpresaContratistaRepository>();
             services.AddScoped<IHabTrabajadorRepository, HabTrabajadorRepository>();

@@ -3,6 +3,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
     public class GestionSalidaRepository : IGestionSalidaRepository
     {
         private const int PageSize = 10;
+        private const string CategoriaGerente = "Gerente";
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public GestionSalidaRepository(IDbContextFactory<AppDbContext> factory)
@@ -97,17 +99,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             if (aprobId.HasValue)
                 solicitudQuery = solicitudQuery.Where(s => s.EstadoAprobacionId == aprobId.Value);
 
-            // Visibilidad obligatoria (server-side): el usuario ve las solicitudes en las que él
-            // es el aprobador resuelto (aprobador_worker_id → su user), MÁS las de los trabajadores
-            // que pertenecen a las áreas (area_scope) que tiene permitido ver. Si SeesAll = true no
-            // se aplica restricción por área. El servicio ya resolvió el alcance (override o algoritmo).
+            // Visibilidad obligatoria (server-side): el usuario SIEMPRE ve sus propias solicitudes
+            // (worker_id → su user), sin importar rol ni área — así un trabajador cualquiera puede
+            // ver y rendir lo suyo. Además ve las que le fueron enviadas para revisar
+            // (enviado_a_correo → su email_corporativo), las que él decidió (aprobador_worker_id →
+            // su user; también cubre solicitudes antiguas donde ese campo guardaba al revisor al que
+            // se envió), MÁS las de los trabajadores que pertenecen a las áreas (area_scope) que
+            // tiene permitido ver. Si SeesAll = true no se aplica restricción por área. El servicio
+            // ya resolvió el alcance (override o algoritmo).
             if (filters.CurrentUserId.HasValue && !filters.SeesAll)
             {
                 var uid = filters.CurrentUserId.Value;
                 var areaIds = filters.VisibleAreaScopeIds ?? new List<int>();
                 solicitudQuery = solicitudQuery.Where(s =>
+                    ctx.Worker.Any(w => w.Id == s.WorkerId &&
+                        ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid))
+                    ||
                     (s.AprobadorWorkerId != null &&
                      ctx.Worker.Any(w => w.Id == s.AprobadorWorkerId &&
+                         ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
+                    ||
+                    (s.EnviadoACorreo != null &&
+                     ctx.Worker.Any(w => w.EmailCorporativo != null &&
+                         w.EmailCorporativo.Trim().ToLower() == s.EnviadoACorreo.Trim().ToLower() &&
                          ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)))
                     ||
                     ctx.Worker.Any(w => w.Id == s.WorkerId &&
@@ -145,7 +159,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     s.Id, s.WorkerId, WorkerInternalId = w.Id, w.Subarea,
                     Trabajador = per != null ? (per.FullName ?? "[Sin nombre]") : "[Sin nombre]",
                     s.FechaSalida, s.EstadoAprobacionId, s.EstadoRendicionId, s.CreatedAt,
-                    s.HoraSalidaReal
+                    s.HoraSalidaReal, s.HoraRetornoReal
                 }
             ).ToListAsync();
 
@@ -174,6 +188,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     t.Id, t.SolicitudId, t.Orden, t.HoraSalida, t.HoraRetorno,
                     t.LugarOrigenId, t.LugarDestinoId,
                     Motivo = m != null ? m.Descripcion : (t.MotivoLibre ?? string.Empty),
+                    // Motivo libre (sin catálogo) cuenta como hora exacta → se registra hora real.
+                    EsHoraEstimada = m != null && m.EsHoraEstimada,
                     LugarOrigen = lo == null ? t.LugarOrigenLibre
                                 : lo.Tipo == "proyecto" ? (po != null ? po.ProjectDescription : "[Sin proyecto]")
                                 : lo.Nombre,
@@ -199,6 +215,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             // 4. Catálogo si hay al menos un trabajador TI sin todas sus capturas — para evaluar la regla relajada.
             var hayWorkerTI = solicitudes.Any(s => string.Equals(s.Subarea, SubareaTi, StringComparison.OrdinalIgnoreCase));
             var catalogoMap = hayWorkerTI ? await CargarCatalogoTrayectosAsync(ctx) : new();
+
+            // 4.b. Worker(s) del usuario actual + si es Gerente — para marcar por fila si puede
+            //      aprobar/rechazar (nadie decide sus propias salidas, salvo los gerentes).
+            var misWorkerIds = new HashSet<int>();
+            var esGerente = false;
+            if (filters.CurrentUserId.HasValue)
+            {
+                var uidDec = filters.CurrentUserId.Value;
+                var misWorkers = await (
+                    from w in ctx.Worker
+                    join p in ctx.Person on w.PersonId equals p.PersonId
+                    join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
+                    from c in cj.DefaultIfEmpty()
+                    where p.UserId == uidDec
+                    select new { w.Id, Categoria = c != null ? c.Name : null }
+                ).ToListAsync();
+                misWorkerIds = misWorkers.Select(x => x.Id).ToHashSet();
+                esGerente = misWorkers.Any(x => string.Equals(x.Categoria, CategoriaGerente, StringComparison.OrdinalIgnoreCase));
+            }
 
             // 5. Armar resultado
             var result = new List<GestionSalidaListItemDto>(solicitudes.Count);
@@ -236,13 +271,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     CreatedAt        = s.CreatedAt,
                     PuedeRendirse    = puedeRendir,
                     HoraSalidaReal   = s.HoraSalidaReal,
+                    HoraRetornoReal  = s.HoraRetornoReal,
+                    // Solo se omite la hora real si TODOS los trayectos son de hora estimada.
+                    EsHoraEstimada   = trList.Count > 0 && trList.All(t => t.EsHoraEstimada),
+                    PuedeDecidir     = esGerente || !misWorkerIds.Contains(s.WorkerId),
                 });
             }
 
             return result;
         }
 
-        public async Task<GestionSalidaFilterDataDto> GetFilterData()
+        public async Task<GestionSalidaFilterDataDto> GetFilterData(bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -251,9 +290,22 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 .Distinct()
                 .ToListAsync();
 
+            // Base: trabajadores con al menos una solicitud.
+            var trabajadoresQuery = ctx.Worker.Where(w => workerIds.Contains(w.Id));
+
+            // Recorte por visibilidad: solo trabajadores cuya área esté en el alcance del usuario
+            // (área actual hacia abajo). El propio trabajador del usuario siempre entra, porque
+            // siempre ve sus propias solicitudes. Si ve todo (recepción/GTH), no se recorta.
+            if (!seesAll)
+            {
+                trabajadoresQuery = trabajadoresQuery.Where(w =>
+                    (w.AreaScopeId != null && visibleAreaScopeIds.Contains(w.AreaScopeId.Value))
+                    || (currentUserId != null &&
+                        ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == currentUserId)));
+            }
+
             var trabajadores = await (
-                from w   in ctx.Worker
-                where workerIds.Contains(w.Id)
+                from w   in trabajadoresQuery
                 join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
                 from per in perGroup.DefaultIfEmpty()
                 orderby per != null ? per.FullName : null
@@ -281,6 +333,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
                 join at in ctx.AreaType on ai.AreaTypeId equals at.AreaTypeId
                 where s.State && ai.State && at.State
+                   && (seesAll || visibleAreaScopeIds.Contains(s.AreaScopeId))
                 orderby s.DisplayOrder
                 select new AreaNodeDto
                 {
@@ -302,15 +355,45 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             };
         }
 
+        /// <summary>
+        /// Regla de negocio: un usuario NO puede aprobar ni rechazar sus propias solicitudes de
+        /// salida. Única excepción: si el usuario es Gerente (workers_category "Gerente"), sí puede
+        /// decidir las suyas (los gerentes salen sin pedir permiso, pero se deja habilitado por si acaso).
+        /// </summary>
+        private static async Task EnsurePuedeDecidirAsync(AppDbContext ctx, GaSolicitudSalida s, int reviewerUserId)
+        {
+            var esPropia = await ctx.Worker.AnyAsync(w => w.Id == s.WorkerId &&
+                ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == reviewerUserId));
+            if (!esPropia) return;
+
+            // Categorías de los worker(s) del usuario — se materializan y comparan en memoria
+            // (mismo criterio case-insensitive que SalidaVisibilityResolver).
+            var categorias = await (
+                from w in ctx.Worker
+                join p in ctx.Person on w.PersonId equals p.PersonId
+                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                where p.UserId == reviewerUserId
+                select c.Name
+            ).ToListAsync();
+
+            var esGerente = categorias.Any(n => string.Equals(n, CategoriaGerente, StringComparison.OrdinalIgnoreCase));
+            if (!esGerente)
+                throw new AbrilException("No puedes aprobar ni rechazar tus propias solicitudes de salida.", 403);
+        }
+
         public async Task Aprobar(int id, int reviewerUserId)
         {
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == id)
                 ?? throw new AbrilException("Solicitud no encontrada.", 404);
+            await EnsurePuedeDecidirAsync(ctx, s, reviewerUserId);
             if (s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente)
                 throw new AbrilException("Solo se pueden aprobar solicitudes en estado Pendiente.", 400);
             s.EstadoAprobacionId = EstadosSalida.Aprobacion.Aprobado;
+            s.FechaDecision      = DateTimeOffset.UtcNow;
             s.UpdatedAt          = DateTimeOffset.UtcNow;
+            // Decisión desde la web: el aprobador real es el worker del usuario logueado.
+            await SalidaAprobadorHelper.AsignarPorUsuarioAsync(ctx, s, reviewerUserId);
             await ctx.SaveChangesAsync();
         }
 
@@ -319,10 +402,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             using var ctx = _factory.CreateDbContext();
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == id)
                 ?? throw new AbrilException("Solicitud no encontrada.", 404);
+            await EnsurePuedeDecidirAsync(ctx, s, reviewerUserId);
             if (s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente)
                 throw new AbrilException("Solo se pueden rechazar solicitudes en estado Pendiente.", 400);
             s.EstadoAprobacionId = EstadosSalida.Aprobacion.Rechazado;
+            s.FechaDecision      = DateTimeOffset.UtcNow;
             s.UpdatedAt          = DateTimeOffset.UtcNow;
+            // Decisión desde la web: quien decide (rechaza) es el worker del usuario logueado.
+            await SalidaAprobadorHelper.AsignarPorUsuarioAsync(ctx, s, reviewerUserId);
             await ctx.SaveChangesAsync();
         }
 
@@ -400,6 +487,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                          && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido)
                 .Select(s => s.Id)
                 .ToListAsync();
+        }
+
+        public async Task<List<int>> GetIdsNotOwnedByUser(IEnumerable<int> ids, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var idsList = ids?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new();
+
+            var owned = await (
+                from s   in ctx.GaSolicitudSalida
+                join w   in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId
+                where idsList.Contains(s.Id) && per.UserId == userId
+                select s.Id
+            ).ToListAsync();
+
+            return idsList.Except(owned).ToList();
         }
 
         public async Task<List<int>> GetIdsConTrayectosSinCapturas(IEnumerable<int> ids)
@@ -524,6 +628,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     },
                     t.LugarOrigenId,
                     t.LugarDestinoId,
+                    // Adjunto legacy embebido (modelo anterior 1:1). Se combina con la tabla nueva.
+                    t.AdjuntoUrl,
+                    t.AdjuntoFilename,
                 }
             ).ToListAsync();
 
@@ -531,6 +638,33 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
 
             // Capturas por trayecto
             var trayectoIds = trayectos.Select(t => t.Id).ToList();
+
+            // Adjuntos (tabla nueva ga_solicitud_trayecto_adjunto, N por trayecto) + legacy embebido.
+            var adjuntosByTrayecto = new Dictionary<int, List<GestionSalidaAdjuntoDto>>();
+            if (trayectoIds.Count > 0)
+            {
+                var adjRaw = await ctx.GaSolicitudTrayectoAdjunto
+                    .Where(a => trayectoIds.Contains(a.TrayectoId))
+                    .OrderBy(a => a.UploadedAt).ThenBy(a => a.Id)
+                    .Select(a => new { a.TrayectoId, a.AdjuntoUrl, a.AdjuntoFilename })
+                    .ToListAsync();
+
+                adjuntosByTrayecto = adjRaw.GroupBy(a => a.TrayectoId)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => g.Select(a => new GestionSalidaAdjuntoDto { Url = a.AdjuntoUrl, Filename = a.AdjuntoFilename }).ToList());
+            }
+
+            foreach (var raw in trayectosRaw)
+            {
+                var lista = new List<GestionSalidaAdjuntoDto>();
+                if (!string.IsNullOrWhiteSpace(raw.AdjuntoUrl))
+                    lista.Add(new GestionSalidaAdjuntoDto { Url = raw.AdjuntoUrl, Filename = raw.AdjuntoFilename ?? "Ver documento" });
+                if (adjuntosByTrayecto.TryGetValue(raw.Dto.Id, out var nuevos))
+                    lista.AddRange(nuevos);
+                raw.Dto.Adjuntos = lista;
+            }
+
             if (trayectoIds.Count > 0)
             {
                 var capsRaw = await ctx.GaSolicitudCaptura
@@ -713,6 +847,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             s.HoraSalidaReal                = hora;
             s.HoraSalidaRealRegistradaPorId = hora.HasValue ? registradaPorUserId : (int?)null;
             s.HoraSalidaRealRegistradaAt    = hora.HasValue ? DateTimeOffset.UtcNow : (DateTimeOffset?)null;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task SetHoraRetornoReal(int solicitudId, TimeOnly? hora, int registradaPorUserId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId)
+                ?? throw new AbrilException("Solicitud no encontrada.", 404);
+
+            s.HoraRetornoReal                = hora;
+            s.HoraRetornoRealRegistradaPorId = hora.HasValue ? registradaPorUserId : (int?)null;
+            s.HoraRetornoRealRegistradaAt    = hora.HasValue ? DateTimeOffset.UtcNow : (DateTimeOffset?)null;
             await ctx.SaveChangesAsync();
         }
 

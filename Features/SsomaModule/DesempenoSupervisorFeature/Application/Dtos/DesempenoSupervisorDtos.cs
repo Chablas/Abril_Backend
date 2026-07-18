@@ -32,5 +32,7 @@ public record DesempenoSupervisorDto(
     DateTime? FechaLogro100,
     bool EsPrimeroEnProyecto,
     decimal? PctGeneralMesAnterior,
-    bool EsResidente
+    bool EsResidente,
+    bool EsOculto = false,
+    bool PuedeOcultarse = false
 );

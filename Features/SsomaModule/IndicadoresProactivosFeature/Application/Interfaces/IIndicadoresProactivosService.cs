@@ -4,6 +4,12 @@ namespace Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Applic
 
 public interface IIndicadoresProactivosService
 {
+    // ── Ocultar/mostrar empresas en el seguimiento ────────────────────────────
+    Task<bool> EsCoordinadorSsomaAsync(int userId);
+    Task<HashSet<int>> GetEmpresaExcluidaIdsAsync();
+    Task OcultarEmpresaAsync(int empresaId, string? motivo, int userId);
+    Task MostrarEmpresaAsync(int empresaId);
+
     Task<List<InspeccionTipoDto>> GetTiposInspeccionAsync();
     Task<ProgInspeccionResumenDto> GetProgInspeccionAsync(int proyectoId, int mes, int anio);
     Task GuardarProgInspeccionAsync(GuardarProgInspeccionRequest request, int userId);
@@ -20,4 +26,8 @@ public interface IIndicadoresProactivosService
     // ── Indicadores reactivos IF / IG / IA ───────────────────────────────────
     Task<IndicadorReactivoProyectoDto> GetIndicadoresReactivosAsync(int proyectoId, int mes, int anio);
     Task<List<IndicadorReactivoProyectoDto>> GetIndicadoresReactivosTodosAsync(int mes, int anio);
+
+    // ── Meta anual de reactivos ───────────────────────────────────────────────
+    Task<MetaAnualDto> GetMetaAnualAsync(int anio);
+    Task<MetaAnualDto> GuardarMetaAnualAsync(GuardarMetaAnualRequest request, int userId);
 }

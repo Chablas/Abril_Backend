@@ -97,15 +97,18 @@ public static class RacPdfService
                             inner.Item().Background(Colors.Grey.Lighten3).Padding(4)
                                 .Text($"Fotos ({fotoBytes.Count})").Bold().FontSize(9);
 
+                            // Grilla de 3 columnas y altura fija por foto: con FitWidth() sin límite de
+                            // alto, 1-2 fotos ya empujaban el documento a una segunda hoja. El RAC debe
+                            // caber siempre en una sola página.
                             inner.Item().PaddingTop(6).Grid(grid =>
                             {
-                                grid.Columns(2);
+                                grid.Columns(3);
                                 grid.Spacing(6);
                                 foreach (var (tipo, bytes) in fotoBytes)
                                 {
                                     grid.Item().Column(c =>
                                     {
-                                        c.Item().Image(bytes).FitWidth();
+                                        c.Item().MaxHeight(110).Image(bytes).FitArea();
                                         c.Item().AlignCenter().Text(tipo).FontSize(8)
                                             .FontColor(Colors.Grey.Darken1);
                                     });

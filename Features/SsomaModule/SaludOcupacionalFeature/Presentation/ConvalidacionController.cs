@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convalidacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,6 +11,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/convalidaciones")]
     [Authorize]
+    [RequireFeature("ssoma.salud-ocupacional.convalidaciones")]
     public class ConvalidacionController : ControllerBase
     {
         private readonly IConvalidacionService _service;
@@ -57,6 +59,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ConvalidacionController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("{id:int}/pdf")]
+        public async Task<IActionResult> GetPdf(int id)
+        {
+            try
+            {
+                var bytes = await _service.GenerarPdfAsync(id);
+                return File(bytes, "application/pdf", $"Convalidacion_{id}.pdf");
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error generando PDF de convalidación"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
     }
 }

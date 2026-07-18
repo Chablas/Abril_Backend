@@ -25,6 +25,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
             [FromQuery] bool? hasInstructivo,
             [FromQuery] bool? hasClause,
             [FromQuery] int? workSpecialtyId,
+            [FromQuery] bool? active,
             [FromQuery] int page = 1)
         {
             try
@@ -39,6 +40,7 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkItemCate
                     HasInstructivo = hasInstructivo,
                     HasClause = hasClause,
                     WorkSpecialtyId = workSpecialtyId,
+                    Active = active,
                     Page = page
                 };
 

@@ -43,3 +43,21 @@ public class SsomaProgInspeccionEmpresa
     [ForeignKey(nameof(InspeccionTipoId))]
     public SsomaInspeccionTipo? InspeccionTipo { get; set; }
 }
+
+/// <summary>
+/// Meta anual de indicadores reactivos (IF/IG/IA), definida manualmente por SSOMA cada año
+/// (ej. "10% menos que el año anterior en frecuencia y gravedad"). Un registro por año;
+/// null en algún campo significa que esa meta todavía no se configuró.
+/// Tabla: ssoma_meta_anual
+/// </summary>
+[Table("ssoma_meta_anual")]
+public class SsomaMetaAnual
+{
+    public int Id { get; set; }
+    public int Anio { get; set; }
+    public decimal? MetaIndiceFrecuencia { get; set; }
+    public decimal? MetaIndiceGravedad { get; set; }
+    public decimal? MetaIndiceAccidentabilidad { get; set; }
+    public int? ActualizadoPorId { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}

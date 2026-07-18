@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -15,7 +16,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     [Authorize]
     public class AuditoriaController : ControllerBase
     {
-        private static readonly string[] RolesPermitidos = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DEL SISTEMA"];
+        private static readonly string[] RolesPermitidos = [Roles.AdministradorSsoma, Roles.AdministradorSistema];
 
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IHabTrabajadorRepository _habTrabajadorRepo;

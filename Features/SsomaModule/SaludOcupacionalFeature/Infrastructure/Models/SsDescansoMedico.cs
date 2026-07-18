@@ -80,6 +80,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("motivo")]
         public string? Motivo { get; set; }
 
+        [Column("motivo_id")]
+        public int? MotivoId { get; set; }
+
+        [Column("tipo_id")]
+        public int? TipoId { get; set; }
+
         [Column("url_documento")]
         public string? UrlDocumento { get; set; }
 
@@ -112,6 +118,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
 
         [ForeignKey(nameof(WorkerId))]
         public Worker? Worker { get; set; }
+
+        [ForeignKey(nameof(MotivoId))]
+        public SsDescansoMotivo? MotivoCatalogo { get; set; }
+
+        [ForeignKey(nameof(TipoId))]
+        public SsDescansoTipo? TipoCatalogo { get; set; }
 
         [ForeignKey(nameof(AccidenteId))]
         public SsAccidenteTrabajo? Accidente { get; set; }

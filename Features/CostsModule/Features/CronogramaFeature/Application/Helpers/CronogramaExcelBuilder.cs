@@ -205,26 +205,35 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Applicat
                     cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
                 }
 
-                // Barra de línea de tiempo como FORMA (imagen) posicionada por día,
-                // fina y centrada verticalmente — estilo diagrama de Gantt.
-                // Se ancla a la CELDA del mes de inicio (columna exacta) y el offset solo cubre
-                // la fracción del día dentro del mes; así no hay desfase aunque cruce de año.
+                // Barra de línea de tiempo como FORMA (imagen), fina y centrada verticalmente
+                // — estilo diagrama de Gantt. Se ancla a DOS celdas: la del mes de inicio y la
+                // del mes de fin, con un offset horizontal por la fracción del día dentro de cada
+                // mes. Excel escala la imagen al ancho REAL de las columnas entre ambos anclajes,
+                // así que no hay desfase aunque el rango abarque muchos meses (antes se usaba un
+                // ancho fijo en píxeles asumiendo MonthPx por columna, y ese error se acumulaba
+                // mes a mes hasta que la barra no llegaba a la columna del mes de fin).
                 if (monthCount > 0 && (f.Inicio.HasValue || f.Fin.HasValue))
                 {
                     var ini = f.Inicio ?? f.Fin!.Value;
                     var fin = f.Fin ?? f.Inicio!.Value;
 
                     int miStart = Math.Clamp(MonthIndex(ini, meses[0]), 0, monthCount - 1);
+                    int miEnd   = Math.Clamp(MonthIndex(fin, meses[0]), 0, monthCount - 1);
+
                     double startFrac = (ini.Day - 1.0) / DateTime.DaysInMonth(ini.Year, ini.Month);
-                    double leftAbs = DayToPx(ini, meses[0], false);
-                    double rightAbs = DayToPx(fin, meses[0], true);
-                    int barWidth = Math.Max((int)Math.Round(rightAbs - leftAbs), 4);
-                    int xOffset = (int)Math.Round(startFrac * MonthPx);
-                    int yOffset = (DataRowPx - BarHeightPx) / 2;
+                    double endFrac   = (double)fin.Day / DateTime.DaysInMonth(fin.Year, fin.Month);
+                    int xStart = (int)Math.Round(startFrac * MonthPx);
+                    int xEnd   = (int)Math.Round(endFrac   * MonthPx);
+
+                    int yTop    = (DataRowPx - BarHeightPx) / 2;
+                    int yBottom = yTop + BarHeightPx;
+
+                    // Ancho mínimo visible cuando inicio y fin caen casi en el mismo punto.
+                    if (miEnd == miStart && xEnd - xStart < 4) xEnd = xStart + 4;
 
                     ws.AddPicture(new MemoryStream(BarPng))
-                        .MoveTo(ws.Cell(row, firstMonthCol + miStart), xOffset, yOffset)
-                        .WithSize(barWidth, BarHeightPx);
+                        .MoveTo(ws.Cell(row, firstMonthCol + miStart), xStart, yTop,
+                                ws.Cell(row, firstMonthCol + miEnd),   xEnd,   yBottom);
                 }
                 row++;
             }
@@ -320,19 +329,6 @@ namespace Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Applicat
                 col = (col - 1) / 26;
             }
             return sb.ToString();
-        }
-
-        /// <summary>
-        /// Posición horizontal en píxeles de una fecha sobre la franja de meses.
-        /// Cada mes mide <see cref="MonthPx"/> px; dentro del mes se interpola por día.
-        /// <paramref name="endOfDay"/> incluye el día completo (para el borde derecho de la barra).
-        /// </summary>
-        private static double DayToPx(DateOnly d, (int Year, int Month) first, bool endOfDay)
-        {
-            int monthIndex = Math.Max(MonthIndex(d, first), 0);
-            int diasMes = DateTime.DaysInMonth(d.Year, d.Month);
-            double dia = endOfDay ? d.Day : d.Day - 1;
-            return (monthIndex + dia / diasMes) * MonthPx;
         }
 
         private static int MonthIndex(DateOnly d, (int Year, int Month) first)

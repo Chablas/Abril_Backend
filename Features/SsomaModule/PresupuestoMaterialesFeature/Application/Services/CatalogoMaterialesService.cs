@@ -13,6 +13,19 @@ public class CatalogoMaterialesService : ICatalogoMaterialesService
         _repo = repo;
     }
 
+    public Task<List<FamiliaCatalogoDto>> ListarFamiliasAsync(string? q, int? tipoId, bool? perteneceSsoma)
+        => _repo.ListarFamiliasDetalladoAsync(q, tipoId, perteneceSsoma);
+
+    public Task ActualizarFamiliaAsync(int id, ActualizarFamiliaDto dto)
+        => _repo.ActualizarFamiliaAsync(id, dto);
+
+    public async Task<List<TipoMaterialDto>> ListarTiposAsync()
+    {
+        var tipos = await _repo.GetTiposAsync();
+        return tipos.Select(t => new TipoMaterialDto { Id = t.Id, Nombre = t.Nombre })
+            .OrderBy(t => t.Nombre).ToList();
+    }
+
     public async Task<SeedCatalogoResultDto> SeedCatalogoAsync(SeedCatalogoRequestDto request)
     {
         var resultado = new SeedCatalogoResultDto();
@@ -61,7 +74,8 @@ public class CatalogoMaterialesService : ICatalogoMaterialesService
             // Alias: el texto crudo original (Recurso del S10) -> item estandarizado
             var recursoNorm = TextoNormalizador.Normalizar(fila.Recurso);
             var aliasCreado = await _repo.CreateAliasIfNotExistsAsync(
-                fila.Recurso.Trim(), recursoNorm, item.Id, "SEED", confianza: 1.0m);
+                fila.Recurso.Trim(), recursoNorm, item.Id, "SEED", confianza: 1.0m,
+                factorConversion: fila.CantidadComprada);
 
             if (aliasCreado) resultado.AliasCreados++;
         }

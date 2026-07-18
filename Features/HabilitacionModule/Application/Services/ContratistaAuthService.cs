@@ -7,6 +7,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -519,7 +520,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             {
                 new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
                 new Claim(ClaimTypes.Name, contributor.ContributorName),
-                new Claim(ClaimTypes.Role, "CONTRATISTA"),
+                new Claim(ClaimTypes.Role, Roles.Contratista),
+                new Claim("role_name", "CONTRATISTA"),
                 new Claim("empresaId", contractor.ContributorId.ToString()),
                 new Claim("tipo", "CONTRATISTA"),
                 new Claim("systemRoles", string.Join(",", systemRoleIds)),

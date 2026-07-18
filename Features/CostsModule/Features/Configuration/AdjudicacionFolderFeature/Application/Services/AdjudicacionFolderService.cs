@@ -66,8 +66,11 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.Adjudicacion
             if (dto.ProjectId <= 0)
                 throw new AbrilException("Debe seleccionar un proyecto.");
 
-            if (await _repository.ExistsForProjectAsync(dto.ProjectId))
-                throw new AbrilException("Este proyecto ya tiene una carpeta de adjudicaciones configurada. Edítela en lugar de crear otra.");
+            if (!await _repository.FolderTypeExistsAsync(dto.FolderTypeId))
+                throw new AbrilException("Debe seleccionar un tipo de carpeta válido.");
+
+            if (await _repository.ExistsForProjectAsync(dto.ProjectId, dto.FolderTypeId))
+                throw new AbrilException("Este proyecto ya tiene una carpeta de adjudicaciones configurada para este tipo. Edítela en lugar de crear otra.");
 
             var folder = await ValidateChosenFolderAsync(dto.LinkUrl, dto.DriveId, dto.FolderId);
 

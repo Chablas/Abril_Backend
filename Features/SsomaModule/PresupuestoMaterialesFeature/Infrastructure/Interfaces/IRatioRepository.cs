@@ -13,12 +13,24 @@ public class RatioRawData
     public decimal PrecioTotal { get; set; }
 }
 
+public class RatioUpsertItem
+{
+    public int FamiliaId { get; set; }
+    public int ProjectId { get; set; }
+    public string VariableBase { get; set; } = null!;
+    public decimal CantidadTotal { get; set; }
+    public decimal PrecioUnitarioPromedio { get; set; }
+    public decimal ValorDriver { get; set; }
+    public decimal RatioCantidad { get; set; }
+}
+
 public interface IRatioRepository
 {
     Task<List<RatioRawData>> ObtenerConsumosPorProyectoAsync(int projectId);
-    Task UpsertRatioAsync(int familiaId, int projectId, string variableBase, decimal cantidadTotal,
-        decimal precioUnitarioPromedio, decimal valorDriver, decimal ratioCantidad, bool esOutlier);
+    Task UpsertRatiosBulkAsync(List<RatioUpsertItem> items);
     Task<List<RatioProyectoDto>> ObtenerRatiosPorProyectoAsync(int projectId);
     Task<List<RatioProyectoDto>> ObtenerRatiosPorFamiliaAsync(int familiaId);
+    Task ActualizarIncluidoManualAsync(int familiaId, int projectId, bool incluir, string campo);
+    Task<List<FamiliaConRatioDto>> ListarFamiliasConRatioAsync();
     Task<List<ResumenProyectoRatioDto>> ObtenerResumenAsync();
 }

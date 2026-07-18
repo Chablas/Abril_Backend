@@ -42,6 +42,11 @@ public class CrearInspeccionRequest
     public int ProyectoId { get; set; }
     public int TipoId { get; set; }
     public int? EmpresaId { get; set; }
+    /// <summary>
+    /// Empresa contratista que sube la inspección. Solo lo setea el controller desde el JWT
+    /// (no viene del cliente) — ver InspeccionController.Crear.
+    /// </summary>
+    public int? EmpresaInspectoraId { get; set; }
     public bool EsPlanificada { get; set; } = true;
     public DateTime Fecha { get; set; }
     public string? HoraInicio { get; set; }
@@ -114,6 +119,7 @@ public class InspeccionDetalleDto
     public string TipoAmbito { get; set; } = string.Empty;
     public int? EmpresaId { get; set; }
     public string? EmpresaNombre { get; set; }
+    public int? EmpresaInspectoraId { get; set; }
     public bool EsPlanificada { get; set; }
     public DateTime Fecha { get; set; }
     public string? HoraInicio { get; set; }

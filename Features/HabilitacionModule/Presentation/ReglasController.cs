@@ -4,6 +4,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -60,7 +61,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             try
             {
                 var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-                if (!roles.Any(r => r.Equals("ADMINISTRADOR SSOMA", StringComparison.OrdinalIgnoreCase)))
+                if (!roles.Any(r => r.Equals(Roles.AdministradorSsoma, StringComparison.OrdinalIgnoreCase)))
                     return StatusCode(403, new { message = "Solo ADMINISTRADOR SSOMA puede eliminar reglas." });
 
                 await _repo.DeleteAsync(id);

@@ -4,6 +4,7 @@ using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Applicati
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Presentation
 {
@@ -125,6 +126,7 @@ namespace Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Prese
         }
 
         [HttpPost("{invoiceId:int}/sign")]
+        [Authorize(Roles = Roles.ContabilidadFirmante)]
         public async Task<IActionResult> Sign(int invoiceId)
         {
             try

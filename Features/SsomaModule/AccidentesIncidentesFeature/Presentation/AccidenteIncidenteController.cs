@@ -8,12 +8,14 @@ using Abril_Backend.Infrastructure.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-accidentes-incidentes")]
 [Authorize]
+[RequireFeature("ssoma.gestion.accidentes-incidentes")]
 public class AccidenteIncidenteController : ControllerBase
 {
     private readonly IAccidenteIncidenteService _service;
@@ -45,10 +47,11 @@ public class AccidenteIncidenteController : ControllerBase
         [FromQuery] DateTime? fechaDesde,
         [FromQuery] DateTime? fechaHasta,
         [FromQuery] bool? soloEnviados,
+        [FromQuery] string? areaOrigen,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        try { return Ok(await _service.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, soloEnviados, page, pageSize)); }
+        try { return Ok(await _service.GetListAsync(proyectoId, tipoId, estado, fechaDesde, fechaHasta, soloEnviados, areaOrigen, page, pageSize)); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error lista flash reports"); return StatusCode(500, new { message = "Error del servidor." }); }
     }
@@ -86,13 +89,28 @@ public class AccidenteIncidenteController : ControllerBase
         catch (Exception ex) { _logger.LogError(ex, "Error actualizar flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
     }
 
-    [HttpPost("{id:int}/enviar")]
-    public async Task<IActionResult> Enviar(int id)
+    [HttpPatch("{id:int}/severidad")]
+    public async Task<IActionResult> ActualizarSeveridad(int id, [FromBody] ActualizarSeveridadRequest request)
     {
         try
         {
-            await _service.EnviarFlashReportAsync(id);
-            return Ok(new { message = "Flash Report enviado correctamente. Se generó el PDF y se notificó por correo." });
+            await _service.ActualizarSeveridadAsync(id, request.ConsecuenciaRealPersonal, request.ConsecuenciaPotencialPersonal);
+            return Ok(new { message = "Severidad actualizada correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error actualizar severidad flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpPost("{id:int}/enviar")]
+    public async Task<IActionResult> Enviar(int id, [FromQuery] bool enviarEmail = true)
+    {
+        try
+        {
+            await _service.EnviarFlashReportAsync(id, enviarEmail);
+            var mensaje = enviarEmail
+                ? "Flash Report enviado correctamente. Se generó el PDF y se notificó por correo."
+                : "Flash Report enviado correctamente. Se generó el PDF (sin notificación por correo).";
+            return Ok(new { message = mensaje });
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error enviar flash report {Id}", id); return StatusCode(500, new { message = "Error del servidor." }); }
@@ -138,6 +156,14 @@ public class AccidenteIncidenteController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error subir archivo entregable {Id}", entregableId); return StatusCode(500, new { message = "Error del servidor." }); }
+    }
+
+    [HttpDelete("entregables/archivo/{archivoId:int}")]
+    public async Task<IActionResult> EliminarArchivoEntregable(int archivoId)
+    {
+        try { await _service.EliminarArchivoEntregableAsync(archivoId); return Ok(new { message = "Archivo eliminado." }); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error eliminar archivo entregable {Id}", archivoId); return StatusCode(500, new { message = "Error del servidor." }); }
     }
 
     // ── RM-050 ───────────────────────────────────────────────────────────────

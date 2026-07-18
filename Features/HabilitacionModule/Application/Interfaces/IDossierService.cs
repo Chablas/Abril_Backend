@@ -17,4 +17,6 @@ public interface IDossierService
     Task MarcarSemanaNoAplicaAsync(int dossierId);
     Task EliminarArchivoAsync(int archivoId);
     Task<string> GetArchivoUrlAsync(int archivoId);
+    Task<int?> GetContributorIdDeDocumentoAsync(int docId);
+    Task<int?> GetContributorIdDeArchivoAsync(int archivoId);
 }

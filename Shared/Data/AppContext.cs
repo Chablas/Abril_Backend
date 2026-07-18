@@ -28,6 +28,8 @@ using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastruc
 using Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infrastructure.Models;
 using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models;
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Models;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Models;
+using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -100,8 +102,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<CostosCronogramaActividad> CostosCronogramaActividad { get; set; }
         public DbSet<CostosCronogramaActividadNodo> CostosCronogramaActividadNodo { get; set; }
         public DbSet<ProjectAdjudicacionFolder> ProjectAdjudicacionFolder { get; set; }
+        public DbSet<ProjectAdjudicacionFolderType> ProjectAdjudicacionFolderType { get; set; }
         public DbSet<InvoiceFolder> InvoiceFolder { get; set; }
-        public DbSet<Abril_Backend.Features.AccountingModule.Features.Configuration.ManagerSignatureFeature.Infrastructure.Models.ManagerSignature> ManagerSignature { get; set; }
         public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceDocumentType> InvoiceDocumentType { get; set; }
         public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceStatus> InvoiceStatus { get; set; }
         public DbSet<Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastructure.Models.InvoiceObservationReason> InvoiceObservationReason { get; set; }
@@ -193,10 +195,16 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaMotivoSalida> GaMotivoSalida { get; set; }
         public DbSet<GaSolicitudSalida> GaSolicitudSalida { get; set; }
         public DbSet<GaSolicitudTrayecto> GaSolicitudTrayecto { get; set; }
+        public DbSet<GaSolicitudTrayectoAdjunto> GaSolicitudTrayectoAdjunto { get; set; }
         public DbSet<GaSolicitudCaptura> GaSolicitudCaptura { get; set; }
         public DbSet<GaRendicion> GaRendicion { get; set; }
         public DbSet<GaTrayecto> GaTrayecto { get; set; }
         public DbSet<GaSalidaVisibilidadArea> GaSalidaVisibilidadArea { get; set; }
+        public DbSet<WorkersRevisores> WorkersRevisores { get; set; }
+        public DbSet<AreaRevisores> AreaRevisores { get; set; }
+        public DbSet<GaSalidasAreaConfig> GaSalidasAreaConfig { get; set; }
+        public DbSet<GaSalidasWorkersProject> GaSalidasWorkersProject { get; set; }
+        public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
         // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();
@@ -270,6 +278,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaEntregableTipo> SsomaEntregableTipo => Set<SsomaEntregableTipo>();
         public DbSet<SsomaEntregable> SsomaEntregable => Set<SsomaEntregable>();
         public DbSet<SsomaEntregableResponsable> SsomaEntregableResponsable => Set<SsomaEntregableResponsable>();
+        public DbSet<SsomaEntregableArchivo> SsomaEntregableArchivo => Set<SsomaEntregableArchivo>();
         public DbSet<SsomaInvestigacionRm050> SsomaInvestigacionRm050 => Set<SsomaInvestigacionRm050>();
         public DbSet<SsomaAccionCorrectiva> SsomaAccionCorrectiva => Set<SsomaAccionCorrectiva>();
         // ── Inspecciones ───────────────────────────────────────────────────────
@@ -282,11 +291,16 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaInspeccionFotoArea> SsomaInspeccionFotoArea => Set<SsomaInspeccionFotoArea>();
         // ── Indicadores Proactivos ─────────────────────────────────────────────
         public DbSet<SsomaProgInspeccionEmpresa> SsomaProgInspeccionEmpresa => Set<SsomaProgInspeccionEmpresa>();
+        public DbSet<SsomaMetaAnual> SsomaMetaAnual => Set<SsomaMetaAnual>();
         // ── Auditoría ATS ──────────────────────────────────────────────────────
         public DbSet<SsomaAuditoriaAtsPregunta> SsomaAuditoriaAtsPregunta => Set<SsomaAuditoriaAtsPregunta>();
         public DbSet<SsomaAuditoriaAts> SsomaAuditoriaAts => Set<SsomaAuditoriaAts>();
         public DbSet<SsomaAuditoriaAtsRespuesta> SsomaAuditoriaAtsRespuesta => Set<SsomaAuditoriaAtsRespuesta>();
         public DbSet<SsomaAuditoriaAtsFoto> SsomaAuditoriaAtsFoto => Set<SsomaAuditoriaAtsFoto>();
+        // ── Desempeño Supervisor ───────────────────────────────────────────────
+        public DbSet<Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Models.SsDesempenoSupervisorExcluido> SsDesempenoSupervisorExcluidos => Set<Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Models.SsDesempenoSupervisorExcluido>();
+        // ── Indicadores Proactivos (Seguimiento) ────────────────────────────────
+        public DbSet<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models.SsIndicadorEmpresaExcluida> SsIndicadorEmpresaExcluidas => Set<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models.SsIndicadorEmpresaExcluida>();
         // ── Charlas y Capacitaciones ───────────────────────────────────────────────
         public DbSet<SsCharlaPrograma> SsCharlaProgramas { get; set; }
         public DbSet<SsCharla> SsCharlas { get; set; }
@@ -325,12 +339,27 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoEstado> VecinoRequisitoEstado => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisitoEstado>();
         public DbSet<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisito> VecinoRequisito => Set<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisito>();
 
+        // ── Actas de Reunión (Unidad de Proyectos) ──────────────────────
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.Reunion> Reunion => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.Reunion>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionEstado> ReunionEstado => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionEstado>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTema> ReunionTema => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionTema>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionReprogramacion> ReunionReprogramacion => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionReprogramacion>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionParticipante> ReunionParticipante => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionParticipante>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdo> ReunionAcuerdo => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdo>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoEstado> ReunionAcuerdoEstado => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoEstado>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoResponsable> ReunionAcuerdoResponsable => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionAcuerdoResponsable>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionArchivo> ReunionArchivo => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionArchivo>();
+        public DbSet<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionFolder> ReunionFolder => Set<Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Models.ReunionFolder>();
+
         // ── Salud Ocupacional: Tópico, Accidentes, Descansos ──────────
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>     SsTopicoAtencion     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoAtencion>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoTipoAtencion> SsTopicoTipoAtencion => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.TopicoTipoAtencion>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo>     SsAccidenteTrabajo     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteTrabajo>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteSeguimiento> SsAccidenteSeguimiento => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsAccidenteSeguimiento>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedico>          SsDescansoMedico          => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedico>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMotivo>          SsDescansoMotivo          => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMotivo>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoTipo>            SsDescansoTipo            => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoTipo>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedicoAdjunto>   SsDescansoMedicoAdjunto   => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedicoAdjunto>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoSeguimiento>    SsDescansoSeguimiento     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoSeguimiento>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsTopicoEvolucion>        SsTopicoEvolucion         => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsTopicoEvolucion>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocial>            SsCasoSocial            => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocial>();
@@ -375,6 +404,18 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsPresupuestoPersonalHito> SsPresupuestoPersonalHito => Set<SsPresupuestoPersonalHito>();
         public DbSet<SsControlSemana> SsControlSemana => Set<SsControlSemana>();
         public DbSet<SsControlSemanaLinea> SsControlSemanaLinea => Set<SsControlSemanaLinea>();
+        public DbSet<SsKit> SsKit => Set<SsKit>();
+        public DbSet<SsKitItem> SsKitItem => Set<SsKitItem>();
+
+        public DbSet<AcObservacion> AcObservaciones => Set<AcObservacion>();
+        public DbSet<AcObservacionFoto> AcObservacionFotos => Set<AcObservacionFoto>();
+        public DbSet<AcCatalogoItem> AcCatalogoItems => Set<AcCatalogoItem>();
+
+        public DbSet<AcRevision> AcRevisiones => Set<AcRevision>();
+        public DbSet<AcRevisionObservacion> AcRevisionObservaciones => Set<AcRevisionObservacion>();
+        public DbSet<AcRevisionObservacionFoto> AcRevisionObservacionFotos => Set<AcRevisionObservacionFoto>();
+
+        public DbSet<DecolectaToken> DecolectaToken => Set<DecolectaToken>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -793,6 +834,12 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaEntregableTipo>().ToTable("ss_entregable_tipo");
             modelBuilder.Entity<SsomaEntregable>().ToTable("ss_entregable");
             modelBuilder.Entity<SsomaEntregableResponsable>().ToTable("ss_entregable_responsable");
+            modelBuilder.Entity<SsomaEntregableArchivo>().ToTable("ss_entregable_archivo");
+            modelBuilder.Entity<SsomaEntregableArchivo>()
+                .HasOne<SsomaEntregable>()
+                .WithMany(e => e.Archivos)
+                .HasForeignKey(a => a.EntregableId)
+                .HasConstraintName("fk_ss_entregable_archivo_entregable_id");
             modelBuilder.Entity<SsomaInvestigacionRm050>().ToTable("ss_investigacion_rm050");
             modelBuilder.Entity<SsomaAccionCorrectiva>().ToTable("ss_accion_correctiva");
             modelBuilder.Entity<SsomaAccionCorrectiva>()
@@ -838,6 +885,28 @@ namespace Abril_Backend.Infrastructure.Data
                 entity.ToTable("app_user");
             });
 
+            // Las columnas fecha/*_at de ac_revisiones y ac_revision_observaciones se crearon
+            // como TIMESTAMP (sin zona horaria) en la migración manual, pero Npgsql por defecto
+            // mapea DateTime a "timestamp with time zone" y exige Kind=Utc — sin este override
+            // cualquier insert con Kind=Unspecified (el que llega de [FromForm]) rompe con
+            // "Cannot write DateTime with Kind=Unspecified to PostgreSQL type 'timestamp with
+            // time zone'". Esto hace que el tipo de columna que EF genera coincida con el real.
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevision>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevisionObservacion>(entity =>
+            {
+                entity.Property(e => e.Fecha).HasColumnType("timestamp without time zone");
+                entity.Property(e => e.PlazoLevantamiento).HasColumnType("timestamp without time zone");
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
+                entity.Property(e => e.FechaLevantamiento).HasColumnType("timestamp without time zone");
+            });
+            modelBuilder.Entity<Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models.AcRevisionObservacionFoto>(entity =>
+            {
+                entity.Property(e => e.CreatedAt).HasColumnType("timestamp without time zone");
+            });
+
             modelBuilder.Entity<ProjectSubContractor>(entity =>
             {
                 // La convención snake_case produce "step6signed_*" (no inserta guion después
@@ -860,6 +929,12 @@ namespace Abril_Backend.Infrastructure.Data
             // Un solo requisito activo por vecino + tipo: índice único parcial sobre state = true.
             modelBuilder.Entity<Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Infrastructure.Models.VecinoRequisito>()
                 .HasIndex(r => new { r.VecinoId, r.VecinoRequisitoTipoId })
+                .IsUnique()
+                .HasFilter("state = true");
+
+            // Un mismo token de Decolecta no puede estar activo dos veces: índice único parcial sobre state = true.
+            modelBuilder.Entity<DecolectaToken>()
+                .HasIndex(t => t.Token)
                 .IsUnique()
                 .HasFilter("state = true");
 
@@ -1067,6 +1142,17 @@ namespace Abril_Backend.Infrastructure.Data
                  .HasForeignKey(x => x.ControlId)
                  .OnDelete(DeleteBehavior.Cascade);
                 e.HasOne<SsMaterialFamilia>()
+                 .WithMany()
+                 .HasForeignKey(x => x.FamiliaId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+            modelBuilder.Entity<SsKitItem>(e =>
+            {
+                e.HasOne(x => x.Kit)
+                 .WithMany(k => k.Items)
+                 .HasForeignKey(x => x.KitId)
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(x => x.Familia)
                  .WithMany()
                  .HasForeignKey(x => x.FamiliaId)
                  .OnDelete(DeleteBehavior.Restrict);

@@ -12,8 +12,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
         // donde el correo del usuario está registrado en staff_project_email.
         Task<PagedResult<ProjectSubContractorDTO>> GetPaged(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects);
         Task<ProjectSubContractorPagedWithFiltersDTO> GetPagedWithFilters(ProjectSubContractorFilterDTO filter, int userId, bool restrictToOwnProjects);
-        Task<AdjudicacionDashboardDto> GetDashboard(int userId, bool restrictToOwnProjects);
+        Task<AdjudicacionDashboardDto> GetDashboard(ProjectSubContractorFilterDTO filter, bool includeFilterOptions, int userId, bool restrictToOwnProjects);
         Task SendNotification(SendAdjudicacionNotificationDto dto, int userId);
+        /// <summary>Destinatarios (Para + CC, sin BCC) del correo del paso 1 — para la confirmación previa.</summary>
+        Task<AdjudicacionRecipientsPreviewDto> GetNotificationRecipients(int projectSubContractorId);
         Task SaveDates(int projectSubContractorId, UpdateDatesDTO dto, int userId);
         Task<DocumentUploadResponseDto> UploadDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, IFormFile file, int userId);
         Task<DocumentUploadResponseDto> GenerateDocumentAsync(int projectSubContractorId, AdjudicacionDocumentType documentType, int userId);

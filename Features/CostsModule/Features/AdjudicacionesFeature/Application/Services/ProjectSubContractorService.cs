@@ -112,12 +112,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return await _projectSubContractorRepository.GetPagedWithFiltersAsync(filter);
         }
 
-        public async Task<AdjudicacionDashboardDto> GetDashboard(int userId, bool restrictToOwnProjects)
+        public async Task<AdjudicacionDashboardDto> GetDashboard(ProjectSubContractorFilterDTO filter, bool includeFilterOptions, int userId, bool restrictToOwnProjects)
         {
-            List<int>? allowedProjectIds = restrictToOwnProjects
+            filter.AllowedProjectIds = restrictToOwnProjects
                 ? await _projectLinkRepository.GetUserProjectIdsAsync(userId)
                 : null;
-            return await _projectSubContractorRepository.GetDashboardAsync(allowedProjectIds);
+            return await _projectSubContractorRepository.GetDashboardAsync(filter, includeFilterOptions);
         }
 
         public async Task Create(ProjectSubContractorCreateDTO dto, int userId)
@@ -246,6 +246,27 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             // Actualizar estado de la adjudicación a 2 (notificada)
             await _projectSubContractorRepository.UpdateStatusToSent(dto.ProjectSubContractorId, userId);
+        }
+
+        public async Task<AdjudicacionRecipientsPreviewDto> GetNotificationRecipients(int projectSubContractorId)
+        {
+            var data = await _projectSubContractorRepository.GetNotificationData(projectSubContractorId);
+
+            // CC = staff de obra + oficina central + equipo de costos y presupuestos (mismas
+            // fuentes que el envío real). No se expanden grupos vía Graph ni se incluye el BCC.
+            var costosEmails = await _costosPresupuestosEmailService.GetActiveEmails();
+            var cc = data.StaffEmails
+                .Concat(data.OficinaCentralEmails)
+                .Concat(costosEmails)
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return new AdjudicacionRecipientsPreviewDto
+            {
+                To = data.ContractorEmails,
+                Cc = cc
+            };
         }
 
         public async Task UpdateStatusAsync(int projectSubContractorId, int statusId, int userId)
@@ -454,10 +475,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var data = await _projectSubContractorRepository.GetStep5EmailDataAsync(projectSubContractorId);
 
-            if (data.OficinaCentralEmails.Count == 0)
-                throw MissingStaffEmailConfig("Oficina central");
+            // El levantamiento de observaciones ya no va a Oficina Central: se envía
+            // directamente al equipo de Costos y Presupuestos como destinatario principal.
+            var costosEmails = await _costosPresupuestosEmailService.GetActiveEmails();
+            if (costosEmails.Count == 0)
+                throw new AbrilException(
+                    "No hay correos de Costos y Presupuestos configurados para enviar el levantamiento de observaciones. " +
+                    "Regístrelos en Configuración → Correos de Costos y Presupuestos y vuelva a intentarlo.", 422);
 
-            var costosEmailsCc = await _costosPresupuestosEmailService.GetActiveEmails();
             var senderProfile  = await _graphUserService.GetCurrentUserProfileAsync(dto.GraphAccessToken);
             var signature      = BuildEmailSignature(senderProfile);
             var subject        = $"LEVANTAMIENTO DE OBSERVACIONES / {data.ProjectDescription} / {data.ContributorName}";
@@ -465,11 +490,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
             await _delegatedMailService.SendAsync(
                 graphAccessToken: dto.GraphAccessToken,
-                to:               data.OficinaCentralEmails,
+                to:               costosEmails,
                 subject:          subject,
                 body:             body,
                 isHtml:           true,
-                cc:               costosEmailsCc,
                 attachments:      WithSignatureAttachment());
         }
 
@@ -495,7 +519,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         {
             var sb = new StringBuilder();
             sb.AppendLine("<div style=\"font-family:Arial,sans-serif; font-size:13px; color:#333;\">");
-            sb.AppendLine("<p>Estimado equipo de Oficina Central,</p>");
+            sb.AppendLine("<p>Estimado equipo de Costos y Presupuestos,</p>");
             sb.AppendLine("<p>Se les informa que las observaciones registradas en la llegada del expediente del siguiente contrato han sido levantadas:</p>");
             sb.AppendLine("<ul>");
             sb.AppendLine($"  <li><strong>Proyecto:</strong> {data.ProjectDescription}</li>");
@@ -1224,7 +1248,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     if (!data.PromissoryNoteNumber.HasValue) missing.Add("Número de pagaré");
                     // El adelanto es obligatorio solo en "Contrato con adelanto" (2). En "Pago a cuenta" (4)
                     // el % / monto del pagaré es opcional.
-                    if (data.PaymentMethodId == 2 && !data.AdvancePercentage.HasValue && !data.AdvanceAmount.HasValue)
+                    if ((data.PaymentMethodId == 2 || data.PaymentMethodId == 4) && !data.AdvancePercentage.HasValue && !data.AdvanceAmount.HasValue)
                         missing.Add("Adelanto");
                     break;
 
@@ -1448,8 +1472,8 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             var pagareRef = $"PAGARÉ N°{numPagareStr}{abreviaturaProyecto}-{DateTime.UtcNow.Year}";
             // La carta de fianza solo aplica en Suministro (ContractModalityId == 2) + contrato con adelanto
             // (PaymentMethodId == 2) y únicamente cuando se marcó el toggle IncludesCartaFianza.
-            var includeCartaFianza = data.PaymentMethodId == 2 && data.ContractModalityId == 2 && data.IncludesCartaFianza;
-            var tipoDocumentoGarantia = data.PaymentMethodId == 2
+            var includeCartaFianza = (data.PaymentMethodId == 2 || data.PaymentMethodId == 4) && data.ContractModalityId == 2 && data.IncludesCartaFianza;
+            var tipoDocumentoGarantia = data.PaymentMethodId == 2 || data.PaymentMethodId == 4
                 ? (includeCartaFianza
                     ? $"{pagareRef}, LETRA DE GARANTÍA Y CARTA DE FIANZA"
                     : $"{pagareRef} Y LETRA DE GARANTÍA")
@@ -1486,7 +1510,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 ?? "Las valorizaciones se determinan a partir del inicio de los trabajos en obra.";
 
             List<string> clausulasAdelanto;
-            if (data.PaymentMethodId == 2)
+            if (data.PaymentMethodId == 2 || data.PaymentMethodId == 4)
             {
                 // Contrato con adelanto → 5.1.1 (adelanto) y 5.1.2 (saldo). Igual para todas las modalidades.
                 clausulasAdelanto = new List<string>
@@ -1526,7 +1550,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             {
                 var palabrasSinMoneda = $"{palabras} con {centavos:D2}/100";
 
-                var cierre = data.PaymentMethodId == 2
+                var cierre = data.PaymentMethodId == 2 || data.PaymentMethodId == 4
                     ? "de la siguiente forma:"
                     : "acorde a los despachos establecidos en el Cronograma, mediante valorizaciones previa entrega del suministro, " +
                       "lo cual deberá ser cancelado a los siete (7) días hábiles siguientes de brindada la conformidad de " +
@@ -1552,20 +1576,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 ? $"{currencySymbol} {advanceAmount:N2} {(data.HasIgv ? "Inc. IGV" : "No Inc. IGV")}"
                 : "-";
 
-            // {{HOJA_RESUMEN_FORMA_DE_PAGO}}: con adelanto → descripción + % + monto del adelanto;
-            //                                sin adelanto/adenda → solo la descripción ("Contrato sin adelanto" / "Adenda").
-            //                                En ambos casos se añade la valorización (semanal/quincenal) con pago a los
-            //                                días hábiles configurados en el paso 2 (PaymentDays, default 7).
+            // {{HOJA_RESUMEN_FORMA_DE_PAGO}}: solo descripción del método de pago + valorización (semanal/quincenal)
+            // con pago a los días hábiles configurados en el paso 2 (PaymentDays, default 7). No repite el %
+            // ni el monto del adelanto (eso ya lo muestra {{HOJA_RESUMEN_ADELANTO_MONTO}} en la fila de arriba).
             var pagoDiasHabiles = data.PaymentDays > 0 ? data.PaymentDays : 7;
             var valorizacionTexto = !string.IsNullOrWhiteSpace(data.PaymentFormDescription)
                 ? $"valorización {data.PaymentFormDescription.Trim().ToLower(esCulture)} con pago a {pagoDiasHabiles} días hábiles"
                 : $"valorizaciones con pago a {pagoDiasHabiles} días hábiles";
-            var hojaResumenFormaDePago = data.PaymentMethodId == 2
-                ? $"{data.PaymentMethodDescription} {advancePercentageDisplay} ({advanceAmountDisplay}), {valorizacionTexto}"
-                : $"{data.PaymentMethodDescription}, {valorizacionTexto}";
+            var hojaResumenFormaDePago = $"{data.PaymentMethodDescription}, {valorizacionTexto}";
 
             // {{HOJA_RESUMEN_ADELANTO_MONTO}}: con adelanto → "% - monto"; sin adelanto → única "-".
-            var hojaResumenAdelantoMonto = data.PaymentMethodId == 2
+            // Se usa hasAdvance (no un método de pago específico) porque el adelanto puede darse
+            // tanto en "Contrato con adelanto" (2) como en "Pago a cuenta" (4).
+            var hojaResumenAdelantoMonto = hasAdvance
                 ? $"{advancePercentageDisplay} - {advanceAmountDisplay}"
                 : "-";
 
@@ -1609,7 +1632,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PLAZO_NUM}}",                     plazo.ToString() },
                 { "{{PLAZO_EN_PALABRAS}}",             plazoPalabras },
                 { "{{ADVANCE_PERCENTAGE}}",            advancePercentageDisplay },
-                { "{{FORMA_DE_PAGO_ADVANCE_PERCENTAGE}}", data.PaymentMethodId == 2 && data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
+                { "{{FORMA_DE_PAGO_ADVANCE_PERCENTAGE}}", (data.PaymentMethodId == 2 || data.PaymentMethodId == 4) && data.AdvancePercentage.HasValue ? $"{data.AdvancePercentage:N2}%" : "" },
                 { "{{ADVANCE_AMOUNT}}",                advanceAmountDisplay },
                 { "{{HOJA_RESUMEN_FORMA_DE_PAGO}}",    hojaResumenFormaDePago },
                 { "{{HOJA_RESUMEN_ADELANTO_MONTO}}",   hojaResumenAdelantoMonto },
@@ -1667,7 +1690,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // Cláusula del Anexo 3 (Pagaré) — solo aplica cuando hay adelanto (PaymentMethodId == 2).
             // Se pasa como multi-párrafo: si la lista está vacía, el helper elimina el párrafo entero
             // (incluido el bullet "•") para que no quede una viñeta huérfana en el documento.
-            var clausulaAnexo3Pagare = data.PaymentMethodId == 2
+            var clausulaAnexo3Pagare = data.PaymentMethodId == 2 || data.PaymentMethodId == 4
                 ? new List<string> { $"• {advancePercentageStr} de adelanto del monto total con la firma de este contra letra de garantía y pagaré." }
                 : new List<string>();
 
@@ -2221,10 +2244,10 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             SetHeader("F12:F12", "N° DOC");
             // La carta de fianza solo aplica en Suministro (ContractModalityId == 2) + contrato con
             // adelanto (PaymentMethodId == 2) y únicamente cuando se marcó el toggle IncludesCartaFianza.
-            var conCartaFianza = data.PaymentMethodId == 2 && data.ContractModalityId == 2 && data.IncludesCartaFianza;
-            SetHeader("G12:G12", conCartaFianza
-                ? "PAGARÉ, LETRA DE GARANTÍA\nY CARTA DE FIANZA"
-                : "PAGARÉ Y LETRA DE GARANTÍA");
+            var conCartaFianza = (data.PaymentMethodId == 2 || data.PaymentMethodId == 4) && data.ContractModalityId == 2 && data.IncludesCartaFianza;
+            // El encabezado es siempre "CHEQUE / RECIBO"; el detalle del documento de garantía
+            // (pagaré, letra, carta de fianza) va en la celda de datos G13.
+            SetHeader("G12:G12", "CHEQUE / RECIBO");
             SetHeader("H12:H12", "% ADELANTO");
             SetHeader("I12:I12", $"IMPORTE ADELANTO\n{currencySymbol}");
             SetHeader("J12:J12", "SALDO");
@@ -2264,11 +2287,11 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             ws.Cell("F13").Style.Alignment.WrapText   = true;
             ws.Range("F13:F14").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
-            // G – Documentos de garantía: solo en contratos CON adelanto (PaymentMethodId == 2) se indica
+            // G – Documentos de garantía: solo en contratos CON adelanto (PaymentMethodId == 2 o 4) se indica
             // "PAGARÉ N°{N°}{ABREV}-{AÑO} Y LETRA DE GARANTÍA", añadiendo la carta de fianza si aplica
             // (igual que el contrato).
             ws.Range("G13:G14").Merge();
-            if (data.PaymentMethodId == 2)
+            if (data.PaymentMethodId == 2 || data.PaymentMethodId == 4)
             {
                 var numPagare = data.PromissoryNoteNumber.HasValue
                     ? data.PromissoryNoteNumber.Value.ToString("D3")

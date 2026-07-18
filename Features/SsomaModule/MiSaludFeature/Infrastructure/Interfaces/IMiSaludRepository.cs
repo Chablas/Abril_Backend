@@ -8,6 +8,7 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Inter
         Task<int> ResolverWorkerIdAsync(int userId);
         Task<MiSaludResumenDto> GetResumen(int workerId);
         Task<PagedResult<MiDescansoDto>> GetDescansos(int workerId, int page);
-        Task<int> CreateDescanso(int workerId, CrearMiDescansoDto dto, int? userId, string? urlCertificado);
+        Task<int> CreateDescanso(int workerId, CrearMiDescansoDto dto, int? userId, List<(string Url, string Nombre)> adjuntos);
+        Task<DescansoNotificacionDatosDto> GetDatosNotificacionDescansoAsync(int workerId, int userId, int? motivoId);
     }
 }

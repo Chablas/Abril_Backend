@@ -9,6 +9,8 @@ public class SsMaterialAlias
     // SEED | MANUAL | FUZZY_CONFIRMADO
     public string Origen { get; set; } = null!;
     public decimal? Confianza { get; set; }
+    /// <summary>Unidades reales contenidas en 1 "cantidad" reportada en el S10 (ej. 100 para "GUANTES x100 UN"). Default 1.</summary>
+    public decimal FactorConversion { get; set; } = 1;
     public int? ConfirmadoPor { get; set; }
     public DateTimeOffset CreadoEn { get; set; } = DateTimeOffset.UtcNow;
 

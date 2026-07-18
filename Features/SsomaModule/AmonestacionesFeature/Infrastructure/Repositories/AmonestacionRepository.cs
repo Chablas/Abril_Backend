@@ -251,7 +251,9 @@ public class AmonestacionRepository : IAmonestacionRepository
                 a.fecha_cierre AS fechaCierre,
                 a.created_at AS createdAt,
                 COALESCE((SELECT SUM(a2.puntos_infraccion) FROM ssoma_amonestaciones a2
-                           WHERE a2.worker_id = a.worker_id AND a2.state = true), 0)::int AS puntosAcumulados
+                           WHERE a2.worker_id = a.worker_id AND a2.state = true), 0)::int AS puntosAcumulados,
+                EXISTS(SELECT 1 FROM ssoma_inhabilitacion si
+                        WHERE si.worker_id = a.worker_id AND si.fecha_fin IS NULL) AS inhabilitado
             FROM ssoma_amonestaciones a
             JOIN project pr ON pr.project_id = a.proyecto_id
             JOIN workers w ON w.id = a.worker_id
@@ -280,8 +282,6 @@ public class AmonestacionRepository : IAmonestacionRepository
         if (detalle is null) return null;
 
         detalle.Fotos = (await multi.ReadAsync<AmonFotoDto>()).ToList();
-        detalle.Inhabilitado = detalle.PuntosAcumulados >= 10;
-
         return detalle;
     }
 
@@ -420,7 +420,9 @@ public class AmonestacionRepository : IAmonestacionRepository
                    pe.document_identity_code AS dni,
                    c.contributor_id AS empresaId,
                    COALESCE(c.contributor_name, '') AS empresaNombre,
-                   COALESCE(SUM(a.puntos_infraccion), 0)::int AS puntosAcumulados
+                   COALESCE(SUM(a.puntos_infraccion), 0)::int AS puntosAcumulados,
+                   EXISTS(SELECT 1 FROM ssoma_inhabilitacion si
+                           WHERE si.worker_id = w.id AND si.fecha_fin IS NULL) AS inhabilitado
             FROM workers w
             JOIN person pe ON pe.person_id = w.person_id
             LEFT JOIN worker_vinculaciones wv ON wv.worker_id = w.id
@@ -436,8 +438,6 @@ public class AmonestacionRepository : IAmonestacionRepository
 
         var workerDto = await conn.QueryFirstOrDefaultAsync<WorkerPuntajeDto>(sqlWorker, new { wid = workerId });
         if (workerDto is null) return null;
-
-        workerDto.Inhabilitado = workerDto.PuntosAcumulados >= 10;
 
         // Historial de amonestaciones
         var (historial, _) = await GetListAsync(new AmonestacionListQuery { WorkerId = workerId, PageSize = 100 });

@@ -7,12 +7,15 @@ using Abril_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/interconsultas")]
     [Authorize]
+    [RequireFeature("ssoma.salud-ocupacional.interconsultas", "clinica.agenda")]
     public class InterconsultaController : ControllerBase
     {
         private readonly IInterconsultaService _service;
@@ -46,6 +49,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en InterconsultaController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPost("enviar-correos")]
+        public async Task<IActionResult> EnviarCorreos([FromBody] InterconsultaEnviarCorreoDto dto)
+        {
+            try { return Ok(await _service.EnviarRecordatorios(dto.Ids)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error enviando correos de interconsultas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetById(int id)
         {
@@ -55,7 +66,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPost]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> Create([FromBody] InterconsultaCreateDto dto)
         {
             try
@@ -68,7 +79,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPut("{id:int}")]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> Update(int id, [FromBody] InterconsultaUpdateDto dto)
         {
             try
@@ -81,13 +92,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         /// <summary>
-        /// Sube el levantamiento (informe) de la interconsulta.
-        /// Solo la clínica puede hacer esto. Al subir el documento,
-        /// la interconsulta pasa a "Atendida" y la programación a "En Atención".
+        /// Sube el levantamiento (informe) de la interconsulta. Solo la clínica puede hacer
+        /// esto. El cambio de estado a "Atendida" y la reapertura de la programación se
+        /// hacen en el PATCH .../resultado, que el frontend invoca a continuación.
         /// </summary>
         [HttpPost("{id}/documentos")]
         [Consumes("multipart/form-data")]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> SubirDocumento(int id, [FromForm] IFormFile file)
         {
             try
@@ -102,26 +113,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
                 using var stream = file.OpenReadStream();
                 var path = await _sharePoint.SubirArchivoAsync(stream, file.FileName, "interconsulta");
                 interconsulta.UrlInforme = path;
-                interconsulta.Estado = "Atendida";
                 interconsulta.UpdatedAt = DateTimeOffset.UtcNow;
 
-                // Retornar la programación a "En Atención" para que la clínica pueda completar el proceso.
-                // No exigimos Estado == "En Interconsulta" exacto: si la programación ya quedó
-                // "Completado" por otra vía (p. ej. el EMO se registró sin marcar que requería
-                // interconsulta, y esta se creó aparte), igual debe poder avanzar al resolverse.
-                var prog = await ctx.SsProgramacionEmo
-                    .Where(p => p.WorkerId == interconsulta.WorkerId
-                             && p.Estado != "Completado"
-                             && p.Estado != "Cancelado"
-                             && p.Estado != "Rechazado por Clínica")
-                    .OrderByDescending(p => p.FechaProgramada)
-                    .FirstOrDefaultAsync();
-                if (prog != null)
-                {
-                    prog.Estado = "En Atención";
-                    prog.UpdatedAt = DateTimeOffset.UtcNow;
-                }
-
+                // El paso de "Atendida" y de reabrir la programación a "En Atención" (por el vínculo
+                // real EmoResultadoId, con creación de la fila si nunca existió) lo hace
+                // IInterconsultaService.UpdateResultado — el frontend llama a ese endpoint justo
+                // después de subir el documento. No duplicar esa lógica aquí para no correr dos
+                // heurísticas distintas sobre la misma interconsulta.
                 await ctx.SaveChangesAsync();
 
                 return Ok(new { url = path });
@@ -131,7 +129,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPatch("{id:int}/resultado")]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> PatchResultado(int id, [FromBody] InterconsultaResultadoPatchDto dto)
         {
             try
@@ -144,7 +142,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         [HttpPatch("{id:int}/derivacion")]
-        [Authorize(Roles = "CLINICA")]
+        [Authorize(Roles = Roles.Clinica)]
         public async Task<IActionResult> PatchDerivacion(int id, [FromBody] InterconsultaDerivacionPatchDto dto)
         {
             try

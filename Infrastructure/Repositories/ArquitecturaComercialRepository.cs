@@ -314,12 +314,45 @@ namespace Abril_Backend.Infrastructure.Repositories
             return proyectos.OrderBy(p => p.Nombre).ToList();
         }
 
-        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc()
+        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc(bool soloObreros = false)
         {
             using var ctx = _factory.CreateDbContext();
 
+            if (!soloObreros)
+            {
+                return await ctx.Worker
+                    .Where(w => w.Estado == "ACTIVO" && w.Subarea == "Arquitectura Comercial")
+                    .OrderBy(w => w.Person != null ? w.Person.FullName : null)
+                    .Select(w => new SupervisorAcDTO
+                    {
+                        Id = w.Id,
+                        ApellidoNombre = (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
+                    })
+                    .ToListAsync();
+            }
+
+            // "Obrero de Arquitectura Comercial" = trabajador cuyo PROYECTO ACTUAL es, literalmente,
+            // el proyecto llamado "Arquitectura Comercial" (el mismo que aparece como opción en el
+            // filtro de proyecto de Ingreso de Trabajadores/Habilitación) — no un flag booleano en
+            // otros proyectos (TieneArquitecturaComercial solo marca qué proyectos aparecen en el
+            // módulo de Observaciones, no de qué trabajadores son AC). "Proyecto actual" usa el mismo
+            // criterio que HabTrabajadorRepository.GetPaged ("LatestVincActiva"): la vinculación con
+            // FechaFin == null más reciente (CreatedAt, luego Id) por trabajador.
+            // El staff ya tiene su propio correo/usuario individual y no pasa por este selector; a
+            // este solo llegan cuentas de campo compartidas (operarioscomercial@abril.pe).
+            var vinculacionActivaPorWorker = ctx.WorkerVinculacion
+                .Where(v => v.FechaFin == null)
+                .Where(v => !ctx.WorkerVinculacion.Any(otra =>
+                    otra.WorkerId == v.WorkerId &&
+                    otra.FechaFin == null &&
+                    (otra.CreatedAt > v.CreatedAt || (otra.CreatedAt == v.CreatedAt && otra.Id > v.Id))));
+
+            var workerIdsConProyectoAcActual = vinculacionActivaPorWorker
+                .Where(v => v.ProyectoId != null)
+                .Join(ctx.Project.Where(p => p.ProjectDescription != null && p.ProjectDescription.ToLower() == "arquitectura comercial"), v => v.ProyectoId, p => p.ProjectId, (v, p) => v.WorkerId);
+
             return await ctx.Worker
-                .Where(w => w.Estado == "ACTIVO" && w.Subarea == "Arquitectura Comercial")
+                .Where(w => w.Estado == "ACTIVO" && workerIdsConProyectoAcActual.Contains(w.Id))
                 .OrderBy(w => w.Person != null ? w.Person.FullName : null)
                 .Select(w => new SupervisorAcDTO
                 {
@@ -1303,23 +1336,65 @@ namespace Abril_Backend.Infrastructure.Repositories
             }
 
             var actividades = await query.ToListAsync();
-            var total       = actividades.Count;
-            var culminadas  = actividades.Count(a => a.FinEfectivo != null);
-            var enProceso   = actividades.Count(a => a.InicioEfectivo != null && a.FinEfectivo == null);
             var vencidas    = actividades.Count(a => a.FinProgramado.HasValue
                                  && a.FinProgramado.Value < today
                                  && a.FinEfectivo == null);
-            var pendientes  = actividades.Count(a => a.InicioProgramado.HasValue
-                                 && a.InicioProgramado.Value > today
-                                 && a.InicioEfectivo == null);
 
             var spiVals = actividades.Where(a => a.Spi.HasValue && a.Spi.Value > 0)
                 .Select(a => (double)a.Spi!.Value).ToList();
             var eficienciaMedia = spiVals.Count > 0 ? Math.Round(spiVals.Average(), 2) : 0.0;
-            var progresoGlobal  = total > 0 ? Math.Round((double)culminadas / total * 100, 1) : 0.0;
 
-            var semLunes   = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            // ── Semana de control (viernes): actual, o la seleccionada por filtro ──
+            DateOnly semLunes;
+            if (filtro.Semana.HasValue)
+            {
+                var anioSem   = filtro.Anio ?? today.Year;
+                var jan1Sem   = new DateOnly(anioSem, 1, 1);
+                var dowSem    = (int)jan1Sem.DayOfWeek;
+                var offsetSem = dowSem == 0 ? 6 : dowSem - 1;
+                semLunes = jan1Sem.AddDays((filtro.Semana.Value - 1) * 7 - offsetSem);
+            }
+            else
+            {
+                semLunes = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            }
             var semDomingo = semLunes.AddDays(6);
+            var semanaActualInfo = new SemanaDashboardDTO
+            {
+                Numero = ISOWeek.GetWeekOfYear(semLunes.ToDateTime(TimeOnly.MinValue)),
+                Inicio = semLunes.ToString("dd/MM/yyyy"),
+                Fin    = semDomingo.ToString("dd/MM/yyyy"),
+                Label  = $"Semana {ISOWeek.GetWeekOfYear(semLunes.ToDateTime(TimeOnly.MinValue))}: {semLunes:dd/MM} - {semDomingo:dd/MM}",
+            };
+
+            // ── Ventana "últimas 2 semanas" (default de las cards superiores) ──
+            var dosSemanasInicio = filtro.Semana.HasValue ? semLunes : semLunes.AddDays(-7);
+            var rangoUltimasSemanas = $"Últimas 2 semanas: {dosSemanasInicio:dd/MM} - {semDomingo:dd/MM}";
+
+            bool EnVentana(AcActividad a, DateOnly desde, DateOnly hasta) =>
+                (a.InicioProgramado.HasValue && a.InicioProgramado.Value <= hasta
+                    && (a.FinProgramado ?? DateOnly.MaxValue) >= desde)
+                || (a.FinProgramado.HasValue && a.FinProgramado.Value < desde && a.FinEfectivo == null);
+
+            // Cards superiores (KPI bar): últimas 2 semanas por defecto, o la semana filtrada si aplica
+            var actividadesUltimasSemanas = filtro.Semana.HasValue || filtro.Mes.HasValue
+                ? actividades
+                : actividades.Where(a => EnVentana(a, dosSemanasInicio, semDomingo)).ToList();
+
+            var totalCards      = actividadesUltimasSemanas.Count;
+            var culminadasCards = actividadesUltimasSemanas.Count(a => a.FinEfectivo != null);
+            var enProcesoCards  = actividadesUltimasSemanas.Count(a => a.InicioEfectivo != null && a.FinEfectivo == null);
+            var vencidasCards   = actividadesUltimasSemanas.Count(a => a.FinProgramado.HasValue
+                                     && a.FinProgramado.Value < today && a.FinEfectivo == null);
+            var pendientesCards = actividadesUltimasSemanas.Count(a => a.InicioProgramado.HasValue
+                                     && a.InicioProgramado.Value > today && a.InicioEfectivo == null);
+
+            // Semana actual: progreso global, distribución de carga y ranking de eficiencia (foto de la semana)
+            var actividadesSemanaActual = actividades.Where(a => EnVentana(a, semLunes, semDomingo)).ToList();
+            var totalSemana      = actividadesSemanaActual.Count;
+            var culminadasSemana = actividadesSemanaActual.Count(a => a.FinEfectivo != null);
+            var progresoGlobalSemana = totalSemana > 0
+                ? Math.Round((double)culminadasSemana / totalSemana * 100, 1) : 0.0;
 
             var alertas = new ArqComercialAlertDTO
             {
@@ -1343,7 +1418,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .Where(p => p.ResponsableArqComId != null)
                 .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
 
-            var workerIds = actividades
+            var workerIds = actividadesSemanaActual
                 .SelectMany(a =>
                 {
                     var resp1 = a.UserId ??
@@ -1359,9 +1434,10 @@ namespace Abril_Backend.Infrastructure.Repositories
 
             var workerNameMap = workers.ToDictionary(w => w.Id, w => w.Person?.FullName ?? $"Worker {w.Id}");
 
+            // Distribución de carga y ranking de eficiencia: solo actividades de la semana en control (foto semanal)
             var tareasPorArquitectoDetalle = workerIds.Select(uid =>
             {
-                var tareas     = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
+                var tareas     = actividadesSemanaActual.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
                 var completadas = tareas.Count(a => a.FinEfectivo != null);
                 // Carga actual = NO culminadas que ya llegaron a su fecha de inicio
                 var pendientes  = tareas.Where(a => a.FinEfectivo == null
@@ -1383,29 +1459,61 @@ namespace Abril_Backend.Infrastructure.Repositories
             var supervisores = workerIds
                 .Select(uid =>
                 {
-                    var tareas = actividades.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
-                    var total  = tareas.Count;
-                    if (total == 0) return null;
+                    // Ranking Eficiencia: NO es "todo lo que estuvo activo esta semana" (eso incluiría
+                    // actividades largas que recién vencen dentro de 2 meses, solo porque están "en
+                    // curso"). Son dos compromisos concretos y puntuales de la semana en control:
+                    //   - "vencenEstaSemana": debía CERRAR esta semana (FinProgramado en la semana).
+                    //   - "arrancanEstaSemana": debía EMPEZAR esta semana (InicioProgramado en la semana).
+                    var vencenEstaSemana = actividades.Where(a =>
+                        (a.UserId == uid || a.UserId2 == uid)
+                        && a.FinProgramado.HasValue
+                        && a.FinProgramado.Value >= semLunes && a.FinProgramado.Value <= semDomingo).ToList();
+                    var arrancanEstaSemana = actividades.Where(a =>
+                        (a.UserId == uid || a.UserId2 == uid)
+                        && a.InicioProgramado.HasValue
+                        && a.InicioProgramado.Value >= semLunes && a.InicioProgramado.Value <= semDomingo).ToList();
 
-                    var completadas = tareas.Count(a => a.FinEfectivo != null);
+                    // Deuda anterior: vencidas de semanas PREVIAS a la semana en control, sin cerrar.
+                    // Informativo — no entra en el IES, para no arrastrar penalización eterna.
+                    var deudaAnterior = actividades.Count(a =>
+                        (a.UserId == uid || a.UserId2 == uid)
+                        && a.FinProgramado.HasValue && a.FinProgramado.Value < semLunes
+                        && a.FinEfectivo == null);
 
-                    // 1. SPI (35%)
-                    var spiValidos  = tareas.Where(a => a.Spi.HasValue && a.Spi.Value > 0 && a.Spi.Value <= 1.5m).ToList();
+                    var total = vencenEstaSemana.Count;
+                    if (total == 0)
+                    {
+                        // Nada que debiera cerrar esta semana: se muestra igual, marcado como "sin
+                        // compromisos" — no entra al IES ni al promedio del equipo (lo resuelve el front).
+                        return new SupervisorProgresoDTO
+                        {
+                            UserId         = uid,
+                            Nombre         = workerNameMap.GetValueOrDefault(uid, $"Worker {uid}"),
+                            SinCompromisos = true,
+                            DeudaAnterior  = deudaAnterior,
+                        };
+                    }
+
+                    var completadas = vencenEstaSemana.Count(a => a.FinEfectivo != null);
+
+                    // 1. SPI (35%): de lo que debía cerrar esta semana, ¿a qué ritmo va (real vs. planificado)?
+                    var spiValidos  = vencenEstaSemana.Where(a => a.Spi.HasValue && a.Spi.Value > 0 && a.Spi.Value <= 1.5m).ToList();
                     var spiPromedio = spiValidos.Any() ? (double)spiValidos.Average(a => a.Spi!.Value) : 1.0;
                     var compSpi     = Math.Min(spiPromedio / 1.5, 1.0) * 100;
 
-                    // 2. Tasa de cierre (35%)
+                    // 2. Tasa de cierre (35%): de lo que debía cerrar esta semana, ¿cuánto cerró?
                     var compCierre = completadas / (double)total * 100;
 
-                    // 3. Puntualidad de inicio (20%)
-                    var conInicioEfectivo = tareas.Where(a => a.InicioEfectivo.HasValue).ToList();
+                    // 3. Puntualidad de inicio (20%): de lo que debía ARRANCAR esta semana y ya arrancó
+                    //    de verdad, ¿cuánto arrancó a tiempo o antes?
+                    var conInicioEfectivo = arrancanEstaSemana.Where(a => a.InicioEfectivo.HasValue).ToList();
                     var puntuales         = conInicioEfectivo.Count(a => a.InicioEfectivo!.Value <= a.InicioProgramado!.Value);
                     var compInicio        = conInicioEfectivo.Any()
                         ? puntuales / (double)conInicioEfectivo.Count * 100
                         : 50.0;
 
-                    // 4. Penalización mora (10%)
-                    var vencidas = tareas.Count(a => a.FinProgramado.HasValue && a.FinProgramado.Value < today && a.FinEfectivo == null);
+                    // 4. Penalización mora (10%): de lo que debía cerrar esta semana, ¿cuánto ya venció sin cerrar?
+                    var vencidas = vencenEstaSemana.Count(a => a.FinProgramado!.Value < today && a.FinEfectivo == null);
                     var compMora = (1 - vencidas / (double)total) * 100;
 
                     var ies = Math.Round(compSpi * 0.35 + compCierre * 0.35 + compInicio * 0.20 + compMora * 0.10, 1);
@@ -1413,15 +1521,18 @@ namespace Abril_Backend.Infrastructure.Repositories
 
                     return new SupervisorProgresoDTO
                     {
-                        Nombre      = workerNameMap.GetValueOrDefault(uid, $"Worker {uid}"),
-                        Progreso    = ies,
-                        Total       = total,
-                        Completadas = completadas,
+                        UserId        = uid,
+                        Nombre        = workerNameMap.GetValueOrDefault(uid, $"Worker {uid}"),
+                        Progreso      = ies,
+                        Total         = total,
+                        Completadas   = completadas,
+                        DeudaAnterior = deudaAnterior,
                     };
                 })
                 .Where(s => s != null)
                 .Cast<SupervisorProgresoDTO>()
-                .OrderByDescending(s => s.Progreso)
+                .OrderBy(s => s.SinCompromisos)      // "sin compromisos" siempre al final, no compite en el ranking
+                .ThenByDescending(s => s.Progreso)
                 .ToList();
 
             var hitosBase = actividades
@@ -1445,41 +1556,80 @@ namespace Abril_Backend.Infrastructure.Repositories
                 Estado        = ComputeEstado(a.InicioProgramado, a.FinProgramado, a.InicioEfectivo, a.FinEfectivo, today),
                 FechaLimite   = a.FinProgramado?.ToString("dd/MM/yyyy") ?? "",
                 DiasRestantes = a.FinProgramado.HasValue ? (a.FinProgramado.Value.DayNumber - today.DayNumber) : 0,
+                Semana        = a.FinProgramado.HasValue ? ISOWeek.GetWeekOfYear(a.FinProgramado.Value.ToDateTime(TimeOnly.MinValue)) : 0,
             }).ToList();
 
             var hace8Semanas = today.AddDays(-56);
-            var semanaRaw = await ctx.AcAvanceSemanal
-                .Where(s => s.Semana >= hace8Semanas)
-                .GroupBy(s => s.Semana)
-                .Select(g => new { Semana = g.Key, Real = g.Average(x => x.PorcentajeAvance) })
-                .OrderBy(s => s.Semana)
-                .ToListAsync();
 
-            // Fix: programado calculado independientemente — cuántas actividades debían estar cerradas en esa semana
-            var semanas = semanaRaw.Select(s =>
-            {
-                var programadoPct = total > 0
-                    ? Math.Round((double)actividades.Count(a => a.FinProgramado.HasValue && a.FinProgramado.Value <= s.Semana) / total * 100, 2)
-                    : 0.0;
-                return new AvanceSemanalDTO
+            // Solo se cuenta lo proyectado esa semana: la actividad debía estar en curso durante la semana del snapshot
+            var avanceConActividad = await (
+                from s in ctx.AcAvanceSemanal
+                join a in ctx.AcActividad on s.ActividadId equals a.Id
+                where s.Semana >= hace8Semanas
+                   && a.InicioProgramado.HasValue && a.FinProgramado.HasValue
+                   && a.InicioProgramado.Value <= s.Semana.AddDays(6)
+                   && a.FinProgramado.Value >= s.Semana
+                select new
                 {
-                    Semana     = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
-                    Real       = s.Real,
-                    Programado = (decimal)programadoPct,
-                };
-            }).ToList();
+                    s.ActividadId, s.Semana, s.PorcentajeAvance, s.Spi,
+                    InicioProgramado = a.InicioProgramado!.Value, FinProgramado = a.FinProgramado!.Value,
+                }
+            ).ToListAsync();
 
-            var spiRaw = await ctx.AcAvanceSemanal
-                .Where(s => s.Semana >= hace8Semanas)
+            // Curva de avance = delta semanal (cuánto avanzó cada actividad de una semana a la siguiente),
+            // no el nivel acumulado promedio: promediar el % acumulado sobre un grupo cuya composición
+            // cambia semana a semana (entran actividades recién arrancadas, salen las que ya cerraron)
+            // producía subidas/bajadas que no reflejaban avance real, solo el cambio de quién entraba al grupo.
+            static double AvanceEsperadoAcumulado(DateOnly inicio, DateOnly fin, DateOnly asOf)
+            {
+                var dias = (fin.ToDateTime(TimeOnly.MinValue) - inicio.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                if (dias <= 0) return 0.0;
+                var transcurridos = (asOf.ToDateTime(TimeOnly.MinValue) - inicio.ToDateTime(TimeOnly.MinValue)).TotalDays;
+                return Math.Min(100.0, Math.Max(0.0, transcurridos / dias * 100.0));
+            }
+
+            var deltasPorActividad = avanceConActividad
+                .GroupBy(x => x.ActividadId)
+                .SelectMany(g =>
+                {
+                    var ordenado = g.OrderBy(x => x.Semana).ToList();
+                    var deltas = new List<(DateOnly Semana, double DeltaReal, double DeltaEsperado)>();
+                    for (int i = 1; i < ordenado.Count; i++)
+                    {
+                        var prev = ordenado[i - 1];
+                        var cur  = ordenado[i];
+                        var esperadoPrev = AvanceEsperadoAcumulado(prev.InicioProgramado, prev.FinProgramado, prev.Semana.AddDays(6));
+                        var esperadoCur  = AvanceEsperadoAcumulado(cur.InicioProgramado, cur.FinProgramado, cur.Semana.AddDays(6));
+                        deltas.Add((cur.Semana,
+                            (double)cur.PorcentajeAvance - (double)prev.PorcentajeAvance,
+                            esperadoCur - esperadoPrev));
+                    }
+                    return deltas;
+                })
+                .ToList();
+
+            var semanas = deltasPorActividad
+                .GroupBy(x => x.Semana)
+                .OrderBy(g => g.Key)
+                .Select(g => new AvanceSemanalDTO
+                {
+                    Semana     = $"Sem {ISOWeek.GetWeekOfYear(g.Key.ToDateTime(TimeOnly.MinValue))}",
+                    Real       = (decimal)Math.Round(g.Average(x => x.DeltaReal), 2),
+                    Programado = (decimal)Math.Round(g.Average(x => x.DeltaEsperado), 2),
+                })
+                .ToList();
+
+            var spiRaw = avanceConActividad
                 .GroupBy(s => s.Semana)
-                .Select(g => new { Semana = g.Key, Spi = g.Average(x => x.Spi) })
+                .Select(g => new { Semana = g.Key, Spi = g.Average(x => (double)x.Spi) })
                 .OrderBy(s => s.Semana)
-                .ToListAsync();
+                .ToList();
 
             var eficienciaSpi = spiRaw.Select(s => new EficienciaSpiDTO
             {
-                Semana = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
-                Spi    = s.Spi,
+                Semana   = $"Sem {ISOWeek.GetWeekOfYear(s.Semana.ToDateTime(TimeOnly.MinValue))}",
+                Spi      = (decimal)s.Spi,
+                Esperado = 1.0m,
             }).ToList();
 
             var categoriasRaw = await ctx.AcCategoria
@@ -1522,23 +1672,25 @@ namespace Abril_Backend.Infrastructure.Repositories
             {
                 Kpis = new ArqComercialKpiDTO
                 {
-                    TotalActividades = total,
-                    Culminadas       = culminadas,
-                    EnProceso        = enProceso,
-                    Vencidas         = vencidas,
-                    Pendientes       = pendientes,
+                    TotalActividades = totalCards,
+                    Culminadas       = culminadasCards,
+                    EnProceso        = enProcesoCards,
+                    Vencidas         = vencidasCards,
+                    Pendientes       = pendientesCards,
                     EficienciaMedia  = eficienciaMedia,
-                    ProgresoGlobal   = progresoGlobal,
+                    ProgresoGlobal   = progresoGlobalSemana,
                 },
                 Alertas            = alertas,
                 Supervisores       = supervisores,
                 HitosCriticos      = hitosCriticos,
+                SemanaActual       = semanaActualInfo,
+                RangoUltimasSemanas= rangoUltimasSemanas,
                 DistribucionEstado = new List<ArqComercialChartItemDTO>
                 {
-                    new() { Label = "Culminadas", Value = culminadas },
-                    new() { Label = "En Proceso", Value = enProceso  },
-                    new() { Label = "Vencidas",   Value = vencidas   },
-                    new() { Label = "Pendientes", Value = pendientes  },
+                    new() { Label = "Culminadas", Value = culminadasCards },
+                    new() { Label = "En Proceso", Value = enProcesoCards  },
+                    new() { Label = "Vencidas",   Value = vencidasCards   },
+                    new() { Label = "Pendientes", Value = pendientesCards  },
                 },
                 RankingEficiencia  = tareasPorArquitectoDetalle.Select(t => new ArqComercialChartItemDTO
                 {
@@ -1736,6 +1888,73 @@ namespace Abril_Backend.Infrastructure.Repositories
                 a.Spi = CalcularSpi(a);
             }
             await ctx.SaveChangesAsync();
+        }
+
+        // Histórico completo del supervisor (todo el tiempo, no solo la semana en control) —
+        // para el modal "Eficiencia a lo largo del tiempo" que se abre desde el Ranking Eficiencia.
+        public async Task<SupervisorHistoricoDTO?> GetSupervisorHistorico(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            var worker = await ctx.Worker.Where(w => w.Id == userId).Include(w => w.Person).FirstOrDefaultAsync();
+            if (worker == null) return null;
+
+            var nombre = worker.Person?.FullName ?? $"Worker {userId}";
+
+            var actividades = await ctx.AcActividad
+                .Where(a => a.Activo && (a.UserId == userId || a.UserId2 == userId))
+                .ToListAsync();
+
+            if (actividades.Count == 0)
+                return new SupervisorHistoricoDTO { Nombre = nombre };
+
+            var classified = actividades.Select(a => new
+            {
+                a.FinProgramado,
+                a.FinEfectivo,
+                a.Spi,
+                Estado = ComputeEstado(a.InicioProgramado, a.FinProgramado, a.InicioEfectivo, a.FinEfectivo, today),
+            }).ToList();
+
+            int total      = classified.Count;
+            int culminadas = classified.Count(x => x.Estado == EstadoCulminado);
+            int enProceso  = classified.Count(x => x.Estado == EstadoEnProceso);
+            int vencidas   = classified.Count(x => x.Estado == EstadoVencido);
+            int pendientes = classified.Count(x => x.Estado == EstadoPendiente);
+
+            var spiValidos     = classified.Where(x => x.Spi.HasValue && x.Spi.Value > 0).ToList();
+            var spiPromedio    = spiValidos.Count > 0 ? Math.Round((double)spiValidos.Average(x => x.Spi!.Value), 2) : 0.0;
+            var eficienciaHist = total > 0 ? Math.Round((double)culminadas / total * 100, 1) : 0.0;
+
+            // Tendencia semanal (últimas 8 semanas): de lo que vencía cada semana, ¿cuánto se cerró?
+            // Mismo criterio que el Ranking Eficiencia actual, para que la tendencia sea comparable.
+            var semLunesActual = today.AddDays(today.DayOfWeek == DayOfWeek.Sunday ? -6 : -(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            var tendencia = new List<EficienciaSemanalDTO>();
+            for (int i = 7; i >= 0; i--)
+            {
+                var weekStart = semLunesActual.AddDays(-7 * i);
+                var weekEnd   = weekStart.AddDays(6);
+                var vencianEsaSemana = actividades.Where(a =>
+                    a.FinProgramado.HasValue && a.FinProgramado.Value >= weekStart && a.FinProgramado.Value <= weekEnd).ToList();
+                var pct = vencianEsaSemana.Count > 0
+                    ? Math.Round((double)vencianEsaSemana.Count(a => a.FinEfectivo != null) / vencianEsaSemana.Count * 100, 1)
+                    : 0.0;
+                tendencia.Add(new EficienciaSemanalDTO { Semana = $"S{weekStart:dd/MM}", Valor = pct });
+            }
+
+            return new SupervisorHistoricoDTO
+            {
+                Nombre              = nombre,
+                TotalActividades    = total,
+                Culminadas          = culminadas,
+                EnProceso           = enProceso,
+                Vencidas            = vencidas,
+                Pendientes          = pendientes,
+                EficienciaHistorica = eficienciaHist,
+                SpiPromedio         = spiPromedio,
+                TendenciaSemanal    = tendencia,
+            };
         }
     }
 }

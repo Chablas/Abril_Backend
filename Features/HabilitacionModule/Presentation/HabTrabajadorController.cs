@@ -15,8 +15,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     [Authorize]
     public class HabTrabajadorController : ControllerBase
     {
-        private static readonly string[] RolesAprobadoresSsoma = ["ADMINISTRADOR SSOMA", "ADMINISTRADOR DE UDP"];
-        private static readonly string[] RolesAprobadoresAdmin = ["ADMINISTRADOR ADMINISTRACION", "ADMINISTRADOR DE UDP"];
+        private static readonly string[] RolesAprobadoresSsoma = [Roles.AdministradorSsoma, Roles.AdministradorUdp];
+        private static readonly string[] RolesAprobadoresAdmin = [Roles.AdministradorAdministracion, Roles.AdministradorUdp];
 
         private readonly IHabTrabajadorRepository _repo;
         private readonly ILogger<HabTrabajadorController> _logger;
@@ -45,22 +45,50 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         {
             try
             {
-                if (User.FindFirst("tipo")?.Value == "CONTRATISTA" && !soloVerificacion)
+                var esContratista = User.FindFirst("tipo")?.Value == "CONTRATISTA";
+                if (esContratista)
                 {
                     if (!int.TryParse(User.FindFirst("empresaId")?.Value, out var empresaJwt))
                         return StatusCode(403, new { message = "Token de contratista inválido." });
-                    empresaId = empresaJwt;
+
+                    var proyectosFiltro = ContratistaProyectosHelper.GetProyectosFiltro(User);
+                    if (proyectosFiltro != null)
+                    {
+                        // scope POR_PROYECTO: puede buscar entre empresas dentro de SUS proyectos
+                        // asignados (necesario para RAC/OPT/Inspecciones contra otra empresa en su obra),
+                        // pero nunca fuera de esos proyectos — no se salta el filtro aunque pida
+                        // soloVerificacion=true.
+                        if (proyectoId == null)
+                        {
+                            if (proyectosFiltro.Count == 1)
+                                proyectoId = proyectosFiltro[0];
+                            else if (proyectosFiltro.Count == 0)
+                                return Ok(new PagedResult<object> { Data = new() });
+                            // Múltiples proyectos: no hay un único proyectoId para acotar aquí — se
+                            // implementa después. Al menos queda acotado por su propia empresa abajo.
+                        }
+                        if (!soloVerificacion) empresaId = empresaJwt;
+                    }
+                    else
+                    {
+                        // scope TODOS: mismo criterio que POR_PROYECTO — un contratista puede reportar
+                        // RAC/OPT/Inspecciones contra el trabajador de OTRA empresa en su propio
+                        // proyecto/obra, así que soloVerificacion=true tampoco se acota por empresa acá.
+                        // Fuera de ese caso (listados de habilitación propios, gestión de sus propios
+                        // trabajadores) sí se restringe siempre a su propia empresa.
+                        if (!soloVerificacion) empresaId = empresaJwt;
+                    }
                 }
 
-                var proyectosFiltro = ContratistaProyectosHelper.GetProyectosFiltro(User);
-                if (proyectosFiltro != null && proyectoId == null)
-                {
-                    if (proyectosFiltro.Count == 1)
-                        proyectoId = proyectosFiltro[0];
-                    else if (proyectosFiltro.Count == 0)
-                        return Ok(new PagedResult<object> { Data = new() });
-                    // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
-                }
+                // pageSize sin tope permitía pedir 9999 filas de golpe. El cap defensivo solo aplica
+                // a listados de habilitación "normales" (soloVerificacion=false) de un contratista sin
+                // acotar por empresa/proyecto — ahí sí escanearía toda la tabla del sistema. Con
+                // soloVerificacion=true (buscador de Observador/Trabajador en RAC/OPT/Inspección/
+                // Auditoría ATS/Accidentes) el contratista necesita la lista completa igual que el
+                // personal interno de Abril, incluso cross-empresa: si se capea acá, la lista queda
+                // truncada alfabéticamente (ej. corta en la letra B) y faltan nombres reales.
+                if (esContratista && !soloVerificacion && empresaId == null && proyectoId == null && pageSize > 200)
+                    pageSize = 200;
 
                 var (items, total) = await _repo.GetWorkersHabilitacionAsync(
                     search, empresaId, proyectoId, estadoHabilitacion, contratistaCasa, page, pageSize, soloRetirados, soloSinEmo, soloEmoVencido, soloSinVidaLey);

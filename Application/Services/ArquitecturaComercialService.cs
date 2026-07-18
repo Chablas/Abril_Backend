@@ -39,9 +39,9 @@ namespace Abril_Backend.Application.Services
             return await _repository.GetProyectosConActividades();
         }
 
-        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc()
+        public async Task<List<SupervisorAcDTO>> GetSupervisoresAc(bool soloObreros = false)
         {
-            return await _repository.GetSupervisoresAc();
+            return await _repository.GetSupervisoresAc(soloObreros);
         }
 
         public async Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina, int? userId, bool esUsuarioAc)
@@ -114,17 +114,35 @@ namespace Abril_Backend.Application.Services
         public async Task RecalcularTodosSpi()
             => await _repository.RecalcularTodosSpi();
 
+        public async Task<SupervisorHistoricoDTO?> GetSupervisorHistorico(int userId)
+            => await _repository.GetSupervisorHistorico(userId);
+
         public async Task EnviarAlertasActividades(EnviarAlertaRequestDTO request)
         {
             using var ctx = _factory.CreateDbContext();
-            var emailsGestores = await ctx.User
+
+            var gestoresConRoles = await ctx.User
                 .Join(ctx.UserRole, u => u.UserId, ur => ur.UserId, (u, ur) => new { u, ur })
-                .Join(ctx.Role, x => x.ur.RoleId, r => r.RoleId, (x, r) => new { x.u.Email, r.RoleDescription })
-                .Where(x => x.RoleDescription.ToUpper() == "GESTOR DE ARQUITECTURA COMERCIAL")
+                .Join(ctx.Role, x => x.ur.RoleId, r => r.RoleId, (x, r) => new { x.u.UserId, x.u.Email, r.RoleDescription })
+                .Where(x => x.RoleDescription.ToUpper() == "GESTOR DE ARQUITECTURA COMERCIAL"
+                         || x.RoleDescription.ToUpper() == "GERENTE DE PROYECTOS")
+                .Select(x => new { x.UserId, x.Email, Rol = x.RoleDescription.ToUpper() })
+                .ToListAsync();
+
+            // El Gerente de Proyectos no debe recibir estas alertas aunque también tenga
+            // asignado el rol Gestor de Arquitectura Comercial (acceso al dashboard no implica
+            // que deba recibir el correo) — se excluye por UserId, no solo por rol.
+            var userIdsGerenteProyectos = gestoresConRoles
+                .Where(x => x.Rol == "GERENTE DE PROYECTOS")
+                .Select(x => x.UserId)
+                .ToHashSet();
+
+            var emailsGestores = gestoresConRoles
+                .Where(x => x.Rol == "GESTOR DE ARQUITECTURA COMERCIAL" && !userIdsGerenteProyectos.Contains(x.UserId))
                 .Select(x => x.Email)
                 .Where(e => e != null)
                 .Distinct()
-                .ToListAsync();
+                .ToList();
 
             await _repository.EnviarAlertasActividades(
                 request.ActividadIds, request.TipoAlerta,

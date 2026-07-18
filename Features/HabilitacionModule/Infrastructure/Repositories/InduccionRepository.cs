@@ -48,18 +48,27 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var limaZone = TimeZoneInfo.FindSystemTimeZoneById("America/Lima");
             var fechaLima = DateTime.SpecifyKind(dto.FechaProgramada, DateTimeKind.Unspecified);
             var fecha = TimeZoneInfo.ConvertTimeToUtc(fechaLima, limaZone);
+            var hoyLima = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, limaZone).Date;
 
-            // IDs de workers que ya tienen una inducción PROGRAMADA en este proyecto
+            // IDs de workers que ya tienen una inducción PROGRAMADA que sigue bloqueando el reagendado:
+            // vigente (fecha aún no vencida) o ya con ingreso confirmado (asistió y está pendiente de
+            // aprobación, no de reprogramación). Solo se libera cuando es un no-show real: vencida y
+            // sin ingreso confirmado — sin depender de que el cron reset-falta ya la haya pasado a FALTA.
             var yaExisten = await ctx.SsInduccion
                 .Where(i => dto.WorkerIds.Contains(i.WorkerId)
                     && i.ProyectoId == dto.ProyectoId
                     && i.Estado == "PROGRAMADA")
-                .Select(i => i.WorkerId)
+                .Select(i => new { i.WorkerId, i.FechaProgramada, i.IngresoConfirmado })
                 .ToListAsync();
 
-            var yaExistenSet = yaExisten.ToHashSet();
+            var yaExistenVigentesSet = yaExisten
+                .Where(i => i.IngresoConfirmado
+                    || TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(i.FechaProgramada, DateTimeKind.Utc), limaZone).Date >= hoyLima)
+                .Select(i => i.WorkerId)
+                .ToHashSet();
+
             var nuevos = dto.WorkerIds.Distinct()
-                .Where(wId => !yaExistenSet.Contains(wId))
+                .Where(wId => !yaExistenVigentesSet.Contains(wId))
                 .ToList();
 
             if (nuevos.Count == 0) return [];
@@ -175,13 +184,24 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (workerIds.Count == 0) return [];
 
-            var workerIdsConProgramacion = await ctx.SsInduccion
+            var limaZone = TimeZoneInfo.FindSystemTimeZoneById("America/Lima");
+            var hoyLima = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, limaZone).Date;
+
+            // Solo bloquea una PROGRAMADA vigente (fecha >= hoy) o con ingreso ya confirmado (asistió,
+            // está pendiente de aprobación, no de reprogramación). Una PROGRAMADA vencida sin ingreso
+            // confirmado es un no-show real y no bloquea, aunque el cron reset-falta aún no la haya
+            // pasado a FALTA.
+            var workerIdsConProgramacion = (await ctx.SsInduccion
                 .Where(i => i.ProyectoId == proyectoId
                          && workerIds.Contains(i.WorkerId)
                          && i.Estado == "PROGRAMADA")
+                .Select(i => new { i.WorkerId, i.FechaProgramada, i.IngresoConfirmado })
+                .ToListAsync())
+                .Where(i => i.IngresoConfirmado
+                    || TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(i.FechaProgramada, DateTimeKind.Utc), limaZone).Date >= hoyLima)
                 .Select(i => i.WorkerId)
                 .Distinct()
-                .ToListAsync();
+                .ToList();
 
             workerIds = workerIds
                 .Where(id => !workerIdsConProgramacion.Contains(id))
@@ -297,6 +317,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             foreach (var induccion in inducciones)
                 await AprobarInduccionAsync(ctx, induccion);
 
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task RechazarAsync(int id)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var induccion = await ctx.SsInduccion.FirstOrDefaultAsync(i => i.Id == id)
+                ?? throw new AbrilException("Inducción no encontrada.", 404);
+
+            // RECHAZADA no bloquea el reagendado (a diferencia de PROGRAMADA vigente o con
+            // ingreso confirmado): el trabajador queda libre para volver a programarse.
+            induccion.Estado = "RECHAZADA";
+            induccion.UpdatedAt = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
         }
 

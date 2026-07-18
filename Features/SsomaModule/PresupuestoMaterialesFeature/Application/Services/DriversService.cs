@@ -27,7 +27,13 @@ public class DriversService : IDriversService
     {
         using var ctx = _factory.CreateDbContext();
 
-        // Proyectos que tienen al menos un consumo cargado
+        // Proyectos habilitados para el módulo SSOMA (misma fuente de verdad que el resto del módulo)
+        var proyectosHabilitados = await ctx.SsProyectoHabilitado
+            .Where(h => h.State && h.Active)
+            .Select(h => h.ProyectoId)
+            .ToListAsync();
+
+        // Proyectos que tienen al menos un consumo cargado (histórico o activos)
         var proyectosConConsumo = await ctx.SsConsumoCarga
             .Where(c => c.Estado == "ACTIVA")
             .Select(c => c.ProjectId)
@@ -40,8 +46,12 @@ public class DriversService : IDriversService
             .Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Key, x => x.Count);
 
+        // Se muestran todos los que tengan consumo O estén habilitados para SSOMA — no se
+        // oculta ninguno, "habilitado" solo se marca como dato visible (badge) para identificarlos.
+        var idsAMostrar = proyectosConConsumo.Union(proyectosHabilitados).ToList();
+
         var proyectos = await ctx.Project
-            .Where(p => proyectosConConsumo.Contains(p.ProjectId))
+            .Where(p => idsAMostrar.Contains(p.ProjectId))
             .OrderBy(p => p.ProjectDescription)
             .ToListAsync();
 
@@ -52,13 +62,14 @@ public class DriversService : IDriversService
             {
                 ProjectId          = p.ProjectId,
                 ProjectDescription = p.ProjectDescription ?? "",
-                Estado             = p.Activo ?? "Inactivo",
+                Estado             = p.Estado ?? "Inactivo",
                 HhTotalCasa        = p.HhTotalCasa,
                 AreaTechadaM2      = p.AreaTechadaM2,
                 Trabajadores       = trabInt,
                 HhFuente           = p.HhFuente ?? "HH_REAL",
                 FamiliasConRatio   = ratiosPorProyecto.GetValueOrDefault(p.ProjectId, 0),
-                TieneConsumos      = proyectosConConsumo.Contains(p.ProjectId)
+                TieneConsumos      = proyectosConConsumo.Contains(p.ProjectId),
+                HabilitadoSsoma    = proyectosHabilitados.Contains(p.ProjectId)
             };
         }).ToList();
     }

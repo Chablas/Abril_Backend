@@ -113,6 +113,18 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.Aprobar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpPatch("{id:int}/rechazar")]
+        public async Task<IActionResult> Rechazar(int id)
+        {
+            try
+            {
+                await _repo.RechazarAsync(id);
+                return Ok(new { message = "Inducción rechazada." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en InduccionController.Rechazar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPatch("aprobar-batch")]
         public async Task<IActionResult> AprobarBatch([FromBody] InduccionBatchAprobarDto dto)
         {

@@ -153,6 +153,10 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IDescansoMedicoRepository, DescansoMedicoRepository>();
             services.AddScoped<IDescansoMedicoService, DescansoMedicoService>();
 
+            // Revisión de solicitudes de descanso médico (médico ocupacional)
+            services.AddScoped<IRevisionDescansosRepository, RevisionDescansosRepository>();
+            services.AddScoped<IRevisionDescansosService, RevisionDescansosService>();
+
             // SCTR — Asistente Social
             services.AddScoped<ISctrGestionRepository, SctrGestionRepository>();
             services.AddScoped<ISctrGestionService, SctrGestionService>();
@@ -187,6 +191,7 @@ namespace Abril_Backend.Features.Ssoma
             // Indicadores Proactivos
             services.AddScoped<IIndicadoresProactivosRepository, IndicadoresProactivosRepository>();
             services.AddScoped<IIndicadoresProactivosService, IndicadoresProactivosService>();
+            services.AddSingleton<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.ReactivosCacheVersion>();
 
             // Desempeño Supervisor
             services.AddScoped<DesempenoSupervisorRepository>();
@@ -206,6 +211,10 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IPresupuestoService, PresupuestoService>();
             services.AddScoped<IControlConsumoRepository, ControlConsumoRepository>();
             services.AddScoped<IControlConsumoService, ControlConsumoService>();
+            services.AddScoped<IPersonalHitoRepository, PersonalHitoRepository>();
+            services.AddScoped<IPersonalHitoService, PersonalHitoService>();
+            services.AddScoped<IKitRepository, KitRepository>();
+            services.AddScoped<IKitService, KitService>();
 
             // Horas Hombre (a partir del Tareo de Control de Acceso)
             services.AddScoped<IHorasHombreRepository, HorasHombreRepository>();

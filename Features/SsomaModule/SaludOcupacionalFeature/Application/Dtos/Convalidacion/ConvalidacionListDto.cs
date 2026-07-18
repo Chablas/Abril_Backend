@@ -8,7 +8,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convali
         public string? WorkerNombre { get; set; }
         public string? WorkerDni { get; set; }
         public string? EmpresaOrigen { get; set; }
+        public int? EmpresaDestinoId { get; set; }
         public string? EmpresaDestino { get; set; }
+        public string? Proyecto { get; set; }
         public string? TipoEmo { get; set; }
         public string? Medico { get; set; }
         public DateOnly? FechaEmoOrigen { get; set; }

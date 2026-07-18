@@ -10,6 +10,18 @@ using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Int
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.MotivosSalida.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastructure.Interfaces;
@@ -35,7 +47,11 @@ namespace Abril_Backend.Features.GestionAdministrativa
         {
             // Solicitud Salidas
             services.AddScoped<ISolicitudSalidaRepository, SolicitudSalidaRepository>();
-            services.AddScoped<IApproverResolver, ApproverResolver>();
+            // Revisor por tabla workers_revisores (prioridad) con fallback al área GTH.
+            services.AddScoped<ISalidaRevisorResolver, SalidaRevisorResolver>();
+            // JefeResolver (ApproverResolver): algoritmo de jerarquía SIN USO desde 2026-07-13,
+            // reemplazado por SalidaRevisorResolver. Se conserva el código por si se retoma.
+            // services.AddScoped<IApproverResolver, ApproverResolver>();
             services.AddScoped<ISolicitudSalidaTokenService, SolicitudSalidaTokenService>();
             services.AddScoped<ISolicitudSalidaService, SolicitudSalidaService>();
 
@@ -60,9 +76,24 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<IRevisorSalidaRepository, RevisorSalidaRepository>();
             services.AddScoped<IRevisorSalidaService, RevisorSalidaService>();
 
+            // Carpeta de adjuntos (configuración: carpeta SharePoint/OneDrive detectada por link
+            // donde se guardan los documentos adjuntos de las solicitudes de salida)
+            services.AddScoped<ICarpetaAdjuntosRepository, CarpetaAdjuntosRepository>();
+            services.AddScoped<ICarpetaAdjuntosService, CarpetaAdjuntosService>();
+
+            // Revisores de áreas (configuración: n revisores por área estándar, 2do paso
+            // al resolver el revisor de una salida, entre workers_revisores y el fallback GTH)
+            services.AddScoped<IAreaRevisorRepository, AreaRevisorRepository>();
+            services.AddScoped<IAreaRevisorService, AreaRevisorService>();
+
             // Visibilidad de salidas (configuración: override manual de áreas visibles por trabajador)
             services.AddScoped<IVisibilidadSalidaRepository, VisibilidadSalidaRepository>();
             services.AddScoped<IVisibilidadSalidaService, VisibilidadSalidaService>();
+
+            // Delegación de Revisión (funcionalidad principal: el propio revisor autogestiona los
+            // revisores de su área/proyecto — delegar suplentes y tomar/soltar el puesto)
+            services.AddScoped<IDelegacionRevisionRepository, DelegacionRevisionRepository>();
+            services.AddScoped<IDelegacionRevisionService, DelegacionRevisionService>();
 
             return services;
         }

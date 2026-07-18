@@ -6,6 +6,7 @@ namespace Abril_Backend.Features.SsomaModule.ProyectoHabilitadoFeature.Applicati
         public int ProyectoId { get; set; }
         public string ProyectoDescription { get; set; } = null!;
         public bool Habilitado { get; set; }
+        public bool ProyectoActivo { get; set; }
     }
 
     /// <summary>Proyecto habilitado para SSOMA, para usar en selects/filtros de las features.</summary>

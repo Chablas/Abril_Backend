@@ -90,12 +90,22 @@ public class FlashReportListItemDto
     public DateTime Fecha { get; set; }
     public string TipoNombre { get; set; } = string.Empty;
     public string TipoCodigo { get; set; } = string.Empty;
+    public string AreaOrigen { get; set; } = "Produccion";
     public string? TrabajadorNombre { get; set; }
     public string Estado { get; set; } = string.Empty;
     public int? AccidenteTrabajoId { get; set; }
     public bool Enviado { get; set; }
     public DateTime? FechaEnvio { get; set; }
     public int? ConsecuenciaRealPersonal { get; set; }
+    public int? ConsecuenciaPotencialPersonal { get; set; }
+    public string Descripcion { get; set; } = string.Empty;
+    public int DiasPerdidos { get; set; }
+
+    // Estado del accidente vinculado en Salud Ocupacional (ss_accidente_trabajo):
+    // null = no aplica (no es un accidente con seguimiento médico, ej. incidente/NC/alerta)
+    // false = tiene seguimiento pero aún no cerró con alta médica
+    // true = cerrado con alta médica
+    public bool? CerradoConAltaMedica { get; set; }
 }
 
 // ── Detalle ───────────────────────────────────────────────────────────────────
@@ -119,6 +129,7 @@ public class FlashReportDetalleDto
     public int TipoId { get; set; }
     public string TipoNombre { get; set; } = string.Empty;
     public string TipoCodigo { get; set; } = string.Empty;
+    public string AreaOrigen { get; set; } = "Produccion";
     public DateTime Fecha { get; set; }
     public TimeSpan? Hora { get; set; }
     public string LugarExacto { get; set; } = string.Empty;
@@ -187,6 +198,7 @@ public class CrearFlashReportRequest
 {
     public int ProyectoId { get; set; }
     public int TipoId { get; set; }
+    public string AreaOrigen { get; set; } = "Produccion"; // Produccion | PostVenta | ArquitecturaComercial
     public DateTime Fecha { get; set; }
     public string? Hora { get; set; }   // "HH:mm"
     public string LugarExacto { get; set; } = string.Empty;
@@ -233,6 +245,12 @@ public class CrearFlashReportRequest
 
 public class ActualizarFlashReportRequest : CrearFlashReportRequest { }
 
+public class ActualizarSeveridadRequest
+{
+    public int? ConsecuenciaRealPersonal { get; set; }
+    public int? ConsecuenciaPotencialPersonal { get; set; }
+}
+
 // ── Aliases legacy (no romper código existente) ───────────────────────────────
 
 public class AccidenteIncidenteListItemDto : FlashReportListItemDto { }
@@ -249,6 +267,14 @@ public class EntregableResponsableDto
     public string Nombre { get; set; } = string.Empty;
 }
 
+public class EntregableArchivoDto
+{
+    public int Id { get; set; }
+    public string UrlArchivo { get; set; } = string.Empty;
+    public string NombreArchivo { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
 public class EntregableDto
 {
     public int Id { get; set; }
@@ -257,11 +283,10 @@ public class EntregableDto
     public int Orden { get; set; }
     public string Estado { get; set; } = string.Empty;
     public DateOnly? FechaLimite { get; set; }
-    public string? UrlArchivo { get; set; }
-    public string? NombreArchivo { get; set; }
     public string? Observacion { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public List<EntregableResponsableDto> Responsables { get; set; } = [];
+    public List<EntregableArchivoDto> Archivos { get; set; } = [];
 }
 
 public class ActualizarEntregableRequest

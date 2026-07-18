@@ -4,12 +4,15 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacio
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 {
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional/programaciones")]
     [Authorize]
+    [RequireFeature("ssoma.salud-ocupacional.programaciones", "clinica.agenda", "clinica.programaciones")]
     public class ProgramacionEmoController : ControllerBase
     {
         private readonly IProgramacionEmoService _service;
@@ -31,7 +34,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         public async Task<IActionResult> GetList([FromQuery] ProgramacionFilterDto filter)
         {
             // Usuarios internos (no clínica) ven todas las programaciones aunque haya interconsulta pendiente
-            filter.IncluirConInterconsulta = !User.IsInRole("CLINICA");
+            filter.IncluirConInterconsulta = !User.IsInRole(Roles.Clinica);
             try { return Ok(await _service.List(filter)); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -88,7 +91,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         [HttpGet("resumen")]
         public async Task<IActionResult> GetResumen([FromQuery] ProgramacionFilterDto filter)
         {
-            filter.IncluirConInterconsulta = !User.IsInRole("CLINICA");
+            filter.IncluirConInterconsulta = !User.IsInRole(Roles.Clinica);
             try { return Ok(await _service.GetResumen(filter)); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController.GetResumen"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

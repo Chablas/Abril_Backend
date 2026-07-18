@@ -1,4 +1,5 @@
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.OptFeature.Application.Interfaces;
 
@@ -22,12 +23,15 @@ public class OptService : IOptService
 
     public async Task<PagedResult<OptListItemDto>> GetListAsync(int? proyectoId, int? petId,
         string? tipoObservacion, DateTime? fechaDesde, DateTime? fechaHasta,
-        int? trabajadorId, int page, int pageSize, int? empresaIdContratista = null)
+        int? trabajadorId, int page, int pageSize, int? empresaIdContratista = null,
+        int? empresaObservadorId = null, int? empresaTrabajadorId = null)
     {
         var items = await _repo.GetListAsync(
-            proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, page, pageSize, empresaIdContratista);
+            proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, page, pageSize,
+            empresaIdContratista, empresaObservadorId, empresaTrabajadorId);
         var total = await _repo.GetListCountAsync(
-            proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId, empresaIdContratista);
+            proyectoId, petId, tipoObservacion, fechaDesde, fechaHasta, trabajadorId,
+            empresaIdContratista, empresaObservadorId, empresaTrabajadorId);
 
         return new PagedResult<OptListItemDto>
         {
@@ -46,10 +50,15 @@ public class OptService : IOptService
         return detalle;
     }
 
-    public async Task<int> CrearOptAsync(CrearOptRequest request)
+    private const int MinimoFotosArea = 3;
+
+    public async Task<int> CrearOptAsync(CrearOptRequest request, int userId = 0)
     {
+        if (request.FotosAreaBase64.Count < MinimoFotosArea)
+            throw new AbrilException($"Debes adjuntar al menos {MinimoFotosArea} fotos de la actividad observada.", 400);
+
         // 1. Crear OPT sin firmas para obtener el optId real
-        var optId = await _repo.CrearOptAsync(request, null, new Dictionary<int, string>(), []);
+        var optId = await _repo.CrearOptAsync(request, null, new Dictionary<int, string>(), [], userId);
 
         // 2. Subir firmas usando el optId real (base64 → MemoryStream)
         string? firmaObservadorUrl = null;

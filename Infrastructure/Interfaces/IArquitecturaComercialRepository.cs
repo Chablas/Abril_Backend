@@ -8,7 +8,7 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<ArqComercialDashboardDTO> GetDashboardData(string? semana, string? mes, int? proyectoId);
         Task<ArqComercialFiltersDTO> GetFilters();
         Task<List<ProyectoConActividadesDTO>> GetProyectosConActividades();
-        Task<List<SupervisorAcDTO>> GetSupervisoresAc();
+        Task<List<SupervisorAcDTO>> GetSupervisoresAc(bool soloObreros = false);
         Task<ActividadListResponseDTO> GetActividades(int? proyectoId, string? tipo, int? etapaId, string? search, bool? soloActivas, int pagina, int porPagina, int? userId, bool esUsuarioAc);
         Task<ActividadListItemDTO?> PatchActividad(int id, Dictionary<string, JsonElement> body);
         Task<ReasignarEncargadoResultDTO?> ReasignarEncargado(int proyectoId);
@@ -29,5 +29,6 @@ namespace Abril_Backend.Infrastructure.Interfaces
         Task<List<ActividadAlertaDTO>>   GetActividadesPorAlerta(string tipoAlerta, DashboardFiltroDTO filtro);
         Task                             EnviarAlertasActividades(List<int> actividadIds, string tipoAlerta, List<string> emailsGestores, IEmailService emailService);
         Task                             RecalcularTodosSpi();
+        Task<SupervisorHistoricoDTO?>    GetSupervisorHistorico(int userId);
     }
 }

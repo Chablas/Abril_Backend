@@ -13,13 +13,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Applicatio
             _repo = repo;
         }
 
-        public Task<List<WorkerRevisorSalidaItemDto>> GetWorkerRevisoresAsync()
-            => _repo.GetWorkerRevisoresAsync();
+        public Task<RevisorSalidaInicialDto> GetInitialDataAsync()
+            => _repo.GetInitialDataAsync();
 
-        public Task<List<WorkerRevisorSalidaOptionDto>> GetWorkerRevisorOptionsAsync()
-            => _repo.GetWorkerRevisorOptionsAsync();
-
-        public Task UpdateWorkerRevisorAsync(int workerId, int? jefeWorkerId)
-            => _repo.UpdateWorkerRevisorAsync(workerId, jefeWorkerId);
+        public Task UpdateWorkerRevisoresAsync(int workerId, List<WorkerRevisorAsignacionDto> revisores)
+            => _repo.UpdateWorkerRevisoresAsync(workerId, revisores);
     }
 }

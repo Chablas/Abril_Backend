@@ -11,6 +11,7 @@ namespace Abril_Backend.Infrastructure.Interfaces
             bool isHtml,
             List<string>? cc = null,
             List<string>? bcc = null,
-            List<EmailAttachment>? attachments = null);
+            List<EmailAttachment>? attachments = null,
+            string? fromOverride = null);
     }
 }

@@ -1,6 +1,7 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -108,7 +109,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 {
                     var subject = $"Resumen Vigilancia Médica — {hoy:dd/MM/yyyy}";
                     var body = BuildBody(hoy, result, filas);
-                    await _emailService.SendAsync(to: destinatarios, subject: subject, body: body, isHtml: true);
+                    await _emailService.SendAsync(to: destinatarios, subject: subject, body: body, isHtml: true, fromOverride: SaludOcupacionalEmailConstants.Remitente);
                     emailEnviado = true;
                 }
                 catch (Exception ex)

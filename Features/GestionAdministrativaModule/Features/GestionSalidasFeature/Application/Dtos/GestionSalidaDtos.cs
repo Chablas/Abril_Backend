@@ -22,14 +22,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public DateTimeOffset CreatedAt { get; set; }
         /// <summary>True si todos los trayectos tienen al menos una captura — habilita la rendición.</summary>
         public bool PuedeRendirse { get; set; }
-        /// <summary>Hora real registrada por recepción. Dato extra, opcional.</summary>
+        /// <summary>Hora real de salida registrada por recepción. Dato extra, opcional.</summary>
         public TimeOnly? HoraSalidaReal { get; set; }
+        /// <summary>Hora real de retorno registrada por recepción. Dato extra, opcional.</summary>
+        public TimeOnly? HoraRetornoReal { get; set; }
+        /// <summary>
+        /// True cuando TODOS los trayectos tienen motivos con es_hora_estimada: las horas declaradas
+        /// son estimadas y recepción no registra hora real de salida/retorno. Si al menos un trayecto
+        /// tiene motivo de hora exacta (o motivo libre), se sigue registrando.
+        /// </summary>
+        public bool EsHoraEstimada { get; set; }
+        /// <summary>
+        /// True si el usuario logueado puede aprobar/rechazar ESTA salida. Es false cuando la salida
+        /// es propia (worker del propio usuario) y el usuario no es Gerente — nadie aprueba sus
+        /// propias salidas salvo los gerentes. Solo afecta Aprobar/Rechazar, no la rendición.
+        /// </summary>
+        public bool PuedeDecidir { get; set; } = true;
     }
 
     public class RegistrarHoraSalidaRealDto
     {
         /// <summary>"HH:mm" o null para limpiar.</summary>
         public TimeOnly? HoraSalidaReal { get; set; }
+    }
+
+    public class RegistrarHoraRetornoRealDto
+    {
+        /// <summary>"HH:mm" o null para limpiar.</summary>
+        public TimeOnly? HoraRetornoReal { get; set; }
     }
 
     public class GestionSalidaFiltersDto
@@ -48,6 +68,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// ve TODAS las solicitudes sin restricción por área.
         /// </summary>
         public bool SeesAll { get; set; }
+
+        /// <summary>
+        /// True cuando el usuario autenticado tiene el rol USUARIO DE RECEPCIÓN (lo setea el
+        /// controller desde los claims). El rol se sobrepone al alcance por área: fuerza
+        /// <see cref="SeesAll"/> sin correr el resolver de visibilidad.
+        /// </summary>
+        public bool SeesAllOverride { get; set; }
 
         /// <summary>
         /// Nodos area_scope cuyos trabajadores puede ver el usuario. El usuario también ve
@@ -125,6 +152,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public DateTimeOffset UploadedAt { get; set; }
     }
 
+    /// <summary>Un documento adjunto (prueba) de un trayecto, para mostrar en el detalle.</summary>
+    public class GestionSalidaAdjuntoDto
+    {
+        public string Url { get; set; } = string.Empty;
+        public string Filename { get; set; } = string.Empty;
+    }
+
     public class GestionSalidaTrayectoDto
     {
         public int Id { get; set; }
@@ -134,6 +168,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         public string Motivo { get; set; } = string.Empty;
         public string? LugarOrigen { get; set; }
         public string? LugarDestino { get; set; }
+        /// <summary>Documentos adjuntos del trayecto (motivos con requiere_adjunto). Vacío si no tiene.</summary>
+        public List<GestionSalidaAdjuntoDto> Adjuntos { get; set; } = new();
         public List<GestionSalidaCapturaDto> Capturas { get; set; } = new();
         /// <summary>Monto del catálogo ga_trayecto si aplica (worker TI + match origen/destino).</summary>
         public decimal? MontoCatalogo { get; set; }

@@ -55,14 +55,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             using var ctx = _factory.CreateDbContext();
 
             var registros = from ms in ctx.MilestoneSchedule
-                            join m in ctx.Milestone on ms.MilestoneId equals m.MilestoneId
+                            join m in ctx.Milestone on ms.MilestoneId equals m.MilestoneId into gj
+                            from m in gj.DefaultIfEmpty()
                             where ms.State && ms.MilestoneScheduleHistoryId == milestoneScheduleHistoryId
                             orderby ms.Order
                             select new MilestoneScheduleDTO
                             {
                                 MilestoneScheduleId = ms.MilestoneScheduleId,
                                 MilestoneId = ms.MilestoneId,
-                                MilestoneDescription = m.MilestoneDescription,
+                                MilestoneDescription = ms.MilestoneId != null ? m.MilestoneDescription : ms.CustomDescription,
                                 MilestoneScheduleHistoryId = ms.MilestoneScheduleHistoryId,
                                 Order = ms.Order,
                                 PlannedStartDate = ms.PlannedStartDate,
@@ -72,7 +73,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                                 CreatedUserId = ms.CreatedUserId,
                                 UpdatedDateTime = ms.UpdatedDateTime,
                                 UpdatedUserId = ms.UpdatedUserId,
-                                Active = ms.Active
+                                Active = ms.Active,
+                                EsHitoCritico = ms.EsHitoCritico
                             };
 
             return await registros.ToListAsync();
@@ -88,6 +90,22 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 throw new AbrilException("Hito no encontrado.", 404);
 
             ms.FechaRealFin = fechaRealFin;
+            ms.UpdatedDateTime = DateTime.UtcNow;
+            ms.UpdatedUserId = userId;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task MarcarCriticoAsync(int milestoneScheduleId, bool esHitoCritico, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var ms = await ctx.MilestoneSchedule
+                .FirstOrDefaultAsync(x => x.MilestoneScheduleId == milestoneScheduleId && x.State);
+            if (ms == null)
+                throw new AbrilException("Hito no encontrado.", 404);
+
+            ms.EsHitoCritico = esHitoCritico;
             ms.UpdatedDateTime = DateTime.UtcNow;
             ms.UpdatedUserId = userId;
 

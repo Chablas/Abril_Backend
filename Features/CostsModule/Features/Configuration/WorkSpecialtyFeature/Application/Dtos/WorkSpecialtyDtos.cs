@@ -26,6 +26,8 @@ namespace Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialt
     public class WorkSpecialtyFilterDto
     {
         public string? Description { get; set; }
+        /// <summary>true: solo activas · false: solo inactivas · null: todas.</summary>
+        public bool? Active { get; set; }
         public int Page { get; set; } = 1;
     }
 }

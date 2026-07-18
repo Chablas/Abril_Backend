@@ -134,14 +134,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             q = q.Where(x => x.em != null && x.em.EsAbril);
 
+            // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
+            // (alineada con app-search-input del front: "perez juan" coincide con "JUAN PÉREZ").
+            // Cada palabra debe estar en el nombre o en el DNI.
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {
-                var term = filter.Search.Trim();
-                q = q.Where(x =>
-                    (x.w.Person != null && x.w.Person.FullName != null &&
-                     EF.Functions.ILike(x.w.Person.FullName, $"%{term}%"))
-                    || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null &&
-                     EF.Functions.ILike(x.w.Person.DocumentIdentityCode, $"%{term}%")));
+                foreach (var word in filter.Search.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var pattern = $"%{word}%";
+                    q = q.Where(x =>
+                        (x.w.Person != null && x.w.Person.FullName != null &&
+                         EF.Functions.ILike(AppDbContext.Unaccent(x.w.Person.FullName), AppDbContext.Unaccent(pattern)))
+                        || (x.w.Person != null && x.w.Person.DocumentIdentityCode != null &&
+                         EF.Functions.ILike(x.w.Person.DocumentIdentityCode, pattern)));
+                }
             }
             if (!string.IsNullOrWhiteSpace(filter.Aptitud))
                 q = q.Where(x => x.ue != null && x.ue.Aptitud == filter.Aptitud);
@@ -203,6 +209,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Ocupacion = x.w.Ocupacion,
                     OcupacionId = x.w.OcupacionId,
                     Puesto = x.w.Puesto,
+                    AreaScopeId = x.w.AreaScopeId,
+                    WorkerCategoryId = x.w.WorkerCategoryId,
+                    EmailCorporativo = x.w.EmailCorporativo,
                     TieneEmo = x.ue != null,
                     EmoId = x.ue != null ? x.ue.Id : (int?)null,
                     TipoEmo = x.t != null ? x.t.Nombre : null,
@@ -214,18 +223,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     UrlEmoCompleto = x.ue != null ? x.ue.UrlEmoCompleto : null,
                     UrlResultado = x.ue != null ? x.ue.UrlResultado : null,
                     RequiereInterconsulta = x.ue != null && x.ue.RequiereInterconsulta,
-                    InterconsultaId = x.ue != null
-                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => (int?)ic.Id).FirstOrDefault()
-                        : null,
-                    InterconsultaEspecialidad = x.ue != null
-                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => ic.Especialidad).FirstOrDefault()
-                        : null,
-                    InterconsultaEstado = x.ue != null
-                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => ic.Estado).FirstOrDefault()
-                        : null,
-                    InterconsultaUrlInforme = x.ue != null
-                        ? ctx.SsInterconsulta.Where(ic => ic.EmoId == x.ue.Id).Select(ic => ic.UrlInforme).FirstOrDefault()
-                        : null
+                    // Se busca por WorkerId (la interconsulta más reciente del trabajador), no por
+                    // el EmoId del EMO activo actual: cuando se registra un EMO de seguimiento que
+                    // resuelve la interconsulta, ese EMO pasa a ser "el activo" pero la interconsulta
+                    // sigue apuntando al EMO original (ya inactivo) — filtrar por EmoId la dejaba invisible.
+                    InterconsultaId = ctx.SsInterconsulta
+                        .Where(ic => ic.WorkerId == x.w.Id)
+                        .OrderByDescending(ic => ic.CreatedAt)
+                        .Select(ic => (int?)ic.Id).FirstOrDefault(),
+                    InterconsultaEspecialidad = ctx.SsInterconsulta
+                        .Where(ic => ic.WorkerId == x.w.Id)
+                        .OrderByDescending(ic => ic.CreatedAt)
+                        .Select(ic => ic.Especialidad).FirstOrDefault(),
+                    InterconsultaEstado = ctx.SsInterconsulta
+                        .Where(ic => ic.WorkerId == x.w.Id)
+                        .OrderByDescending(ic => ic.CreatedAt)
+                        .Select(ic => ic.Estado).FirstOrDefault(),
+                    InterconsultaUrlInforme = ctx.SsInterconsulta
+                        .Where(ic => ic.WorkerId == x.w.Id)
+                        .OrderByDescending(ic => ic.CreatedAt)
+                        .Select(ic => ic.UrlInforme).FirstOrDefault()
                 })
                 .ToListAsync();
 

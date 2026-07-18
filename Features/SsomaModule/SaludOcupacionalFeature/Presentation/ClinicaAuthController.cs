@@ -4,6 +4,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -190,7 +191,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             {
                 new Claim(ClaimTypes.NameIdentifier, usuario.ClinicaUsuarioId.ToString()),
                 new Claim(ClaimTypes.Name, usuario.Nombre),
-                new Claim(ClaimTypes.Role, "CLINICA"),
+                new Claim(ClaimTypes.Role, Roles.Clinica),
+                new Claim("role_name", "CLINICA"),
                 new Claim("clinicaUsuarioId", usuario.ClinicaUsuarioId.ToString()),
                 new Claim("clinicaId", usuario.ClinicaId.ToString()),
                 new Claim("email", usuario.Email),

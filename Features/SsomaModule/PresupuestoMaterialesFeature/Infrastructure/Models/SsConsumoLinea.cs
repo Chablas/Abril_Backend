@@ -1,3 +1,4 @@
+using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Models;
@@ -9,10 +10,15 @@ public class SsConsumoLinea
     public int ProjectId { get; set; }
     public string RecursoCrudo { get; set; } = null!;
     public int? ItemId { get; set; }
+    /// <summary>Apunta al hito REAL del cronograma del proyecto (MilestoneSchedule), resuelto por fecha_guia. Null si el proyecto no tiene cronograma cargado o la fecha cae fuera de rango.</summary>
     public int? HitoId { get; set; }
     public decimal Cantidad { get; set; }
     public decimal PrecioUnitario { get; set; }
     public decimal PrecioTotal { get; set; }
+    /// <summary>Cantidad * FactorConversion del alias matcheado. Null hasta que la línea se estandariza.</summary>
+    public decimal? CantidadReal { get; set; }
+    /// <summary>PrecioTotal / CantidadReal. Null hasta que la línea se estandariza.</summary>
+    public decimal? PrecioUnitarioReal { get; set; }
     public DateOnly FechaGuia { get; set; }
     public bool Estandarizado { get; set; } = false;
     // SEED | MANUAL | FUZZY_CONFIRMADO
@@ -26,5 +32,5 @@ public class SsConsumoLinea
     public SsConsumoCarga Carga { get; set; } = null!;
     public Project Proyecto { get; set; } = null!;
     public SsMaterialItem? Item { get; set; }
-    public SsMaterialHito? Hito { get; set; }
+    public MilestoneSchedule? Hito { get; set; }
 }

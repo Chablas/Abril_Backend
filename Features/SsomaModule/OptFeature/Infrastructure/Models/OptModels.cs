@@ -14,6 +14,7 @@ public class SsomaOpt
     public bool CuentaConPet { get; set; }
     public string? Area { get; set; }
     public bool SeInformaTrabajador { get; set; }
+    public int? ObservadorId { get; set; }
     public string? ObservadorNombre { get; set; }
     public string? ObservadorCargo { get; set; }
     public string? FirmaObservadorUrl { get; set; }
@@ -34,6 +35,7 @@ public class SsomaOpt
 
     public Project? Proyecto { get; set; }
     public SsomaPet? Pet { get; set; }
+    public Worker? Observador { get; set; }
     public ICollection<SsomaOptTrabajador> Trabajadores { get; set; } = [];
     public ICollection<SsomaOptVerificacion> Verificaciones { get; set; } = [];
     public ICollection<SsomaOptPaso> Pasos { get; set; } = [];

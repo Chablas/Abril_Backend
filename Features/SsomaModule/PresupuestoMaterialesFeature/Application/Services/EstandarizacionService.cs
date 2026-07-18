@@ -65,7 +65,7 @@ public class EstandarizacionService : IEstandarizacionService
         var match = await _estandarizacionRepo.BuscarPorAliasExactoAsync(textoNorm);
         if (match != null)
         {
-            await _consumoRepo.ActualizarLineaEstandarizadaAsync(lineaId, match.ItemId, match.PerteneceSsoma, "ALIAS", 1.0m, null);
+            await _consumoRepo.ActualizarLineaEstandarizadaAsync(lineaId, match.ItemId, match.PerteneceSsoma, "ALIAS", 1.0m, null, match.FactorConversion);
             return ToDetalle(lineaId, recursoCrudo, "AUTO_ALIAS", match);
         }
 

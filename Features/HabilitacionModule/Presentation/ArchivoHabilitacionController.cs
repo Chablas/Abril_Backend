@@ -266,16 +266,37 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     var ent = await ctx.SsHabTrabajador.FindAsync(habTrabajadorId.Value);
                     if (ent != null)
                     {
-                        ent.Estado = "Enviado";
+                        var nuevaVigencia = request.Vigencia.HasValue
+                            ? DateTime.SpecifyKind(request.Vigencia.Value, DateTimeKind.Utc)
+                            : (DateTime?)null;
+
+                        // ¿Es una RENOVACIÓN? El documento ya estaba Aprobado y su vigencia sigue vigente.
+                        // En ese caso NO se pisa el estado ni la vigencia anterior: pasa a "Renovando" y la
+                        // nueva fecha se guarda como propuesta, para no dejar al trabajador sin habilitación
+                        // mientras Abril revisa. En cualquier otro caso (primera subida, vencido) → "Enviado".
+                        var esRenovacion = string.Equals(ent.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase)
+                            && ent.Vigencia.HasValue
+                            && ent.Vigencia.Value > DateTime.UtcNow;
+
                         ent.ArchivoUrl = primerArchivo.ArchivoUrl;
-                        if (request.Vigencia.HasValue)
+                        if (esRenovacion)
                         {
-                            ent.Vigencia = DateTime.SpecifyKind(request.Vigencia.Value, DateTimeKind.Utc);
-                            _logger.LogInformation("[Enviar] Vigencia asignada: {Vigencia} para habTrabajadorId={Id}", ent.Vigencia, habTrabajadorId);
+                            ent.Estado = "Renovando";
+                            ent.VigenciaPropuesta = nuevaVigencia; // se aplicará a Vigencia al aprobar
+                            _logger.LogInformation("[Enviar] Renovación: habTrabajadorId={Id} conserva vigencia {Vig}, propuesta {Prop}", habTrabajadorId, ent.Vigencia, nuevaVigencia);
                         }
                         else
                         {
-                            _logger.LogWarning("[Enviar] Vigencia NO recibida para habTrabajadorId={Id}", habTrabajadorId);
+                            ent.Estado = "Enviado";
+                            if (nuevaVigencia.HasValue)
+                            {
+                                ent.Vigencia = nuevaVigencia;
+                                _logger.LogInformation("[Enviar] Vigencia asignada: {Vigencia} para habTrabajadorId={Id}", ent.Vigencia, habTrabajadorId);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("[Enviar] Vigencia NO recibida para habTrabajadorId={Id}", habTrabajadorId);
+                            }
                         }
                         if (!string.IsNullOrEmpty(request.ObsContratista))
                             ent.ObsContratista = request.ObsContratista;

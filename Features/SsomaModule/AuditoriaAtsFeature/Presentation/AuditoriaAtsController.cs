@@ -3,12 +3,14 @@ using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.SsomaModule.AuditoriaAtsFeature.Presentation;
 
 [ApiController]
 [Route("api/v1/ssoma-auditoria-ats")]
 [Authorize]
+[RequireFeature("ssoma.gestion.auditoria-ats")]
 public class AuditoriaAtsController : ControllerBase
 {
     private readonly IAuditoriaAtsService _service;
@@ -62,7 +64,8 @@ public class AuditoriaAtsController : ControllerBase
         {
             var detalle = await _service.GetDetalleAsync(id);
             var empresaId = GetEmpresaIdContratista();
-            if (empresaId.HasValue && detalle.EmpresaId != empresaId.Value) return Forbid();
+            if (empresaId.HasValue && detalle.EmpresaId != empresaId.Value && detalle.EmpresaAuditorId != empresaId.Value)
+                return Forbid();
             return Ok(detalle);
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

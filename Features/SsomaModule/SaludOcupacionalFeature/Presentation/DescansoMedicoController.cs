@@ -3,6 +3,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMedico;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,6 +12,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     [ApiController]
     [Route("api/v1/ssoma/salud-ocupacional")]
     [Authorize]
+    [RequireFeature("ssoma.salud-ocupacional.descansos")]
     public class DescansoMedicoController : ControllerBase
     {
         private readonly IDescansoMedicoService _service;
@@ -127,7 +129,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         {
             try
             {
-                var rolClaim = User.FindFirst(ClaimTypes.Role)?.Value;
+                // Etiqueta de "quién registró (por rol)" para mostrar; usa el nombre, no el ID.
+                var rolClaim = User.FindFirst("role_name")?.Value;
                 var seguimientoId = await _service.CreateSeguimiento(id, dto, CurrentUserId(), rolClaim);
                 return Ok(new { id = seguimientoId, message = "Seguimiento registrado exitosamente." });
             }

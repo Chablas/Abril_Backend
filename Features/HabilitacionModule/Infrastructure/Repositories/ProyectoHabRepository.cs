@@ -18,7 +18,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
             return await ctx.Project
-                .Where(p => p.State)
+                .Where(p => p.State && p.Active)
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProyectoSimpleDto
                 {

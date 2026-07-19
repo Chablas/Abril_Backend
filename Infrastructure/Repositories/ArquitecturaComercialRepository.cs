@@ -292,7 +292,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             var proyectos = await (
-                from p in ctx.Project
+                from p in ctx.Project.Where(p => p.State && p.Active)
                 from w in ctx.Worker.Where(w => w.Id == p.ResponsableArqComId).DefaultIfEmpty()
                 select new ProyectoConActividadesDTO
                 {

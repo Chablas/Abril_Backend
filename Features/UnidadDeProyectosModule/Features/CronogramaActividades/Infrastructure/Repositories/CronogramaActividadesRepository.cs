@@ -910,7 +910,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
             // Query 1: todos los proyectos UDP activos
             var proyectos = await ctx.Project
-                .Where(p => p.TieneUnidadDeProyectos && p.State)
+                .Where(p => p.TieneUnidadDeProyectos && p.State && p.Active)
                 .Select(p => new { p.ProjectId, p.ProjectDescription, p.ResponsableUdp, p.ResponsableUdpId })
                 .ToListAsync();
 

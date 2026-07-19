@@ -321,7 +321,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
         private async Task<List<ProjectFlat>> BuildProjectQueryAsync(
             AppDbContext ctx, int? proyectoId, string? estado, int? responsableId)
         {
-            var q = ctx.Project.Where(p => p.State && p.TieneUnidadDeProyectos);
+            var q = ctx.Project.Where(p => p.State && p.Active && p.TieneUnidadDeProyectos);
             if (proyectoId.HasValue) q = q.Where(p => p.ProjectId == proyectoId.Value);
             if (estado != null) q = q.Where(p => p.Estado == estado);
             if (responsableId.HasValue) q = q.Where(p => p.ResponsableUdpId == responsableId.Value);

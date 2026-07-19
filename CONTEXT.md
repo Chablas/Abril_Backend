@@ -5192,3 +5192,43 @@ Rama: `victor-backend`. Sesión larga de investigación + dos implementaciones q
 Rama: `master`. Sesión sin cambios de código en `master`: `git status` estaba limpio al invocar "guardar master" (nada que commitear), build local en 0 errores, y se sincronizó con `origin/master` (fetch + merge — un conflicto trivial de orden en `CONTEXT.md` con las sesiones 07-14/07-15 recién traídas, resuelto dejando las tres en orden cronológico, sin descartar contenido de ningún lado).
 
 El trabajo real de la sesión (investigación de `responsable_udp`/`responsable_udp_id` en `Project` para "ingeniero residente", dos rondas de implementación que terminaron revertidas al confirmarse que Cronograma de Hitos usa `ProjectResident` y no `responsable_udp`, y el fix de `ex.StatusCode` en `ProjectController.cs` que sí quedó) está documentado en el `CONTEXT.md` de la rama `victor-backend` (commit `0a2eb930`), no en este archivo de `master`. **Ese trabajo todavía no está mergeado a `master`** — solo llegó a `origin/victor-backend`.
+
+## Sesión 2026-07-18 — Barrido completo del filtro `Project.Active` en listados de proyectos
+
+Rama: `victor-backend`.
+
+### Qué se hizo
+
+**Ronda 1 — 4 casos reportados por el usuario**: se agregó el chequeo de `Project.Active` (además del ya existente `State`) a las queries que arman las opciones de filtro/dropdown de proyecto en 4 pantallas, que hoy mostraban proyectos inactivos como opción:
+- `ProjectsDashboardRepository.GetFiltersDataFactory()` (Dashboard de Proyectos, dropdown de filtro).
+- `CronogramaActividadesRepository.GetProyectosAsync()` (Cronograma de Actividades).
+- `ProjectResidentRepository.GetProjectsDescription()` (compartido por Control de IVTs, Cuaderno de Obra y Seguimiento de Residentes) — se agregó `Project.Active` junto al `ProjectResident.Active` que ya existía (ambos chequeos, no reemplazo).
+- `LessonsDashboardRepository.GetFiltersAsync()` (filtro de Proyecto en Lessons Dashboard).
+
+**Merge de `origin/master` → `victor-backend`**: la rama estaba 96 commits detrás de `master`. Se hizo `git merge` (no rebase, la rama ya está pusheada y es compartida). Único conflicto real: `CONTEXT.md` — dos logs de sesión divergentes (`victor-backend`: 07-12, 07-15, 07-17; `master`: 07-07 a 07-17) resuelto intercalando las 12 sesiones en orden cronológico real, sin descartar contenido de ningún lado. `ProjectController.cs` se auto-mergeó sin conflicto (el fix de `ex.StatusCode` de esta rama y el nuevo endpoint `ToggleArquitecturaComercial` de master tocan regiones distintas del archivo). Se confirmó que `ActasReunionFeature` (Controller, Service, Repository, DTOs, 9 modelos `Reunion*`) ya está completo en el checkout tras el merge — existía en `master` desde los commits `09e11275`/`013ec52f` (2026-07-10, Christian Alvarez) pero nunca había llegado a esta rama; el frontend (`ActasReunionService.getPaginaInicial()`) apunta a un endpoint real que simplemente faltaba en este checkout, no a algo nunca implementado.
+
+**Ronda 2 — Dashboard UDP (`/projects/cronograma-dashboard`)**: se reportó que el filtro de proyectos de este dashboard seguía mostrando inactivos pese al fix de ayer. Causa: `CronogramaActividadesRepository.GetDashboardAsync()` tiene una única query "todos los proyectos UDP activos" (`Where(p => p.TieneUnidadDeProyectos && p.State)`, sin `Active`) que alimenta a la vez KPIs, tabla principal (ranking/heatmap) y filtro/responsables — a diferencia de los otros dashboards, acá no hay una query de filtro separada de la de datos, así que el fix afecta también a la tabla principal (correcto: tampoco se quiere ahí un proyecto inactivo).
+
+**Auditoría amplia**: se buscó en todo el backend (~200 referencias a `ctx.Project`/`_context.Project`) otras queries que arman listados de proyectos para filtros/selects/dropdowns/tablas resumen. Se encontraron y corrigieron 7 casos adicionales (todos con el mismo patrón: agregar `p.Active`):
+- `ProjectsDashboardRepository.BuildProjectQueryAsync` — tabla principal del Dashboard de Proyectos (el dropdown de filtro de esa misma pantalla ya había quedado bien en la ronda 1, pero la tabla de datos no).
+- `ObservacionRepository.GetFiltros` (Observaciones, Arquitectura Comercial).
+- `RevisionRepository.GetFiltros` (Revisiones, Arquitectura Comercial).
+- `HabEmpresaRepository.GetProyectosDisponiblesAsync` (Habilitación, asignar proyecto a empresa).
+- `ProyectoHabRepository.GetActivosAsync` (el método se llamaba "Activos" pero nunca chequeó el flag).
+- `SharedFiltersService.GetProyectosAsync` (`GET api/v1/shared-filters/proyectos`) — se verificó que en el backend solo lo consume `SharedFiltersController.GetProyectos()`, sin ningún otro repo/servicio dependiendo de recibir inactivos.
+- `ArquitecturaComercialRepository.GetProyectosConActividades` — no tenía ningún `.Where` sobre `Project`; se agregó `State && Active` (no solo `Active`).
+
+**Casos identificados pero NO tocados** (a propósito):
+- `CronogramaActividadesRepository.GetDebugProyectosAsync` — sin filtro, pero es debug, no user-facing.
+- `ArquitecturaComercialRepository` (línea ~1210, filtros DTO) — comentario explícito: trae todos los proyectos a propósito para que el frontend los marque visualmente por estado.
+- `IndicadoresProactivosRepository` (SSOMA) — usa `SsProyectoHabilitado.Active` como su propio concepto de "proyecto activo", independiente de `Project.Active`, decisión de dominio documentada.
+- `Features/ConfigurationModule/ProjectFeature/ProjectRepository.GetPaged` — CRUD admin de proyectos, alimenta la pestaña "Proyectos Activos"; debe seguir mostrando inactivos para poder reactivarlos.
+- 9 métodos confirmados ya correctos: `AdjudicacionFolderRepository`, `ProjectLinkRepository`, `ActasReunionRepository.GetPaginaInicial`, `PasoService_FIXED`, `CroquisRepository`, `GestionVecinosRepository`, `Infrastructure/ProjectRepository.cs` (raíz), `LessonReminderRepository`, `ProjectSubContractorRepository`.
+
+### Archivos clave
+- Ronda 1: `ProjectsDashboardRepository.cs` (`GetFiltersDataFactory`), `CronogramaActividadesRepository.cs` (`GetProyectosAsync`), `ProjectResidentRepository.cs` (`GetProjectsDescription`), `LessonsDashboardRepository.cs` (`GetFiltersAsync`).
+- Ronda 2: `CronogramaActividadesRepository.cs` (`GetDashboardAsync`), `ProjectsDashboardRepository.cs` (`BuildProjectQueryAsync`), `ObservacionRepository.cs`, `RevisionRepository.cs`, `HabEmpresaRepository.cs`, `ProyectoHabRepository.cs`, `SharedFiltersService.cs`, `Infrastructure/Repositories/ArquitecturaComercialRepository.cs` (`GetProyectosConActividades`).
+
+### Pendiente
+- No se pudo verificar en el frontend (repo separado, no presente en este checkout) si algún consumidor de `GET api/v1/shared-filters/proyectos` necesita ver proyectos inactivos a propósito — si algún flujo se rompe, revertir puntualmente ese caso.
+- Verificar en el navegador que el Dashboard UDP (tabla principal + filtro) y el Dashboard de Proyectos (tabla principal) ya no muestran proyectos inactivos tras el deploy.

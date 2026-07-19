@@ -5232,3 +5232,26 @@ Rama: `victor-backend`.
 ### Pendiente
 - No se pudo verificar en el frontend (repo separado, no presente en este checkout) si algún consumidor de `GET api/v1/shared-filters/proyectos` necesita ver proyectos inactivos a propósito — si algún flujo se rompe, revertir puntualmente ese caso.
 - Verificar en el navegador que el Dashboard UDP (tabla principal + filtro) y el Dashboard de Proyectos (tabla principal) ya no muestran proyectos inactivos tras el deploy.
+
+## Sesión 2026-07-19 — Reset de Cronograma de Actividades a estado inicial (producción)
+
+Rama: `victor-backend`. Sesión sin cambios de código — operación directa sobre la BD de producción vía túnel SSH (`localhost:5544` → VPS `5432`, regla P2/P3), a pedido del usuario, porque toda la data de Cronograma de Actividades era de pruebas de desarrollo y el sistema está por salir en limpio para uso real.
+
+### Investigación previa (inventario, sin borrar nada)
+- Tablas relacionadas con Cronograma de Actividades confirmadas contra `pg_constraint` de la BD real (no solo el código C#): `project_activity` (tabla principal, sin FK real a `project` — `project_id` es un int simple), `activity_predecessor` (FK `activity_id` CASCADE y `predecessor_id` RESTRICT hacia `project_activity`), `user_cronograma_preference` (preferencia de UI, sin FK real), y `feriados` (catálogo global de feriados, sin columna `project_id` — **no es data de prueba, es calendario compartido**).
+- Se encontraron y descartaron por nombre engañoso: `costos_cronograma`/`costos_cronograma_actividad`/`costos_cronograma_actividad_nodo` — feature completamente distinto (`CostsModule/Features/CronogramaFeature`, cronograma de costos de subcontratistas), verificado que sus FKs van hacia `project_sub_contractor`/`app_user`, cero relación con `project_activity`.
+- Conteo real en producción: 1,672 filas en `project_activity` repartidas en 11 proyectos (incluía 2 proyectos ya marcados `Active=false` — CAMELIA y Baronet — que igual tenían actividades de prueba), 521 en `activity_predecessor`, 11 en `user_cronograma_preference` (una por proyecto), 45 en `feriados`.
+- No había `psql`/`pg_dump` en el PATH del sistema — se usó el binario bundled en pgAdmin 4 (`C:\Users\Victor\AppData\Local\Programs\pgAdmin 4\runtime\pg_dump.exe`) y un script Node desechable (`pg` npm package) para las queries de solo lectura, leyendo la contraseña directo de `appsettings.Development.json` sin exponerla nunca en la conversación.
+
+### Ejecución (con autorización explícita del usuario)
+- Backup previo: `pg_dump --data-only --format=custom` de las 3 tablas relevantes (`project_activity`, `activity_predecessor`, `user_cronograma_preference`) → `cronograma_backup_20260718_233807.dump` (43,115 bytes, verificado con `pg_restore --list` antes de borrar nada).
+- Se confirmó el nombre real de la secuencia con `pg_get_serial_sequence('project_activity', 'project_activity_id')` → `project_activity_project_activity_id_seq` (coincidía con lo que asumía el usuario, pero se verificó igual antes de correr el `ALTER SEQUENCE`).
+- Transacción ejecutada: `DELETE FROM activity_predecessor` (521 filas) → `DELETE FROM project_activity` (1,672 filas) → `ALTER SEQUENCE project_activity_project_activity_id_seq RESTART WITH 1` → `COMMIT`. Verificado post-commit: ambos conteos en 0, secuencia en `last_value=1, is_called=false`.
+- `user_cronograma_preference` y `feriados` quedaron intactos, tal como pidió el usuario.
+
+### Desviación del plan original (documentada y explicada al usuario)
+- El usuario había pedido confirmar el arranque de la secuencia en 1 con un INSERT/DELETE de prueba dentro de una transacción con `ROLLBACK`. Se optó por NO hacerlo: en Postgres las secuencias no son transaccionales — un `nextval()` consumido dentro de una transacción que hace `ROLLBACK` no se revierte — así que esa prueba habría quemado el valor `1` para siempre y la primera actividad real creada tras el reset habría arrancado en `id=2`. Se usó en su lugar la alternativa no-destructiva que el propio usuario había dejado planteada como opción B (`SELECT last_value, is_called FROM ...`), que confirma lo mismo sin el efecto secundario.
+
+### Pendiente
+- El backup (`cronograma_backup_20260718_233807.dump`) quedó en el scratchpad de la sesión de Claude Code (temporal, no en el repo ni en una ruta persistente) — si se quiere conservar como respaldo a largo plazo, moverlo a un lugar permanente.
+- `activity_predecessor_id_seq` no se reinició (no fue pedido explícitamente) — si se quiere una numeración 100% limpia también ahí, falta ese `ALTER SEQUENCE`.

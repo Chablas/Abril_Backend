@@ -109,7 +109,7 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                 await ctx.SaveChangesAsync();
 
                 var contractor = NewPendingContractor(contributor.ContributorId, userId, logoUrl, brochureUrl, fichaRucUrl, referencesUrl);
-                await AddContractorEmailsAsync(ctx, contractor, dto, userId);
+                AddContractorEmails(contractor, dto, userId);
 
                 ctx.Contractor.Add(contractor);
                 await ctx.SaveChangesAsync();
@@ -237,13 +237,13 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
                         e.UpdatedDateTime = DateTimeOffset.UtcNow;
                         e.UpdatedUserId   = userId;
                     }
-                    await AddContractorEmailsAsync(ctx, contractor, dto, userId);
+                    AddContractorEmails(contractor, dto, userId);
                 }
                 else
                 {
                     // Solo había contratistas rechazados (o ninguno): crear uno nuevo en espera.
                     var contractor = NewPendingContractor(contributorId, userId, logoUrl, brochureUrl, fichaRucUrl, referencesUrl);
-                    await AddContractorEmailsAsync(ctx, contractor, dto, userId);
+                    AddContractorEmails(contractor, dto, userId);
                     ctx.Contractor.Add(contractor);
                 }
 
@@ -303,21 +303,18 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Infrastructu
             return person.PersonId;
         }
 
-        private static async Task AddContractorEmailsAsync(AppDbContext ctx, Contractor contractor, ContributorCreateDto dto, int? userId)
+        // Los correos de contacto no se vinculan a usuarios: la cuenta de usuario de la
+        // contratista vive únicamente en contractor_user.
+        private static void AddContractorEmails(Contractor contractor, ContributorCreateDto dto, int? userId)
         {
             for (int i = 0; i < dto.ContributorEmails.Count; i++)
             {
-                var emailNorm = dto.ContributorEmails[i].Trim().ToLower();
-                var linkedUser = await ctx.User
-                    .FirstOrDefaultAsync(u => u.Email == emailNorm && u.Active && u.State);
-
                 contractor.Emails.Add(new ContractorEmail
                 {
                     Email                  = dto.ContributorEmails[i],
                     ContractorPersonTypeId = ParsePersonTypeId(dto, i),
                     CreatedDateTime        = DateTimeOffset.UtcNow,
                     CreatedUserId          = userId,
-                    UserId                 = linkedUser?.UserId,
                     Active = true,
                     State  = true
                 });

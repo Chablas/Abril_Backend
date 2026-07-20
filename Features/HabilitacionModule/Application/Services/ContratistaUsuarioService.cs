@@ -105,31 +105,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 await ctx.SaveChangesAsync();
             }
 
-            var contractor = await ctx.Contractor
-                .FirstOrDefaultAsync(c => c.ContributorId == contractorId && c.Active && c.State);
-
-            if (contractor != null)
-            {
-                var existeContractorEmail = await ctx.ContractorEmail
-                    .AnyAsync(ce => ce.UserId == user.UserId && ce.ContractorId == contractor.ContractorId);
-                if (!existeContractorEmail)
-                {
-                    ctx.ContractorEmail.Add(new ContractorEmail
-                    {
-                        Email = dto.Email.Trim().ToLower(),
-                        ContractorId = contractor.ContractorId,
-                        UserId = user.UserId,
-                        Active = true,
-                        State = true,
-                        CreatedDateTime = DateTimeOffset.UtcNow,
-                        UpdatedDateTime = DateTimeOffset.UtcNow,
-                        CreatedUserId = creadoPor,
-                        UpdatedUserId = creadoPor
-                    });
-                    await ctx.SaveChangesAsync();
-                }
-            }
-
+            // Los sub-usuarios viven solo en ss_contratista_usuario; contractor_email
+            // queda reservado para correos de contacto de la empresa.
             var entity = new SsContratistaUsuario
             {
                 ContractorId = contractorId,

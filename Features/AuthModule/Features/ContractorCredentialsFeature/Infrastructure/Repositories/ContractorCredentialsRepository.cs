@@ -4,6 +4,7 @@ using Abril_Backend.Features.AuthModule.ContractorCredentials.Application.Dtos;
 using Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Services.Contractors;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure.Repositories
@@ -48,9 +49,17 @@ namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure
         {
             using var ctx = _factory.CreateDbContext();
 
-            var existingUser = await ctx.User.FirstOrDefaultAsync(u => u.Email == email);
-            User user;
+            var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId)
+                ?? throw new AbrilException("Contratista no encontrado.", 404);
 
+            // Un correo de usuario pertenece a UNA sola contratista (contractor_user).
+            // contractor_email queda solo como correos de contacto, por lo que este flujo
+            // ya no crea ni vincula filas allí.
+            var emailNormalizado = email.Trim().ToLower();
+            var existingUser = await ContractorAccountEmailPolicy.ValidateAndGetUserAsync(
+                ctx, emailNormalizado, contractorId, contractor.ContributorId);
+
+            User user;
             if (existingUser != null)
             {
                 user = existingUser;
@@ -61,7 +70,7 @@ namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure
             {
                 user = new User
                 {
-                    Email = email,
+                    Email = emailNormalizado,
                     EmailConfirmed = true,
                     Active = true,
                     State = true,
@@ -85,35 +94,6 @@ namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure
                     State = true
                 });
 
-            // Vincular el user_id al contractor_email. El correo de login (user.Email)
-            // puede coincidir con un contractor_email ya registrado o ser uno nuevo:
-            //  - Si coincide  -> se asigna el user_id a esa fila existente.
-            //  - Si es nuevo  -> se crea una fila nueva en contractor_email para ese contratista.
-            var emailNormalizado = email.Trim().ToLower();
-            var contractorEmail = await ctx.ContractorEmail
-                .FirstOrDefaultAsync(ce => ce.ContractorId == contractorId
-                                        && ce.Email.ToLower() == emailNormalizado
-                                        && ce.Active);
-            if (contractorEmail != null)
-            {
-                contractorEmail.UserId = user.UserId;
-                contractorEmail.UpdatedDateTime = DateTimeOffset.UtcNow;
-                contractorEmail.UpdatedUserId = user.UserId;
-            }
-            else
-            {
-                ctx.ContractorEmail.Add(new ContractorEmail
-                {
-                    ContractorId = contractorId,
-                    Email = email.Trim(),
-                    UserId = user.UserId,
-                    CreatedDateTime = DateTimeOffset.UtcNow,
-                    CreatedUserId = user.UserId,
-                    Active = true,
-                    State = true
-                });
-            }
-
             var roleExists = await ctx.UserRole
                 .AnyAsync(ur => ur.UserId == user.UserId && ur.RoleId == 11 && ur.Active);
             if (!roleExists)
@@ -127,13 +107,9 @@ namespace Abril_Backend.Features.AuthModule.ContractorCredentials.Infrastructure
                     State = true
                 });
 
-            var contractor = await ctx.Contractor.FirstOrDefaultAsync(c => c.ContractorId == contractorId);
-            if (contractor != null)
-            {
-                contractor.ActivationToken = null;
-                contractor.ActivationTokenExpiry = null;
-                contractor.UpdatedDateTime = DateTimeOffset.UtcNow;
-            }
+            contractor.ActivationToken = null;
+            contractor.ActivationTokenExpiry = null;
+            contractor.UpdatedDateTime = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();
         }

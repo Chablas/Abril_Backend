@@ -293,9 +293,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .FirstOrDefaultAsync(c => c.ContributorId == id && c.Active)
                 ?? throw new AbrilException("Empresa contratista no encontrada.", 404);
 
-            var userId = await ctx.ContractorEmail
-                .Where(ce => ce.ContractorId == contractor.ContractorId && ce.UserId != null && ce.Active)
-                .Select(ce => ce.UserId)
+            var userId = await ctx.ContractorUser
+                .Where(cu => cu.ContractorId == contractor.ContractorId && cu.Active && cu.State)
+                .OrderBy(cu => cu.ContractorUserId)
+                .Select(cu => (int?)cu.UserId)
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException("No existe un usuario activado para esta empresa.", 404);
 

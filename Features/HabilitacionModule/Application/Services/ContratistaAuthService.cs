@@ -8,6 +8,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Contractors;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -51,17 +52,21 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             if (!VerificarPassword(user, dto.Password, user.Password))
                 throw new AbrilException("Credenciales incorrectas.", 401);
 
-            var contractorEmail = await ctx.ContractorEmail
-                .Include(ce => ce.Contractor)
+            // La empresa del usuario titular se resuelve por contractor_user (un usuario
+            // pertenece a UNA sola contratista). contractor_email es solo correos de contacto.
+            var contractorUser = await ctx.ContractorUser
+                .Include(cu => cu.Contractor)
                     .ThenInclude(c => c.Contributor)
-                .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State);
+                .Where(cu => cu.UserId == user.UserId && cu.Active && cu.State)
+                .OrderBy(cu => cu.ContractorUserId)
+                .FirstOrDefaultAsync();
 
             Contractor? contractor;
             Contributor? contributor;
 
-            if (contractorEmail is not null)
+            if (contractorUser is not null)
             {
-                contractor  = contractorEmail.Contractor;
+                contractor  = contractorUser.Contractor;
                 contributor = contractor.Contributor;
             }
             else
@@ -186,23 +191,46 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             await ctx.SaveChangesAsync();
 
-            var emailBuscar = user.Email!.Trim().ToLower();
-            var huerfano = await ctx.ContractorEmail
-                .FirstOrDefaultAsync(ce => ce.Email.ToLower() == emailBuscar && ce.UserId == null && ce.Active && ce.State);
-            if (huerfano != null)
+            // Resolver la empresa por contractor_user; si el usuario aún no tiene vínculo
+            // (caso migrado/huérfano), se ubica su empresa por su correo dentro de los
+            // correos de contacto y se crea el vínculo definitivo en contractor_user.
+            var vinculoActivar = await ctx.ContractorUser
+                .Include(cu => cu.Contractor)
+                    .ThenInclude(c => c.Contributor)
+                .Where(cu => cu.UserId == user.UserId && cu.Active && cu.State)
+                .OrderBy(cu => cu.ContractorUserId)
+                .FirstOrDefaultAsync();
+
+            Contractor contractorActivar;
+            if (vinculoActivar is not null)
             {
-                huerfano.UserId = user.UserId;
+                contractorActivar = vinculoActivar.Contractor;
+            }
+            else
+            {
+                var emailBuscar = user.Email!.Trim().ToLower();
+                var contactoActivar = await ctx.ContractorEmail
+                    .Include(ce => ce.Contractor)
+                        .ThenInclude(c => c.Contributor)
+                    .Where(ce => ce.Email.ToLower() == emailBuscar && ce.Active && ce.State)
+                    .OrderBy(ce => ce.ContractorEmailId)
+                    .FirstOrDefaultAsync()
+                    ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
+
+                contractorActivar = contactoActivar.Contractor;
+                ctx.ContractorUser.Add(new ContractorUser
+                {
+                    ContractorId = contractorActivar.ContractorId,
+                    UserId = user.UserId,
+                    CreatedDateTime = DateTimeOffset.UtcNow,
+                    Active = true,
+                    State = true
+                });
                 await ctx.SaveChangesAsync();
             }
 
-            var contractorEmail = await ctx.ContractorEmail
-                .Include(ce => ce.Contractor)
-                    .ThenInclude(c => c.Contributor)
-                .FirstOrDefaultAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State)
-                ?? throw new AbrilException("El usuario no tiene empresa contratista asociada.", 403);
-
             // Paso 8 — Crear OWNER en ss_contratista_usuario si no existe
-            var contractorIdActivar = contractorEmail.Contractor.ContributorId;
+            var contractorIdActivar = contractorActivar.ContributorId;
             var rolOwnerActivar = await ctx.SsContratistaRoles
                 .FirstOrDefaultAsync(r => r.Nombre == "OWNER");
             if (rolOwnerActivar != null)
@@ -230,7 +258,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var usuarioContratistaActivar = await ctx.SsContratistaUsuarios
                 .Include(u => u.Proyectos)
                 .FirstOrDefaultAsync(u => u.UserId == user.UserId
-                                       && u.ContractorId == contractorEmail.Contractor.ContributorId
+                                       && u.ContractorId == contractorIdActivar
                                        && u.Activo);
 
             var scopeActivar = usuarioContratistaActivar?.Scope ?? "TODOS";
@@ -241,7 +269,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var allowedFeatures = await GetContratistasFeatureKeysAsync(ctx, user.UserId);
             var systemRoleIds = await GetSystemRoleIdsAsync(ctx, user.UserId);
 
-            return GenerarTokenDto(user, contractorEmail.Contractor, contractorEmail.Contractor.Contributor, allowedFeatures, systemRoleIds, scopeActivar, proyectoIdsActivar, modulosActivar);
+            return GenerarTokenDto(user, contractorActivar, contractorActivar.Contributor, allowedFeatures, systemRoleIds, scopeActivar, proyectoIdsActivar, modulosActivar);
         }
 
         public async Task SolicitarResetPasswordAsync(SolicitarResetDto dto)
@@ -252,8 +280,9 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == email && u.Active && u.State);
             if (user is null) return;
 
-            var esContratista = await ctx.ContractorEmail
-                .AnyAsync(ce => ce.UserId == user.UserId && ce.Active && ce.State);
+            var esContratista =
+                await ctx.ContractorUser.AnyAsync(cu => cu.UserId == user.UserId && cu.Active && cu.State)
+                || await ctx.SsContratistaUsuarios.AnyAsync(s => s.UserId == user.UserId && s.Activo);
             if (!esContratista) return;
 
             var tokensPrevios = await ctx.SsResetToken
@@ -350,7 +379,11 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 .FirstOrDefaultAsync(c => c.ContributorId == contributor.ContributorId && c.Active)
                 ?? throw new AbrilException("No se encontró empresa contratista para este RUC.", 404);
 
-            var existingUser = await ctx.User.FirstOrDefaultAsync(u => u.Email == dto.Email);
+            // El correo elegido será el usuario titular de ESTA contratista: si ya pertenece
+            // a otra empresa o a un usuario interno, se rechaza (regla un usuario = una contratista).
+            var emailNormalizado = dto.Email.Trim().ToLower();
+            var existingUser = await ContractorAccountEmailPolicy.ValidateAndGetUserAsync(
+                ctx, emailNormalizado, contractor.ContractorId, contributor.ContributorId);
             User user;
 
             if (existingUser != null)
@@ -363,7 +396,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             {
                 user = new User
                 {
-                    Email = dto.Email,
+                    Email = emailNormalizado,
                     EmailConfirmed = true,
                     Active = true,
                     State = true,
@@ -401,12 +434,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 });
 
             contributor.SpPasswordTemp = null;
-
-            var contractorEmails = await ctx.ContractorEmail
-                .Where(ce => ce.ContractorId == contractor.ContractorId)
-                .ToListAsync();
-            foreach (var ce in contractorEmails)
-                ce.UserId = user.UserId;
 
             await ctx.SaveChangesAsync();
 

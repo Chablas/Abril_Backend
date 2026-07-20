@@ -323,10 +323,10 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                 e.UpdatedUserId   = userId;
             }
 
+            // Los correos de contacto no se vinculan a usuarios: la cuenta de usuario de la
+            // contratista vive únicamente en contractor_user.
             foreach (var re in reqEmails)
             {
-                var emailNorm  = re.Email.Trim().ToLower();
-                var linkedUser = await ctx.User.FirstOrDefaultAsync(u => u.Email == emailNorm && u.Active && u.State);
                 ctx.ContractorEmail.Add(new Abril_Backend.Features.CostsModule.Shared.Models.ContractorEmail
                 {
                     ContractorId           = contractorId,
@@ -334,7 +334,6 @@ namespace Abril_Backend.Features.Contractors.ContractorManagement.Infrastructure
                     ContractorPersonTypeId = re.ContractorPersonTypeId,
                     CreatedDateTime        = DateTimeOffset.UtcNow,
                     CreatedUserId          = userId,
-                    UserId                 = linkedUser?.UserId,
                     Active = true,
                     State  = true
                 });

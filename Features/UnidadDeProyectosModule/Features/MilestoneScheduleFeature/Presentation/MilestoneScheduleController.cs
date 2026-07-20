@@ -4,11 +4,13 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Presentation
 {
     [ApiController]
     [Route("api/v1/[controller]")]
+    [RequireFeature("mejora-continua.milestone-schedule")]
     public class MilestoneScheduleController : ControllerBase
     {
         private readonly IMilestoneScheduleService _service;
@@ -50,6 +52,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
         [Authorize]
         [HttpPatch("{milestoneScheduleId:int}/culminar")]
+        [RequireFeature("mejora-continua.milestone-schedule.editar")]
         public async Task<IActionResult> Culminar(int milestoneScheduleId, [FromBody] MilestoneScheduleCulminarRequest request)
         {
             try
@@ -78,6 +81,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         /// </summary>
         [Authorize]
         [HttpPatch("{milestoneScheduleId:int}/marcar-critico")]
+        [RequireFeature("mejora-continua.milestone-schedule.editar")]
         public async Task<IActionResult> MarcarCritico(int milestoneScheduleId, [FromBody] MilestoneScheduleMarcarCriticoRequest request)
         {
             try

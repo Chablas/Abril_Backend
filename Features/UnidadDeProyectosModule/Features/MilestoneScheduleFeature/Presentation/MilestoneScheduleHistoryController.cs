@@ -6,11 +6,13 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
+using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Presentation
 {
     [ApiController]
     [Route("api/v1/[controller]")]
+    [RequireFeature("mejora-continua.milestone-schedule")]
     public class MilestoneScheduleHistoryController : ControllerBase
     {
         private readonly IMilestoneScheduleHistoryService _service;
@@ -41,6 +43,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
         [Authorize]
         [HttpPost]
+        [RequireFeature("mejora-continua.milestone-schedule.editar")]
         public async Task<IActionResult> Create([FromBody] MilestoneScheduleHistoryCreateDTO dto)
         {
             try

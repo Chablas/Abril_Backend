@@ -55,6 +55,12 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
             // 0. Validar formato de los correos (solo letras, números, '@' y '.').
             ContractorEmailValidator.ValidateOrThrow(dto.ContributorEmails);
 
+            // La obligatoriedad del logo es una regla de RUTA (pública = obligatorio,
+            // interna = opcional) y se valida solo en el frontend, igual que el resto de
+            // campos "obligatorios" (razón social, brochure, ficha RUC, referencias). No se
+            // valida aquí porque el backend no distingue la ruta, solo si hay token: un
+            // contratista logueado en la ruta pública tendría userId y se saltaría la regla.
+
             // 1. Determinar el estado del RUC para decidir la rama del flujo.
             var status = await _repository.GetRucStatusAsync(dto.ContributorRuc);
 

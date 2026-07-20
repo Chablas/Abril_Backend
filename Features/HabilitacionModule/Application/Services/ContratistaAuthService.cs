@@ -248,8 +248,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                         Scope = "TODOS",
                         Activo = true,
                         CreadoEn = DateTime.UtcNow,
-                        CreadoPor = null,
-                        SystemRoleId = null
+                        CreadoPor = null
                     });
                     await ctx.SaveChangesAsync();
                 }
@@ -455,8 +454,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                         Scope = "TODOS",
                         Activo = true,
                         CreadoEn = DateTime.UtcNow,
-                        CreadoPor = null,
-                        SystemRoleId = null
+                        CreadoPor = null
                     });
                     await ctx.SaveChangesAsync();
                 }

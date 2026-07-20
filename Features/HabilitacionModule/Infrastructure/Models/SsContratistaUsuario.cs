@@ -28,9 +28,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Models
         [Column("creado_en")]
         public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
 
-        [Column("system_role_id")]
-        public int? SystemRoleId { get; set; }
-
+        // system_role_id existe en la BD pero está deprecado: era una copia desnormalizada
+        // del rol asignado en user_role (la fuente real de roles/features del usuario).
         [Column("creado_por")]
         public int? CreadoPor { get; set; }
 

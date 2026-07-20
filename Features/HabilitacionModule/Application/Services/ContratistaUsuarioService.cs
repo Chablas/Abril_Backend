@@ -112,7 +112,6 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 ContractorId = contractorId,
                 UserId = user.UserId,
                 RolId = rol.Id,
-                SystemRoleId = dto.SystemRoleId,
                 Scope = scope,
                 Activo = true,
                 CreadoEn = DateTime.UtcNow,

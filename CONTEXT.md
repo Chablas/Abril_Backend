@@ -5132,4 +5132,34 @@ Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend
 
 Rama: `master`. Sesión sin cambios de código en `master`: `git status` estaba limpio al invocar "guardar master" (nada que commitear), build local en 0 errores, y se sincronizó con `origin/master` (fetch + merge — un conflicto trivial de orden en `CONTEXT.md` con las sesiones 07-14/07-15 recién traídas, resuelto dejando las tres en orden cronológico, sin descartar contenido de ningún lado).
 
+## Sesión 2026-07-20 — Limpieza prod `milestone_schedule_history` (Cedro 33) + permisos ver/editar en Cronograma de Hitos
+
+**1. Limpieza de datos de prueba en producción (Cedro 33, `project_id=8`)**, previo a lanzamiento:
+- Se pidió borrar `milestone_schedule_history_id IN (63, 64)`. Antes de tocar nada se verificó el esquema real (vía túnel SSH puerto 5544, `psql`/`pg_dump`): `milestone_schedule` **sí** es tabla hija real de `milestone_schedule_history` (FK en BD, sin `ON DELETE CASCADE`), y a su vez `ss_consumo_linea` (Presupuesto de Materiales) depende de `milestone_schedule` (`hito_id`, `ON DELETE SET NULL`).
+- Resultado: `history_id=64` estaba vacío (0 hitos hijos) — se borró. `history_id=63` tenía **29 hitos reales** en `milestone_schedule`, con **1,321 filas** de `ss_consumo_linea` dependientes de esos hitos — el usuario decidió **no borrarlo** (dejarlo intacto) al ver que no era solo un log de subida de Excel sino que tenía datos de consumo reales enganchados.
+- Backup tomado antes del delete: `C:\Users\vcolonio\Backup database\milestone_schedule_history_backup_20260720_103959.dump` (`pg_dump --data-only --format=custom`, tabla completa, verificado con `pg_restore -l`). Delete ejecutado dentro de `BEGIN`/`COMMIT` explícito (ojo: la primera corrida se hizo sin `COMMIT` en el mismo script y el DELETE quedó implícitamente revertido al cerrar la sesión de `psql` — hay que recordar siempre incluir `COMMIT;` en el mismo heredoc, no en una invocación de `psql` separada).
+- **Cedro 33 NO quedó en "0 cronogramas"** — sigue con `history_id=63` activo. Pendiente decidir con el usuario qué hacer con esas 1,321 filas de `ss_consumo_linea` si el objetivo de lanzamiento en verdad requiere dejarlo en cero.
+
+**2. Modelo de permisos investigado (para caso nuevo: RESIDENTE puede editar Cronograma de Hitos, el resto solo ve)**:
+- `role_feature` es 100% binario (`role_id, feature_id`, sin columna de nivel de acceso). No hay concepto nativo de "view vs edit" en el dato.
+- Sí existe la **convención de código** (ya usada en `RevisionesFeature`/`ObservacionesFeature` de Arquitectura Comercial): dos `feature_key` — uno base a nivel de **clase** del controller (ver) y uno con sufijo `.editar` a nivel de **método** en los endpoints de escritura. Atributo `[RequireFeature("...")]` (`Abril_Backend.Shared.Filters.RequireFeatureAttribute`, `IAsyncAuthorizationFilter`). Como son dos filtros de autorización separados (clase + método), en los endpoints de escritura se exige **ambos** featureKeys (AND), no solo el `.editar`.
+- Se confirmó que `MilestoneScheduleController`/`MilestoneScheduleHistoryController` **no tenían ningún `[RequireFeature]`** — solo `[Authorize]` genérico (JWT). Cualquier usuario autenticado, de cualquier rol, podía llamar los 3 endpoints de escritura (`Create` de versión de cronograma, `Culminar`, `MarcarCritico`) sin importar si su rol tenía o no la feature en `role_feature` (el guard de rol solo bloqueaba la navegación del frontend, no la API).
+- `feature_key` real de la página: `mejora-continua.milestone-schedule` (feature_id=5) — vive bajo módulo "Mejora Continua" en la tabla `module` pero está asignado a roles de UDP/Residentes (probable mislabel histórico, no se corrigió por no ser parte del pedido). Roles con acceso hoy: `ADMINISTRADOR DE UDP`, `USUARIO DE UDP`, `ADMINISTRADOR DE RESIDENTES`, `RESIDENTE`, `USUARIO DE ABRIL`.
+
+**3. Implementado** (build verificado en 0 errores, sin warnings nuevos en los archivos tocados):
+- `[RequireFeature("mejora-continua.milestone-schedule")]` a nivel de clase en ambos controllers.
+- `[RequireFeature("mejora-continua.milestone-schedule.editar")]` a nivel de método en `Culminar`, `MarcarCritico` (`MilestoneScheduleController`) y `Create` (`MilestoneScheduleHistoryController`).
+- `ProjectsController.cs` (mismo folder, `PATCH .../foto`) explícitamente NO tocado — entidad distinta.
+
+### Archivos clave (sesión 2026-07-20)
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Presentation/MilestoneScheduleController.cs`
+- `Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Presentation/MilestoneScheduleHistoryController.cs`
+- `Shared/Filters/RequireFeatureAttribute.cs` (sin cambios, solo referenciado)
+- Backup: `C:\Users\vcolonio\Backup database\milestone_schedule_history_backup_20260720_103959.dump`
+
+### Pendiente
+- **Verificar en BD** que el `feature_key` `mejora-continua.milestone-schedule.editar` exista realmente en la tabla `feature` y esté asignado en `role_feature` solo a `RESIDENTE` (role_id=5) — el usuario afirmó que ya estaba creado en BD, pero no se confirmó con una query en esta sesión (a diferencia del featureKey base, que sí se verificó). Si no existe o no está asignado, `RESIDENTE` va a recibir 403 en los 3 endpoints de escritura pese al cambio de código.
+- Probar en pantalla el flujo completo: RESIDENTE puede editar, el resto de roles con acceso a la página (ADMINISTRADOR DE UDP, USUARIO DE UDP, ADMINISTRADOR DE RESIDENTES, USUARIO DE ABRIL) puede ver pero recibe 403 al intentar escribir.
+- Decidir qué hacer con `milestone_schedule_history_id=63` de Cedro 33 (29 hitos reales + 1,321 filas de `ss_consumo_linea`) si el lanzamiento requiere el proyecto en cero.
+
 El trabajo real de la sesión (investigación de `responsable_udp`/`responsable_udp_id` en `Project` para "ingeniero residente", dos rondas de implementación que terminaron revertidas al confirmarse que Cronograma de Hitos usa `ProjectResident` y no `responsable_udp`, y el fix de `ex.StatusCode` en `ProjectController.cs` que sí quedó) está documentado en el `CONTEXT.md` de la rama `victor-backend` (commit `0a2eb930`), no en este archivo de `master`. **Ese trabajo todavía no está mergeado a `master`** — solo llegó a `origin/victor-backend`.

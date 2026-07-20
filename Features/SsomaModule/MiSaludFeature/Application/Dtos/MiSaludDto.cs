@@ -80,4 +80,25 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos
         public string? GthEmail { get; set; }
         public string? MotivoNombre { get; set; }
     }
+
+    /// <summary>
+    /// Configuración de un destinatario del correo de descanso médico
+    /// (pantalla de Configuración de Mi Salud).
+    /// </summary>
+    public class MiDescansoCorreoConfigDto
+    {
+        public int Id { get; set; }
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public string? Descripcion { get; set; }
+        /// <summary>true = se envía el correo a este destinatario; false = no se envía.</summary>
+        public bool Active { get; set; }
+        public int Orden { get; set; }
+    }
+
+    /// <summary>Cuerpo del PUT para prender/apagar un destinatario de correo.</summary>
+    public class ActualizarCorreoConfigDto
+    {
+        public bool Active { get; set; }
+    }
 }

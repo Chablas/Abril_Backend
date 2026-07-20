@@ -500,17 +500,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 subject: subject,
                 body: body,
                 isHtml: true,
-                cc: cc,
-                bcc: new List<string> { BccRecepcionMonitoreo });
+                cc: cc);
         }
 
-        // ── CC / BCC recepción ──────────────────────────────────────────────
+        // ── CC recepción ────────────────────────────────────────────────────
         private const int RoleIdRecepcion = 52;
         private const string CcRecepcionFijo = "recepcionnm@abril.pe";
         /// <summary>Correo de GTH que va siempre en copia en los envíos al solicitante + recepción.</summary>
         private const string CcGthFijo = "gthnm@abril.pe";
-        /// <summary>Correo con copia oculta en todos los envíos que también van a recepción.</summary>
-        private const string BccRecepcionMonitoreo = "calvarez@abril.pe";
 
         /// <summary>
         /// Devuelve los correos para CC del flujo de salidas:
@@ -830,8 +827,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     subject: subject,
                     body: body,
                     isHtml: true,
-                    cc: cc,
-                    bcc: new List<string> { BccRecepcionMonitoreo });
+                    cc: cc);
             }
             catch (Exception ex)
             {
@@ -898,8 +894,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     subject: subject,
                     body: body,
                     isHtml: true,
-                    cc: cc,
-                    bcc: new List<string> { BccRecepcionMonitoreo });
+                    cc: cc);
             }
             catch (Exception ex)
             {

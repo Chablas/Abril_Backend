@@ -13,6 +13,13 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
         private const string EmailAsistentaSocial   = "pquispe@abril.pe";
         private const string EmailMedicoOcupacional = "mediconm@abril.pe";
 
+        // Códigos (deben coincidir con ss_descanso_correo_config.codigo) que mapean
+        // cada destinatario del correo a su toggle activar/inactivar.
+        private const string CorreoTrabajador        = "TRABAJADOR";
+        private const string CorreoAsistentaSocial   = "ASISTENTA_SOCIAL";
+        private const string CorreoGth               = "GTH";
+        private const string CorreoMedicoOcupacional = "MEDICO_OCUPACIONAL";
+
         private readonly IMiSaludRepository _repo;
         private readonly ISharePointHabService _sharePoint;
         private readonly IEmailService _emailService;
@@ -81,31 +88,69 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
             return descansoId;
         }
 
+        public async Task<List<MiDescansoCorreoConfigDto>> GetCorreoConfigs()
+            => await _repo.GetCorreoConfigsAsync();
+
+        public async Task SetCorreoConfigActive(int id, bool active)
+        {
+            var ok = await _repo.SetCorreoConfigActiveAsync(id, active);
+            if (!ok)
+                throw new AbrilException("No se encontró el destinatario de correo indicado.", 404);
+        }
+
         /// <summary>
-        /// Correo al registrar un descanso médico: destinatario principal el propio
-        /// trabajador; en copia la asistenta social, el área GTH (area_scope.email)
-        /// y el médico ocupacional.
+        /// Correo al registrar un descanso médico. Destinatarios: el propio
+        /// trabajador, la asistenta social, el área GTH (area_scope.email) y el
+        /// médico ocupacional. Cada destinatario se envía solo si está activo en
+        /// ss_descanso_correo_config (toggle configurable desde Mi Salud → Configuración).
+        /// El primer destinatario activo con correo va en TO y el resto en CC, de modo
+        /// que apagar al trabajador no impide notificar a los demás (útil para pruebas).
         /// </summary>
         private async Task SendNotificacionDescansoAsync(int workerId, int userId, CrearMiDescansoDto dto)
         {
-            var datos = await _repo.GetDatosNotificacionDescansoAsync(workerId, userId, dto.MotivoId);
+            var datos  = await _repo.GetDatosNotificacionDescansoAsync(workerId, userId, dto.MotivoId);
+            var config = await _repo.GetCorreoConfigMapAsync();
 
-            if (string.IsNullOrWhiteSpace(datos.WorkerEmail))
+            // Un destinatario está activo salvo que exista una fila explícita con active=false.
+            // Así, si la tabla aún no está poblada, se conserva el comportamiento de enviar a todos.
+            bool Activo(string codigo) => !config.TryGetValue(codigo, out var a) || a;
+
+            var candidatos = new (string Codigo, string? Email)[]
+            {
+                (CorreoTrabajador,        datos.WorkerEmail),
+                (CorreoAsistentaSocial,   EmailAsistentaSocial),
+                (CorreoGth,               datos.GthEmail),
+                (CorreoMedicoOcupacional, EmailMedicoOcupacional),
+            };
+
+            var destinatarios = new List<string>();
+            foreach (var (codigo, email) in candidatos)
+            {
+                if (!Activo(codigo)) continue;
+                if (string.IsNullOrWhiteSpace(email))
+                {
+                    if (codigo == CorreoGth)
+                        _logger.LogWarning("Notificación de descanso médico sin copia a GTH: no hay correo configurado en area_scope.email.");
+                    else if (codigo == CorreoTrabajador)
+                        _logger.LogWarning("Notificación de descanso médico sin el trabajador {WorkerId}: no tiene correo registrado.", workerId);
+                    continue;
+                }
+
+                var e = email.Trim();
+                if (!destinatarios.Any(x => x.Equals(e, StringComparison.OrdinalIgnoreCase)))
+                    destinatarios.Add(e);
+            }
+
+            if (destinatarios.Count == 0)
             {
                 _logger.LogWarning(
-                    "No se envió notificación de descanso médico: el trabajador {WorkerId} no tiene correo registrado.",
+                    "No se envió notificación de descanso médico (worker {WorkerId}): no hay destinatarios activos con correo.",
                     workerId);
                 return;
             }
 
-            var cc = new List<string> { EmailAsistentaSocial, EmailMedicoOcupacional };
-            if (!string.IsNullOrWhiteSpace(datos.GthEmail))
-                cc.Insert(1, datos.GthEmail);
-            else
-                _logger.LogWarning("Notificación de descanso médico sin copia a GTH: no hay correo configurado en area_scope.email.");
-            cc = cc.Where(c => !c.Equals(datos.WorkerEmail, StringComparison.OrdinalIgnoreCase))
-                   .Distinct(StringComparer.OrdinalIgnoreCase)
-                   .ToList();
+            var to = new List<string> { destinatarios[0] };
+            var cc = destinatarios.Skip(1).ToList();
 
             var nombre = datos.WorkerNombre ?? "Trabajador";
             var dias   = dto.Dias ?? (dto.FechaFin.DayNumber - dto.FechaInicio.DayNumber + 1);
@@ -126,11 +171,11 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
                 """;
 
             await _emailService.SendAsync(
-                to: new List<string> { datos.WorkerEmail },
+                to: to,
                 subject: subject,
                 body: body,
                 isHtml: true,
-                cc: cc);
+                cc: cc.Count > 0 ? cc : null);
         }
     }
 }

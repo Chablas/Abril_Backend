@@ -269,5 +269,51 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
                 MotivoNombre = motivoNombre,
             };
         }
+
+        public async Task<List<MiDescansoCorreoConfigDto>> GetCorreoConfigsAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsDescansoCorreoConfig
+                .Where(c => c.State)
+                .OrderBy(c => c.Orden)
+                .ThenBy(c => c.Id)
+                .Select(c => new MiDescansoCorreoConfigDto
+                {
+                    Id          = c.Id,
+                    Codigo      = c.Codigo,
+                    Nombre      = c.Nombre,
+                    Descripcion = c.Descripcion,
+                    Active      = c.Active,
+                    Orden       = c.Orden,
+                })
+                .ToListAsync();
+        }
+
+        public async Task<Dictionary<string, bool>> GetCorreoConfigMapAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            var rows = await ctx.SsDescansoCorreoConfig
+                .Where(c => c.State)
+                .Select(c => new { c.Codigo, c.Active })
+                .ToListAsync();
+
+            // Case-insensitive por codigo; si hubiera duplicados vivos, gana el último.
+            var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rows)
+                map[r.Codigo] = r.Active;
+            return map;
+        }
+
+        public async Task<bool> SetCorreoConfigActiveAsync(int id, bool active)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var row = await ctx.SsDescansoCorreoConfig.FirstOrDefaultAsync(c => c.Id == id && c.State);
+            if (row == null) return false;
+
+            row.Active    = active;
+            row.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
     }
 }

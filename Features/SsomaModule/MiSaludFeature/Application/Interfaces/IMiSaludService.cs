@@ -8,5 +8,9 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Interfac
         Task<MiSaludResumenDto> GetResumen(int userId);
         Task<PagedResult<MiDescansoDto>> GetDescansos(int userId, int page);
         Task<int> CreateDescanso(int userId, CrearMiDescansoDto dto);
+
+        // ── Configuración de correos de descanso médico ──
+        Task<List<MiDescansoCorreoConfigDto>> GetCorreoConfigs();
+        Task SetCorreoConfigActive(int id, bool active);
     }
 }

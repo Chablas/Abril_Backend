@@ -68,3 +68,5 @@ appsettings.json
 
 .claude/*
 !.claude/skills/
+# TokenSave local tool state
+.tokensave/

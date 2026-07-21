@@ -153,7 +153,7 @@ public class RevisionRepository : IRevisionRepository
         // en Project, no de revisiones ya creadas — si no, un proyecto sin revisiones todavía
         // nunca aparecería en el combo para poder crear su primera revisión.
         var proyectos = await ctx.Project
-            .Where(p => p.TieneArquitecturaComercial && p.State)
+            .Where(p => p.TieneArquitecturaComercial && p.State && p.Active)
             .Select(p => new ProyectoRevisionFiltroDTO { Id = p.ProjectId, Nombre = p.ProjectDescription })
             .OrderBy(p => p.Nombre)
             .ToListAsync();

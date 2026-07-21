@@ -18,7 +18,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
 
             var registros = from project_resident in ctx.ProjectResident
                 join project in ctx.Project on project_resident.ProjectId equals project.ProjectId
-                where (project_resident.State == true) && (project_resident.Active == true)
+                where (project_resident.State == true) && (project_resident.Active == true) && (project.Active == true)
                 orderby project.ProjectDescription
                 select new ProjectSimpleDTO
                 {

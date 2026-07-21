@@ -26,7 +26,7 @@ public class SharedFiltersService : ISharedFiltersService
 
         var projects = await ctx.Project
             .AsNoTracking()
-            .Where(p => p.State)
+            .Where(p => p.State && p.Active)
             .ToListAsync();
 
         return projects

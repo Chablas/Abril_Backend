@@ -5058,6 +5058,22 @@ De paso se detectaron (pero NO se corrigieron aún) 4 registros duplicados de pr
 - Revisar por qué se generan programaciones "Ingreso" duplicadas para el mismo trabajador/día vía "Registro directo" (posible doble submit del formulario de alta de trabajador, o el flujo de registro directo no verifica si ya existe una programación activa antes de crear una nueva). No confirmado con el usuario si ya lo notó/reportó como problema aparte.
 - Confirmar con Katyana que tras el fix los 3 trabajadores ya aparecen en "Programados".
 
+## Sesión 2026-07-12 — Plantilla de anteproyecto en "Usar plantilla"
+
+Rama: `victor-backend`.
+
+### Qué se hizo
+- Se agregó soporte para la plantilla de **ANTEPROYECTO** en el flujo "Usar plantilla" del cronograma. Antes `AplicarPlantillaAsync` siempre leía `plantilla_proyecto_seed.json`; ahora selecciona el archivo según `tipoCronograma`: si es `"ANTEPROYECTO"` usa el nuevo `plantilla_anteproyecto_seed.json`, en cualquier otro caso mantiene `plantilla_proyecto_seed.json`.
+- Se creó el seed `plantilla_anteproyecto_seed.json` con las actividades base del anteproyecto.
+- Se agregó `.tokensave/` al `.gitignore` (estado local de la herramienta, no debe versionarse).
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Infrastructure/Repositories/CronogramaActividadesRepository.cs` — nueva ruta `PlantillaAnteproyectoPath` y selección de plantilla por `tipoCronograma` en `AplicarPlantillaAsync`.
+- `Features/UnidadDeProyectosModule/Features/CronogramaActividades/Seeds/plantilla_anteproyecto_seed.json` (nuevo).
+
+### Pendiente
+- Verificar en el navegador el flujo "Usar plantilla" para un cronograma de tipo Anteproyecto.
+
 ## Sesión 2026-07-13 — Sync master
 
 Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend` estaba limpio, se cambió a `master` y se corrió "guardar master" para sincronizar con `origin/master`.
@@ -5091,6 +5107,22 @@ Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend
 ### Pendiente
 - Confirmar con el usuario que las miniaturas ya cargan en celular tras el fix del proxy.
 - Si alguna vez el selector "Quién levanta" queda vacío para un trabajador que debería aparecer, revisar si tiene fila vigente en `worker_vinculaciones` (ver nota de fuente en conflicto arriba).
+
+## Sesión 2026-07-15 — Migración de feature "Cronograma de Hitos" a Mejora Continua (prod)
+
+Rama: `victor-backend`. No hubo cambios de código; fue una migración de datos directa en la BD de producción vía túnel SSH (puerto 5544).
+
+### Qué se hizo
+- Se movió el feature `projects.milestone-schedule` (Cronograma de Hitos, `feature_id = 5`) del módulo **Proyectos** (`module_id = 6`) al módulo **Mejora Continua** (`module_id = 11`), y se renombró su `feature_key` a `mejora-continua.milestone-schedule`.
+- Investigación previa (solo SELECT) confirmó: `module_id` real de Mejora Continua en prod es `11` (no asumir que coincide con local); la fila de `feature` a modificar; y que 4 filas en `role_feature` referencian `feature_id = 5` (permisos existentes, no tocados por el UPDATE).
+- `UPDATE feature SET module_id = 11, feature_key = 'mejora-continua.milestone-schedule' WHERE feature_key = 'projects.milestone-schedule';` → 1 fila afectada, como se esperaba. `role_feature` quedó intacto (mismo `feature_id`, los 4 roles conservan acceso).
+
+### Incidente
+- Al armar el comando de conexión a psql se expuso por error la contraseña de PostgreSQL de producción en la salida de un comando intermedio (`grep`/`echo` sobre `appsettings.Production.json`). Quedó registrada en el historial de esa conversación. Recomendado rotar la contraseña de la BD Aiven si esto es una preocupación.
+
+### Pendiente
+- Verificar en el frontend que "Cronograma de Hitos" aparezca ahora bajo Mejora Continua para los roles que ya tenían acceso.
+- Evaluar si conviene rotar la contraseña de Postgres de producción (Aiven) por el incidente de exposición mencionado arriba.
 
 ## Sesión 2026-07-15 — Módulo Gestión de Revisiones (nuevo) + fixes de Observaciones y migraciones históricas
 
@@ -5128,6 +5160,33 @@ Rama: `master`. Sesión sin cambios de código: se verificó que `victor-backend
 - `Migrations/Manual/20260714_CreateAcRevisiones.sql`
 - `Migrations/Manual/20260715_ImportRevisionesHistorico.sql`
 
+## Sesión 2026-07-17 — Investigación de campo "ingeniero residente" en Project (sin cambios netos de feature)
+
+Rama: `victor-backend`. Sesión larga de investigación + dos implementaciones que terminaron revertidas; el único cambio que sobrevivió es un fix de bug real encontrado en el camino.
+
+### Investigación de esquema (Project)
+- No existe columna `caracteristica_proyecto`. Lo más cercano a "característica del proyecto" es `level_description` (`LevelDescription`), texto libre tipo "20 pisos + azotea + 4 sótanos" — **ya era editable** desde antes vía `PUT /api/v1/project` (`ProjectEditDto`), no hizo falta agregar nada ahí.
+- "Ingeniero residente" se investigó como candidato a `responsable_udp`/`responsable_udp_id` (distinto de `responsable_arq_com`/`Id`, que es el responsable de Arquitectura Comercial y ya tenía endpoint de edición). Confirmado con dato real de producción: en "MÁXIMO ABRIL" (`project_id=11`) `responsable_udp_id=14031` = "COLONIO BARRUETO VICTOR ALEJANDRO".
+- **Hallazgo clave que invalidó el enfoque**: la pantalla real "Cronograma de Hitos" (`Features/UnidadDeProyectosModule/Features/MilestoneScheduleFeature/Infrastructure/Repositories/ProjectsRepository.cs`, método `GetPagedWithResidents`) **no lee `responsable_udp` en absoluto** — obtiene el/los residente(s) de una tabla `ProjectResident` (N:M `project_id ↔ user_id`, join con `User`/`Person.FullName`), soporta múltiples residentes por proyecto. `responsable_udp`/`responsable_udp_id` sigue siendo un campo aparte, usado solo por `CronogramaActividades` y `ProjectsDashboard` (Cronograma de *Actividades*, no de *Hitos*).
+
+### Qué se implementó y se revirtió (dos rondas)
+1. Primera ronda: se agregó `responsableUdpId` a `PatchProyectoDTO`/`ProyectoConActividadesDTO` reutilizando el endpoint `PATCH /api/v1/arquitectura-comercial/proyectos/{id}` — revertido por decisión del usuario (semánticamente no pertenece a Arquitectura Comercial).
+2. Segunda ronda: se agregó `responsableUdpId` a `ProjectEditDto` (`PUT /api/v1/project`) con resolución server-side `Worker → Person.FullName` — revertido tras confirmarse que Cronograma de Hitos no consume ese campo (ver hallazgo arriba). `ProjectEditDto.cs` quedó idéntico a `git HEAD` (diff vacío).
+- Estado final: `responsable_udp`/`responsable_udp_id` siguen siendo **solo lectura** en todo el código (confirmado por grep, sin ningún `.ResponsableUdp(Id)? =` fuera del entity model).
+
+### Fix real que sí quedó (único cambio de esta sesión)
+- `Features/ConfigurationModule/Features/ProjectFeature/Presentation/ProjectController.cs`, endpoint `PUT` (`Update`): el `catch (AbrilException ex)` ignoraba `ex.StatusCode` y siempre devolvía `400 BadRequest`, distinto al patrón documentado en CLAUDE.md (`StatusCode(ex.StatusCode, ...)`) que sí siguen otros controllers (ej. `ArquitecturaComercialController`). Corregido a `return StatusCode(ex.StatusCode, new { message = ex.Message });`.
+
+### Métricas de completitud de `responsable_udp` (solo lectura, vía conexión directa a Postgres de prod con el connection string de `appsettings.Production.json` — sin necesidad de túnel SSH, la BD es alcanzable directo)
+- Tabla `project`: 33 filas totales, 32 con `state=true`.
+- Subset que consulta Cronograma de Hitos (`active AND state AND tiene_unidad_de_proyectos`): 12 filas — **100% con `responsable_udp`/`responsable_udp_id` cargado** (aunque, como se documentó arriba, esa pantalla no lee este campo).
+- Tabla completa: 13/33 con valor, 20/33 en NULL (fuera del subset activo de UDP).
+- `responsable_udp` y `responsable_udp_id` están siempre sincronizados (0 inconsistencias en las 33 filas).
+
+### Pendiente / decisión de negocio abierta
+- Si en algún momento se quiere que Cronograma de Hitos muestre/edite un residente único a nivel proyecto (vs. la lista actual vía `ProjectResident`), hay que decidir conscientemente cuál de los dos mecanismos (`responsable_udp` escalar vs. `ProjectResident` N:M) es la fuente de verdad — hoy conviven sin relación entre sí.
+- `responsable_udp`/`responsable_udp_id` en Project siguen sin ningún endpoint de escritura.
+
 ## Sesión 2026-07-17 — Sync master
 
 Rama: `master`. Sesión sin cambios de código en `master`: `git status` estaba limpio al invocar "guardar master" (nada que commitear), build local en 0 errores, y se sincronizó con `origin/master` (fetch + merge — un conflicto trivial de orden en `CONTEXT.md` con las sesiones 07-14/07-15 recién traídas, resuelto dejando las tres en orden cronológico, sin descartar contenido de ningún lado).
@@ -5163,3 +5222,66 @@ Rama: `master`. Sesión sin cambios de código en `master`: `git status` estaba 
 - Decidir qué hacer con `milestone_schedule_history_id=63` de Cedro 33 (29 hitos reales + 1,321 filas de `ss_consumo_linea`) si el lanzamiento requiere el proyecto en cero.
 
 El trabajo real de la sesión (investigación de `responsable_udp`/`responsable_udp_id` en `Project` para "ingeniero residente", dos rondas de implementación que terminaron revertidas al confirmarse que Cronograma de Hitos usa `ProjectResident` y no `responsable_udp`, y el fix de `ex.StatusCode` en `ProjectController.cs` que sí quedó) está documentado en el `CONTEXT.md` de la rama `victor-backend` (commit `0a2eb930`), no en este archivo de `master`. **Ese trabajo todavía no está mergeado a `master`** — solo llegó a `origin/victor-backend`.
+
+## Sesión 2026-07-18 — Barrido completo del filtro `Project.Active` en listados de proyectos
+
+Rama: `victor-backend`.
+
+### Qué se hizo
+
+**Ronda 1 — 4 casos reportados por el usuario**: se agregó el chequeo de `Project.Active` (además del ya existente `State`) a las queries que arman las opciones de filtro/dropdown de proyecto en 4 pantallas, que hoy mostraban proyectos inactivos como opción:
+- `ProjectsDashboardRepository.GetFiltersDataFactory()` (Dashboard de Proyectos, dropdown de filtro).
+- `CronogramaActividadesRepository.GetProyectosAsync()` (Cronograma de Actividades).
+- `ProjectResidentRepository.GetProjectsDescription()` (compartido por Control de IVTs, Cuaderno de Obra y Seguimiento de Residentes) — se agregó `Project.Active` junto al `ProjectResident.Active` que ya existía (ambos chequeos, no reemplazo).
+- `LessonsDashboardRepository.GetFiltersAsync()` (filtro de Proyecto en Lessons Dashboard).
+
+**Merge de `origin/master` → `victor-backend`**: la rama estaba 96 commits detrás de `master`. Se hizo `git merge` (no rebase, la rama ya está pusheada y es compartida). Único conflicto real: `CONTEXT.md` — dos logs de sesión divergentes (`victor-backend`: 07-12, 07-15, 07-17; `master`: 07-07 a 07-17) resuelto intercalando las 12 sesiones en orden cronológico real, sin descartar contenido de ningún lado. `ProjectController.cs` se auto-mergeó sin conflicto (el fix de `ex.StatusCode` de esta rama y el nuevo endpoint `ToggleArquitecturaComercial` de master tocan regiones distintas del archivo). Se confirmó que `ActasReunionFeature` (Controller, Service, Repository, DTOs, 9 modelos `Reunion*`) ya está completo en el checkout tras el merge — existía en `master` desde los commits `09e11275`/`013ec52f` (2026-07-10, Christian Alvarez) pero nunca había llegado a esta rama; el frontend (`ActasReunionService.getPaginaInicial()`) apunta a un endpoint real que simplemente faltaba en este checkout, no a algo nunca implementado.
+
+**Ronda 2 — Dashboard UDP (`/projects/cronograma-dashboard`)**: se reportó que el filtro de proyectos de este dashboard seguía mostrando inactivos pese al fix de ayer. Causa: `CronogramaActividadesRepository.GetDashboardAsync()` tiene una única query "todos los proyectos UDP activos" (`Where(p => p.TieneUnidadDeProyectos && p.State)`, sin `Active`) que alimenta a la vez KPIs, tabla principal (ranking/heatmap) y filtro/responsables — a diferencia de los otros dashboards, acá no hay una query de filtro separada de la de datos, así que el fix afecta también a la tabla principal (correcto: tampoco se quiere ahí un proyecto inactivo).
+
+**Auditoría amplia**: se buscó en todo el backend (~200 referencias a `ctx.Project`/`_context.Project`) otras queries que arman listados de proyectos para filtros/selects/dropdowns/tablas resumen. Se encontraron y corrigieron 7 casos adicionales (todos con el mismo patrón: agregar `p.Active`):
+- `ProjectsDashboardRepository.BuildProjectQueryAsync` — tabla principal del Dashboard de Proyectos (el dropdown de filtro de esa misma pantalla ya había quedado bien en la ronda 1, pero la tabla de datos no).
+- `ObservacionRepository.GetFiltros` (Observaciones, Arquitectura Comercial).
+- `RevisionRepository.GetFiltros` (Revisiones, Arquitectura Comercial).
+- `HabEmpresaRepository.GetProyectosDisponiblesAsync` (Habilitación, asignar proyecto a empresa).
+- `ProyectoHabRepository.GetActivosAsync` (el método se llamaba "Activos" pero nunca chequeó el flag).
+- `SharedFiltersService.GetProyectosAsync` (`GET api/v1/shared-filters/proyectos`) — se verificó que en el backend solo lo consume `SharedFiltersController.GetProyectos()`, sin ningún otro repo/servicio dependiendo de recibir inactivos.
+- `ArquitecturaComercialRepository.GetProyectosConActividades` — no tenía ningún `.Where` sobre `Project`; se agregó `State && Active` (no solo `Active`).
+
+**Casos identificados pero NO tocados** (a propósito):
+- `CronogramaActividadesRepository.GetDebugProyectosAsync` — sin filtro, pero es debug, no user-facing.
+- `ArquitecturaComercialRepository` (línea ~1210, filtros DTO) — comentario explícito: trae todos los proyectos a propósito para que el frontend los marque visualmente por estado.
+- `IndicadoresProactivosRepository` (SSOMA) — usa `SsProyectoHabilitado.Active` como su propio concepto de "proyecto activo", independiente de `Project.Active`, decisión de dominio documentada.
+- `Features/ConfigurationModule/ProjectFeature/ProjectRepository.GetPaged` — CRUD admin de proyectos, alimenta la pestaña "Proyectos Activos"; debe seguir mostrando inactivos para poder reactivarlos.
+- 9 métodos confirmados ya correctos: `AdjudicacionFolderRepository`, `ProjectLinkRepository`, `ActasReunionRepository.GetPaginaInicial`, `PasoService_FIXED`, `CroquisRepository`, `GestionVecinosRepository`, `Infrastructure/ProjectRepository.cs` (raíz), `LessonReminderRepository`, `ProjectSubContractorRepository`.
+
+### Archivos clave
+- Ronda 1: `ProjectsDashboardRepository.cs` (`GetFiltersDataFactory`), `CronogramaActividadesRepository.cs` (`GetProyectosAsync`), `ProjectResidentRepository.cs` (`GetProjectsDescription`), `LessonsDashboardRepository.cs` (`GetFiltersAsync`).
+- Ronda 2: `CronogramaActividadesRepository.cs` (`GetDashboardAsync`), `ProjectsDashboardRepository.cs` (`BuildProjectQueryAsync`), `ObservacionRepository.cs`, `RevisionRepository.cs`, `HabEmpresaRepository.cs`, `ProyectoHabRepository.cs`, `SharedFiltersService.cs`, `Infrastructure/Repositories/ArquitecturaComercialRepository.cs` (`GetProyectosConActividades`).
+
+### Pendiente
+- No se pudo verificar en el frontend (repo separado, no presente en este checkout) si algún consumidor de `GET api/v1/shared-filters/proyectos` necesita ver proyectos inactivos a propósito — si algún flujo se rompe, revertir puntualmente ese caso.
+- Verificar en el navegador que el Dashboard UDP (tabla principal + filtro) y el Dashboard de Proyectos (tabla principal) ya no muestran proyectos inactivos tras el deploy.
+
+## Sesión 2026-07-19 — Reset de Cronograma de Actividades a estado inicial (producción)
+
+Rama: `victor-backend`. Sesión sin cambios de código — operación directa sobre la BD de producción vía túnel SSH (`localhost:5544` → VPS `5432`, regla P2/P3), a pedido del usuario, porque toda la data de Cronograma de Actividades era de pruebas de desarrollo y el sistema está por salir en limpio para uso real.
+
+### Investigación previa (inventario, sin borrar nada)
+- Tablas relacionadas con Cronograma de Actividades confirmadas contra `pg_constraint` de la BD real (no solo el código C#): `project_activity` (tabla principal, sin FK real a `project` — `project_id` es un int simple), `activity_predecessor` (FK `activity_id` CASCADE y `predecessor_id` RESTRICT hacia `project_activity`), `user_cronograma_preference` (preferencia de UI, sin FK real), y `feriados` (catálogo global de feriados, sin columna `project_id` — **no es data de prueba, es calendario compartido**).
+- Se encontraron y descartaron por nombre engañoso: `costos_cronograma`/`costos_cronograma_actividad`/`costos_cronograma_actividad_nodo` — feature completamente distinto (`CostsModule/Features/CronogramaFeature`, cronograma de costos de subcontratistas), verificado que sus FKs van hacia `project_sub_contractor`/`app_user`, cero relación con `project_activity`.
+- Conteo real en producción: 1,672 filas en `project_activity` repartidas en 11 proyectos (incluía 2 proyectos ya marcados `Active=false` — CAMELIA y Baronet — que igual tenían actividades de prueba), 521 en `activity_predecessor`, 11 en `user_cronograma_preference` (una por proyecto), 45 en `feriados`.
+- No había `psql`/`pg_dump` en el PATH del sistema — se usó el binario bundled en pgAdmin 4 (`C:\Users\Victor\AppData\Local\Programs\pgAdmin 4\runtime\pg_dump.exe`) y un script Node desechable (`pg` npm package) para las queries de solo lectura, leyendo la contraseña directo de `appsettings.Development.json` sin exponerla nunca en la conversación.
+
+### Ejecución (con autorización explícita del usuario)
+- Backup previo: `pg_dump --data-only --format=custom` de las 3 tablas relevantes (`project_activity`, `activity_predecessor`, `user_cronograma_preference`) → `cronograma_backup_20260718_233807.dump` (43,115 bytes, verificado con `pg_restore --list` antes de borrar nada).
+- Se confirmó el nombre real de la secuencia con `pg_get_serial_sequence('project_activity', 'project_activity_id')` → `project_activity_project_activity_id_seq` (coincidía con lo que asumía el usuario, pero se verificó igual antes de correr el `ALTER SEQUENCE`).
+- Transacción ejecutada: `DELETE FROM activity_predecessor` (521 filas) → `DELETE FROM project_activity` (1,672 filas) → `ALTER SEQUENCE project_activity_project_activity_id_seq RESTART WITH 1` → `COMMIT`. Verificado post-commit: ambos conteos en 0, secuencia en `last_value=1, is_called=false`.
+- `user_cronograma_preference` y `feriados` quedaron intactos, tal como pidió el usuario.
+
+### Desviación del plan original (documentada y explicada al usuario)
+- El usuario había pedido confirmar el arranque de la secuencia en 1 con un INSERT/DELETE de prueba dentro de una transacción con `ROLLBACK`. Se optó por NO hacerlo: en Postgres las secuencias no son transaccionales — un `nextval()` consumido dentro de una transacción que hace `ROLLBACK` no se revierte — así que esa prueba habría quemado el valor `1` para siempre y la primera actividad real creada tras el reset habría arrancado en `id=2`. Se usó en su lugar la alternativa no-destructiva que el propio usuario había dejado planteada como opción B (`SELECT last_value, is_called FROM ...`), que confirma lo mismo sin el efecto secundario.
+
+### Pendiente
+- El backup (`cronograma_backup_20260718_233807.dump`) quedó en el scratchpad de la sesión de Claude Code (temporal, no en el repo ni en una ruta persistente) — si se quiere conservar como respaldo a largo plazo, moverlo a un lugar permanente.
+- `activity_predecessor_id_seq` no se reinició (no fue pedido explícitamente) — si se quiere una numeración 100% limpia también ahí, falta ese `ALTER SEQUENCE`.

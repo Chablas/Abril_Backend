@@ -97,7 +97,7 @@ public class ObservacionRepository : IObservacionRepository
         // previas nunca aparecía). Ahora sale del flag TieneArquitecturaComercial en Project,
         // que el usuario controla desde el ícono de activar/desactivar en la lista.
         var proyectos = await ctx.Project
-            .Where(p => p.TieneArquitecturaComercial && p.State)
+            .Where(p => p.TieneArquitecturaComercial && p.State && p.Active)
             .Select(p => new ProyectoFiltroDTO { Id = p.ProjectId, Nombre = p.ProjectDescription })
             .OrderBy(p => p.Nombre)
             .ToListAsync();

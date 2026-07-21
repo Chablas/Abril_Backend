@@ -40,6 +40,7 @@ using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using Abril_Backend.Shared.Services.Decolecta.Interfaces;
 using Abril_Backend.Shared.Services.Decolecta.Services;
 using Abril_Backend.Shared.Interceptors;
+using Microsoft.AspNetCore.Http.Features;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using System.Threading.RateLimiting;
@@ -58,6 +59,18 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 3_000_000_000;
+});
+
+// OJO: subir MaxRequestBodySize de Kestrel NO basta para subidas grandes multipart/form-data.
+// El parseo de formularios tiene su propio tope, MultipartBodyLengthLimit, que por defecto es
+// 128 MB. Al superarlo, el binding de [FromForm]/IFormFile lanza InvalidDataException ANTES de
+// entrar al try/catch del controller → 500 genérico ("Ocurrió un error" en el front). Por eso
+// un dossier ATS pesado (muchos trabajadores) fallaba aunque los PDFs chicos subían bien.
+// Lo alineamos con el límite de Kestrel para que ambos topes sean el mismo. Los endpoints que
+// quieran un tope menor lo siguen imponiendo con su propio [RequestSizeLimit].
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 3_000_000_000;
 });
 
 var databaseProvider = builder.Configuration["Database:DatabaseProvider"];

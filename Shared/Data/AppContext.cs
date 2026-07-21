@@ -205,6 +205,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaSalidasAreaConfig> GaSalidasAreaConfig { get; set; }
         public DbSet<GaSalidasWorkersProject> GaSalidasWorkersProject { get; set; }
         public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
+        // ── Configuración de correos de salidas (destinatarios por correo) ──────
+        public DbSet<GaCorreoEvento> GaCorreoEvento { get; set; }
+        public DbSet<GaCorreoTipoDestinatario> GaCorreoTipoDestinatario { get; set; }
+        public DbSet<GaCorreoRegla> GaCorreoRegla { get; set; }
         // ── Lecciones aprendidas / Áreas (wip/lecciones-aprendidas) ─────────────
         public DbSet<CatalogType> CatalogType => Set<CatalogType>();
         public DbSet<CatalogItem> CatalogItem => Set<CatalogItem>();

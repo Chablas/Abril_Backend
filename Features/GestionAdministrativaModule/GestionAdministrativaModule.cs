@@ -38,6 +38,11 @@ using Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Interfa
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.Trayectos.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Services;
+using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastructure.Repositories;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 
 namespace Abril_Backend.Features.GestionAdministrativa
 {
@@ -94,6 +99,12 @@ namespace Abril_Backend.Features.GestionAdministrativa
             // revisores de su área/proyecto — delegar suplentes y tomar/soltar el puesto)
             services.AddScoped<IDelegacionRevisionRepository, DelegacionRevisionRepository>();
             services.AddScoped<IDelegacionRevisionService, DelegacionRevisionService>();
+
+            // Configuración de correos (destinatarios por correo: se enviará a / nunca se enviará a).
+            services.AddScoped<ICorreoConfigRepository, CorreoConfigRepository>();
+            services.AddScoped<ICorreoConfigService, CorreoConfigService>();
+            // Resolver consumido por SolicitudSalidaService para armar el CC de cada correo.
+            services.AddScoped<ICorreoSalidaRecipientResolver, CorreoSalidaRecipientResolver>();
 
             return services;
         }

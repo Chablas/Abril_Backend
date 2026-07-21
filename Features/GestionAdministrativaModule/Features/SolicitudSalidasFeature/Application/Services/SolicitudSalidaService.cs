@@ -4,6 +4,7 @@ using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
@@ -18,6 +19,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     {
         private readonly ISolicitudSalidaRepository    _repo;
         private readonly ISalidaRevisorResolver        _revisorResolver;
+        private readonly ICorreoSalidaRecipientResolver _correoResolver;
         private readonly ISolicitudSalidaTokenService  _tokenService;
         private readonly IEmailService                 _emailService;
         private readonly IDbContextFactory<AppDbContext> _factory;
@@ -32,6 +34,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         public SolicitudSalidaService(
             ISolicitudSalidaRepository repo,
             ISalidaRevisorResolver revisorResolver,
+            ICorreoSalidaRecipientResolver correoResolver,
             ISolicitudSalidaTokenService tokenService,
             IEmailService emailService,
             IDbContextFactory<AppDbContext> factory,
@@ -41,6 +44,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         {
             _repo             = repo;
             _revisorResolver  = revisorResolver;
+            _correoResolver   = correoResolver;
             _tokenService     = tokenService;
             _emailService     = emailService;
             _factory          = factory;
@@ -429,11 +433,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var body    = BuildEmailBody(nombreSolicitante, solicitud.FechaSalida, trayectos, mostrarRecordatorio, urlAprobar, urlRechazar);
             var subject = $"Solicitud de salida - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
 
+            // CC configurable del correo al revisor (por defecto sin reglas ⇒ sin copia). El revisor
+            // resuelto (To) nunca se excluye; las exclusiones solo aplican a los correos en copia. Se
+            // quita el revisor del CC por si alguien lo agregó como inclusión (ya está en To).
+            var cc = await _correoResolver.ResolveCcAsync(CorreoEventoCodigos.Revisor);
+            cc.RemoveAll(e => string.Equals(e, aprobadorEmail, StringComparison.OrdinalIgnoreCase));
+
             await _emailService.SendAsync(
                 to: new List<string> { aprobadorEmail },
                 subject: subject,
                 body: body,
                 isHtml: true,
+                cc: cc.Count > 0 ? cc : null,
                 attachments: adjuntosEmail);
         }
 
@@ -493,7 +504,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var body    = BuildEmailConfirmacionSolicitante(nombreSolicitante, numeroUsuario, solicitud.FechaSalida, trayectos, mostrarRecordatorio, aprobadorEmail);
             var subject = $"Tu solicitud de salida #{numeroUsuario} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
 
-            var cc = await GetCcRecepcionAsync(ctx);
+            var cc = await _correoResolver.ResolveCcAsync(
+                CorreoEventoCodigos.Confirmacion, await GetRecepcionRole52Async(ctx));
 
             await _emailService.SendAsync(
                 to: new List<string> { emailSolicitante },
@@ -505,19 +517,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         // ── CC recepción ────────────────────────────────────────────────────
         private const int RoleIdRecepcion = 52;
-        private const string CcRecepcionFijo = "recepcionnm@abril.pe";
-        /// <summary>Correo de GTH que va siempre en copia en los envíos al solicitante + recepción.</summary>
-        private const string CcGthFijo = "gthnm@abril.pe";
 
         /// <summary>
-        /// Devuelve los correos para CC del flujo de salidas:
-        /// (a) <c>worker.email_corporativo</c> de todos los users con rol id 52 (USUARIO DE RECEPCIÓN),
-        /// (b) más el correo fijo <c>recepcionnm@abril.pe</c> (siempre),
-        /// (c) más el correo fijo de GTH <c>gthnm@abril.pe</c> (siempre).
+        /// Base dinámica del CC de los correos al solicitante: los <c>worker.email_corporativo</c> de
+        /// todos los users con rol id 52 (USUARIO DE RECEPCIÓN). Los antiguos correos fijos
+        /// (<c>recepcionnm@abril.pe</c> y GTH <c>gthnm@abril.pe</c>) ya no se hardcodean aquí: ahora son
+        /// reglas editables en ga_correo_regla y los agrega <see cref="ICorreoSalidaRecipientResolver"/>.
         /// </summary>
-        private static async Task<List<string>> GetCcRecepcionAsync(AppDbContext ctx)
+        private static async Task<List<string>> GetRecepcionRole52Async(AppDbContext ctx)
         {
-            var emails = await (
+            return await (
                 from ur in ctx.UserRole
                 where ur.RoleId == RoleIdRecepcion && ur.State
                 join p in ctx.Person  on (int?)ur.UserId  equals p.UserId
@@ -525,14 +534,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 where w.EmailCorporativo != null && w.EmailCorporativo != ""
                 select w.EmailCorporativo!
             ).Distinct().ToListAsync();
-
-            if (!emails.Any(e => string.Equals(e, CcRecepcionFijo, StringComparison.OrdinalIgnoreCase)))
-                emails.Add(CcRecepcionFijo);
-
-            if (!emails.Any(e => string.Equals(e, CcGthFijo, StringComparison.OrdinalIgnoreCase)))
-                emails.Add(CcGthFijo);
-
-            return emails;
         }
 
         /// <summary>
@@ -820,7 +821,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var body    = BuildEmailAprobacionSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, mostrarRecordatorio);
                 var subject = $"Solicitud de salida #{numeroUsuario} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
 
-                var cc = await GetCcRecepcionAsync(ctx);
+                var cc = await _correoResolver.ResolveCcAsync(
+                    CorreoEventoCodigos.Aprobada, await GetRecepcionRole52Async(ctx));
 
                 await _emailService.SendAsync(
                     to: new List<string> { info.Email },
@@ -887,7 +889,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var body    = BuildEmailRechazoSolicitante(info.Nombre, numeroUsuario, info.FechaSalida, resueltos, info.MotivoRechazo);
                 var subject = $"Solicitud de salida #{numeroUsuario} RECHAZADA - {info.FechaSalida:dd/MM/yyyy}";
 
-                var cc = await GetCcRecepcionAsync(ctx);
+                var cc = await _correoResolver.ResolveCcAsync(
+                    CorreoEventoCodigos.Rechazada, await GetRecepcionRole52Async(ctx));
 
                 await _emailService.SendAsync(
                     to: new List<string> { info.Email },

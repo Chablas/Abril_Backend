@@ -14,12 +14,20 @@ namespace Abril_Backend.Infrastructure.Repositories {
             _factory = factory;
         }
 
-        public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page)
+        public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page, int? projectId = null, int? stateId = null)
         {
             const int pageSize = 10;
 
-            var query = _context.ResidentReportIncidence
-                .Where(r => r.Project.Active)
+            var baseQuery = _context.ResidentReportIncidence
+                .Where(r => r.Project.Active);
+
+            if (projectId.HasValue)
+                baseQuery = baseQuery.Where(r => r.ProjectId == projectId.Value);
+
+            if (stateId.HasValue)
+                baseQuery = baseQuery.Where(r => r.StateId == stateId.Value);
+
+            var query = baseQuery
                 .OrderByDescending(x => x.ResidentReportIncidenceId)
                 .Select(r => new ResidentReportIncidenceDTO
                 {

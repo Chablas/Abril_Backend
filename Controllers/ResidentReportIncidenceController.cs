@@ -20,7 +20,10 @@ namespace Abril_Backend.Controllers
 
         [Authorize]
         [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged([FromQuery] int page = 1)
+        public async Task<IActionResult> GetPaged(
+            [FromQuery] int page = 1,
+            [FromQuery] int? projectId = null,
+            [FromQuery] int? stateId = null)
         {
             try
             {
@@ -30,7 +33,7 @@ namespace Abril_Backend.Controllers
                     return Unauthorized(new { message = "Inicie sesión" });
                 if (page < 1)
                     page = 1;
-                var result = await _service.GetPaged(page);
+                var result = await _service.GetPaged(page, projectId, stateId);
                 return Ok(result);
             }
             catch (Exception)

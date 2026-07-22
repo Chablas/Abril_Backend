@@ -20,9 +20,9 @@ namespace Abril_Backend.Application.Services
             _fileStorageService = fileStorageService;
             _repository = repository;
         }
-        public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page)
+        public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page, int? projectId = null, int? stateId = null)
         {
-            return await _repository.GetPaged(page);
+            return await _repository.GetPaged(page, projectId, stateId);
         }
         public async Task Create(ResidentReportIncidenceCreateDTO dto, int userId)
         {

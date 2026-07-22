@@ -422,6 +422,15 @@ namespace Abril_Backend.Infrastructure.Data
 
         public DbSet<DecolectaToken> DecolectaToken => Set<DecolectaToken>();
 
+        // ── Gestión GTH · Reclutamiento ────────────────────────────────────────
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPuesto> GthPuesto => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPuesto>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento> GthTipoRequerimiento => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento> GthEstadoRequerimiento => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitud> GthSolicitud => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitud>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento> GthRequerimiento => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder> GthSustentoFolder => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario> GthCorreoDestinatario => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             if (_provider == "PostgreSQL")
@@ -1160,6 +1169,45 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasOne(x => x.Familia)
                  .WithMany()
                  .HasForeignKey(x => x.FamiliaId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── Gestión GTH · Reclutamiento ─────────────────────────────────────
+            // Catálogos: solo un registro "vivo" (state = true) por nombre/código.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPuesto>()
+                .HasIndex(p => p.Nombre).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento>()
+                .HasIndex(t => t.Nombre).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+            // Un correo no puede repetirse entre los destinatarios vigentes (se guarda en minúsculas).
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>()
+                .HasIndex(d => d.Email).IsUnique().HasFilter("state = true");
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento>(e =>
+            {
+                // Código REQ-AAAA-NNNN único a nivel global.
+                e.HasIndex(r => r.Codigo).IsUnique();
+                e.HasIndex(r => r.Anio);
+                e.HasOne(r => r.Solicitud)
+                 .WithMany(s => s.Requerimientos)
+                 .HasForeignKey(r => r.GthSolicitudId)
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPuesto>()
+                 .WithMany()
+                 .HasForeignKey(r => r.GthPuestoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento>()
+                 .WithMany()
+                 .HasForeignKey(r => r.GthTipoRequerimientoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento>()
+                 .WithMany()
+                 .HasForeignKey(r => r.GthEstadoRequerimientoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Project>()
+                 .WithMany()
+                 .HasForeignKey(r => r.ProjectId)
                  .OnDelete(DeleteBehavior.Restrict);
             });
 

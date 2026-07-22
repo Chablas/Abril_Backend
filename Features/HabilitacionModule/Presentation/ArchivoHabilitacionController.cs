@@ -65,7 +65,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             ".pdf", ".jpg", ".jpeg", ".png", ".docx", ".xlsx", ".zip", ".txt"
         };
 
-        private const long MaxFileSize = 3_000_000_000;
+        private const long MaxFileSize = 10_000_000_000;
 
         [HttpPost("subir")]
         [RequestSizeLimit(MaxFileSize)]
@@ -88,7 +88,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                 if (file.Length > MaxFileSize)
                 {
                     _logger.LogWarning("Subir 400: tamaño {Length} supera límite", file.Length);
-                    return BadRequest(new { message = "El archivo excede el tamaño máximo de 50 MB." });
+                    return BadRequest(new { message = "El archivo excede el tamaño máximo de 10 GB." });
                 }
 
                 var ext = Path.GetExtension(file.FileName);

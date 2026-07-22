@@ -59,7 +59,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Limits.MaxRequestBodySize = 3_000_000_000;
+    options.Limits.MaxRequestBodySize = 10_000_000_000;
 });
 
 // OJO: subir MaxRequestBodySize de Kestrel NO basta para subidas grandes multipart/form-data.
@@ -71,7 +71,7 @@ builder.WebHost.ConfigureKestrel(options =>
 // quieran un tope menor lo siguen imponiendo con su propio [RequestSizeLimit].
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = 3_000_000_000;
+    options.MultipartBodyLengthLimit = 10_000_000_000;
 });
 
 var databaseProvider = builder.Configuration["Database:DatabaseProvider"];

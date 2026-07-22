@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Application.Dtos;
 using Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastructure.Interfaces;
@@ -24,7 +25,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
 
             var query =
                 from p in ctx.Project
-                where p.State && p.Active
+                where p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.VecinosCroquis && !f.Active)
                 join cr in ctx.ProjectCroquis.Where(c => c.State)
                     on p.ProjectId equals cr.ProjectId into croquisGroup
                 from cr in croquisGroup.DefaultIfEmpty()
@@ -226,7 +227,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.CroquisFeature.Infrastru
                 .ToListAsync();
 
             var projects = await ctx.Project
-                .Where(p => p.State && p.Active)
+                .Where(p => p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.VecinosCroquis && !f.Active))
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProjectOptionDto { ProjectId = p.ProjectId, ProjectDescription = p.ProjectDescription })
                 .ToListAsync();

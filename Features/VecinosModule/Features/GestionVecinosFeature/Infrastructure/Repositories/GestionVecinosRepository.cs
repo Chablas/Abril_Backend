@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.Application.Dtos;
@@ -24,7 +25,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
             using var ctx = _factory.CreateDbContext();
 
             var projects = await ctx.Project
-                .Where(p => p.State && p.Active)
+                .Where(p => p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.VecinosGestion && !f.Active))
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProjectOptionDto
                 {
@@ -1104,7 +1105,7 @@ namespace Abril_Backend.Features.VecinosModule.Features.GestionVecinosFeature.In
 
             // Todos los proyectos activos (aparecen aunque no tengan vecinos aún).
             var projects = await ctx.Project
-                .Where(p => p.State && p.Active)
+                .Where(p => p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.VecinosGestion && !f.Active))
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new { p.ProjectId, p.ProjectDescription })
                 .ToListAsync();

@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
@@ -19,6 +20,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             var registros = from project_resident in ctx.ProjectResident
                 join project in ctx.Project on project_resident.ProjectId equals project.ProjectId
                 where (project_resident.State == true) && (project_resident.Active == true) && (project.Active == true)
+                    && !ctx.ProyectoFiltro.Any(f => f.ProjectId == project.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active)
                 orderby project.ProjectDescription
                 select new ProjectSimpleDTO
                 {
@@ -34,6 +36,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 join up in _context.ProjectResident on pj.ProjectId equals up.ProjectId
                 where (up.UserId == userId)
                 && (pj.Active == true)
+                && !_context.ProyectoFiltro.Any(f => f.ProjectId == pj.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active)
                 select new ProjectSimpleDTO
                 {
                     ProjectId = pj.ProjectId,

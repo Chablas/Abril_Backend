@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Application.Dtos;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models;
@@ -153,7 +154,7 @@ public class RevisionRepository : IRevisionRepository
         // en Project, no de revisiones ya creadas — si no, un proyecto sin revisiones todavía
         // nunca aparecería en el combo para poder crear su primera revisión.
         var proyectos = await ctx.Project
-            .Where(p => p.TieneArquitecturaComercial && p.State && p.Active)
+            .Where(p => p.TieneArquitecturaComercial && p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.AcRevisiones && !f.Active))
             .Select(p => new ProyectoRevisionFiltroDTO { Id = p.ProjectId, Nombre = p.ProjectDescription })
             .OrderBy(p => p.Nombre)
             .ToListAsync();

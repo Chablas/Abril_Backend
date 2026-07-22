@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Proyectos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
@@ -18,7 +19,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
             return await ctx.Project
-                .Where(p => p.State && p.Active)
+                .Where(p => p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Habilitacion && !f.Active))
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProyectoSimpleDto
                 {

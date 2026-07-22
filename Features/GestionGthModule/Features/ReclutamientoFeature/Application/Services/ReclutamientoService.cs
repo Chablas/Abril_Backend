@@ -6,6 +6,9 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Appl
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services.Notificaciones.Dtos;
+using Abril_Backend.Shared.Services.Notificaciones.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
@@ -15,6 +18,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private readonly IReclutamientoRepository _repo;
         private readonly IGraphSharePointService  _sharePoint;
         private readonly IEmailService            _email;
+        private readonly INotificacionesService   _notificaciones;
         private readonly ILogger<ReclutamientoService> _logger;
 
         private const long MaxSustentoBytes = 10 * 1024 * 1024; // 10 MB
@@ -24,12 +28,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             IReclutamientoRepository repo,
             IGraphSharePointService sharePoint,
             IEmailService email,
+            INotificacionesService notificaciones,
             ILogger<ReclutamientoService> logger)
         {
-            _repo       = repo;
-            _sharePoint = sharePoint;
-            _email      = email;
-            _logger     = logger;
+            _repo           = repo;
+            _sharePoint     = sharePoint;
+            _email          = email;
+            _notificaciones = notificaciones;
+            _logger         = logger;
         }
 
         public Task<ReclutamientoFormDataDto> GetFormData(int? userId) => _repo.GetFormData(userId);
@@ -38,6 +44,37 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             userId.HasValue
                 ? _repo.GetMisSolicitudesVacante(userId.Value)
                 : Task.FromResult(new List<SolicitudVacanteListItemDto>());
+
+        public Task<BandejaReclutamientoDto> GetBandeja() => _repo.GetBandeja();
+
+        public Task UpdatePrioridad(int requerimientoId, int prioridadId, int? userId) =>
+            _repo.UpdatePrioridad(requerimientoId, prioridadId, userId);
+
+        public async Task<DetalleRequerimientoGthDto> GetDetalleGth(int requerimientoId)
+        {
+            var detalle = await _repo.GetDetalleGth(requerimientoId);
+            if (detalle == null)
+                throw new AbrilException("Requerimiento no encontrado.", 404);
+            return detalle;
+        }
+
+        public Task UpdateAsignacionGth(int requerimientoId, AsignacionGthUpdateDto dto, int? userId)
+        {
+            if (dto == null)
+                throw new AbrilException("Datos de la asignación no recibidos.", 400);
+            return _repo.UpdateAsignacionGth(requerimientoId, dto, userId);
+        }
+
+        public Task<EstadoRequerimientoResultDto> ReplacePublicaciones(int requerimientoId, PublicacionesUpdateDto dto, int? userId)
+        {
+            // Publicar avanza el pipeline: se exige al menos un canal (ya no hay flujo de "despublicar").
+            if (dto?.CanalIds == null || dto.CanalIds.Count == 0)
+                throw new AbrilException("Selecciona al menos un canal de publicación.", 400);
+            return _repo.ReplacePublicaciones(requerimientoId, dto.CanalIds, userId);
+        }
+
+        public Task<EstadoRequerimientoResultDto> IniciarRevisionCv(int requerimientoId, int? userId) =>
+            _repo.IniciarRevisionCv(requerimientoId, userId);
 
         public async Task<SeguimientoDto> GetSeguimiento(int requerimientoId, int? userId)
         {
@@ -131,32 +168,68 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
-        /// Envía el correo de "nueva solicitud de personal" a los destinatarios configurados
-        /// (To = principales, CC = copias). Si no hay ningún principal configurado, no envía nada.
+        /// Notifica la nueva solicitud a los destinatarios configurados (gth_correo_destinatario):
+        /// correo (To = principales, CC = copias; sin principal no se envía) + notificación in-app
+        /// de la campanita (una por requerimiento, para principales y copias que tengan usuario).
+        /// Ninguna de las dos bloquea la creación: si fallan solo se registra el warning.
         /// </summary>
         private async Task EnviarNotificacionAsync(int solicitudId, GthSolicitud solicitud)
         {
+            CorreoDestinatariosDto dest;
+            List<SolicitudVacanteListItemDto> vacantes;
             try
             {
-                var dest = await _repo.GetCorreoDestinatarios();
-                if (dest.Principales.Count == 0) return; // sin destinatario principal → no se envía
-
-                var vacantes = await _repo.GetRequerimientosBySolicitud(solicitudId);
-
-                var subject = vacantes.Count == 1
-                    ? $"[Reclutamiento] Nueva solicitud de personal — {vacantes[0].Codigo}"
-                    : $"[Reclutamiento] Nueva solicitud de personal — {vacantes.Count} vacantes";
-
-                await _email.SendAsync(
-                    to:     dest.Principales,
-                    subject: subject,
-                    body:    ConstruirCuerpo(solicitud, vacantes),
-                    isHtml:  true,
-                    cc:      dest.Copias.Count > 0 ? dest.Copias : null);
+                dest     = await _repo.GetCorreoDestinatarios();
+                vacantes = await _repo.GetRequerimientosBySolicitud(solicitudId);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "No se pudo enviar la notificación de la solicitud de personal {SolicitudId}", solicitudId);
+                _logger.LogWarning(ex, "No se pudo notificar la solicitud de personal {SolicitudId}", solicitudId);
+                return;
+            }
+
+            // 1) Correo.
+            try
+            {
+                if (dest.Principales.Count > 0) // sin destinatario principal → no se envía
+                {
+                    var subject = vacantes.Count == 1
+                        ? $"[Reclutamiento] Nueva solicitud de personal — {vacantes[0].Codigo}"
+                        : $"[Reclutamiento] Nueva solicitud de personal — {vacantes.Count} vacantes";
+
+                    await _email.SendAsync(
+                        to:     dest.Principales,
+                        subject: subject,
+                        body:    ConstruirCuerpo(solicitud, vacantes),
+                        isHtml:  true,
+                        cc:      dest.Copias.Count > 0 ? dest.Copias : null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo enviar el correo de la solicitud de personal {SolicitudId}", solicitudId);
+            }
+
+            // 2) Notificación in-app (campanita) — mismos destinatarios (principales + copias).
+            try
+            {
+                var items = vacantes.Select(v => new NuevaNotificacionDto
+                {
+                    Titulo      = "Nuevo requerimiento de personal",
+                    Subtitulo   = string.IsNullOrWhiteSpace(v.Area) ? v.Puesto : $"{v.Puesto} — {v.Area}",
+                    Descripcion = solicitud.Justificacion,
+                    Referencia  = v.Codigo,
+                }).ToList();
+
+                await _notificaciones.CrearPorCorreosAsync(
+                    NotificacionTipoCodigo.GthSolicitudPersonal,
+                    dest.Principales.Concat(dest.Copias).ToList(),
+                    solicitud.SolicitanteUserId,
+                    items);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo crear la notificación in-app de la solicitud de personal {SolicitudId}", solicitudId);
             }
         }
 

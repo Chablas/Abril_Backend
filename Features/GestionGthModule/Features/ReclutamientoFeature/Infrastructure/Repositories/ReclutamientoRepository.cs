@@ -82,6 +82,395 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ctx.GthRequerimiento.Where(r => r.State && r.GthSolicitudId == solicitudId));
         }
 
+        public async Task<BandejaReclutamientoDto> GetBandeja()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Todos los requerimientos vigentes (de cualquier área), más recientes primero.
+            // Left join a gth_prioridad porque la prioridad es opcional (nullable).
+            var raw = await (
+                from r in ctx.GthRequerimiento
+                where r.State && r.Solicitud!.State
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                join prio in ctx.GthPrioridad on r.GthPrioridadId equals prio.GthPrioridadId into prioJoin
+                from prio in prioJoin.DefaultIfEmpty()
+                orderby r.CreatedDateTime descending, r.GthRequerimientoId descending
+                select new
+                {
+                    r.GthRequerimientoId,
+                    r.Codigo,
+                    Area            = r.Solicitud!.AreaNombre,
+                    Puesto          = p.Nombre,
+                    ProyectoObra    = pr.ProjectDescription,
+                    r.CreatedDateTime,
+                    r.FechaRequeridaIngreso,
+                    PrioridadId     = prio != null ? (int?)prio.GthPrioridadId : null,
+                    PrioridadNombre = prio != null ? prio.Nombre : null,
+                    EstadoCodigo    = e.Codigo,
+                    EstadoNombre    = e.Nombre,
+                }).ToListAsync();
+
+            // Conversión a hora Perú en memoria (evita traducir ToOffset en el join).
+            var solicitudes = raw.Select(x => new RequerimientoGthListItemDto
+            {
+                RequerimientoId       = x.GthRequerimientoId,
+                Codigo                = x.Codigo,
+                Area                  = x.Area,
+                Puesto                = x.Puesto,
+                ProyectoObra          = x.ProyectoObra,
+                FechaLlegada          = x.CreatedDateTime.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                FechaRequeridaIngreso = x.FechaRequeridaIngreso,
+                PrioridadId           = x.PrioridadId,
+                PrioridadNombre       = x.PrioridadNombre,
+                EstadoCodigo          = x.EstadoCodigo,
+                EstadoNombre          = x.EstadoNombre,
+            }).ToList();
+
+            // Catálogo de prioridades para el desplegable de la columna (orden semántico Alta→Media→Baja).
+            var prioridades = await ctx.GthPrioridad
+                .Where(p => p.State && p.Active)
+                .OrderBy(p => p.Orden)
+                .Select(p => new OpcionDto { Id = p.GthPrioridadId, Nombre = p.Nombre })
+                .ToListAsync();
+
+            return new BandejaReclutamientoDto
+            {
+                // "En proceso" = requerimientos vigentes en curso. Aún no hay estado de cierre modelado,
+                // así que por ahora son todos los vigentes; cuando exista un estado terminal se excluirá aquí.
+                Resumen     = new ResumenReclutamientoDto { EnProceso = solicitudes.Count },
+                Solicitudes = solicitudes,
+                Prioridades = prioridades,
+            };
+        }
+
+        public async Task UpdatePrioridad(int requerimientoId, int prioridadId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var prioridadOk = await ctx.GthPrioridad
+                .AnyAsync(p => p.GthPrioridadId == prioridadId && p.State && p.Active);
+            if (!prioridadOk)
+                throw new AbrilException("La prioridad seleccionada no es válida.", 400);
+
+            var req = await ctx.GthRequerimiento
+                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State);
+            if (req == null)
+                throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            req.GthPrioridadId  = prioridadId;
+            req.UpdatedDateTime = DateTimeOffset.UtcNow;
+            req.UpdatedUserId   = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>Tope de trabajadores por razón social para el cálculo de cupos (los practicantes no consumen cupo).</summary>
+        private const int TopeCuposRazonSocial = 20;
+
+        public async Task<DetalleRequerimientoGthDto?> GetDetalleGth(int requerimientoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Cabecera + asignación interna actual (sin scope por usuario: es la vista de GTH).
+            var head = await (
+                from r in ctx.GthRequerimiento
+                where r.GthRequerimientoId == requerimientoId && r.State && r.Solicitud!.State
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join t in ctx.GthTipoRequerimiento on r.GthTipoRequerimientoId equals t.GthTipoRequerimientoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new
+                {
+                    r.GthRequerimientoId,
+                    r.Codigo,
+                    Puesto       = p.Nombre,
+                    Tipo         = t.Nombre,
+                    Area         = r.Solicitud!.AreaNombre,
+                    ProyectoObra = pr.ProjectDescription,
+                    r.FechaRequeridaIngreso,
+                    EstadoCodigo = e.Codigo,
+                    EstadoNombre = e.Nombre,
+                    r.GthResponsableProcesoId,
+                    r.GthTipoProcesoId,
+                    r.GthPrioridadId,
+                    r.ContributorId,
+                }).FirstOrDefaultAsync();
+
+            if (head == null) return null;
+
+            // Responsables del proceso (miembros GTH): nombre desde la base maestra.
+            var responsables = await ctx.GthResponsableProceso
+                .Where(rp => rp.State && rp.Active)
+                .OrderBy(rp => rp.Orden)
+                .Select(rp => new OpcionDto
+                {
+                    Id     = rp.GthResponsableProcesoId,
+                    Nombre = rp.Worker!.Person!.FullName ?? rp.Worker.ApellidoNombre ?? "",
+                })
+                .ToListAsync();
+
+            var tiposProceso = await ctx.GthTipoProceso
+                .Where(t => t.State && t.Active)
+                .OrderBy(t => t.Orden)
+                .Select(t => new TipoProcesoOpcionDto
+                {
+                    Id          = t.GthTipoProcesoId,
+                    Nombre      = t.Nombre,
+                    SlaDias     = t.SlaDias,
+                    Descripcion = t.Descripcion,
+                })
+                .ToListAsync();
+
+            var prioridades = await ctx.GthPrioridad
+                .Where(p => p.State && p.Active)
+                .OrderBy(p => p.Orden)
+                .Select(p => new OpcionDto { Id = p.GthPrioridadId, Nombre = p.Nombre })
+                .ToListAsync();
+
+            // Razones sociales activas del grupo (contributor.operativo = true).
+            var razones = await ctx.Contributor
+                .Where(c => c.State && c.Active && c.Operativo)
+                .OrderBy(c => c.ContributorName)
+                .Select(c => new { c.ContributorId, c.ContributorName })
+                .ToListAsync();
+
+            // Ocupación por razón social desde la base maestra: trabajadores no retirados;
+            // los practicantes no consumen el tope de 20.
+            var ocupados = await ctx.Worker
+                .Where(w => w.ContributorId != null
+                            && w.Estado != "RETIRADO"
+                            && (w.Categoria == null || w.Categoria.Trim().ToLower() != "practicante"))
+                .GroupBy(w => w.ContributorId!.Value)
+                .Select(g => new { ContributorId = g.Key, Total = g.Count() })
+                .ToListAsync();
+            var ocupadosPorRazon = ocupados.ToDictionary(o => o.ContributorId, o => o.Total);
+
+            var razonesSociales = razones.Select(c => new RazonSocialOpcionDto
+            {
+                Id     = c.ContributorId,
+                Nombre = c.ContributorName,
+                CuposDisponibles = Math.Max(0,
+                    TopeCuposRazonSocial - ocupadosPorRazon.GetValueOrDefault(c.ContributorId)),
+            }).ToList();
+
+            // Canales de publicación + publicaciones ya registradas de este requerimiento.
+            var canales = await ctx.GthCanalPublicacion
+                .Where(c => c.State && c.Active)
+                .OrderBy(c => c.Orden)
+                .Select(c => new CanalPublicacionDto
+                {
+                    Id            = c.GthCanalPublicacionId,
+                    Nombre        = c.Nombre,
+                    ApiDisponible = c.ApiDisponible,
+                })
+                .ToListAsync();
+
+            var publicados = await ctx.GthRequerimientoCanal
+                .Where(rc => rc.GthRequerimientoId == requerimientoId && rc.State && rc.Active)
+                .Select(rc => rc.GthCanalPublicacionId)
+                .ToListAsync();
+            foreach (var c in canales)
+                c.Publicado = publicados.Contains(c.Id);
+
+            return new DetalleRequerimientoGthDto
+            {
+                RequerimientoId       = head.GthRequerimientoId,
+                Codigo                = head.Codigo,
+                Puesto                = head.Puesto,
+                Area                  = head.Area,
+                ProyectoObra          = head.ProyectoObra,
+                TipoRequerimiento     = head.Tipo,
+                Vacantes              = 1, // cada vacante de una solicitud genera su propio requerimiento
+                FechaRequeridaIngreso = head.FechaRequeridaIngreso,
+                EstadoCodigo          = head.EstadoCodigo,
+                EstadoNombre          = head.EstadoNombre,
+                Asignacion = new AsignacionGthDto
+                {
+                    ResponsableId = head.GthResponsableProcesoId,
+                    TipoProcesoId = head.GthTipoProcesoId,
+                    PrioridadId   = head.GthPrioridadId,
+                    ContributorId = head.ContributorId,
+                },
+                Responsables    = responsables,
+                TiposProceso    = tiposProceso,
+                Prioridades     = prioridades,
+                RazonesSociales = razonesSociales,
+                Canales         = canales,
+            };
+        }
+
+        public async Task UpdateAsignacionGth(int requerimientoId, AsignacionGthUpdateDto dto, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var req = await ctx.GthRequerimiento
+                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State);
+            if (req == null)
+                throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            // Validar cada id no nulo contra su catálogo vigente.
+            if (dto.ResponsableId.HasValue)
+            {
+                var ok = await ctx.GthResponsableProceso
+                    .AnyAsync(r => r.GthResponsableProcesoId == dto.ResponsableId.Value && r.State && r.Active);
+                if (!ok) throw new AbrilException("El responsable seleccionado no es válido.", 400);
+            }
+            if (dto.TipoProcesoId.HasValue)
+            {
+                var ok = await ctx.GthTipoProceso
+                    .AnyAsync(t => t.GthTipoProcesoId == dto.TipoProcesoId.Value && t.State && t.Active);
+                if (!ok) throw new AbrilException("El tipo de proceso seleccionado no es válido.", 400);
+            }
+            if (dto.PrioridadId.HasValue)
+            {
+                var ok = await ctx.GthPrioridad
+                    .AnyAsync(p => p.GthPrioridadId == dto.PrioridadId.Value && p.State && p.Active);
+                if (!ok) throw new AbrilException("La prioridad seleccionada no es válida.", 400);
+            }
+            if (dto.ContributorId.HasValue)
+            {
+                var ok = await ctx.Contributor
+                    .AnyAsync(c => c.ContributorId == dto.ContributorId.Value && c.State && c.Active && c.Operativo);
+                if (!ok) throw new AbrilException("La razón social seleccionada no es válida.", 400);
+            }
+
+            req.GthResponsableProcesoId = dto.ResponsableId;
+            req.GthTipoProcesoId        = dto.TipoProcesoId;
+            req.GthPrioridadId          = dto.PrioridadId;
+            req.ContributorId           = dto.ContributorId;
+            req.UpdatedDateTime         = DateTimeOffset.UtcNow;
+            req.UpdatedUserId           = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<EstadoRequerimientoResultDto> ReplacePublicaciones(int requerimientoId, List<int> canalIds, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var req = await ctx.GthRequerimiento
+                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State);
+            if (req == null)
+                throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            var deseados = canalIds.Distinct().ToList();
+            if (deseados.Count > 0)
+            {
+                var validos = await ctx.GthCanalPublicacion
+                    .CountAsync(c => deseados.Contains(c.GthCanalPublicacionId) && c.State && c.Active);
+                if (validos != deseados.Count)
+                    throw new AbrilException("Uno o más canales seleccionados no son válidos.", 400);
+            }
+
+            var now = DateTimeOffset.UtcNow;
+
+            // Reconciliación contra las publicaciones vigentes (mismo patrón que los
+            // destinatarios de correo: alta de nuevos, baja de los quitados).
+            var vigentes = await ctx.GthRequerimientoCanal
+                .Where(rc => rc.GthRequerimientoId == requerimientoId && rc.State)
+                .ToListAsync();
+
+            foreach (var canalId in deseados)
+            {
+                var v = vigentes.FirstOrDefault(x => x.GthCanalPublicacionId == canalId);
+                if (v != null)
+                {
+                    if (!v.Active)
+                    {
+                        v.Active          = true;
+                        v.UpdatedDateTime = now;
+                        v.UpdatedUserId   = userId;
+                    }
+                }
+                else
+                {
+                    ctx.GthRequerimientoCanal.Add(new GthRequerimientoCanal
+                    {
+                        GthRequerimientoId   = requerimientoId,
+                        GthCanalPublicacionId = canalId,
+                        CreatedDateTime      = now,
+                        CreatedUserId        = userId,
+                        Active               = true,
+                        State                = true,
+                    });
+                }
+            }
+
+            foreach (var v in vigentes)
+            {
+                if (!deseados.Contains(v.GthCanalPublicacionId))
+                {
+                    v.State           = false;
+                    v.UpdatedDateTime = now;
+                    v.UpdatedUserId   = userId;
+                }
+            }
+
+            // Avance del pipeline: registrar la publicación deja el requerimiento en la fase
+            // PUBLICACION (no hay integración real con los portales; el registro es manual).
+            // Si ya está en esa fase o más adelante, no se retrocede.
+            var estados = await ctx.GthEstadoRequerimiento
+                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.Publicacion
+                                        || e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId))
+                .ToListAsync();
+            var publicacion = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.Publicacion)
+                ?? throw new AbrilException("No está configurado el estado PUBLICACION de reclutamiento.", 500);
+            var actual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId);
+
+            if (actual == null || actual.Orden < publicacion.Orden)
+            {
+                req.GthEstadoRequerimientoId = publicacion.GthEstadoRequerimientoId;
+                req.UpdatedDateTime          = now;
+                req.UpdatedUserId            = userId;
+                actual = publicacion;
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return new EstadoRequerimientoResultDto
+            {
+                EstadoCodigo = actual.Codigo,
+                EstadoNombre = actual.Nombre,
+            };
+        }
+
+        public async Task<EstadoRequerimientoResultDto> IniciarRevisionCv(int requerimientoId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var req = await ctx.GthRequerimiento
+                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State);
+            if (req == null)
+                throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            var estados = await ctx.GthEstadoRequerimiento
+                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.LongList
+                                        || e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId))
+                .ToListAsync();
+            var longList = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongList)
+                ?? throw new AbrilException("No está configurado el estado LONG_LIST de reclutamiento.", 500);
+            var actual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId);
+
+            // Idempotente: si ya está en Long list (o más adelante) no se retrocede ni se duplica.
+            if (actual != null && actual.Orden >= longList.Orden)
+                return new EstadoRequerimientoResultDto { EstadoCodigo = actual.Codigo, EstadoNombre = actual.Nombre };
+
+            // Solo se inicia la revisión de CV desde la fase de publicación.
+            if (actual == null || actual.Codigo != EstadoReclutamiento.Publicacion)
+                throw new AbrilException("La vacante aún no está publicada en los canales de publicación.", 400);
+
+            req.GthEstadoRequerimientoId = longList.GthEstadoRequerimientoId;
+            req.UpdatedDateTime          = DateTimeOffset.UtcNow;
+            req.UpdatedUserId            = userId;
+            await ctx.SaveChangesAsync();
+
+            return new EstadoRequerimientoResultDto
+            {
+                EstadoCodigo = longList.Codigo,
+                EstadoNombre = longList.Nombre,
+            };
+        }
+
         public async Task<SeguimientoDto?> GetSeguimiento(int requerimientoId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -292,6 +681,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (estadoNuevoId == 0)
                 throw new AbrilException("No está configurado el estado inicial de reclutamiento (NUEVO).", 500);
 
+            // Prioridad por defecto al crear: Media (GTH la ajusta luego desde la bandeja). Puede ser
+            // null si el catálogo aún no está sembrado; no es bloqueante.
+            var prioridadMediaId = await ctx.GthPrioridad
+                .Where(p => p.Codigo == PrioridadReclutamiento.Media && p.State && p.Active)
+                .Select(p => (int?)p.GthPrioridadId)
+                .FirstOrDefaultAsync();
+
             // Validar que los ids referenciados existan y estén vigentes.
             var puestoIds  = vacantes.Select(v => v.PuestoId).Distinct().ToList();
             var tipoIds    = vacantes.Select(v => v.TipoRequerimientoId).Distinct().ToList();
@@ -338,6 +734,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     ProjectId                = v.ProjectId,
                     FechaRequeridaIngreso    = v.FechaRequeridaIngreso,
                     GthEstadoRequerimientoId = estadoNuevoId,
+                    GthPrioridadId           = prioridadMediaId,
                     CreatedDateTime          = now,
                     CreatedUserId            = userId,
                     Active                   = true,
@@ -359,6 +756,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// <summary>Códigos estables de estados de reclutamiento (espejo de gth_estado_requerimiento.codigo).</summary>
     internal static class EstadoReclutamiento
     {
-        public const string Nuevo = "NUEVO";
+        public const string Nuevo       = "NUEVO";
+        public const string Publicacion = "PUBLICACION";
+        public const string LongList    = "LONG_LIST";
+    }
+
+    /// <summary>Códigos estables de prioridad de reclutamiento (espejo de gth_prioridad.codigo).</summary>
+    internal static class PrioridadReclutamiento
+    {
+        public const string Media = "MEDIA";
     }
 }

@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
@@ -19,7 +20,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
             const int pageSize = 10;
 
             var query = _context.ResidentReportIncidence
-                .Where(r => r.Project.Active)
+                .Where(r => r.Project.Active && !_context.ProyectoFiltro.Any(f => f.ProjectId == r.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active))
                 .OrderByDescending(x => x.ResidentReportIncidenceId)
                 .Select(r => new ResidentReportIncidenceDTO
                 {

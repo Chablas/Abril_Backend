@@ -107,6 +107,160 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
+        /// <summary>
+        /// Vista de GTH: bandeja de reclutamiento (tarjeta "En proceso" + tabla de solicitudes de
+        /// contratación de toda la organización), en una sola petición.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpGet("bandeja")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> GetBandeja()
+        {
+            try
+            {
+                return Ok(await _service.GetBandeja());
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.GetBandeja");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Vista de GTH: actualiza la prioridad (Alta/Media/Baja) de un requerimiento.</summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPatch("requerimiento/{id:int}/prioridad")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> UpdatePrioridad(int id, [FromBody] UpdatePrioridadDto dto)
+        {
+            try
+            {
+                if (dto == null || dto.PrioridadId <= 0)
+                    return BadRequest(new { message = "Debe indicar una prioridad válida." });
+
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                await _service.UpdatePrioridad(id, dto.PrioridadId, userId);
+                return Ok(new { message = "Prioridad actualizada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.UpdatePrioridad");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista de GTH: detalle de un requerimiento (modal del ojo de la bandeja) — cabecera,
+        /// asignación interna, catálogos con cupos por razón social y canales de publicación,
+        /// en una sola petición.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpGet("requerimiento/{id:int}/detalle-gth")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> GetDetalleGth(int id)
+        {
+            try
+            {
+                return Ok(await _service.GetDetalleGth(id));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.GetDetalleGth");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista de GTH: guarda la asignación interna del requerimiento (responsable del proceso,
+        /// tipo de proceso y SLA, prioridad interna y razón social activa).
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPatch("requerimiento/{id:int}/asignacion-gth")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> UpdateAsignacionGth(int id, [FromBody] AsignacionGthUpdateDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                await _service.UpdateAsignacionGth(id, dto, userId);
+                return Ok(new { message = "Asignación actualizada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.UpdateAsignacionGth");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista de GTH: registra los canales donde se publicó la vacante (reemplaza el conjunto)
+        /// y avanza el requerimiento a la fase PUBLICACION. No publica en los portales (no hay
+        /// APIs integradas): solo registra y continúa el flujo. Devuelve el estado resultante.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPut("requerimiento/{id:int}/publicaciones")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> ReplacePublicaciones(int id, [FromBody] PublicacionesUpdateDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var estado = await _service.ReplacePublicaciones(id, dto, userId);
+                return Ok(new { message = "Publicación de la vacante registrada.", estado.EstadoCodigo, estado.EstadoNombre });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.ReplacePublicaciones");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista de GTH: inicia la revisión de CV — avanza el requerimiento de PUBLICACION a
+        /// LONG_LIST. Devuelve el estado resultante.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPatch("requerimiento/{id:int}/iniciar-revision-cv")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> IniciarRevisionCv(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var estado = await _service.IniciarRevisionCv(id, userId);
+                return Ok(new { message = "Revisión de CV iniciada.", estado.EstadoCodigo, estado.EstadoNombre });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.IniciarRevisionCv");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         /// <summary>Detalle de seguimiento de un requerimiento (cabecera + fases del pipeline), en una sola petición.</summary>
         [HttpGet("requerimiento/{id:int}/seguimiento")]
         public async Task<IActionResult> GetSeguimiento(int id)

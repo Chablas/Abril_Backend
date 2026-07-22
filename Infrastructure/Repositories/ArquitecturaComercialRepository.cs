@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using System.Globalization;
 using System.Text.Json;
 using Abril_Backend.Application.DTOs.ArquitecturaComercial;
@@ -292,7 +293,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             var proyectos = await (
-                from p in ctx.Project.Where(p => p.State && p.Active)
+                from p in ctx.Project.Where(p => p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.AcActividades && !f.Active))
                 from w in ctx.Worker.Where(w => w.Id == p.ResponsableArqComId).DefaultIfEmpty()
                 select new ProyectoConActividadesDTO
                 {

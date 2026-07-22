@@ -32,6 +32,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public int GthEstadoRequerimientoId { get; set; }
 
+        /// <summary>FK a <c>gth_prioridad</c> (Alta/Media/Baja). Null = sin prioridad asignada.</summary>
+        public int? GthPrioridadId { get; set; }
+
+        /// <summary>FK a <c>gth_responsable_proceso</c> (miembro GTH responsable). Null = sin asignar.</summary>
+        public int? GthResponsableProcesoId { get; set; }
+
+        /// <summary>FK a <c>gth_tipo_proceso</c> (Junior/Semisenior/Senior con su SLA). Null = sin clasificar.</summary>
+        public int? GthTipoProcesoId { get; set; }
+
+        /// <summary>FK a <c>contributor</c>: razón social activa asignada por GTH para la contratación.</summary>
+        public int? ContributorId { get; set; }
+
         public DateTimeOffset CreatedDateTime { get; set; }
         public int? CreatedUserId { get; set; }
         public DateTimeOffset? UpdatedDateTime { get; set; }

@@ -33,7 +33,12 @@ public class AmonestacionRepository : IAmonestacionRepository
             FROM ssoma_rac_infraccion WHERE activo = true ORDER BY nombre;
 
             SELECT project_id AS id, project_description AS nombre
-            FROM project WHERE active = true ORDER BY project_description;
+            FROM project WHERE active = true
+              AND NOT EXISTS (SELECT 1 FROM proyecto_filtro f
+                              JOIN proyecto_filtro_funcionalidad fn ON fn.id = f.funcionalidad_id
+                              WHERE f.project_id = project.project_id
+                                AND fn.codigo = 'SSOMA_AMONESTACIONES' AND f.active = false)
+            ORDER BY project_description;
 
             SELECT partida_id AS id, partida_description AS nombre
             FROM partida WHERE active = true ORDER BY partida_description;

@@ -59,6 +59,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Milestone> Milestone { get; set; }
         public DbSet<MilestoneSchedule> MilestoneSchedule { get; set; }
         public DbSet<MilestoneScheduleHistory> MilestoneScheduleHistory { get; set; }
+        public DbSet<Notificacion> Notificacion { get; set; }
+        public DbSet<NotificacionTipo> NotificacionTipo { get; set; }
         public DbSet<Person> Person { get; set; }
         public DbSet<Project> Project { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
@@ -223,6 +225,13 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea> LessonArea => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonAreasFeature.Infrastructure.Models.LessonArea>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder> ProjectStaffReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.ProjectStaffReminder>();
         public DbSet<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.LessonJefeReminder> LessonJefeReminder => Set<Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Infrastructure.Models.LessonJefeReminder>();
+
+        // ── Tabla filtro única de proyectos por funcionalidad (patrón lesson_area) ──
+        // project es la tabla matriz; una fila (project_id, funcionalidad_id) con
+        // active = false oculta el proyecto SOLO en esa funcionalidad. Fila ausente =
+        // proyecto visible. IDs del catálogo en Shared/Constants/ProyectoFiltroFuncionalidades.
+        public DbSet<ProyectoFiltro> ProyectoFiltro => Set<ProyectoFiltro>();
+        public DbSet<ProyectoFiltroFuncionalidad> ProyectoFiltroFuncionalidad => Set<ProyectoFiltroFuncionalidad>();
 
         // ── master ─────────────────────────────────────────────────────────────
         public DbSet<SsClinicaUsuario> SsClinicaUsuario => Set<SsClinicaUsuario>();
@@ -426,10 +435,15 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPuesto> GthPuesto => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPuesto>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento> GthTipoRequerimiento => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento> GthEstadoRequerimiento => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPrioridad> GthPrioridad => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPrioridad>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitud> GthSolicitud => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSolicitud>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento> GthRequerimiento => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder> GthSustentoFolder => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario> GthCorreoDestinatario => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso> GthResponsableProceso => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso> GthTipoProceso => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion> GthCanalPublicacion => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal> GthRequerimientoCanal => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -1180,6 +1194,8 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasIndex(t => t.Nombre).IsUnique().HasFilter("state = true");
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEstadoRequerimiento>()
                 .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPrioridad>()
+                .HasIndex(p => p.Codigo).IsUnique().HasFilter("state = true");
             // Un correo no puede repetirse entre los destinatarios vigentes (se guarda en minúsculas).
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>()
                 .HasIndex(d => d.Email).IsUnique().HasFilter("state = true");
@@ -1205,9 +1221,75 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany()
                  .HasForeignKey(r => r.GthEstadoRequerimientoId)
                  .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPrioridad>()
+                 .WithMany()
+                 .HasForeignKey(r => r.GthPrioridadId)
+                 .OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Project>()
                  .WithMany()
                  .HasForeignKey(r => r.ProjectId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso>()
+                 .WithMany()
+                 .HasForeignKey(r => r.GthResponsableProcesoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso>()
+                 .WithMany()
+                 .HasForeignKey(r => r.GthTipoProcesoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Contributor>()
+                 .WithMany()
+                 .HasForeignKey(r => r.ContributorId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso>(e =>
+            {
+                // Solo un registro "vivo" (state = true) por trabajador.
+                e.HasIndex(r => r.WorkerId).IsUnique().HasFilter("state = true");
+                e.HasOne(r => r.Worker)
+                 .WithMany()
+                 .HasForeignKey(r => r.WorkerId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso>()
+                .HasIndex(t => t.Codigo).IsUnique().HasFilter("state = true");
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>()
+                .HasIndex(c => c.Codigo).IsUnique().HasFilter("state = true");
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal>(e =>
+            {
+                // Solo una publicación "viva" (state = true) por requerimiento + canal.
+                e.HasIndex(rc => new { rc.GthRequerimientoId, rc.GthCanalPublicacionId }).IsUnique().HasFilter("state = true");
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento>()
+                 .WithMany()
+                 .HasForeignKey(rc => rc.GthRequerimientoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>()
+                 .WithMany()
+                 .HasForeignKey(rc => rc.GthCanalPublicacionId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── Notificaciones in-app (campanita del encabezado) ────────────────
+            modelBuilder.Entity<NotificacionTipo>()
+                .HasIndex(t => t.Codigo).IsUnique().HasFilter("state = true");
+
+            modelBuilder.Entity<Notificacion>(e =>
+            {
+                e.HasIndex(n => n.UserId);
+                e.HasOne<User>()
+                 .WithMany()
+                 .HasForeignKey(n => n.UserId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<NotificacionTipo>()
+                 .WithMany()
+                 .HasForeignKey(n => n.NotificacionTipoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<User>()
+                 .WithMany()
+                 .HasForeignKey(n => n.OrigenUserId)
                  .OnDelete(DeleteBehavior.Restrict);
             });
 

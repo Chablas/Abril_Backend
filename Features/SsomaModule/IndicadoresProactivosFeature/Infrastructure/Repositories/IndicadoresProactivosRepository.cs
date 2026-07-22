@@ -909,17 +909,14 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         // proactivo de reporte. "Atribuidos"/"Cerrados" = RACs que le fueron cargados a ella
         // (empresa reportada) y cuántos de esos ya cerró — indicador de cumplimiento. Son
         // poblaciones distintas y no deben mezclarse en el mismo tope.
-        //
-        // La contratista puede ejecutar más de lo programado, pero para el indicador
-        // (y para lo que se suma al total del proyecto) solo cuenta hasta su propio tope
-        // (meta) — no debe "contar de más". EsActiva sí usa los valores reales (sin tope)
-        // para saber si hay actividad genuina.
         var tieneActividadReal = actualRacsReportados > 0 || actualRacsAtribuidos > 0
             || actualOpt > 0 || actualAts > 0 || actualCharlas > 0 || actualInsp > 0;
 
-        // RACS: el "Ejec" mostrado es el conteo REAL (sin tope) — reportar de más es
-        // un comportamiento proactivo deseable y no debe ocultarse. El % sí se limita
-        // a 100 (vía Pct), pero el número visible siempre es el real.
+        // El "Ejec" mostrado (Actual*) es el conteo REAL (sin tope) para TODOS los
+        // indicadores — ejecutar de más es un comportamiento proactivo deseable y no debe
+        // ocultarse (antes OPT/ATS/Charlas/Insp se topeaban a la meta y una usuaria con 16
+        // auditorías veía "Ejec: 5"). El % de cada empresa sí se topea a su propia meta
+        // (estos topes solo alimentan los Pct*, no los números visibles).
         var racsCerTope = Math.Min(actualRacsCerrados, actualRacsAtribuidos);
         var optTope = Math.Min(actualOpt, metaOpt);
         var atsTope = Math.Min(actualAts, metaAts);
@@ -952,10 +949,10 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             ActualRacs = actualRacsReportados,
             ActualRacsAtribuidos = actualRacsAtribuidos,
             ActualRacsCerrados = racsCerTope,
-            ActualOpt = optTope,
-            ActualAts = atsTope,
-            ActualCharlas = charlasTope,
-            ActualInspecciones = inspTope,
+            ActualOpt = actualOpt,
+            ActualAts = actualAts,
+            ActualCharlas = actualCharlas,
+            ActualInspecciones = actualInsp,
             PctRacs = Math.Round(pctRacs, 1),
             PctRacsCerrados = Math.Round(pctRacsCer, 1),
             PctOpt = Math.Round(pctOpt, 1),

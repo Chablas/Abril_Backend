@@ -5285,3 +5285,17 @@ Rama: `victor-backend`. Sesión sin cambios de código — operación directa so
 ### Pendiente
 - El backup (`cronograma_backup_20260718_233807.dump`) quedó en el scratchpad de la sesión de Claude Code (temporal, no en el repo ni en una ruta persistente) — si se quiere conservar como respaldo a largo plazo, moverlo a un lugar permanente.
 - `activity_predecessor_id_seq` no se reinició (no fue pedido explícitamente) — si se quiere una numeración 100% limpia también ahí, falta ese `ALTER SEQUENCE`.
+
+
+## Sesión 2026-07-21 — Filtros opcionales en GET paginado de ResidentReportIncidence
+
+Rama: `victor-backend`. Se extendió el endpoint `GET api/v1/ResidentReportIncidence/paged` para aceptar dos filtros opcionales (`projectId`, `stateId`), replicando el patrón de parámetros opcionales de `AccidenteIncidenteController.GetList` (SSOMA): `[FromQuery] int?` pasados directo del Controller al Service sin lógica de negocio (regla B5). Se descartó explícitamente cualquier filtro de "especialidad" (no existe esa columna).
+
+### Cambios
+- `Controllers/ResidentReportIncidenceController.cs` — firma de `GetPaged` extendida con `int? projectId = null` e `int? stateId = null`; se reenvían al Service sin lógica (B5).
+- `Application/Interfaces/IResidentReportIncidenceService.cs` y `Application/Services/ResidentReportIncidenceService.cs` — dos parámetros opcionales agregados a la firma de `GetPaged`, passthrough al repo.
+- `Infrastructure/Interfaces/IResidentReportIncidenceRepository.cs` y `Infrastructure/Repositories/ResidentReportIncidenceRepository.cs` — en `GetPaged`, sobre el `Where(r => r.Project.Active)` existente se agregan filtros condicionales `if (projectId.HasValue) ... r.ProjectId == projectId.Value` y `if (stateId.HasValue) ... r.StateId == stateId.Value` antes de materializar, de modo que tanto el `CountAsync` como el `Take` respetan los filtros. Una sola query de datos (mas el Count preexistente).
+
+### Notas
+- `ProjectId` y `StateId` son columnas escalares reales en la entidad `ResidentReportIncidence` (verificado).
+- Build en 0 errores. B1 respetado (cero archivos nuevos, solo edicion de los 5 existentes).

@@ -423,6 +423,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             return values.First();
         }
 
+        public async Task<string?> GetRendicionFolderUrl()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.GaRendicionFolder
+                .Where(f => f.State && f.Active)
+                .OrderBy(f => f.GaRendicionFolderId)
+                .Select(f => f.LinkUrl)
+                .FirstOrDefaultAsync();
+        }
+
         public async Task<List<int>> CrearRendicionYMarcarBulk(
             IEnumerable<int> ids,
             int userId,

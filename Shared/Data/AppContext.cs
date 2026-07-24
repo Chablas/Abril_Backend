@@ -440,6 +440,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento> GthRequerimiento => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder> GthSustentoFolder => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthSustentoFolder>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario> GthCorreoDestinatario => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo> GthCorreoTipo => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso> GthResponsableProceso => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthResponsableProceso>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso> GthTipoProceso => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion> GthCanalPublicacion => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>();
@@ -1196,9 +1197,19 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPrioridad>()
                 .HasIndex(p => p.Codigo).IsUnique().HasFilter("state = true");
-            // Un correo no puede repetirse entre los destinatarios vigentes (se guarda en minúsculas).
-            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>()
-                .HasIndex(d => d.Email).IsUnique().HasFilter("state = true");
+            // Un tipo de correo solo tiene un registro "vivo" (state = true) por código.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo>()
+                .HasIndex(t => t.Codigo).IsUnique().HasFilter("state = true");
+            // Un correo no puede repetirse entre los destinatarios vigentes del mismo tipo
+            // (se guarda en minúsculas). El mismo correo sí puede estar en dos tipos distintos.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoDestinatario>(e =>
+            {
+                e.HasIndex(d => new { d.GthCorreoTipoId, d.Email }).IsUnique().HasFilter("state = true");
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCorreoTipo>()
+                 .WithMany()
+                 .HasForeignKey(d => d.GthCorreoTipoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
 
             modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento>(e =>
             {

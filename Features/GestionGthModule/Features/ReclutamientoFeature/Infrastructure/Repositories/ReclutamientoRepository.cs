@@ -471,6 +471,96 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
+        public async Task<LongListEnvioContextoDto> GetLongListEnvioContexto(int requerimientoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Cabecera + estado actual + SLA del tipo de proceso, en 1 roundtrip.
+            var info = await (
+                from r in ctx.GthRequerimiento
+                where r.GthRequerimientoId == requerimientoId && r.State && r.Solicitud!.State
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                join tp in ctx.GthTipoProceso on r.GthTipoProcesoId equals tp.GthTipoProcesoId into tpJoin
+                from tp in tpJoin.DefaultIfEmpty()
+                select new
+                {
+                    r.Codigo,
+                    Puesto       = p.Nombre,
+                    Area         = r.Solicitud!.AreaNombre,
+                    ProyectoObra = pr.ProjectDescription,
+                    r.FechaRequeridaIngreso,
+                    EstadoCodigo = e.Codigo,
+                    EstadoNombre = e.Nombre,
+                    EstadoOrden  = e.Orden,
+                    SlaDias      = tp != null ? (int?)tp.SlaDias : null,
+                }).FirstOrDefaultAsync();
+
+            if (info == null)
+                throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            // Solo se puede enviar la long list si la revisión de CV ya inició (fase LONG_LIST o
+            // posterior). Reenviar cuando ya está en LONG_LIST_ENVIADA está permitido.
+            var longListOrden = await ctx.GthEstadoRequerimiento
+                .Where(e => e.Codigo == EstadoReclutamiento.LongList && e.State)
+                .Select(e => (int?)e.Orden)
+                .FirstOrDefaultAsync();
+            if (longListOrden == null || info.EstadoOrden < longListOrden)
+                throw new AbrilException("La revisión de CV aún no ha iniciado; no hay long list para enviar.", 400);
+
+            return new LongListEnvioContextoDto
+            {
+                EstadoCodigo          = info.EstadoCodigo,
+                EstadoNombre          = info.EstadoNombre,
+                Codigo                = info.Codigo,
+                Puesto                = info.Puesto,
+                Area                  = info.Area,
+                ProyectoObra          = info.ProyectoObra,
+                FechaRequeridaIngreso = info.FechaRequeridaIngreso,
+                SlaDias               = info.SlaDias,
+            };
+        }
+
+        public async Task<EstadoRequerimientoResultDto> MarcarLongListEnviada(int requerimientoId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var req = await ctx.GthRequerimiento
+                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State);
+            if (req == null)
+                throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            var estados = await ctx.GthEstadoRequerimiento
+                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.LongList
+                                        || e.Codigo == EstadoReclutamiento.LongListEnviada
+                                        || e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId))
+                .ToListAsync();
+            var longList        = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongList);
+            var longListEnviada = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongListEnviada)
+                ?? throw new AbrilException("No está configurado el estado LONG_LIST_ENVIADA de reclutamiento.", 500);
+            var actual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId);
+
+            if (longList == null || actual == null || actual.Orden < longList.Orden)
+                throw new AbrilException("La revisión de CV aún no ha iniciado; no hay long list para enviar.", 400);
+
+            // Idempotente: si ya está en LONG_LIST_ENVIADA (o más adelante) no se retrocede.
+            if (actual.Orden < longListEnviada.Orden)
+            {
+                req.GthEstadoRequerimientoId = longListEnviada.GthEstadoRequerimientoId;
+                req.UpdatedDateTime          = DateTimeOffset.UtcNow;
+                req.UpdatedUserId            = userId;
+                actual = longListEnviada;
+                await ctx.SaveChangesAsync();
+            }
+
+            return new EstadoRequerimientoResultDto
+            {
+                EstadoCodigo = actual.Codigo,
+                EstadoNombre = actual.Nombre,
+            };
+        }
+
         public async Task<SeguimientoDto?> GetSeguimiento(int requerimientoId, int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -587,12 +677,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }).ToList();
         }
 
-        // ── Configuración de destinatarios del correo de nueva solicitud ──────────
-        public async Task<CorreoDestinatariosDto> GetCorreoDestinatarios()
+        // ── Configuración de destinatarios del correo (por tipo: SOLICITUD / LONG_LIST) ─
+        public async Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo)
         {
             using var ctx = _factory.CreateDbContext();
+            var tipoId = await ResolveCorreoTipoId(ctx, tipoCodigo);
+
             var rows = await ctx.GthCorreoDestinatario
-                .Where(d => d.State && d.Active)
+                .Where(d => d.State && d.Active && d.GthCorreoTipoId == tipoId)
                 .OrderBy(d => d.Email)
                 .Select(d => new { d.Email, d.EsCopia })
                 .ToListAsync();
@@ -604,9 +696,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
-        public async Task ReplaceCorreoDestinatarios(List<string> principales, List<string> copias, int? userId)
+        public async Task ReplaceCorreoDestinatarios(string tipoCodigo, List<string> principales, List<string> copias, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
+            var tipoId = await ResolveCorreoTipoId(ctx, tipoCodigo);
             var now = DateTimeOffset.UtcNow;
 
             // Estado deseado: email -> esCopia (principal gana si estuviera en ambas, ya resuelto en el servicio).
@@ -614,8 +707,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             foreach (var e in principales) deseado[e] = false;
             foreach (var e in copias)      deseado.TryAdd(e, true);
 
-            // Vigentes (state = true) — email único entre ellos por el índice parcial.
-            var vigentes = await ctx.GthCorreoDestinatario.Where(d => d.State).ToListAsync();
+            // Vigentes (state = true) del tipo — email único entre ellos por el índice parcial (tipo, email).
+            var vigentes = await ctx.GthCorreoDestinatario
+                .Where(d => d.State && d.GthCorreoTipoId == tipoId)
+                .ToListAsync();
             var vigentesByEmail = vigentes.ToDictionary(v => v.Email);
 
             // Alta o actualización en sitio (si cambia el tipo se actualiza es_copia, no se borra+inserta:
@@ -636,6 +731,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 {
                     ctx.GthCorreoDestinatario.Add(new GthCorreoDestinatario
                     {
+                        GthCorreoTipoId = tipoId,
                         Email           = email,
                         EsCopia         = esCopia,
                         Active          = true,
@@ -658,6 +754,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
 
             await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>Resuelve el id del tipo de correo por su código estable (SOLICITUD/LONG_LIST); 500 si no está sembrado.</summary>
+        private static async Task<int> ResolveCorreoTipoId(AppDbContext ctx, string tipoCodigo)
+        {
+            var tipoId = await ctx.GthCorreoTipo
+                .Where(t => t.Codigo == tipoCodigo && t.State)
+                .Select(t => (int?)t.GthCorreoTipoId)
+                .FirstOrDefaultAsync();
+            if (tipoId == null)
+                throw new AbrilException("No está configurado el tipo de correo de reclutamiento solicitado.", 500);
+            return tipoId.Value;
         }
 
         private static async Task<(string? AreaNombre, int? AreaScopeId, int? WorkerId)> ResolveSolicitanteInternal(AppDbContext ctx, int userId)
@@ -756,9 +864,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// <summary>Códigos estables de estados de reclutamiento (espejo de gth_estado_requerimiento.codigo).</summary>
     internal static class EstadoReclutamiento
     {
-        public const string Nuevo       = "NUEVO";
-        public const string Publicacion = "PUBLICACION";
-        public const string LongList    = "LONG_LIST";
+        public const string Nuevo           = "NUEVO";
+        public const string Publicacion     = "PUBLICACION";
+        public const string LongList        = "LONG_LIST";
+        public const string LongListEnviada = "LONG_LIST_ENVIADA";
     }
 
     /// <summary>Códigos estables de prioridad de reclutamiento (espejo de gth_prioridad.codigo).</summary>

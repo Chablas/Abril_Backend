@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
@@ -76,6 +77,160 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public Task<EstadoRequerimientoResultDto> IniciarRevisionCv(int requerimientoId, int? userId) =>
             _repo.IniciarRevisionCv(requerimientoId, userId);
 
+        // ── Envío de la long list al solicitante ──────────────────────────────
+        private const long MaxLongListBytes = 20 * 1024 * 1024; // 20 MB en total (CVs + informes)
+        private static readonly string[] AllowedLongListExt = { ".pdf", ".doc", ".docx" };
+
+        public async Task<EstadoRequerimientoResultDto> EnviarLongList(
+            int requerimientoId, List<LongListCandidatoArchivoDto> candidatos, int? userId)
+        {
+            if (candidatos == null || candidatos.Count == 0)
+                throw new AbrilException("Debes cargar al menos un candidato para enviar la long list.", 400);
+
+            // Validar archivos: cada candidato debe traer su CV; formato e informe (opcional) permitidos.
+            long total = 0;
+            for (int i = 0; i < candidatos.Count; i++)
+            {
+                var c = candidatos[i];
+                var pos = i + 1;
+                if (c.CvContent == null || c.CvContent.Length == 0)
+                    throw new AbrilException($"Candidato {pos}: falta adjuntar el CV.", 400);
+                ValidarLongListArchivo($"CV del candidato {pos}", c.CvFileName, c.CvContent.Length);
+                total += c.CvContent.Length;
+
+                if (c.InformeContent != null && c.InformeContent.Length > 0)
+                {
+                    ValidarLongListArchivo($"informe del candidato {pos}", c.InformeFileName ?? "", c.InformeContent.Length);
+                    total += c.InformeContent.Length;
+                }
+            }
+            if (total > MaxLongListBytes)
+                throw new AbrilException("El tamaño total de los CVs e informes supera el máximo permitido (20 MB).", 400);
+
+            // 1) Contexto (valida fase LONG_LIST) — no cambia estado todavía.
+            var ctx = await _repo.GetLongListEnvioContexto(requerimientoId);
+
+            // 2) Destinatarios del correo de long list (config tipo LONG_LIST).
+            var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.LongList);
+            if (dest.Principales.Count == 0)
+                throw new AbrilException(
+                    "No hay destinatarios configurados para el correo de la long list. " +
+                    "Configúralos con el botón «Configuración» antes de enviar.", 409);
+
+            // 3) Enviar el correo con los CVs/informes adjuntos. Es BLOQUEANTE y va ANTES de avanzar
+            //    el estado: si el correo falla, el requerimiento sigue en LONG_LIST y GTH puede reintentar.
+            var adjuntos = new List<EmailAttachment>();
+            foreach (var c in candidatos)
+            {
+                adjuntos.Add(new EmailAttachment
+                {
+                    FileName    = string.IsNullOrWhiteSpace(c.CvFileName) ? "cv.pdf" : c.CvFileName,
+                    ContentType = string.IsNullOrWhiteSpace(c.CvContentType) ? "application/octet-stream" : c.CvContentType,
+                    Content     = c.CvContent!,
+                });
+                if (c.InformeContent != null && c.InformeContent.Length > 0)
+                {
+                    adjuntos.Add(new EmailAttachment
+                    {
+                        FileName    = string.IsNullOrWhiteSpace(c.InformeFileName) ? "informe.pdf" : c.InformeFileName!,
+                        ContentType = string.IsNullOrWhiteSpace(c.InformeContentType) ? "application/octet-stream" : c.InformeContentType!,
+                        Content     = c.InformeContent!,
+                    });
+                }
+            }
+
+            try
+            {
+                await _email.SendAsync(
+                    to:      dest.Principales,
+                    subject: $"[Reclutamiento] Long list de CVs — {ctx.Codigo} · {ctx.Puesto}",
+                    body:    ConstruirCuerpoLongList(ctx, candidatos),
+                    isHtml:  true,
+                    cc:      dest.Copias.Count > 0 ? dest.Copias : null,
+                    attachments: adjuntos);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló el correo de long list del requerimiento {RequerimientoId}", requerimientoId);
+                throw new AbrilException(
+                    "No se pudo enviar el correo de la long list. El requerimiento no cambió de estado; reintenta.", 502);
+            }
+
+            // 4) Correo enviado: recién ahora se marca la long list como enviada.
+            return await _repo.MarcarLongListEnviada(requerimientoId, userId);
+        }
+
+        private static void ValidarLongListArchivo(string etiqueta, string fileName, long length)
+        {
+            var ext = Path.GetExtension(fileName).ToLowerInvariant();
+            if (!AllowedLongListExt.Contains(ext))
+                throw new AbrilException($"El {etiqueta} tiene un formato no permitido. Solo PDF, DOC o DOCX.", 400);
+            if (length > MaxLongListBytes)
+                throw new AbrilException($"El {etiqueta} supera el tamaño máximo permitido.", 400);
+        }
+
+        private static string ConstruirCuerpoLongList(LongListEnvioContextoDto ctx, List<LongListCandidatoArchivoDto> candidatos)
+        {
+            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+
+            var filas = new StringBuilder();
+            for (int i = 0; i < candidatos.Count; i++)
+            {
+                var c = candidatos[i];
+                var comentario = string.IsNullOrWhiteSpace(c.Comentario) ? "—" : Esc(c.Comentario);
+                var fuente     = string.IsNullOrWhiteSpace(c.FuenteNombre) ? "—" : Esc(c.FuenteNombre);
+                var nombre     = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Esc(c.Nombre);
+                var informe    = c.InformeContent != null && c.InformeContent.Length > 0 ? "Sí" : "No";
+                filas.Append($"""
+                    <tr>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{i + 1}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{nombre}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{fuente}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{comentario}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{informe}</td>
+                    </tr>
+                    """);
+            }
+
+            var sla = ctx.SlaDias.HasValue
+                ? $"""<p style="font-size:13px"><b>Plazo estimado del proceso:</b> {ctx.SlaDias} días</p>"""
+                : "";
+
+            return $"""
+                <div style="font-family:Arial,sans-serif;max-width:680px">
+                  <div style="background:#005D9D;padding:12px 16px">
+                    <h2 style="color:#fff;margin:0;font-size:18px">Long list de CVs para revisión</h2>
+                  </div>
+                  <div style="padding:16px;border:1px solid #e5e7eb;border-top:none">
+                    <p style="font-size:13px;margin-top:0">
+                      GTH culminó el filtro de CVs y comparte la <b>long list</b> del siguiente requerimiento
+                      para tu revisión. Los CVs (e informes, si los hay) van adjuntos a este correo.
+                    </p>
+                    <p style="font-size:13px"><b>Requerimiento:</b> {Esc(ctx.Codigo)}</p>
+                    <p style="font-size:13px"><b>Puesto:</b> {Esc(ctx.Puesto)}</p>
+                    <p style="font-size:13px"><b>Área solicitante:</b> {Esc(ctx.Area) }</p>
+                    <p style="font-size:13px"><b>Proyecto / Obra:</b> {Esc(ctx.ProyectoObra) }</p>
+                    <p style="font-size:13px"><b>Fecha requerida de ingreso:</b> {ctx.FechaRequeridaIngreso:dd/MM/yyyy}</p>
+                    {sla}
+                    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:10px 0">
+                      <thead>
+                        <tr style="background:#f3f4f6">
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">#</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Candidato</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Fuente</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Comentario de GTH</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Informe</th>
+                        </tr>
+                      </thead>
+                      <tbody>{filas}</tbody>
+                    </table>
+                    <p style="font-size:13px">Total de candidatos en la long list: <b>{candidatos.Count}</b>.</p>
+                    <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
+                  </div>
+                </div>
+                """;
+        }
+
         public async Task<SeguimientoDto> GetSeguimiento(int requerimientoId, int? userId)
         {
             if (!userId.HasValue)
@@ -88,10 +243,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return seguimiento;
         }
 
-        // ── Configuración de destinatarios del correo ─────────────────────────
-        public Task<CorreoDestinatariosDto> GetCorreoDestinatarios() => _repo.GetCorreoDestinatarios();
+        // ── Configuración de destinatarios del correo (por tipo: SOLICITUD / LONG_LIST) ─
+        public Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo) =>
+            _repo.GetCorreoDestinatarios(tipoCodigo);
 
-        public async Task SaveCorreoDestinatarios(CorreoDestinatariosDto dto, int? userId)
+        public async Task SaveCorreoDestinatarios(string tipoCodigo, CorreoDestinatariosDto dto, int? userId)
         {
             // Normaliza (trim + minúsculas), valida formato y quita duplicados. Un correo que
             // aparezca en ambas listas se toma como principal (gana Para sobre CC).
@@ -100,7 +256,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                                 .Where(e => !principales.Contains(e))
                                 .ToList();
 
-            await _repo.ReplaceCorreoDestinatarios(principales, copias, userId);
+            await _repo.ReplaceCorreoDestinatarios(tipoCodigo, principales, copias, userId);
         }
 
         private static readonly Regex EmailRegex =
@@ -179,7 +335,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             List<SolicitudVacanteListItemDto> vacantes;
             try
             {
-                dest     = await _repo.GetCorreoDestinatarios();
+                dest     = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.Solicitud);
                 vacantes = await _repo.GetRequerimientosBySolicitud(solicitudId);
             }
             catch (Exception ex)

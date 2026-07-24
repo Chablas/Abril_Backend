@@ -1,4 +1,5 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces;
 using Abril_Backend.Shared.Filters;
@@ -43,15 +44,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        /// <summary>Destinatarios configurados del correo de nueva solicitud (principales + copias).</summary>
+        /// <summary>Destinatarios configurados de un correo de reclutamiento por tipo (<c>solicitud</c> / <c>long-list</c>).</summary>
         /// <remarks>Acceso dinámico por feature: los roles con <c>gestion-gth.reclutamiento.configuracion</c> en role_feature.</remarks>
-        [HttpGet("config/correo-destinatarios")]
+        [HttpGet("config/correo-destinatarios/{tipo}")]
         [RequireFeature("gestion-gth.reclutamiento.configuracion")]
-        public async Task<IActionResult> GetCorreoDestinatarios()
+        public async Task<IActionResult> GetCorreoDestinatarios(string tipo)
         {
             try
             {
-                return Ok(await _service.GetCorreoDestinatarios());
+                var tipoCodigo = CorreoTipoReclutamiento.FromSlug(tipo);
+                if (tipoCodigo == null)
+                    return BadRequest(new { message = "Tipo de correo no válido." });
+
+                return Ok(await _service.GetCorreoDestinatarios(tipoCodigo));
             }
             catch (AbrilException ex)
             {
@@ -64,16 +69,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        /// <summary>Guarda los destinatarios del correo de nueva solicitud (reemplaza ambas listas).</summary>
+        /// <summary>Guarda los destinatarios de un correo de reclutamiento por tipo (reemplaza ambas listas).</summary>
         /// <remarks>Acceso dinámico por feature: los roles con <c>gestion-gth.reclutamiento.configuracion</c> en role_feature.</remarks>
-        [HttpPut("config/correo-destinatarios")]
+        [HttpPut("config/correo-destinatarios/{tipo}")]
         [RequireFeature("gestion-gth.reclutamiento.configuracion")]
-        public async Task<IActionResult> SaveCorreoDestinatarios([FromBody] CorreoDestinatariosDto dto)
+        public async Task<IActionResult> SaveCorreoDestinatarios(string tipo, [FromBody] CorreoDestinatariosDto dto)
         {
             try
             {
+                var tipoCodigo = CorreoTipoReclutamiento.FromSlug(tipo);
+                if (tipoCodigo == null)
+                    return BadRequest(new { message = "Tipo de correo no válido." });
+
                 var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : (int?)null;
-                await _service.SaveCorreoDestinatarios(dto, userId);
+                await _service.SaveCorreoDestinatarios(tipoCodigo, dto, userId);
                 return Ok(new { message = "Destinatarios del correo actualizados." });
             }
             catch (AbrilException ex)
@@ -259,6 +268,86 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 _logger.LogError(ex, "Error en ReclutamientoController.IniciarRevisionCv");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
+        }
+
+        /// <summary>
+        /// Vista de GTH: envía la long list al solicitante. Multipart: <c>data</c> = JSON con los
+        /// candidatos (nombre, fuente, comentario y las claves de sus archivos); los CVs e informes
+        /// viajan como form files con esas claves (ej. <c>cv_0</c>, <c>informe_0</c>). Envía el correo
+        /// configurado (tipo LONG_LIST) con los adjuntos y avanza el requerimiento a LONG_LIST_ENVIADA.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPost("requerimiento/{id:int}/long-list/enviar")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(25 * 1024 * 1024)] // 20 MB de adjuntos + margen
+        public async Task<IActionResult> EnviarLongList(int id, [FromForm] string data)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+
+                LongListEnviarMetaDto? meta;
+                try
+                {
+                    meta = JsonSerializer.Deserialize<LongListEnviarMetaDto>(
+                        data, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                }
+                catch (JsonException)
+                {
+                    return BadRequest(new { message = "El campo 'data' no es un JSON válido." });
+                }
+                if (meta?.Candidatos == null || meta.Candidatos.Count == 0)
+                    return BadRequest(new { message = "Debes cargar al menos un candidato para enviar la long list." });
+
+                // Enlaza cada candidato con sus archivos del multipart (por la clave del form file).
+                var candidatos = new List<LongListCandidatoArchivoDto>(meta.Candidatos.Count);
+                foreach (var m in meta.Candidatos)
+                {
+                    var cv = string.IsNullOrWhiteSpace(m.CvKey) ? null : Request.Form.Files[m.CvKey];
+                    if (cv == null || cv.Length == 0)
+                        return BadRequest(new { message = "Cada candidato debe tener su CV adjunto." });
+
+                    var candidato = new LongListCandidatoArchivoDto
+                    {
+                        Nombre        = m.Nombre,
+                        FuenteNombre  = m.FuenteNombre,
+                        Comentario    = m.Comentario,
+                        CvFileName    = cv.FileName,
+                        CvContentType = cv.ContentType ?? "application/octet-stream",
+                        CvContent     = await ToBytesAsync(cv),
+                    };
+
+                    var informe = string.IsNullOrWhiteSpace(m.InformeKey) ? null : Request.Form.Files[m.InformeKey];
+                    if (informe != null && informe.Length > 0)
+                    {
+                        candidato.InformeFileName    = informe.FileName;
+                        candidato.InformeContentType = informe.ContentType ?? "application/octet-stream";
+                        candidato.InformeContent     = await ToBytesAsync(informe);
+                    }
+
+                    candidatos.Add(candidato);
+                }
+
+                var estado = await _service.EnviarLongList(id, candidatos, userId);
+                return Ok(new { message = "Long list enviada y correo notificado al solicitante.", estado.EstadoCodigo, estado.EstadoNombre });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.EnviarLongList");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        private static async Task<byte[]> ToBytesAsync(IFormFile file)
+        {
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            return ms.ToArray();
         }
 
         /// <summary>Detalle de seguimiento de un requerimiento (cabecera + fases del pipeline), en una sola petición.</summary>

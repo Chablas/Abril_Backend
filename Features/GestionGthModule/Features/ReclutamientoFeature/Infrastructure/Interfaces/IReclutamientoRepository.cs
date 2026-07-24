@@ -80,14 +80,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<EstadoRequerimientoResultDto> IniciarRevisionCv(int requerimientoId, int? userId);
 
-        /// <summary>Destinatarios vigentes del correo de nueva solicitud (principales + copias).</summary>
-        Task<CorreoDestinatariosDto> GetCorreoDestinatarios();
+        /// <summary>
+        /// Cabecera + estado del requerimiento para armar el correo de la long list (solo lectura,
+        /// no cambia estado). Valida que la revisión de CV ya inició (fase LONG_LIST o posterior).
+        /// Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 400 si aún no
+        /// hay long list y 404 si el requerimiento no existe.
+        /// </summary>
+        Task<LongListEnvioContextoDto> GetLongListEnvioContexto(int requerimientoId);
 
         /// <summary>
-        /// Reemplaza el conjunto de destinatarios vigentes por el indicado (reconciliación:
-        /// conserva los que siguen, da de baja los quitados, agrega los nuevos). Los correos
-        /// ya vienen normalizados (minúsculas) y sin duplicados desde el servicio.
+        /// Marca la long list como enviada: avanza el requerimiento a LONG_LIST_ENVIADA (idempotente
+        /// si ya lo está). Se llama tras enviar el correo con éxito. Devuelve el estado resultante.
         /// </summary>
-        Task ReplaceCorreoDestinatarios(List<string> principales, List<string> copias, int? userId);
+        Task<EstadoRequerimientoResultDto> MarcarLongListEnviada(int requerimientoId, int? userId);
+
+        /// <summary>Destinatarios vigentes del correo del tipo indicado (SOLICITUD / LONG_LIST): principales + copias.</summary>
+        Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
+
+        /// <summary>
+        /// Reemplaza el conjunto de destinatarios vigentes del tipo indicado por el nuevo
+        /// (reconciliación: conserva los que siguen, da de baja los quitados, agrega los nuevos).
+        /// Los correos ya vienen normalizados (minúsculas) y sin duplicados desde el servicio.
+        /// </summary>
+        Task ReplaceCorreoDestinatarios(string tipoCodigo, List<string> principales, List<string> copias, int? userId);
     }
 }

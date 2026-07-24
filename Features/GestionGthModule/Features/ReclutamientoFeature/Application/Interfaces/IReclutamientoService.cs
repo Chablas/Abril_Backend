@@ -49,10 +49,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Inicia la revisión de CV: avanza el requerimiento de PUBLICACION a LONG_LIST.</summary>
         Task<EstadoRequerimientoResultDto> IniciarRevisionCv(int requerimientoId, int? userId);
 
-        /// <summary>Destinatarios configurados del correo de nueva solicitud (principales + copias).</summary>
-        Task<CorreoDestinatariosDto> GetCorreoDestinatarios();
+        /// <summary>
+        /// Envía la long list al solicitante: avanza el requerimiento a LONG_LIST_ENVIADA y manda
+        /// el correo a los destinatarios configurados (tipo LONG_LIST) con los CVs/informes adjuntos.
+        /// Devuelve el estado resultante.
+        /// </summary>
+        Task<EstadoRequerimientoResultDto> EnviarLongList(int requerimientoId, List<LongListCandidatoArchivoDto> candidatos, int? userId);
 
-        /// <summary>Guarda (valida y normaliza) los destinatarios del correo de nueva solicitud.</summary>
-        Task SaveCorreoDestinatarios(CorreoDestinatariosDto dto, int? userId);
+        /// <summary>Destinatarios configurados de un correo de reclutamiento (principales + copias) por tipo (SOLICITUD/LONG_LIST).</summary>
+        Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
+
+        /// <summary>Guarda (valida y normaliza) los destinatarios de un correo de reclutamiento por tipo.</summary>
+        Task SaveCorreoDestinatarios(string tipoCodigo, CorreoDestinatariosDto dto, int? userId);
     }
 }

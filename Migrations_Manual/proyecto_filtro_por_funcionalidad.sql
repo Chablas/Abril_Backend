@@ -101,3 +101,29 @@ SELECT 36, fn.id, true
 FROM proyecto_filtro_funcionalidad fn
 WHERE fn.codigo = 'AC_ACTIVIDADES'
 ON CONFLICT (project_id, funcionalidad_id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- Post Venta (project_id 40) — mismo caso que Oficina Central (2026-07-24).
+-- El proyecto estaba active=false y por el filtro p.Active de AC Actividades
+-- (ArquitecturaComercialRepository.GetProyectosConActividades) dejó de aparecer
+-- como opción de proyecto en Arquitectura Comercial, aunque sus actividades
+-- (p. ej. "PINTADO DE SALA DE REUNIONES_OFICINA") siguen activas. Se reactiva en
+-- project y se oculta explícitamente en las demás funcionalidades para no
+-- cambiarles el comportamiento (solo debe reaparecer en AC Actividades).
+-- ----------------------------------------------------------------------------
+UPDATE project SET active = true WHERE project_id = 40 AND active = false;
+
+-- Oculto en todas las funcionalidades menos AC_ACTIVIDADES
+INSERT INTO proyecto_filtro (project_id, funcionalidad_id, active)
+SELECT 40, fn.id, false
+FROM proyecto_filtro_funcionalidad fn
+WHERE fn.codigo <> 'AC_ACTIVIDADES'
+ON CONFLICT (project_id, funcionalidad_id) DO NOTHING;
+
+-- Visible en AC Actividades (fila explícita solo como documentación del caso;
+-- sin fila también sería visible)
+INSERT INTO proyecto_filtro (project_id, funcionalidad_id, active)
+SELECT 40, fn.id, true
+FROM proyecto_filtro_funcionalidad fn
+WHERE fn.codigo = 'AC_ACTIVIDADES'
+ON CONFLICT (project_id, funcionalidad_id) DO NOTHING;

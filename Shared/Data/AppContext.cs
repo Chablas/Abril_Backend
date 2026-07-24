@@ -447,6 +447,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso> GthTipoProceso => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoProceso>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion> GthCanalPublicacion => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal> GthRequerimientoCanal => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEstado> GthCandidatoEstado => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEstado>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato> GthCandidato => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -1282,6 +1284,27 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>()
                  .WithMany()
                  .HasForeignKey(rc => rc.GthCanalPublicacionId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Estado de revisión del candidato: solo un registro "vivo" (state = true) por código.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEstado>()
+                .HasIndex(e => e.Codigo).IsUnique().HasFilter("state = true");
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>(e =>
+            {
+                e.HasIndex(c => c.GthRequerimientoId);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimiento>()
+                 .WithMany()
+                 .HasForeignKey(c => c.GthRequerimientoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEstado>()
+                 .WithMany()
+                 .HasForeignKey(c => c.GthCandidatoEstadoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>()
+                 .WithMany()
+                 .HasForeignKey(c => c.GthCanalPublicacionId)
                  .OnDelete(DeleteBehavior.Restrict);
             });
 

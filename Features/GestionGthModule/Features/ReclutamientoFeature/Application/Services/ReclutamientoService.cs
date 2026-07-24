@@ -10,6 +10,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Services.Notificaciones.Dtos;
 using Abril_Backend.Shared.Services.Notificaciones.Interfaces;
+using Abril_Backend.Shared.Services.SharePoint.Dtos;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Services
@@ -41,10 +42,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         public Task<ReclutamientoFormDataDto> GetFormData(int? userId) => _repo.GetFormData(userId);
 
-        public Task<List<SolicitudVacanteListItemDto>> GetMisSolicitudes(int? userId) =>
+        public Task<SolicitantePanelDto> GetSolicitantePanel(int? userId) =>
             userId.HasValue
-                ? _repo.GetMisSolicitudesVacante(userId.Value)
-                : Task.FromResult(new List<SolicitudVacanteListItemDto>());
+                ? _repo.GetSolicitantePanel(userId.Value)
+                : Task.FromResult(new SolicitantePanelDto());
+
+        public async Task<RevisionLongListDto> GetRevisionLongList(int requerimientoId, int? userId)
+        {
+            if (!userId.HasValue)
+                throw new AbrilException("No se pudo identificar al usuario.", 401);
+
+            var revision = await _repo.GetRevisionLongList(requerimientoId, userId.Value);
+            if (revision == null)
+                throw new AbrilException("No se encontró la long list del requerimiento.", 404);
+
+            return revision;
+        }
 
         public Task<BandejaReclutamientoDto> GetBandeja() => _repo.GetBandeja();
 
@@ -110,12 +123,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // 1) Contexto (valida fase LONG_LIST) — no cambia estado todavía.
             var ctx = await _repo.GetLongListEnvioContexto(requerimientoId);
 
-            // 2) Destinatarios del correo de long list (config tipo LONG_LIST).
+            // 2) Destinatarios del correo de long list.
+            //    El destinatario PRINCIPAL (Para/To) es SIEMPRE el solicitante que registró la
+            //    solicitud; la configuración (tipo LONG_LIST) solo aporta principales/copias extra.
             var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.LongList);
-            if (dest.Principales.Count == 0)
+
+            // Para = solicitante primero + principales configurados (deduplicado, sin distinguir mayúsculas).
+            var principales = new List<string>();
+            var vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void AgregarPrincipal(string? email)
+            {
+                var e = email?.Trim();
+                if (!string.IsNullOrWhiteSpace(e) && vistos.Add(e)) principales.Add(e);
+            }
+            AgregarPrincipal(ctx.SolicitanteEmail);
+            foreach (var e in dest.Principales) AgregarPrincipal(e);
+
+            if (principales.Count == 0)
                 throw new AbrilException(
-                    "No hay destinatarios configurados para el correo de la long list. " +
-                    "Configúralos con el botón «Configuración» antes de enviar.", 409);
+                    "No se pudo determinar el correo del solicitante de la long list y no hay " +
+                    "destinatarios principales configurados. Verifica que el solicitante tenga " +
+                    "un correo registrado o configúralos con el botón «Configuración».", 409);
+
+            // CC = copias configuradas que no estén ya en Para.
+            var copias = dest.Copias.Where(e => !vistos.Contains(e.Trim())).ToList();
 
             // 3) Enviar el correo con los CVs/informes adjuntos. Es BLOQUEANTE y va ANTES de avanzar
             //    el estado: si el correo falla, el requerimiento sigue en LONG_LIST y GTH puede reintentar.
@@ -142,11 +173,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             try
             {
                 await _email.SendAsync(
-                    to:      dest.Principales,
+                    to:      principales,
                     subject: $"[Reclutamiento] Long list de CVs — {ctx.Codigo} · {ctx.Puesto}",
                     body:    ConstruirCuerpoLongList(ctx, candidatos),
                     isHtml:  true,
-                    cc:      dest.Copias.Count > 0 ? dest.Copias : null,
+                    cc:      copias.Count > 0 ? copias : null,
                     attachments: adjuntos);
             }
             catch (Exception ex)
@@ -156,8 +187,106 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     "No se pudo enviar el correo de la long list. El requerimiento no cambió de estado; reintenta.", 502);
             }
 
-            // 4) Correo enviado: recién ahora se marca la long list como enviada.
-            return await _repo.MarcarLongListEnviada(requerimientoId, userId);
+            // 4) Correo enviado: subir los CVs/informes a SharePoint y persistir la long list para
+            //    que el solicitante pueda revisarla. Se reutiliza la carpeta de reclutamiento
+            //    (gth_sustento_folder), organizada en una subcarpeta por requerimiento.
+            var carpeta = await ResolverCarpetaLongListAsync(ctx.Codigo);
+
+            var persist = new List<LongListCandidatoPersistDto>(candidatos.Count);
+            var indice = 0;
+            foreach (var c in candidatos)
+            {
+                indice++;
+                var cvSubida = await SubirLongListArchivoAsync(
+                    carpeta, "cv", ctx.Codigo, indice, c.CvFileName, c.CvContent!, c.CvContentType);
+
+                var item = new LongListCandidatoPersistDto
+                {
+                    Nombre           = c.Nombre,
+                    Puesto           = c.Puesto,
+                    ExperienciaAnios = c.ExperienciaAnios,
+                    Disponibilidad   = c.Disponibilidad,
+                    FuenteCanalId    = c.FuenteCanalId,
+                    Comentario       = c.Comentario,
+                    CvNombre         = cvSubida.FileName,
+                    CvUrl            = cvSubida.WebUrl,
+                    CvItemId         = cvSubida.ItemId,
+                    CvDriveId        = carpeta.DriveId,
+                };
+
+                if (c.InformeContent != null && c.InformeContent.Length > 0)
+                {
+                    var infSubida = await SubirLongListArchivoAsync(
+                        carpeta, "informe", ctx.Codigo, indice, c.InformeFileName ?? "informe.pdf",
+                        c.InformeContent, c.InformeContentType ?? "application/octet-stream");
+                    item.InformeNombre  = infSubida.FileName;
+                    item.InformeUrl     = infSubida.WebUrl;
+                    item.InformeItemId  = infSubida.ItemId;
+                    item.InformeDriveId = carpeta.DriveId;
+                }
+
+                persist.Add(item);
+            }
+
+            // 5) Persistir los candidatos (reemplazando la long list previa) y avanzar a LONG_LIST_ENVIADA.
+            return await _repo.GuardarLongListCandidatos(requerimientoId, persist, userId);
+        }
+
+        /// <summary>Resuelve la carpeta de reclutamiento (gth_sustento_folder) y la subcarpeta del requerimiento.</summary>
+        private async Task<ShareLinkResolveDto> ResolverCarpetaLongListAsync(string codigo)
+        {
+            var folderUrl = await _repo.GetSustentoFolderUrl();
+            if (string.IsNullOrWhiteSpace(folderUrl))
+                throw new AbrilException("No está configurada la carpeta de archivos de reclutamiento.", 500);
+
+            var raiz = await _sharePoint.ResolveSharePointFolderUrlAsync(folderUrl);
+            if (raiz == null || !raiz.IsFolder)
+                throw new AbrilException("No se pudo resolver la carpeta de reclutamiento en SharePoint.", 502);
+
+            // Subcarpeta por requerimiento para agrupar los CVs de su long list.
+            try
+            {
+                var subItemId = await _sharePoint.EnsureChildFolderAsync(
+                    raiz.DriveId, raiz.ItemId, $"Long list {SanitizeFilename(codigo)}");
+                return new ShareLinkResolveDto { DriveId = raiz.DriveId, ItemId = subItemId, IsFolder = true };
+            }
+            catch (Exception ex)
+            {
+                // Si no se pudo crear la subcarpeta, se cae a la carpeta raíz (los nombres de archivo
+                // ya incluyen el código del requerimiento, así que no colisionan).
+                _logger.LogWarning(ex, "No se pudo crear la subcarpeta de long list de {Codigo}; se usa la carpeta raíz", codigo);
+                return raiz;
+            }
+        }
+
+        /// <summary>Sube un archivo (CV o informe) de la long list a la carpeta indicada y devuelve el resultado.</summary>
+        private async Task<SharePointUploadResultDto> SubirLongListArchivoAsync(
+            ShareLinkResolveDto carpeta, string prefijo, string codigo, int pos,
+            string origFileName, byte[] content, string contentType)
+        {
+            var ext      = Path.GetExtension(origFileName);
+            var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+            var filename = $"{prefijo}_{SanitizeFilename(codigo)}_{pos}_{stamp}{ext}";
+
+            try
+            {
+                using var stream = new MemoryStream(content);
+                var result = await _sharePoint.UploadToOneDriveFolderAsync(
+                    carpeta.DriveId, carpeta.ItemId, filename,
+                    stream, string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType,
+                    autoRenameOnLock: true);
+
+                if (result?.WebUrl is null)
+                    throw new AbrilException("No se pudo subir un archivo de la long list a SharePoint.", 502);
+
+                return result;
+            }
+            catch (AbrilException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falló la subida de un archivo de la long list ({Prefijo}) del requerimiento {Codigo}", prefijo, codigo);
+                throw new AbrilException("Error al subir los archivos de la long list a SharePoint.", 502);
+            }
         }
 
         private static void ValidarLongListArchivo(string etiqueta, string fileName, long length)

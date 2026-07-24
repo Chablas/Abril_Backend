@@ -12,8 +12,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<SolicitudPersonalCreateResultDto> Create(SolicitudPersonalCreateDto dto, int? userId, IFormFile? sustento);
 
-        /// <summary>Tabla "Mis solicitudes de vacante" del usuario (vacío si no hay usuario).</summary>
-        Task<List<SolicitudVacanteListItemDto>> GetMisSolicitudes(int? userId);
+        /// <summary>
+        /// Panel de la vista del solicitante: tarjetas de "Gestión de candidatos" (long lists que GTH
+        /// le envió) + tabla "Mis solicitudes de vacante", en una sola petición. Vacío si no hay usuario.
+        /// </summary>
+        Task<SolicitantePanelDto> GetSolicitantePanel(int? userId);
+
+        /// <summary>
+        /// Revisión de la long list de un requerimiento del solicitante (cabecera + candidatos con su CV).
+        /// Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe, no le
+        /// pertenece o su long list aún no fue enviada.
+        /// </summary>
+        Task<RevisionLongListDto> GetRevisionLongList(int requerimientoId, int? userId);
 
         /// <summary>
         /// Bandeja de la vista de GTH: tarjeta "En proceso" + tabla de solicitudes de contratación de

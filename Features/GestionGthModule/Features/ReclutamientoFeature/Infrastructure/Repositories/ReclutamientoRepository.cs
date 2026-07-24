@@ -66,12 +66,115 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<List<SolicitudVacanteListItemDto>> GetMisSolicitudesVacante(int userId)
+        public async Task<SolicitantePanelDto> GetSolicitantePanel(int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await ProjectRequerimientos(
+
+            // Tabla "Mis solicitudes de vacante" del usuario (mismo proyectado de siempre).
+            var misSolicitudes = await ProjectRequerimientos(
                 ctx,
                 ctx.GthRequerimiento.Where(r => r.State && r.Solicitud!.State && r.Solicitud.SolicitanteUserId == userId));
+
+            // Tarjetas "Gestión de candidatos": requerimientos del usuario cuya long list ya fue
+            // enviada por GTH (estado LONG_LIST_ENVIADA), con el conteo de candidatos vigentes.
+            var cards = await (
+                from r in ctx.GthRequerimiento
+                where r.State && r.Solicitud!.State && r.Solicitud.SolicitanteUserId == userId
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                where e.Codigo == EstadoReclutamiento.LongListEnviada
+                orderby r.UpdatedDateTime descending, r.GthRequerimientoId descending
+                select new GestionCandidatoCardDto
+                {
+                    RequerimientoId = r.GthRequerimientoId,
+                    Codigo          = r.Codigo,
+                    Puesto          = p.Nombre,
+                    Area            = r.Solicitud!.AreaNombre,
+                    ProyectoObra    = pr.ProjectDescription,
+                    TotalCandidatos = ctx.GthCandidato.Count(c => c.GthRequerimientoId == r.GthRequerimientoId && c.State),
+                    EstadoCodigo    = e.Codigo,
+                    EstadoNombre    = e.Nombre,
+                }).ToListAsync();
+
+            return new SolicitantePanelDto
+            {
+                GestionCandidatos = cards,
+                MisSolicitudes    = misSolicitudes,
+            };
+        }
+
+        public async Task<RevisionLongListDto?> GetRevisionLongList(int requerimientoId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Cabecera del requerimiento (scope: solo del usuario dueño de la solicitud) que ya
+            // tenga la long list enviada (LONG_LIST_ENVIADA o posterior).
+            var head = await (
+                from r in ctx.GthRequerimiento
+                where r.GthRequerimientoId == requerimientoId
+                      && r.State && r.Solicitud!.State
+                      && r.Solicitud.SolicitanteUserId == userId
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new
+                {
+                    r.GthRequerimientoId,
+                    r.Codigo,
+                    Puesto       = p.Nombre,
+                    Area         = r.Solicitud!.AreaNombre,
+                    ProyectoObra = pr.ProjectDescription,
+                    EstadoCodigo = e.Codigo,
+                    EstadoNombre = e.Nombre,
+                    EstadoOrden  = e.Orden,
+                }).FirstOrDefaultAsync();
+
+            if (head == null) return null;
+
+            // La revisión solo está disponible una vez que GTH envió la long list.
+            var longListEnviadaOrden = await ctx.GthEstadoRequerimiento
+                .Where(e => e.Codigo == EstadoReclutamiento.LongListEnviada && e.State)
+                .Select(e => (int?)e.Orden)
+                .FirstOrDefaultAsync();
+            if (longListEnviadaOrden == null || head.EstadoOrden < longListEnviadaOrden)
+                return null;
+
+            var candidatos = await (
+                from c in ctx.GthCandidato
+                where c.GthRequerimientoId == requerimientoId && c.State
+                join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+                join canal in ctx.GthCanalPublicacion on c.GthCanalPublicacionId equals canal.GthCanalPublicacionId into canalJoin
+                from canal in canalJoin.DefaultIfEmpty()
+                orderby c.Orden, c.GthCandidatoId
+                select new CandidatoRevisionDto
+                {
+                    CandidatoId      = c.GthCandidatoId,
+                    Nombre           = c.Nombre,
+                    Puesto           = c.Puesto,
+                    ExperienciaAnios = c.ExperienciaAnios,
+                    Disponibilidad   = c.Disponibilidad,
+                    FuenteNombre     = canal != null ? canal.Nombre : null,
+                    Comentario       = c.Comentario,
+                    CvNombre         = c.CvNombre,
+                    CvUrl            = c.CvUrl,
+                    InformeNombre    = c.InformeNombre,
+                    InformeUrl       = c.InformeUrl,
+                    EstadoCodigo     = est.Codigo,
+                    EstadoNombre     = est.Nombre,
+                }).ToListAsync();
+
+            return new RevisionLongListDto
+            {
+                RequerimientoId = head.GthRequerimientoId,
+                Codigo          = head.Codigo,
+                Puesto          = head.Puesto,
+                Area            = head.Area,
+                ProyectoObra    = head.ProyectoObra,
+                EstadoCodigo    = head.EstadoCodigo,
+                EstadoNombre    = head.EstadoNombre,
+                Candidatos      = candidatos,
+            };
         }
 
         public async Task<List<SolicitudVacanteListItemDto>> GetRequerimientosBySolicitud(int solicitudId)
@@ -484,17 +587,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
                 join tp in ctx.GthTipoProceso on r.GthTipoProcesoId equals tp.GthTipoProcesoId into tpJoin
                 from tp in tpJoin.DefaultIfEmpty()
+                join u in ctx.User on r.Solicitud!.SolicitanteUserId equals (int?)u.UserId into uJoin
+                from u in uJoin.DefaultIfEmpty()
                 select new
                 {
                     r.Codigo,
-                    Puesto       = p.Nombre,
-                    Area         = r.Solicitud!.AreaNombre,
-                    ProyectoObra = pr.ProjectDescription,
+                    Puesto           = p.Nombre,
+                    Area             = r.Solicitud!.AreaNombre,
+                    ProyectoObra     = pr.ProjectDescription,
                     r.FechaRequeridaIngreso,
-                    EstadoCodigo = e.Codigo,
-                    EstadoNombre = e.Nombre,
-                    EstadoOrden  = e.Orden,
-                    SlaDias      = tp != null ? (int?)tp.SlaDias : null,
+                    EstadoCodigo     = e.Codigo,
+                    EstadoNombre     = e.Nombre,
+                    EstadoOrden      = e.Orden,
+                    SlaDias          = tp != null ? (int?)tp.SlaDias : null,
+                    SolicitanteEmail = u != null ? u.Email : null,
                 }).FirstOrDefaultAsync();
 
             if (info == null)
@@ -519,10 +625,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 ProyectoObra          = info.ProyectoObra,
                 FechaRequeridaIngreso = info.FechaRequeridaIngreso,
                 SlaDias               = info.SlaDias,
+                SolicitanteEmail      = info.SolicitanteEmail,
             };
         }
 
-        public async Task<EstadoRequerimientoResultDto> MarcarLongListEnviada(int requerimientoId, int? userId)
+        public async Task<EstadoRequerimientoResultDto> GuardarLongListCandidatos(
+            int requerimientoId, List<LongListCandidatoPersistDto> candidatos, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -544,15 +652,87 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             if (longList == null || actual == null || actual.Orden < longList.Orden)
                 throw new AbrilException("La revisión de CV aún no ha iniciado; no hay long list para enviar.", 400);
 
-            // Idempotente: si ya está en LONG_LIST_ENVIADA (o más adelante) no se retrocede.
+            // Estado inicial de cada candidato: PENDIENTE (aún sin decisión del solicitante).
+            var estadoPendienteId = await ctx.GthCandidatoEstado
+                .Where(e => e.Codigo == EstadoCandidato.Pendiente && e.State)
+                .Select(e => (int?)e.GthCandidatoEstadoId)
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("No está configurado el estado PENDIENTE de candidatos.", 500);
+
+            // Validar las fuentes (canales) indicadas.
+            var canalIds = candidatos
+                .Where(c => c.FuenteCanalId.HasValue)
+                .Select(c => c.FuenteCanalId!.Value)
+                .Distinct()
+                .ToList();
+            if (canalIds.Count > 0)
+            {
+                var validos = await ctx.GthCanalPublicacion
+                    .CountAsync(c => canalIds.Contains(c.GthCanalPublicacionId) && c.State && c.Active);
+                if (validos != canalIds.Count)
+                    throw new AbrilException("Una o más fuentes de reclutamiento no son válidas.", 400);
+            }
+
+            var now = DateTimeOffset.UtcNow;
+
+            // Reemplazo: se da de baja (soft delete) la long list vigente y se inserta la nueva.
+            // Permite reenviar la long list corrigiendo/actualizando los candidatos.
+            var vigentes = await ctx.GthCandidato
+                .Where(c => c.GthRequerimientoId == requerimientoId && c.State)
+                .ToListAsync();
+            foreach (var v in vigentes)
+            {
+                v.State           = false;
+                v.UpdatedDateTime = now;
+                v.UpdatedUserId   = userId;
+            }
+
+            var orden = 1;
+            foreach (var c in candidatos)
+            {
+                ctx.GthCandidato.Add(new GthCandidato
+                {
+                    GthRequerimientoId    = requerimientoId,
+                    Nombre                = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {orden}" : c.Nombre.Trim(),
+                    Puesto                = string.IsNullOrWhiteSpace(c.Puesto) ? null : c.Puesto.Trim(),
+                    ExperienciaAnios      = c.ExperienciaAnios,
+                    Disponibilidad        = string.IsNullOrWhiteSpace(c.Disponibilidad) ? null : c.Disponibilidad.Trim(),
+                    GthCanalPublicacionId = c.FuenteCanalId,
+                    Comentario            = string.IsNullOrWhiteSpace(c.Comentario) ? null : c.Comentario.Trim(),
+                    CvNombre              = c.CvNombre,
+                    CvUrl                 = c.CvUrl,
+                    CvItemId              = c.CvItemId,
+                    CvDriveId             = c.CvDriveId,
+                    InformeNombre         = c.InformeNombre,
+                    InformeUrl            = c.InformeUrl,
+                    InformeItemId         = c.InformeItemId,
+                    InformeDriveId        = c.InformeDriveId,
+                    GthCandidatoEstadoId  = estadoPendienteId,
+                    Orden                 = orden,
+                    CreatedDateTime       = now,
+                    CreatedUserId         = userId,
+                    Active                = true,
+                    State                 = true,
+                });
+                orden++;
+            }
+
+            // Avance del pipeline a LONG_LIST_ENVIADA (idempotente: no se retrocede).
             if (actual.Orden < longListEnviada.Orden)
             {
                 req.GthEstadoRequerimientoId = longListEnviada.GthEstadoRequerimientoId;
-                req.UpdatedDateTime          = DateTimeOffset.UtcNow;
+                req.UpdatedDateTime          = now;
                 req.UpdatedUserId            = userId;
                 actual = longListEnviada;
-                await ctx.SaveChangesAsync();
             }
+            else
+            {
+                // Reenvío estando ya en LONG_LIST_ENVIADA: refresca la fecha para ordenar las tarjetas.
+                req.UpdatedDateTime = now;
+                req.UpdatedUserId   = userId;
+            }
+
+            await ctx.SaveChangesAsync();
 
             return new EstadoRequerimientoResultDto
             {
@@ -874,5 +1054,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     internal static class PrioridadReclutamiento
     {
         public const string Media = "MEDIA";
+    }
+
+    /// <summary>Códigos estables del estado de revisión de un candidato (espejo de gth_candidato_estado.codigo).</summary>
+    internal static class EstadoCandidato
+    {
+        public const string Pendiente = "PENDIENTE";
+        public const string Aprobado  = "APROBADO";
+        public const string Rechazado = "RECHAZADO";
     }
 }

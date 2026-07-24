@@ -23,10 +23,15 @@
 
 BEGIN;
 
--- 1) Nueva feature de la vista del solicitante (módulo Gestión GTH = module_id 14).
+-- 1) Nueva feature de la vista del solicitante (módulo Gestión GTH).
+--    ⚠️ NO hardcodear el module_id: el ID de "Gestión GTH" difiere por entorno
+--       (dev = 14, prod = 15; en prod el 14 es "Contabilidad"). Se DERIVA del
+--       módulo de la feature hermana ya existente para ser correcto en cualquier BD.
 INSERT INTO feature (feature_key, module_id)
-SELECT 'gestion-gth.solicitud-personal', 14
-WHERE NOT EXISTS (SELECT 1 FROM feature WHERE feature_key = 'gestion-gth.solicitud-personal');
+SELECT 'gestion-gth.solicitud-personal', f.module_id
+FROM feature f
+WHERE f.feature_key = 'gestion-gth.reclutamiento'
+  AND NOT EXISTS (SELECT 1 FROM feature WHERE feature_key = 'gestion-gth.solicitud-personal');
 
 -- 2) Asignarla a los mismos roles que hoy tienen la vista de GTH
 --    (gestion-gth.reclutamiento), para conservar el acceso actual.

@@ -96,14 +96,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
         }
 
-        /// <summary>Tabla "Mis solicitudes de vacante": requerimientos registrados por el usuario.</summary>
-        [HttpGet("mis-solicitudes")]
-        public async Task<IActionResult> GetMisSolicitudes()
+        /// <summary>
+        /// Panel de la vista del solicitante: tarjetas de "Gestión de candidatos" (long lists que GTH
+        /// le envió para revisar) + tabla "Mis solicitudes de vacante", en una sola petición.
+        /// </summary>
+        [HttpGet("solicitante/panel")]
+        public async Task<IActionResult> GetSolicitantePanel()
         {
             try
             {
                 var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : (int?)null;
-                return Ok(await _service.GetMisSolicitudes(userId));
+                return Ok(await _service.GetSolicitantePanel(userId));
             }
             catch (AbrilException ex)
             {
@@ -111,7 +114,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error en ReclutamientoController.GetMisSolicitudes");
+                _logger.LogError(ex, "Error en ReclutamientoController.GetSolicitantePanel");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Revisión de la long list de un requerimiento del solicitante (modal "Revisar long list y CVs"):
+        /// cabecera + candidatos con sus datos y CV, en una sola petición.
+        /// </summary>
+        [HttpGet("requerimiento/{id:int}/long-list/revision")]
+        public async Task<IActionResult> GetRevisionLongList(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                return Ok(await _service.GetRevisionLongList(id, userId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.GetRevisionLongList");
                 return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
             }
         }
@@ -310,12 +336,16 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                     var candidato = new LongListCandidatoArchivoDto
                     {
-                        Nombre        = m.Nombre,
-                        FuenteNombre  = m.FuenteNombre,
-                        Comentario    = m.Comentario,
-                        CvFileName    = cv.FileName,
-                        CvContentType = cv.ContentType ?? "application/octet-stream",
-                        CvContent     = await ToBytesAsync(cv),
+                        Nombre           = m.Nombre,
+                        Puesto           = m.Puesto,
+                        ExperienciaAnios = m.ExperienciaAnios,
+                        Disponibilidad   = m.Disponibilidad,
+                        FuenteCanalId    = m.FuenteCanalId,
+                        FuenteNombre     = m.FuenteNombre,
+                        Comentario       = m.Comentario,
+                        CvFileName       = cv.FileName,
+                        CvContentType    = cv.ContentType ?? "application/octet-stream",
+                        CvContent        = await ToBytesAsync(cv),
                     };
 
                     var informe = string.IsNullOrWhiteSpace(m.InformeKey) ? null : Request.Form.Files[m.InformeKey];

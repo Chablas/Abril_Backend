@@ -116,7 +116,10 @@ public class RacController : ControllerBase
             if (actual is null) return NotFound(new { message = "RAC no encontrado." });
             // Cerrar/levantar es solo de la empresa reportada (a quien se le observó);
             // la empresa reportante puede ver el RAC pero no levantarlo por ella.
-            if (!EsPropioDeContratista(actual.EmpresaReportadaId)) return Forbid();
+            // Se devuelve un 403 con mensaje (no Forbid(), que responde con cuerpo vacío
+            // y el frontend lo muestra como el genérico "Ocurrió un error.").
+            if (!EsPropioDeContratista(actual.EmpresaReportadaId))
+                return StatusCode(403, new { message = "Solo la empresa observada puede cerrar este RAC." });
             return Ok(await _service.CerrarAsync(id, req, GetUserId()));
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

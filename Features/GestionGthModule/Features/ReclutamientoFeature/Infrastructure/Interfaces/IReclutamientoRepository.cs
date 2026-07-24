@@ -23,12 +23,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<SolicitudPersonalCreateResultDto> Create(GthSolicitud solicitud, List<VacanteCreateDto> vacantes, int? userId);
 
-        /// <summary>
-        /// Requerimientos (vacantes) registrados por el usuario, más recientes primero.
-        /// Alimenta la tabla "Mis solicitudes de vacante".
-        /// </summary>
-        Task<List<SolicitudVacanteListItemDto>> GetMisSolicitudesVacante(int userId);
-
         /// <summary>Requerimientos de una solicitud concreta (para armar el correo de notificación).</summary>
         Task<List<SolicitudVacanteListItemDto>> GetRequerimientosBySolicitud(int solicitudId);
 
@@ -89,10 +83,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<LongListEnvioContextoDto> GetLongListEnvioContexto(int requerimientoId);
 
         /// <summary>
-        /// Marca la long list como enviada: avanza el requerimiento a LONG_LIST_ENVIADA (idempotente
-        /// si ya lo está). Se llama tras enviar el correo con éxito. Devuelve el estado resultante.
+        /// Persiste la long list (reemplaza los candidatos vigentes del requerimiento por el nuevo
+        /// conjunto, con sus CVs/informes ya subidos a SharePoint) y avanza el requerimiento a
+        /// LONG_LIST_ENVIADA (idempotente si ya lo está). Se llama tras enviar el correo con éxito.
+        /// Devuelve el estado resultante.
         /// </summary>
-        Task<EstadoRequerimientoResultDto> MarcarLongListEnviada(int requerimientoId, int? userId);
+        Task<EstadoRequerimientoResultDto> GuardarLongListCandidatos(
+            int requerimientoId, List<LongListCandidatoPersistDto> candidatos, int? userId);
+
+        /// <summary>
+        /// Panel de la vista del solicitante en 1 roundtrip: tarjetas de "Gestión de candidatos"
+        /// (requerimientos del usuario con long list enviada, pendientes de revisar) + la tabla
+        /// "Mis solicitudes de vacante".
+        /// </summary>
+        Task<SolicitantePanelDto> GetSolicitantePanel(int userId);
+
+        /// <summary>
+        /// Revisión de la long list de un requerimiento del usuario (cabecera + candidatos con su CV),
+        /// en 1 roundtrip. Devuelve null si el requerimiento no existe, no le pertenece al usuario o su
+        /// long list aún no fue enviada.
+        /// </summary>
+        Task<RevisionLongListDto?> GetRevisionLongList(int requerimientoId, int userId);
 
         /// <summary>Destinatarios vigentes del correo del tipo indicado (SOLICITUD / LONG_LIST): principales + copias.</summary>
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);

@@ -16,6 +16,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Nombre y apellido del candidato (lo captura/corrige GTH).</summary>
         public string? Nombre { get; set; }
 
+        /// <summary>Puesto detectado en el CV (texto libre). Null si no se determinó.</summary>
+        public string? Puesto { get; set; }
+
+        /// <summary>Tiempo de experiencia en años. Null si no se determinó.</summary>
+        public int? ExperienciaAnios { get; set; }
+
+        /// <summary>Disponibilidad del candidato (texto libre: "15 días", "Inmediata"…). Null si no se determinó.</summary>
+        public string? Disponibilidad { get; set; }
+
+        /// <summary>Id del canal de publicación usado como fuente de reclutamiento. Null si no se indicó.</summary>
+        public int? FuenteCanalId { get; set; }
+
         /// <summary>Fuente de reclutamiento (nombre del canal), solo para mostrar en el correo.</summary>
         public string? FuenteNombre { get; set; }
 
@@ -36,6 +48,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class LongListCandidatoArchivoDto
     {
         public string? Nombre { get; set; }
+        public string? Puesto { get; set; }
+        public int? ExperienciaAnios { get; set; }
+        public string? Disponibilidad { get; set; }
+        public int? FuenteCanalId { get; set; }
         public string? FuenteNombre { get; set; }
         public string? Comentario { get; set; }
 
@@ -47,6 +63,30 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? InformeFileName { get; set; }
         public string? InformeContentType { get; set; }
         public byte[]? InformeContent { get; set; }
+    }
+
+    /// <summary>
+    /// Candidato de la long list ya con sus archivos subidos a SharePoint (urls resueltas por el
+    /// servicio). Es lo que persiste el repositorio en <c>gth_candidato</c>.
+    /// </summary>
+    public class LongListCandidatoPersistDto
+    {
+        public string? Nombre { get; set; }
+        public string? Puesto { get; set; }
+        public int? ExperienciaAnios { get; set; }
+        public string? Disponibilidad { get; set; }
+        public int? FuenteCanalId { get; set; }
+        public string? Comentario { get; set; }
+
+        public string? CvNombre { get; set; }
+        public string? CvUrl { get; set; }
+        public string? CvItemId { get; set; }
+        public string? CvDriveId { get; set; }
+
+        public string? InformeNombre { get; set; }
+        public string? InformeUrl { get; set; }
+        public string? InformeItemId { get; set; }
+        public string? InformeDriveId { get; set; }
     }
 
     /// <summary>
@@ -64,5 +104,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public DateOnly FechaRequeridaIngreso { get; set; }
         /// <summary>SLA del tipo de proceso asignado (null si aún no se clasificó).</summary>
         public int? SlaDias { get; set; }
+        /// <summary>
+        /// Correo del solicitante que registró la solicitud (app_user del <c>SolicitanteUserId</c>).
+        /// Es SIEMPRE el destinatario principal de la long list; null si no se pudo resolver.
+        /// </summary>
+        public string? SolicitanteEmail { get; set; }
     }
 }

@@ -207,6 +207,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaSalidasAreaConfig> GaSalidasAreaConfig { get; set; }
         public DbSet<GaSalidasWorkersProject> GaSalidasWorkersProject { get; set; }
         public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
+        public DbSet<GaCapturaFolder> GaCapturaFolder { get; set; }
         // ── Configuración de correos de salidas (destinatarios por correo) ──────
         public DbSet<GaCorreoEvento> GaCorreoEvento { get; set; }
         public DbSet<GaCorreoTipoDestinatario> GaCorreoTipoDestinatario { get; set; }

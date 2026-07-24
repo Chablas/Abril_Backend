@@ -20,6 +20,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         Task<SolicitudSalidaDetalleDto> GetDetalle(int solicitudId, int userId);
 
+        /// <summary>
+        /// El propio solicitante cancela una solicitud SUYA que esté Pendiente. Lanza 403 si la
+        /// solicitud es de otro trabajador y 400 si no está Pendiente. Estado resultante: Cancelado.
+        /// </summary>
+        Task Cancelar(int solicitudId, int userId);
+
         /// <summary>Sube N (imagen, monto) a SharePoint, asociadas a un trayecto específico de una solicitud aprobada/no rendida del propio usuario.</summary>
         Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId);
 

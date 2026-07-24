@@ -182,6 +182,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             await _solicitudSalidaService.NotifySolicitanteRechazada(id);
         }
 
+        // El solicitante cancela su propia salida. Misma lógica que el autoservicio de Solicitud
+        // de Salidas: no duplicamos el guard de propiedad/estado, lo delegamos.
+        public Task Cancelar(int id, int userId) => _solicitudSalidaService.Cancelar(id, userId);
+
         public Task SetHoraSalidaReal(int id, TimeOnly? hora, int registradaPorUserId)
             => _repo.SetHoraSalidaReal(id, hora, registradaPorUserId);
 

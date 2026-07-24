@@ -704,6 +704,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return detalle ?? throw new AbrilException("Solicitud no encontrada o no te pertenece.", 404);
         }
 
+        public Task Cancelar(int solicitudId, int userId) => _repo.Cancelar(solicitudId, userId);
+
         public async Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId)
         {
             var trayecto = await _repo.GetTrayectoForUploadingCapturas(trayectoId, userId)

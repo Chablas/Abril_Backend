@@ -19,6 +19,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         Task<GaSolicitudSalida?> Aprobar(int solicitudId);
         Task<GaSolicitudSalida?> Rechazar(int solicitudId, string? motivoRechazo);
 
+        /// <summary>
+        /// El propio solicitante cancela su solicitud. Valida que la solicitud sea del worker
+        /// del usuario (403 si es de otro) y que esté en estado Pendiente (400 si no). Deja el
+        /// estado en Cancelado y registra quién/cuándo la canceló.
+        /// </summary>
+        Task Cancelar(int solicitudId, int userId);
+
         /// <summary>Detalle de la solicitud (con trayectos y capturas). Solo retorna si pertenece al usuario.</summary>
         Task<SolicitudSalidaDetalleDto?> GetDetalleForUser(int solicitudId, int userId);
 

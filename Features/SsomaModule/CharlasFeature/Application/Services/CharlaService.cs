@@ -28,7 +28,10 @@ public class CharlaService : ICharlaService
         // Buscar worker_id del usuario via person
         var workerId = await ctx.Person
             .Where(p => p.UserId == userId)
-            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w.Id)
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w)
+            .OrderByDescending(w => w.Estado == "ACTIVO") // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
+            .ThenByDescending(w => w.Id)                   // desempate determinista: el más reciente
+            .Select(w => w.Id)
             .FirstOrDefaultAsync();
 
         if (workerId == 0) return null;
@@ -455,7 +458,10 @@ public class CharlaService : ICharlaService
 
         var workerId = await ctx.Person
             .Where(p => p.UserId == userId)
-            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w.Id)
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w)
+            .OrderByDescending(w => w.Estado == "ACTIVO") // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
+            .ThenByDescending(w => w.Id)                   // desempate determinista: el más reciente
+            .Select(w => w.Id)
             .FirstOrDefaultAsync();
 
         if (workerId == 0)
@@ -471,7 +477,10 @@ public class CharlaService : ICharlaService
 
         var workerId = await ctx.Person
             .Where(p => p.UserId == userId)
-            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w.Id)
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w)
+            .OrderByDescending(w => w.Estado == "ACTIVO") // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
+            .ThenByDescending(w => w.Id)                   // desempate determinista: el más reciente
+            .Select(w => w.Id)
             .FirstOrDefaultAsync();
 
         if (workerId == 0)
@@ -906,7 +915,10 @@ public class CharlaService : ICharlaService
 
         var workerId = await ctx.Person
             .Where(p => p.UserId == userId)
-            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w.Id)
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => w)
+            .OrderByDescending(w => w.Estado == "ACTIVO") // priorizar worker ACTIVO (un person puede tener varios: RETIRADO + ACTIVO)
+            .ThenByDescending(w => w.Id)                   // desempate determinista: el más reciente
+            .Select(w => w.Id)
             .FirstOrDefaultAsync();
 
         if (workerId == 0) return [];

@@ -311,6 +311,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             return s;
         }
 
+        public async Task Cancelar(int solicitudId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == solicitudId)
+                ?? throw new AbrilException("Solicitud no encontrada.", 404);
+
+            // Solo el propio trabajador puede cancelar SU solicitud (nunca la de otro).
+            var esPropia = await ctx.Worker.AnyAsync(w => w.Id == s.WorkerId &&
+                ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == userId));
+            if (!esPropia)
+                throw new AbrilException("Solo puedes cancelar tus propias solicitudes de salida.", 403);
+
+            if (s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente)
+                throw new AbrilException("Solo se pueden cancelar solicitudes en estado Pendiente.", 400);
+
+            var now = DateTimeOffset.UtcNow;
+            s.EstadoAprobacionId = EstadosSalida.Aprobacion.Cancelado;
+            s.CanceladaPorId     = userId;
+            s.CanceladaAt        = now;
+            s.UpdatedAt          = now;
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task<SolicitudSalidaDetalleDto?> GetDetalleForUser(int solicitudId, int userId)
         {
             using var ctx = _factory.CreateDbContext();

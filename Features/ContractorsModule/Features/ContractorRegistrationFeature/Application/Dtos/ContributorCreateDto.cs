@@ -24,5 +24,12 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
         /// desea enviar una solicitud de actualización de datos del contratista existente.
         /// </summary>
         public bool IsUpdateRequest { get; set; }
+        /// <summary>
+        /// true cuando el registro se hace desde la ruta interna /contractors/registro-interno
+        /// (personal del sistema). Es una regla de RUTA (igual que la obligatoriedad del logo):
+        /// el backend no distingue la ruta por el token, así que el frontend la informa.
+        /// Solo los registros internos notifican por correo al equipo de Costos y Presupuestos.
+        /// </summary>
+        public bool IsInternalRegistration { get; set; }
     }
 }

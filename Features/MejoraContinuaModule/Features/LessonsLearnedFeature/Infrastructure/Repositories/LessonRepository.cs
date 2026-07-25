@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Dtos;
@@ -440,7 +441,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             }
 
             var projects = await ctx.Project
-                .Where(p => p.Active && p.State)
+                .Where(p => p.Active && p.State && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.LeccionesAprendidas && !f.Active))
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProjectSimpleDTO
                 {

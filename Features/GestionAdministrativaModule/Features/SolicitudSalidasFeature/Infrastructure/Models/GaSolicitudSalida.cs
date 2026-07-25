@@ -32,6 +32,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
         public string? EnviadoACorreo { get; set; }
         public DateTimeOffset? FechaDecision { get; set; }
         public string? MotivoRechazo { get; set; }
+        /// <summary>
+        /// FK a <c>app_user.user_id</c> del usuario que canceló la solicitud (el propio solicitante).
+        /// Solo se llena cuando <see cref="EstadoAprobacionId"/> pasa a
+        /// <see cref="EstadosSalida.Aprobacion.Cancelado"/>. Auditoría — no bloquea ningún flujo.
+        /// </summary>
+        public int? CanceladaPorId { get; set; }
+        /// <summary>Momento (UTC) en que el solicitante canceló la solicitud.</summary>
+        public DateTimeOffset? CanceladaAt { get; set; }
         public int? RendicionId { get; set; }
         /// <summary>Hora real en la que la persona salió, registrada por recepción. Dato extra — no bloquea ningún flujo.</summary>
         public TimeOnly? HoraSalidaReal { get; set; }

@@ -197,20 +197,6 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         // actividad se cuenta como Casa, no como una contratista más en el dashboard.
         var esAbrilIds = await ctx.Contributor.Where(c => c.EsAbril).Select(c => c.ContributorId).ToListAsync();
 
-        // Todo el historial de vinculaciones del proyecto (no solo la activa hoy) para poder
-        // resolver "a qué empresa pertenecía este trabajador en la fecha X".
-        var vincHistProyecto = await ctx.WorkerVinculacion
-            .Where(v => v.ProyectoId == proyectoId)
-            .Select(v => new { v.WorkerId, v.EmpresaId, v.FechaInicio, v.FechaFin })
-            .ToListAsync();
-        var vincPorWorker = vincHistProyecto.GroupBy(v => v.WorkerId).ToDictionary(g => g.Key, g => g.ToList());
-
-        int? EmpresaDelTrabajadorEnFecha(int workerId, DateOnly fecha)
-        {
-            if (!vincPorWorker.TryGetValue(workerId, out var lista)) return null;
-            return lista.FirstOrDefault(v => v.FechaInicio <= fecha && (v.FechaFin == null || v.FechaFin >= fecha))?.EmpresaId;
-        }
-
         // Subquery reutilizable — no carga IDs en memoria (solo para saber qué empresas
         // mostrar aunque no tengan tareo; el conteo real usa EmpresaDelTrabajadorEnFecha).
         var casaWorkerQ = vincActivaQ
@@ -231,6 +217,37 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                      && a.Charla.Fecha >= fechaIni && a.Charla.Fecha < fechaCorte && a.Asistio)
             .Select(a => new { Fecha = a.Charla!.Fecha.Date, a.WorkerId })
             .ToListAsync();
+
+        // Empresa a la que pertenecía cada trabajador EN LA FECHA del evento. La empresa de un
+        // trabajador no depende de la obra (pertenece a una sola empresa a la vez): se cargan sus
+        // vinculaciones en TODAS las obras (no solo la del proyecto consultado) y se prefiere la
+        // de la MISMA obra del evento; si en esa fecha su vínculo activo quedó registrado en OTRA
+        // obra (traslado a mitad de mes dentro de la misma empresa), se usa esa. Antes solo se
+        // cargaba la vinculación del proyecto y un traslado de obra dejaba la actividad sin empresa
+        // → se contaba como "Casa" por error (incidencia BERROCAL / CEDRO 33, jul-2026).
+        var eventoWorkerIds = optMesRaw.Select(x => x.TrabajadorId)
+            .Concat(atsMesRaw.Select(x => x.WorkerId))
+            .Concat(charlasMesRaw.Select(x => x.WorkerId))
+            .Distinct().ToList();
+        var vincHist = await ctx.WorkerVinculacion
+            .Where(v => v.ProyectoId != null && eventoWorkerIds.Contains(v.WorkerId))
+            .Select(v => new { ProyectoId = v.ProyectoId!.Value, v.WorkerId, v.EmpresaId, v.FechaInicio, v.FechaFin })
+            .ToListAsync();
+        var vincPorWorker = vincHist.GroupBy(v => v.WorkerId).ToDictionary(g => g.Key, g => g.ToList());
+
+        int? EmpresaDelTrabajadorEnFecha(int workerId, DateOnly fecha)
+        {
+            if (!vincPorWorker.TryGetValue(workerId, out var lista)) return null;
+            var activas = lista
+                .Where(v => v.FechaInicio <= fecha && (v.FechaFin == null || v.FechaFin >= fecha))
+                .ToList();
+            if (activas.Count == 0) return null;
+            // Preferir la vinculación de la MISMA obra del evento (comportamiento original); si el
+            // trabajador fue trasladado a otra obra en esa fecha, usar la más reciente activa.
+            var elegida = activas.FirstOrDefault(v => v.ProyectoId == proyectoId)
+                          ?? activas.OrderByDescending(v => v.FechaInicio).First();
+            return elegida.EmpresaId;
+        }
 
         // Charla diaria obligatoria del contratista (evidencia subida por Tareo, no asistencia
         // del módulo de Charlas de staff): para contratistas, "Capacitaciones" mide cuántas de
@@ -495,20 +512,34 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Select(v => new { ProyectoId = v.ProyectoId!.Value, v.WorkerId, v.EmpresaId })
             .ToListAsync();
 
-        // Historial completo (no solo vinculación activa hoy) para resolver la empresa vigente
-        // en la fecha exacta de cada OPT/ATS/Charla.
+        // Historial completo (no solo vinculación activa hoy) para resolver la empresa del
+        // trabajador en la fecha exacta de cada OPT/ATS/Charla. Se agrupa por WORKER (no por
+        // obra+worker): la empresa de un trabajador no depende de la obra —pertenece a una sola
+        // empresa a la vez—, así que se prefiere su vinculación en la MISMA obra del evento y, si
+        // en esa fecha su vínculo activo quedó registrado en OTRA obra (traslado a mitad de mes
+        // dentro de la misma empresa), se usa esa. Antes se agrupaba por (obra, worker) y un
+        // traslado de obra dejaba la actividad sin empresa → se contaba como "Casa" por error
+        // (incidencia BERROCAL / CEDRO 33, jul-2026).
         var vincHistBulk = await ctx.WorkerVinculacion
             .Where(v => v.ProyectoId != null && proyIds.Contains(v.ProyectoId!.Value))
             .Select(v => new { ProyectoId = v.ProyectoId!.Value, v.WorkerId, v.EmpresaId, v.FechaInicio, v.FechaFin })
             .ToListAsync();
-        var vincPorProyWorker = vincHistBulk
-            .GroupBy(v => (v.ProyectoId, v.WorkerId))
+        var vincPorWorker = vincHistBulk
+            .GroupBy(v => v.WorkerId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
         int? EmpresaDelTrabajadorEnFecha(int proyectoId, int workerId, DateOnly fecha)
         {
-            if (!vincPorProyWorker.TryGetValue((proyectoId, workerId), out var lista)) return null;
-            return lista.FirstOrDefault(v => v.FechaInicio <= fecha && (v.FechaFin == null || v.FechaFin >= fecha))?.EmpresaId;
+            if (!vincPorWorker.TryGetValue(workerId, out var lista)) return null;
+            var activas = lista
+                .Where(v => v.FechaInicio <= fecha && (v.FechaFin == null || v.FechaFin >= fecha))
+                .ToList();
+            if (activas.Count == 0) return null;
+            // Preferir la vinculación de la MISMA obra del evento (comportamiento original); si el
+            // trabajador fue trasladado a otra obra en esa fecha, usar la más reciente activa.
+            var elegida = activas.FirstOrDefault(v => v.ProyectoId == proyectoId)
+                          ?? activas.OrderByDescending(v => v.FechaInicio).First();
+            return elegida.EmpresaId;
         }
 
         // Empresas marcadas Contributor.EsAbril son entidades internas/administrativas
@@ -909,17 +940,14 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         // proactivo de reporte. "Atribuidos"/"Cerrados" = RACs que le fueron cargados a ella
         // (empresa reportada) y cuántos de esos ya cerró — indicador de cumplimiento. Son
         // poblaciones distintas y no deben mezclarse en el mismo tope.
-        //
-        // La contratista puede ejecutar más de lo programado, pero para el indicador
-        // (y para lo que se suma al total del proyecto) solo cuenta hasta su propio tope
-        // (meta) — no debe "contar de más". EsActiva sí usa los valores reales (sin tope)
-        // para saber si hay actividad genuina.
         var tieneActividadReal = actualRacsReportados > 0 || actualRacsAtribuidos > 0
             || actualOpt > 0 || actualAts > 0 || actualCharlas > 0 || actualInsp > 0;
 
-        // RACS: el "Ejec" mostrado es el conteo REAL (sin tope) — reportar de más es
-        // un comportamiento proactivo deseable y no debe ocultarse. El % sí se limita
-        // a 100 (vía Pct), pero el número visible siempre es el real.
+        // El "Ejec" mostrado (Actual*) es el conteo REAL (sin tope) para TODOS los
+        // indicadores — ejecutar de más es un comportamiento proactivo deseable y no debe
+        // ocultarse (antes OPT/ATS/Charlas/Insp se topeaban a la meta y una usuaria con 16
+        // auditorías veía "Ejec: 5"). El % de cada empresa sí se topea a su propia meta
+        // (estos topes solo alimentan los Pct*, no los números visibles).
         var racsCerTope = Math.Min(actualRacsCerrados, actualRacsAtribuidos);
         var optTope = Math.Min(actualOpt, metaOpt);
         var atsTope = Math.Min(actualAts, metaAts);
@@ -952,10 +980,10 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             ActualRacs = actualRacsReportados,
             ActualRacsAtribuidos = actualRacsAtribuidos,
             ActualRacsCerrados = racsCerTope,
-            ActualOpt = optTope,
-            ActualAts = atsTope,
-            ActualCharlas = charlasTope,
-            ActualInspecciones = inspTope,
+            ActualOpt = actualOpt,
+            ActualAts = actualAts,
+            ActualCharlas = actualCharlas,
+            ActualInspecciones = actualInsp,
             PctRacs = Math.Round(pctRacs, 1),
             PctRacsCerrados = Math.Round(pctRacsCer, 1),
             PctOpt = Math.Round(pctOpt, 1),

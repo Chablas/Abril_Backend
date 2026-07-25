@@ -20,6 +20,12 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models {
         public bool Active { get; set; }
         public bool State { get; set; }
         public bool EsAbril { get; set; }
+        /// <summary>
+        /// Razón social activa/inactiva a nivel de negocio (operación vigente del grupo).
+        /// Distinto de <see cref="Active"/> (visibilidad en desplegables del sistema) y de
+        /// <see cref="State"/> (soft delete). Misma esencia que <c>Project.Operativo</c>.
+        /// </summary>
+        public bool Operativo { get; set; }
         public string? ContributorNombreComercial { get; set; }
         public string? SpPasswordTemp { get; set; }
         [Column("email_administrador")]

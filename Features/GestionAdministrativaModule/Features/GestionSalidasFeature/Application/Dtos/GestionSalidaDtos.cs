@@ -38,6 +38,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// propias salidas salvo los gerentes. Solo afecta Aprobar/Rechazar, no la rendición.
         /// </summary>
         public bool PuedeDecidir { get; set; } = true;
+
+        /// <summary>
+        /// True si la salida es del propio usuario logueado (su worker). Habilita el botón
+        /// "Cancelar": un trabajador solo puede cancelar SUS propias solicitudes Pendientes.
+        /// </summary>
+        public bool EsPropia { get; set; }
     }
 
     public class RegistrarHoraSalidaRealDto

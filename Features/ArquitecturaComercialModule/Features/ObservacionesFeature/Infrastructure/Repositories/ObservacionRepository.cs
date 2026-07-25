@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Application.Dtos;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Models;
@@ -97,7 +98,7 @@ public class ObservacionRepository : IObservacionRepository
         // previas nunca aparecía). Ahora sale del flag TieneArquitecturaComercial en Project,
         // que el usuario controla desde el ícono de activar/desactivar en la lista.
         var proyectos = await ctx.Project
-            .Where(p => p.TieneArquitecturaComercial && p.State && p.Active)
+            .Where(p => p.TieneArquitecturaComercial && p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.AcObservaciones && !f.Active))
             .Select(p => new ProyectoFiltroDTO { Id = p.ProjectId, Nombre = p.ProjectDescription })
             .OrderBy(p => p.Nombre)
             .ToListAsync();

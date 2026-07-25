@@ -28,6 +28,8 @@ using Abril_Backend.Shared.Services.Reniec.Interfaces;
 using Abril_Backend.Features.Contractors;
 using Abril_Backend.Features.Ssoma;
 using Abril_Backend.Features.GestionAdministrativa;
+using Abril_Backend.Features.GestionGthModule;
+using Abril_Backend.Features.NotificacionesModule;
 using Abril_Backend.Features.Habilitacion;
 using Abril_Backend.Features.UnidadDeProyectosModule;
 using Abril_Backend.Features.Evaluaciones;
@@ -58,7 +60,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Limits.MaxRequestBodySize = 3_000_000_000;
+    options.Limits.MaxRequestBodySize = 10_000_000_000;
 });
 
 // OJO: subir MaxRequestBodySize de Kestrel NO basta para subidas grandes multipart/form-data.
@@ -70,7 +72,7 @@ builder.WebHost.ConfigureKestrel(options =>
 // quieran un tope menor lo siguen imponiendo con su propio [RequestSizeLimit].
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = 3_000_000_000;
+    options.MultipartBodyLengthLimit = 10_000_000_000;
 });
 
 var databaseProvider = builder.Configuration["Database:DatabaseProvider"];
@@ -155,6 +157,8 @@ builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddSsomaModule();
 builder.Services.AddHostedService<Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.SsomaIndicadoresCacheWarmup>();
 builder.Services.AddGestionAdministrativaModule();
+builder.Services.AddGestionGthModule();
+builder.Services.AddNotificacionesModule();
 builder.Services.AddHabilitacionModule();
 builder.Services.AddEvaluacionesModule();
 builder.Services.AddUnidadDeProyectosModule();

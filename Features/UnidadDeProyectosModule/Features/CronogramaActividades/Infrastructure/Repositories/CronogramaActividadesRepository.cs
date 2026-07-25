@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActividades.Infrastructure.Interfaces;
@@ -24,7 +25,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
             using var ctx = _factory.CreateDbContext();
 
             var proyectos = await ctx.Project
-                .Where(p => p.State && p.Active && p.TieneUnidadDeProyectos)
+                .Where(p => p.State && p.Active && p.TieneUnidadDeProyectos && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.UdpCronograma && !f.Active))
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new ProyectoSimpleCronogramaDto
                 {
@@ -910,7 +911,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.CronogramaActi
 
             // Query 1: todos los proyectos UDP activos
             var proyectos = await ctx.Project
-                .Where(p => p.TieneUnidadDeProyectos && p.State && p.Active)
+                .Where(p => p.TieneUnidadDeProyectos && p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.UdpCronograma && !f.Active))
                 .Select(p => new { p.ProjectId, p.ProjectDescription, p.ResponsableUdp, p.ResponsableUdpId })
                 .ToListAsync();
 

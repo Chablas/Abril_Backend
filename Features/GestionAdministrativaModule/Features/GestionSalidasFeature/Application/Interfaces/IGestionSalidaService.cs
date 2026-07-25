@@ -19,6 +19,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         Task<byte[]> GetExcel(GestionSalidaFiltersDto filters);
         Task Aprobar(int id, int reviewerUserId);
         Task Rechazar(int id, int reviewerUserId);
+
+        /// <summary>
+        /// El propio solicitante cancela una salida SUYA que esté Pendiente. Reutiliza la misma
+        /// lógica de Solicitud de Salidas (guard de propiedad + estado). 403 si es de otro, 400 si
+        /// no está Pendiente.
+        /// </summary>
+        Task Cancelar(int id, int userId);
         /// <summary>
         /// Marca solicitudes elegibles como Rendidas y genera la planilla de gasto por movilidad (PDF).
         /// Devuelve los bytes del PDF + cuántas se procesaron.

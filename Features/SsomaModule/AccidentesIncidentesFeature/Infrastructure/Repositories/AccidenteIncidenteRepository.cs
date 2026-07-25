@@ -28,7 +28,12 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             SELECT DISTINCT p.project_id AS id, p.project_description AS nombre, p.abbreviation AS abreviatura, p.email_coord_ssoma AS emailCoordsoma
             FROM project p
             LEFT JOIN ss_proyecto_habilitado h ON h.proyecto_id = p.project_id AND h.state = true AND h.active = true
-            WHERE p.active = true OR h.id IS NOT NULL
+            WHERE (p.active = true AND NOT EXISTS (
+                    SELECT 1 FROM proyecto_filtro f
+                    JOIN proyecto_filtro_funcionalidad fn ON fn.id = f.funcionalidad_id
+                    WHERE f.project_id = p.project_id
+                      AND fn.codigo = 'SSOMA_ACCIDENTES' AND f.active = false))
+               OR h.id IS NOT NULL
             ORDER BY p.project_description;
             SELECT id, nombre, codigo FROM ssoma_flash_tipo ORDER BY orden;
             SELECT id, nombre FROM ssoma_flash_etapa_proyecto ORDER BY nombre;

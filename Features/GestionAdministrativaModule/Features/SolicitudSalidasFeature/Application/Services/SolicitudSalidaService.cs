@@ -9,7 +9,6 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
-using Abril_Backend.Shared.Services.SharePoint.Options;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
 
@@ -26,10 +25,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         private readonly IConfiguration                _configuration;
         private readonly ILogger<SolicitudSalidaService> _logger;
         private readonly IGraphSharePointService        _sharePointService;
-        private readonly SharePointSiteRef              _site;
-        private readonly string                         _solicitudSalidasLibraryId;
-
-        private const string CarpetaCapturas = "Capturas de movilidades";
 
         public SolicitudSalidaService(
             ISolicitudSalidaRepository repo,
@@ -51,9 +46,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             _configuration    = configuration;
             _logger           = logger;
             _sharePointService = sharePointService;
-            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
-            _solicitudSalidasLibraryId = configuration["SharePoint:Sites:CostosYPresupuestos:SolicitudSalidasLibraryId"]
-                ?? throw new InvalidOperationException("SharePoint:Sites:CostosYPresupuestos:SolicitudSalidasLibraryId no está configurado.");
         }
 
         public async Task<SolicitudSalidaFormDataDto> GetFormData(int? userId)
@@ -704,6 +696,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return detalle ?? throw new AbrilException("Solicitud no encontrada o no te pertenece.", 404);
         }
 
+        public Task Cancelar(int solicitudId, int userId) => _repo.Cancelar(solicitudId, userId);
+
         public async Task<List<SolicitudSalidaCapturaDto>> UploadCapturasToTrayecto(int trayectoId, IEnumerable<(IFormFile File, decimal Monto)> items, int userId)
         {
             var trayecto = await _repo.GetTrayectoForUploadingCapturas(trayectoId, userId)
@@ -718,6 +712,28 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
             if (lista.Any(it => it.Monto < 0))
                 throw new AbrilException("El monto no puede ser negativo.", 400);
+
+            // Destino configurable desde BD (ga_captura_folder): se guarda el link de SharePoint tal
+            // cual y se resuelve a driveId/folderId vía Graph. Editable sin redeploy y cada entorno
+            // apunta a su propia biblioteca porque la config vive en su propia base de datos. Se
+            // resuelve una sola vez para todo el lote. Mismo patrón que gth_sustento_folder.
+            string? folderUrl;
+            using (var ctx = _factory.CreateDbContext())
+            {
+                folderUrl = await ctx.GaCapturaFolder
+                    .Where(c => c.State && c.Active)
+                    .OrderBy(c => c.GaCapturaFolderId)
+                    .Select(c => c.LinkUrl)
+                    .FirstOrDefaultAsync();
+            }
+            if (string.IsNullOrWhiteSpace(folderUrl))
+                throw new AbrilException(
+                    "No se ha configurado la carpeta de SharePoint donde guardar las capturas de movilidad. " +
+                    "Pide al administrador registrarla en la tabla ga_captura_folder.", 409);
+
+            var carpeta = await _sharePointService.ResolveSharePointFolderUrlAsync(folderUrl);
+            if (carpeta == null || !carpeta.IsFolder)
+                throw new AbrilException("No se pudo resolver la carpeta de capturas en SharePoint.", 502);
 
             var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
             var subidos = new List<(string Url, string? ItemId, string Filename, decimal Monto)>();
@@ -735,13 +751,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                     var filename = $"s{trayecto.SolicitudId}_t{trayecto.Id}_{stamp}_{safeName}{ext}";
 
                     using var stream = f.OpenReadStream();
-                    var result = await _sharePointService.UploadToSharePointLibraryAsync(
-                        site:        _site,
-                        libraryName: _solicitudSalidasLibraryId,
-                        folderPath:  CarpetaCapturas,
-                        fileName:    filename,
-                        fileStream:  stream,
-                        contentType: f.ContentType ?? "application/octet-stream");
+                    var result = await _sharePointService.UploadToOneDriveFolderAsync(
+                        carpeta.DriveId, carpeta.ItemId, filename, stream,
+                        f.ContentType ?? "application/octet-stream",
+                        autoRenameOnLock: true);
 
                     if (result?.WebUrl is null)
                         throw new AbrilException($"No se pudo subir el archivo {f.FileName}.", 502);

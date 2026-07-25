@@ -1,0 +1,75 @@
+using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos;
+
+namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Interfaces
+{
+    public interface IReclutamientoService
+    {
+        Task<ReclutamientoFormDataDto> GetFormData(int? userId);
+
+        /// <summary>
+        /// Crea la solicitud de personal: valida, sube el sustento (opcional) a SharePoint y
+        /// persiste 1 requerimiento por vacante con su código REQ-AAAA-NNNN.
+        /// </summary>
+        Task<SolicitudPersonalCreateResultDto> Create(SolicitudPersonalCreateDto dto, int? userId, IFormFile? sustento);
+
+        /// <summary>
+        /// Panel de la vista del solicitante: tarjetas de "Gestión de candidatos" (long lists que GTH
+        /// le envió) + tabla "Mis solicitudes de vacante", en una sola petición. Vacío si no hay usuario.
+        /// </summary>
+        Task<SolicitantePanelDto> GetSolicitantePanel(int? userId);
+
+        /// <summary>
+        /// Revisión de la long list de un requerimiento del solicitante (cabecera + candidatos con su CV).
+        /// Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe, no le
+        /// pertenece o su long list aún no fue enviada.
+        /// </summary>
+        Task<RevisionLongListDto> GetRevisionLongList(int requerimientoId, int? userId);
+
+        /// <summary>
+        /// Bandeja de la vista de GTH: tarjeta "En proceso" + tabla de solicitudes de contratación de
+        /// toda la organización, en una sola petición.
+        /// </summary>
+        Task<BandejaReclutamientoDto> GetBandeja();
+
+        /// <summary>Actualiza la prioridad (Alta/Media/Baja) de un requerimiento desde la bandeja de GTH.</summary>
+        Task UpdatePrioridad(int requerimientoId, int prioridadId, int? userId);
+
+        /// <summary>
+        /// Detalle de seguimiento de un requerimiento del usuario (cabecera + fases del pipeline).
+        /// Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe
+        /// o no le pertenece al usuario.
+        /// </summary>
+        Task<SeguimientoDto> GetSeguimiento(int requerimientoId, int? userId);
+
+        /// <summary>
+        /// Detalle de un requerimiento para la vista de GTH (modal del ojo de la bandeja).
+        /// Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe.
+        /// </summary>
+        Task<DetalleRequerimientoGthDto> GetDetalleGth(int requerimientoId);
+
+        /// <summary>Guarda la asignación interna de GTH de un requerimiento (los 4 desplegables del modal).</summary>
+        Task UpdateAsignacionGth(int requerimientoId, AsignacionGthUpdateDto dto, int? userId);
+
+        /// <summary>
+        /// Registra los canales donde se publicó la vacante (reemplaza el conjunto) y avanza el
+        /// requerimiento a la fase PUBLICACION. Devuelve el estado resultante.
+        /// </summary>
+        Task<EstadoRequerimientoResultDto> ReplacePublicaciones(int requerimientoId, PublicacionesUpdateDto dto, int? userId);
+
+        /// <summary>Inicia la revisión de CV: avanza el requerimiento de PUBLICACION a LONG_LIST.</summary>
+        Task<EstadoRequerimientoResultDto> IniciarRevisionCv(int requerimientoId, int? userId);
+
+        /// <summary>
+        /// Envía la long list al solicitante: avanza el requerimiento a LONG_LIST_ENVIADA y manda
+        /// el correo a los destinatarios configurados (tipo LONG_LIST) con los CVs/informes adjuntos.
+        /// Devuelve el estado resultante.
+        /// </summary>
+        Task<EstadoRequerimientoResultDto> EnviarLongList(int requerimientoId, List<LongListCandidatoArchivoDto> candidatos, int? userId);
+
+        /// <summary>Destinatarios configurados de un correo de reclutamiento (principales + copias) por tipo (SOLICITUD/LONG_LIST).</summary>
+        Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
+
+        /// <summary>Guarda (valida y normaliza) los destinatarios de un correo de reclutamiento por tipo.</summary>
+        Task SaveCorreoDestinatarios(string tipoCodigo, CorreoDestinatariosDto dto, int? userId);
+    }
+}

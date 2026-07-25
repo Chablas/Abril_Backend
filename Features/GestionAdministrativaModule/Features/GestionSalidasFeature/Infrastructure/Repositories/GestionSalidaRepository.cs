@@ -275,6 +275,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                     // Solo se omite la hora real si TODOS los trayectos son de hora estimada.
                     EsHoraEstimada   = trList.Count > 0 && trList.All(t => t.EsHoraEstimada),
                     PuedeDecidir     = esGerente || !misWorkerIds.Contains(s.WorkerId),
+                    EsPropia         = misWorkerIds.Contains(s.WorkerId),
                 });
             }
 
@@ -420,6 +421,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 .SqlQuery<int>($"SELECT nextval('seq_planilla_numero')::int AS \"Value\"")
                 .ToListAsync();
             return values.First();
+        }
+
+        public async Task<string?> GetRendicionFolderUrl()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.GaRendicionFolder
+                .Where(f => f.State && f.Active)
+                .OrderBy(f => f.GaRendicionFolderId)
+                .Select(f => f.LinkUrl)
+                .FirstOrDefaultAsync();
         }
 
         public async Task<List<int>> CrearRendicionYMarcarBulk(

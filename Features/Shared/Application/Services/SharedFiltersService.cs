@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.Shared.Dtos;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -26,7 +27,7 @@ public class SharedFiltersService : ISharedFiltersService
 
         var projects = await ctx.Project
             .AsNoTracking()
-            .Where(p => p.State && p.Active)
+            .Where(p => p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.SharedFilters && !f.Active))
             .ToListAsync();
 
         return projects

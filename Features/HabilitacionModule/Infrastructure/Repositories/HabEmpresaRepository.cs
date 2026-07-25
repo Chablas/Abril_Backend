@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.HabEmpresa;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores;
@@ -377,7 +378,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             var proyectos = await ctx.Project
-                .Where(p => p.State && p.Active)
+                .Where(p => p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Habilitacion && !f.Active))
                 .OrderBy(p => p.ProjectDescription)
                 .Select(p => new { p.ProjectId, p.ProjectDescription })
                 .ToListAsync();

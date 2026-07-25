@@ -149,6 +149,13 @@ namespace Abril_Backend.Features.Contractors.ContractorRegistration.Application.
 
         private async Task SendNewContractorNotificationAsync(ContributorCreateDto dto, bool isUpdate)
         {
+            // El correo a Costos y Presupuestos solo se envía cuando el registro viene de la
+            // ruta interna /contractors/registro-interno. La ruta pública /contractors/registro
+            // no notifica. Es una regla de RUTA informada por el frontend (ver IsInternalRegistration
+            // en el dto): el backend no puede distinguir la ruta por el token.
+            if (!dto.IsInternalRegistration)
+                return;
+
             var subject = isUpdate
                 ? $"Solicitud de actualización de datos de contratista: {dto.ContributorName}"
                 : $"Nuevo contratista registrado para revisión: {dto.ContributorName}";

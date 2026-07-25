@@ -49,6 +49,8 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         if (request.Trabajadores.Count > 1)
             throw new AbrilException("Un Flash Report solo admite un trabajador afectado. Regístrese un reporte independiente por cada accidentado.", 400);
 
+        request.ElaboradoPorEmail = ValidarCorreoElaborador(request.ElaboradoPorEmail);
+
         // Obtener código del tipo
         var init = await _repo.GetInicializarAsync();
         var tipo = init.Tipos.FirstOrDefault(t => t.Id == request.TipoId)
@@ -71,6 +73,8 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
     {
         if (request.Trabajadores.Count > 1)
             throw new AbrilException("Un Flash Report solo admite un trabajador afectado. Regístrese un reporte independiente por cada accidentado.", 400);
+
+        request.ElaboradoPorEmail = ValidarCorreoElaborador(request.ElaboradoPorEmail);
 
         var existente = await _repo.GetDetalleAsync(id)
             ?? throw new AbrilException("Flash Report no encontrado.", 404);
@@ -263,11 +267,26 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
 
             // Dinámicos: área Proyectos + GTH + Médico Ocupacional
             var dinamicos = await _repo.GetDestinatariosFlashReportAsync();
-            destinatarios.AddRange(dinamicos.Where(e => !destinatarios.Contains(e)));
+            destinatarios.AddRange(dinamicos);
 
-            if (!string.IsNullOrWhiteSpace(fr.ElaboradoPorEmail)
-                && !destinatarios.Contains(fr.ElaboradoPorEmail))
+            if (!string.IsNullOrWhiteSpace(fr.ElaboradoPorEmail))
                 destinatarios.Add(fr.ElaboradoPorEmail);
+
+            // Saneo obligatorio: Power Automate rechaza TODO el campo "To" si un solo
+            // destinatario no tiene formato de email válido. Normalizamos, descartamos
+            // los inválidos (logueándolos) y quitamos duplicados case-insensitive para
+            // que un correo mal escrito nunca vuelva a tumbar el envío completo.
+            var invalidos = destinatarios.Where(e => !EsCorreoAbrilValido(e)).ToList();
+            if (invalidos.Count > 0)
+                _logger.LogWarning(
+                    "Flash Report {Codigo}: se descartaron {N} destinatarios inválidos: {Lista}",
+                    fr.Codigo, invalidos.Count, string.Join(", ", invalidos));
+
+            destinatarios = destinatarios
+                .Select(NormalizarCorreo)
+                .Where(EsCorreoAbrilValido)
+                .Distinct()
+                .ToList();
         }
 
         var asunto = $"Flash Report {fr.Codigo} - {fr.ProyectoNombre} - {fr.Fecha:dd/MM/yyyy}";
@@ -302,6 +321,33 @@ public class AccidenteIncidenteService : IAccidenteIncidenteService
         if (bytes.Length >= 4 && bytes[0] == 0xFF && bytes[1] == 0xD8) return "jpg";
         if (bytes.Length >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50) return "png";
         return "jpg";
+    }
+
+    // ── Correo del elaborador ────────────────────────────────────────────────
+    // Correo corporativo @abril.pe sin espacios, tildes ni símbolos raros.
+    private static readonly System.Text.RegularExpressions.Regex _correoAbrilRegex =
+        new(@"^[a-z0-9._-]+@abril\.pe$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Recorta, elimina espacios internos y pasa a minúsculas.</summary>
+    private static string NormalizarCorreo(string? correo)
+        => (correo ?? string.Empty).Trim().Replace(" ", "").ToLowerInvariant();
+
+    /// <summary>True si, tras normalizar, es un correo @abril.pe válido.</summary>
+    private static bool EsCorreoAbrilValido(string? correo)
+        => _correoAbrilRegex.IsMatch(NormalizarCorreo(correo));
+
+    /// <summary>
+    /// Valida y normaliza el correo del elaborador. Es obligatorio y debe ser un
+    /// @abril.pe limpio: es el correo que se usa como destinatario del Flash Report.
+    /// </summary>
+    private static string ValidarCorreoElaborador(string? correo)
+    {
+        if (string.IsNullOrWhiteSpace(correo))
+            throw new AbrilException("El correo del elaborador es obligatorio.", 400);
+        if (!EsCorreoAbrilValido(correo))
+            throw new AbrilException(
+                "El correo del elaborador debe ser un correo @abril.pe válido (sin espacios ni símbolos).", 400);
+        return NormalizarCorreo(correo);
     }
 
     // ── Entregables ───────────────────────────────────────────────────────────

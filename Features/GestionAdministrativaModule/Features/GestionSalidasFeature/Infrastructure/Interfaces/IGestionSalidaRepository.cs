@@ -34,6 +34,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// <summary>Consume el siguiente número de la secuencia <c>seq_planilla_numero</c>.</summary>
         Task<int> GetNextNumeroPlanillaAsync();
 
+        /// <summary>
+        /// Link de la carpeta de SharePoint (tabla singleton <c>ga_rendicion_folder</c>) donde se
+        /// suben los PDF de planillas de rendición. Null si no hay carpeta configurada.
+        /// </summary>
+        Task<string?> GetRendicionFolderUrl();
+
         /// <summary>IDs elegibles (Aprobadas + No rendidas) sin tocar BD. Pre-flight.</summary>
         Task<List<int>> GetEligibleIdsForRendicion(IEnumerable<int> ids);
 

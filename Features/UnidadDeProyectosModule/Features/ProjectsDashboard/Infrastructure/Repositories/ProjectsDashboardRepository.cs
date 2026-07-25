@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashboard.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashboard.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
@@ -28,7 +29,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
 
             // Una sola query trae las columnas necesarias; las 3 listas se derivan en memoria.
             var rows = await ctx.Project
-                .Where(p => p.State && p.Active && p.TieneUnidadDeProyectos)
+                .Where(p => p.State && p.Active && p.TieneUnidadDeProyectos && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.UdpDashboard && !f.Active))
                 .Select(p => new
                 {
                     p.ProjectId,
@@ -321,7 +322,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
         private async Task<List<ProjectFlat>> BuildProjectQueryAsync(
             AppDbContext ctx, int? proyectoId, string? estado, int? responsableId)
         {
-            var q = ctx.Project.Where(p => p.State && p.Active && p.TieneUnidadDeProyectos);
+            var q = ctx.Project.Where(p => p.State && p.Active && p.TieneUnidadDeProyectos && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.UdpDashboard && !f.Active));
             if (proyectoId.HasValue) q = q.Where(p => p.ProjectId == proyectoId.Value);
             if (estado != null) q = q.Where(p => p.Estado == estado);
             if (responsableId.HasValue) q = q.Where(p => p.ResponsableUdpId == responsableId.Value);

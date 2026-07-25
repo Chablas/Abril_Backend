@@ -263,6 +263,35 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Presenta
             }
         }
 
+        /// <summary>
+        /// El propio trabajador cancela una solicitud SUYA que esté Pendiente (registró una que no
+        /// debía, o al final no salió). No se pueden cancelar solicitudes de otros trabajadores ni
+        /// las ya aprobadas/rechazadas/canceladas.
+        /// </summary>
+        [HttpPatch("{id:int}/cancelar")]
+        public async Task<IActionResult> Cancelar(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)
+                    ? uid : (int?)null;
+                if (userId == null)
+                    return Unauthorized(new { message = "Usuario no autenticado." });
+
+                await _service.Cancelar(id, userId.Value);
+                return Ok(new { message = "Solicitud cancelada." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en SolicitudSalidaController.Cancelar");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         // ── Endpoints públicos invocados desde los links del email ──────────
 
         [HttpGet("aprobar")]

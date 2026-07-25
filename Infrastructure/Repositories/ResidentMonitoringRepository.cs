@@ -1,3 +1,4 @@
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Application.DTOs;
@@ -29,6 +30,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 join pe in _context.Person on u.UserId equals pe.UserId
                 where pr.State && pr.Active
                    && p.Active
+                   && !_context.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active)
                    && u.State && u.Active
                    && (!projectId.HasValue || p.ProjectId == projectId.Value)
                    && (!residentUserId.HasValue || u.UserId == residentUserId.Value)

@@ -4,7 +4,6 @@ using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.In
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Application.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
-using Abril_Backend.Shared.Services.SharePoint.Options;
 using ClosedXML.Excel;
 using Humanizer;
 using QuestPDF.Fluent;
@@ -20,18 +19,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         private readonly IGraphSharePointService _sharePointService;
         private readonly ISolicitudSalidaService _solicitudSalidaService;
         private readonly ISalidaVisibilityResolver _visibilityResolver;
-        private readonly SharePointSiteRef _site;
-        private readonly string _solicitudSalidasLibraryId;
         private readonly ILogger<GestionSalidaService> _logger;
-
-        private const string CarpetaSolicitudesRendidas = "Solicitudes rendidas";
 
         public GestionSalidaService(
             IGestionSalidaRepository repo,
             IGraphSharePointService sharePointService,
             ISolicitudSalidaService solicitudSalidaService,
             ISalidaVisibilityResolver visibilityResolver,
-            IConfiguration configuration,
             ILogger<GestionSalidaService> logger)
         {
             _repo = repo;
@@ -39,9 +33,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             _solicitudSalidaService = solicitudSalidaService;
             _visibilityResolver = visibilityResolver;
             _logger = logger;
-            _site = SharePointSiteRef.FromConfig(configuration, "CostosYPresupuestos");
-            _solicitudSalidasLibraryId = configuration["SharePoint:Sites:CostosYPresupuestos:SolicitudSalidasLibraryId"]
-                ?? throw new InvalidOperationException("SharePoint:Sites:CostosYPresupuestos:SolicitudSalidasLibraryId no está configurado.");
         }
 
         public async Task<List<GestionSalidaListItemDto>> GetAll(GestionSalidaFiltersDto filters)
@@ -182,6 +173,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             await _solicitudSalidaService.NotifySolicitanteRechazada(id);
         }
 
+        // El solicitante cancela su propia salida. Misma lógica que el autoservicio de Solicitud
+        // de Salidas: no duplicamos el guard de propiedad/estado, lo delegamos.
+        public Task Cancelar(int id, int userId) => _solicitudSalidaService.Cancelar(id, userId);
+
         public Task SetHoraSalidaReal(int id, TimeOnly? hora, int registradaPorUserId)
             => _repo.SetHoraSalidaReal(id, hora, registradaPorUserId);
 
@@ -224,19 +219,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             // 3. Subir a SharePoint ANTES de marcar como rendidas.
             //    Si el upload falla, no se modifica nada en BD (estricto).
+            //    Carpeta destino configurable desde BD (ga_rendicion_folder): se guarda el link tal
+            //    cual y se resuelve a driveId/folderId vía Graph. Editable sin redeploy y cada
+            //    entorno apunta a su propia biblioteca. Mismo patrón que ga_captura_folder.
+            var folderUrl = await _repo.GetRendicionFolderUrl();
+            if (string.IsNullOrWhiteSpace(folderUrl))
+                throw new AbrilException(
+                    "No se ha configurado la carpeta de SharePoint donde guardar las planillas de rendición. " +
+                    "Pide al administrador registrarla en la tabla ga_rendicion_folder.", 409);
+
+            var carpeta = await _sharePointService.ResolveSharePointFolderUrlAsync(folderUrl);
+            if (carpeta == null || !carpeta.IsFolder)
+                throw new AbrilException("No se pudo resolver la carpeta de planillas de rendición en SharePoint.", 502);
+
             var filename = $"Planilla_Rendicion_{DateTime.Now:yyyyMMdd_HHmmss}_u{userId}.pdf";
             string pdfUrl;
             string? pdfItemId;
             try
             {
                 using var pdfStream = new MemoryStream(pdf);
-                var result = await _sharePointService.UploadToSharePointLibraryAsync(
-                    site:        _site,
-                    libraryName: _solicitudSalidasLibraryId,
-                    folderPath:  CarpetaSolicitudesRendidas,
-                    fileName:    filename,
-                    fileStream:  pdfStream,
-                    contentType: "application/pdf");
+                var result = await _sharePointService.UploadToOneDriveFolderAsync(
+                    carpeta.DriveId, carpeta.ItemId, filename, pdfStream,
+                    "application/pdf",
+                    autoRenameOnLock: true);
 
                 if (result?.WebUrl is null)
                     throw new AbrilException("No se pudo subir la planilla a SharePoint (respuesta vacía).", 502);

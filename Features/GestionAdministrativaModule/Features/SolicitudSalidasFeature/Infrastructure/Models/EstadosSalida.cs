@@ -15,10 +15,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
             public const int Pendiente = 1;
             public const int Aprobado  = 2;
             public const int Rechazado = 3;
+            /// <summary>El propio solicitante retiró su solicitud mientras estaba Pendiente. Estado terminal.</summary>
+            public const int Cancelado = 4;
 
             public const string NombrePendiente = "Pendiente";
             public const string NombreAprobado  = "Aprobado";
             public const string NombreRechazado = "Rechazado";
+            public const string NombreCancelado = "Cancelado";
 
             /// <summary>id → nombre para exponer en DTOs.</summary>
             public static string Nombre(int id) => id switch
@@ -26,6 +29,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 Pendiente => NombrePendiente,
                 Aprobado  => NombreAprobado,
                 Rechazado => NombreRechazado,
+                Cancelado => NombreCancelado,
                 _         => string.Empty,
             };
 
@@ -35,6 +39,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastr
                 NombrePendiente => Pendiente,
                 NombreAprobado  => Aprobado,
                 NombreRechazado => Rechazado,
+                NombreCancelado => Cancelado,
                 _               => null,
             };
         }

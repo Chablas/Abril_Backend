@@ -5299,3 +5299,17 @@ Rama: `victor-backend`. Se extendió el endpoint `GET api/v1/ResidentReportIncid
 ### Notas
 - `ProjectId` y `StateId` son columnas escalares reales en la entidad `ResidentReportIncidence` (verificado).
 - Build en 0 errores. B1 respetado (cero archivos nuevos, solo edicion de los 5 existentes).
+
+## Sesión 2026-07-25 — Merge de master sobre victor-backend (conflicto en ResidentReportIncidenceRepository)
+
+Rama: `victor-backend`. `git merge master` trajo un lote grande de master (módulo GTH/Reclutamiento completo, Notificaciones, GestionSalidas/SolicitudSalidas, filtro de proyecto por funcionalidad `ProyectoFiltro`, y varios fixes de SSOMA/Habilitación/Vecinos) que auto-mergeó limpio salvo un archivo.
+
+### Conflicto resuelto
+- `Infrastructure/Repositories/ResidentReportIncidenceRepository.cs`, método `GetPaged`: HEAD (esta rama) había agregado filtros opcionales `projectId`/`stateId` (sesión 2026-07-21, ver arriba) sobre el mismo `.Where(r => r.Project.Active)` que master extendió con la exclusión `!_context.ProyectoFiltro.Any(f => f.ProjectId == r.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.Residentes && !f.Active)` (feature nuevo de visibilidad de proyecto por funcionalidad, commit `1974cf58` de master, no relacionado a GTH pese a venir en el mismo commit). No eran cambios que chocaran en lógica — se combinaron en un único `baseQuery`: primero las dos condiciones fijas (`Project.Active` + exclusión `ProyectoFiltro`), después los `if (projectId.HasValue)` / `if (stateId.HasValue)` encadenados como estaban en HEAD, y por último el `.OrderByDescending(...)` que arma el `query` final. Se usó la sintaxis exacta de master (`f.ProjectId`, `ProyectoFiltroFuncionalidades.Residentes`, `!f.Active`) en vez de nombres parafraseados que se habían mencionado antes en la conversación por error.
+
+### Verificación
+- `dotnet build Abril-Backend.csproj`: 0 errores, 233 advertencias (todas preexistentes — nullability `CS8618` en DTOs/Models de toda la base de código, ninguna nueva originada por el merge o el archivo resuelto).
+- Commit de merge: `8dafc74a` ("Merge branch 'master' into victor-backend"), mensaje por defecto de git, sin editar.
+
+### Pendiente
+- Nada pendiente de este merge en particular. El resto de los archivos entrantes de master (GTH, Notificaciones, GestionSalidas) no se revisó en profundidad en esta sesión — si aparecen bugs ahí, no fueron introducidos por la resolución de este conflicto puntual.

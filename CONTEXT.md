@@ -5355,3 +5355,21 @@ Rama: `victor-backend`. Auditoría de seguridad del flujo de incidencias/respues
 
 ### Pendiente
 - `GetPaged` sigue sin filtrar por proyectos asignados al usuario logueado — queda para otra sesión decidir si se filtra automáticamente por `ProjectResident` o se deja como está (actualmente cualquier usuario autenticado puede listar incidencias de cualquier proyecto, solo mitigado por lo que el frontend elija mostrar).
+
+## Sesión 2026-07-26 (cont. 2) — GetPaged filtrado por proyecto asignado (residente) + endpoint assigned-projects
+
+Rama: `victor-backend`. Cierra el gap de lectura pendiente de la sesión anterior: `GetPaged` de `ResidentReportIncidence` ahora restringe automáticamente los resultados a los proyectos del residente autenticado, sin tocar el comportamiento para otros roles (ej. ADMINISTRADOR_RESIDENTES).
+
+### Cambios
+- `Controllers/ResidentReportIncidenceController.cs` — `GetPaged` extrae `isResidente = User.IsInRole(Roles.Residente)` (solo claims del JWT, sin query extra) y lo pasa al Service junto con `userId`. Nuevo endpoint `GET /api/v1/ResidentReportIncidence/assigned-projects` en el mismo controller (B1), para que el frontend arme el selector de proyectos cuando el usuario es residente.
+- `Application/Services/ResidentReportIncidenceService.cs` — `GetPaged` (firma ahora `(page, userId, isResidente, projectId, stateId)`): si `isResidente`, pide `_projectResidentRepository.GetActiveProjectsForResident(userId)` y arma `allowedProjectIds`; si el `projectId` pedido no está en esa lista, se ignora en silencio (queda `null`, no error/403) y se devuelve la lista propia del residente sin ese filtro. Si no es residente, `allowedProjectIds` queda `null` y el comportamiento es idéntico al de antes. Nuevo método `GetAssignedProjects(userId, isResidente)`: lista vacía si no es residente, si no devuelve `GetActiveProjectsForResident` tal cual.
+- `Infrastructure/Repositories/ResidentReportIncidenceRepository.cs` + interfaz — `GetPaged` recibe `List<int>? allowedProjectIds = null`; si no es null, agrega `.Where(r => allowedProjectIds.Contains(r.ProjectId))` sobre el `baseQuery`, antes de los filtros existentes de `projectId`/`stateId` (sesión 2026-07-21). Con lista vacía (residente sin ninguna asignación activa), el `Contains` nunca matchea → `PagedResult` con `Data` vacío y `TotalRecords = 0`, sin error.
+- `Infrastructure/Repositories/ProjectResidentRepository.cs` + interfaz — nuevo método `GetActiveProjectsForResident(userId)`: join `Project`+`ProjectResident` filtrando `ProjectResident.Active && State`, `Project.Active`, y la misma exclusión por `ProyectoFiltro`/funcionalidad Residentes que ya usa `GetProjectsDescription`. Es la única query nueva — la reusan tanto `GetPaged` (solo extrae los `ProjectId`) como `GetAssignedProjects` (devuelve el DTO completo), sin duplicar lógica. No se tocó `GetProjectByResidentUserId` (método preexistente sin filtro de `ProjectResident.Active/State`) para no alterar el comportamiento de `ProjectResidentController.GetWithResidentByUserId`, que no era parte de este pedido.
+
+### Verificación
+- `dotnet build Abril-Backend.csproj`: 0 errores, sin warnings nuevos.
+- Diff completo revisado por el usuario antes de commitear (incluyendo el método `GetPaged` completo del repository, línea por línea).
+- Commit: `a9fd0388` ("feat: filtra GetPaged de ResidentReportIncidence por proyecto asignado al residente").
+
+### Pendiente
+- Nada pendiente de seguridad en este flujo por ahora — lectura y escritura de `ResidentReportIncidence` quedaron ambas gateadas por rol + pertenencia a proyecto.

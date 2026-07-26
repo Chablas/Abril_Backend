@@ -4,6 +4,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Controllers
 {
@@ -42,7 +43,7 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [Authorize]
+        [Authorize(Roles = Roles.AdministradorResidentes)]
         [HttpPost]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> CreateIncidence([FromForm] ResidentReportIncidenceCreateDTO dto)
@@ -69,7 +70,7 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [Authorize]
+        [Authorize(Roles = Roles.Residente)]
         [HttpPost("response")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> CreateResponse(ResidentReportResponseCreateDTO dto)
@@ -88,7 +89,7 @@ namespace Abril_Backend.Controllers
             }
             catch (AbrilException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -96,7 +97,7 @@ namespace Abril_Backend.Controllers
             }
         }
 
-        [Authorize]
+        [Authorize(Roles = Roles.AdministradorResidentes)]
         [HttpPatch]
         public async Task<IActionResult> UpdateIncidenceState(UpdateIncidenceDTO incidenceId)
         {

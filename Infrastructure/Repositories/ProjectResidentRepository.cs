@@ -44,5 +44,14 @@ namespace Abril_Backend.Infrastructure.Repositories {
                 };
             return await registros.ToListAsync();
         }
+
+        public async Task<bool> IsUserAssignedToProject(int userId, int projectId)
+        {
+            return await _context.ProjectResident.AnyAsync(pr =>
+                pr.UserId == userId
+                && pr.ProjectId == projectId
+                && pr.Active
+                && pr.State);
+        }
     }
 }

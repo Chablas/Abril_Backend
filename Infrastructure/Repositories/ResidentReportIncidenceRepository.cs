@@ -70,6 +70,14 @@ namespace Abril_Backend.Infrastructure.Repositories {
             };
         }
 
+        public async Task<int?> GetProjectId(int residentReportIncidenceId)
+        {
+            return await _context.ResidentReportIncidence
+                .Where(r => r.ResidentReportIncidenceId == residentReportIncidenceId)
+                .Select(r => (int?)r.ProjectId)
+                .FirstOrDefaultAsync();
+        }
+
         public async Task Create(ResidentReportIncidenceCreateDTO dto, List<string> uploadedUrls, int userId)
         {
             var registro = new ResidentReportIncidence

@@ -8,10 +8,12 @@ namespace Abril_Backend.Application.Services
     public class ResidentReportIncidenceService : IResidentReportIncidenceService
     {
         private readonly IResidentReportIncidenceRepository _repository;
+        private readonly IProjectResidentRepository _projectResidentRepository;
         private readonly IStorageContainerResolver _containerResolver;
         private readonly IFileStorageService _fileStorageService;
         public ResidentReportIncidenceService(
             IResidentReportIncidenceRepository repository,
+            IProjectResidentRepository projectResidentRepository,
             IStorageContainerResolver containerResolver,
             IFileStorageService fileStorageService
             )
@@ -19,6 +21,7 @@ namespace Abril_Backend.Application.Services
             _containerResolver = containerResolver;
             _fileStorageService = fileStorageService;
             _repository = repository;
+            _projectResidentRepository = projectResidentRepository;
         }
         public async Task<PagedResult<ResidentReportIncidenceDTO>> GetPaged(int page, int? projectId = null, int? stateId = null)
         {
@@ -69,6 +72,16 @@ namespace Abril_Backend.Application.Services
 
         public async Task CreateResponse(ResidentReportResponseCreateDTO dto, int userId)
         {
+            var projectId = await _repository.GetProjectId(dto.ResidentReportIncidenceId);
+
+            if (projectId == null)
+                throw new AbrilException("Incidencia no encontrada.", 404);
+
+            var isAssignedResident = await _projectResidentRepository.IsUserAssignedToProject(userId, projectId.Value);
+
+            if (!isAssignedResident)
+                throw new AbrilException("No estás asignado como residente de este proyecto.", 403);
+
             if (dto.Images == null || !dto.Images.Any())
                 throw new AbrilException("No se pusieron archivos.");
 

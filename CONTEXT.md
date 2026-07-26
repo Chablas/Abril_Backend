@@ -5337,3 +5337,21 @@ Rama: `victor-backend`. Sesión corta: se expuso la fecha de creación del repor
 ### Verificación
 - `dotnet build Abril-Backend.csproj`: 0 errores.
 - Commit: `4beb182e` ("feat: expone CreatedDateTime en GetPaged de ResidentReportIncidence").
+
+## Sesión 2026-07-26 (cont.) — Gating de roles y validación de residente en ResidentReportIncidence
+
+Rama: `victor-backend`. Auditoría de seguridad del flujo de incidencias/respuestas de residentes: se encontró que `ResidentReportIncidenceController` (los 4 endpoints) solo tenía `[Authorize]` genérico, sin restricción de rol ni validación de pertenencia a proyecto — el gating de "solo ADMINISTRADOR DE RESIDENTES puede crear/levantar" vivía únicamente en el frontend (FAB oculto), y `CreateResponse` no validaba que quien responde sea el residente asignado al proyecto de la incidencia (cualquier usuario autenticado podía responder cualquier incidencia de cualquier proyecto).
+
+### Cambios
+- `Controllers/ResidentReportIncidenceController.cs` — `CreateIncidence` y `UpdateIncidenceState` pasan a `[Authorize(Roles = Roles.AdministradorResidentes)]`; `CreateResponse` pasa a `[Authorize(Roles = Roles.Residente)]`. `GetPaged` quedó intacto a propósito (a pedido del usuario — el filtro de "qué proyectos ve cada quién" se decide en otra sesión). Se corrigió además el `catch (AbrilException ex)` de `CreateResponse`, que hardcodeaba `return BadRequest(...)` ignorando `ex.StatusCode` (inconsistente con el resto del codebase, que usa `StatusCode(ex.StatusCode, ...)`) — sin este fix el 403 de la validación nueva se hubiera devuelto como 400. Los catches de `CreateIncidence` y `UpdateIncidenceState` se dejaron con el `BadRequest` hardcodeado tal cual estaban (no afecta: ninguno de esos dos lanza `AbrilException` con status distinto de 400).
+- `Application/Services/ResidentReportIncidenceService.cs` — `CreateResponse` ahora, antes de procesar imágenes: busca el `ProjectId` de la incidencia (`_repository.GetProjectId`), lanza `AbrilException("Incidencia no encontrada.", 404)` si no existe, y valida que el usuario autenticado tenga una fila `ProjectResident` activa para ese proyecto (`_projectResidentRepository.IsUserAssignedToProject`), lanzando `AbrilException("No estás asignado como residente de este proyecto.", 403)` si no. Se inyectó `IProjectResidentRepository` en el constructor.
+- `Infrastructure/Interfaces/IResidentReportIncidenceRepository.cs` + `Infrastructure/Repositories/ResidentReportIncidenceRepository.cs` — nuevo método `GetProjectId(int residentReportIncidenceId)` (proyección `int?`, `null` si no existe la incidencia).
+- `Infrastructure/Interfaces/IProjectResidentRepository.cs` + `Infrastructure/Repositories/ProjectResidentRepository.cs` — nuevo método `IsUserAssignedToProject(int userId, int projectId)` (`AnyAsync` sobre `ProjectResident.Active && State && UserId && ProjectId`), usando el `_context` inyectado directamente (no `IDbContextFactory`, porque es una query secuencial única — `IDbContextFactory` es solo para queries paralelas con `Task.WhenAll`, no aplica acá).
+
+### Verificación
+- `dotnet build Abril-Backend.csproj`: 0 errores, warnings preexistentes sin cambios.
+- Diff revisado línea por línea con el usuario antes de commitear (lógica de seguridad real).
+- Commit: `e2d59239` ("fix: gatea roles y valida asignacion de residente en ResidentReportIncidence").
+
+### Pendiente
+- `GetPaged` sigue sin filtrar por proyectos asignados al usuario logueado — queda para otra sesión decidir si se filtra automáticamente por `ProjectResident` o se deja como está (actualmente cualquier usuario autenticado puede listar incidencias de cualquier proyecto, solo mitigado por lo que el frontend elija mostrar).

@@ -34,7 +34,34 @@ namespace Abril_Backend.Controllers
                     return Unauthorized(new { message = "Inicie sesión" });
                 if (page < 1)
                     page = 1;
-                var result = await _service.GetPaged(page, projectId, stateId);
+
+                var userId = int.Parse(userIdClaim.Value);
+                var isResidente = User.IsInRole(Roles.Residente);
+
+                var result = await _service.GetPaged(page, userId, isResidente, projectId, stateId);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("assigned-projects")]
+        public async Task<IActionResult> GetAssignedProjects()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var userId = int.Parse(userIdClaim.Value);
+                var isResidente = User.IsInRole(Roles.Residente);
+
+                var result = await _service.GetAssignedProjects(userId, isResidente);
                 return Ok(result);
             }
             catch (Exception)

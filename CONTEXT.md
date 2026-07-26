@@ -5313,3 +5313,15 @@ Rama: `victor-backend`. `git merge master` trajo un lote grande de master (módu
 
 ### Pendiente
 - Nada pendiente de este merge en particular. El resto de los archivos entrantes de master (GTH, Notificaciones, GestionSalidas) no se revisó en profundidad en esta sesión — si aparecen bugs ahí, no fueron introducidos por la resolución de este conflicto puntual.
+
+## Sesión 2026-07-25 (cont.) — Skills nuevas actualizar-master / actualizar-rama
+
+Rama: `victor-backend`. Sesión corta de solo housekeeping de tooling: se agregaron dos skills de Claude Code al repo (`.claude/skills/actualizar-master/SKILL.md` y `.claude/skills/actualizar-rama/SKILL.md`) que ya estaban en el working tree al arrancar `guardar-rama` (staged pero sin commitear de una sesión previa). No hubo cambios de código de aplicación.
+
+### Cambios
+- `actualizar-master`: trae `origin/master` al `master` local, para trabajo directo en master.
+- `actualizar-rama`: trae `origin/master` a la rama de trabajo actual (sin push) y de paso actualiza el `master` local.
+
+### Verificación
+- `dotnet build Abril-Backend.csproj`: 0 errores, 233 advertencias (mismo baseline preexistente de siempre).
+- Commit: `b6dda418` ("chore: agrega skills actualizar-master y actualizar-rama").

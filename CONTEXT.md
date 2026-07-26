@@ -5325,3 +5325,15 @@ Rama: `victor-backend`. Sesión corta de solo housekeeping de tooling: se agrega
 ### Verificación
 - `dotnet build Abril-Backend.csproj`: 0 errores, 233 advertencias (mismo baseline preexistente de siempre).
 - Commit: `b6dda418` ("chore: agrega skills actualizar-master y actualizar-rama").
+
+## Sesión 2026-07-26 — CreatedDateTime en GetPaged de ResidentReportIncidence
+
+Rama: `victor-backend`. Sesión corta: se expuso la fecha de creación del reporte en el endpoint paginado, dato que ya existía en la entidad pero no viajaba al DTO.
+
+### Cambios
+- `Application/DTOs/ResidentReportIncidence/ResidentReportIncidenceDTO.cs` — se agregó `public DateTime CreatedDateTime {get; set;}`.
+- `Infrastructure/Repositories/ResidentReportIncidenceRepository.cs` — en el `Select` de `GetPaged`, se mapea `CreatedDateTime = r.CreatedDateTime` (passthrough directo, sin lógica).
+
+### Verificación
+- `dotnet build Abril-Backend.csproj`: 0 errores.
+- Commit: `4beb182e` ("feat: expone CreatedDateTime en GetPaged de ResidentReportIncidence").

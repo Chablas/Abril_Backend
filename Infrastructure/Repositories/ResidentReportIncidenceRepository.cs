@@ -39,6 +39,7 @@ namespace Abril_Backend.Infrastructure.Repositories {
                     ProjectDescription = r.Project.ProjectDescription ?? string.Empty,
                     StateId = r.StateId,
                     StateDescription = r.StateNavigation.StateDescription,
+                    CreatedDateTime = r.CreatedDateTime,
 
                     Images = r.Images
                         .Select(i => new ResidentReportIncidenceImageDTO

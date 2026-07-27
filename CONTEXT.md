@@ -5373,3 +5373,16 @@ Rama: `victor-backend`. Cierra el gap de lectura pendiente de la sesión anterio
 
 ### Pendiente
 - Nada pendiente de seguridad en este flujo por ahora — lectura y escritura de `ResidentReportIncidence` quedaron ambas gateadas por rol + pertenencia a proyecto.
+
+## Sesión 2026-07-26 (cont. 3) — Investigación: origen de datos del dashboard AC ("curva de avance" / "tendencia SPI")
+
+Rama: `victor-backend`. Sesión de solo lectura/explicación, sin cambios de código — se documenta acá para no tener que re-derivar esto en otra sesión.
+
+### Hallazgos
+- Ambos gráficos salen del **dashboard v2** (`GET /api/v1/arquitectura-comercial/dashboard-v2`, `GetDashboardV2` en `Controllers/ArquitecturaComercialController.cs:352` → `ArquitecturaComercialService.GetDashboardDataFiltrado` (passthrough) → `ArquitecturaComercialRepository.GetDashboardDataFiltrado`, lógica real en líneas ~1563-1715). El dashboard v1 (`GET .../dashboard`) tiene sus propios `ProyeccionAvance`/`TendenciaEficiencia` con semántica distinta (progreso de tareas por supervisor / % eficiencia acumulada, no SPI real) — no confundir los dos.
+- **"Curva de avance"** (`AvanceSemanalDTO { Semana, Programado, Real }`) **no es presupuesto** — es progreso de cronograma de `ac_actividades`. Se calcula como **delta semanal** (cuánto avanzó cada actividad de una semana a la siguiente), no nivel acumulado promedio — hay un comentario en el código (línea ~1580) explicando por qué: promediar el % acumulado sobre un grupo cuya composición cambia semana a semana (entran actividades que arrancan, salen las que cierran) producía subidas/bajadas falsas.
+- **"Tendencia SPI"** (`EficienciaSpiDTO { Semana, Spi, Esperado=1.0 }`) es el promedio semanal de `ac_avance_semanal.spi` (ya calculado, no se recalcula al vuelo). Fórmula real en `CalcularSpi(AcActividad a)` (Repository línea 970-1017): si la actividad terminó, `SPI = diasPlan / diasReal`; si sigue en curso, `SPI = %avanceReal / %avanceEsperado`; tope `min(spi, 1.5)`. 100% backend — el frontend recibe el número ya calculado.
+- **Precálculo/caché**: tabla `ac_avance_semanal` (snapshot por actividad×semana). Se llena vía `POST /api/v1/arquitectura-comercial/avance-semanal/snapshot` (`SnapshotAvanceSemanal`), `[AllowAnonymous]` + guard `Authorization: Bearer {CronSecret}` (mismo patrón que `/reminder` y `/alertas/*` de otros módulos) — **no hay `IHostedService`/Hangfire en el proceso**, según el propio CONTEXT.md el patrón de este repo es que un cron externo (Azure Logic App / GitHub Actions / EasyCron) le pegue a esa URL periódicamente; no hay evidencia en el código de la frecuencia configurada (vive fuera del repo). Aparte, `ac_actividades.spi` se recalcula síncronamente en cada `UpdateActividad`/`PatchActividad`, y en bloque vía `POST /recalcular-spi` (botón manual, `[Authorize]` normal, sin CronSecret).
+
+### Verificación
+- Sin cambios de código — sesión de solo investigación. `dotnet build`: 0 errores (sin tocar nada).

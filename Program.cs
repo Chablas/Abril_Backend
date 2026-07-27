@@ -37,6 +37,7 @@ using Abril_Backend.Features.VecinosModule;
 using Abril_Backend.Features.AccountingModule;
 using Abril_Backend.Features.BoletinModule;
 using Abril_Backend.Features.ArquitecturaComercialModule;
+using Abril_Backend.Features.LearningModule;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using Abril_Backend.Shared.Services.Decolecta.Interfaces;
@@ -167,6 +168,7 @@ builder.Services.AddVecinosModule();
 builder.Services.AddAccountingModule();
 builder.Services.AddBoletinModule();
 builder.Services.AddArquitecturaComercialModule();
+builder.Services.AddLearningModule();
 
 builder.Services.AddScoped<IConstructionSiteLogbookControlService, ConstructionSiteLogbookControlService>();
 builder.Services.AddScoped<IIvtControlPdfService, IvtControlPdfService>();

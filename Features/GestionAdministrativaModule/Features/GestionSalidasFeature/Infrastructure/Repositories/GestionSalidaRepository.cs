@@ -404,8 +404,20 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var s = await ctx.GaSolicitudSalida.FirstOrDefaultAsync(x => x.Id == id)
                 ?? throw new AbrilException("Solicitud no encontrada.", 404);
             await EnsurePuedeDecidirAsync(ctx, s, reviewerUserId);
-            if (s.EstadoAprobacionId != EstadosSalida.Aprobacion.Pendiente)
-                throw new AbrilException("Solo se pueden rechazar solicitudes en estado Pendiente.", 400);
+
+            // Se puede rechazar una solicitud Pendiente o una ya Aprobada que todavía NO haya sido
+            // rendida: el revisor puede revertir una aprobación mientras no exista la rendición. Una
+            // vez rendida (Rendido) la aprobación queda firme y ya no se puede rechazar.
+            var esPendiente         = s.EstadoAprobacionId == EstadosSalida.Aprobacion.Pendiente;
+            var esAprobadaNoRendida = s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado
+                                   && s.EstadoRendicionId  == EstadosSalida.Rendicion.NoRendido;
+            if (!esPendiente && !esAprobadaNoRendida)
+            {
+                if (s.EstadoAprobacionId == EstadosSalida.Aprobacion.Aprobado)
+                    throw new AbrilException("No se puede rechazar una solicitud que ya fue rendida.", 400);
+                throw new AbrilException("Solo se pueden rechazar solicitudes pendientes o aprobadas aún no rendidas.", 400);
+            }
+
             s.EstadoAprobacionId = EstadosSalida.Aprobacion.Rechazado;
             s.FechaDecision      = DateTimeOffset.UtcNow;
             s.UpdatedAt          = DateTimeOffset.UtcNow;

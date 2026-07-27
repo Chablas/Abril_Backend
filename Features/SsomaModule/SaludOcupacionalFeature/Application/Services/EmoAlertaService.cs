@@ -15,15 +15,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
+        private readonly IConfiguration _configuration;
         private readonly ILogger<EmoAlertaService> _logger;
 
         public EmoAlertaService(
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
+            IConfiguration configuration,
             ILogger<EmoAlertaService> logger)
         {
             _factory = factory;
             _emailService = emailService;
+            _configuration = configuration;
             _logger = logger;
         }
 
@@ -32,12 +35,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             var result = new EmoAlertaResultDto();
             using var ctx = _factory.CreateDbContext();
 
+            var ventanaDias      = _configuration.GetValue<int?>("EmoProgramacion:VentanaDias") ?? 14;
+            var diasHabilesAntes = _configuration.GetValue<int?>("EmoProgramacion:DiasHabilesAntes") ?? 4;
+
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5).Date);
 
-            // Ventana amplia en SQL: hasta 7 días calendario para cubrir cualquier
-            // combinación de 4 días hábiles (max: viernes→viernes anterior = 6 días cal.)
+            // Ventana amplia en SQL para cubrir cualquier combinación de días hábiles antes
+            // del vencimiento (con feriados de por medio el tramo en calendario se estira).
             var ventanaInicio = hoy.AddDays(1);
-            var ventanaFin = hoy.AddDays(7);
+            var ventanaFin = hoy.AddDays(ventanaDias);
+
+            // Feriados/días no laborables para que el cálculo de días hábiles los salte.
+            var cal = await CargarCalendarioHabilAsync(ctx);
 
             // Bug 1 fix: COALESCE(fecha_vencimiento_calculada, fecha_vencimiento)
             // Bug 3 fix: JOIN con SsEmoTipo para leer VigenciaMeses real
@@ -61,12 +70,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 }
             ).AsNoTracking().ToListAsync();
 
-            // Bug 2 fix: disparar alerta solo cuando hoy == fechaVenc - 4 días hábiles
+            // Disparar alerta solo cuando hoy == fechaVenc - N días hábiles (feriados excluidos)
             var candidatos = candidatosRaw
                 .Where(x =>
                 {
                     var fv = (x.Emo.FechaVencimientoCalculada ?? x.Emo.FechaVencimiento)!.Value;
-                    var fechaAlerta = RestarDiasHabiles(fv, 4, EsCalendarioOficina(x.Worker));
+                    var fechaAlerta = cal.RestarDiasHabiles(fv, diasHabilesAntes, EsCalendarioOficina(x.Worker));
                     return fechaAlerta == hoy;
                 })
                 .ToList();
@@ -187,22 +196,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             return result;
         }
 
-        // Retrocede `dias` días hábiles desde `fecha`.
-        // excluirSabado=true para calendarios Mon-Fri (staff/oficina central).
-        // excluirSabado=false para calendarios Mon-Sat (obra/contratista).
-        private static DateOnly RestarDiasHabiles(DateOnly fecha, int dias, bool excluirSabado)
+        private static async Task<CalendarioHabil> CargarCalendarioHabilAsync(AppDbContext ctx)
         {
-            var resultado = fecha;
-            int conteo = 0;
-            while (conteo < dias)
-            {
-                resultado = resultado.AddDays(-1);
-                var dow = resultado.DayOfWeek;
-                if (dow == DayOfWeek.Sunday) continue;
-                if (excluirSabado && dow == DayOfWeek.Saturday) continue;
-                conteo++;
-            }
-            return resultado;
+            var feriados = await ctx.Holiday
+                .AsNoTracking()
+                .Where(h => h.Active && h.State)
+                .Select(h => new { h.HolidayDate, h.RecurringYearly })
+                .ToListAsync();
+
+            return new CalendarioHabil(feriados.Select(f => (f.HolidayDate, f.RecurringYearly)));
         }
 
         // Casa + Staff u Oficina Central → Mon-Fri (excluye sáb y dom).

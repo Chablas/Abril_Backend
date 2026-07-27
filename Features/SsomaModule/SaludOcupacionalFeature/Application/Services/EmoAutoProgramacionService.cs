@@ -13,15 +13,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
+        private readonly IConfiguration _configuration;
         private readonly ILogger<EmoAutoProgramacionService> _logger;
 
         public EmoAutoProgramacionService(
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
+            IConfiguration configuration,
             ILogger<EmoAutoProgramacionService> logger)
         {
             _factory = factory;
             _emailService = emailService;
+            _configuration = configuration;
             _logger = logger;
         }
 
@@ -30,8 +33,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             var result = new EmoAutoProgramacionResultDto();
             using var ctx = _factory.CreateDbContext();
 
+            // Parámetros configurables (defaults si no están en appsettings).
+            var ventanaDias      = _configuration.GetValue<int?>("EmoProgramacion:VentanaDias") ?? 14;
+            var diasHabilesAntes = _configuration.GetValue<int?>("EmoProgramacion:DiasHabilesAntes") ?? 4;
+            var pisoDiasHabiles  = _configuration.GetValue<int?>("EmoProgramacion:PisoDiasHabiles") ?? 2;
+
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5).Date);
-            var ventanaFin = hoy.AddDays(6);
+            var ventanaFin = hoy.AddDays(ventanaDias);
+
+            // Feriados/días no laborables para que el cálculo de días hábiles los salte.
+            var cal = await CargarCalendarioHabilAsync(ctx);
 
             var candidatosRaw = await (
                 from e in ctx.WorkerEmo
@@ -104,8 +115,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                     var fv = (c.Emo.FechaVencimientoCalculada ?? c.Emo.FechaVencimiento)!.Value;
                     var esOficina = EsCalendarioOficina(c.Worker);
-                    var fechaDesdeVencimiento = RestarDiasHabiles(fv, 4, esOficina);
-                    var fechaMinima = SiguienteDiaHabil(SiguienteDiaHabil(hoy, esOficina), esOficina);
+                    var fechaDesdeVencimiento = cal.RestarDiasHabiles(fv, diasHabilesAntes, esOficina);
+                    var fechaMinima = cal.SumarDiasHabiles(hoy, pisoDiasHabiles, esOficina);
                     var fechaProg = fechaDesdeVencimiento > fechaMinima ? fechaDesdeVencimiento : fechaMinima;
 
                     var nueva = new SsProgramacionEmo
@@ -226,31 +237,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             }
         }
 
-        private static DateOnly RestarDiasHabiles(DateOnly fecha, int dias, bool excluirSabado)
+        private static async Task<CalendarioHabil> CargarCalendarioHabilAsync(AppDbContext ctx)
         {
-            var resultado = fecha;
-            int conteo = 0;
-            while (conteo < dias)
-            {
-                resultado = resultado.AddDays(-1);
-                var dow = resultado.DayOfWeek;
-                if (dow == DayOfWeek.Sunday) continue;
-                if (excluirSabado && dow == DayOfWeek.Saturday) continue;
-                conteo++;
-            }
-            return resultado;
-        }
+            var feriados = await ctx.Holiday
+                .AsNoTracking()
+                .Where(h => h.Active && h.State)
+                .Select(h => new { h.HolidayDate, h.RecurringYearly })
+                .ToListAsync();
 
-        private static DateOnly SiguienteDiaHabil(DateOnly fecha, bool excluirSabado)
-        {
-            var resultado = fecha.AddDays(1);
-            while (true)
-            {
-                var dow = resultado.DayOfWeek;
-                if (dow == DayOfWeek.Sunday) { resultado = resultado.AddDays(1); continue; }
-                if (excluirSabado && dow == DayOfWeek.Saturday) { resultado = resultado.AddDays(1); continue; }
-                return resultado;
-            }
+            return new CalendarioHabil(feriados.Select(f => (f.HolidayDate, f.RecurringYearly)));
         }
 
         private static bool EsCalendarioOficina(Worker worker)

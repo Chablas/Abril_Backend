@@ -22,33 +22,25 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Application.S
             if (trimestre < 1 || trimestre > 4)
                 throw new AbrilException("El trimestre debe estar entre 1 y 4.", 400);
 
+            // Solo datos: las fotos se traen aparte, bajo demanda (hover), vía GetFoto.
+            // Traerlas todas aquí era lo que hacía que la carga del trimestre tardara demasiado.
             var cumpleaneros = await _repo.GetCumpleaneros(trimestre);
-
-            if (cumpleaneros.Count > 0)
-            {
-                var emails = cumpleaneros
-                    .Select(c => c.Email)
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                var fotos = await _photoService.GetPhotosByEmailsAsync(emails);
-
-                foreach (var c in cumpleaneros)
-                {
-                    if (!string.IsNullOrWhiteSpace(c.Email) &&
-                        fotos.TryGetValue(c.Email, out var foto))
-                    {
-                        c.FotoBase64 = foto;
-                    }
-                }
-            }
 
             return new TrimestreCumpleanosDto
             {
                 Trimestre = trimestre,
                 Cumpleaneros = cumpleaneros,
             };
+        }
+
+        public async Task<string?> GetFoto(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                throw new AbrilException("El correo es obligatorio.", 400);
+
+            // Reutiliza el batch de Graph con un único correo → devuelve solo esa foto.
+            var fotos = await _photoService.GetPhotosByEmailsAsync(new List<string> { email });
+            return fotos.TryGetValue(email, out var foto) ? foto : null;
         }
     }
 }

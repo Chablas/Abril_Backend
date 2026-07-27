@@ -91,7 +91,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _repo.IniciarRevisionCv(requerimientoId, userId);
 
         // ── Envío de la long list al solicitante ──────────────────────────────
-        private const long MaxLongListBytes = 20 * 1024 * 1024; // 20 MB en total (CVs + informes)
+        // Topes de tamaño de la long list. Antes eran 20 MB (tanto el total como cada archivo); se
+        // subieron a 3 GB para el total de la petición y a 3 GB para cada archivo individual. Los
+        // topes de request de Kestrel/FormOptions (Program.cs) ya están en 10 GB, así que no limitan.
+        // OJO: usar el sufijo L (long) — 3 * 1024^3 desborda un int.
+        private const long MaxLongListTotalBytes = 3L * 1024 * 1024 * 1024; // 3 GB en total (CVs + informes)
+        private const long MaxLongListFileBytes  = 3L * 1024 * 1024 * 1024; // 3 GB por archivo individual
         private static readonly string[] AllowedLongListExt = { ".pdf", ".doc", ".docx" };
 
         public async Task<EstadoRequerimientoResultDto> EnviarLongList(
@@ -117,8 +122,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     total += c.InformeContent.Length;
                 }
             }
-            if (total > MaxLongListBytes)
-                throw new AbrilException("El tamaño total de los CVs e informes supera el máximo permitido (20 MB).", 400);
+            if (total > MaxLongListTotalBytes)
+                throw new AbrilException("El tamaño total de los CVs e informes supera el máximo permitido (3 GB).", 400);
 
             // 1) Contexto (valida fase LONG_LIST) — no cambia estado todavía.
             var ctx = await _repo.GetLongListEnvioContexto(requerimientoId);
@@ -294,8 +299,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             var ext = Path.GetExtension(fileName).ToLowerInvariant();
             if (!AllowedLongListExt.Contains(ext))
                 throw new AbrilException($"El {etiqueta} tiene un formato no permitido. Solo PDF, DOC o DOCX.", 400);
-            if (length > MaxLongListBytes)
-                throw new AbrilException($"El {etiqueta} supera el tamaño máximo permitido.", 400);
+            if (length > MaxLongListFileBytes)
+                throw new AbrilException($"El {etiqueta} supera el tamaño máximo permitido (3 GB).", 400);
         }
 
         private static string ConstruirCuerpoLongList(LongListEnvioContextoDto ctx, List<LongListCandidatoArchivoDto> candidatos)

@@ -480,18 +480,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 {
                     col.Item().PaddingTop(24).Row(row =>
                     {
-                        row.RelativeItem().AlignCenter().Column(fc =>
-                        {
-                            fc.Item().LineHorizontal(0.7f);
-                            fc.Item().PaddingTop(2).AlignCenter()
-                                .Text("Firma de Jefatura").FontSize(9).Italic();
-                        });
+                        row.RelativeItem(); // mitad izquierda vacía: empuja la firma a la derecha
                         row.ConstantItem(60); // spacer
                         row.RelativeItem().AlignCenter().Column(fc =>
                         {
                             fc.Item().LineHorizontal(0.7f);
                             fc.Item().PaddingTop(2).AlignCenter()
-                                .Text("Firma de Gerencia").FontSize(9).Italic();
+                                .Text("Firma de Jefatura / Gerencia").FontSize(9).Italic();
                         });
                     });
                 }

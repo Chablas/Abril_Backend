@@ -372,8 +372,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         /// Resuelve los trayectos de la entidad a tuplas listas para embeber en el cuerpo del email.
         /// Hace lookups por motivo y por lugar (origen/destino) para mostrar nombres legibles.
         /// Devuelve además si corresponde mostrar el recordatorio de recuperación de horas:
-        /// solo se oculta cuando TODOS los trayectos tienen motivo de hora estimada
-        /// (el motivo libre cuenta como hora exacta) — misma regla multi-trayecto que gestión de salidas.
+        /// solo se muestra cuando al menos un trayecto tiene un motivo del catálogo de hora
+        /// exacta. Los motivos de hora estimada y el motivo libre (personalizado) quedan
+        /// excluidos a propósito y nunca lo disparan — misma regla que el formulario.
         /// </summary>
         private static async Task<(List<(int Orden, string HoraSalida, string HoraRetorno, string Motivo, string Origen, string Destino)> Trayectos, bool MostrarRecordatorio)>
             ResolveTrayectosForEmailAsync(AppDbContext ctx, List<GaSolicitudTrayecto> trayectos)
@@ -394,8 +395,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 }
                 else
                 {
+                    // Motivo personalizado (libre): NO dispara el recordatorio de recuperación
+                    // de horas — se omite tanto en el formulario como en los correos.
                     motivo = t.MotivoLibre ?? "—";
-                    algunaHoraExacta = true;
                 }
 
                 var origen  = await ResolveLugarDisplay(ctx, t.LugarOrigenId,  t.LugarOrigenLibre);

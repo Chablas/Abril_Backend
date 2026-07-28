@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Features.LearningModule.Infrastructure.Models;
 using Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeature.Infrastructure.Models;
@@ -450,6 +451,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEstado> GthCandidatoEstado => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEstado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato> GthCandidato => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>();
 
+        // ── Centro de aprendizaje y guías (videos-guía por área/módulo) ──────────
+        public DbSet<LearningSurface> LearningSurface => Set<LearningSurface>();
+        public DbSet<LearningCategory> LearningCategory => Set<LearningCategory>();
+        public DbSet<LearningVideo> LearningVideo => Set<LearningVideo>();
+        public DbSet<LearningCategoryRole> LearningCategoryRole => Set<LearningCategoryRole>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             if (_provider == "PostgreSQL")
@@ -467,6 +474,10 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(p => p.User)
                 .WithOne(u => u.Person)
                 .HasForeignKey<Person>(p => p.UserId);
+
+            // Centro de aprendizaje: llave compuesta de la relación N:M categoría↔rol.
+            modelBuilder.Entity<LearningCategoryRole>()
+                .HasKey(x => new { x.LearningCategoryId, x.RoleId });
 
             modelBuilder.Entity<SsProgramacionEmo>()
                 .Property(e => e.Origen)

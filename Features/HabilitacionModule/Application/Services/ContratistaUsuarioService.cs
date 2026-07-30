@@ -152,6 +152,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
             var existing = await ctx.SsContratistaUsuarios
                 .Include(u => u.Rol)
+                .Include(u => u.Proyectos)
                 .FirstOrDefaultAsync(u => u.Id == id && u.ContractorId == contractorId)
                 ?? throw new AbrilException("Usuario no encontrado.", 404);
 
@@ -168,8 +169,19 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             }
 
             var scope = dto.Scope?.Trim().ToUpper() ?? existing.Scope;
-            if (scope == "POR_PROYECTO" && (dto.ProyectoIds is null || dto.ProyectoIds.Count == 0))
-                throw new AbrilException("Debe seleccionar al menos un proyecto.", 400);
+            // Si el scope es POR_PROYECTO, el usuario debe terminar con al menos un proyecto.
+            // Cuando el DTO no envía ProyectoIds (update parcial, p. ej. solo activar/desactivar),
+            // se conservan los proyectos ya asignados, así que se valida contra los existentes.
+            // Solo se rechaza cuando el resultado quedaría sin proyectos (lista vacía explícita
+            // desde el formulario de edición).
+            if (scope == "POR_PROYECTO")
+            {
+                var proyectosResultantes = dto.ProyectoIds is not null
+                    ? dto.ProyectoIds.Count
+                    : existing.Proyectos.Count;
+                if (proyectosResultantes == 0)
+                    throw new AbrilException("Debe seleccionar al menos un proyecto.", 400);
+            }
 
             var entityUpdate = new SsContratistaUsuario
             {

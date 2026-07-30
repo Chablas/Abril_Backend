@@ -177,6 +177,114 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             };
         }
 
+        public async Task<LongListDecisionContextoDto> RegistrarDecisionLongList(
+            int requerimientoId, List<CandidatoDecisionDto> decisiones, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Cabecera + estado actual, con scope al solicitante dueño de la solicitud. Se trae la
+            // entidad del requerimiento (r) para mutarla; EF la rastrea aunque venga en un anónimo.
+            var head = await (
+                from r in ctx.GthRequerimiento
+                where r.GthRequerimientoId == requerimientoId
+                      && r.State && r.Solicitud!.State
+                      && r.Solicitud.SolicitanteUserId == userId
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new
+                {
+                    Req          = r,
+                    r.Codigo,
+                    Puesto       = p.Nombre,
+                    Area         = r.Solicitud!.AreaNombre,
+                    ProyectoObra = pr.ProjectDescription,
+                    EstadoCodigo = e.Codigo,
+                }).FirstOrDefaultAsync();
+
+            if (head == null)
+                throw new AbrilException("No se encontró la long list del requerimiento.", 404);
+
+            // La decisión solo se registra una vez, cuando GTH ya envió la long list (LONG_LIST_ENVIADA).
+            if (head.EstadoCodigo != EstadoReclutamiento.LongListEnviada)
+                throw new AbrilException("Esta long list ya fue revisada o aún no está disponible para revisión.", 409);
+
+            var candidatos = await ctx.GthCandidato
+                .Where(c => c.GthRequerimientoId == requerimientoId && c.State)
+                .OrderBy(c => c.Orden).ThenBy(c => c.GthCandidatoId)
+                .ToListAsync();
+            if (candidatos.Count == 0)
+                throw new AbrilException("La long list no tiene candidatos para revisar.", 400);
+
+            // Decisión recibida por candidato; deben cubrir exactamente a los candidatos vigentes.
+            var decisionPorId = new Dictionary<int, bool>();
+            foreach (var d in decisiones) decisionPorId[d.CandidatoId] = d.Aprobado;
+            if (candidatos.Any(c => !decisionPorId.ContainsKey(c.GthCandidatoId)))
+                throw new AbrilException("Debes aprobar o rechazar a todos los candidatos antes de enviar la decisión.", 400);
+
+            var estadosCand = await ctx.GthCandidatoEstado
+                .Where(e => e.State && (e.Codigo == EstadoCandidato.Aprobado || e.Codigo == EstadoCandidato.Rechazado))
+                .ToListAsync();
+            var aprobadoId = estadosCand.FirstOrDefault(e => e.Codigo == EstadoCandidato.Aprobado)?.GthCandidatoEstadoId
+                ?? throw new AbrilException("No está configurado el estado APROBADO de candidatos.", 500);
+            var rechazadoId = estadosCand.FirstOrDefault(e => e.Codigo == EstadoCandidato.Rechazado)?.GthCandidatoEstadoId
+                ?? throw new AbrilException("No está configurado el estado RECHAZADO de candidatos.", 500);
+
+            var now = DateTimeOffset.UtcNow;
+            int aprobados = 0, rechazados = 0;
+            foreach (var c in candidatos)
+            {
+                var aprobado = decisionPorId[c.GthCandidatoId];
+                c.GthCandidatoEstadoId = aprobado ? aprobadoId : rechazadoId;
+                c.UpdatedDateTime      = now;
+                c.UpdatedUserId        = userId;
+                if (aprobado) aprobados++; else rechazados++;
+            }
+
+            // ≥1 aprobado → LONG_LIST_APROBADA. 0 aprobados → de vuelta a LONG_LIST para que GTH
+            // vuelva a enviar una long list (los rechazados quedan grabados como data histórica).
+            var todosRechazados = aprobados == 0;
+            var codigoDestino   = todosRechazados ? EstadoReclutamiento.LongList : EstadoReclutamiento.LongListAprobada;
+            var estadoDestino   = await ctx.GthEstadoRequerimiento
+                .FirstOrDefaultAsync(e => e.Codigo == codigoDestino && e.State)
+                ?? throw new AbrilException($"No está configurado el estado {codigoDestino} de reclutamiento.", 500);
+
+            head.Req.GthEstadoRequerimientoId = estadoDestino.GthEstadoRequerimientoId;
+            head.Req.UpdatedDateTime          = now;
+            head.Req.UpdatedUserId            = userId;
+
+            // Nombre del solicitante para el cuerpo del correo (best-effort; no bloquea).
+            var solicitanteNombre = await ctx.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                .FirstOrDefaultAsync();
+
+            await ctx.SaveChangesAsync();
+
+            return new LongListDecisionContextoDto
+            {
+                Resultado = new LongListDecisionResultDto
+                {
+                    EstadoCodigo    = estadoDestino.Codigo,
+                    EstadoNombre    = estadoDestino.Nombre,
+                    Aprobados       = aprobados,
+                    Rechazados      = rechazados,
+                    TodosRechazados = todosRechazados,
+                },
+                Codigo            = head.Codigo,
+                Puesto            = head.Puesto,
+                Area              = head.Area,
+                ProyectoObra      = head.ProyectoObra,
+                SolicitanteNombre = solicitanteNombre,
+                Candidatos        = candidatos.Select(c => new CandidatoDecididoDto
+                {
+                    Nombre   = c.Nombre,
+                    Puesto   = c.Puesto,
+                    Aprobado = decisionPorId[c.GthCandidatoId],
+                }).ToList(),
+            };
+        }
+
         public async Task<List<SolicitudVacanteListItemDto>> GetRequerimientosBySolicitud(int solicitudId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -376,6 +484,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             foreach (var c in canales)
                 c.Publicado = publicados.Contains(c.Id);
 
+            // Candidatos aprobados por el solicitante (para la fase "Long list aprobada", imágenes 4/5).
+            // Vacío en fases anteriores; los rechazados no se incluyen.
+            var candidatosAprobados = await (
+                from c in ctx.GthCandidato
+                where c.GthRequerimientoId == requerimientoId && c.State
+                join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+                where est.Codigo == EstadoCandidato.Aprobado
+                orderby c.Orden, c.GthCandidatoId
+                select new CandidatoAprobadoDto
+                {
+                    CandidatoId = c.GthCandidatoId,
+                    Nombre      = c.Nombre,
+                    Puesto      = c.Puesto,
+                }).ToListAsync();
+
             return new DetalleRequerimientoGthDto
             {
                 RequerimientoId       = head.GthRequerimientoId,
@@ -398,8 +521,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Responsables    = responsables,
                 TiposProceso    = tiposProceso,
                 Prioridades     = prioridades,
-                RazonesSociales = razonesSociales,
-                Canales         = canales,
+                RazonesSociales     = razonesSociales,
+                Canales             = canales,
+                CandidatosAprobados = candidatosAprobados,
             };
         }
 
@@ -1044,10 +1168,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// <summary>Códigos estables de estados de reclutamiento (espejo de gth_estado_requerimiento.codigo).</summary>
     internal static class EstadoReclutamiento
     {
-        public const string Nuevo           = "NUEVO";
-        public const string Publicacion     = "PUBLICACION";
-        public const string LongList        = "LONG_LIST";
-        public const string LongListEnviada = "LONG_LIST_ENVIADA";
+        public const string Nuevo            = "NUEVO";
+        public const string Publicacion      = "PUBLICACION";
+        public const string LongList         = "LONG_LIST";
+        public const string LongListEnviada  = "LONG_LIST_ENVIADA";
+        public const string LongListAprobada = "LONG_LIST_APROBADA";
     }
 
     /// <summary>Códigos estables de prioridad de reclutamiento (espejo de gth_prioridad.codigo).</summary>

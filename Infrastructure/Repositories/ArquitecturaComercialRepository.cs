@@ -393,6 +393,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                                 Actividad = a,
                                 ProjectNombre = p.ProjectDescription,
                                 Encargado1 = p.ResponsableArqCom,
+                                ResponsableArqComId = p.ResponsableArqComId,
                                 EtapaNombre = e != null ? e.Nombre : null,
                                 ResponsableNombre = w != null ? (w.Person != null ? w.Person.FullName : null) : null,
                                 ResponsableNombre2 = w2 != null ? (w2.Person != null ? w2.Person.FullName : null) : null,
@@ -419,8 +420,13 @@ namespace Abril_Backend.Infrastructure.Repositories
             if (soloActivas.HasValue && soloActivas.Value)
                 baseQuery = baseQuery.Where(x => x.Actividad.Activo);
 
+            // Incluye el fallback al responsable del proyecto (mismo criterio que la carga por
+            // arquitecto): las actividades con UserId NULL pertenecen al responsable del proyecto.
             if (userId.HasValue && userId.Value > 0)
-                baseQuery = baseQuery.Where(x => x.Actividad.UserId == userId || x.Actividad.UserId2 == userId);
+                baseQuery = baseQuery.Where(x =>
+                    x.Actividad.UserId == userId
+                    || x.Actividad.UserId2 == userId
+                    || (x.Actividad.UserId == null && x.ResponsableArqComId == userId));
 
             int total = await baseQuery.CountAsync();
 
@@ -1419,13 +1425,17 @@ namespace Abril_Backend.Infrastructure.Repositories
                 .Where(p => p.ResponsableArqComId != null)
                 .ToDictionary(p => p.ProjectId, p => p.ResponsableArqComId!.Value);
 
+            // Responsable "real" de la actividad: el asignado directo (UserId) o, si es NULL
+            // (Hitos/Entregables sin encargado directo), el responsable del proyecto. Este
+            // fallback debe usarse en TODO cálculo por arquitecto (carga y ranking), igual que
+            // al armar workerIds. Antes se omitía en el conteo por arquitecto y descontaba las
+            // actividades a quien solo figuraba como responsable del proyecto (bug reportado en
+            // Distribución de Carga: no se contaban las actividades con UserId NULL).
+            int? Resp1(AcActividad a) => a.UserId ??
+                (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
+
             var workerIds = actividadesSemanaActual
-                .SelectMany(a =>
-                {
-                    var resp1 = a.UserId ??
-                        (proyectoResponsableMap.TryGetValue(a.ProjectId, out var rid) ? rid : (int?)null);
-                    return new[] { resp1, a.UserId2 };
-                })
+                .SelectMany(a => new[] { Resp1(a), a.UserId2 })
                 .Where(id => id.HasValue).Select(id => id!.Value)
                 .Distinct().ToList();
 
@@ -1438,7 +1448,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             // Distribución de carga y ranking de eficiencia: solo actividades de la semana en control (foto semanal)
             var tareasPorArquitectoDetalle = workerIds.Select(uid =>
             {
-                var tareas     = actividadesSemanaActual.Where(a => a.UserId == uid || a.UserId2 == uid).ToList();
+                var tareas     = actividadesSemanaActual.Where(a => Resp1(a) == uid || a.UserId2 == uid).ToList();
                 var completadas = tareas.Count(a => a.FinEfectivo != null);
                 // Carga actual = NO culminadas que ya llegaron a su fecha de inicio
                 var pendientes  = tareas.Where(a => a.FinEfectivo == null
@@ -1466,18 +1476,18 @@ namespace Abril_Backend.Infrastructure.Repositories
                     //   - "vencenEstaSemana": debía CERRAR esta semana (FinProgramado en la semana).
                     //   - "arrancanEstaSemana": debía EMPEZAR esta semana (InicioProgramado en la semana).
                     var vencenEstaSemana = actividades.Where(a =>
-                        (a.UserId == uid || a.UserId2 == uid)
+                        (Resp1(a) == uid || a.UserId2 == uid)
                         && a.FinProgramado.HasValue
                         && a.FinProgramado.Value >= semLunes && a.FinProgramado.Value <= semDomingo).ToList();
                     var arrancanEstaSemana = actividades.Where(a =>
-                        (a.UserId == uid || a.UserId2 == uid)
+                        (Resp1(a) == uid || a.UserId2 == uid)
                         && a.InicioProgramado.HasValue
                         && a.InicioProgramado.Value >= semLunes && a.InicioProgramado.Value <= semDomingo).ToList();
 
                     // Deuda anterior: vencidas de semanas PREVIAS a la semana en control, sin cerrar.
                     // Informativo — no entra en el IES, para no arrastrar penalización eterna.
                     var deudaAnterior = actividades.Count(a =>
-                        (a.UserId == uid || a.UserId2 == uid)
+                        (Resp1(a) == uid || a.UserId2 == uid)
                         && a.FinProgramado.HasValue && a.FinProgramado.Value < semLunes
                         && a.FinEfectivo == null);
 

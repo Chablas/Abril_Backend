@@ -398,7 +398,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     .ToList();
                 if (workersAfectadosHab.Count > 0)
                 {
-                    await RecalcularPolizasPorWorkersAsync(ctx, item.Id, workersAfectadosHab);
+                    await RecalcularPolizasPorWorkersAsync(ctx, workersAfectadosHab);
                 }
 
                 // Si la póliza se quedó sin trabajadores, no hay nada pendiente:
@@ -561,7 +561,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // desactualizado (p.ej. "Enviado" cuando ya no hay pendientes reales).
             if (item is not null && afectados.Count > 0)
             {
-                await RecalcularPolizasPorWorkersAsync(ctx, item.Id, afectados);
+                await RecalcularPolizasPorWorkersAsync(ctx, afectados);
             }
 
             var dtos = await BuildDtosAsync(ctx, new List<SsSctrVidaley> { entity });
@@ -806,11 +806,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         }
 
         // Recalcula el Estado de TODAS las pólizas (de cualquier mes) que incluyan
-        // alguno de estos workers para este item, no solo la póliza que se está editando.
+        // alguno de estos workers, no solo la póliza que se está editando.
         // Sin esto, aprobar/rechazar un trabajador en la póliza del mes actual deja
         // pólizas viejas (de meses anteriores) con Estado="Enviado" desactualizado,
         // aunque ya no tengan trabajadores realmente pendientes.
-        private async Task RecalcularPolizasPorWorkersAsync(AppDbContext ctx, int itemId, List<int> workerIds)
+        //
+        // IMPORTANTE: el item (SCTR vs Vida Ley) se resuelve SEGÚN EL TIPO DE CADA
+        // PÓLIZA. Antes se recibía un único itemId y se aplicaba a todas las pólizas
+        // por igual; como SCTR y Vida Ley comparten los mismos trabajadores, aprobar
+        // una póliza SCTR recalculaba también la póliza Vida Ley (y viceversa) mirando
+        // el item equivocado y la marcaba "Aprobado" indebidamente, haciéndola
+        // desaparecer de la bandeja "Enviado"/"En revisión".
+        private async Task RecalcularPolizasPorWorkersAsync(AppDbContext ctx, List<int> workerIds)
         {
             if (workerIds.Count == 0) return;
 
@@ -826,8 +833,18 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 .Where(s => polizaIds.Contains(s.Id))
                 .ToListAsync();
 
+            var sctrItems = await ctx.SsItemTrabajador
+                .Where(i => i.EsSctrVidaley && i.Activo)
+                .ToListAsync();
+
             foreach (var poliza in polizas)
             {
+                var item = sctrItems.FirstOrDefault(i =>
+                    poliza.Tipo == "VIDA_LEY"
+                        ? i.Nombre.Contains("Vida", StringComparison.OrdinalIgnoreCase)
+                        : i.Nombre.Contains("SCTR", StringComparison.OrdinalIgnoreCase));
+                if (item is null) continue;
+
                 var workersDePoliza = await ctx.SsSctrVidaLeyWorker
                     .Where(w => w.SctrVidaLeyId == poliza.Id)
                     .Select(w => w.WorkerId)
@@ -836,13 +853,13 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 if (workersDePoliza.Count == 0) continue;
 
                 var countEnviado = await ctx.SsHabTrabajador
-                    .Where(h => h.ItemId == itemId
+                    .Where(h => h.ItemId == item.Id
                              && workersDePoliza.Contains(h.WorkerId)
                              && h.Estado == "Enviado")
                     .CountAsync();
 
                 var countEnRevision = await ctx.SsHabTrabajador
-                    .Where(h => h.ItemId == itemId
+                    .Where(h => h.ItemId == item.Id
                              && workersDePoliza.Contains(h.WorkerId)
                              && h.Estado == "En revision")
                     .CountAsync();

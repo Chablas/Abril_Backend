@@ -143,6 +143,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Registra la decisión del solicitante sobre la long list (aprobar/rechazar por candidato)
+        /// y notifica a GTH por correo. Solo el solicitante dueño y solo cuando el requerimiento está
+        /// en LONG_LIST_ENVIADA. Devuelve el estado resultante y los conteos.
+        /// </summary>
+        [HttpPost("requerimiento/{id:int}/long-list/decision")]
+        public async Task<IActionResult> RegistrarDecisionLongList(int id, [FromBody] LongListDecisionDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var result = await _service.RegistrarDecisionLongList(id, dto, userId);
+                var message = result.TodosRechazados
+                    ? "Decisión registrada. Rechazaste a todos los candidatos; GTH enviará una nueva long list."
+                    : "Decisión registrada y notificada a GTH.";
+                return Ok(new { message, result.EstadoCodigo, result.EstadoNombre, result.Aprobados, result.Rechazados, result.TodosRechazados });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.RegistrarDecisionLongList");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Vista de GTH: bandeja de reclutamiento (tarjeta "En proceso" + tabla de solicitudes de
         /// contratación de toda la organización), en una sola petición.
         /// </summary>

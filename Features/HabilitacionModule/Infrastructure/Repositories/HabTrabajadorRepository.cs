@@ -696,13 +696,17 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var itemsToRestore = new HashSet<int>();
             var pendingEmails = new List<(List<string> To, string Subject, string Body)>();
             Project? proyectoDestino = null;
+            // Se hoistea a este scope porque también determina el induccion_completada con el que
+            // nace la fila de ss_hab_worker_proyecto del proyecto destino (ver llamada a
+            // SincronizarWorkerProyectoCambioAsync más abajo).
+            bool yaIndujoEnNuevoProyecto = false;
 
             if (esCambioProyecto)
             {
                 proyectoDestino = await ctx.Project
                     .FirstOrDefaultAsync(p => p.ProjectId == dto.NuevoProyectoId);
 
-                var yaIndujoEnNuevoProyecto = await ctx.WorkerProyecto
+                yaIndujoEnNuevoProyecto = await ctx.WorkerProyecto
                     .AnyAsync(wp => wp.WorkerId == workerId
                         && wp.ProyectoId == dto.NuevoProyectoId
                         && wp.InduccionCompletada);
@@ -791,7 +795,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     dto.NuevoProyectoId,
                     dto.NuevaEmpresaId ?? currentEmpresaId,
                     fechaCambio,
-                    now);
+                    now,
+                    // La inducción del proyecto destino solo se hereda si ya se indujo ahí; si no,
+                    // este mismo cambio de obra la resetea a "Falta" (itemsToReset) y la fila debe
+                    // nacer como pendiente. Antes se leía el item 12 global (aún "Aprobado" en este
+                    // punto) y la fila quedaba completada=true contradiciendo el reset posterior.
+                    yaIndujoEnNuevoProyecto);
             }
 
             if (itemsToReset.Count > 0)
@@ -1073,7 +1082,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     dto.NuevoProyectoId.Value,
                     dto.NuevaEmpresaId ?? currentEmpresaId,
                     fechaReingreso,
-                    now);
+                    now,
+                    // En un reingreso con cambio de proyecto, la Inducción Obra siempre se resetea a
+                    // "Falta" (itemsToReset más abajo), por lo que la fila del proyecto destino debe
+                    // nacer como inducción pendiente.
+                    induccionCompletadaNuevoProyecto: false);
             }
 
             if (itemsToReset.Count > 0)
@@ -1216,7 +1229,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             int proyectoNuevoId,
             int? empresaNuevaId,
             DateOnly fechaCambio,
-            DateTimeOffset now)
+            DateTimeOffset now,
+            bool induccionCompletadaNuevoProyecto)
         {
             if (proyectoAnteriorId.HasValue && proyectoAnteriorId.Value != proyectoNuevoId)
             {
@@ -1246,14 +1260,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (previaCerrada != null)
             {
                 previaCerrada.FechaFin = null;
+                // El flag de inducción del proyecto destino lo decide la operación que llama (según
+                // si la inducción se resetea o se conserva para ese proyecto), no el item 12 global.
+                previaCerrada.InduccionCompletada = induccionCompletadaNuevoProyecto;
+                previaCerrada.FechaInduccion = induccionCompletadaNuevoProyecto
+                    ? previaCerrada.FechaInduccion ?? DateOnly.FromDateTime(now.UtcDateTime)
+                    : null;
                 previaCerrada.UpdatedAt = now;
                 return;
             }
-
-            // Si el trabajador ya tiene "Inducción Obra" aprobada globalmente, el nuevo proyecto
-            // hereda esa inducción — no debe quedar como pendiente cuando arriba ya dice Aprobado.
-            var induccionYaAprobada = await ctx.SsHabTrabajador
-                .AnyAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.InduccionObra && h.Estado == "Aprobado");
 
             ctx.WorkerProyecto.Add(new WorkerProyecto
             {
@@ -1262,8 +1277,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 EmpresaId = empresaNuevaId,
                 FechaInicio = fechaCambio,
                 FechaFin = null,
-                InduccionCompletada = induccionYaAprobada,
-                FechaInduccion = induccionYaAprobada ? DateOnly.FromDateTime(now.UtcDateTime) : null,
+                InduccionCompletada = induccionCompletadaNuevoProyecto,
+                FechaInduccion = induccionCompletadaNuevoProyecto ? DateOnly.FromDateTime(now.UtcDateTime) : null,
                 CreatedAt = now,
                 UpdatedAt = null
             });

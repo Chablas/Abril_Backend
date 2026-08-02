@@ -105,6 +105,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<RevisionLongListDto?> GetRevisionLongList(int requerimientoId, int userId);
 
+        /// <summary>
+        /// Registra la decisión del solicitante sobre la long list (aprobar/rechazar por candidato) y
+        /// avanza el requerimiento: a LONG_LIST_APROBADA si aprobó al menos uno, o de vuelta a LONG_LIST
+        /// si rechazó a todos (para que GTH envíe una nueva long list; los rechazados quedan grabados).
+        /// Scope: solo el solicitante dueño y solo si el requerimiento está en LONG_LIST_ENVIADA. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe/no le
+        /// pertenece, 409 si ya no está pendiente de revisión y 400 si faltan decisiones. Devuelve el
+        /// contexto para el correo (cabecera + candidatos con su decisión) además del estado resultante.
+        /// </summary>
+        Task<LongListDecisionContextoDto> RegistrarDecisionLongList(
+            int requerimientoId, List<CandidatoDecisionDto> decisiones, int userId);
+
         /// <summary>Destinatarios vigentes del correo del tipo indicado (SOLICITUD / LONG_LIST): principales + copias.</summary>
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
 

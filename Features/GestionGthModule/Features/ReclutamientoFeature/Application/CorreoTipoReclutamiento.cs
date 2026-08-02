@@ -12,14 +12,18 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Correo de "long list enviada" (va al solicitante).</summary>
         public const string LongList = "LONG_LIST";
 
+        /// <summary>Correo de "decisión de long list" (lo envía el solicitante y va a GTH).</summary>
+        public const string LongListDecision = "LONG_LIST_DECISION";
+
         /// <summary>
-        /// Traduce el slug de la URL (<c>solicitud</c> / <c>long-list</c>) al código estable.
-        /// Devuelve null si el slug no corresponde a un tipo conocido.
+        /// Traduce el slug de la URL (<c>solicitud</c> / <c>long-list</c> / <c>decision-long-list</c>)
+        /// al código estable. Devuelve null si el slug no corresponde a un tipo conocido.
         /// </summary>
         public static string? FromSlug(string? slug) => slug?.Trim().ToLowerInvariant() switch
         {
-            "solicitud" => Solicitud,
-            "long-list" => LongList,
+            "solicitud"           => Solicitud,
+            "long-list"           => LongList,
+            "decision-long-list"  => LongListDecision,
             _ => null,
         };
     }

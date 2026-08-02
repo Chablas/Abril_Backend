@@ -59,6 +59,123 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             return revision;
         }
 
+        public async Task<LongListDecisionResultDto> RegistrarDecisionLongList(
+            int requerimientoId, LongListDecisionDto dto, int? userId)
+        {
+            if (!userId.HasValue)
+                throw new AbrilException("No se pudo identificar al usuario.", 401);
+            if (dto?.Decisiones == null || dto.Decisiones.Count == 0)
+                throw new AbrilException("Debes aprobar o rechazar a los candidatos antes de enviar la decisión.", 400);
+
+            // 1) Persistir la decisión y avanzar el requerimiento (LONG_LIST_APROBADA o vuelta a LONG_LIST).
+            var ctx = await _repo.RegistrarDecisionLongList(requerimientoId, dto.Decisiones, userId.Value);
+
+            // 2) Notificar a GTH por correo (tipo LONG_LIST_DECISION). Best-effort: la decisión ya quedó
+            //    registrada; si el correo falla solo se registra el warning (no se revierte el estado).
+            await NotificarDecisionAGthAsync(ctx);
+
+            return ctx.Resultado;
+        }
+
+        /// <summary>
+        /// Envía a GTH el correo con la decisión del solicitante sobre la long list (tipo
+        /// LONG_LIST_DECISION). To = principales configurados, CC = copias. Sin principales no se
+        /// envía. No bloquea: cualquier fallo solo se registra como warning.
+        /// </summary>
+        private async Task NotificarDecisionAGthAsync(LongListDecisionContextoDto ctx)
+        {
+            try
+            {
+                var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.LongListDecision);
+                if (dest.Principales.Count == 0)
+                {
+                    _logger.LogWarning(
+                        "No hay destinatarios principales configurados para el correo de decisión de long list ({Codigo}); no se envía.",
+                        ctx.Codigo);
+                    return;
+                }
+
+                var estado = ctx.Resultado.TodosRechazados ? "rechazó a todos los candidatos" : $"aprobó {ctx.Resultado.Aprobados} candidato(s)";
+                var subject = $"[Reclutamiento] Decisión de long list — {ctx.Codigo} · {ctx.Puesto}";
+
+                await _email.SendAsync(
+                    to:      dest.Principales,
+                    subject: subject,
+                    body:    ConstruirCuerpoDecision(ctx),
+                    isHtml:  true,
+                    cc:      dest.Copias.Count > 0 ? dest.Copias : null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo enviar el correo de decisión de long list del requerimiento {Codigo}", ctx.Codigo);
+            }
+        }
+
+        private static string ConstruirCuerpoDecision(LongListDecisionContextoDto ctx)
+        {
+            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+
+            var r = ctx.Resultado;
+            var filas = new StringBuilder();
+            for (int i = 0; i < ctx.Candidatos.Count; i++)
+            {
+                var c = ctx.Candidatos[i];
+                var nombre = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Esc(c.Nombre);
+                var puesto = string.IsNullOrWhiteSpace(c.Puesto) ? "—" : Esc(c.Puesto);
+                var (etiqueta, color) = c.Aprobado ? ("Aprobado", "#15803D") : ("Rechazado", "#B91C1C");
+                filas.Append($"""
+                    <tr>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{i + 1}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{nombre}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{puesto}</td>
+                      <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center;font-weight:bold;color:{color}">{etiqueta}</td>
+                    </tr>
+                    """);
+            }
+
+            var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre)
+                ? ""
+                : $"""<p style="font-size:13px"><b>Solicitante:</b> {Esc(ctx.SolicitanteNombre)}</p>""";
+
+            // Mensaje de cierre según el resultado.
+            var cierre = r.TodosRechazados
+                ? """<p style="font-size:13px;color:#B91C1C"><b>El solicitante rechazó a todos los candidatos.</b> El requerimiento vuelve a la etapa de long list: GTH debe preparar y enviar una nueva long list para su revisión.</p>"""
+                : $"""<p style="font-size:13px;color:#15803D"><b>El solicitante aprobó {r.Aprobados} candidato(s).</b> GTH continúa el proceso únicamente con los candidatos aprobados (envío de la plantilla del proceso y pruebas psicotécnicas).</p>""";
+
+            return $"""
+                <div style="font-family:Arial,sans-serif;max-width:680px">
+                  <div style="background:#005D9D;padding:12px 16px">
+                    <h2 style="color:#fff;margin:0;font-size:18px">Decisión de la long list</h2>
+                  </div>
+                  <div style="padding:16px;border:1px solid #e5e7eb;border-top:none">
+                    <p style="font-size:13px;margin-top:0">
+                      El solicitante revisó la long list y registró su decisión sobre los candidatos del
+                      siguiente requerimiento.
+                    </p>
+                    <p style="font-size:13px"><b>Requerimiento:</b> {Esc(ctx.Codigo)}</p>
+                    <p style="font-size:13px"><b>Puesto:</b> {Esc(ctx.Puesto)}</p>
+                    <p style="font-size:13px"><b>Área solicitante:</b> {Esc(ctx.Area)}</p>
+                    <p style="font-size:13px"><b>Proyecto / Obra:</b> {Esc(ctx.ProyectoObra)}</p>
+                    {solicitante}
+                    <p style="font-size:13px"><b>Resumen:</b> {r.Aprobados} aprobado(s) · {r.Rechazados} rechazado(s)</p>
+                    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:10px 0">
+                      <thead>
+                        <tr style="background:#f3f4f6">
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">#</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Candidato</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Puesto</th>
+                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Decisión</th>
+                        </tr>
+                      </thead>
+                      <tbody>{filas}</tbody>
+                    </table>
+                    {cierre}
+                    <p style="font-size:11px;color:#888;margin-top:16px">Correo automático de Abril One · Gestión GTH · Reclutamiento.</p>
+                  </div>
+                </div>
+                """;
+        }
+
         public Task<BandejaReclutamientoDto> GetBandeja() => _repo.GetBandeja();
 
         public Task UpdatePrioridad(int requerimientoId, int prioridadId, int? userId) =>

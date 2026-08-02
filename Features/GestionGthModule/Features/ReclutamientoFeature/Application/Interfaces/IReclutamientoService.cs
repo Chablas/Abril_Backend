@@ -26,6 +26,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<RevisionLongListDto> GetRevisionLongList(int requerimientoId, int? userId);
 
         /// <summary>
+        /// Registra la decisión del solicitante sobre la long list (aprobar/rechazar por candidato),
+        /// avanza el requerimiento (LONG_LIST_APROBADA si hay ≥1 aprobado; de vuelta a LONG_LIST si
+        /// rechazó a todos) y notifica a GTH por correo (tipo LONG_LIST_DECISION, best-effort).
+        /// Devuelve el estado resultante y los conteos.
+        /// </summary>
+        Task<LongListDecisionResultDto> RegistrarDecisionLongList(int requerimientoId, LongListDecisionDto dto, int? userId);
+
+        /// <summary>
         /// Bandeja de la vista de GTH: tarjeta "En proceso" + tabla de solicitudes de contratación de
         /// toda la organización, en una sola petición.
         /// </summary>

@@ -47,7 +47,9 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
 
             // /inicio requiere sesión: una categoría es visible si es "pública interna"
             // (todo Abril) o si el usuario tiene alguno de sus roles autorizados.
-            var categorias = await ctx.LearningCategory
+            // Se muestran todos los grupos visibles aunque no tengan videos asociados
+            // (los encabezados vacíos son intencionales, igual que en la superficie LOGIN).
+            return await ctx.LearningCategory
                 .Where(c => c.State && c.Active && c.Surface!.Code == "INICIO"
                     && (c.EsPublicoInterno || c.Roles.Any(r => roleIds.Contains(r.RoleId))))
                 .OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name)
@@ -63,9 +65,6 @@ namespace Abril_Backend.Features.LearningModule.Infrastructure.Repositories
                         .ToList(),
                 })
                 .ToListAsync();
-
-            // Solo grupos con al menos un video visible (no mostrar encabezados vacíos).
-            return categorias.Where(c => c.Videos.Count > 0).ToList();
         }
 
         // ─────────────────────────────── Admin ───────────────────────────────

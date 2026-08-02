@@ -25,7 +25,7 @@ namespace Abril_Backend.Application.Services
         };
         private readonly List<string> _supervisorsEmails = new List<string> {
             "hmamani@abril.pe",
-            //"coriundo@abril.pe",
+            "coriundo@abril.pe",
             //"alvarezvillegaschristian@outlook.com",
             //"calvarez@abril.pe"
         };
@@ -585,10 +585,10 @@ namespace Abril_Backend.Application.Services
                 .Distinct()
                 .ToList();
 
-            var emailsTo = new List<string>();
-
-            emailsTo.AddRange(_supervisorsEmails);
-            emailsTo.AddRange(pendingEmails);
+            // Destinatarios principales (To): solo las jefaturas/gerencia
+            // (hmamani + coriundo). Los usuarios que no subieron su lección
+            // viajan en Cc, no como principales.
+            var emailsTo = new List<string>(_supervisorsEmails);
 
             var platformUrl = $"{_frontendUrl}/auth/login";
 
@@ -634,6 +634,7 @@ namespace Abril_Backend.Application.Services
                 subject: $"📊 Reporte mensual: usuarios sin lecciones — {periodLabel}",
                 body: body,
                 isHtml: true,
+                cc: pendingEmails,
                 //bcc: _systemAdminsEmails
                 bcc: new List<string> {"calvarez@abril.pe"}
             );

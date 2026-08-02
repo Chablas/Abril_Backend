@@ -47,6 +47,21 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Canales de publicación con su estado de publicación para este requerimiento.</summary>
         public List<CanalPublicacionDto> Canales { get; set; } = new();
+
+        /// <summary>
+        /// Candidatos APROBADOS por el solicitante (solo relevante cuando el requerimiento ya está
+        /// en LONG_LIST_APROBADA). Alimentan la vista de GTH "Long list aprobada": formulario del
+        /// postulante, plantilla del proceso y control del Multitest. Vacío en fases anteriores.
+        /// </summary>
+        public List<CandidatoAprobadoDto> CandidatosAprobados { get; set; } = new();
+    }
+
+    /// <summary>Candidato aprobado por el solicitante, tal como lo ve GTH en la fase "Long list aprobada".</summary>
+    public class CandidatoAprobadoDto
+    {
+        public int CandidatoId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string? Puesto { get; set; }
     }
 
     /// <summary>Asignación interna de GTH de un requerimiento (todas opcionales/null = sin asignar).</summary>

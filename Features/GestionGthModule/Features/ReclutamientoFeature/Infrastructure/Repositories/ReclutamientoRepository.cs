@@ -485,63 +485,61 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 c.Publicado = publicados.Contains(c.Id);
 
             // Candidatos aprobados por el solicitante (para la fase "Long list aprobada", imágenes 4/5).
-            // Vacío en fases anteriores; los rechazados no se incluyen. Left join al formulario del
-            // postulante (+ su estado) para saber, por candidato, si GTH ya lo envió y en qué fase está.
-            // Subquery pre-compuesto (formulario + su estado, inner join siempre válido) para poder
-            // hacer left join al candidato sin condicionales en la clave del join (más traducible en EF).
-            var formularios =
-                from f in ctx.GthPostulanteFormulario.Where(x => x.State)
-                join fe in ctx.GthPostulanteFormularioEstado on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
-                select new
-                {
-                    f.GthCandidatoId,
-                    EstadoCodigo = fe.Codigo,
-                    EstadoNombre = fe.Nombre,
-                    f.CorreoEnvio,
-                    f.EnviadoDateTime,
-                    f.CompletadoDateTime,
-                    f.RevisadoNombre,
-                    f.RevisadoDateTime,
-                };
-
+            // Vacío en fases anteriores; los rechazados no se incluyen.
             var candidatosAprobadosRaw = await (
                 from c in ctx.GthCandidato
                 where c.GthRequerimientoId == requerimientoId && c.State
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 where est.Codigo == EstadoCandidato.Aprobado
-                join fr in formularios on c.GthCandidatoId equals fr.GthCandidatoId into frJoin
-                from fr in frJoin.DefaultIfEmpty()
                 orderby c.Orden, c.GthCandidatoId
                 select new
                 {
                     c.GthCandidatoId,
                     c.Nombre,
                     c.Puesto,
-                    FormularioExiste = fr != null,
-                    FEstadoCodigo    = fr != null ? fr.EstadoCodigo : null,
-                    FEstadoNombre    = fr != null ? fr.EstadoNombre : null,
-                    FCorreoEnvio     = fr != null ? fr.CorreoEnvio : null,
-                    FEnviado         = fr != null ? fr.EnviadoDateTime : null,
-                    FCompletado      = fr != null ? fr.CompletadoDateTime : null,
-                    FRevisadoNombre  = fr != null ? fr.RevisadoNombre : null,
-                    FRevisado        = fr != null ? fr.RevisadoDateTime : null,
                 }).ToListAsync();
+
+            // Formulario del postulante de cada candidato aprobado (0..1 por candidato) para saber, por
+            // candidato, si GTH ya lo envió y en qué fase está. Se trae en un segundo roundtrip pequeño
+            // (acotado a los candidatos aprobados) en vez de un left join a subconsulta: EF Core no
+            // materializa bien ese patrón —proyección de la subconsulta con value types nullable +
+            // "fr != null ? fr.Campo : null"— y lanza "Nullable object must have a value" al iterar
+            // cuando el candidato aún no tiene formulario. Se une en memoria por GthCandidatoId.
+            var candidatoIds = candidatosAprobadosRaw.Select(x => x.GthCandidatoId).ToList();
+            var formulariosPorCandidato = candidatoIds.Count == 0
+                ? new Dictionary<int, CandidatoFormularioResumenDto>()
+                : (await (
+                        from f in ctx.GthPostulanteFormulario
+                        where f.State && candidatoIds.Contains(f.GthCandidatoId)
+                        join fe in ctx.GthPostulanteFormularioEstado on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
+                        select new
+                        {
+                            f.GthCandidatoId,
+                            EstadoCodigo = fe.Codigo,
+                            EstadoNombre = fe.Nombre,
+                            f.CorreoEnvio,
+                            f.EnviadoDateTime,
+                            f.CompletadoDateTime,
+                            f.RevisadoNombre,
+                            f.RevisadoDateTime,
+                        }).ToListAsync())
+                    .ToDictionary(x => x.GthCandidatoId, x => new CandidatoFormularioResumenDto
+                    {
+                        EstadoCodigo   = x.EstadoCodigo,
+                        EstadoNombre   = x.EstadoNombre,
+                        CorreoEnvio    = x.CorreoEnvio,
+                        EnviadoEn      = x.EnviadoDateTime?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                        CompletadoEn   = x.CompletadoDateTime?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                        RevisadoNombre = x.RevisadoNombre,
+                        RevisadoEn     = x.RevisadoDateTime?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                    });
 
             var candidatosAprobados = candidatosAprobadosRaw.Select(x => new CandidatoAprobadoDto
             {
                 CandidatoId = x.GthCandidatoId,
                 Nombre      = x.Nombre,
                 Puesto      = x.Puesto,
-                Formulario  = x.FormularioExiste ? new CandidatoFormularioResumenDto
-                {
-                    EstadoCodigo   = x.FEstadoCodigo,
-                    EstadoNombre   = x.FEstadoNombre,
-                    CorreoEnvio    = x.FCorreoEnvio,
-                    EnviadoEn      = x.FEnviado?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
-                    CompletadoEn   = x.FCompletado?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
-                    RevisadoNombre = x.FRevisadoNombre,
-                    RevisadoEn     = x.FRevisado?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
-                } : null,
+                Formulario  = formulariosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
             }).ToList();
 
             return new DetalleRequerimientoGthDto

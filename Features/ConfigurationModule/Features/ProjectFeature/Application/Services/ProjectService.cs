@@ -119,5 +119,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         {
             return await _repository.ToggleArquitecturaComercial(projectId);
         }
+
+        public async Task<List<ResponsableLookupDto>> GetResponsables(string tipo)
+        {
+            return await _repository.GetResponsables(tipo);
+        }
     }
 }

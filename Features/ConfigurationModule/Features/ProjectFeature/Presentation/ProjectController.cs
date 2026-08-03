@@ -145,6 +145,25 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
         }
 
         [Authorize]
+        [HttpGet("responsables")]
+        public async Task<IActionResult> GetResponsables([FromQuery] string tipo)
+        {
+            try
+            {
+                var result = await _service.GetResponsables(tipo);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        [Authorize]
         [HttpGet("{id}/emails")]
         public async Task<IActionResult> GetEmails(int id)
         {

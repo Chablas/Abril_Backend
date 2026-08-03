@@ -22,6 +22,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         // Responsable
         public string? ResponsableArqCom { get; set; }
         public int? ResponsableArqComId { get; set; }
+        public string? ResponsableUdp { get; set; }
+        public int? ResponsableUdpId { get; set; }
 
         // Fechas
         public DateOnly? FechaInicio { get; set; }

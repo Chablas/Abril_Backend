@@ -30,7 +30,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where w.EmailCorporativo != null
                       && w.EmailCorporativo.ToLower().EndsWith("@abril.pe")
-                      && (p.Cumpleanos != null || w.FechaNacimiento != null)
+                      && p.FechaNacimiento != null
                 select new
                 {
                     w.Id,
@@ -39,8 +39,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
                     w.Puesto,
                     w.Ocupacion,
                     w.EmailCorporativo,
-                    Cumple = p.Cumpleanos,
-                    Nacimiento = w.FechaNacimiento,
+                    Nacimiento = p.FechaNacimiento,
                 }).ToListAsync();
 
             var resultado = new List<CumpleaneroDto>();
@@ -50,8 +49,8 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
             {
                 if (!vistos.Add(f.PersonId)) continue;
 
-                // person.cumpleanos manda; si no hay, se usa workers.fecha_nacimiento.
-                var fecha = f.Cumple ?? f.Nacimiento;
+                // Fuente única: person.fecha_nacimiento.
+                var fecha = f.Nacimiento;
                 if (fecha is null) continue;
                 if (!meses.Contains(fecha.Value.Month)) continue;
 

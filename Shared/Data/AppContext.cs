@@ -63,6 +63,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Notificacion> Notificacion { get; set; }
         public DbSet<NotificacionTipo> NotificacionTipo { get; set; }
         public DbSet<Person> Person { get; set; }
+        public DbSet<Sexo> Sexo { get; set; }
         public DbSet<Project> Project { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
@@ -938,6 +939,12 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.ToTable("app_user");
             });
+
+            // person.sexo_id -> catálogo normalizado sexo (reemplaza la antigua columna de texto person.sexo).
+            modelBuilder.Entity<Person>()
+                .HasOne(p => p.Sexo)
+                .WithMany()
+                .HasForeignKey(p => p.SexoId);
 
             // Las columnas fecha/*_at de ac_revisiones y ac_revision_observaciones se crearon
             // como TIMESTAMP (sin zona horaria) en la migración manual, pero Npgsql por defecto

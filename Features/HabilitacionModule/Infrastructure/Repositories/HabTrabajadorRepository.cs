@@ -1407,7 +1407,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
             var w = await ctx.Worker
-                .Include(x => x.Person)
+                .Include(x => x.Person).ThenInclude(p => p!.Sexo)
                 .Include(x => x.Contributor)
                 .FirstOrDefaultAsync(x => x.Id == workerId);
             return w is null ? null : MapToDetalle(w);
@@ -1417,7 +1417,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
             var w = await ctx.Worker
-                .Include(x => x.Person)
+                .Include(x => x.Person).ThenInclude(p => p!.Sexo)
                 .Include(x => x.Contributor)
                 .FirstOrDefaultAsync(x => x.Id == workerId)
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
@@ -1428,7 +1428,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.ApellidoNombre is not null && w.Person is not null) w.Person.FullName = dto.ApellidoNombre;
             if (dto.Celular is not null && w.Person is not null) w.Person.PhoneNumber = int.TryParse(dto.Celular, out var ph) ? ph : (int?)null;
             if (dto.EmailCorporativo is not null)    w.EmailCorporativo = dto.EmailCorporativo;
-            if (dto.FechaNacimiento.HasValue) w.FechaNacimiento = dto.FechaNacimiento;
+            if (dto.FechaNacimiento.HasValue && w.Person is not null) w.Person.FechaNacimiento = dto.FechaNacimiento;
             if (dto.FechaIngreso.HasValue) w.FechaIngreso = dto.FechaIngreso;
             if (dto.FechaRetiro.HasValue) w.FechaRetiro = dto.FechaRetiro;
             if (dto.Categoria is not null) w.Categoria = dto.Categoria;
@@ -1566,8 +1566,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Ruc = w.Contributor?.ContributorRuc,
             Celular = w.Person?.PhoneNumber?.ToString(),
             EmailCorporativo = w.EmailCorporativo,
-            FechaNacimiento = w.FechaNacimiento,
-            Sexo = w.Person?.Sexo,
+            FechaNacimiento = w.Person?.FechaNacimiento,
+            Sexo = w.Person?.Sexo != null ? w.Person.Sexo.Codigo : null,
             FechaIngreso = w.FechaIngreso,
             FechaRetiro = w.FechaRetiro,
             Categoria = w.Categoria,

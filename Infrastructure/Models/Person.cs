@@ -10,13 +10,27 @@ namespace Abril_Backend.Infrastructure.Models {
         public string? FirstLastName {get; set;}
         public string? SecondLastName {get; set;}
         public string? FullName {get; set;}
-        public string? Sexo {get; set;}
+        /// <summary>Correo personal (no corporativo, no @abril.pe). El corporativo vive en <c>workers.email_corporativo</c>.</summary>
+        public string? Email {get; set;}
+        /// <summary>Celular personal. El corporativo vive en <c>workers.celular_corporativo</c>.</summary>
         public int? PhoneNumber {get;set;}
         /// <summary>
-        /// Fecha de cumpleaños del trabajador (columna <c>cumpleanos</c>). Solo interesa
-        /// el día y mes para el calendario del boletín, pero se guarda fecha completa.
+        /// Fecha de nacimiento (columna <c>fecha_nacimiento</c>). Fuente única del cumpleaños
+        /// (antes duplicado en <c>person.cumpleanos</c> y <c>workers.fecha_nacimiento</c>).
+        /// Para el calendario del boletín solo interesa día y mes.
         /// </summary>
-        public DateOnly? Cumpleanos {get; set;}
+        public DateOnly? FechaNacimiento {get; set;}
+        /// <summary>FK al catálogo normalizado <c>sexo</c> (reemplaza la antigua columna de texto).</summary>
+        public int? SexoId {get; set;}
+        public Sexo? Sexo {get; set;}
+        /// <summary>Distrito de residencia (texto no normalizado, a propósito).</summary>
+        public string? Distrito {get; set;}
+        public string? Direccion {get; set;}
+        public int? NumeroHijos {get; set;}
+        public int? GradoAcademicoId {get; set;}
+        public int? UniversidadId {get; set;}
+        public int? ProfesionId {get; set;}
+        public int? TallaId {get; set;}
         public DateTime CreatedDateTime {get; set;}
         public int? CreatedUserId {get; set;}
         public DateTime? UpdatedDateTime {get; set;}

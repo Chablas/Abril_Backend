@@ -232,13 +232,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ctx.Person.Add(person);
                 await ctx.SaveChangesAsync();
             }
-            if (!string.IsNullOrWhiteSpace(dto.Sexo)) person.Sexo = dto.Sexo;
+            if (!string.IsNullOrWhiteSpace(dto.Sexo)) person.SexoId = await ResolveSexoIdAsync(ctx, dto.Sexo) ?? person.SexoId;
+            if (dto.FechaNacimiento.HasValue) person.FechaNacimiento = dto.FechaNacimiento;
 
             var worker = new Worker
             {
                 Person = person,
                 EmailCorporativo = dto.EmailCorporativo,
-                FechaNacimiento = dto.FechaNacimiento,
                 FechaIngreso = dto.FechaIngreso,
                 Categoria = dto.Categoria,
                 Ocupacion = dto.Ocupacion,
@@ -281,6 +281,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             return worker.Id;
         }
 
+        /// <summary>
+        /// Resuelve el texto de sexo ('M'/'F' o 'Masculino'/'Femenino') que envía el frontend
+        /// al id del catálogo normalizado <c>sexo</c>. Devuelve null si no hay match.
+        /// </summary>
+        private static async Task<int?> ResolveSexoIdAsync(AppDbContext ctx, string? sexo)
+        {
+            if (string.IsNullOrWhiteSpace(sexo)) return null;
+            var s = sexo.Trim().ToUpperInvariant();
+            var codigo = s.StartsWith("M") ? "M" : s.StartsWith("F") ? "F" : null;
+            if (codigo is null) return null;
+            return await ctx.Sexo.Where(x => x.State && x.Codigo == codigo)
+                                 .Select(x => (int?)x.SexoId).FirstOrDefaultAsync();
+        }
+
         public async Task Update(int id, WorkerUpdateDto dto)
         {
             using var ctx = _factory.CreateDbContext();
@@ -293,10 +307,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 worker.Person.FullName      = dto.ApellidoNombre;
                 worker.Person.PhoneNumber   = int.TryParse(dto.Celular, out var ph2) ? ph2 : (int?)null;
-                if (!string.IsNullOrWhiteSpace(dto.Sexo)) worker.Person.Sexo = dto.Sexo;
+                if (!string.IsNullOrWhiteSpace(dto.Sexo)) worker.Person.SexoId = await ResolveSexoIdAsync(ctx, dto.Sexo) ?? worker.Person.SexoId;
+                if (dto.FechaNacimiento.HasValue) worker.Person.FechaNacimiento = dto.FechaNacimiento;
             }
             worker.EmailCorporativo = dto.EmailCorporativo;
-            worker.FechaNacimiento = dto.FechaNacimiento;
             worker.FechaIngreso = dto.FechaIngreso;
             worker.Categoria = dto.Categoria;
             worker.Ocupacion = dto.Ocupacion;
@@ -380,7 +394,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
             }
 
-            worker.Person.Cumpleanos = dto.Cumpleanos;
+            worker.Person.FechaNacimiento = dto.Cumpleanos;
             worker.Person.UpdatedDateTime = DateTime.UtcNow;
 
             worker.Categoria = dto.Categoria;

@@ -5386,3 +5386,28 @@ Rama: `victor-backend`. Sesión de solo lectura/explicación, sin cambios de có
 
 ### Verificación
 - Sin cambios de código — sesión de solo investigación. `dotnet build`: 0 errores (sin tocar nada).
+
+## Sesión 2026-08-02 — Responsable UDP en ProjectFeature + endpoint de lookup unificado
+
+Rama: `victor-backend`. Punto de partida: investigación de cómo funciona "Responsable Arq. Comercial" en el modal editar proyecto (`/configuracion/proyectos`), como paso previo para agregar responsables análogos (UDP, y luego Residente). Hallazgo clave: `project.responsable_arq_com(_id)` es una FK plana (sin navegación EF) a `worker.id`, resuelta por nombre solo en el código legado de `ArquitecturaComercialRepository`; el selector de personas sale de un endpoint separado (`GET /api/v1/arquitectura-comercial/supervisores-ac`) que filtra `Worker.Subarea == "Arquitectura Comercial"` — texto libre, no catálogo normalizado. Se confirmó además que `project.responsable_udp(_id)` ya existía en BD (migración `20260526215118_AddResponsableUdpToProject`, sin cablear en ningún DTO/repo/controller) y que `"unidad de proyectos"` ya es un valor válido de `Worker.Subarea` (confirmado en `AreaScopeMatcher.cs`).
+
+### Cambios
+- `Features/ConfigurationModule/Features/ProjectFeature/Application/Dtos/{ProjectDto,ProjectEditDto,ProjectCreateDto}.cs` — agregado `ResponsableUdp`/`ResponsableUdpId` (mismo shape que `ResponsableArqCom`), sin flags booleanos adicionales (confirmado con el usuario: todo proyecto tiene UDP, no hace falta `tieneUdp`).
+- `Features/ConfigurationModule/Features/ProjectFeature/Infrastructure/Repositories/ProjectRepository.cs` — mapeo de los campos nuevos en el `Select` de `GetPaged` y en ambos overloads de `ApplyDtoToEntity` (Create/Update). Nuevo método `GetResponsables(string tipo)`: switch `tipo` → `Subarea` (`"ARQ_COMERCIAL"` → `"Arquitectura Comercial"`, `"UDP"` → `"Unidad de Proyectos"`, default → `AbrilException(400)`), una sola query contra `Worker` (sin N+1).
+- `Features/ConfigurationModule/Features/ProjectFeature/Presentation/ProjectController.cs` — nuevo endpoint `GET /api/v1/project/responsables?tipo=ARQ_COMERCIAL|UDP` (reemplaza un `responsables-udp` inicial que se descartó por el contrato final). Solo `[Authorize]` genérico — a pedido explícito del usuario no se tocó el gap de roles de este controller (queda para otra sesión, igual que en Arq. Comercial).
+- `Features/ConfigurationModule/Features/ProjectFeature/Application/Dtos/ContributorLookupDto.cs` — se agregó `ResponsableLookupDto` (`Id`, `ApellidoNombre`) en este archivo ya existente, a pedido explícito del usuario (B1/B2: nada de DTOs nuevos, mismo shape que `SupervisorAcDTO` de Arq. Comercial pero como tipo propio del feature, sin reutilizar la clase de otro feature) — el contrato final de respuesta usa `apellidoNombre` (no `nombre`) para que `app-search-select` del frontend no necesite ajustes.
+- `IProjectRepository`/`IProjectService`/`ProjectService` — firma `GetResponsables(string tipo)` propagada.
+
+### Investigación adicional (sin implementar): "Responsable Residente"
+- Confirmado que `responsable_residente(_id)` **no existe** en `project` ni en el modelo — a diferencia de UDP, acá hace falta migración nueva (mismo patrón que `AddResponsableUdpToProject`).
+- El catálogo correcto es `Worker.WorkerCategoryId` → `WorkersCategory.Name == "Residente"` (join, no `Subarea` como Arq. Comercial/UDP) — patrón ya usado en `LessonReminderRepository.cs`/`LessonJefeResolver.cs` para categorías "Jefe"/"Coordinador"/"Residente". Se recomendó filtrar por `Name` en vez de hardcodear el `worker_category_id=29` que dio el usuario, igual que ya se cuida en `AreaScopeMatcher.cs` con los IDs de `area_scope` (pueden diferir entre dev/prod).
+- Se descartó explícitamente apoyarse en `ProjectResident` (tabla `UserId`-based, N:N, usada para control de acceso — qué usuario residente ve qué proyecto, consumida por `ResidentReportIncidence`/`ResidentMonitoring` y por el recordatorio mensual de Cronograma de Hitos en `MilestoneScheduleFeature`) — es un concepto distinto a "responsable único a mostrar en el modal", que debe ser una columna plana nueva análoga a Arq. Comercial/UDP.
+- Falta decisión del usuario para implementar: migración + DTOs + tercer caso `"RESIDENTE"` en `GetResponsables`.
+
+### Verificación
+- `dotnet build Abril-Backend.csproj`: 0 errores, 0 warnings nuevos (233 warnings preexistentes sin relación con `ProjectFeature`).
+- Commit: `76dfdadd` ("feat: agrega Responsable UDP a Project y endpoint de lookup por tipo").
+
+### Pendiente
+- Implementar "Responsable Residente" si el usuario confirma el approach (columna nueva + join por `WorkersCategory.Name`).
+- Gap de `[Authorize]` genérico en `ProjectController` (compartido por Arq. Comercial, UDP, y a futuro Residente) — pendiente de sesión aparte, a pedido explícito del usuario.

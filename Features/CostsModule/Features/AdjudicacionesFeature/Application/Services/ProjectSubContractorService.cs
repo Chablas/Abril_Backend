@@ -1735,6 +1735,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                         { "{{CLÁUSULAS_ANEXO_4_SUMINISTRO}}", data.SpecialClausesAnexo4.ToList() },
                         { "{{CARTA_FIANZA}}", clausulaCartaFianza },
                         { "{{CARTA_FIANZA_DETALLE}}", clausulaCartaFianzaDetalle }
+                    },
+                    // El texto de {{LINK1}}/{{LINK2}} se reemplaza arriba, pero el DESTINO del clic
+                    // vive como relación aparte en la plantilla (horneada a otro proyecto). Se reescribe
+                    // aquí para que el hipervínculo apunte a la URL registrada en Planos por proyecto.
+                    hyperlinkTargets: new Dictionary<string, string>
+                    {
+                        { "{{LINK1}}", linkEspecialidades?.LinkUrl ?? "" },
+                        { "{{LINK2}}", linkDetalles?.LinkUrl ?? "" },
                     });
 
             var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);

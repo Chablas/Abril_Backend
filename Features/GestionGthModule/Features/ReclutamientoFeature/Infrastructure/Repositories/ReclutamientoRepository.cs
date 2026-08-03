@@ -485,19 +485,64 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 c.Publicado = publicados.Contains(c.Id);
 
             // Candidatos aprobados por el solicitante (para la fase "Long list aprobada", imágenes 4/5).
-            // Vacío en fases anteriores; los rechazados no se incluyen.
-            var candidatosAprobados = await (
+            // Vacío en fases anteriores; los rechazados no se incluyen. Left join al formulario del
+            // postulante (+ su estado) para saber, por candidato, si GTH ya lo envió y en qué fase está.
+            // Subquery pre-compuesto (formulario + su estado, inner join siempre válido) para poder
+            // hacer left join al candidato sin condicionales en la clave del join (más traducible en EF).
+            var formularios =
+                from f in ctx.GthPostulanteFormulario.Where(x => x.State)
+                join fe in ctx.GthPostulanteFormularioEstado on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
+                select new
+                {
+                    f.GthCandidatoId,
+                    EstadoCodigo = fe.Codigo,
+                    EstadoNombre = fe.Nombre,
+                    f.CorreoEnvio,
+                    f.EnviadoDateTime,
+                    f.CompletadoDateTime,
+                    f.RevisadoNombre,
+                    f.RevisadoDateTime,
+                };
+
+            var candidatosAprobadosRaw = await (
                 from c in ctx.GthCandidato
                 where c.GthRequerimientoId == requerimientoId && c.State
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
                 where est.Codigo == EstadoCandidato.Aprobado
+                join fr in formularios on c.GthCandidatoId equals fr.GthCandidatoId into frJoin
+                from fr in frJoin.DefaultIfEmpty()
                 orderby c.Orden, c.GthCandidatoId
-                select new CandidatoAprobadoDto
+                select new
                 {
-                    CandidatoId = c.GthCandidatoId,
-                    Nombre      = c.Nombre,
-                    Puesto      = c.Puesto,
+                    c.GthCandidatoId,
+                    c.Nombre,
+                    c.Puesto,
+                    FormularioExiste = fr != null,
+                    FEstadoCodigo    = fr != null ? fr.EstadoCodigo : null,
+                    FEstadoNombre    = fr != null ? fr.EstadoNombre : null,
+                    FCorreoEnvio     = fr != null ? fr.CorreoEnvio : null,
+                    FEnviado         = fr != null ? fr.EnviadoDateTime : null,
+                    FCompletado      = fr != null ? fr.CompletadoDateTime : null,
+                    FRevisadoNombre  = fr != null ? fr.RevisadoNombre : null,
+                    FRevisado        = fr != null ? fr.RevisadoDateTime : null,
                 }).ToListAsync();
+
+            var candidatosAprobados = candidatosAprobadosRaw.Select(x => new CandidatoAprobadoDto
+            {
+                CandidatoId = x.GthCandidatoId,
+                Nombre      = x.Nombre,
+                Puesto      = x.Puesto,
+                Formulario  = x.FormularioExiste ? new CandidatoFormularioResumenDto
+                {
+                    EstadoCodigo   = x.FEstadoCodigo,
+                    EstadoNombre   = x.FEstadoNombre,
+                    CorreoEnvio    = x.FCorreoEnvio,
+                    EnviadoEn      = x.FEnviado?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                    CompletadoEn   = x.FCompletado?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                    RevisadoNombre = x.FRevisadoNombre,
+                    RevisadoEn     = x.FRevisado?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                } : null,
+            }).ToList();
 
             return new DetalleRequerimientoGthDto
             {

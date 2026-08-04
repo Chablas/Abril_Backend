@@ -5285,3 +5285,36 @@ Rama: `victor-backend`. Sesión sin cambios de código — operación directa so
 ### Pendiente
 - El backup (`cronograma_backup_20260718_233807.dump`) quedó en el scratchpad de la sesión de Claude Code (temporal, no en el repo ni en una ruta persistente) — si se quiere conservar como respaldo a largo plazo, moverlo a un lugar permanente.
 - `activity_predecessor_id_seq` no se reinició (no fue pedido explícitamente) — si se quiere una numeración 100% limpia también ahí, falta ese `ALTER SEQUENCE`.
+
+## Sesión 2026-08-04 — Fotos de Inspección rotas + Inspecciones colaborativas (gerencial/cruzada/coordinadores SSOMA)
+
+Rama: `master`.
+
+### Bug de fotos (Inspección, también presente en RAC pero no tocado)
+- Causa raíz: `SubirArchivoYObtenerUrlAsync` guardaba el `webUrl` de SharePoint (página interactiva, exige sesión Microsoft) y el frontend lo ponía directo en `<img src>` — nunca cargaba para un usuario sin sesión SharePoint abierta. El PDF sí funcionaba porque descargaba los bytes server-to-server con el token de la app.
+- Fix: `InspeccionSharePointService` ahora usa `SubirArchivoEnRutaAsync` (ruta relativa, mismo patrón que RAC) para fotos/firmas. Nuevo endpoint `GET api/v1/ssoma-inspeccion/media?path=&tipo=` que descarga los bytes reales vía Graph y los sirve. Frontend (`inspeccion-detalle.component.ts`) precarga cada foto como blob autenticado (mismo patrón que ya usaba `descargarPdf`) y arma `object URL`s locales.
+- Pendiente: inspecciones creadas antes del fix quedan con `webUrl` guardado — esas fotos no se pueden recuperar sin volver a subir el archivo. RAC tiene el mismo bug de fondo pero no se tocó (queda para otra sesión si se pide).
+
+### Inspecciones colaborativas
+- Nuevo flag `EsColaborativa` en `SsomaInspeccionTipo` (catálogo) y `SsomaInspeccion`. Cuando el tipo es colaborativo, el wizard de creación salta el checklist y la inspección queda en estado `"Abierta"` en vez de cerrarse al primer submit.
+- Nueva tabla `SsomaInspeccionParticipante` (inspeccionId, workerId, nombre, cargo, empresa, fechaUnion) y `CreadoPorWorkerId`/`CreadoPorNombre` en `SsomaInspeccionHallazgo`.
+- Endpoints nuevos en `InspeccionController`: `GET abiertas`, `POST {id}/unirse`, `POST {id}/hallazgos` (agregar hallazgo suelto sin checklist), `PATCH {id}/cerrar-colaborativa`, `PATCH {id}/reabrir-colaborativa` (ambos restringidos a staff interno Abril, no contratistas).
+- Frontend: pestaña/página nueva "Abiertas" (`pages/abiertas/`) para listar y unirse; página nueva "Agregar hallazgo" (`pages/agregar-hallazgo/`) liviana (descripción, foto(s), criticidad Crítico/Mayor/Menor, fecha propuesta, responsable, recomendación); botones "Cerrar inspección"/"Reabrir inspección" y lista de participantes en el detalle.
+- Bug corregido durante pruebas: el creador quedaba duplicado en la lista de participantes porque su registro inicial no tenía `WorkerId` — `UnirseAsync` ahora hace match por nombre cuando el `WorkerId` es null y lo completa retroactivamente.
+- PDF: cuando `EsColaborativa=true`, `InspeccionPdfService` genera un PDF horizontal (A4 landscape) tipo tabla Excel — una fila por hallazgo con N°, descripción, foto(s), recomendación, criticidad, responsable, fecha límite, estado y evidencia de levantamiento — en vez del formato vertical con checklist.
+- Catálogo poblado con 3 tipos nuevos vía SQL manual: "Inspección Gerencial", "Inspección Cruzada", "Coordinadores SSOMA" (todos `es_colaborativa=true`).
+
+### Migración EF — drift pendiente (importante)
+- Al correr `dotnet ef migrations add` para esta feature, EF arrastró **todos los cambios de modelo acumulados sin migrar de otras features ya commiteadas en master** (tablas `ac_observaciones`/`ac_revisiones` de Gestión de Revisiones, cambios de `gth_*`, `DropTable("manager_signature")`, columnas renombradas en `person`/`workers`, etc.) — nada de eso es de esta sesión. Se descartó esa migración (se borraron los archivos generados y se revirtió `AppDbContextModelSnapshot.cs` con `git checkout`) y en su lugar se aplicó SQL manual acotado solo a Inspección:
+  - `Migrations_Manual/2026-08-04_inspeccion_colaborativa.sql` (columnas + tabla nueva)
+  - `Migrations_Manual/2026-08-04_inspeccion_colaborativa_tipos.sql` (3 tipos de catálogo)
+  - `Migrations_Manual/2026-08-04_dedupe_participantes.sql` (limpieza de duplicados de la sesión de pruebas)
+- **El drift sigue sin resolver**: mientras el modelo de Gestión de Revisiones (y lo demás) no tenga su propia migración generada+aplicada, cualquier `dotnet ef migrations add` futuro va a seguir arrastrando todo junto. Si se retoma Gestión de Revisiones, conviene generar esa migración por separado antes de que crezca más.
+
+### Archivos clave
+- Backend: `Features/SsomaModule/InspeccionFeature/**` (Models, Dtos, Interfaces, Services, Repository, Controller), `Shared/Data/AppContext.cs`.
+- Frontend: `features/ssoma/gestion/inspeccion/**` (dtos, service, `pages/detalle`, `pages/nueva`, nuevas `pages/abiertas` y `pages/agregar-hallazgo`).
+
+### Pendiente
+- Resolver el drift de migración EF (ver arriba) cuando se retome esa otra feature.
+- RAC tiene el mismo bug de fotos rotas en pantalla — no se tocó en esta sesión.

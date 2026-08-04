@@ -52,10 +52,10 @@ namespace Abril_Backend.Features.GestionAdministrativa
         {
             // Solicitud Salidas
             services.AddScoped<ISolicitudSalidaRepository, SolicitudSalidaRepository>();
-            // Revisor por tabla workers_revisores (prioridad) con fallback al área GTH.
-            services.AddScoped<ISalidaRevisorResolver, SalidaRevisorResolver>();
+            // El revisor/jefe del solicitante lo resuelve IJefeRevisorResolver, servicio
+            // compartido registrado en Program.cs (lo usan también los correos de EMO).
             // JefeResolver (ApproverResolver): algoritmo de jerarquía SIN USO desde 2026-07-13,
-            // reemplazado por SalidaRevisorResolver. Se conserva el código por si se retoma.
+            // reemplazado por JefeRevisorResolver. Se conserva el código por si se retoma.
             // services.AddScoped<IApproverResolver, ApproverResolver>();
             services.AddScoped<ISolicitudSalidaTokenService, SolicitudSalidaTokenService>();
             services.AddScoped<ISolicitudSalidaService, SolicitudSalidaService>();

@@ -3,7 +3,10 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using System.Data;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
@@ -180,6 +183,58 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .ToListAsync();
         }
 
+        /// <summary>
+        /// Una sola consulta con dos CTEs: <c>self</c> (el trabajador que se está editando, para
+        /// saber si su correo es corporativo y si realmente cambió) y <c>ocupado</c> (el primer
+        /// trabajador NO retirado que ya tiene ese correo). Un trabajador retirado libera su
+        /// buzón, igual que el índice único parcial de la BD.
+        /// </summary>
+        public async Task<EmailCorporativoContextoDto> GetContextoEmailCorporativo(string? emailNormalizado, int? workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+
+            const string sql = """
+                WITH self AS (
+                    SELECT w.contrata_casa, w.obra_oficina, w.email_corporativo, p.email AS email_personal
+                    FROM workers w
+                    LEFT JOIN person p ON p.person_id = w.person_id
+                    WHERE @workerId::int IS NOT NULL AND w.id = @workerId::int
+                ),
+                ocupado AS (
+                    SELECT w.id, p.full_name, p.document_identity_code
+                    FROM workers w
+                    LEFT JOIN person p ON p.person_id = w.person_id
+                    WHERE @email::text IS NOT NULL
+                      AND lower(btrim(w.email_corporativo)) = @email::text
+                      AND coalesce(w.estado, 'ACTIVO') <> 'RETIRADO'
+                      AND (@workerId::int IS NULL OR w.id <> @workerId::int)
+                    ORDER BY w.id
+                    LIMIT 1
+                )
+                SELECT
+                    EXISTS (SELECT 1 FROM self)                     AS worker_encontrado,
+                    (SELECT contrata_casa           FROM self)      AS worker_contrata_casa,
+                    (SELECT obra_oficina            FROM self)      AS worker_obra_oficina,
+                    (SELECT email_corporativo       FROM self)      AS worker_email_actual,
+                    (SELECT email_personal          FROM self)      AS worker_email_personal_actual,
+                    (SELECT id                      FROM ocupado)   AS ocupado_por_worker_id,
+                    (SELECT full_name               FROM ocupado)   AS ocupado_por_nombre,
+                    (SELECT document_identity_code  FROM ocupado)   AS ocupado_por_dni
+                """;
+
+            // Tipos explícitos: los parámetros pueden llegar en null y Npgsql no puede inferir
+            // el tipo de un null suelto.
+            var parametros = new DynamicParameters();
+            parametros.Add("email", emailNormalizado, DbType.String);
+            parametros.Add("workerId", workerId, DbType.Int32);
+
+            var contexto = await conn.QueryFirstOrDefaultAsync<EmailCorporativoContextoDto>(sql, parametros);
+
+            return contexto ?? new EmailCorporativoContextoDto();
+        }
+
         public async Task<int> Create(WorkerCreateDto dto)
         {
             using var ctx = _factory.CreateDbContext();
@@ -214,6 +269,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     FullName = dto.ApellidoNombre,
                     DocumentIdentityCode = dniUpper,
                     PhoneNumber = int.TryParse(dto.Celular, out var ph1) ? ph1 : (int?)null,
+                    Email = dto.EmailPersonal,
                     Active = true,
                     State = true,
                     CreatedDateTime = DateTime.UtcNow
@@ -223,6 +279,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             if (!string.IsNullOrWhiteSpace(dto.Sexo)) person.SexoId = await ResolveSexoIdAsync(ctx, dto.Sexo) ?? person.SexoId;
             if (dto.FechaNacimiento.HasValue) person.FechaNacimiento = dto.FechaNacimiento;
+            // Al reusar una Person existente (reingreso) se actualiza el correo de contacto solo si
+            // vino uno: un campo vacío no borra el dato que ya estaba registrado.
+            if (dto.EmailPersonal is not null) person.Email = dto.EmailPersonal;
 
             var worker = new Worker
             {
@@ -252,7 +311,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
 
             ctx.Worker.Add(worker);
-            await ctx.SaveChangesAsync();
+            await GuardarCuidandoEmailUnicoAsync(ctx);
 
             if (dto.EmpresaId.HasValue || dto.ProyectoId.HasValue)
             {
@@ -296,6 +355,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 worker.Person.FullName      = dto.ApellidoNombre;
                 worker.Person.PhoneNumber   = int.TryParse(dto.Celular, out var ph2) ? ph2 : (int?)null;
+                worker.Person.Email         = dto.EmailPersonal;
                 if (!string.IsNullOrWhiteSpace(dto.Sexo)) worker.Person.SexoId = await ResolveSexoIdAsync(ctx, dto.Sexo) ?? worker.Person.SexoId;
                 if (dto.FechaNacimiento.HasValue) worker.Person.FechaNacimiento = dto.FechaNacimiento;
             }
@@ -347,7 +407,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
             }
 
-            await ctx.SaveChangesAsync();
+            await GuardarCuidandoEmailUnicoAsync(ctx);
         }
 
         public async Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto)
@@ -409,23 +469,35 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             worker.WorkerCategoryId = dto.WorkerCategoryId;
 
-            // Se guarda en minúsculas: todas las comparaciones del sistema hacen ToLower().
-            var emailCorporativo = dto.EmailCorporativo?.Trim().ToLower();
-            if (string.IsNullOrEmpty(emailCorporativo))
-            {
-                worker.EmailCorporativo = null;
-            }
-            else
-            {
-                var arroba = emailCorporativo.IndexOf('@');
-                if (arroba <= 0 || arroba == emailCorporativo.Length - 1 || emailCorporativo.Contains(' '))
-                    throw new AbrilException("El correo corporativo no tiene un formato válido.", 400);
-                worker.EmailCorporativo = emailCorporativo;
-            }
+            // Ambos correos llegan ya normalizados y validados (formato, existencia en el tenant,
+            // unicidad del corporativo y "al menos uno") por WorkerEmailValidator; aquí solo se persisten.
+            worker.EmailCorporativo = dto.EmailCorporativo;
+            worker.Person.Email = dto.EmailPersonal;
 
             worker.UpdatedAt = DateTimeOffset.UtcNow;
 
-            await ctx.SaveChangesAsync();
+            await GuardarCuidandoEmailUnicoAsync(ctx);
+        }
+
+        /// <summary>
+        /// Guarda traduciendo la violación del índice <c>ux_workers_email_corporativo_vigente</c>
+        /// a un 409 legible. El servicio ya valida el correo antes de llegar aquí, así que este
+        /// camino solo se da en una carrera entre dos altas simultáneas con el mismo buzón.
+        /// </summary>
+        private static async Task GuardarCuidandoEmailUnicoAsync(AppDbContext ctx)
+        {
+            try
+            {
+                await ctx.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (
+                ex.InnerException is PostgresException pg
+                && pg.SqlState == PostgresErrorCodes.UniqueViolation
+                && pg.ConstraintName == "ux_workers_email_corporativo_vigente")
+            {
+                throw new AbrilException(
+                    "Ese correo corporativo acaba de ser asignado a otro trabajador. Usa un correo distinto.", 409);
+            }
         }
 
         public async Task Retirar(int id)

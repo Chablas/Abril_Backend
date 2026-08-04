@@ -102,6 +102,32 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             }
         }
 
+        /// <summary>
+        /// Verifica un correo corporativo antes de guardar: formato, existencia en el directorio de
+        /// Abril (tenant de Microsoft) y que no esté ya asignado a otro trabajador no retirado.
+        /// Devuelve siempre 200 con el detalle; el bloqueo real lo hacen POST/PUT.
+        /// </summary>
+        /// <param name="email">Correo a verificar.</param>
+        /// <param name="workerId">Trabajador que se está editando (se excluye del chequeo de duplicados).</param>
+        /// <param name="corporativo">
+        /// Lo envía el formulario de alta (Staff/Oficina Central = true) cuando aún no hay
+        /// workerId. Si se omite, la clasificación se lee del trabajador.
+        /// </param>
+        [HttpGet("validar-email-corporativo")]
+        public async Task<IActionResult> ValidarEmailCorporativo(
+            [FromQuery] string? email,
+            [FromQuery] int? workerId,
+            [FromQuery] bool? corporativo)
+        {
+            try { return Ok(await _service.ValidarEmailCorporativo(email, workerId, corporativo)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en WorkersController.ValidarEmailCorporativo");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] WorkerCreateDto dto)
         {

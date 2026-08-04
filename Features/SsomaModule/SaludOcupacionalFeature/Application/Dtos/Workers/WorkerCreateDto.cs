@@ -6,6 +6,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public string Dni { get; set; } = string.Empty;
         public string? Celular { get; set; }
         public string? EmailCorporativo { get; set; }
+        /// <summary>Correo personal / de contacto. Va a <c>person.email</c> y puede repetirse.</summary>
+        public string? EmailPersonal { get; set; }
         public DateOnly? FechaNacimiento { get; set; }
         public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }

@@ -51,6 +51,8 @@ using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Interfac
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Repositories;
+using Abril_Backend.Shared.Services.Graph.Interfaces;
+using Abril_Backend.Shared.Services.Graph.Services;
 
 namespace Abril_Backend.Features.Ssoma
 {
@@ -100,6 +102,12 @@ namespace Abril_Backend.Features.Ssoma
             // Workers search
             services.AddScoped<IWorkerSearchRepository, WorkerSearchRepository>();
             services.AddScoped<IWorkerSearchService, WorkerSearchService>();
+
+            // Validación de los correos del trabajador: el corporativo contra el directorio de Abril
+            // (Microsoft Graph, app-only) y contra los ya asignados en workers, el personal solo en
+            // formato, y la regla de que quede al menos uno de los dos.
+            services.AddScoped<IWorkerEmailValidator, WorkerEmailValidator>();
+            services.AddScoped<IGraphUserService, GraphUserService>();
 
             // Alertas EMO (cron)
             services.AddScoped<IEmoAlertaService, EmoAlertaService>();

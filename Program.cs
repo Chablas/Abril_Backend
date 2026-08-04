@@ -38,6 +38,8 @@ using Abril_Backend.Features.AccountingModule;
 using Abril_Backend.Features.BoletinModule;
 using Abril_Backend.Features.ArquitecturaComercialModule;
 using Abril_Backend.Features.LearningModule;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
+using Abril_Backend.Shared.Services.Revisores.Services;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
 using Abril_Backend.Shared.Services.Decolecta.Interfaces;
@@ -229,6 +231,12 @@ builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>
 // Registrado globalmente para que cualquier módulo lo pueda inyectar (p. ej. recordatorios
 // de lecciones aprendidas vía PowerAutomate). Lo implementa GraphUserService.
 builder.Services.AddScoped<IEmailGroupResolver, GraphUserService>();
+
+// Jefe/revisor de un trabajador según la configuración global de revisores
+// (/configuracion/revisor-salidas y /configuracion/revisores-areas): revisor directo →
+// revisor del área → fallback GTH. Registrado globalmente porque lo usan Gestión
+// Administrativa (aprobación de salidas) y SSOMA · Salud Ocupacional (correos de EMO).
+builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
 builder.Services.AddScoped<ISunatService, DecolectaSunatService>();
 builder.Services.AddRateLimiter(options =>
 {

@@ -7,6 +7,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 
@@ -17,17 +18,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
+        private readonly IJefeRevisorResolver _jefeResolver;
         private readonly ILogger<ProgramacionEmoRepository> _logger;
 
         public ProgramacionEmoRepository(
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
             IConfiguration configuration,
+            IJefeRevisorResolver jefeResolver,
             ILogger<ProgramacionEmoRepository> logger)
         {
             _factory = factory;
             _emailService = emailService;
             _configuration = configuration;
+            _jefeResolver = jefeResolver;
             _logger = logger;
         }
 
@@ -506,6 +510,38 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
         }
 
+        /// <summary>
+        /// Correo del jefe/revisor del trabajador según la configuración global de revisores
+        /// (revisor directo → revisor del área → fallback GTH), la misma que decide a quién
+        /// se le manda a aprobar una solicitud de salida.
+        ///
+        /// Reemplaza al cruce por nombre contra <c>cat_jefatura</c> (<c>workers.jefatura</c>,
+        /// texto libre), que dejaba sin jefe a quien tuviera la jefatura vacía o escrita
+        /// distinto y podía devolver al propio trabajador como su jefe.
+        ///
+        /// Best-effort: si no se resuelve nada, el correo sale igual con el resto de
+        /// destinatarios (en esta rama GTH ya va incluido aparte).
+        /// </summary>
+        private async Task<string?> ResolverJefeEmailAsync(Worker worker)
+        {
+            try
+            {
+                var jefe = await _jefeResolver.ResolveAsync(worker.Id);
+                if (jefe == null)
+                    _logger.LogWarning(
+                        "Worker {WorkerId}: sin jefe revisor configurado; el correo de EMO sale sin jefe.",
+                        worker.Id);
+                return jefe?.Email;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Worker {WorkerId}: error resolviendo el jefe revisor para el correo de EMO.",
+                    worker.Id);
+                return null;
+            }
+        }
+
         private async Task EnviarNotificacionAceptacionAsync(
             AppDbContext ctx,
             SsProgramacionEmo prog,
@@ -592,19 +628,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
                 else if (esOficinaCentral)
                 {
-                    // Oficina Central: correo corporativo + jefatura + GTH + médico ocupacional + admin empresa
+                    // Oficina Central: correo corporativo + jefe revisor + GTH + médico ocupacional + admin empresa
                     toRaw.Add(worker.EmailCorporativo);
                     toRaw.Add(gth);
                     toRaw.Add(medOcupacional);
                     toRaw.Add(adminEmail);
-                    if (!string.IsNullOrWhiteSpace(worker.Jefatura))
-                    {
-                        var jefaturaEmails = await ctx.CatJefatura.AsNoTracking()
-                            .Where(j => j.Nombre == worker.Jefatura && j.Activo)
-                            .Select(j => j.Email!)
-                            .ToListAsync();
-                        toRaw.AddRange(jefaturaEmails);
-                    }
+                    toRaw.Add(await ResolverJefeEmailAsync(worker));
                     if (proyecto?.TieneArquitecturaComercial == true)
                     {
                         var extraEmails = new[] { emailJefeArqCom, emailJefePostVenta, emailPrevArqCom, emailPrevPostVenta };
@@ -744,14 +773,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     toRaw.Add(gth);
                     toRaw.Add(medOcupacional);
                     toRaw.Add(adminEmail);
-                    if (!string.IsNullOrWhiteSpace(worker.Jefatura))
-                    {
-                        var jefaturaEmails = await ctx.CatJefatura.AsNoTracking()
-                            .Where(j => j.Nombre == worker.Jefatura && j.Activo)
-                            .Select(j => j.Email!)
-                            .ToListAsync();
-                        toRaw.AddRange(jefaturaEmails);
-                    }
+                    toRaw.Add(await ResolverJefeEmailAsync(worker));
                 }
 
                 var to = toRaw.Where(e => !string.IsNullOrWhiteSpace(e))

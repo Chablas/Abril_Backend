@@ -1566,6 +1566,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Ruc = w.Contributor?.ContributorRuc,
             Celular = w.Person?.PhoneNumber?.ToString(),
             EmailCorporativo = w.EmailCorporativo,
+            EmailPersonal = w.Person?.Email,
             FechaNacimiento = w.Person?.FechaNacimiento,
             Sexo = w.Person?.Sexo != null ? w.Person.Sexo.Codigo : null,
             FechaIngreso = w.FechaIngreso,

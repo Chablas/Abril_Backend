@@ -212,6 +212,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     AreaScopeId = x.w.AreaScopeId,
                     WorkerCategoryId = x.w.WorkerCategoryId,
                     EmailCorporativo = x.w.EmailCorporativo,
+                    EmailPersonal = x.w.Person != null ? x.w.Person.Email : null,
                     TieneEmo = x.ue != null,
                     EmoId = x.ue != null ? x.ue.Id : (int?)null,
                     TipoEmo = x.t != null ? x.t.Nombre : null,

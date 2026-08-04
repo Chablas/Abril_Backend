@@ -10,7 +10,12 @@ namespace Abril_Backend.Infrastructure.Models {
         public string? FirstLastName {get; set;}
         public string? SecondLastName {get; set;}
         public string? FullName {get; set;}
-        /// <summary>Correo personal (no corporativo, no @abril.pe). El corporativo vive en <c>workers.email_corporativo</c>.</summary>
+        /// <summary>
+        /// Correo personal / de contacto. El corporativo vive en <c>workers.email_corporativo</c> y el
+        /// de autenticación en <c>app_user.email</c> — este nunca se usa para iniciar sesión.
+        /// Se puede repetir entre personas a propósito (varios trabajadores de una contratista
+        /// comparten el correo de su RR.HH.): el UNIQUE que tenía la columna se quitó por eso.
+        /// </summary>
         public string? Email {get; set;}
         /// <summary>Celular personal. El corporativo vive en <c>workers.celular_corporativo</c>.</summary>
         public int? PhoneNumber {get;set;}

@@ -9,6 +9,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Ruc { get; set; }
         public string? Celular { get; set; }
         public string? EmailCorporativo { get; set; }
+        /// <summary>Correo personal / de contacto (person.email).</summary>
+        public string? EmailPersonal { get; set; }
         public DateOnly? FechaNacimiento { get; set; }
         public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }

@@ -34,7 +34,8 @@ public class InspeccionRepository : IInspeccionRepository
             {
                 Id = t.Id,
                 Nombre = t.Nombre,
-                Ambito = t.Ambito
+                Ambito = t.Ambito,
+                EsColaborativa = t.EsColaborativa
             })
             .ToListAsync();
     }
@@ -103,12 +104,26 @@ public class InspeccionRepository : IInspeccionRepository
             TotalNoCumple = totalNoCumple,
             TotalNa = totalNa,
             TasaCumplimiento = tasa,
-            Estado = request.Hallazgos.Any() ? "En Proceso" : "Cerrada",
+            Estado = request.EsColaborativa ? "Abierta" : (request.Hallazgos.Any() ? "En Proceso" : "Cerrada"),
+            EsColaborativa = request.EsColaborativa,
             CreatedAt = DateTime.UtcNow
         };
 
         ctx.SsomaInspeccion.Add(inspeccion);
         await ctx.SaveChangesAsync();
+
+        if (request.EsColaborativa && !string.IsNullOrWhiteSpace(request.InspectorNombre))
+        {
+            ctx.SsomaInspeccionParticipante.Add(new SsomaInspeccionParticipante
+            {
+                InspeccionId = inspeccion.Id,
+                Nombre = request.InspectorNombre!,
+                Cargo = request.InspectorCargo,
+                Empresa = request.InspectorEmpresa,
+                FechaUnion = DateTime.UtcNow
+            });
+            await ctx.SaveChangesAsync();
+        }
 
         foreach (var r in request.Respuestas)
         {
@@ -248,6 +263,7 @@ public class InspeccionRepository : IInspeccionRepository
             .Include(i => i.Respuestas).ThenInclude(r => r.Item)
             .Include(i => i.Hallazgos).ThenInclude(h => h.Fotos)
             .Include(i => i.FotosArea)
+            .Include(i => i.Participantes)
             .FirstOrDefaultAsync(i => i.Id == id);
 
         if (insp == null) return null;
@@ -284,6 +300,7 @@ public class InspeccionRepository : IInspeccionRepository
             TotalNa = insp.TotalNa,
             TasaCumplimiento = insp.TasaCumplimiento,
             Estado = insp.Estado,
+            EsColaborativa = insp.EsColaborativa,
             CreatedAt = insp.CreatedAt,
             Respuestas = insp.Respuestas
                 .OrderBy(r => r.Item?.Orden)
@@ -313,6 +330,7 @@ public class InspeccionRepository : IInspeccionRepository
                     FechaCierre = h.FechaCierre,
                     Latitud = h.Latitud,
                     Longitud = h.Longitud,
+                    CreadoPorNombre = h.CreadoPorNombre,
                     Fotos = h.Fotos.OrderBy(f => f.Orden)
                         .Select(f => new InspeccionHallazgoFotoDto
                         {
@@ -324,6 +342,9 @@ public class InspeccionRepository : IInspeccionRepository
                 }).ToList(),
             FotosArea = insp.FotosArea.OrderBy(f => f.Orden)
                 .Select(f => new InspeccionHallazgoFotoDto { Id = f.Id, Url = f.Url, Orden = f.Orden })
+                .ToList(),
+            Participantes = insp.Participantes.OrderBy(p => p.FechaUnion)
+                .Select(p => new ParticipanteDto { Id = p.Id, Nombre = p.Nombre, Cargo = p.Cargo, Empresa = p.Empresa, FechaUnion = p.FechaUnion })
                 .ToList()
         };
     }
@@ -534,6 +555,150 @@ public class InspeccionRepository : IInspeccionRepository
                           h.Estado == "En proceso" ? 2 : 3)
             .ThenBy(h => h.FechaLimite)
             .ToList();
+    }
+
+    public async Task<int> AgregarHallazgoAsync(int inspeccionId, InspeccionHallazgoRequest h, int? creadoPorWorkerId, string? creadoPorNombre)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var insp = await ctx.SsomaInspeccion.FindAsync(inspeccionId)
+            ?? throw new AbrilException("Inspección no encontrada.", 404);
+        if (!insp.EsColaborativa || insp.Estado != "Abierta")
+            throw new AbrilException("Esta inspección no está abierta para agregar hallazgos.", 400);
+
+        var hallazgo = new SsomaInspeccionHallazgo
+        {
+            InspeccionId = inspeccionId,
+            Descripcion = h.Descripcion,
+            Tipo = h.Tipo,
+            Area = h.Area,
+            ResponsableNombre = h.ResponsableNombre,
+            ResponsableCargo = h.ResponsableCargo,
+            FechaLimite = h.FechaLimite.HasValue ? DateTime.SpecifyKind(h.FechaLimite.Value, DateTimeKind.Utc) : null,
+            AccionCorrectiva = h.AccionCorrectiva,
+            Latitud = h.Latitud,
+            Longitud = h.Longitud,
+            CreadoPorWorkerId = creadoPorWorkerId,
+            CreadoPorNombre = creadoPorNombre,
+            Estado = "Abierto",
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.SsomaInspeccionHallazgo.Add(hallazgo);
+        await ctx.SaveChangesAsync();
+        return hallazgo.Id;
+    }
+
+    public async Task AgregarFotosHallazgoAsync(int hallazgoId, List<string> urls)
+    {
+        using var ctx = _factory.CreateDbContext();
+        for (int j = 0; j < urls.Count; j++)
+        {
+            ctx.SsomaInspeccionHallazgoFoto.Add(new SsomaInspeccionHallazgoFoto
+            {
+                HallazgoId = hallazgoId,
+                Url = urls[j],
+                Orden = j,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task UnirseAsync(int inspeccionId, UnirseInspeccionRequest req, int? workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var insp = await ctx.SsomaInspeccion.FindAsync(inspeccionId)
+            ?? throw new AbrilException("Inspección no encontrada.", 404);
+        if (!insp.EsColaborativa || insp.Estado != "Abierta")
+            throw new AbrilException("Esta inspección no está abierta.", 400);
+
+        var existentes = await ctx.SsomaInspeccionParticipante
+            .Where(p => p.InspeccionId == inspeccionId)
+            .ToListAsync();
+
+        // El creador queda registrado como participante sin WorkerId (se resuelve solo por nombre
+        // al crear). Si es la misma persona la que luego "se une" — p.ej. desde su propio detalle
+        // al ir a agregar un hallazgo —, hay que reconocerla por nombre para no duplicarla.
+        var match = (workerId.HasValue ? existentes.FirstOrDefault(p => p.WorkerId == workerId.Value) : null)
+            ?? existentes.FirstOrDefault(p =>
+                p.WorkerId == null && p.Nombre.Trim().Equals(req.Nombre.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (match != null)
+        {
+            if (workerId.HasValue && match.WorkerId == null)
+            {
+                match.WorkerId = workerId;
+                await ctx.SaveChangesAsync();
+            }
+            return;
+        }
+
+        ctx.SsomaInspeccionParticipante.Add(new SsomaInspeccionParticipante
+        {
+            InspeccionId = inspeccionId,
+            WorkerId = workerId,
+            Nombre = req.Nombre,
+            Cargo = req.Cargo,
+            Empresa = req.Empresa,
+            FechaUnion = DateTime.UtcNow
+        });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<List<InspeccionAbiertaListItemDto>> GetAbiertasAsync(int? proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var q = ctx.SsomaInspeccion
+            .Include(i => i.Proyecto).Include(i => i.Tipo).Include(i => i.Hallazgos).Include(i => i.Participantes)
+            .Where(i => i.EsColaborativa && i.Estado == "Abierta")
+            .AsQueryable();
+        if (proyectoId.HasValue) q = q.Where(i => i.ProyectoId == proyectoId.Value);
+
+        return await q
+            .OrderByDescending(i => i.CreatedAt)
+            .Select(i => new InspeccionAbiertaListItemDto
+            {
+                Id = i.Id,
+                ProyectoNombre = i.Proyecto != null ? i.Proyecto.ProjectDescription : "",
+                TipoNombre = i.Tipo != null ? i.Tipo.Nombre : "",
+                Fecha = i.Fecha,
+                TotalHallazgos = i.Hallazgos.Count,
+                TotalParticipantes = i.Participantes.Count,
+                CreatedAt = i.CreatedAt
+            })
+            .ToListAsync();
+    }
+
+    public async Task<int> GetProyectoIdAsync(int inspeccionId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var insp = await ctx.SsomaInspeccion.FindAsync(inspeccionId)
+            ?? throw new AbrilException("Inspección no encontrada.", 404);
+        return insp.ProyectoId;
+    }
+
+    public async Task CerrarInspeccionColaborativaAsync(int inspeccionId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var insp = await ctx.SsomaInspeccion.Include(i => i.Hallazgos)
+            .FirstOrDefaultAsync(i => i.Id == inspeccionId)
+            ?? throw new AbrilException("Inspección no encontrada.", 404);
+        if (!insp.EsColaborativa) throw new AbrilException("Esta inspección no es colaborativa.", 400);
+        if (insp.Estado != "Abierta") throw new AbrilException("La inspección ya está cerrada.", 400);
+
+        insp.Estado = insp.Hallazgos.Any() ? "En Proceso" : "Cerrada";
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task ReabrirInspeccionColaborativaAsync(int inspeccionId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var insp = await ctx.SsomaInspeccion.FindAsync(inspeccionId)
+            ?? throw new AbrilException("Inspección no encontrada.", 404);
+        if (!insp.EsColaborativa) throw new AbrilException("Esta inspección no es colaborativa.", 400);
+        if (insp.Estado == "Abierta") throw new AbrilException("La inspección ya está abierta.", 400);
+
+        insp.Estado = "Abierta";
+        await ctx.SaveChangesAsync();
     }
 
     public async Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto)

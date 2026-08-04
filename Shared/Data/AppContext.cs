@@ -306,6 +306,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsomaInspeccionHallazgo> SsomaInspeccionHallazgo => Set<SsomaInspeccionHallazgo>();
         public DbSet<SsomaInspeccionHallazgoFoto> SsomaInspeccionHallazgoFoto => Set<SsomaInspeccionHallazgoFoto>();
         public DbSet<SsomaInspeccionFotoArea> SsomaInspeccionFotoArea => Set<SsomaInspeccionFotoArea>();
+        public DbSet<SsomaInspeccionParticipante> SsomaInspeccionParticipante => Set<SsomaInspeccionParticipante>();
         // ── Indicadores Proactivos ─────────────────────────────────────────────
         public DbSet<SsomaProgInspeccionEmpresa> SsomaProgInspeccionEmpresa => Set<SsomaProgInspeccionEmpresa>();
         public DbSet<SsomaMetaAnual> SsomaMetaAnual => Set<SsomaMetaAnual>();
@@ -910,6 +911,7 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<SsomaInspeccionHallazgo>().ToTable("ssoma_inspeccion_hallazgo");
             modelBuilder.Entity<SsomaInspeccionHallazgoFoto>().ToTable("ssoma_inspeccion_hallazgo_foto");
             modelBuilder.Entity<SsomaInspeccionFotoArea>().ToTable("ssoma_inspeccion_foto_area");
+            modelBuilder.Entity<SsomaInspeccionParticipante>().ToTable("ssoma_inspeccion_participante");
             modelBuilder.Entity<SsomaOptFotoArea>().ToTable("ssoma_opt_foto_area");
             // ── Indicadores Proactivos ─────────────────────────────────────
             modelBuilder.Entity<SsomaProgInspeccionEmpresa>().ToTable("ssoma_prog_inspeccion_empresa");

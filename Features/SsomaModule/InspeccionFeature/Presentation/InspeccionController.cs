@@ -16,13 +16,27 @@ public class InspeccionController : ControllerBase
 {
     private readonly IInspeccionService _service;
     private readonly InspeccionPdfService _pdfService;
+    private readonly IInspeccionSharePointService _sp;
     private readonly ILogger<InspeccionController> _logger;
 
-    public InspeccionController(IInspeccionService service, InspeccionPdfService pdfService, ILogger<InspeccionController> logger)
+    public InspeccionController(IInspeccionService service, InspeccionPdfService pdfService, IInspeccionSharePointService sp, ILogger<InspeccionController> logger)
     {
         _service = service;
         _pdfService = pdfService;
+        _sp = sp;
         _logger = logger;
+    }
+
+    private static string ContentTypeDeArchivo(string path)
+    {
+        var ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".png" => "image/png",
+            ".gif" => "image/gif",
+            ".webp" => "image/webp",
+            _ => "image/jpeg",
+        };
     }
 
     private int? GetEmpresaIdContratista() =>
@@ -30,6 +44,8 @@ public class InspeccionController : ControllerBase
             && int.TryParse(User.FindFirst("empresaId")?.Value, out var id)
             ? id
             : null;
+
+    private bool EsContratista() => User.FindFirst("tipo")?.Value == "CONTRATISTA";
 
     private int? GetUserId() =>
         int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
@@ -126,6 +142,86 @@ public class InspeccionController : ControllerBase
         }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error cerrar hallazgo {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("abiertas")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> GetAbiertas([FromQuery] int? proyectoId)
+    {
+        try { return Ok(await _service.GetAbiertasAsync(proyectoId)); }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error listar inspecciones abiertas"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPost("{id:int}/unirse")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> Unirse(int id)
+    {
+        try
+        {
+            await _service.UnirseAsync(id, GetUserId(), EsContratista());
+            return Ok(new { message = "Te uniste a la inspección." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error unirse inspeccion {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPost("{id:int}/hallazgos")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> AgregarHallazgo(int id, [FromBody] InspeccionHallazgoRequest request)
+    {
+        try
+        {
+            await _service.AgregarHallazgoAsync(id, request, GetUserId(), EsContratista());
+            return Ok(new { message = "Hallazgo agregado correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error agregar hallazgo a inspeccion {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPatch("{id:int}/cerrar-colaborativa")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> CerrarColaborativa(int id)
+    {
+        try
+        {
+            // Solo staff interno de Abril puede cerrar una inspección grupal (no contratistas).
+            if (EsContratista()) return Forbid();
+            await _service.CerrarInspeccionColaborativaAsync(id);
+            return Ok(new { message = "Inspección cerrada correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error cerrar inspeccion colaborativa {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpPatch("{id:int}/reabrir-colaborativa")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> ReabrirColaborativa(int id)
+    {
+        try
+        {
+            if (EsContratista()) return Forbid();
+            await _service.ReabrirInspeccionColaborativaAsync(id);
+            return Ok(new { message = "Inspección reabierta correctamente." });
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error reabrir inspeccion colaborativa {Id}", id); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+    }
+
+    [HttpGet("media")]
+    [RequireFeature("ssoma.gestion.inspeccion")]
+    public async Task<IActionResult> GetMedia([FromQuery] string path, [FromQuery] string tipo = "fotos")
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path)) return BadRequest(new { message = "path es requerido." });
+            var contexto = tipo == "firmas" ? "inspeccion-firmas" : "inspeccion-fotos";
+            var bytes = await _sp.DescargarAsync(path, contexto);
+            if (bytes == null) return NotFound();
+            return File(bytes, ContentTypeDeArchivo(path));
+        }
+        catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (Exception ex) { _logger.LogError(ex, "Error media inspeccion {Path}", path); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
 
     [HttpGet("{id:int}/pdf")]

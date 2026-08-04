@@ -22,4 +22,12 @@ public interface IInspeccionRepository
     Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null);
     Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto);
     Task<(int? EmpresaId, int? EmpresaInspectoraId)> GetEmpresaIdDeHallazgoAsync(int hallazgoId);
+
+    Task<int> AgregarHallazgoAsync(int inspeccionId, InspeccionHallazgoRequest h, int? creadoPorWorkerId, string? creadoPorNombre);
+    Task AgregarFotosHallazgoAsync(int hallazgoId, List<string> urls);
+    Task UnirseAsync(int inspeccionId, UnirseInspeccionRequest req, int? workerId);
+    Task<List<InspeccionAbiertaListItemDto>> GetAbiertasAsync(int? proyectoId);
+    Task<int> GetProyectoIdAsync(int inspeccionId);
+    Task CerrarInspeccionColaborativaAsync(int inspeccionId);
+    Task ReabrirInspeccionColaborativaAsync(int inspeccionId);
 }

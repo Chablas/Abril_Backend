@@ -16,4 +16,11 @@ public interface IInspeccionService
     Task<List<HallazgoListItemDto>> GetHallazgosAsync(string? estado, string? proyecto, string? area, DateTime? fechaLimiteHasta, int? empresaIdContratista = null);
     Task LevantarHallazgoAsync(int hallazgoId, LevantarHallazgoDto dto);
     Task<(int? EmpresaId, int? EmpresaInspectoraId)> GetEmpresaIdDeHallazgoAsync(int hallazgoId);
+
+    Task AgregarHallazgoAsync(int inspeccionId, InspeccionHallazgoRequest hallazgo, int? userId, bool esContratista);
+    Task UnirseAsync(int inspeccionId, int? userId, bool esContratista);
+    Task<List<InspeccionAbiertaListItemDto>> GetAbiertasAsync(int? proyectoId);
+    Task<int> GetProyectoIdAsync(int inspeccionId);
+    Task CerrarInspeccionColaborativaAsync(int inspeccionId);
+    Task ReabrirInspeccionColaborativaAsync(int inspeccionId);
 }

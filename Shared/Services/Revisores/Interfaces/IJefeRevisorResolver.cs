@@ -12,21 +12,31 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
     ///   3) Fallback: el área de GTH — nodo <c>area_scope</c> del área
     ///      "Gestión del Talento Humano" con <c>email</c> configurado.
     ///
-    /// Servicio compartido: lo usan Gestión Administrativa (a quién se le manda a
-    /// aprobar una solicitud de salida) y SSOMA · Salud Ocupacional (a qué jefe se le
-    /// notifica un EMO). Antes vivía como <c>ISalidaRevisorResolver</c> dentro de
-    /// SolicitudSalidasFeature; al usarlo dos módulos se movió a <c>Shared/</c>.
-    /// Reemplaza al algoritmo de jerarquía de áreas (ApproverResolver / JefeResolver),
-    /// que queda sin uso pero se conserva en el código.
+    /// Servicio compartido: es la ÚNICA fuente de "quién es el jefe de este trabajador".
+    /// Lo usan Gestión Administrativa (a quién se le manda a aprobar una solicitud de
+    /// salida) y SSOMA · Salud Ocupacional (correos de EMO e interconsultas), y
+    /// Evaluaciones (a qué jefe se le hace CC del recordatorio). Reemplazó a tres
+    /// algoritmos previos: el cruce por nombre contra <c>cat_jefatura</c>, el campo 1:1
+    /// <c>workers.worker_salida_jefe_id</c> y el recorrido del árbol de áreas por
+    /// categoría de trabajador (ApproverResolver / JefeResolver).
     /// </summary>
     public interface IJefeRevisorResolver
     {
+        /// <summary>Jefe/revisor de un trabajador, o null si no se resuelve ninguno.</summary>
         Task<JefeRevisorResolution?> ResolveAsync(int workerId);
+
+        /// <summary>
+        /// Versión por lotes: resuelve el jefe de varios trabajadores con un número FIJO de
+        /// consultas (no depende de la cantidad de ids), para listas y envíos masivos.
+        /// Los trabajadores sin jefe resuelto simplemente no aparecen en el diccionario.
+        /// </summary>
+        Task<Dictionary<int, JefeRevisorResolution>> ResolveManyAsync(IReadOnlyCollection<int> workerIds);
     }
 
     /// <summary>
     /// Jefe/revisor resuelto: un trabajador (WorkerId) o un área (AreaScopeId, el
-    /// fallback de GTH) — exactamente uno de los dos — y el correo a usar.
+    /// fallback de GTH) — exactamente uno de los dos — con el correo a usar y el nombre
+    /// para mostrar (nombre completo del revisor, o el del área en el fallback).
     /// </summary>
-    public record JefeRevisorResolution(int? WorkerId, int? AreaScopeId, string Email);
+    public record JefeRevisorResolution(int? WorkerId, int? AreaScopeId, string Email, string? Nombre = null);
 }

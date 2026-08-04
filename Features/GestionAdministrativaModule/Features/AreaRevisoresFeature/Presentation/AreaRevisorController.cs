@@ -23,7 +23,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
         }
 
         /// <summary>
-        /// Carga inicial: áreas estándar (primer nodo de cada rama) con sus n revisores + opciones.
+        /// Carga inicial: gerencias y áreas estándar (primer nodo de su tipo en cada rama) con sus n revisores + opciones.
         /// ADMINISTRADOR DE SOLICITUD DE SALIDAS ve todas las áreas; un trabajador con
         /// categoría Jefe/Coordinador/Gerente ve solo su área; el resto no ve ninguna.
         /// </summary>

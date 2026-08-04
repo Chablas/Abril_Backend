@@ -1,6 +1,7 @@
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,9 +10,15 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
     public class EvRecordatorioRepository : IEvRecordatorioRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IJefeRevisorResolver _jefeResolver;
 
-        public EvRecordatorioRepository(IDbContextFactory<AppDbContext> factory)
-            => _factory = factory;
+        public EvRecordatorioRepository(
+            IDbContextFactory<AppDbContext> factory,
+            IJefeRevisorResolver jefeResolver)
+        {
+            _factory = factory;
+            _jefeResolver = jefeResolver;
+        }
 
         public async Task<EvPeriodo?> GetPeriodoActivoAsync()
         {
@@ -38,34 +45,21 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 AND w.email_corporativo != ''
                 AND (w.fecha_retiro IS NULL OR w.fecha_retiro > CURRENT_DATE)";
 
-            const string subAreaMapeo = @"CASE w.subarea
-                WHEN 'Unidad de Proyectos'    THEN 'Jefe de Proyectos'
-                WHEN 'Ingeniería BIM'         THEN 'Jefe de Proyectos'
-                WHEN 'Planeamiento BIM'       THEN 'Jefe de Proyectos'
-                WHEN 'SSOMA'                  THEN 'Jefe de Seguridad y Salud en el trabajo'
-                WHEN 'Arquitectura'           THEN 'Jefe de Arquitectura'
-                WHEN 'Arquitectura Comercial' THEN 'Jefe de Arquitectura Comercial'
-                WHEN 'Calidad'               THEN 'Jefe de Calidad'
-                WHEN 'Costos y Presupuestos'  THEN 'Jefe de Costos y Presupuestos'
-                WHEN 'Post Venta'             THEN 'Jefe de Post Venta'
-                WHEN 'Producción'             THEN 'Gerente De Proyectos'
-                WHEN 'Administración Obra'    THEN 'Gerente De Proyectos'
-                ELSE NULL
-            END";
+            // El jefe al que se le hace CC ya no se deduce de un mapeo subárea → cargo contra
+            // cat_jefatura: se resuelve por trabajador con IJefeRevisorResolver (revisor directo
+            // → revisor del área → fallback GTH) después de estas consultas, en un solo lote.
 
             // REGLA 1: Jefes/Coordinadores OC Proyectos, subarea general
             var sqlR1 = $@"
                 SELECT DISTINCT
                     au.user_id       AS UserId,
+                    w.id             AS WorkerId,
                     p.full_name      AS NombreCompleto,
                     w.email_corporativo AS EmailCorporativo,
-                    w.subarea        AS Subarea,
-                    cj.email         AS JefeEmail,
-                    cj.nombre        AS JefeNombre
+                    w.subarea        AS Subarea
                 FROM workers w
                 JOIN person p    ON p.person_id = w.person_id
                 JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                LEFT JOIN cat_jefatura cj ON cj.nombre = ({subAreaMapeo}) AND cj.activo = true
                 WHERE w.obra_oficina = 'Oficina Central'
                   AND w.area         = 'Proyectos'
                   AND w.categoria    IN ('Jefe', 'Coordinador')
@@ -82,15 +76,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var sqlR2 = $@"
                 SELECT DISTINCT
                     au.user_id       AS UserId,
+                    w.id             AS WorkerId,
                     p.full_name      AS NombreCompleto,
                     w.email_corporativo AS EmailCorporativo,
-                    w.subarea        AS Subarea,
-                    cj.email         AS JefeEmail,
-                    cj.nombre        AS JefeNombre
+                    w.subarea        AS Subarea
                 FROM workers w
                 JOIN person p         ON p.person_id = w.person_id
                 LEFT JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                LEFT JOIN cat_jefatura cj ON cj.nombre = 'Jefe de Proyectos' AND cj.activo = true
                 WHERE w.subarea IN ('Unidad de Proyectos', 'Planeamiento BIM')
                   AND NOT (w.categoria = 'Gerente' AND w.area = 'Proyectos')
                   AND {filtroBase}
@@ -122,15 +114,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var sqlR3 = $@"
                 SELECT DISTINCT
                     au.user_id       AS UserId,
+                    w.id             AS WorkerId,
                     p.full_name      AS NombreCompleto,
                     w.email_corporativo AS EmailCorporativo,
-                    w.subarea        AS Subarea,
-                    cj.email         AS JefeEmail,
-                    cj.nombre        AS JefeNombre
+                    w.subarea        AS Subarea
                 FROM workers w
                 JOIN person p    ON p.person_id = w.person_id
                 JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                LEFT JOIN cat_jefatura cj ON cj.nombre = 'Gerente De Proyectos' AND cj.activo = true
                 WHERE w.obra_oficina != 'Oficina Central'
                   AND NOT (w.categoria = 'Gerente' AND w.area = 'Proyectos')
                   AND {filtroBase}
@@ -168,7 +158,21 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var r2 = await conn.QueryAsync<EvaluadorDto>(sqlR2, qParams);
             var r3 = await conn.QueryAsync<EvaluadorDto>(sqlR3, qParams);
 
-            return r1.Concat(r2).Concat(r3).ToList();
+            var evaluadores = r1.Concat(r2).Concat(r3).ToList();
+
+            // Jefe de cada evaluador (para el CC del recordatorio) desde la configuración
+            // global de revisores, en un solo lote — sin importar cuántos evaluadores haya.
+            var jefes = await _jefeResolver.ResolveManyAsync(
+                evaluadores.Select(e => e.WorkerId).Distinct().ToList());
+
+            foreach (var ev in evaluadores)
+                if (jefes.TryGetValue(ev.WorkerId, out var jefe))
+                {
+                    ev.JefeEmail = jefe.Email;
+                    ev.JefeNombre = jefe.Nombre;
+                }
+
+            return evaluadores;
         }
 
         public async Task RegistrarLogAsync(int periodoId, int? userId, string tipo, string emailDestino, bool ccJefatura, bool ccGerencia)

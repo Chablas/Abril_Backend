@@ -18,52 +18,62 @@
 -- distintos (una RETIRADA con el correo de RR.HH. de la contratista y una ACTIVA con su
 -- correo propio); el desempate se queda con la ficha vigente y más reciente, y la otra
 -- conserva su valor en workers.email_corporativo para no perderlo.
+--
+-- Son solo dos statements y ninguno depende de estado del otro (nada de tablas
+-- temporales), así que corre igual en psql -f, en pgAdmin, y statement por statement.
+-- El orden sí importa: el índice tiene que caer antes del UPDATE, porque el UPDATE crea
+-- correos repetidos a propósito. Si se corre al revés, el UPDATE falla con violación de
+-- unicidad y no deja nada a medias.
 
 BEGIN;
 
 DROP INDEX IF EXISTS person_email_key;
 
--- Correos personales que hoy viven en la columna equivocada.
-CREATE TEMP TABLE tmp_email_personal ON COMMIT DROP AS
-SELECT w.id AS worker_id, w.person_id, lower(btrim(w.email_corporativo)) AS email
-FROM workers w
-WHERE w.person_id IS NOT NULL
-  AND w.email_corporativo IS NOT NULL
-  AND btrim(w.email_corporativo) <> ''
-  AND lower(btrim(w.email_corporativo)) NOT LIKE '%@abril.pe'
-  AND NOT (w.contrata_casa = 'Casa' AND w.obra_oficina IN ('Staff', 'Oficina Central'));
-
--- Una persona puede tener varias fichas: gana la vigente y, a igualdad, la más reciente.
-CREATE TEMP TABLE tmp_elegido ON COMMIT DROP AS
-SELECT DISTINCT ON (t.person_id) t.person_id, t.email
-FROM tmp_email_personal t
-JOIN workers w ON w.id = t.worker_id
-ORDER BY t.person_id,
-         (coalesce(w.estado, 'ACTIVO') <> 'RETIRADO') DESC,
-         w.created_at DESC NULLS LAST,
-         w.id DESC;
-
-UPDATE person p
-   SET email             = e.email,
-       updated_date_time = now()
-  FROM tmp_elegido e
- WHERE p.person_id = e.person_id
-   AND coalesce(btrim(p.email), '') = '';
-
+WITH a_mover AS (
+    -- Correos personales que hoy están en la columna equivocada.
+    SELECT w.id                                          AS worker_id,
+           w.person_id,
+           lower(btrim(w.email_corporativo))             AS email,
+           (coalesce(w.estado, 'ACTIVO') <> 'RETIRADO')  AS vigente,
+           w.created_at
+    FROM workers w
+    WHERE w.person_id IS NOT NULL
+      AND w.email_corporativo IS NOT NULL
+      AND btrim(w.email_corporativo) <> ''
+      AND lower(btrim(w.email_corporativo)) NOT LIKE '%@abril.pe'
+      AND NOT (w.contrata_casa = 'Casa' AND w.obra_oficina IN ('Staff', 'Oficina Central'))
+),
+elegido AS (
+    -- Una persona puede tener varias fichas: gana la vigente y, a igualdad, la más reciente.
+    SELECT DISTINCT ON (person_id) person_id, email
+    FROM a_mover
+    ORDER BY person_id, vigente DESC, created_at DESC NULLS LAST, worker_id DESC
+),
+actualizadas AS (
+    -- Solo se completa a quien no tenía correo de contacto: nunca se pisa un dato existente.
+    UPDATE person p
+       SET email             = e.email,
+           updated_date_time = now()
+      FROM elegido e
+     WHERE p.person_id = e.person_id
+       AND coalesce(btrim(p.email), '') = ''
+    RETURNING p.person_id, p.email
+)
 -- Se limpia workers solo donde el valor quedó efectivamente guardado en person, para no
--- perder el correo de una ficha cuyo valor no ganó el desempate.
+-- perder el correo de una ficha cuyo valor no ganó el desempate. Se cruza contra el
+-- RETURNING de arriba (no contra un SELECT a person, que en el mismo statement vería
+-- todavía el valor viejo).
 UPDATE workers w
    SET email_corporativo = NULL,
        updated_at        = now()
-  FROM tmp_email_personal t
-  JOIN person p ON p.person_id = t.person_id
- WHERE w.id = t.worker_id
-   AND lower(btrim(p.email)) = t.email;
+  FROM a_mover m
+  JOIN actualizadas a ON a.person_id = m.person_id AND a.email = m.email
+ WHERE w.id = m.worker_id;
 
 COMMIT;
 
--- Comprobación posterior: no debe quedar ningún correo no corporativo en workers fuera de
--- Staff/Oficina Central (salvo el de la ficha retirada que no ganó el desempate).
+-- Comprobación posterior. Debe quedar solo 1 fila: la ficha retirada que no ganó el
+-- desempate y conserva su correo.
 --   SELECT count(*) FROM workers
 --    WHERE email_corporativo IS NOT NULL AND btrim(email_corporativo) <> ''
 --      AND lower(btrim(email_corporativo)) NOT LIKE '%@abril.pe'

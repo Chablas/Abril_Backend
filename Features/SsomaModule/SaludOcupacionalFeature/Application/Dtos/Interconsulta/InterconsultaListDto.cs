@@ -23,9 +23,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interco
         public string? WorkerEmail { get; set; }
         /// <summary>Correo del administrador encargado de la razón social/proyecto para el envío consolidado (obreros sin correo).</summary>
         public string? AdministradorEmail { get; set; }
-        /// <summary>Nombre de la jefatura/área (workers.jefatura), aplica sobre todo a Staff/Oficina Central para hacer seguimiento.</summary>
+        /// <summary>Nombre del jefe/revisor del trabajador (o del área de GTH si se cayó al fallback).</summary>
         public string? Jefatura { get; set; }
-        /// <summary>Correo de la jefatura, resuelto desde cat_jefatura por nombre.</summary>
+        /// <summary>Correo del jefe, resuelto por IJefeRevisorResolver desde la configuración
+        /// global de revisores: revisor directo → revisor del área → fallback GTH.</summary>
         public string? JefaturaEmail { get; set; }
         public string Especialidad { get; set; } = string.Empty;
         public string? MedicoDeriva { get; set; }

@@ -192,7 +192,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<CatOcupacion> CatOcupacion => Set<CatOcupacion>();
         public DbSet<WorkerEvento> WorkerEvento => Set<WorkerEvento>();
         public DbSet<SsTrabajadorRestringido> SsTrabajadorRestringido => Set<SsTrabajadorRestringido>();
-        public DbSet<CatJefatura> CatJefatura => Set<CatJefatura>();
+        // CatJefatura (cat_jefatura) eliminado: la resolución del jefe de un trabajador
+        // pasó a IJefeRevisorResolver (configuración global de revisores).
         public DbSet<SsClinicaEmail> SsClinicaEmail => Set<SsClinicaEmail>();
         public DbSet<GaHoraOpcion> GaHoraOpcion { get; set; }
         public DbSet<GaLugar> GaLugar { get; set; }

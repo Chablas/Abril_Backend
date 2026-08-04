@@ -10,9 +10,14 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
     ///   2) <c>area_revisores</c>: n revisores por área, por prioridad, partiendo del
     ///      nodo area_scope del trabajador (workers.area_scope_id) y subiendo por el
     ///      árbol hasta el primer nodo con revisores (los revisores se configuran solo
-    ///      en el primer nodo "Área Estándar" de cada rama).
+    ///      en el primer nodo "Área de Gerencia" y el primer "Área Estándar" de cada
+    ///      rama, así que un trabajador cae en su área estándar y, si esa no tiene
+    ///      revisores, en la gerencia de la que cuelga).
     ///   3) Fallback: el área de GTH (area_scope.email).
-    /// Sustituye al algoritmo de jerarquía ApproverResolver (JefeResolver).
+    ///
+    /// Todo se resuelve por lotes: <see cref="ResolveManyAsync"/> hace un número FIJO de
+    /// consultas sea para 1 o para 500 trabajadores, y <see cref="ResolveAsync"/> es un
+    /// atajo sobre ella (una sola ruta de código, sin lógica duplicada).
     /// </summary>
     public class JefeRevisorResolver : IJefeRevisorResolver
     {
@@ -29,51 +34,84 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
 
         public async Task<JefeRevisorResolution?> ResolveAsync(int workerId)
         {
+            var resueltos = await ResolveManyAsync(new[] { workerId });
+            return resueltos.TryGetValue(workerId, out var jefe) ? jefe : null;
+        }
+
+        public async Task<Dictionary<int, JefeRevisorResolution>> ResolveManyAsync(IReadOnlyCollection<int> workerIds)
+        {
+            var resultado = new Dictionary<int, JefeRevisorResolution>();
+
+            var ids = workerIds.Where(id => id > 0).Distinct().ToList();
+            if (ids.Count == 0) return resultado;
+
             using var ctx = _factory.CreateDbContext();
 
-            // 1) Primer revisor vivo + activo por prioridad, con correo corporativo válido.
-            var revisor = await (
-                from r in ctx.WorkersRevisores
-                where r.State && r.Active && r.SolicitanteId == workerId
-                join w in ctx.Worker on r.RevisorId equals w.Id
-                where w.Id != workerId
-                      && w.EmailCorporativo != null
+            // ── Paso 1: revisor directo (workers_revisores) ────────────────────────
+            var directos = await (
+                from r in ctx.WorkersRevisores.AsNoTracking()
+                where r.State && r.Active && ids.Contains(r.SolicitanteId)
+                join w in ctx.Worker.AsNoTracking() on r.RevisorId equals w.Id
+                where w.EmailCorporativo != null
                       && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
-                orderby r.OrdenPrioridad, r.WorkersRevisoresId
-                select new { w.Id, w.EmailCorporativo }
-            ).FirstOrDefaultAsync();
+                select new
+                {
+                    r.SolicitanteId,
+                    r.OrdenPrioridad,
+                    r.WorkersRevisoresId,
+                    RevisorWorkerId = w.Id,
+                    w.EmailCorporativo,
+                    Nombre = w.Person != null ? w.Person.FullName : null,
+                }
+            ).ToListAsync();
 
-            if (revisor != null)
-                return new JefeRevisorResolution(revisor.Id, null, revisor.EmailCorporativo!.Trim());
+            foreach (var grupo in directos.GroupBy(d => d.SolicitanteId))
+            {
+                // El propio trabajador no puede ser su revisor.
+                var elegido = grupo
+                    .Where(d => d.RevisorWorkerId != grupo.Key)
+                    .OrderBy(d => d.OrdenPrioridad)
+                    .ThenBy(d => d.WorkersRevisoresId)
+                    .FirstOrDefault();
 
-            // 2) Revisores del área del trabajador (area_revisores). Se parte de su
-            //    nodo workers.area_scope_id y se sube por el árbol: gana el nodo más
-            //    cercano con al menos un revisor vivo + activo con correo válido.
-            var areaRevisor = await ResolveByAreaAsync(ctx, workerId);
-            if (areaRevisor != null)
-                return areaRevisor;
+                if (elegido != null)
+                    resultado[grupo.Key] = new JefeRevisorResolution(
+                        elegido.RevisorWorkerId, null, elegido.EmailCorporativo!.Trim(), elegido.Nombre);
+            }
 
-            // 3) Fallback: área de GTH (correo configurable en area_scope.email para no
-            //    hardcodear gthnm@abril.pe).
+            var pendientes = ids.Where(id => !resultado.ContainsKey(id)).ToList();
+            if (pendientes.Count == 0) return resultado;
+
+            // ── Paso 2: revisores del área (area_revisores, subiendo por el árbol) ──
+            await ResolveByAreaAsync(ctx, pendientes, resultado);
+
+            pendientes = ids.Where(id => !resultado.ContainsKey(id)).ToList();
+            if (pendientes.Count == 0) return resultado;
+
+            // ── Paso 3: fallback al área de GTH ───────────────────────────────────
             var gth = await (
-                from s in ctx.AreaScope
-                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
+                from s in ctx.AreaScope.AsNoTracking()
+                join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
                 where s.State && ai.State
                       && ai.AreaItemName == AreaGthNombre
                       && s.Email != null && s.Email != ""
                 orderby s.AreaScopeId
-                select new { s.AreaScopeId, s.Email }
+                select new { s.AreaScopeId, s.Email, ai.AreaItemName }
             ).FirstOrDefaultAsync();
 
-            return gth == null
-                ? null
-                : new JefeRevisorResolution(null, gth.AreaScopeId, gth.Email!.Trim());
+            if (gth != null)
+                foreach (var id in pendientes)
+                    resultado[id] = new JefeRevisorResolution(
+                        null, gth.AreaScopeId, gth.Email!.Trim(), gth.AreaItemName);
+
+            return resultado;
         }
 
         /// <summary>
-        /// Busca revisores de área para el trabajador: cadena de nodos desde su
-        /// area_scope hacia la raíz; en el primer nodo con revisores válidos devuelve
-        /// el de mayor prioridad. El propio trabajador no puede ser su revisor.
+        /// Busca revisores de área para los trabajadores indicados: para cada uno arma la
+        /// cadena de nodos desde su area_scope hacia la raíz y toma, del primer nodo con
+        /// revisores válidos, el de mayor prioridad. El propio trabajador no puede ser su
+        /// revisor. Escribe en <paramref name="resultado"/> solo los que resuelve.
         ///
         /// Si un nodo está marcado como "filtrar por proyecto" (ga_salidas_area_config),
         /// se usa el revisor del proyecto al que pertenece el trabajador
@@ -83,81 +121,111 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
         /// usan siempre el revisor a nivel de área. Todo se generaliza por configuración,
         /// sin reglas especiales por nombre de área.
         /// </summary>
-        private async Task<JefeRevisorResolution?> ResolveByAreaAsync(AppDbContext ctx, int workerId)
+        private static async Task ResolveByAreaAsync(
+            AppDbContext ctx,
+            List<int> workerIds,
+            Dictionary<int, JefeRevisorResolution> resultado)
         {
-            var areaScopeId = await ctx.Worker
-                .Where(w => w.Id == workerId)
-                .Select(w => w.AreaScopeId)
-                .FirstOrDefaultAsync();
-            if (areaScopeId == null) return null;
+            var areaScopePorWorker = await ctx.Worker.AsNoTracking()
+                .Where(w => workerIds.Contains(w.Id) && w.AreaScopeId != null)
+                .Select(w => new { w.Id, AreaScopeId = w.AreaScopeId!.Value })
+                .ToDictionaryAsync(w => w.Id, w => w.AreaScopeId);
+            if (areaScopePorWorker.Count == 0) return;
 
-            // Árbol vivo (tabla pequeña) para armar la cadena trabajador → raíz en memoria.
-            var scopes = await ctx.AreaScope
+            // Árbol vivo (tabla pequeña) para armar las cadenas trabajador → raíz en memoria.
+            var scopes = await ctx.AreaScope.AsNoTracking()
                 .Where(s => s.State)
                 .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
                 .ToListAsync();
             var parentById = scopes.ToDictionary(s => s.AreaScopeId, s => s.AreaScopeParentId);
 
-            var cadena = new List<int>();
-            var visitados = new HashSet<int>();
-            int? actual = areaScopeId;
-            while (actual != null && visitados.Add(actual.Value))
+            var cadenaPorWorker = new Dictionary<int, List<int>>();
+            foreach (var (workerId, areaScopeId) in areaScopePorWorker)
             {
-                cadena.Add(actual.Value);
-                parentById.TryGetValue(actual.Value, out actual);
+                var cadena = new List<int>();
+                var visitados = new HashSet<int>();
+                int? actual = areaScopeId;
+                while (actual != null && visitados.Add(actual.Value))
+                {
+                    cadena.Add(actual.Value);
+                    parentById.TryGetValue(actual.Value, out actual);
+                }
+                if (cadena.Count > 0) cadenaPorWorker[workerId] = cadena;
             }
-            if (cadena.Count == 0) return null;
+            if (cadenaPorWorker.Count == 0) return;
 
-            // Proyecto del trabajador (si pertenece a alguno) y nodos de la cadena que filtran por proyecto.
-            var proyectoTrabajador = await ctx.GaSalidasWorkersProject
-                .Where(wp => wp.State && wp.WorkerId == workerId)
-                .Select(wp => (int?)wp.ProjectId)
-                .FirstOrDefaultAsync();
+            var nodos = cadenaPorWorker.Values.SelectMany(c => c).Distinct().ToList();
 
-            var nodosFiltranProyecto = (await ctx.GaSalidasAreaConfig
-                .Where(f => f.State && f.FiltraPorProyecto && cadena.Contains(f.AreaScopeId))
+            // Proyecto de cada trabajador (si pertenece a alguno) y nodos que filtran por proyecto.
+            var proyectoPorWorker = await ctx.GaSalidasWorkersProject.AsNoTracking()
+                .Where(wp => wp.State && workerIds.Contains(wp.WorkerId))
+                .Select(wp => new { wp.WorkerId, wp.ProjectId })
+                .ToListAsync();
+            var proyectoDe = proyectoPorWorker
+                .GroupBy(wp => wp.WorkerId)
+                .ToDictionary(g => g.Key, g => (int?)g.First().ProjectId);
+
+            var nodosFiltranProyecto = (await ctx.GaSalidasAreaConfig.AsNoTracking()
+                .Where(f => f.State && f.FiltraPorProyecto && nodos.Contains(f.AreaScopeId))
                 .Select(f => f.AreaScopeId)
                 .ToListAsync()).ToHashSet();
 
-            // Revisores vivos + activos con correo válido de cualquier nodo de la cadena (con project_id).
+            // Revisores vivos + activos con correo válido de cualquier nodo involucrado.
             var candidatos = await (
-                from r in ctx.AreaRevisores
-                where r.State && r.Active && cadena.Contains(r.AreaScopeId)
-                join w in ctx.Worker on r.RevisorId equals w.Id
-                where w.Id != workerId
-                      && w.EmailCorporativo != null
+                from r in ctx.AreaRevisores.AsNoTracking()
+                where r.State && r.Active && nodos.Contains(r.AreaScopeId)
+                join w in ctx.Worker.AsNoTracking() on r.RevisorId equals w.Id
+                where w.EmailCorporativo != null
                       && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
-                select new { r.AreaScopeId, r.ProjectId, r.OrdenPrioridad, r.AreaRevisoresId, w.Id, w.EmailCorporativo }
-            ).ToListAsync();
-
-            // Conjunto efectivo de candidatos por nodo según el filtro por proyecto.
-            var efectivos = candidatos
-                .GroupBy(c => c.AreaScopeId)
-                .SelectMany(grupoNodo =>
+                select new
                 {
-                    // Nodo no filtrado: revisor a nivel de área (project_id NULL).
-                    if (!nodosFiltranProyecto.Contains(grupoNodo.Key))
-                        return grupoNodo.Where(c => c.ProjectId == null);
+                    r.AreaScopeId,
+                    r.ProjectId,
+                    r.OrdenPrioridad,
+                    r.AreaRevisoresId,
+                    RevisorWorkerId = w.Id,
+                    w.EmailCorporativo,
+                    Nombre = w.Person != null ? w.Person.FullName : null,
+                }
+            ).ToListAsync();
+            if (candidatos.Count == 0) return;
 
-                    // Nodo filtrado: preferir revisor del proyecto del trabajador; si no hay, área (NULL).
-                    var porProyecto = grupoNodo
-                        .Where(c => proyectoTrabajador != null && c.ProjectId == proyectoTrabajador)
-                        .ToList();
-                    return porProyecto.Count > 0
-                        ? porProyecto.AsEnumerable()
-                        : grupoNodo.Where(c => c.ProjectId == null);
-                })
-                .ToList();
+            var porNodo = candidatos.ToLookup(c => c.AreaScopeId);
 
-            var elegido = efectivos
-                .OrderBy(c => cadena.IndexOf(c.AreaScopeId)) // nodo más cercano al trabajador primero
-                .ThenBy(c => c.OrdenPrioridad)
-                .ThenBy(c => c.AreaRevisoresId)
-                .FirstOrDefault();
+            foreach (var (workerId, cadena) in cadenaPorWorker)
+            {
+                proyectoDe.TryGetValue(workerId, out var proyectoTrabajador);
 
-            return elegido == null
-                ? null
-                : new JefeRevisorResolution(elegido.Id, null, elegido.EmailCorporativo!.Trim());
+                // Conjunto efectivo de candidatos por nodo según el filtro por proyecto.
+                var efectivos = cadena
+                    .SelectMany(nodo =>
+                    {
+                        var delNodo = porNodo[nodo].Where(c => c.RevisorWorkerId != workerId).ToList();
+
+                        // Nodo no filtrado: revisor a nivel de área (project_id NULL).
+                        if (!nodosFiltranProyecto.Contains(nodo))
+                            return delNodo.Where(c => c.ProjectId == null);
+
+                        // Nodo filtrado: preferir revisor del proyecto del trabajador; si no hay, área (NULL).
+                        var porProyecto = delNodo
+                            .Where(c => proyectoTrabajador != null && c.ProjectId == proyectoTrabajador)
+                            .ToList();
+                        return porProyecto.Count > 0
+                            ? porProyecto.AsEnumerable()
+                            : delNodo.Where(c => c.ProjectId == null);
+                    })
+                    .ToList();
+
+                var elegido = efectivos
+                    .OrderBy(c => cadena.IndexOf(c.AreaScopeId)) // nodo más cercano al trabajador primero
+                    .ThenBy(c => c.OrdenPrioridad)
+                    .ThenBy(c => c.AreaRevisoresId)
+                    .FirstOrDefault();
+
+                if (elegido != null)
+                    resultado[workerId] = new JefeRevisorResolution(
+                        elegido.RevisorWorkerId, null, elegido.EmailCorporativo!.Trim(), elegido.Nombre);
+            }
         }
     }
 }

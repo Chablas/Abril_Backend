@@ -1,17 +1,19 @@
 namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application.Dtos
 {
     /// <summary>
-    /// Una fila por área de tipo "Área Estándar" (solo el primer nodo estándar de cada
-    /// rama del árbol area_scope: si un Área Estándar tiene como hijo otro Área Estándar,
-    /// el hijo no se lista), junto a sus n revisores (area_revisores) ordenados por
-    /// prioridad. Los revisores del área aplican a los trabajadores cuyo
-    /// workers.area_scope_id cae en el subárbol del nodo, cuando el trabajador no tiene
-    /// revisores propios en workers_revisores.
+    /// Una fila por área de tipo "Área de Gerencia" o "Área Estándar" que sea el primer
+    /// nodo de su mismo tipo en su rama del árbol area_scope (si un Área Estándar tiene
+    /// como hijo otro Área Estándar, el hijo no se lista), junto a sus n revisores
+    /// (area_revisores) ordenados por prioridad. Los revisores del área aplican a los
+    /// trabajadores cuyo workers.area_scope_id cae en el subárbol del nodo, cuando el
+    /// trabajador no tiene revisores propios en workers_revisores.
     /// </summary>
     public class AreaRevisorItemDto
     {
         public int AreaScopeId { get; set; }
         public string AreaName { get; set; } = string.Empty;
+        /// <summary>Tipo del nodo: "Área de Gerencia" o "Área Estándar".</summary>
+        public string AreaTypeName { get; set; } = string.Empty;
         /// <summary>Nombre del área padre (normalmente la gerencia). null = nodo raíz.</summary>
         public string? ParentName { get; set; }
         /// <summary>Revisores vivos del área (a nivel de área, project_id NULL), ordenados por prioridad.</summary>
@@ -71,7 +73,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Application
         public string ProjectName { get; set; } = string.Empty;
     }
 
-    /// <summary>Carga inicial de la página: áreas estándar con sus revisores + opciones del selector.</summary>
+    /// <summary>Carga inicial de la página: áreas configurables con sus revisores + opciones del selector.</summary>
     public class AreaRevisorInicialDto
     {
         public List<AreaRevisorItemDto> Areas { get; set; } = new();

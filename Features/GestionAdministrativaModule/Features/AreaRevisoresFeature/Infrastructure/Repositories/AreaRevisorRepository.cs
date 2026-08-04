@@ -10,21 +10,32 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
     /// <summary>
     /// Lectura/escritura de los revisores de salidas por área (area_revisores):
     /// n revisores por nodo area_scope, ordenados por prioridad (1 = primero).
-    /// Solo se configuran las áreas de tipo "Área Estándar" que son el primer nodo
-    /// estándar de su rama (si un Área Estándar cuelga de otro Área Estándar, el hijo
-    /// no se lista, para no confundir a los usuarios con subáreas). Estos revisores
-    /// aplican a los trabajadores del subárbol del nodo que no tengan revisores
+    /// Se configuran las áreas de tipo "Área de Gerencia" y "Área Estándar" que son el
+    /// primer nodo de SU MISMO tipo en su rama (si un Área Estándar cuelga de otra Área
+    /// Estándar, la hija no se lista, para no confundir a los usuarios con subáreas; lo
+    /// mismo entre gerencias). Los nodos "Área Obra_Oficina" nunca se listan. Estos
+    /// revisores aplican a los trabajadores del subárbol del nodo que no tengan revisores
     /// propios en workers_revisores; sin revisores de área, el fallback es GTH.
+    ///
+    /// Una gerencia y las áreas estándar que cuelgan de ella coexisten en la lista aunque
+    /// una sea padre de la otra (ej. "Gerencia de Proyectos" y "Unidad de Proyectos"): el
+    /// resolver toma siempre el nodo más cercano al trabajador, así que la gerencia es el
+    /// área propia de los gerentes (que cuelgan directamente de ella y antes caían al
+    /// fallback de GTH) y el respaldo del resto de su rama.
     ///
     /// Visibilidad: el rol ADMINISTRADOR DE SOLICITUD DE SALIDAS ve todas las áreas;
     /// un trabajador con categoría (workers_category) Jefe, Coordinador o Gerente ve
-    /// solo el área estándar a la que pertenece (subiendo el árbol desde su
+    /// solo el área listada a la que pertenece (subiendo el árbol desde su
     /// workers.area_scope_id); el resto no ve ninguna.
     /// </summary>
     public class AreaRevisorRepository : IAreaRevisorRepository
     {
         private const string EmailDomainCorp = "@abril.pe";
         private const string AreaTypeEstandar = "Área Estándar";
+        private const string AreaTypeGerencia = "Área de Gerencia";
+
+        /// <summary>Tipos de área que admiten revisores, en el orden en que se listan.</summary>
+        private static readonly string[] TiposConfigurables = { AreaTypeGerencia, AreaTypeEstandar };
 
         /// <summary>Categorías de workers_category cuyo trabajador puede ver su propia área.</summary>
         private static readonly string[] CategoriasConVista = { "jefe", "coordinador", "gerente" };
@@ -42,13 +53,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             using var ctx = _factory.CreateDbContext();
 
             // 1) Árbol completo de áreas vivas (lista plana) para resolver en memoria
-            //    qué nodos son el primer "Área Estándar" de su rama.
+            //    qué nodos son el primero de su tipo en su rama.
             var nodos = await LoadNodosAsync(ctx);
-            var elegibles = FirstStandardNodes(nodos);
+            var elegibles = ConfigurableNodes(nodos);
 
             if (!verTodas)
             {
-                // Jefe/Coordinador/Gerente: solo el área estándar a la que pertenece
+                // Jefe/Coordinador/Gerente: solo el área listada a la que pertenece
                 // su worker. Cualquier otro usuario: ninguna.
                 var areaVisible = await GetAreaVisibleDelUsuarioAsync(ctx, userId, nodos, elegibles);
                 if (areaVisible == null)
@@ -56,12 +67,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
                 elegibles = elegibles.Where(n => n.AreaScopeId == areaVisible.Value).ToList();
             }
 
+            // Las gerencias primero (raíz de cada rama) y luego las áreas estándar,
+            // cada bloque en orden alfabético.
             var areas = elegibles
-                .OrderBy(n => n.AreaItemName)
+                .OrderBy(n => Array.IndexOf(TiposConfigurables, n.AreaTypeName))
+                .ThenBy(n => n.AreaItemName)
                 .Select(n => new AreaRevisorItemDto
                 {
                     AreaScopeId = n.AreaScopeId,
                     AreaName = n.AreaItemName,
+                    AreaTypeName = n.AreaTypeName,
                     ParentName = n.AreaScopeParentId != null
                         ? nodos.FirstOrDefault(p => p.AreaScopeId == n.AreaScopeParentId)?.AreaItemName
                         : null,
@@ -178,12 +193,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         {
             using var ctx = _factory.CreateDbContext();
 
-            // El área debe existir, estar viva y ser el primer nodo "Área Estándar" de su rama
+            // El área debe existir, estar viva y ser el primer nodo de su tipo en su rama
             // (los mismos nodos que lista la pantalla).
             var nodos = await LoadNodosAsync(ctx);
-            var area = FirstStandardNodes(nodos).FirstOrDefault(n => n.AreaScopeId == areaScopeId);
+            var area = ConfigurableNodes(nodos).FirstOrDefault(n => n.AreaScopeId == areaScopeId);
             if (area == null)
-                throw new AbrilException("El área no existe o no admite revisores (solo áreas de tipo Área Estándar).", 404);
+                throw new AbrilException("El área no existe o no admite revisores (solo áreas de tipo Área de Gerencia o Área Estándar).", 404);
 
             // Si se especifica proyecto, debe existir y estar vivo.
             if (projectId != null)
@@ -269,11 +284,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         {
             using var ctx = _factory.CreateDbContext();
 
-            // El área debe ser un nodo elegible (primer "Área Estándar" de su rama).
+            // El área debe ser un nodo elegible (primero de su tipo en su rama).
             var nodos = await LoadNodosAsync(ctx);
-            var area = FirstStandardNodes(nodos).FirstOrDefault(n => n.AreaScopeId == areaScopeId);
+            var area = ConfigurableNodes(nodos).FirstOrDefault(n => n.AreaScopeId == areaScopeId);
             if (area == null)
-                throw new AbrilException("El área no existe o no admite configuración (solo áreas de tipo Área Estándar).", 404);
+                throw new AbrilException("El área no existe o no admite configuración (solo áreas de tipo Área de Gerencia o Área Estándar).", 404);
 
             var now = DateTimeOffset.UtcNow;
             var config = await ctx.GaSalidasAreaConfig
@@ -306,7 +321,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         /// no puede ver ninguno. Solo ven su área los trabajadores cuya categoría
         /// (workers_category) es Jefe, Coordinador o Gerente: se parte del
         /// workers.area_scope_id del trabajador y se sube el árbol hasta el primer
-        /// nodo estándar listado en la pantalla.
+        /// nodo listado en la pantalla (un gerente colgado directamente de su gerencia
+        /// resuelve a esa gerencia, que ahora es un nodo listado).
         /// </summary>
         private static async Task<int?> GetAreaVisibleDelUsuarioAsync(
             AppDbContext ctx, int userId, List<NodoArea> nodos, List<NodoArea> elegibles)
@@ -348,26 +364,29 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         }
 
         /// <summary>
-        /// Nodos de tipo "Área Estándar" que son el primero de su rama: ningún ancestro
-        /// es también "Área Estándar" (ej. de "Unidad de Proyectos" → "Ingeniería BIM",
-        /// ambos estándar, solo se devuelve "Unidad de Proyectos").
+        /// Nodos que admiten revisores: los de un tipo de <see cref="TiposConfigurables"/>
+        /// que son el primero de SU MISMO tipo en su rama, es decir que ningún ancestro
+        /// comparte su tipo. Así, de "Gerencia de Proyectos" → "Unidad de Proyectos" →
+        /// "Ingeniería BIM" se devuelven la gerencia (única de su tipo en la rama) y
+        /// "Unidad de Proyectos" (primera estándar), pero no "Ingeniería BIM", que cuelga
+        /// de otra estándar. Los nodos "Área Obra_Oficina" quedan siempre fuera.
         /// </summary>
-        private static List<NodoArea> FirstStandardNodes(List<NodoArea> nodos)
+        private static List<NodoArea> ConfigurableNodes(List<NodoArea> nodos)
         {
             var byId = nodos.ToDictionary(n => n.AreaScopeId);
             return nodos
-                .Where(n => n.AreaTypeName == AreaTypeEstandar && !TieneAncestroEstandar(n, byId))
+                .Where(n => TiposConfigurables.Contains(n.AreaTypeName) && !TieneAncestroDelMismoTipo(n, byId))
                 .ToList();
         }
 
-        private static bool TieneAncestroEstandar(NodoArea nodo, Dictionary<int, NodoArea> byId)
+        private static bool TieneAncestroDelMismoTipo(NodoArea nodo, Dictionary<int, NodoArea> byId)
         {
             var visitados = new HashSet<int>();
             var parentId = nodo.AreaScopeParentId;
             while (parentId != null && visitados.Add(parentId.Value))
             {
                 if (!byId.TryGetValue(parentId.Value, out var parent)) break;
-                if (parent.AreaTypeName == AreaTypeEstandar) return true;
+                if (parent.AreaTypeName == nodo.AreaTypeName) return true;
                 parentId = parent.AreaScopeParentId;
             }
             return false;

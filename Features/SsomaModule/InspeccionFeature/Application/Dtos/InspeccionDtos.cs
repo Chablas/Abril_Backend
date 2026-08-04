@@ -5,6 +5,7 @@ public class InspeccionTipoDto
     public int Id { get; set; }
     public string Nombre { get; set; } = string.Empty;
     public string Ambito { get; set; } = string.Empty;
+    public bool EsColaborativa { get; set; }
 }
 
 public class InspeccionChecklistItemDto
@@ -62,9 +63,37 @@ public class CrearInspeccionRequest
     public string? FirmaRepresentanteBase64 { get; set; }
     public string? DescripcionCausas { get; set; }
     public string? Conclusiones { get; set; }
+    public bool EsColaborativa { get; set; } = false;
     public List<InspeccionRespuestaRequest> Respuestas { get; set; } = [];
     public List<InspeccionHallazgoRequest> Hallazgos { get; set; } = [];
     public List<string> FotosAreaBase64 { get; set; } = [];
+}
+
+public class UnirseInspeccionRequest
+{
+    public string Nombre { get; set; } = string.Empty;
+    public string? Cargo { get; set; }
+    public string? Empresa { get; set; }
+}
+
+public class ParticipanteDto
+{
+    public int Id { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    public string? Cargo { get; set; }
+    public string? Empresa { get; set; }
+    public DateTime FechaUnion { get; set; }
+}
+
+public class InspeccionAbiertaListItemDto
+{
+    public int Id { get; set; }
+    public string ProyectoNombre { get; set; } = string.Empty;
+    public string TipoNombre { get; set; } = string.Empty;
+    public DateTime Fecha { get; set; }
+    public int TotalHallazgos { get; set; }
+    public int TotalParticipantes { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
 
 public class CerrarHallazgoRequest
@@ -96,6 +125,7 @@ public class InspeccionHallazgoDto
     public DateTime? FechaCierre { get; set; }
     public decimal? Latitud { get; set; }
     public decimal? Longitud { get; set; }
+    public string? CreadoPorNombre { get; set; }
     public List<InspeccionHallazgoFotoDto> Fotos { get; set; } = [];
 }
 
@@ -141,10 +171,12 @@ public class InspeccionDetalleDto
     public int TotalNa { get; set; }
     public decimal? TasaCumplimiento { get; set; }
     public string Estado { get; set; } = string.Empty;
+    public bool EsColaborativa { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<InspeccionRespuestaDto> Respuestas { get; set; } = [];
     public List<InspeccionHallazgoDto> Hallazgos { get; set; } = [];
     public List<InspeccionHallazgoFotoDto> FotosArea { get; set; } = [];
+    public List<ParticipanteDto> Participantes { get; set; } = [];
 }
 
 public class InspeccionListItemDto

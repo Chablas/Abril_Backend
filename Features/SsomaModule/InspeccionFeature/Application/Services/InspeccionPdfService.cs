@@ -7,21 +7,23 @@ namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Servi
 
 public class InspeccionPdfService
 {
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IInspeccionSharePointService _sp;
 
     private const string ColorPrimario = "#1B3A6B";
     private const string ColorSecundario = "#2D5AA0";
     private const string ColorGrupo = "#E8EEF7";
 
-    public InspeccionPdfService(IHttpClientFactory httpClientFactory)
+    public InspeccionPdfService(IInspeccionSharePointService sp)
     {
-        _httpClientFactory = httpClientFactory;
+        _sp = sp;
     }
 
     public async Task<byte[]> GenerarPdfAsync(InspeccionDetalleDto d)
     {
-        var firmaInspector = await DescargarImagenAsync(d.FirmaInspectorUrl);
-        var firmaRepresentante = await DescargarImagenAsync(d.FirmaRepresentanteUrl);
+        if (d.EsColaborativa) return await GenerarPdfColaborativaAsync(d);
+
+        var firmaInspector = await DescargarImagenAsync(d.FirmaInspectorUrl, "inspeccion-firmas");
+        var firmaRepresentante = await DescargarImagenAsync(d.FirmaRepresentanteUrl, "inspeccion-firmas");
 
         var fotosHallazgos = new List<(InspeccionHallazgoDto Hallazgo, List<byte[]> Fotos)>();
         foreach (var h in d.Hallazgos)
@@ -29,7 +31,7 @@ public class InspeccionPdfService
             var fotos = new List<byte[]>();
             foreach (var foto in h.Fotos.OrderBy(f => f.Orden))
             {
-                var bytes = await DescargarImagenAsync(foto.Url);
+                var bytes = await DescargarImagenAsync(foto.Url, "inspeccion-fotos");
                 if (bytes != null) fotos.Add(bytes);
             }
             if (fotos.Count > 0)
@@ -314,14 +316,153 @@ public class InspeccionPdfService
         }).GeneratePdf();
     }
 
-    private async Task<byte[]?> DescargarImagenAsync(string? url)
+    /// <summary>
+    /// Inspecciones gerenciales/cruzadas/coordinadores SSOMA: sin checklist, un hallazgo por fila,
+    /// horizontal (A4 landscape) para que quepan fotos + recomendación + levantamiento en una sola tabla,
+    /// igual al formato Excel "Inspecciones Cruzadas" que ya usan en obra.
+    /// </summary>
+    private async Task<byte[]> GenerarPdfColaborativaAsync(InspeccionDetalleDto d)
+    {
+        var fotosPorHallazgo = new Dictionary<int, List<byte[]>>();
+        var evidenciaCierrePorHallazgo = new Dictionary<int, byte[]>();
+        foreach (var h in d.Hallazgos)
+        {
+            var fotos = new List<byte[]>();
+            foreach (var foto in h.Fotos.OrderBy(f => f.Orden))
+            {
+                var bytes = await DescargarImagenAsync(foto.Url, "inspeccion-fotos");
+                if (bytes != null) fotos.Add(bytes);
+            }
+            if (fotos.Count > 0) fotosPorHallazgo[h.Id] = fotos;
+
+            if (!string.IsNullOrEmpty(h.EvidenciaCierreUrl))
+            {
+                var evidencia = await DescargarImagenAsync(h.EvidenciaCierreUrl, "inspeccion-fotos");
+                if (evidencia != null) evidenciaCierrePorHallazgo[h.Id] = evidencia;
+            }
+        }
+
+        var hallazgosOrdenados = d.Hallazgos.OrderBy(h => h.Id).ToList();
+
+        return Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4.Landscape());
+                page.Margin(16);
+                page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(8));
+
+                page.Header().Column(hdr =>
+                {
+                    hdr.Item().Row(row =>
+                    {
+                        row.RelativeItem().Column(col =>
+                        {
+                            col.Item().Text("INSPECCIONES " + d.TipoNombre.ToUpperInvariant())
+                                .Bold().FontSize(13).FontColor(ColorPrimario);
+                            col.Item().Text($"{d.ProyectoNombre}  |  Fecha: {d.Fecha:dd/MM/yyyy}  |  Código: REG-SSOMA-INS-{d.Id:D4}")
+                                .FontSize(8).FontColor(Colors.Grey.Darken2);
+                        });
+                        row.ConstantItem(140).AlignRight().AlignMiddle().Column(col =>
+                        {
+                            col.Item().Text("Abril Grupo Inmobiliario").Bold().FontSize(9).AlignRight();
+                            col.Item().Text($"Estado: {d.Estado}").FontSize(8).AlignRight().FontColor(Colors.Grey.Darken2);
+                        });
+                    });
+                    hdr.Item().PaddingTop(3).BorderBottom(2).BorderColor(ColorPrimario);
+                    if (d.Participantes.Count > 0)
+                    {
+                        hdr.Item().PaddingTop(3).Text(
+                            "Participantes: " + string.Join(" · ", d.Participantes.Select(p => p.Nombre)))
+                            .FontSize(7).FontColor(Colors.Grey.Darken2);
+                    }
+                });
+
+                page.Content().PaddingTop(8).Table(table =>
+                {
+                    table.ColumnsDefinition(c =>
+                    {
+                        c.ConstantColumn(18);   // N°
+                        c.RelativeColumn(3);    // Descripción
+                        c.RelativeColumn(3);    // Foto(s) observación
+                        c.RelativeColumn(3);    // Recomendación
+                        c.ConstantColumn(48);   // Criticidad
+                        c.RelativeColumn(2);    // Responsable
+                        c.ConstantColumn(48);   // Fecha límite
+                        c.ConstantColumn(48);   // Estado
+                        c.RelativeColumn(3);    // Foto de levantamiento
+                    });
+
+                    table.Header(h =>
+                    {
+                        foreach (var label in new[] { "N°", "Descripción", "Fotografía(s)", "Recomendación / Acción",
+                            "Criticidad", "Responsable", "Fecha límite", "Estado", "Evidencia de levantamiento" })
+                            h.Cell().Background(ColorPrimario).Padding(3).AlignCenter()
+                                .Text(label).FontColor(Colors.White).Bold().FontSize(7.5f);
+                    });
+
+                    int n = 1;
+                    foreach (var hz in hallazgosOrdenados)
+                    {
+                        var critColor = hz.Tipo == "Critico" ? Colors.Red.Darken1
+                            : hz.Tipo == "Mayor" ? Colors.Orange.Darken1 : Colors.Grey.Darken1;
+                        var estadoColor = hz.Estado == "Cerrado" ? Colors.Green.Darken2
+                            : hz.Estado == "EnProceso" ? Colors.Orange.Darken2 : Colors.Red.Darken2;
+
+                        table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3).AlignCenter().Text(n.ToString()).FontSize(8);
+                        table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3).Text(hz.Descripcion).FontSize(7.5f);
+
+                        table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(2).Element(c =>
+                        {
+                            if (fotosPorHallazgo.TryGetValue(hz.Id, out var fotos) && fotos.Count > 0)
+                            {
+                                c.Row(r =>
+                                {
+                                    foreach (var foto in fotos.Take(2))
+                                        r.RelativeItem().Padding(1).Image(foto).FitWidth();
+                                });
+                            }
+                            else c.Text("-").FontSize(7.5f);
+                        });
+
+                        table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3).Text(hz.AccionCorrectiva ?? "-").FontSize(7.5f);
+                        table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3).AlignCenter()
+                            .Text(hz.Tipo).Bold().FontSize(7.5f).FontColor(critColor);
+                        table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3).Text(hz.ResponsableNombre ?? "-").FontSize(7.5f);
+                        table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3).AlignCenter()
+                            .Text(hz.FechaLimite?.ToString("dd/MM/yy") ?? "-").FontSize(7.5f);
+                        table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(3).AlignCenter()
+                            .Text(hz.Estado).Bold().FontSize(7.5f).FontColor(estadoColor);
+
+                        table.Cell().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(2).Element(c =>
+                        {
+                            if (evidenciaCierrePorHallazgo.TryGetValue(hz.Id, out var evidencia))
+                                c.Image(evidencia).FitWidth();
+                            else c.Text("-").FontSize(7.5f);
+                        });
+
+                        n++;
+                    }
+                });
+
+                page.Footer().AlignRight()
+                    .Text(t =>
+                    {
+                        t.Span("Generado el ").FontSize(7).FontColor(Colors.Grey.Medium);
+                        t.Span(DateTime.UtcNow.ToString("dd/MM/yyyy HH:mm") + " UTC").FontSize(7).FontColor(Colors.Grey.Medium);
+                        t.Span("  Pág. ").FontSize(7).FontColor(Colors.Grey.Medium);
+                        t.CurrentPageNumber().FontSize(7).FontColor(Colors.Grey.Medium);
+                        t.Span(" / ").FontSize(7).FontColor(Colors.Grey.Medium);
+                        t.TotalPages().FontSize(7).FontColor(Colors.Grey.Medium);
+                    });
+            });
+        }).GeneratePdf();
+    }
+
+    private async Task<byte[]?> DescargarImagenAsync(string? url, string libraryContexto)
     {
         if (string.IsNullOrEmpty(url)) return null;
-        try
-        {
-            var client = _httpClientFactory.CreateClient();
-            return await client.GetByteArrayAsync(url);
-        }
+        try { return await _sp.DescargarAsync(url, libraryContexto); }
         catch { return null; }
     }
 }

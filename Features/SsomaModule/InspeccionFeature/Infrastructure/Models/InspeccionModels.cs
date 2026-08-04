@@ -9,6 +9,11 @@ public class SsomaInspeccionTipo
     public string Nombre { get; set; } = string.Empty;
     public string Ambito { get; set; } = "Seguridad";
     public bool Activo { get; set; } = true;
+    /// <summary>
+    /// Gerencial / cruzada: sin checklist fijo, varios coordinadores agregan hallazgos sueltos
+    /// al mismo registro mientras esté "Abierta". Ver SsomaInspeccion.EsColaborativa.
+    /// </summary>
+    public bool EsColaborativa { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<SsomaInspeccionChecklistItem> Items { get; set; } = [];
@@ -59,6 +64,11 @@ public class SsomaInspeccion
     public int TotalNa { get; set; }
     public decimal? TasaCumplimiento { get; set; }
     public string Estado { get; set; } = "Borrador";
+    /// <summary>
+    /// Inspecciones gerenciales/cruzadas: varios coordinadores agregan hallazgos por separado,
+    /// desde sus propios dispositivos, a un mismo registro mientras Estado == "Abierta".
+    /// </summary>
+    public bool EsColaborativa { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public int? CreatedBy { get; set; }
 
@@ -68,6 +78,7 @@ public class SsomaInspeccion
     public ICollection<SsomaInspeccionRespuesta> Respuestas { get; set; } = [];
     public ICollection<SsomaInspeccionHallazgo> Hallazgos { get; set; } = [];
     public ICollection<SsomaInspeccionFotoArea> FotosArea { get; set; } = [];
+    public ICollection<SsomaInspeccionParticipante> Participantes { get; set; } = [];
 }
 
 public class SsomaInspeccionRespuesta
@@ -98,10 +109,26 @@ public class SsomaInspeccionHallazgo
     public DateTime? FechaCierre { get; set; }
     public decimal? Latitud { get; set; }
     public decimal? Longitud { get; set; }
+    /// <summary>Quién levantó este hallazgo puntual — relevante en inspecciones colaborativas con varios participantes.</summary>
+    public int? CreadoPorWorkerId { get; set; }
+    public string? CreadoPorNombre { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public SsomaInspeccion? Inspeccion { get; set; }
     public ICollection<SsomaInspeccionHallazgoFoto> Fotos { get; set; } = [];
+}
+
+public class SsomaInspeccionParticipante
+{
+    public int Id { get; set; }
+    public int InspeccionId { get; set; }
+    public int? WorkerId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    public string? Cargo { get; set; }
+    public string? Empresa { get; set; }
+    public DateTime FechaUnion { get; set; } = DateTime.UtcNow;
+
+    public SsomaInspeccion? Inspeccion { get; set; }
 }
 
 public class SsomaInspeccionHallazgoFoto

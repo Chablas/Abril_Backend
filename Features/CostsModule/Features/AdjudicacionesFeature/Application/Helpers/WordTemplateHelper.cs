@@ -25,17 +25,31 @@ public static class WordTemplateHelper
     /// Útil para marcadores como <c>{{LINKS}}</c> donde se necesita fuente fija (p.ej.
     /// Arial Narrow 9 pt) y algunos párrafos van en negrita y otros no.
     /// </param>
+    /// <param name="hyperlinkTargets">
+    /// Placeholders que viven como <b>texto visible dentro de un</b> <c>&lt;w:hyperlink r:id="…"&gt;</c>
+    /// (p. ej. <c>{{LINK1}}</c>). Además de reemplazar el texto (vía <paramref name="replacements"/>),
+    /// se reescribe el <c>Target</c> de la relación del hipervínculo en
+    /// <c>word/_rels/document.xml.rels</c> a la URL indicada. Necesario porque el destino del clic
+    /// se guarda como relación aparte del texto: si solo se cambia el texto, el enlace sigue
+    /// apuntando a donde lo dejó la plantilla. Solo se tocan las relaciones cuyo placeholder tenga
+    /// URL no vacía.
+    /// </param>
     public static byte[] FillTemplate(
         Stream templateStream,
         Dictionary<string, string> replacements,
         Dictionary<string, List<string>>? multiParagraphReplacements = null,
-        Dictionary<string, (string baseRPr, List<(string text, bool bold)> items)>? boldAwareMultiParagraphReplacements = null)
+        Dictionary<string, (string baseRPr, List<(string text, bool bold)> items)>? boldAwareMultiParagraphReplacements = null,
+        Dictionary<string, string>? hyperlinkTargets = null)
     {
         var ms = new MemoryStream();
         templateStream.CopyTo(ms);
 
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Update, leaveOpen: true))
         {
+            // Reescribir el destino real de los hipervínculos ANTES del reemplazo de texto
+            // (usa el documento original, donde el placeholder {{LINKn}} aún está intacto).
+            UpdateHyperlinkRelationshipTargets(zip, hyperlinkTargets);
+
             // Recopilar todas las partes que pueden contener texto con placeholders:
             // cuerpo principal + todos los encabezados y pies de página numerados.
             var entryNames = zip.Entries
@@ -102,6 +116,77 @@ public static class WordTemplateHelper
         var newEntry = zip.CreateEntry(entryName);
         using var writer = new StreamWriter(newEntry.Open(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         writer.Write(xml);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Destino de hipervínculos (relaciones)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Reescribe el atributo <c>Target</c> de las relaciones de hipervínculo en
+    /// <c>word/_rels/document.xml.rels</c>. Para cada placeholder de
+    /// <paramref name="hyperlinkTargets"/>, localiza en <c>document.xml</c> el
+    /// <c>&lt;w:hyperlink r:id="…"&gt;</c> cuyo texto visible contiene ese placeholder y
+    /// apunta esa relación a la URL indicada. Es imprescindible porque el texto del enlace
+    /// y su destino son cosas distintas en OOXML: reemplazar solo el texto deja el clic
+    /// apuntando a donde lo dejó la plantilla.
+    /// </summary>
+    private static void UpdateHyperlinkRelationshipTargets(
+        ZipArchive zip, Dictionary<string, string>? hyperlinkTargets)
+    {
+        if (hyperlinkTargets is not { Count: > 0 }) return;
+
+        var docEntry  = zip.GetEntry("word/document.xml");
+        var relsEntry = zip.GetEntry("word/_rels/document.xml.rels");
+        if (docEntry is null || relsEntry is null) return;
+
+        string docXml;
+        using (var s = docEntry.Open())
+        using (var r = new StreamReader(s, Encoding.UTF8))
+            docXml = r.ReadToEnd();
+
+        // r:id del hipervínculo → URL destino. Se recorre cada bloque <w:hyperlink>…</w:hyperlink>
+        // y se compara su texto plano (tolerante a placeholders partidos en varios runs).
+        var idToUrl = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (Match hl in Regex.Matches(docXml, @"<w:hyperlink\b[^>]*>.*?</w:hyperlink>", RegexOptions.Singleline))
+        {
+            var ridMatch = Regex.Match(hl.Value, @"\br:id=""([^""]+)""");
+            if (!ridMatch.Success) continue;
+
+            var visibleText = ExtractPlainText(hl.Value);
+            foreach (var (placeholder, url) in hyperlinkTargets)
+            {
+                if (string.IsNullOrEmpty(url)) continue;
+                if (visibleText.Contains(placeholder, StringComparison.Ordinal))
+                    idToUrl[ridMatch.Groups[1].Value] = url;
+            }
+        }
+
+        if (idToUrl.Count == 0) return;
+
+        string rels;
+        using (var s = relsEntry.Open())
+        using (var r = new StreamReader(s, Encoding.UTF8))
+            rels = r.ReadToEnd();
+
+        rels = Regex.Replace(rels, @"<Relationship\b[^>]*/>", relMatch =>
+        {
+            var element = relMatch.Value;
+            var idMatch = Regex.Match(element, @"\bId=""([^""]+)""");
+            if (!idMatch.Success || !idToUrl.TryGetValue(idMatch.Groups[1].Value, out var url))
+                return element;
+
+            var escaped = XmlAttrEscape(url);
+            // MatchEvaluator para evitar que caracteres como '$' de la URL se interpreten
+            // como referencias de grupo en la cadena de reemplazo.
+            return Regex.Replace(element, @"(\bTarget="")[^""]*("")",
+                mm => mm.Groups[1].Value + escaped + mm.Groups[2].Value);
+        });
+
+        relsEntry.Delete();
+        var newRels = zip.CreateEntry("word/_rels/document.xml.rels");
+        using var writer = new StreamWriter(newRels.Open(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        writer.Write(rels);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -510,6 +595,14 @@ public static class WordTemplateHelper
     /// </summary>
     private static string XmlEscape(string s) =>
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+
+    /// <summary>
+    /// Escapa una cadena para usarla como VALOR DE ATRIBUTO XML (p. ej. el <c>Target</c> de una
+    /// relación). A diferencia de <see cref="XmlEscape"/>, aquí sí hay que escapar la comilla doble
+    /// porque el valor va entre comillas. Las URLs de SharePoint traen <c>&amp;</c> sin escapar.
+    /// </summary>
+    private static string XmlAttrEscape(string s) =>
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
     /// <summary>
     /// Convierte referencias de entidad XML y referencias numéricas de carácter

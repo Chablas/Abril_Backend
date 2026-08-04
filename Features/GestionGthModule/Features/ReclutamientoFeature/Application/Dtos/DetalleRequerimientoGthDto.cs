@@ -62,6 +62,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int CandidatoId { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public string? Puesto { get; set; }
+
+        /// <summary>Estado del formulario de información del postulante de este candidato (null si GTH aún no lo envió).</summary>
+        public CandidatoFormularioResumenDto? Formulario { get; set; }
     }
 
     /// <summary>Asignación interna de GTH de un requerimiento (todas opcionales/null = sin asignar).</summary>

@@ -29,8 +29,11 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("email_corporativo")]
         public string? EmailCorporativo { get; set; }
 
-        [Column("fecha_nacimiento")]
-        public DateOnly? FechaNacimiento { get; set; }
+        /// <summary>Celular corporativo del trabajador (el personal vive en <c>person.phone_number</c>).</summary>
+        [Column("celular_corporativo")]
+        public string? CelularCorporativo { get; set; }
+
+        // La fecha de nacimiento dejó de vivir aquí: ahora es única en person.fecha_nacimiento.
 
         [Column("fecha_ingreso")]
         public DateOnly? FechaIngreso { get; set; }
@@ -71,6 +74,21 @@ namespace Abril_Backend.Infrastructure.Models
         /// </summary>
         [Column("puesto")]
         public string? Puesto { get; set; }
+
+        /// <summary>
+        /// FK al catálogo <c>categoria_maestra</c> (EMPLEADO / PRACTICANTE PRE-PRO / RCC),
+        /// tomado de la columna CATEGORÍA de la Data Maestra de GTH.
+        /// </summary>
+        [Column("categoria_maestra_id")]
+        public int? CategoriaMaestraId { get; set; }
+
+        /// <summary>Nombre del contacto de emergencia del trabajador.</summary>
+        [Column("contacto_emergencia")]
+        public string? ContactoEmergencia { get; set; }
+
+        /// <summary>Celular del contacto de emergencia.</summary>
+        [Column("celular_emergencia")]
+        public string? CelularEmergencia { get; set; }
 
         [Column("area")]
         public string? Area { get; set; }

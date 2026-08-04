@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 
 namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Application.Services;
 
@@ -8,11 +9,13 @@ public class InspeccionService : IInspeccionService
 {
     private readonly IInspeccionRepository _repo;
     private readonly IInspeccionSharePointService _sp;
+    private readonly IWorkerSearchService _workerSearch;
 
-    public InspeccionService(IInspeccionRepository repo, IInspeccionSharePointService sp)
+    public InspeccionService(IInspeccionRepository repo, IInspeccionSharePointService sp, IWorkerSearchService workerSearch)
     {
         _repo = repo;
         _sp = sp;
+        _workerSearch = workerSearch;
     }
 
     public async Task<object> GetCatalogosAsync()
@@ -125,6 +128,51 @@ public class InspeccionService : IInspeccionService
             throw new AbrilException("Estado inválido. Use 'En proceso' o 'Cerrado'.", 400);
         await _repo.LevantarHallazgoAsync(hallazgoId, dto);
     }
+
+    public async Task AgregarHallazgoAsync(int inspeccionId, InspeccionHallazgoRequest hallazgo, int? userId, bool esContratista)
+    {
+        if (string.IsNullOrWhiteSpace(hallazgo.Descripcion))
+            throw new AbrilException("La descripción del hallazgo es requerida.", 400);
+
+        var worker = userId.HasValue ? await _workerSearch.GetByUserId(userId.Value, esContratista) : null;
+        var hallazgoId = await _repo.AgregarHallazgoAsync(inspeccionId, hallazgo, worker?.Id, worker?.ApellidoNombre);
+
+        var urls = new List<string>();
+        for (int j = 0; j < hallazgo.FotosBase64.Count; j++)
+        {
+            var base64 = hallazgo.FotosBase64[j];
+            var data = base64.Contains(",") ? base64.Split(',')[1] : base64;
+            var bytes = Convert.FromBase64String(data);
+            using var stream = new MemoryStream(bytes);
+            var url = await _sp.SubirFotoHallazgoAsync(stream, $"foto_{j}_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg", inspeccionId, hallazgoId);
+            urls.Add(url);
+        }
+        if (urls.Count > 0) await _repo.AgregarFotosHallazgoAsync(hallazgoId, urls);
+    }
+
+    public async Task UnirseAsync(int inspeccionId, int? userId, bool esContratista)
+    {
+        var worker = userId.HasValue ? await _workerSearch.GetByUserId(userId.Value, esContratista) : null;
+        if (worker == null)
+            throw new AbrilException("Tu usuario no está vinculado a una ficha de trabajador.", 400);
+
+        var req = new UnirseInspeccionRequest
+        {
+            Nombre = worker.ApellidoNombre ?? "",
+            Cargo = worker.Cargo ?? worker.Ocupacion,
+            Empresa = worker.EmpresaActual,
+        };
+        await _repo.UnirseAsync(inspeccionId, req, worker.Id);
+    }
+
+    public Task<List<InspeccionAbiertaListItemDto>> GetAbiertasAsync(int? proyectoId)
+        => _repo.GetAbiertasAsync(proyectoId);
+
+    public Task<int> GetProyectoIdAsync(int inspeccionId) => _repo.GetProyectoIdAsync(inspeccionId);
+
+    public Task CerrarInspeccionColaborativaAsync(int inspeccionId) => _repo.CerrarInspeccionColaborativaAsync(inspeccionId);
+
+    public Task ReabrirInspeccionColaborativaAsync(int inspeccionId) => _repo.ReabrirInspeccionColaborativaAsync(inspeccionId);
 
     public async Task CerrarHallazgoAsync(int hallazgoId, CerrarHallazgoRequest request)
     {

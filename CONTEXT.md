@@ -5443,3 +5443,45 @@ Rama: `master`.
 ### Pendiente
 - Resolver el drift de migración EF (ver arriba) cuando se retome esa otra feature.
 - RAC tiene el mismo bug de fotos rotas en pantalla — no se tocó en esta sesión.
+
+## Sesión 2026-08-04 (cont.) — Planeamiento BIM: modelo de datos base + limpieza de worktrees huérfanos
+
+Rama: `victor-backend`. Sesión larga con dos partes: (1) housekeeping de 3 worktrees huérfanos encontrados en `.claude/worktrees/`, y (2) primera entrega de Planeamiento BIM (solo modelo de datos, sin Controller/Service).
+
+### Parte 1 — Worktrees huérfanos
+- `git worktree list` mostró 3 worktrees además del principal: `elated-ellis-724b34` (rama `claude/elated-ellis-724b34`, línea de trabajo de Contratistas, último commit 2026-05-19 de `danijustiniani31415`, 702 commits atrás de `origin/master`, con un feature `ProjectsDashboard` completo pero sin commitear — lógica real de KPIs por proyecto, no relacionado a SPI), `planeamiento-bim-data-model-772373` (rama `claude/planeamiento-bim-data-model-772373`, con un feature Planeamiento BIM completo y comiteado en `19d428ff`: 3 columnas en `project`, 11 tablas, seeds — pero el commit lo traía mezclado con trabajo ajeno de otro dev, `c4ecf980` "cambio de lugar las jefaturas", ya mergeado a `origin/master` por su cuenta), y `crazy-ardinghelli-737df4` (sin `.git`, solo carpetas vacías de un paquete de skills de marketing sin relación al repo).
+- Se investigó `elated-ellis-724b34` en detalle (status/diff/log/fechas de archivo) pero **no se tocó** — queda pendiente de decisión de Dani.
+- El usuario decidió **descartar por completo** el trabajo de `planeamiento-bim-data-model-772373` (empezar de cero) en vez de rescatarlo — se hizo `git worktree remove` + `git branch -D`. El borrado físico de la carpeta quedó bloqueado por un lock de Windows (VS Code con handles abiertos); el contenido se borró igual, solo quedó una carpeta vacía huérfana en disco (cosmético).
+- `crazy-ardinghelli-737df4` se confirmó vacío (0 archivos, sin `.git`) y se borró con `Remove-Item -Recurse -Force`.
+
+### Parte 2 — Planeamiento BIM: modelo de datos (primera entrega)
+Implementado desde cero directo en `victor-backend` (sin worktree, a pedido explícito del usuario), siguiendo la estructura R5 `Features/PlaneamientoBimFeature/`.
+
+- `Shared/Models/Project.cs` — 3 columnas nuevas: `ResponsablePlaneamientoBim`/`Id`, `MetaPpc` (mismo patrón que `AddResponsableUdpToProject`).
+- `Features/PlaneamientoBimFeature/Infrastructure/Models/` — 11 entidades: catálogos globales (`BimMacroActividad`, `BimActividad`, `BimCausaNoCumplimiento`, `BimFase`) y por-proyecto (`BimProyectoZona`, `BimZonaNivel`, `BimZonaSector`, `BimProyectoFase`, `BimRegistroDiario`, `BimEvidenciaFoto`, `BimBloqueo`). Estilo `[Table]`/`[Column]` explícito, igual que `SsProyectoHabilitado` (feature reciente comparable).
+- `Shared/Data/AppContext.cs` — 11 `DbSet`s + configuración Fluent completa en `ConfigurePostgreSQL` (índices, FKs, `OnDelete` behavior). `bim_registro_diario` lleva el `UNIQUE INDEX` pedido sobre `(project_id, zona_id, nivel_id, sector_id, actividad_id, fecha)` más índices individuales por cada FK.
+
+### Migración EF — drift, otra vez (mismo patrón que Inspección colaborativa el mismo día)
+- `dotnet ef migrations add AddPlaneamientoBim` arrastró el mismo drift ya documentado arriba (esta vez peor: ~140 `CreateTable`/~100 `DropTable`, incluyendo `DropTable("manager_signature")` y renombres en `person`/`workers` — features como Learning Center y GTH Postulante nunca tuvieron su propia migración EF).
+- Se descartó la migración generada, se regeneró una segunda vez (para tener `Designer.cs`/`AppDbContextModelSnapshot.cs` al día como metadata de herramienta), y esta vez se **recortó a mano el `.cs`** para dejar solo las operaciones de Bim — copiando literalmente los bloques `CreateTable`/`CreateIndex`/`AddColumn` que EF había generado para las tablas `bim_*` (mismos nombres de constraints/índices que la herramienta hubiera usado), sin reescribirlos a mano desde cero.
+- Migración final: `Migrations/20260804221640_AddPlaneamientoBim.cs` — 3 `AddColumn` en `project`, 11 `CreateTable`, 17 `CreateIndex` (incluye el único compuesto de `bim_registro_diario`), 5 bloques `migrationBuilder.Sql` con seeds `ON CONFLICT DO NOTHING` (macro_actividad, fase, causa_no_cumplimiento, y actividad en 2 inserts — Sótanos/Torre con 14 actividades, Losa contraterreno con las 9 HORIZONTAL).
+- `AppDbContextModelSnapshot.cs` se dejó **regenerado** (no revertido) — captura correctamente Learning/Postulante/etc. aunque esas tablas no tengan migración propia; solo afecta a la herramienta EF, no a SQL ejecutado.
+- Build: 0 errores, 235 warnings (mismo baseline, 0 nuevos).
+
+### Aplicación a BD — bloqueada, se generó script en su lugar
+- `appsettings.Development.json` apunta a `Host=localhost;Port=5544;Database=abril` — el mismo túnel SSH (`ssh -L 5544:localhost:5432 jefe@intranet.abril.pe`) que el usuario identifica como el ambiente real/VPS, no una BD local aislada. La Postgres verdaderamente local (`localhost:5432`, `defaultdb_local`) está 30+ migraciones atrás (última aplicada: `AddResponsableUdpToProject`, 26-may) y no se usó.
+- Con el túnel activo (confirmado: proceso `ssh.exe` corriendo), la conexión falló por `password authentication failed for user "abril"` — no se pudo aplicar la migración ni hacer el backup previo que había pedido el usuario. No se determinó si es una contraseña realmente desactualizada o un problema de escaping en la extracción manual (no se investigó más a fondo).
+- En su lugar, el usuario pidió generar el SQL sin aplicarlo, para correrlo él mismo por pgAdmin. Se generó con `dotnet ef migrations script AddNoAplicaToEvEvaluacionContratista --output migracion-bim-y-dependencia.sql --idempotent` (especificando el "from" a mano para no depender de conexión a BD). El resultado — `migracion-bim-y-dependencia.sql` (740 líneas, 11 bloques `START TRANSACTION`/`COMMIT`) — incluye de punta a punta `AddSsProyectoHabilitado` (pendiente desde el 2-jul, migración ajena no relacionada) hasta `AddPlaneamientoBim`, con 9 migraciones intermedias ya aplicadas en el ambiente real; cada bloque está gateado por `IF NOT EXISTS (... migration_id = 'X')` así que las ya aplicadas hacen no-op solas.
+- **Importante para la próxima sesión**: la elección inicial de migración "from" (`AddSsKitBom`) fue incorrecta y excluía `AddSsProyectoHabilitado` por estar fuera de orden cronológico en el ambiente real (aplicada después de migraciones con timestamp posterior) — se corrigió usando `AddNoAplicaToEvEvaluacionContratista` como "from". Tenerlo en cuenta si se regenera el script.
+
+### Verificación
+- `dotnet build`: 0 errores, 235 warnings (baseline sin cambios).
+- La migración **no se aplicó a ninguna BD** (ni local ni real) en esta sesión — solo se generó el archivo SQL para aplicación manual.
+- Commit: `4a92fe5e` ("feat: modelo de datos base de Planeamiento BIM (Features/PlaneamientoBimFeature)").
+
+### Pendiente
+- Aplicar `migracion-bim-y-dependencia.sql` contra el ambiente real (el usuario lo corre manualmente por pgAdmin, con su propio acceso) — incluye backup previo pendiente (pedido por el usuario, no se llegó a hacer por el bloqueo de contraseña).
+- Investigar por qué falló la autenticación contra el túnel 5544 (contraseña real desactualizada vs. bug de extracción/escaping) si hace falta volver a conectar desde Claude Code.
+- Próxima entrega del feature: Configuración Inicial del proyecto (Controller/Service — explícitamente fuera de alcance de esta entrega).
+- Carpeta vacía huérfana en disco (`.claude/worktrees/planeamiento-bim-data-model-772373/`, sin contenido, bloqueada por un lock de Windows) — cosmética, no bloquea nada; se puede reintentar el borrado cuando se libere el lock (ej. cerrando la ventana de VS Code correspondiente).
+- Decisión pendiente sobre `elated-ellis-724b34` (esperando confirmación de Dani) — no tocar sin su respuesta.

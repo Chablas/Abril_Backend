@@ -19,6 +19,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
         private readonly IJefeRevisorResolver _jefeResolver;
+        private readonly IEmoCorreoConfigRepository _correoConfig;
         private readonly ILogger<ProgramacionEmoRepository> _logger;
 
         public ProgramacionEmoRepository(
@@ -26,12 +27,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             IEmailService emailService,
             IConfiguration configuration,
             IJefeRevisorResolver jefeResolver,
+            IEmoCorreoConfigRepository correoConfig,
             ILogger<ProgramacionEmoRepository> logger)
         {
             _factory = factory;
             _emailService = emailService;
             _configuration = configuration;
             _jefeResolver = jefeResolver;
+            _correoConfig = correoConfig;
             _logger = logger;
         }
 
@@ -437,18 +440,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var toRaw = new List<string>();
             try
             {
-                // Solo enviar si tiene clínica asignada
-                if (!prog.ClinicaId.HasValue) return;
+                // Destinatarios configurables (Configuración de EMOs → Correos de
+                // programación): la clínica se puede apagar y se pueden sumar correos
+                // fijos al "Para" y copias al "CC".
+                var correoCfg = await _correoConfig.GetEnvioConfigAsync();
 
-                toRaw = await ctx.SsClinicaEmail.AsNoTracking()
-                    .Where(e => e.ClinicaId == prog.ClinicaId.Value && e.Activo)
-                    .Select(e => e.Email!)
-                    .ToListAsync();
+                SsClinica? clinica = null;
+                if (prog.ClinicaId.HasValue)
+                {
+                    clinica = await ctx.SsClinica.AsNoTracking()
+                        .FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value);
 
-                var clinica = await ctx.SsClinica.AsNoTracking()
-                    .FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value);
-                if (toRaw.Count == 0 && clinica?.Email is not null)
-                    toRaw.Add(clinica.Email);
+                    if (correoCfg.IncluirClinica)
+                    {
+                        toRaw = await ctx.SsClinicaEmail.AsNoTracking()
+                            .Where(e => e.ClinicaId == prog.ClinicaId.Value && e.Activo)
+                            .Select(e => e.Email!)
+                            .ToListAsync();
+
+                        if (toRaw.Count == 0 && clinica?.Email is not null)
+                            toRaw.Add(clinica.Email);
+                    }
+                }
+
+                toRaw.AddRange(correoCfg.Principales);
+
+                var cc = correoCfg.Copias
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Select(e => e.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
                 var tipoEmo = await ctx.SsEmoTipo.AsNoTracking()
                     .FirstOrDefaultAsync(t => t.Id == prog.TipoEmoId);
@@ -466,9 +487,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var to = toRaw.Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
+                // Sin ningún destinatario principal activo no se envía nada (ni las
+                // copias): es justamente la forma de silenciar el correo desde la
+                // pantalla de Configuración de EMOs para hacer pruebas.
                 if (to.Count == 0)
                 {
-                    _logger.LogWarning("Programación {Id}: sin emails de clínica, no se envía notificación de creación.", prog.Id);
+                    _logger.LogWarning("Programación {Id}: sin destinatarios principales activos, no se envía notificación de creación.", prog.Id);
                     return;
                 }
 
@@ -496,6 +520,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     subject: $"[EMO Programado] {workerNombre} — {fechaStr}",
                     body: html,
                     isHtml: true,
+                    cc: cc.Count > 0 ? cc : null,
                     fromOverride: SaludOcupacionalEmailConstants.Remitente);
 
                 prog.FechaNotificacion = DateTimeOffset.UtcNow;

@@ -49,7 +49,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             dto.EstadosCiviles = await ctx.GthEstadoCivil.Where(x => x.State && x.Active).OrderBy(x => x.Orden)
                 .Select(x => new OpcionDto { Id = x.GthEstadoCivilId, Nombre = x.Nombre }).ToListAsync();
             dto.TiposDocumento = await ctx.GthTipoDocumento.Where(x => x.State && x.Active).OrderBy(x => x.Orden)
-                .Select(x => new OpcionDto { Id = x.GthTipoDocumentoId, Nombre = x.Nombre }).ToListAsync();
+                .Select(x => new TipoDocumentoOpcionDto { Id = x.GthTipoDocumentoId, Nombre = x.Nombre, Codigo = x.Codigo }).ToListAsync();
             dto.Universidades = await ctx.GthUniversidad.Where(x => x.State && x.Active).OrderBy(x => x.Orden)
                 .Select(x => new OpcionDto { Id = x.GthUniversidadId, Nombre = x.Nombre }).ToListAsync();
             dto.GradosAcademicos = await ctx.GthGradoAcademico.Where(x => x.State && x.Active).OrderBy(x => x.Orden)

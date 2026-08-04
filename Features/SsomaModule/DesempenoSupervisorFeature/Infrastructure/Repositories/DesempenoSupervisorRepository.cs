@@ -2,6 +2,7 @@ using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Application.
 using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Repositories;
 
@@ -100,7 +101,7 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                 g => g.OrderByDescending(x => x.FechaInicio).ThenByDescending(x => x.Id).First().ProyectoId!.Value);
 
         var staffBase = (await ctx.Worker
-            .Where(w => w.ObraOficina == "Staff" && w.Estado == "ACTIVO")
+            .Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.Estado == "ACTIVO")
             .Select(w => new { WorkerId = w.Id, w.PersonId, w.Ocupacion, w.ApellidoNombre })
             .ToListAsync())
             .Where(s => proyectoActualPorWorker.ContainsKey(s.WorkerId))

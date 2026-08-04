@@ -123,7 +123,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             // La clasificación explícita (la que envía el formulario) manda; si no viene, se usa la
             // guardada en BD. Un correo del dominio de Abril es un buzón del tenant en cualquier caso.
-            var corporativo = (esCorporativo ?? EsClasificacionCorporativa(contexto.WorkerContrataCasa, contexto.WorkerObraOficina))
+            var corporativo = (esCorporativo ?? EsClasificacionCorporativa(contexto.WorkerContrataCasa, contexto.WorkerObraOficinaStaffId))
                               || normalizado.EndsWith(DominioAbril, StringComparison.Ordinal);
 
             // Un correo no corporativo en esta columna es un dato legado (antes de existir el campo
@@ -169,14 +169,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         /// Central: ahí el formulario muestra el campo "Email corporativo". Obra y contratistas solo
         /// tienen correo personal.
         /// </summary>
-        public static bool EsClasificacionCorporativa(string? contrataCasa, string? obraOficina)
+        public static bool EsClasificacionCorporativa(string? contrataCasa, int? obraOficinaStaffId)
         {
             if (!string.Equals(contrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            var oo = obraOficina?.Trim();
-            return string.Equals(oo, "Staff", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(oo, "Oficina Central", StringComparison.OrdinalIgnoreCase);
+            return Abril_Backend.Shared.Constants.ObraOficinaStaffIds.StaffUOficinaCentral.Contains(obraOficinaStaffId ?? 0);
         }
 
         /// <summary>Minúsculas y sin espacios; null si el campo viene vacío.</summary>

@@ -38,6 +38,8 @@ using Abril_Backend.Features.AccountingModule;
 using Abril_Backend.Features.BoletinModule;
 using Abril_Backend.Features.ArquitecturaComercialModule;
 using Abril_Backend.Features.LearningModule;
+using Abril_Backend.Shared.Services.AreaScope.Interfaces;
+using Abril_Backend.Shared.Services.AreaScope.Services;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Shared.Services.Revisores.Services;
 using Abril_Backend.Shared.Services.Sunat.Providers.Decolecta;
@@ -237,6 +239,11 @@ builder.Services.AddScoped<IEmailGroupResolver, GraphUserService>();
 // revisor del área → fallback GTH. Registrado globalmente porque lo usan Gestión
 // Administrativa (aprobación de salidas) y SSOMA · Salud Ocupacional (correos de EMO).
 builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
+
+// Equivalencia legacy (workers.area/subarea/jefatura) de un nodo del árbol area_scope. Lo usan el
+// formulario de trabajadores al guardar (manda el nodo, el backend deriva los textos) y el endpoint
+// que alimenta sus desplegables.
+builder.Services.AddScoped<IAreaScopeLegacyResolver, AreaScopeLegacyResolver>();
 builder.Services.AddScoped<ISunatService, DecolectaSunatService>();
 builder.Services.AddRateLimiter(options =>
 {

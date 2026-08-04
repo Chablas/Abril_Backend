@@ -8,6 +8,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
@@ -212,8 +213,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private static bool EsCalendarioOficina(Worker worker)
         {
             return string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)
-                && (string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase));
+                && ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
         }
 
         private static List<string> BuildDestinatarios(Worker worker, Project? proyecto)
@@ -276,7 +276,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Modalidad</strong></td>
-                    <td style='border: 1px solid #ddd; padding: 8px;'>{worker.ObraOficina}</td>
+                    <td style='border: 1px solid #ddd; padding: 8px;'>{ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)}</td>
                 </tr>
                 <tr>
                     <td style='border: 1px solid #ddd; padding: 8px;'><strong>Empresa</strong></td>

@@ -7,6 +7,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
@@ -281,8 +282,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private static bool EsCalendarioOficina(Worker worker)
         {
             return string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)
-                && (string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase));
+                && ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
         }
     }
 }

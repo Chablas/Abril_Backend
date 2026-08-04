@@ -13,6 +13,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Categoria { get; set; }
         public string? Ocupacion { get; set; }
         public string? ContrataCasa { get; set; }
+        public int? ObraOficinaStaffId { get; set; }
         public string? ObraOficina { get; set; }
         public string EstadoWorker { get; set; } = "ACTIVO";
         public bool TieneEmo { get; set; }

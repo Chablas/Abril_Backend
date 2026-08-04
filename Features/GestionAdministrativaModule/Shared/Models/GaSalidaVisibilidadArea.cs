@@ -9,7 +9,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
     /// es true, también ve los nodos hijos (todo el subárbol). Si un trabajador no tiene
     /// ninguna fila viva, su visibilidad se resuelve por el algoritmo de jerarquía
     /// (SalidaVisibilityResolver: GTH ve todo, Gerente ve su gerencia, Administración de
-    /// Obra ve el tipo "Área Obra_Oficina").
+    /// Obra ve las áreas con personal de Obra/Staff).
     /// </summary>
     [Table("ga_salida_visibilidad_area")]
     public class GaSalidaVisibilidadArea

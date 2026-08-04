@@ -11,6 +11,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Dtos
         public string FullName { get; set; } = null!;
         public string? DocumentIdentityCode { get; set; }
         public string EmailCorporativo { get; set; } = null!;
-        public string? ObraOficina { get; set; }
+        /// <summary>FK a <c>workers_obra_oficina_staff</c> (ver <c>ObraOficinaStaffIds</c>).</summary>
+        public int? ObraOficinaStaffId { get; set; }
     }
 }

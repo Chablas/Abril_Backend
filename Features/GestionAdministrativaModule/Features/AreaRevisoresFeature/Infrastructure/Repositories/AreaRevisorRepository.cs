@@ -13,7 +13,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
     /// Se configuran las áreas de tipo "Área de Gerencia" y "Área Estándar" que son el
     /// primer nodo de SU MISMO tipo en su rama (si un Área Estándar cuelga de otra Área
     /// Estándar, la hija no se lista, para no confundir a los usuarios con subáreas; lo
-    /// mismo entre gerencias). Los nodos "Área Obra_Oficina" nunca se listan. Estos
+    /// mismo entre gerencias). Solo se listan los tipos configurables (Gerencia/Estándar). Estos
     /// revisores aplican a los trabajadores del subárbol del nodo que no tengan revisores
     /// propios en workers_revisores; sin revisores de área, el fallback es GTH.
     ///
@@ -369,7 +369,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
         /// comparte su tipo. Así, de "Gerencia de Proyectos" → "Unidad de Proyectos" →
         /// "Ingeniería BIM" se devuelven la gerencia (única de su tipo en la rama) y
         /// "Unidad de Proyectos" (primera estándar), pero no "Ingeniería BIM", que cuelga
-        /// de otra estándar. Los nodos "Área Obra_Oficina" quedan siempre fuera.
+        /// de otra estándar.
         /// </summary>
         private static List<NodoArea> ConfigurableNodes(List<NodoArea> nodos)
         {

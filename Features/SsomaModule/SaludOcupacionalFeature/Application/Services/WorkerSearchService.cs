@@ -37,7 +37,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         public async Task<int> Create(WorkerCreateDto dto)
         {
             var correos = await _emailValidator.ValidarYNormalizarAsync(
-                dto.EmailCorporativo, dto.EmailPersonal, workerId: null, EsCorporativo(dto.ContrataCasa, dto.ObraOficina));
+                dto.EmailCorporativo, dto.EmailPersonal, workerId: null, EsCorporativo(dto.ContrataCasa, dto.ObraOficinaStaffId));
 
             dto.EmailCorporativo = correos.Corporativo;
             dto.EmailPersonal = correos.Personal;
@@ -48,7 +48,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         public async Task Update(int id, WorkerUpdateDto dto)
         {
             var correos = await _emailValidator.ValidarYNormalizarAsync(
-                dto.EmailCorporativo, dto.EmailPersonal, id, EsCorporativo(dto.ContrataCasa, dto.ObraOficina));
+                dto.EmailCorporativo, dto.EmailPersonal, id, EsCorporativo(dto.ContrataCasa, dto.ObraOficinaStaffId));
 
             dto.EmailCorporativo = correos.Corporativo;
             dto.EmailPersonal = correos.Personal;
@@ -74,7 +74,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         /// La clasificación que envía el formulario manda sobre la guardada (una edición puede
         /// mover al trabajador de Obra a Staff y viceversa).
         /// </summary>
-        private static bool EsCorporativo(string? contrataCasa, string? obraOficina) =>
-            WorkerEmailValidator.EsClasificacionCorporativa(contrataCasa, obraOficina);
+        private static bool EsCorporativo(string? contrataCasa, int? obraOficinaStaffId) =>
+            WorkerEmailValidator.EsClasificacionCorporativa(contrataCasa, obraOficinaStaffId);
     }
 }

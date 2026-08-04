@@ -21,6 +21,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
         public int? LessonAreaId { get; set; }
         public int? CatalogItemId { get; set; }
+
+        /// <summary>FK a <c>workers_obra_oficina_staff</c> (Obra / Staff / Oficina Central).</summary>
+        public int? ObraOficinaStaffId { get; set; }
+        /// <summary>Nombre del catálogo, para mostrar en el detalle.</summary>
+        public string? ObraOficinaStaffName { get; set; }
         /// <summary>
         /// Segmentos de la clasificación caminando scope_item hacia arriba.
         /// Cada entrada trae el nombre del catalog_type (Fase / Etapa / Nivel / …)

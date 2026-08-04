@@ -40,8 +40,9 @@ namespace Abril_Backend.Shared.Constants
         public const int IngenieriaBim              = 53;
         public const int PlaneamientoBim            = 73;
 
-        // ── Nodo Obra_Oficina "Oficina Técnica" hijo de "Administración de Obra".
-        //    Es el destino de la subárea de catálogo "Administración Obra". ──
-        public const int AdministracionObraOficinaTecnica = 84;
+        // ── Destino de la subárea de catálogo "Administración Obra". ──
+        //    Antes apuntaba a su hijo Obra_Oficina "Oficina Técnica" (84); ese tipo
+        //    de área se eliminó y la distinción pasó a workers.obra_oficina_staff_id.
+        public const int AdministracionDeObra = 83;
     }
 }

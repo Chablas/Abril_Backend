@@ -13,6 +13,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? Empresa { get; set; }
         public string? EmpresaOrigenNombre { get; set; }
         public string? ProyectoNombre { get; set; }
+        public int? ObraOficinaStaffId { get; set; }
         public string? ObraOficina { get; set; }
         public string? TipoContrata { get; set; }
         /// <summary>Categoría del trabajador (para prellenar el modal de edición).</summary>

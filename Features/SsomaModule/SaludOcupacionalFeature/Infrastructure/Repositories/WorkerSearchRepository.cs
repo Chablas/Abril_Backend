@@ -3,6 +3,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Services.AreaScope.Interfaces;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -13,10 +14,39 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
     public class WorkerSearchRepository : IWorkerSearchRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IAreaScopeLegacyResolver _areaLegacyResolver;
 
-        public WorkerSearchRepository(IDbContextFactory<AppDbContext> factory)
+        public WorkerSearchRepository(
+            IDbContextFactory<AppDbContext> factory,
+            IAreaScopeLegacyResolver areaLegacyResolver)
         {
             _factory = factory;
+            _areaLegacyResolver = areaLegacyResolver;
+        }
+
+        /// <summary>
+        /// Área a persistir.
+        ///
+        /// Si el formulario mandó el nodo del árbol, ese es la fuente de verdad y los campos legacy
+        /// que hayan llegado en null se derivan de él (dirección nueva). Los que lleguen con valor se
+        /// respetan: así un formulario que muestra los desplegables de área manda los tres en null y
+        /// deja que se deriven, y uno que no los muestra puede reenviar intactos los que ya estaban
+        /// guardados sin que se reescriban.
+        ///
+        /// Si no vino nodo se conserva el comportamiento viejo: se guardan los textos capturados y se
+        /// intenta derivar el nodo a partir de la subárea (dirección original de AreaScopeMatcher).
+        /// </summary>
+        private async Task<(int? AreaScopeId, string? Area, string? Subarea, string? Jefatura)> ResolverAreaAsync(
+            int? areaScopeId, string? area, string? subarea, string? jefatura)
+        {
+            if (areaScopeId is > 0)
+            {
+                var eq = await _areaLegacyResolver.ResolveAsync(areaScopeId);
+                return (areaScopeId, area ?? eq?.Area, subarea ?? eq?.Subarea, jefatura ?? eq?.Jefatura);
+            }
+
+            return (Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(area, subarea),
+                    area, subarea, jefatura);
         }
 
         public async Task<List<WorkerSearchResultDto>> Search(string? q, int limit, int? empresaIdContratista = null)
@@ -197,7 +227,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             const string sql = """
                 WITH self AS (
-                    SELECT w.contrata_casa, w.obra_oficina, w.email_corporativo, p.email AS email_personal
+                    SELECT w.contrata_casa, w.obra_oficina_staff_id, w.email_corporativo, p.email AS email_personal
                     FROM workers w
                     LEFT JOIN person p ON p.person_id = w.person_id
                     WHERE @workerId::int IS NOT NULL AND w.id = @workerId::int
@@ -216,7 +246,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 SELECT
                     EXISTS (SELECT 1 FROM self)                     AS worker_encontrado,
                     (SELECT contrata_casa           FROM self)      AS worker_contrata_casa,
-                    (SELECT obra_oficina            FROM self)      AS worker_obra_oficina,
+                    (SELECT obra_oficina_staff_id   FROM self)      AS worker_obra_oficina_staff_id,
                     (SELECT email_corporativo       FROM self)      AS worker_email_actual,
                     (SELECT email_personal          FROM self)      AS worker_email_personal_actual,
                     (SELECT id                      FROM ocupado)   AS ocupado_por_worker_id,
@@ -283,6 +313,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // vino uno: un campo vacío no borra el dato que ya estaba registrado.
             if (dto.EmailPersonal is not null) person.Email = dto.EmailPersonal;
 
+            var areaResuelta = await ResolverAreaAsync(
+                dto.AreaScopeId, dto.Area, dto.Subarea, dto.Jefatura);
+
             var worker = new Worker
             {
                 Person = person,
@@ -292,13 +325,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 Ocupacion = dto.Ocupacion,
                 OcupacionId = dto.OcupacionId,
                 Puesto = dto.Puesto,
-                Area = dto.Area,
-                Subarea = dto.Subarea,
-                // Match interno: deriva el nodo normalizado area_scope a partir del texto capturado.
-                AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(dto.Area, dto.Subarea, dto.ObraOficina),
+                AreaScopeId = areaResuelta.AreaScopeId,
+                Area = areaResuelta.Area,
+                Subarea = areaResuelta.Subarea,
                 ContrataCasa = dto.ContrataCasa,
-                ObraOficina = dto.ObraOficina,
-                Jefatura = dto.Jefatura,
+                ObraOficinaStaffId = dto.ObraOficinaStaffId,
+                Jefatura = areaResuelta.Jefatura,
                 Procedencia = dto.Procedencia,
                 CondicionMedica = dto.CondicionMedica,
                 Notas = dto.Notas,
@@ -365,13 +397,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.Ocupacion = dto.Ocupacion;
             worker.OcupacionId = dto.OcupacionId;
             worker.Puesto = dto.Puesto;
-            worker.Area = dto.Area;
-            worker.Subarea = dto.Subarea;
-            // Match interno: deriva el nodo normalizado area_scope a partir del texto capturado.
-            worker.AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(worker.Area, worker.Subarea, worker.ObraOficina);
+            var areaResuelta = await ResolverAreaAsync(
+                dto.AreaScopeId, dto.Area, dto.Subarea, dto.Jefatura);
+            worker.AreaScopeId = areaResuelta.AreaScopeId;
+            worker.Area = areaResuelta.Area;
+            worker.Subarea = areaResuelta.Subarea;
             worker.ContrataCasa = dto.ContrataCasa;
-            worker.ObraOficina = dto.ObraOficina;
-            worker.Jefatura = dto.Jefatura;
+            worker.ObraOficinaStaffId = dto.ObraOficinaStaffId;
+            worker.Jefatura = areaResuelta.Jefatura;
             worker.Procedencia = dto.Procedencia;
             worker.CondicionMedica = dto.CondicionMedica;
             worker.Notas = dto.Notas;

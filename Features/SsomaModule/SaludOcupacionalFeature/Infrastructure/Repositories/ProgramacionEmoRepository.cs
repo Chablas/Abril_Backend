@@ -10,6 +10,7 @@ using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
@@ -136,9 +137,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         FechaNotificacion = x.p.FechaNotificacion,
                         Ocupacion = x.w.Ocupacion,
                         Categoria = x.w.Categoria,
-                        TipoTrabajador = x.w.ContrataCasa == "Casa" && x.w.ObraOficina == "Oficina Central"
+                        TipoTrabajador = x.w.ContrataCasa == "Casa" && x.w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
                             ? "Oficina Central"
-                            : x.w.ContrataCasa == "Casa" && x.w.ObraOficina == "Staff"
+                            : x.w.ContrataCasa == "Casa" && x.w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
                                 ? "Staff Obra"
                                 : "Obrero",
                         FechaVencimientoEmo = ctx.WorkerEmo
@@ -575,8 +576,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             try
             {
                 var esCasa = string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase);
-                var esOficinaCentral = esCasa && string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
-                var esStaff = esCasa && string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
+                var esOficinaCentral = esCasa && worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
+                var esStaff = esCasa && worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff;
                 var esObrero = esCasa && !esOficinaCentral && !esStaff;
 
                 if (!esCasa) return; // Contratistas: sin notificación en aceptación
@@ -734,8 +735,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             try
             {
                 var esCasa = string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase);
-                var esOficinaCentral = esCasa && string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
-                var esStaff = esCasa && string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
+                var esOficinaCentral = esCasa && worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
+                var esStaff = esCasa && worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff;
                 var esObrero = esCasa && !esOficinaCentral && !esStaff;
 
                 if (!esCasa) return;

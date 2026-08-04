@@ -92,8 +92,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.AreaFeature.Infras
                 throw new AbrilException("El tipo de área no existe.");
 
             // Duplicados solo cuentan entre registros vivos (state = true) del MISMO tipo de área.
-            // Se permite el mismo nombre en tipos distintos (p. ej. "Costos y Presupuestos"
-            // como Área Estándar y como Área Obra_Oficina).
+            // Se permite el mismo nombre en tipos distintos.
             var duplicate = await _context.AreaItem.AnyAsync(i =>
                 i.State && i.AreaTypeId == dto.AreaTypeId && i.AreaItemName.ToLower() == name.ToLower());
             if (duplicate)

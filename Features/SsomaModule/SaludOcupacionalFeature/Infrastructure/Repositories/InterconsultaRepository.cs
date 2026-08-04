@@ -11,6 +11,7 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
@@ -74,13 +75,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x =>
                     (x.ProyAsignada != null && x.ProyAsignada.EmpresaId == filter.ContributorId.Value) ||
                     (x.ProyAsignada == null && x.VincActiva != null && x.VincActiva.EmpresaId == filter.ContributorId.Value));
-            if (!string.IsNullOrWhiteSpace(filter.ObraOficina))
+            if (filter.ObraOficinaStaffId.HasValue)
             {
-                // Si obra_oficina viene vacío/nulo se asume "Obra": solo Staff/Oficina Central
+                // Si obra_oficina_staff_id viene nulo se asume "Obra": solo Staff/Oficina Central
                 // se marcan explícitamente en el dato, el resto son obreros por defecto.
-                q = filter.ObraOficina == "Obra"
-                    ? q.Where(x => x.w.ObraOficina == "Obra" || string.IsNullOrWhiteSpace(x.w.ObraOficina))
-                    : q.Where(x => x.w.ObraOficina == filter.ObraOficina);
+                var ooId = filter.ObraOficinaStaffId.Value;
+                q = ooId == ObraOficinaStaffIds.Obra
+                    ? q.Where(x => x.w.ObraOficinaStaffId == ObraOficinaStaffIds.Obra || x.w.ObraOficinaStaffId == null)
+                    : q.Where(x => x.w.ObraOficinaStaffId == ooId);
             }
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {
@@ -117,7 +119,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     x.i.Estado,
                     x.i.RequiereSeguimiento,
                     x.i.UrlInforme,
-                    x.w.ObraOficina,
+                    x.w.ObraOficinaStaffId,
                     x.w.ContrataCasa,
                     x.w.Categoria,
                     x.w.Ocupacion,
@@ -145,7 +147,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             {
                 Project? proyecto = x.ProyectoId.HasValue && proyectoMap.TryGetValue(x.ProyectoId.Value, out var p) ? p : null;
                 Contributor? empresa = x.EmpresaId.HasValue && empresaMap.TryGetValue(x.EmpresaId.Value, out var e) ? e : null;
-                var esOficinaCentral = string.Equals(x.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
+                var esOficinaCentral = x.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
 
                 jefeMap.TryGetValue(x.WorkerId, out var jefe);
                 var jefaturaNombre = jefe?.Nombre;
@@ -165,7 +167,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ProyectoNombre = esOficinaCentral ? "Oficina Central" : proyecto?.ProjectDescription,
                     ContributorId = x.EmpresaId,
                     RazonSocial = empresa?.ContributorName,
-                    ObraOficina = x.ObraOficina,
+                    ObraOficinaStaffId = x.ObraOficinaStaffId,
+                    ObraOficina = ObraOficinaStaffIds.Nombre(x.ObraOficinaStaffId),
                     ContrataCasa = x.ContrataCasa,
                     Categoria = x.Categoria,
                     Ocupacion = x.Ocupacion,
@@ -217,7 +220,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     i.Especialidad,
                     i.FechaDerivacion,
-                    w.ObraOficina,
+                    w.ObraOficinaStaffId,
                     w.ContrataCasa,
                     WorkerEmail = w.EmailCorporativo,
                     ProyAsignada = ctx.WorkerProyecto
@@ -253,7 +256,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             return raw.Select(x =>
             {
-                var esOficinaCentral = string.Equals(x.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
+                var esOficinaCentral = x.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
                 var proyectoId = esOficinaCentral ? null : (x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId);
                 var empresaId = x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId;
                 Project? proyecto = proyectoId.HasValue && proyectoMap.TryGetValue(proyectoId.Value, out var p) ? p : null;
@@ -273,7 +276,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     FechaDerivacion = x.FechaDerivacion,
                     DiasPendiente = hoy.DayNumber - x.FechaDerivacion.DayNumber,
                     WorkerEmailCorporativo = x.WorkerEmail,
-                    ObraOficina = x.ObraOficina,
+                    ObraOficinaStaffId = x.ObraOficinaStaffId,
+                    ObraOficina = ObraOficinaStaffIds.Nombre(x.ObraOficinaStaffId),
                     ContrataCasa = x.ContrataCasa,
                     Jefatura = jefaturaNombre,
                     JefaturaEmail = jefaturaEmail,

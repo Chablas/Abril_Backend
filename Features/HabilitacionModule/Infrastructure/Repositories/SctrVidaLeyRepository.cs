@@ -7,6 +7,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 {
@@ -641,7 +642,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             {
                 var idsOficinaStaff = await ctx.Worker
                     .Where(w => workerIds.Contains(w.Id)
-                             && (w.ObraOficina == "Oficina Central" || w.ObraOficina == "Staff"))
+                             && (w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
+                                 || w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff))
                     .Select(w => w.Id)
                     .ToListAsync();
                 workerIds = idsOficinaStaff;
@@ -688,7 +690,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     WorkerId       = w.Id,
                     ApellidoNombre = person != null ? person.FullName : null,
                     Dni            = person != null ? person.DocumentIdentityCode : null,
-                    ObraOficina    = w.ObraOficina,
+                    ObraOficinaStaffId = w.ObraOficinaStaffId,
                     EstadoSctr     = habSctr != null ? habSctr.Estado : "Falta",
                     EstadoVidaLey  = habVida != null ? habVida.Estado : "Falta",
                     SctrHabId      = habSctr != null ? (int?)habSctr.Id : null,
@@ -747,7 +749,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     WorkerId         = r.WorkerId,
                     ApellidoNombre   = r.ApellidoNombre ?? string.Empty,
                     Dni              = r.Dni ?? string.Empty,
-                    ObraOficina      = r.ObraOficina,
+                    ObraOficinaStaffId = r.ObraOficinaStaffId,
+                    ObraOficina      = ObraOficinaStaffIds.Nombre(r.ObraOficinaStaffId),
                     SctrId           = sctrIdPorWorker.TryGetValue(r.WorkerId, out var sid) ? sid : null,
                     SctrHabId        = r.SctrHabId,
                     EstadoSctr       = r.EstadoSctr,

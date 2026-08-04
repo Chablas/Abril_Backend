@@ -1,5 +1,6 @@
 using Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Application.Services
@@ -15,8 +16,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     ///   • GTH (área "Gestión del Talento Humano" en su cadena)      → ve todo.
     ///   • Gerente (workers_category "Gerente")                       → su gerencia (raíz Área
     ///                                                                  de Gerencia) + descendientes.
-    ///   • Administración de Obra ("Administración de Obra" en cadena)→ todos los nodos de tipo
-    ///                                                                  "Área Obra_Oficina".
+    ///   • Administración de Obra ("Administración de Obra" en cadena)→ las áreas donde hay
+    ///                                                                  personal de Obra o Staff
+    ///                                                                  (workers.obra_oficina_staff_id).
     /// Los nombres de área/categoría se resuelven por texto (el árbol y el catálogo son
     /// administrables por UI), no por IDs fijos.
     /// </summary>
@@ -24,7 +26,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     {
         private const string AreaGth          = "Gestión del Talento Humano";
         private const string AreaAdminObra    = "Administración de Obra";
-        private const string TipoObraOficina  = "Área Obra_Oficina";
         private const string CategoriaGerente = "Gerente";
 
         private readonly IDbContextFactory<AppDbContext> _factory;
@@ -93,6 +94,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
 
             // 4. Algoritmo (fallback).
             var visible = new HashSet<int>();
+            // Se carga una sola vez y solo si algún worker del usuario es de Administración de Obra.
+            List<int>? areasConPersonalDeObra = null;
             var todosLosNodos = new Lazy<HashSet<int>>(() => nodos.Select(n => n.AreaScopeId).ToHashSet());
 
             foreach (var w in workers)
@@ -114,13 +117,25 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     AddDescendants(root, childrenByParent, visible);
                 }
 
-                // Administración de Obra → todos los nodos de tipo "Área Obra_Oficina".
+                // Administración de Obra → las áreas con personal de Obra o Staff.
+                //
+                // Antes esto se resolvía listando los nodos de tipo "Área Obra_Oficina" del
+                // árbol; ese tipo de área se eliminó y la distinción Obra / Staff / Oficina
+                // Central pasó a workers.obra_oficina_staff_id, así que ahora el conjunto se
+                // deriva de dónde está asignado ese personal.
                 if (cadena.Any(id => itemNameById.TryGetValue(id, out var name) &&
                                      string.Equals(name, AreaAdminObra, StringComparison.OrdinalIgnoreCase)))
                 {
-                    foreach (var n in nodos)
-                        if (string.Equals(n.TypeName, TipoObraOficina, StringComparison.OrdinalIgnoreCase))
-                            visible.Add(n.AreaScopeId);
+                    areasConPersonalDeObra ??= await ctx.Worker
+                        .Where(x => x.AreaScopeId != null
+                                    && (x.ObraOficinaStaffId == ObraOficinaStaffIds.Obra
+                                        || x.ObraOficinaStaffId == ObraOficinaStaffIds.Staff))
+                        .Select(x => x.AreaScopeId!.Value)
+                        .Distinct()
+                        .ToListAsync();
+
+                    foreach (var id in areasConPersonalDeObra)
+                        if (parentById.ContainsKey(id)) visible.Add(id);
                 }
             }
 

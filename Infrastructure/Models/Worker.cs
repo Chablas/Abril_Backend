@@ -106,8 +106,17 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("contrata_casa")]
         public string? ContrataCasa { get; set; }
 
-        [Column("obra_oficina")]
-        public string? ObraOficina { get; set; }
+        /// <summary>
+        /// FK a <c>workers_obra_oficina_staff</c> (Obra / Staff / Oficina Central).
+        /// Reemplaza al texto plano <c>obra_oficina</c> y al nodo hoja de tipo
+        /// "Área Obra_Oficina" del árbol <c>area_scope</c>: la ubicación del
+        /// trabajador ya NO se deduce del área. Ver <c>ObraOficinaStaffIds</c>.
+        /// </summary>
+        [Column("obra_oficina_staff_id")]
+        public int? ObraOficinaStaffId { get; set; }
+
+        [ForeignKey(nameof(ObraOficinaStaffId))]
+        public WorkersObraOficinaStaff? ObraOficinaStaff { get; set; }
 
         [Column("jefatura")]
         public string? Jefatura { get; set; }

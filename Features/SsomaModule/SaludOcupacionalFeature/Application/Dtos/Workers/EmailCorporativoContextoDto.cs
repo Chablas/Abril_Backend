@@ -14,7 +14,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public string? WorkerContrataCasa { get; set; }
 
         /// <summary>workers.obra_oficina del trabajador consultado ('Obra' / 'Staff' / 'Oficina Central').</summary>
-        public string? WorkerObraOficina { get; set; }
+        public int? WorkerObraOficinaStaffId { get; set; }
 
         /// <summary>workers.email_corporativo actualmente guardado para el trabajador consultado.</summary>
         public string? WorkerEmailActual { get; set; }

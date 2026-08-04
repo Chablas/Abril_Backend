@@ -110,8 +110,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             using var ctx = _factory.CreateDbContext();
 
             var query = ctx.Worker.Where(w =>
-                w.ObraOficina != null &&
-                (w.ObraOficina.ToLower() == "oficina central" || w.ObraOficina.ToLower() == "staff"));
+                w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral ||
+                w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff);
 
             if (proyectoId.HasValue)
             {

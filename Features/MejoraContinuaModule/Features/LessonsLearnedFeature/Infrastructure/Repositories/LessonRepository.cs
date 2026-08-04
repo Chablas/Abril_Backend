@@ -106,6 +106,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
                 join state in ctx.State on lesson.StateId equals state.StateId
 
+                join oo in ctx.WorkersObraOficinaStaff on lesson.ObraOficinaStaffId equals oo.WorkersObraOficinaStaffId into ooj
+                from oo in ooj.DefaultIfEmpty()
+
                 where lesson.State == true && lesson.LessonId == id
 
                 select new LessonDetailDTO
@@ -123,6 +126,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     AreaDescription = area != null ? area.AreaDescription : null,
                     LessonAreaId = lesson.LessonAreaId,
                     CatalogItemId = lesson.CatalogItemId,
+                    ObraOficinaStaffId = lesson.ObraOficinaStaffId,
+                    ObraOficinaStaffName = oo != null ? oo.Name : null,
                     StateId = lesson.StateId,
                     StateDescription = state.StateDescription,
                     ApprovalStatus = lesson.ApprovalStatus,
@@ -203,7 +208,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? userId,
             int page,
             int pageSize)
-            => GetLessonsFilterPagedInternal(periodDate, stateId, projectId, areaId, null, userId, null, null, null, false, 0, page, pageSize);
+            => GetLessonsFilterPagedInternal(periodDate, stateId, projectId, areaId, null, null, userId, null, null, null, false, 0, page, pageSize);
 
         private async Task<PagedResult<LessonListDTO>> GetLessonsFilterPagedInternal(
             DateTimeOffset? periodDate,
@@ -211,6 +216,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? projectId,
             int? areaId,
             List<int>? lessonAreaIds,
+            int? obraOficinaStaffId,
             int? userId,
             int? reviewerWorkerId,
             List<int>? catalogItemIds,
@@ -232,6 +238,10 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 query = query.Where(x => x.LessonAreaId != null && lessonAreaIds.Contains(x.LessonAreaId.Value));
             else if (areaId.HasValue)
                 query = query.Where(x => x.LessonAreaId == areaId.Value);
+            // Obra/Oficina: antes se filtraba bajando al nodo Obra_Oficina del arbol
+            // de areas; ahora es una columna propia de la leccion.
+            if (obraOficinaStaffId.HasValue)
+                query = query.Where(x => x.ObraOficinaStaffId == obraOficinaStaffId.Value);
             if (userId.HasValue) query = query.Where(x => x.CreatedUserId == userId.Value);
 
             // Filtro por revisor: la lección matchea si su AUTOR tiene asignado a este
@@ -337,6 +347,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 join person in ctx.Person on user.UserId equals person.UserId into pe
                 from person in pe.DefaultIfEmpty()
                 join state in ctx.State on lesson.StateId equals state.StateId
+                join oo in ctx.WorkersObraOficinaStaff on lesson.ObraOficinaStaffId equals oo.WorkersObraOficinaStaffId into ooj
+                from oo in ooj.DefaultIfEmpty()
                 orderby lesson.CreatedDateTime descending
                 select new LessonListDTO
                 {
@@ -353,6 +365,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     AreaDescription = area != null ? area.AreaDescription : null,
                     LessonAreaId = lesson.LessonAreaId,
                     CatalogItemId = lesson.CatalogItemId,
+                    ObraOficinaStaffId = lesson.ObraOficinaStaffId,
+                    ObraOficinaStaffName = oo != null ? oo.Name : null,
                     StateId = lesson.StateId,
                     StateDescription = state.StateDescription,
                     ApprovalStatus = lesson.ApprovalStatus,
@@ -390,7 +404,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             // Lecciones paginadas + enriched (incluye filtro por catalog_item_ids)
             var paged = await GetLessonsFilterPagedInternal(
                 filter.PeriodDate, filter.StateId, filter.ProjectId,
-                filter.AreaId, filter.LessonAreaIds, filter.UserId, filter.ReviewerWorkerId,
+                filter.AreaId, filter.LessonAreaIds, filter.ObraOficinaStaffId,
+                filter.UserId, filter.ReviewerWorkerId,
                 filter.CatalogItemIds, filter.ApprovalStatus, filter.OnlyMyPendingReview,
                 filter.CurrentUserId, filter.Page, pageSize);
 
@@ -400,8 +415,18 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             // del filtro es lesson_area_id.
             var activeLessonAreas = await ctx.LessonArea
                 .Where(la => la.Active)
-                .Select(la => new { la.LessonAreaId, la.AreaScopeId })
+                .Select(la => new { la.LessonAreaId, la.AreaScopeId, la.IncludeInForm, la.IncludeAsIndependent })
                 .ToListAsync();
+
+            // Se carga una sola vez: lo usan tanto las etiquetas de área del filtro como
+            // la resolución del área por defecto del formulario.
+            var scopeNodes = await (
+                from s in ctx.AreaScope
+                join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
+                where s.State && ai.State
+                select new { s.AreaScopeId, s.AreaScopeParentId, s.AreaItemId, ai.AreaItemName }
+            ).ToListAsync();
+            var nodeById = scopeNodes.ToDictionary(n => n.AreaScopeId);
 
             List<AreaSimpleDTO> areas;
             if (activeLessonAreas.Count == 0)
@@ -410,14 +435,6 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             }
             else
             {
-                var scopeNodes = await (
-                    from s in ctx.AreaScope
-                    join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
-                    where s.State && ai.State
-                    select new { s.AreaScopeId, s.AreaScopeParentId, ai.AreaItemName }
-                ).ToListAsync();
-                var nodeById = scopeNodes.ToDictionary(n => n.AreaScopeId);
-
                 areas = activeLessonAreas
                     .Select(la =>
                     {
@@ -523,6 +540,49 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 })
                 .ToList();
 
+            // Catalogo Obra / Staff / Oficina Central: alimenta el filtro del listado y el
+            // desplegable del formulario. Reemplaza al nivel "subarea" que antes salia del
+            // arbol de areas (nodos de tipo Obra_Oficina, ya eliminados).
+            var obraOficinaStaff = await ctx.WorkersObraOficinaStaff
+                .Where(c => c.State && c.Active)
+                .OrderBy(c => c.DisplayOrder)
+                .Select(c => new ObraOficinaStaffOptionDTO
+                {
+                    ObraOficinaStaffId = c.WorkersObraOficinaStaffId,
+                    Name = c.Name
+                })
+                .ToListAsync();
+
+            // Sugerencias para el formulario: lo que tenga el trabajador que está registrando.
+            // Con estas dos, la cascada de área y el desplegable de Obra/Oficina llegan
+            // preseleccionados y al usuario solo le queda elegir el proyecto.
+            var perfil = await (
+                from p in ctx.Person
+                join w in ctx.Worker on p.PersonId equals w.PersonId
+                where p.UserId == filter.CurrentUserId
+                orderby (w.ObraOficinaStaffId != null ? 0 : 1), w.Id
+                select new { w.ObraOficinaStaffId, w.AreaScopeId }
+            ).FirstOrDefaultAsync();
+
+            // lesson_area_ids con plantilla: una lesson_area sin scope_item no aparece
+            // en el formulario, así que tampoco puede ser el área por defecto.
+            var lessonAreaIdsConPlantilla = (await ctx.ScopeItem
+                    .Where(si => si.Active)
+                    .Select(si => si.LessonAreaId)
+                    .Distinct()
+                    .ToListAsync())
+                .ToHashSet();
+
+            var defaultLessonAreaId = perfil?.AreaScopeId is int workerScopeId
+                ? ResolveDefaultLessonAreaId(
+                    workerScopeId,
+                    scopeNodes.Select(n => (n.AreaScopeId, n.AreaScopeParentId, n.AreaItemId)).ToList(),
+                    activeLessonAreas
+                        .Where(la => la.IncludeInForm && lessonAreaIdsConPlantilla.Contains(la.LessonAreaId))
+                        .Select(la => (la.AreaScopeId, la.LessonAreaId, la.IncludeAsIndependent))
+                        .ToList())
+                : null;
+
             return new LessonsPagedWithFiltersDTO
             {
                 Paged = paged,
@@ -533,9 +593,88 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     Periods = periods,
                     Users = users,
                     Reviewers = reviewers,
-                    Categories = categoryGroups
+                    Categories = categoryGroups,
+                    ObraOficinaStaff = obraOficinaStaff,
+                    DefaultObraOficinaStaffId = perfil?.ObraOficinaStaffId,
+                    DefaultLessonAreaId = defaultLessonAreaId
                 }
             };
+        }
+
+        /// <summary>
+        /// Área del formulario que le corresponde por defecto a un trabajador según el nodo
+        /// del árbol que tiene asignado (<c>workers.area_scope_id</c>).
+        ///
+        /// La cascada del formulario solo acepta HOJAS, así que se busca la hoja más cercana
+        /// subiendo desde su nodo:
+        ///   1. El propio nodo, si es hoja del árbol del formulario.
+        ///   2. Un descendiente que repita el mismo <c>area_item</c> del nodo — la convención
+        ///      "&lt;Área&gt; puro" (p. ej. "Unidad de Proyectos &gt; Unidad de Proyectos"),
+        ///      que es donde va el personal del área que no pertenece a ninguna subárea.
+        ///   3. Se sube al padre y se repite.
+        /// Un área marcada "independiente" siempre cuenta como hoja: el formulario la promueve
+        /// al primer nivel y no despliega sus hijas.
+        ///
+        /// Devuelve null si no hay match — en ese caso el usuario elige el área a mano.
+        /// </summary>
+        private static int? ResolveDefaultLessonAreaId(
+            int workerAreaScopeId,
+            IReadOnlyList<(int AreaScopeId, int? ParentId, int AreaItemId)> nodes,
+            IReadOnlyList<(int AreaScopeId, int LessonAreaId, bool Independiente)> formAreas)
+        {
+            if (nodes.Count == 0 || formAreas.Count == 0) return null;
+
+            var byId = nodes.ToDictionary(n => n.AreaScopeId);
+            var childrenByParent = nodes
+                .Where(n => n.ParentId.HasValue)
+                .GroupBy(n => n.ParentId!.Value)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.AreaScopeId).ToList());
+
+            var formByScope = formAreas
+                .GroupBy(f => f.AreaScopeId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            List<int> Descendants(int id)
+            {
+                var result = new List<int>();
+                var pending = new Stack<int>();
+                var seen = new HashSet<int>();
+                pending.Push(id);
+                while (pending.Count > 0)
+                {
+                    if (!childrenByParent.TryGetValue(pending.Pop(), out var hijos)) continue;
+                    foreach (var h in hijos)
+                    {
+                        if (!seen.Add(h)) continue;
+                        result.Add(h);
+                        pending.Push(h);
+                    }
+                }
+                return result;
+            }
+
+            bool EsHoja(int scopeId) =>
+                (formByScope.TryGetValue(scopeId, out var f) && f.Independiente)
+                || !Descendants(scopeId).Any(formByScope.ContainsKey);
+
+            int? cur = workerAreaScopeId;
+            var visitados = new HashSet<int>();
+            while (cur.HasValue && visitados.Add(cur.Value) && byId.TryGetValue(cur.Value, out var node))
+            {
+                if (formByScope.TryGetValue(node.AreaScopeId, out var propio) && EsHoja(node.AreaScopeId))
+                    return propio.LessonAreaId;
+
+                foreach (var d in Descendants(node.AreaScopeId))
+                {
+                    if (byId[d].AreaItemId != node.AreaItemId) continue;
+                    if (formByScope.TryGetValue(d, out var puro) && EsHoja(d))
+                        return puro.LessonAreaId;
+                }
+
+                cur = node.ParentId;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -597,7 +736,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             int? projectId,
             int? areaId,
             int? userId,
-            List<int>? lessonAreaIds = null)
+            List<int>? lessonAreaIds = null,
+            int? obraOficinaStaffId = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -610,6 +750,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 query = query.Where(x => x.LessonAreaId != null && lessonAreaIds.Contains(x.LessonAreaId.Value));
             else if (areaId.HasValue)
                 query = query.Where(x => x.LessonAreaId == areaId.Value);
+            if (obraOficinaStaffId.HasValue)
+                query = query.Where(x => x.ObraOficinaStaffId == obraOficinaStaffId.Value);
             if (userId.HasValue) query = query.Where(x => x.CreatedUserId == userId.Value);
 
             var registros = await (
@@ -623,6 +765,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 join person in ctx.Person on user.UserId equals person.UserId into pe
                 from person in pe.DefaultIfEmpty()
                 join state in ctx.State on lesson.StateId equals state.StateId
+                join oo in ctx.WorkersObraOficinaStaff on lesson.ObraOficinaStaffId equals oo.WorkersObraOficinaStaffId into ooj
+                from oo in ooj.DefaultIfEmpty()
                 orderby lesson.CreatedDateTime descending
                 select new LessonListDTO
                 {
@@ -639,6 +783,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     AreaDescription = area != null ? area.AreaDescription : null,
                     LessonAreaId = lesson.LessonAreaId,
                     CatalogItemId = lesson.CatalogItemId,
+                    ObraOficinaStaffId = lesson.ObraOficinaStaffId,
+                    ObraOficinaStaffName = oo != null ? oo.Name : null,
                     StateId = lesson.StateId,
                     StateDescription = state.StateDescription,
                     ApprovalStatus = lesson.ApprovalStatus,
@@ -691,6 +837,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 AreaId = dto.AreaId,
                 CatalogItemId = catalogItemId,
                 LessonAreaId = dto.LessonAreaId,
+                ObraOficinaStaffId = dto.ObraOficinaStaffId,
                 StateId = 2,
                 ApprovalStatus = autoApprove ? "APROBADA" : "PENDIENTE",
                 ReviewedByUserId = autoApprove ? userId : null,
@@ -834,6 +981,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             lesson.AreaId = dto.AreaId;
             lesson.CatalogItemId = catalogItemId;
             lesson.LessonAreaId = dto.LessonAreaId;
+            lesson.ObraOficinaStaffId = dto.ObraOficinaStaffId;
             // Editar devuelve la lección a revisión (salvo auto-aprobación propia).
             lesson.ApprovalStatus = "PENDIENTE";
             lesson.ReviewedByUserId = null;

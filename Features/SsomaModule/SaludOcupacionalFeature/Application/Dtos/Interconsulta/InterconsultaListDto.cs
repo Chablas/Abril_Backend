@@ -12,6 +12,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interco
         public int? ContributorId { get; set; }
         public string? RazonSocial { get; set; }
         /// <summary>Valor crudo de workers.obra_oficina (Staff, Oficina Central, Obra, Contratista).</summary>
+        public int? ObraOficinaStaffId { get; set; }
         public string? ObraOficina { get; set; }
         /// <summary>Valor crudo de workers.contrata_casa (Casa, Contrata).</summary>
         public string? ContrataCasa { get; set; }

@@ -14,6 +14,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         /// prioridad sobre AreaId.
         /// </summary>
         public List<int>? LessonAreaIds { get; set; }
+        /// <summary>
+        /// Filtro Obra/Oficina: FK a <c>workers_obra_oficina_staff</c>. Reemplaza al
+        /// antiguo nivel "subárea" de la cascada de áreas (nodos tipo Obra_Oficina).
+        /// </summary>
+        public int? ObraOficinaStaffId { get; set; }
         public int? UserId { get; set; }
         /// <summary>
         /// Filtro por revisor de la lección = jefe asignado al autor

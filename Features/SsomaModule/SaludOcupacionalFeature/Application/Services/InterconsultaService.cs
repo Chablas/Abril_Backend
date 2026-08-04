@@ -10,7 +10,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     public class InterconsultaService : IInterconsultaService
     {
         private static readonly HashSet<string> EstadosValidos = new() { "Pendiente", "Atendida", "Cancelada" };
-        private static readonly HashSet<string> ObraOficinaConCorreoPropio = new(StringComparer.OrdinalIgnoreCase) { "Staff", "Oficina Central" };
+        /// <summary>Ids de workers_obra_oficina_staff cuyo personal tiene correo corporativo propio.</summary>
+        private static readonly HashSet<int> ObraOficinaConCorreoPropio = new(Abril_Backend.Shared.Constants.ObraOficinaStaffIds.StaffUOficinaCentral);
 
         /// <summary>Remitente para todos los correos de Salud Ocupacional (Interconsultas, EMO, etc.).</summary>
         private const string RemitenteSaludOcupacional = "medicinaocupacionalnm@abril.pe";
@@ -39,7 +40,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             // Staff/Oficina Central con correo corporativo propio → correo individual a él + su jefatura de proyecto.
             var conCorreoPropio = info
-                .Where(x => x.TieneCorreoPropio && ObraOficinaConCorreoPropio.Contains(x.ObraOficina ?? string.Empty))
+                .Where(x => x.TieneCorreoPropio && ObraOficinaConCorreoPropio.Contains(x.ObraOficinaStaffId ?? 0))
                 .ToList();
 
             // Obra/Contratista (u otros sin correo propio) → se agrupan por proyecto en un solo

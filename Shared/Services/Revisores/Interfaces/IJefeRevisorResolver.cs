@@ -31,7 +31,31 @@ namespace Abril_Backend.Shared.Services.Revisores.Interfaces
         /// Los trabajadores sin jefe resuelto simplemente no aparecen en el diccionario.
         /// </summary>
         Task<Dictionary<int, JefeRevisorResolution>> ResolveManyAsync(IReadOnlyCollection<int> workerIds);
+
+        /// <summary>
+        /// Previsualización por ÁREA, sin trabajador: para cada nodo <c>area_scope</c> pedido devuelve
+        /// el revisor que le tocaría a un trabajador ubicado ahí, aplicando los pasos 2 y 3 (revisores
+        /// del área subiendo por el árbol, y fallback GTH). No aplica el paso 1 (<c>workers_revisores</c>)
+        /// porque no hay trabajador: un trabajador con revisor propio configurado usa ese y no el del área.
+        ///
+        /// La usa el formulario de trabajadores para mostrar, al elegir el área, quién quedaría como su
+        /// revisor. Un número FIJO de consultas sea para 1 o para todos los nodos del árbol.
+        /// </summary>
+        Task<Dictionary<int, AreaScopeRevisorPreview>> ResolveByAreaScopeManyAsync(
+            IReadOnlyCollection<int> areaScopeIds);
     }
+
+    /// <summary>
+    /// Revisor que le tocaría a un trabajador de un nodo del árbol de áreas. Se separa el caso sin
+    /// proyecto del caso por proyecto porque hay nodos marcados como "filtrar por proyecto"
+    /// (ga_salidas_area_config): ahí el revisor depende del proyecto del trabajador, así que se
+    /// precalcula uno por proyecto configurado y el consumidor elige según el proyecto del formulario.
+    /// </summary>
+    /// <param name="Area">Revisor a nivel de área (o el fallback GTH). Null si no hay ninguno.</param>
+    /// <param name="PorProyecto">projectId -> revisor, solo para los proyectos con revisor propio en la rama.</param>
+    public record AreaScopeRevisorPreview(
+        JefeRevisorResolution? Area,
+        Dictionary<int, JefeRevisorResolution> PorProyecto);
 
     /// <summary>
     /// Jefe/revisor resuelto: un trabajador (WorkerId) o un área (AreaScopeId, el

@@ -67,8 +67,13 @@ public record MetaEmpresaDto
     public decimal PctCharlas { get; init; }
     public decimal PctInspecciones { get; init; }
 
-    // Promedio general (0-100+)
+    // Promedio general (0-100+) — solo sobre los indicadores APLICABLES (los que tienen
+    // meta > 0). Un indicador con Prog = 0 se muestra como "N/A" y no entra al promedio.
     public decimal PctProactivoGeneral { get; init; }
+
+    // Cuántos de los 6 indicadores le aplican este mes. Si es 0, la empresa no es
+    // evaluable y no debe entrar en el promedio del proyecto (un 0% que no ganó).
+    public int IndicadoresAplicables { get; init; }
 
     // Ocultar manualmente empresas cuyo % no refleja la realidad (ej. sin supervisores)
     public bool EsOculto { get; init; } = false;
@@ -94,6 +99,9 @@ public record IndicadorProactivoProyectoDto
     public int MetaInspeccionesTotal { get; init; }
 
     public int ActualRacsTotal { get; init; }
+    // RACs atribuidos al proyecto (empresa reportada) — base contra la que se mide el cierre.
+    // Es distinto de ActualRacsTotal (los que el proyecto reportó): son poblaciones distintas.
+    public int ActualRacsAtribuidosTotal { get; init; }
     public int ActualRacsCerradosTotal { get; init; }
     public int ActualOptTotal { get; init; }
     public int ActualAtsTotal { get; init; }

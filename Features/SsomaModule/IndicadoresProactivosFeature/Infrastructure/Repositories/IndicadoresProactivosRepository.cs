@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Features.Ssoma.Paso.Entities;
+using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure.Models;
@@ -44,6 +45,14 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
     /// </summary>
     private static List<int> CasaEmpresaIds(IEnumerable<int> esAbrilIds)
         => esAbrilIds.Concat(EmpresasSinIndicadoresProactivos).Distinct().ToList();
+
+    /// <summary>
+    /// Metas de inspecciones del mes: FIJAS por tipo de empresa (no proporcionales al promedio
+    /// de trabajadores como las de RACS/OPT/ATS/capacitaciones). Ser independientes del tareo
+    /// es deliberado: en una obra sin tareo cargado son el único indicador medible.
+    /// </summary>
+    private const int MetaInspeccionesCasa = 20;
+    private const int MetaInspeccionesContratista = 15;
 
     public IndicadoresProactivosRepository(IDbContextFactory<AppDbContext> factory)
         => _factory = factory;
@@ -292,7 +301,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             var diasCasa = tareoCasa.Count(d => d.Total > 0);
             var promCasa = diasCasa > 0 ? (decimal)tareoCasa.Where(d => d.Total > 0).Sum(d => d.Total) / diasCasa : 0;
 
-            const int metaCasaInsp = 20;
+            // Este bloque solo corre si Casa tuvo tareo, así que la meta fija siempre aplica.
+            const int metaCasaInsp = MetaInspeccionesCasa;
 
             var fechasCasaPresencia = tareoCasa.Where(d => d.Total > 0).Select(d => d.Fecha.ToDateTime(TimeOnly.MinValue)).ToList();
             var metaCasaCharlas = ContarDiasHabilesConPresenciaDateTime(fechasCasaPresencia, mes, anio);
@@ -385,7 +395,13 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             var diasEmp = tareoEmp.Count;
             var promEmp = diasEmp > 0 ? (decimal)tareoEmp.Sum(d => d.CantidadPersonas) / diasEmp : 0;
 
-            const int metaInsp = 15;
+            // La meta de inspecciones es FIJA y, a propósito, NO se condiciona a que la empresa
+            // tenga días tareados: es la única meta que no depende del tareo, así que en una obra
+            // donde nadie cargó el tareo del mes es la única que sobrevive. Condicionarla dejaría
+            // a esas obras sin ningún indicador que medir y su % caería a 0 (se probó en ago-2026:
+            // KAURÍ 15% → 0% y MÁXIMO ABRIL 30% → 0%, ambas sin tareo cargado). Que una empresa
+            // sin tareo no arrastre al proyecto ya lo resuelve el % agregado del proyecto.
+            const int metaInsp = MetaInspeccionesContratista;
 
             // Meta de charlas = días efectivamente tareados (no solo días hábiles): si se
             // tareó 10 días, debe haber 10 evidencias subidas.
@@ -521,8 +537,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .ToListAsync();
 
         // 8. Meta inspecciones: fijas por tipo de empresa
-        const int metaInspCasa = 20;
-        const int metaInspContratista = 15;
+        const int metaInspCasa = MetaInspeccionesCasa;
+        const int metaInspContratista = MetaInspeccionesContratista;
 
         // OPT/ATS/Charlas se atribuyen a la empresa con la que el trabajador estaba vinculado
         // EL DÍA DEL EVENTO (no la vinculación de hoy) — si cambió de contratista a mitad de
@@ -647,6 +663,9 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 var te = tareoContrBulk.Where(t => t.ProyectoId == pid && t.EmpresaId == emp.EmpresaId).ToList();
                 var diasE = te.Count;
                 var promE = diasE > 0 ? (decimal)te.Sum(t => t.CantidadPersonas) / diasE : 0;
+                // Fija incluso sin días tareados — ver el comentario en GetMetasEmpresaAsync:
+                // es la única meta independiente del tareo y sostiene el indicador en las obras
+                // donde no se cargó el tareo del mes.
                 var metaInspE = metaInspContratista;
                 // Meta de charlas = días efectivamente tareados: si se tareó 10 días,
                 // debe haber 10 evidencias subidas.
@@ -687,31 +706,8 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             // Usar todas las empresas con tareo (no filtrar por EsActiva = 10 días)
             // El umbral de 10 días solo afecta las metas proporcionales dentro de BuildMetaDto
             var activas = empresasDtos;
-            result.Add(new IndicadorProactivoProyectoDto
-            {
-                ProyectoId = pid,
-                ProyectoNombre = proy.ProjectDescription ?? "",
-                TotalEmpresasActivas = activas.Count(e => e.EsActiva),
-                MetaRacsTotal = activas.Sum(e => e.MetaRacs),
-                MetaOptTotal = activas.Sum(e => e.MetaOpt),
-                MetaAtsTotal = activas.Sum(e => e.MetaAts),
-                MetaCharlasTotal = activas.Sum(e => e.MetaCharlas),
-                MetaInspeccionesTotal = activas.Sum(e => e.MetaInspecciones),
-                ActualRacsTotal = activas.Sum(e => e.ActualRacs),
-                ActualRacsCerradosTotal = activas.Sum(e => e.ActualRacsCerrados),
-                ActualOptTotal = activas.Sum(e => e.ActualOpt),
-                ActualAtsTotal = activas.Sum(e => e.ActualAts),
-                ActualCharlasTotal = activas.Sum(e => e.ActualCharlas),
-                ActualInspeccionesTotal = activas.Sum(e => e.ActualInspecciones),
-                PctRacs = Pct(activas.Sum(e => e.ActualRacs), activas.Sum(e => e.MetaRacs)),
-                PctRacsCerrados = Pct(activas.Sum(e => e.ActualRacsCerrados), activas.Sum(e => e.ActualRacs)),
-                PctOpt = Pct(activas.Sum(e => e.ActualOpt), activas.Sum(e => e.MetaOpt)),
-                PctAts = Pct(activas.Sum(e => e.ActualAts), activas.Sum(e => e.MetaAts)),
-                PctCharlas = Pct(activas.Sum(e => e.ActualCharlas), activas.Sum(e => e.MetaCharlas)),
-                PctInspecciones = Pct(activas.Sum(e => e.ActualInspecciones), activas.Sum(e => e.MetaInspecciones)),
-                PctProactivoGeneral = activas.Any() ? Math.Round(activas.Average(e => e.PctProactivoGeneral), 1) : 0,
-                Empresas = activas
-            });
+            result.Add(IndicadorProactivoCalculo.ConstruirProyecto(
+                pid, proy.ProjectDescription ?? "", activas));
         }
 
         return result.OrderByDescending(p => p.PctProactivoGeneral).ToList();
@@ -737,9 +733,13 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var fechaCorte = esMesActual ? hoy.AddDays(1) : fechaFin;
 
         // % proactivos
+        // Misma definición que la tarjeta del seguimiento (promedio de los 6 indicadores
+        // agregados del proyecto) — el puntaje del mes no puede partir de un % distinto
+        // del que se le muestra al usuario.
         var empresas = await GetMetasEmpresaAsync(proyectoId, mes, anio);
         var activas = empresas.Where(e => e.EsActiva).ToList();
-        var pctProactivos = activas.Any() ? activas.Average(e => e.PctProactivoGeneral) : 0m;
+        var pctProactivos = IndicadorProactivoCalculo
+            .ConstruirProyecto(proyectoId, proyecto ?? "", activas).PctProactivoGeneral;
 
         // % PASSO — actividades teóricamente programadas este mes de ciclo vs ejecutadas.
         // Un proyecto puede tener una instancia de PASO por año (botón "Instanciar 2027",
@@ -983,7 +983,23 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         var pctAts = Pct(atsTope, metaAts);
         var pctCharlas = Pct(charlasTope, metaCharlas);
         var pctInsp = Pct(inspTope, metaInsp);
-        var pctGeneral = (pctRacs + pctRacsCer + pctOpt + pctAts + pctCharlas + pctInsp) / 6;
+
+        // Un indicador SIN meta (Prog = 0) no es un 0% de cumplimiento: es "no aplica" —
+        // exactamente lo que la tarjeta ya muestra como "N/A" cuando Prog llega en 0. Antes
+        // se promediaba siempre sobre 6, así que cada indicador no aplicable metía un 0 y
+        // hundía el % general: una empresa sin tareo en el mes (todas sus metas en 0) salía
+        // 0% aunque hubiera ejecutado OPTs. Ojo: la "meta" de RACs cerrados no es una meta
+        // configurada sino los RACs que le fueron atribuidos; sin atribuidos, cerrar no aplica.
+        var aplica = new[]
+        {
+            (metaRacs > 0, pctRacs),
+            (actualRacsAtribuidos > 0, pctRacsCer),
+            (metaOpt > 0, pctOpt),
+            (metaAts > 0, pctAts),
+            (metaCharlas > 0, pctCharlas),
+            (metaInsp > 0, pctInsp),
+        };
+        var pctGeneral = IndicadorProactivoCalculo.PromedioAplicables(aplica);
 
         return new MetaEmpresaDto
         {
@@ -1013,15 +1029,13 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             PctAts = Math.Round(pctAts, 1),
             PctCharlas = Math.Round(pctCharlas, 1),
             PctInspecciones = Math.Round(pctInsp, 1),
-            PctProactivoGeneral = Math.Round(pctGeneral, 1)
+            PctProactivoGeneral = Math.Round(pctGeneral, 1),
+            IndicadoresAplicables = aplica.Count(a => a.Item1)
         };
     }
 
-    // Para el % del indicador se cuenta como máximo hasta lo programado (meta) — si la
-    // contratista ejecutó de más, el "Ejec" real se sigue mostrando tal cual, pero el
-    // indicador no debe pasar de 100%.
-    private static decimal Pct(int actual, int meta)
-        => meta > 0 ? Math.Round((decimal)Math.Min(actual, meta) / meta * 100, 1) : 0m;
+    // Fórmula única de % e "indicador aplicable" — ver IndicadorProactivoCalculo.
+    private static decimal Pct(int actual, int meta) => IndicadorProactivoCalculo.Pct(actual, meta);
 
     // ─────────────────────────────────────────────────────────────────────────
     // PASSO — "mes de ciclo": réplica de la lógica de

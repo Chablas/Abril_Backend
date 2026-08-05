@@ -25,5 +25,14 @@ namespace Abril_Backend.Shared.Constants
         public const int Residentes          = 11; // RESIDENTES — proyectos, incidencias y monitoreo
         public const int SsomaAmonestaciones = 12; // SSOMA_AMONESTACIONES
         public const int SsomaAccidentes     = 13; // SSOMA_ACCIDENTES — Flash Report
+
+        /// <summary>
+        /// HABILITACION_INDUCCION — solo el desplegable de proyecto del modal "Programar Inducción".
+        /// Es un filtro aparte de <see cref="Habilitacion"/> (que cubre el resto de Habilitación:
+        /// filtro de la lista de trabajadores, EMOs programados y proyectos por empresa) porque hay
+        /// proyectos que deben ser inducibles sin aparecer en esos otros desplegables — el caso que
+        /// lo motivó es Oficina Central (project_id 36).
+        /// </summary>
+        public const int HabilitacionInduccion = 14; // HABILITACION_INDUCCION
     }
 }

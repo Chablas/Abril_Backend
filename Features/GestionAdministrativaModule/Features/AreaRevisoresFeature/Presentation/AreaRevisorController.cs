@@ -24,8 +24,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
 
         /// <summary>
         /// Carga inicial: gerencias y áreas estándar (primer nodo de su tipo en cada rama) con sus n revisores + opciones.
-        /// ADMINISTRADOR DE SOLICITUD DE SALIDAS ve todas las áreas; un trabajador con
-        /// categoría Jefe/Coordinador/Gerente ve solo su área; el resto no ve ninguna.
+        /// ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven todas las áreas (GTH
+        /// solo de lectura); un trabajador con categoría Jefe/Coordinador/Gerente ve solo su
+        /// área; el resto no ve ninguna.
         /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetInitialData()
@@ -37,8 +38,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
-                var verTodas = User.IsInRole(Roles.AdministradorSolicitudSalidas);
-                return Ok(await _service.GetInitialDataAsync(userId.Value, verTodas));
+                // Editar sigue siendo exclusivo del administrador; GTH ve todo pero no edita,
+                // así que no necesita las opciones del selector de revisor.
+                var puedeEditar = User.IsInRole(Roles.AdministradorSolicitudSalidas);
+                var verTodas    = puedeEditar || User.IsInRole(Roles.UsuarioGth);
+                return Ok(await _service.GetInitialDataAsync(userId.Value, verTodas, puedeEditar));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex)

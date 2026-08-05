@@ -23,9 +23,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
     /// área propia de los gerentes (que cuelgan directamente de ella y antes caían al
     /// fallback de GTH) y el respaldo del resto de su rama.
     ///
-    /// Visibilidad: el rol ADMINISTRADOR DE SOLICITUD DE SALIDAS ve todas las áreas;
-    /// un trabajador con categoría (workers_category) Jefe, Coordinador o Gerente ve
-    /// solo el área listada a la que pertenece (subiendo el árbol desde su
+    /// Visibilidad: los roles ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven
+    /// todas las áreas (GTH solo de lectura: editar sigue siendo exclusivo del
+    /// administrador); un trabajador con categoría (workers_category) Jefe, Coordinador o
+    /// Gerente ve solo el área listada a la que pertenece (subiendo el árbol desde su
     /// workers.area_scope_id); el resto no ve ninguna.
     /// </summary>
     public class AreaRevisorRepository : IAreaRevisorRepository
@@ -47,7 +48,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             _factory = factory;
         }
 
-        public async Task<AreaRevisorInicialDto> GetInitialDataAsync(int userId, bool verTodas)
+        public async Task<AreaRevisorInicialDto> GetInitialDataAsync(int userId, bool verTodas, bool puedeEditar)
         {
             // Tabla + opciones en una sola conexión.
             using var ctx = _factory.CreateDbContext();
@@ -60,7 +61,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             if (!verTodas)
             {
                 // Jefe/Coordinador/Gerente: solo el área listada a la que pertenece
-                // su worker. Cualquier otro usuario: ninguna.
+                // su worker. Cualquier otro usuario (sin rol de admin ni de GTH): ninguna.
                 var areaVisible = await GetAreaVisibleDelUsuarioAsync(ctx, userId, nodos, elegibles);
                 if (areaVisible == null)
                     return new AreaRevisorInicialDto();
@@ -165,7 +166,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
 
             // 5) Opciones del selector de revisor (mismo criterio que Revisores de Trabajadores).
             //    Solo el administrador puede editar revisores, así que solo él las necesita.
-            var options = !verTodas
+            var options = !puedeEditar
                 ? new List<AreaRevisorOptionDto>()
                 : await (
                     from w in ctx.Worker
@@ -185,6 +186,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             {
                 Areas = areas,
                 Options = options,
+                // El catálogo va atado a verTodas (no a puedeEditar): el frontend arma con él
+                // las subfilas de proyecto de las áreas filtradas, así que GTH también lo necesita.
                 Proyectos = verTodas ? proyectos : new List<ProyectoOptionDto>(),
             };
         }

@@ -203,6 +203,16 @@ public class DossierRepository : IDossierRepository
             .FirstOrDefaultAsync(s => s.Id == doc.DossierId)
             ?? throw new AbrilException("Dossier no encontrado.", 404);
 
+        // Un documento solo se revisa cuando la semana ya está en revisión. Sin este
+        // candado se podían aprobar documentos de una semana en Borrador, y el recálculo
+        // de abajo la empujaba a "Enviado" sin que el contratista la hubiera enviado:
+        // quedaba congelada, porque EnviarAsync exige Borrador/Rechazado y subir un
+        // archivo solo revierte a Borrador desde Aprobado/Observado, no desde Enviado.
+        if (semana.Estado is not ("Enviado" or "Observado" or "Aprobado"))
+            throw new AbrilException(
+                "El contratista todavía no envía esta semana para revisión, así que aún no se pueden revisar sus documentos.",
+                400);
+
         var ahora = DateTime.UtcNow;
         doc.Estado = req.Estado;
         doc.ObsRevisor = req.ObsRevisor;
@@ -257,8 +267,20 @@ public class DossierRepository : IDossierRepository
             .CountAsync(a => a.DocumentoId == archivo.DocumentoId && a.Id != archivoId);
         if (quedan == 0)
         {
+            var ahora = DateTime.UtcNow;
             archivo.Documento.Estado = "Pendiente";
-            archivo.Documento.UpdatedAt = DateTime.UtcNow;
+            archivo.Documento.UpdatedAt = ahora;
+
+            // El documento vuelve a quedar pendiente, así que la semana ya no cumple la
+            // condición de envío. Si estaba esperando o en revisión hay que devolverla a
+            // Borrador: quedarse en "Enviado" con un pendiente la congela, porque
+            // EnviarAsync exige Borrador/Rechazado y nadie puede aprobar lo que no existe.
+            var semana = archivo.Documento.Dossier!;
+            if (semana.Estado is "Enviado" or "Observado")
+            {
+                semana.Estado = "Borrador";
+                semana.UpdatedAt = ahora;
+            }
         }
         await ctx.SaveChangesAsync();
     }

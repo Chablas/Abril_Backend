@@ -521,31 +521,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 entregable.FechaAprobacion = DateTime.UtcNow;
             }
 
-            if (entregable.ItemId == HabItemIds.InduccionObra)
+            // El ítem 12 es global (una fila por trabajador) y `WorkerProyecto.InduccionCompletada`
+            // es su espejo por proyecto, así que hay que mantenerlos sincronizados en ambos
+            // sentidos: "Aprobado" marca la inducción, y CUALQUIER otro estado la desmarca.
+            // Antes solo se desmarcaba con "Falta", y un ítem 12 pasado a "Rechazado" dejaba el
+            // flag en true: el trabajador quedaba "No Autorizado" en la lista pero invisible en
+            // "Programar Inducción", que filtra justamente por ese flag (incidencia 2026-08-05).
+            //
+            // Se evalúa `entregable.Estado` (el valor ya resuelto) y no `dto.Estado`, porque al
+            // rechazar una renovación el estado vuelve a "Aprobado" conservando la vigencia
+            // anterior: esa inducción sigue siendo válida y no debe borrarse.
+            if (entregable.ItemId == HabItemIds.InduccionObra && !string.IsNullOrEmpty(dto.Estado))
             {
-                if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+                var induccionVigente =
+                    string.Equals(entregable.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase);
+
+                var wpRows = await ctx.WorkerProyecto
+                    .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
+                    .ToListAsync();
+                foreach (var wp in wpRows)
                 {
-                    var wpRows = await ctx.WorkerProyecto
-                        .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
-                        .ToListAsync();
-                    foreach (var wp in wpRows)
+                    if (induccionVigente)
                     {
                         wp.InduccionCompletada = true;
                         wp.FechaInduccion ??= DateOnly.FromDateTime(DateTime.UtcNow);
-                        wp.UpdatedAt = DateTimeOffset.UtcNow;
                     }
-                }
-                else if (string.Equals(dto.Estado, "Falta", StringComparison.OrdinalIgnoreCase))
-                {
-                    var wpRows = await ctx.WorkerProyecto
-                        .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
-                        .ToListAsync();
-                    foreach (var wp in wpRows)
+                    else
                     {
                         wp.InduccionCompletada = false;
                         wp.FechaInduccion = null;
-                        wp.UpdatedAt = DateTimeOffset.UtcNow;
                     }
+                    wp.UpdatedAt = DateTimeOffset.UtcNow;
                 }
             }
 

@@ -28,11 +28,6 @@ namespace Abril_Backend.Shared.Models {
         public int? ResponsableArqComId {get; set;}
         public string? ResponsableUdp {get; set;}
         public int? ResponsableUdpId {get; set;}
-        public string? ResponsablePlaneamientoBim {get; set;}
-        public int? ResponsablePlaneamientoBimId {get; set;}
-
-        // Planeamiento BIM: meta de PPC pactada, fija por proyecto
-        public decimal? MetaPpc {get; set;}
 
         // Emails del proyecto
         public string? EmailResidente {get; set;}

@@ -31,7 +31,6 @@ using Abril_Backend.Features.AccountingModule.Features.InvoicesFeature.Infrastru
 using Abril_Backend.Features.AccountingModule.Features.Configuration.InvoiceFolderFeature.Infrastructure.Models;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.ObservacionesFeature.Infrastructure.Models;
 using Abril_Backend.Features.ArquitecturaComercialModule.Features.RevisionesFeature.Infrastructure.Models;
-using Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Data
@@ -469,19 +468,6 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<LearningCategory> LearningCategory => Set<LearningCategory>();
         public DbSet<LearningVideo> LearningVideo => Set<LearningVideo>();
         public DbSet<LearningCategoryRole> LearningCategoryRole => Set<LearningCategoryRole>();
-
-        // ── Planeamiento BIM ──────────────────────────────────────────────────
-        public DbSet<BimMacroActividad> BimMacroActividad => Set<BimMacroActividad>();
-        public DbSet<BimActividad> BimActividad => Set<BimActividad>();
-        public DbSet<BimCausaNoCumplimiento> BimCausaNoCumplimiento => Set<BimCausaNoCumplimiento>();
-        public DbSet<BimFase> BimFase => Set<BimFase>();
-        public DbSet<BimProyectoZona> BimProyectoZona => Set<BimProyectoZona>();
-        public DbSet<BimZonaNivel> BimZonaNivel => Set<BimZonaNivel>();
-        public DbSet<BimZonaSector> BimZonaSector => Set<BimZonaSector>();
-        public DbSet<BimProyectoFase> BimProyectoFase => Set<BimProyectoFase>();
-        public DbSet<BimRegistroDiario> BimRegistroDiario => Set<BimRegistroDiario>();
-        public DbSet<BimEvidenciaFoto> BimEvidenciaFoto => Set<BimEvidenciaFoto>();
-        public DbSet<BimBloqueo> BimBloqueo => Set<BimBloqueo>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -1418,122 +1404,6 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany()
                  .HasForeignKey(n => n.OrigenUserId)
                  .OnDelete(DeleteBehavior.Restrict);
-            });
-
-            // ── Planeamiento BIM ─────────────────────────────────────────────
-            // Catálogos globales: nombre único para poder sembrarlos con ON CONFLICT DO NOTHING.
-            modelBuilder.Entity<BimMacroActividad>()
-                .HasIndex(x => x.Nombre).IsUnique();
-            modelBuilder.Entity<BimCausaNoCumplimiento>()
-                .HasIndex(x => x.Nombre).IsUnique();
-            modelBuilder.Entity<BimFase>()
-                .HasIndex(x => x.Nombre).IsUnique();
-
-            modelBuilder.Entity<BimActividad>(e =>
-            {
-                // Mismo nombre puede repetirse entre tipos distintos (ej. "Vaciado de concreto"
-                // aparece como VERTICAL y como HORIZONTAL) dentro de una misma macro_actividad.
-                e.HasIndex(x => new { x.MacroActividadId, x.Tipo, x.Nombre }).IsUnique();
-                e.HasOne(x => x.MacroActividad)
-                 .WithMany(m => m.Actividades)
-                 .HasForeignKey(x => x.MacroActividadId)
-                 .OnDelete(DeleteBehavior.Restrict);
-            });
-
-            modelBuilder.Entity<BimProyectoZona>(e =>
-            {
-                e.HasIndex(x => x.ProjectId);
-                e.HasOne(x => x.Project)
-                 .WithMany()
-                 .HasForeignKey(x => x.ProjectId)
-                 .OnDelete(DeleteBehavior.Cascade);
-            });
-
-            modelBuilder.Entity<BimZonaNivel>(e =>
-            {
-                e.HasIndex(x => x.ZonaId);
-                e.HasOne(x => x.Zona)
-                 .WithMany(z => z.Niveles)
-                 .HasForeignKey(x => x.ZonaId)
-                 .OnDelete(DeleteBehavior.Cascade);
-            });
-
-            modelBuilder.Entity<BimZonaSector>(e =>
-            {
-                e.HasIndex(x => x.ZonaId);
-                e.HasOne(x => x.Zona)
-                 .WithMany(z => z.Sectores)
-                 .HasForeignKey(x => x.ZonaId)
-                 .OnDelete(DeleteBehavior.Cascade);
-            });
-
-            modelBuilder.Entity<BimProyectoFase>(e =>
-            {
-                e.HasIndex(x => x.ProjectId);
-                e.HasIndex(x => x.FaseId);
-                e.HasOne(x => x.Project)
-                 .WithMany()
-                 .HasForeignKey(x => x.ProjectId)
-                 .OnDelete(DeleteBehavior.Cascade);
-                e.HasOne(x => x.Fase)
-                 .WithMany()
-                 .HasForeignKey(x => x.FaseId)
-                 .OnDelete(DeleteBehavior.Restrict);
-            });
-
-            modelBuilder.Entity<BimRegistroDiario>(e =>
-            {
-                // Evita duplicados y define que una corrección dentro de la ventana de
-                // edición sea UPDATE sobre esta fila, no un INSERT nuevo.
-                e.HasIndex(x => new { x.ProjectId, x.ZonaId, x.NivelId, x.SectorId, x.ActividadId, x.Fecha })
-                 .IsUnique();
-                e.HasIndex(x => x.ZonaId);
-                e.HasIndex(x => x.NivelId);
-                e.HasIndex(x => x.SectorId);
-                e.HasIndex(x => x.ActividadId);
-                e.HasIndex(x => x.CausaId);
-                e.HasOne(x => x.Project)
-                 .WithMany()
-                 .HasForeignKey(x => x.ProjectId)
-                 .OnDelete(DeleteBehavior.Cascade);
-                e.HasOne(x => x.Zona)
-                 .WithMany()
-                 .HasForeignKey(x => x.ZonaId)
-                 .OnDelete(DeleteBehavior.Restrict);
-                e.HasOne(x => x.Nivel)
-                 .WithMany()
-                 .HasForeignKey(x => x.NivelId)
-                 .OnDelete(DeleteBehavior.Restrict);
-                e.HasOne(x => x.Sector)
-                 .WithMany()
-                 .HasForeignKey(x => x.SectorId)
-                 .OnDelete(DeleteBehavior.Restrict);
-                e.HasOne(x => x.Actividad)
-                 .WithMany()
-                 .HasForeignKey(x => x.ActividadId)
-                 .OnDelete(DeleteBehavior.Restrict);
-                e.HasOne(x => x.Causa)
-                 .WithMany()
-                 .HasForeignKey(x => x.CausaId)
-                 .OnDelete(DeleteBehavior.Restrict);
-            });
-
-            modelBuilder.Entity<BimEvidenciaFoto>(e =>
-            {
-                e.HasIndex(x => new { x.ProjectId, x.Fecha });
-                e.HasOne(x => x.Project)
-                 .WithMany()
-                 .HasForeignKey(x => x.ProjectId)
-                 .OnDelete(DeleteBehavior.Cascade);
-            });
-
-            modelBuilder.Entity<BimBloqueo>(e =>
-            {
-                e.HasIndex(x => x.ProjectId);
-                e.HasOne(x => x.Project)
-                 .WithMany()
-                 .HasForeignKey(x => x.ProjectId)
-                 .OnDelete(DeleteBehavior.Cascade);
             });
 
         }

@@ -5454,13 +5454,15 @@ Rama: `victor-backend`. Housekeeping de 3 worktrees huérfanos encontrados en `.
 - El usuario decidió **descartar por completo** el trabajo de `planeamiento-bim-data-model-772373` (empezar de cero) en vez de rescatarlo — se hizo `git worktree remove` + `git branch -D`. El borrado físico de la carpeta quedó bloqueado por un lock de Windows (VS Code con handles abiertos); el contenido se borró igual, solo quedó una carpeta vacía huérfana en disco (cosmético).
 - `crazy-ardinghelli-737df4` se confirmó vacío (0 archivos, sin `.git`) y se borró con `Remove-Item -Recurse -Force`.
 
-## Sesión 2026-08-05 — Planeamiento BIM: 4 tablas de catálogo ya existen en producción
+## Sesión 2026-08-05 — Planeamiento BIM: todo el modelo de datos ya existe en producción
 
-**Importante para quien retome el modelo de datos de Planeamiento BIM** (`Features/PlaneamientoBimFeature/`, revertido el 2026-08-05, ver arriba): las 4 tablas de catálogo — `bim_macro_actividad`, `bim_actividad`, `bim_causa_no_cumplimiento`, `bim_fase` — **ya existen en producción**. El usuario las creó directamente por SQL en pgAdmin, verificadas una por una, con los seeds ya cargados y confirmados por conteo de filas: `bim_macro_actividad` (3), `bim_actividad` (39), `bim_causa_no_cumplimiento` (5), `bim_fase` (5).
+**Importante para quien retome el modelo de datos de Planeamiento BIM** (`Features/PlaneamientoBimFeature/`, revertido el 2026-08-05, ver arriba): el modelo de datos completo **ya existe en producción**, creado a mano por el usuario vía pgAdmin, verificado paso a paso:
+
+- **4 catálogos**, seeds ya cargados y confirmados por conteo de filas: `bim_macro_actividad` (3), `bim_actividad` (37 = 14+14+9), `bim_causa_no_cumplimiento` (5), `bim_fase` (5).
+- **3 columnas nuevas en `project`**: `responsable_planeamiento_bim`, `responsable_planeamiento_bim_id`, `meta_ppc`.
+- **7 tablas por proyecto** (vacías, esperando la pantalla de Configuración Inicial): `bim_proyecto_zona`, `bim_zona_nivel`, `bim_zona_sector`, `bim_proyecto_fase`, `bim_registro_diario` (con su `UNIQUE INDEX` sobre `project_id`+`zona_id`+`nivel_id`+`sector_id`+`actividad_id`+`fecha`), `bim_evidencia_foto`, `bim_bloqueo`.
 
 Implicancias:
-1. Estas 4 tablas **no deben crearse de nuevo** — cualquier intento de `CREATE TABLE` sobre ellas va a fallar contra producción (mismo tipo de colisión que encontramos con `ss_proyecto_habilitado` y `ss_charla_contratista` esta sesión).
-2. La migración de EF que se escriba más adelante para `PlaneamientoBimFeature` necesita marcarlas como ya aplicadas — mismo patrón aprendido hoy con `ss_proyecto_habilitado`: no un `CREATE TABLE` liso, sino reconciliar el script para que ese bloque sea un no-op (o at most `CREATE TABLE IF NOT EXISTS` con verificación previa de columnas/constraints reales contra producción, no asumidas).
-3. **Sí falta crear**, no existe en ningún lado todavía:
-   - 3 columnas nuevas en `project`: `responsable_planeamiento_bim`, `responsable_planeamiento_bim_id`, `meta_ppc`.
-   - 7 tablas restantes: `bim_proyecto_zona`, `bim_zona_nivel`, `bim_zona_sector`, `bim_proyecto_fase`, `bim_registro_diario`, `bim_evidencia_foto`, `bim_bloqueo`.
+1. **Nada de esto debe crearse de nuevo** — cualquier intento de `CREATE TABLE`/`ADD COLUMN` sobre estos objetos va a fallar contra producción (mismo tipo de colisión que encontramos con `ss_proyecto_habilitado` y `ss_charla_contratista` esta sesión).
+2. Cuando se retome el feature, **el primer paso NO es crear estas tablas** — ya existen. El primer paso es: crear los modelos C# + registrar en `DbContext` (para que EF conozca el esquema), y escribir la migración de EF que reconoce todo esto como ya aplicado — mismo patrón aprendido hoy con `ss_proyecto_habilitado`: la migración no debe ejecutar los `CREATE TABLE`/`ADD COLUMN` reales contra producción, solo marcarse como aplicada (o usar `IF NOT EXISTS` con verificación previa de columnas/constraints reales contra producción, no asumidas).
+3. **Después de eso, el siguiente paso real es la pantalla de Configuración Inicial** (Controller/Service/Repository + UI) — no más modelo de datos.

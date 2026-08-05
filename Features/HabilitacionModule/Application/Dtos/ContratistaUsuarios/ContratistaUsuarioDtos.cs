@@ -29,6 +29,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.ContratistaUsuari
 
     public class ContratistaUsuarioUpdateDto
     {
+        public string? Email { get; set; }
         public string? RolNombre { get; set; }
         public string? Scope { get; set; }
         public bool? Activo { get; set; }

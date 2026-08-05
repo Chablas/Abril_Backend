@@ -156,6 +156,26 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 .FirstOrDefaultAsync(u => u.Id == id && u.ContractorId == contractorId)
                 ?? throw new AbrilException("Usuario no encontrado.", 404);
 
+            if (!string.IsNullOrWhiteSpace(dto.Email))
+            {
+                var nuevoEmail = dto.Email.Trim().ToLower();
+                if (!nuevoEmail.Contains('@') || !nuevoEmail.Contains('.'))
+                    throw new AbrilException("Ingresa un email válido.", 400);
+
+                var user = await ctx.User.FirstOrDefaultAsync(u => u.UserId == existing.UserId)
+                    ?? throw new AbrilException("Usuario no encontrado.", 404);
+
+                if (nuevoEmail != user.Email)
+                {
+                    var emailEnUso = await ctx.User.AnyAsync(u => u.Email == nuevoEmail && u.UserId != user.UserId);
+                    if (emailEnUso)
+                        throw new AbrilException("Ya existe un usuario registrado con ese email.", 400);
+
+                    user.Email = nuevoEmail;
+                    await ctx.SaveChangesAsync();
+                }
+            }
+
             int rolId = existing.RolId;
             if (!string.IsNullOrWhiteSpace(dto.RolNombre))
             {

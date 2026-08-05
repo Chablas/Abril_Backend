@@ -1,3 +1,10 @@
+-- ⚠️ NOTA (2026-08-04): los pasos que usaban TABLAS TEMPORALES (ON COMMIT DROP)
+--    solo funcionan si TODO el archivo corre dentro de una sola transacción.
+--    Para aplicarlo sentencia por sentencia (sin transacción, para no cargar la
+--    RAM de la VPS) usar en su lugar:
+--        Migrations_Manual/obra_oficina_resto_sin_transaccion.sql
+--    que reemplaza a este archivo desde el paso 5b en adelante.
+
 -- ============================================================================
 -- POSTERIOR a Migrations_Manual/workers_obra_oficina_staff.sql — no correr antes.
 --

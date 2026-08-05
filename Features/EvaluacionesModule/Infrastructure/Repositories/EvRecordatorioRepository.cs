@@ -1,6 +1,7 @@
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
@@ -60,7 +61,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 FROM workers w
                 JOIN person p    ON p.person_id = w.person_id
                 JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                WHERE w.obra_oficina = 'Oficina Central'
+                WHERE w.obra_oficina_staff_id = {ObraOficinaStaffIds.OficinaCentral}
                   AND w.area         = 'Proyectos'
                   AND w.categoria    IN ('Jefe', 'Coordinador')
                   AND w.subarea      NOT IN ('Unidad de Proyectos', 'Planeamiento BIM')
@@ -110,7 +111,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   )" : "")}
                 ORDER BY p.full_name";
 
-            // REGLA 3: Staff (obra_oficina != 'Oficina Central') con residente en su proyecto
+            // REGLA 3: Staff (obra_oficina_staff_id != Oficina Central) con residente en su proyecto
             var sqlR3 = $@"
                 SELECT DISTINCT
                     au.user_id       AS UserId,
@@ -121,7 +122,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 FROM workers w
                 JOIN person p    ON p.person_id = w.person_id
                 JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
-                WHERE w.obra_oficina != 'Oficina Central'
+                WHERE w.obra_oficina_staff_id <> {ObraOficinaStaffIds.OficinaCentral}
                   AND NOT (w.categoria = 'Gerente' AND w.area = 'Proyectos')
                   AND {filtroBase}
                   AND EXISTS (

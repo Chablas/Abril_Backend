@@ -1,6 +1,7 @@
 using Abril_Backend.Features.Evaluaciones.Application.Dtos;
 using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,7 +23,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var conn = ctx.Database.GetDbConnection();
 
             var supervisores = (await conn.QueryAsync<SupervisorConAsignacionesDto>(
-                @"SELECT
+                $@"SELECT
                     w.id           AS WorkerId,
                     p.full_name    AS NombreCompleto,
                     w.subarea      AS Subarea
@@ -32,7 +33,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   WHERE w.estado != 'Retirado'
                     AND (u.active = true OR u.user_id IS NULL)
                     AND (
-                      (w.subarea = 'Unidad de Proyectos' AND w.obra_oficina = 'Oficina Central' AND w.area = 'Proyectos')
+                      (w.subarea = 'Unidad de Proyectos' AND w.obra_oficina_staff_id = {ObraOficinaStaffIds.OficinaCentral} AND w.area = 'Proyectos')
                       OR
                       (w.subarea = 'Planeamiento BIM')
                     )

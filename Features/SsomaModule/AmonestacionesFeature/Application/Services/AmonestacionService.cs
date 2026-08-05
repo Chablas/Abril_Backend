@@ -295,11 +295,14 @@ public class AmonestacionService : IAmonestacionService
 
     private async Task GenerarPdfYNotificarAsync(int id, string codigo, List<byte[]> fotosBytes)
     {
-        var detalleCompleto = await _repo.GetDetalleAsync(id);
-        if (detalleCompleto is null) return;
-
+        // Todo lo de aquí es post-guardado: la amonestación ya existe en BD. Si algo falla
+        // (lectura del detalle, PDF, SharePoint, correo) se registra y se sigue — nunca se
+        // propaga, porque devolver error al front hace que el usuario reintente y duplique.
         try
         {
+            var detalleCompleto = await _repo.GetDetalleAsync(id);
+            if (detalleCompleto is null) return;
+
             var logoBytes = await ResolveLogoAsync(detalleCompleto);
 
             var pdfBytes = AmonestacionPdfService.GenerarPdf(detalleCompleto, fotosBytes, logoBytes);

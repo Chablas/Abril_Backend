@@ -24,10 +24,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
     /// fallback de GTH) y el respaldo del resto de su rama.
     ///
     /// Visibilidad: los roles ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven
-    /// todas las áreas (GTH solo de lectura: editar sigue siendo exclusivo del
-    /// administrador); un trabajador con categoría (workers_category) Jefe, Coordinador o
-    /// Gerente ve solo el área listada a la que pertenece (subiendo el árbol desde su
-    /// workers.area_scope_id); el resto no ve ninguna.
+    /// todas las áreas y pueden editarlas; un trabajador con categoría (workers_category)
+    /// Jefe, Coordinador o Gerente ve solo el área listada a la que pertenece (subiendo el
+    /// árbol desde su workers.area_scope_id) y sin poder editarla; el resto no ve ninguna.
     /// </summary>
     public class AreaRevisorRepository : IAreaRevisorRepository
     {
@@ -48,7 +47,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             _factory = factory;
         }
 
-        public async Task<AreaRevisorInicialDto> GetInitialDataAsync(int userId, bool verTodas, bool puedeEditar)
+        public async Task<AreaRevisorInicialDto> GetInitialDataAsync(int userId, bool verTodas)
         {
             // Tabla + opciones en una sola conexión.
             using var ctx = _factory.CreateDbContext();
@@ -165,8 +164,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             }
 
             // 5) Opciones del selector de revisor (mismo criterio que Revisores de Trabajadores).
-            //    Solo el administrador puede editar revisores, así que solo él las necesita.
-            var options = !puedeEditar
+            //    Solo quien ve todas las áreas puede editarlas, así que solo esos las necesitan.
+            var options = !verTodas
                 ? new List<AreaRevisorOptionDto>()
                 : await (
                     from w in ctx.Worker
@@ -186,8 +185,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Infrastruct
             {
                 Areas = areas,
                 Options = options,
-                // El catálogo va atado a verTodas (no a puedeEditar): el frontend arma con él
-                // las subfilas de proyecto de las áreas filtradas, así que GTH también lo necesita.
+                // El frontend arma con este catálogo las subfilas de proyecto de las áreas
+                // filtradas, así que lo necesita todo el que ve la lista completa.
                 Proyectos = verTodas ? proyectos : new List<ProyectoOptionDto>(),
             };
         }

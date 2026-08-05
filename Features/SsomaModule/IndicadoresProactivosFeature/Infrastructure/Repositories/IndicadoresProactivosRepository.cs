@@ -13,12 +13,20 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
     private readonly IDbContextFactory<AppDbContext> _factory;
 
     /// <summary>
-    /// Contratistas que nunca deben aparecer en los indicadores proactivos (RACS,
-    /// OPT, capacitaciones, ATS, inspecciones): proveedores de grúas/concreto/equipo/
-    /// vigilancia con un solo trabajador o sin supervisor, que no encajan en el modelo
-    /// de programa proactivo. Decisión de negocio confirmada — no hay flag en
-    /// Contributor que las distinga de una contratista de mano de obra real.
+    /// Contratistas que nunca deben aparecer como TARJETA con metas propias en los
+    /// indicadores proactivos (RACS, OPT, capacitaciones, ATS, inspecciones): proveedores
+    /// de grúas/concreto/equipo/vigilancia con un solo trabajador o sin supervisor, que no
+    /// encajan en el modelo de programa proactivo. Decisión de negocio confirmada — no hay
+    /// flag en Contributor que las distinga de una contratista de mano de obra real.
     /// Agregar aquí el contributor_id de "Etac" cuando se registre en el sistema.
+    ///
+    /// OJO: no tener tarjeta NO significa que su actividad se descarte. Estas empresas se
+    /// tratan como Casa (ver <c>CasaEmpresaIds</c>): la auditoría ATS / OPT / RAC que el
+    /// staff de Abril ejecuta SOBRE sus trabajadores es esfuerzo proactivo de Casa —
+    /// precisamente porque no tienen supervisor propio que lo haga. Antes se descartaban
+    /// en silencio: no calzaban como contratista (empresa excluida de la lista) ni como
+    /// Casa (empresa != null y EsAbril = false), así que las 3 auditorías ATS de AGRUMAQ en
+    /// SAUCE ZEN aparecían como "Ejec: 0" (incidencia Corilla, ago-2026).
     /// </summary>
     private static readonly HashSet<int> EmpresasSinIndicadoresProactivos = new()
     {
@@ -26,6 +34,16 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         591, // UNIÓN DE CONCRETERAS S.A.
         572, // CASEVIP S.R.L (vigilancia)
     };
+
+    /// <summary>
+    /// Empresas cuya actividad proactiva se contabiliza dentro de "Casa — Staff Propio":
+    /// las entidades internas de Abril (<c>Contributor.EsAbril</c>) más las que no tienen
+    /// programa proactivo propio (<see cref="EmpresasSinIndicadoresProactivos"/>). Es el
+    /// mismo criterio que decide qué empresas NO se listan como contratista, para que
+    /// ninguna quede en el limbo entre ambas categorías.
+    /// </summary>
+    private static List<int> CasaEmpresaIds(IEnumerable<int> esAbrilIds)
+        => esAbrilIds.Concat(EmpresasSinIndicadoresProactivos).Distinct().ToList();
 
     public IndicadoresProactivosRepository(IDbContextFactory<AppDbContext> factory)
         => _factory = factory;
@@ -195,12 +213,15 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         // Empresas marcadas Contributor.EsAbril son entidades internas/administrativas
         // de Abril (ej. inmobiliarias propias), no contratistas de obra reales — su
         // actividad se cuenta como Casa, no como una contratista más en el dashboard.
+        // A partir de aquí se usa casaEmpresaIds (EsAbril + las que no tienen programa
+        // proactivo propio) para que ninguna empresa quede fuera de ambas categorías.
         var esAbrilIds = await ctx.Contributor.Where(c => c.EsAbril).Select(c => c.ContributorId).ToListAsync();
+        var casaEmpresaIds = CasaEmpresaIds(esAbrilIds);
 
         // Subquery reutilizable — no carga IDs en memoria (solo para saber qué empresas
         // mostrar aunque no tengan tareo; el conteo real usa EmpresaDelTrabajadorEnFecha).
         var casaWorkerQ = vincActivaQ
-            .Where(v => v.ProyectoId == proyectoId && (v.EmpresaId == null || esAbrilIds.Contains(v.EmpresaId!.Value)))
+            .Where(v => v.ProyectoId == proyectoId && (v.EmpresaId == null || casaEmpresaIds.Contains(v.EmpresaId!.Value)))
             .Select(v => v.WorkerId);
 
         // OPT/ATS/Charlas del mes completo, con fecha, para resolver empresa por evento.
@@ -283,19 +304,19 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             // por una empresa Es Abril contra una contratista real, que no calzaban en ningún filtro).
             var racsGenCasa = await ctx.SsomaRacs
                 .CountAsync(r => r.ProyectoId == proyectoId
-                              && (r.EmpresaReportanteId == null || esAbrilIds.Contains(r.EmpresaReportanteId!.Value))
+                              && (r.EmpresaReportanteId == null || casaEmpresaIds.Contains(r.EmpresaReportanteId!.Value))
                               && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
             var racsAtribuidosCasa = await ctx.SsomaRacs
                 .CountAsync(r => r.ProyectoId == proyectoId
-                              && (r.EmpresaReportadaId == null || esAbrilIds.Contains(r.EmpresaReportadaId!.Value))
+                              && (r.EmpresaReportadaId == null || casaEmpresaIds.Contains(r.EmpresaReportadaId!.Value))
                               && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
             var racsCerCasa = await ctx.SsomaRacs
                 .CountAsync(r => r.ProyectoId == proyectoId
-                              && (r.EmpresaReportadaId == null || esAbrilIds.Contains(r.EmpresaReportadaId!.Value))
+                              && (r.EmpresaReportadaId == null || casaEmpresaIds.Contains(r.EmpresaReportadaId!.Value))
                               && r.Estado == "Cerrado"
                               && r.FechaReporte >= fechaIni && r.FechaReporte < fechaCorte);
 
-            bool EsCasa(int? empresaId) => empresaId == null || esAbrilIds.Contains(empresaId.Value);
+            bool EsCasa(int? empresaId) => empresaId == null || casaEmpresaIds.Contains(empresaId.Value);
 
             var optCasa = optMesRaw
                 .Where(x => EsCasa(EmpresaDelTrabajadorEnFecha(x.TrabajadorId, DateOnly.FromDateTime(x.Fecha))))
@@ -310,7 +331,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
 
             var inspCasa = await ctx.SsomaInspeccion
                 .CountAsync(i => i.ProyectoId == proyectoId
-                              && (i.EmpresaId == null || esAbrilIds.Contains(i.EmpresaId!.Value))
+                              && (i.EmpresaId == null || casaEmpresaIds.Contains(i.EmpresaId!.Value))
                               && i.Fecha >= fechaIni && i.Fecha < fechaCorte);
 
             resultado.Add(BuildMetaDto(null, "Casa", "Casa — Staff Propio", promCasa, diasCasa,
@@ -346,7 +367,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Distinct().ToListAsync();
 
         var empresaIds = empresaIdsTareo.Union(empresaIdsVinc).Union(empresaIdsRacsInsp)
-            .Except(esAbrilIds).Except(EmpresasSinIndicadoresProactivos).Distinct().ToList();
+            .Except(casaEmpresaIds).Distinct().ToList();
 
         var empresas = await ctx.Contributor
             .Where(c => empresaIds.Contains(c.ContributorId))
@@ -545,8 +566,10 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
         // Empresas marcadas Contributor.EsAbril son entidades internas/administrativas
         // de Abril (ej. inmobiliarias propias), no contratistas de obra reales — su
         // actividad se cuenta como Casa, no como una contratista más en el dashboard.
-        var esAbrilIds = (await ctx.Contributor.Where(c => c.EsAbril).Select(c => c.ContributorId).ToListAsync())
-            .ToHashSet();
+        // A partir de aquí se usa casaEmpresaIds (EsAbril + las que no tienen programa
+        // proactivo propio) para que ninguna empresa quede fuera de ambas categorías.
+        var esAbrilIds = await ctx.Contributor.Where(c => c.EsAbril).Select(c => c.ContributorId).ToListAsync();
+        var casaEmpresaIds = CasaEmpresaIds(esAbrilIds).ToHashSet();
 
         // Empresas a mostrar por proyecto: unión de tareadas + con vinculación activa +
         // con RACS/Inspecciones registrados. Si solo se listaran las tareadas, una
@@ -555,7 +578,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
             .Union(racsBulk.Where(r => r.EmpresaReportadaId != null).Select(r => r.EmpresaReportadaId!.Value))
             .Union(inspBulk.Where(i => i.EmpresaId != null).Select(i => i.EmpresaId!.Value))
             .Union(tareoContrBulk.Select(t => t.EmpresaId))
-            .Except(esAbrilIds).Except(EmpresasSinIndicadoresProactivos)
+            .Except(casaEmpresaIds)
             .Distinct().ToList();
 
         var nombresEmpresa = await ctx.Contributor
@@ -577,7 +600,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                     .Select(r => new { EmpresaId = r.EmpresaReportadaId!.Value, Nombre = nombresEmpresa.GetValueOrDefault(r.EmpresaReportadaId!.Value) ?? $"Empresa {r.EmpresaReportadaId}" }))
                 .Concat(inspBulk.Where(i => i.ProyectoId == pid && i.EmpresaId != null)
                     .Select(i => new { EmpresaId = i.EmpresaId!.Value, Nombre = nombresEmpresa.GetValueOrDefault(i.EmpresaId!.Value) ?? $"Empresa {i.EmpresaId}" }))
-                .Where(e => !esAbrilIds.Contains(e.EmpresaId) && !EmpresasSinIndicadoresProactivos.Contains(e.EmpresaId))
+                .Where(e => !casaEmpresaIds.Contains(e.EmpresaId))
                 .GroupBy(e => e.EmpresaId)
                 .Select(g => g.First())
                 .ToList();
@@ -596,10 +619,10 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                 // abajo); "atribuidos a Casa" usa EmpresaReportadaId — mezclarlos duplicaba RACs
                 // (contados en Casa y en la contratista real a la vez).
                 var racsGenC = racsBulk.Where(r => r.ProyectoId == pid
-                    && (r.EmpresaReportanteId == null || esAbrilIds.Contains(r.EmpresaReportanteId!.Value)));
+                    && (r.EmpresaReportanteId == null || casaEmpresaIds.Contains(r.EmpresaReportanteId!.Value)));
                 var racsC = racsBulk.Where(r => r.ProyectoId == pid
-                    && (r.EmpresaReportadaId == null || esAbrilIds.Contains(r.EmpresaReportadaId!.Value)));
-                bool EsCasaPid(int? empresaId) => empresaId == null || esAbrilIds.Contains(empresaId.Value);
+                    && (r.EmpresaReportadaId == null || casaEmpresaIds.Contains(r.EmpresaReportadaId!.Value)));
+                bool EsCasaPid(int? empresaId) => empresaId == null || casaEmpresaIds.Contains(empresaId.Value);
                 var optC = optBulk.Where(o => o.ProyectoId == pid
                         && EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, o.TrabajadorId, DateOnly.FromDateTime(o.Fecha))))
                     .Select(o => o.OptId).Distinct().Count();
@@ -609,7 +632,7 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
                         && EsCasaPid(EmpresaDelTrabajadorEnFecha(pid, a.WorkerId, DateOnly.FromDateTime(a.Fecha))))
                     .Select(a => a.Fecha).Distinct().Count();
                 var inspC = inspBulk.Count(i => i.ProyectoId == pid
-                    && (i.EmpresaId == null || esAbrilIds.Contains(i.EmpresaId!.Value)));
+                    && (i.EmpresaId == null || casaEmpresaIds.Contains(i.EmpresaId!.Value)));
                 var racsGenCCount = racsGenC.Count();
                 var racsCCount = racsC.Count();
                 empresasDtos.Add(BuildMetaDto(null, "Casa", "Casa — Staff Propio", promC, diasC,

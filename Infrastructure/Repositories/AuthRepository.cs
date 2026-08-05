@@ -171,13 +171,21 @@ namespace Abril_Backend.Infrastructure.Repositories
         {
             try
             {
+                // Se respeta el soft delete de las dos tablas de la cadena: una asignación
+                // dada de baja (user_role.state = false) o un rol dado de baja (role.state =
+                // false) NO conceden la feature. Sin estos filtros, quitarle un rol a alguien
+                // no le quitaba el acceso: seguía entrando hasta que la fila se borrara duro.
+                // feature y role_feature no tienen columna state, no hay nada que filtrar ahí.
                 return await _context.Database
                     .SqlQuery<string>($"""
                         SELECT DISTINCT f.feature_key
                         FROM feature f
                         JOIN role_feature rf ON rf.feature_id = f.feature_id
                         JOIN user_role ur     ON ur.role_id   = rf.role_id
+                        JOIN role r           ON r.role_id    = ur.role_id
                         WHERE ur.user_id = {userId}
+                          AND ur.state
+                          AND r.state
                         """)
                     .ToListAsync();
             }

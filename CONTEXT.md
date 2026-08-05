@@ -5453,3 +5453,14 @@ Rama: `victor-backend`. Housekeeping de 3 worktrees huérfanos encontrados en `.
 - Se investigó `elated-ellis-724b34` en detalle (status/diff/log/fechas de archivo) pero **no se tocó** — queda pendiente de decisión de Dani.
 - El usuario decidió **descartar por completo** el trabajo de `planeamiento-bim-data-model-772373` (empezar de cero) en vez de rescatarlo — se hizo `git worktree remove` + `git branch -D`. El borrado físico de la carpeta quedó bloqueado por un lock de Windows (VS Code con handles abiertos); el contenido se borró igual, solo quedó una carpeta vacía huérfana en disco (cosmético).
 - `crazy-ardinghelli-737df4` se confirmó vacío (0 archivos, sin `.git`) y se borró con `Remove-Item -Recurse -Force`.
+
+## Sesión 2026-08-05 — Planeamiento BIM: 4 tablas de catálogo ya existen en producción
+
+**Importante para quien retome el modelo de datos de Planeamiento BIM** (`Features/PlaneamientoBimFeature/`, revertido el 2026-08-05, ver arriba): las 4 tablas de catálogo — `bim_macro_actividad`, `bim_actividad`, `bim_causa_no_cumplimiento`, `bim_fase` — **ya existen en producción**. El usuario las creó directamente por SQL en pgAdmin, verificadas una por una, con los seeds ya cargados y confirmados por conteo de filas: `bim_macro_actividad` (3), `bim_actividad` (39), `bim_causa_no_cumplimiento` (5), `bim_fase` (5).
+
+Implicancias:
+1. Estas 4 tablas **no deben crearse de nuevo** — cualquier intento de `CREATE TABLE` sobre ellas va a fallar contra producción (mismo tipo de colisión que encontramos con `ss_proyecto_habilitado` y `ss_charla_contratista` esta sesión).
+2. La migración de EF que se escriba más adelante para `PlaneamientoBimFeature` necesita marcarlas como ya aplicadas — mismo patrón aprendido hoy con `ss_proyecto_habilitado`: no un `CREATE TABLE` liso, sino reconciliar el script para que ese bloque sea un no-op (o at most `CREATE TABLE IF NOT EXISTS` con verificación previa de columnas/constraints reales contra producción, no asumidas).
+3. **Sí falta crear**, no existe en ningún lado todavía:
+   - 3 columnas nuevas en `project`: `responsable_planeamiento_bim`, `responsable_planeamiento_bim_id`, `meta_ppc`.
+   - 7 tablas restantes: `bim_proyecto_zona`, `bim_zona_nivel`, `bim_zona_sector`, `bim_proyecto_fase`, `bim_registro_diario`, `bim_evidencia_foto`, `bim_bloqueo`.

@@ -18,7 +18,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Infrastructure.Models
         public BimFase Fase { get; set; } = null!;
 
         [Column("fecha_inicio")]
-        public DateOnly FechaInicio { get; set; }
+        public DateOnly? FechaInicio { get; set; }
 
         [Column("fecha_fin_meta")]
         public DateOnly? FechaFinMeta { get; set; }

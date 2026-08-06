@@ -9364,7 +9364,7 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("date")
                         .HasColumnName("fecha_fin_real");
 
-                    b.Property<DateOnly>("FechaInicio")
+                    b.Property<DateOnly?>("FechaInicio")
                         .HasColumnType("date")
                         .HasColumnName("fecha_inicio");
 

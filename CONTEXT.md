@@ -5489,3 +5489,43 @@ Pendiente para retomar:
 1. Confirmar con SQL cuántos workers de esas áreas están sin vínculo (`ss_hab_worker_proyecto` sin fila activa) y si el proyecto "Arquitectura Comercial" existe en la tabla `project` (Oficina Central y Post Venta sí existen).
 2. Backfill de esos workers hacia el "proyecto" que les corresponde.
 3. Hacer `proyectoId` obligatorio en el formulario para `esStaffOOficina` (frontend, `worker-create-edit.ts`) para que no vuelva a pasar.
+
+## Sesión 2026-08-06 — Planeamiento BIM: Controller/Service/Repository de Configuración Inicial
+
+Rama: `victor-backend`. Retoma el feature cuyo modelo de datos ya estaba verificado en producción (sesión 2026-08-05). Se construyó de cero el Controller/Service/Repository (no existía ninguno) para la pantalla de Configuración Inicial: zonas/niveles/sectores, responsable BIM y meta PPC.
+
+### Contexto perdido: la spec original
+`dashboard-planeamiento-bim-spec.md` (mencionada como fuente de verdad) **no aparece en ningún lado** — se buscó en todo el disco, en el repo backend, en el repo frontend (`Abril-Frontend`) y en `git log --all` de ambos; no está ni en disco ni en historial de git. La estructura zona→(niveles, sectores) como listas planas hermanas se infirió y confirmó contra el **FK real en producción** (`bim_zona_nivel.zona_id` y `bim_zona_sector.zona_id` ambos apuntan a `bim_proyecto_zona.id`, ninguno anida nivel→sector). El resto de las reglas de negocio que la spec habría cubierto se resolvieron con un `/grill-me` corto del usuario (8 decisiones, ver abajo) — no son inferencia, son decisión explícita.
+
+### Las 8 reglas de negocio (fuente de verdad, reemplazan la spec perdida)
+1. Zonas: texto libre, sin catálogo de tipos.
+2. Niveles: `orden` numérico explícito, editable por el usuario (no inferido).
+3. Sectores compartidos por zona, no por nivel (confirmado contra el esquema real).
+4. Combinación nivel×sector: producto cartesiano implícito, sin tabla de combinaciones ni activación manual — no requiere código en esta pantalla.
+5. Fases del proyecto: las 5 filas de `bim_fase` (Diseño, Movimiento de Tierras, Casco, Acabados, Entrega) se auto-asignan a todo proyecto, sin poder desactivarlas.
+6. Fechas de fase: única validación es `fecha_fin_meta > fecha_inicio` de la misma fase, si ambas vienen con valor. Sin control de traslape entre fases.
+7. Guardado de Configuración Inicial: parcial permitido, sin campos obligatorios a nivel backend — única restricción dura es el 409 al intentar borrar zona/nivel/sector con registros en `bim_registro_diario`.
+8. Meta PPC: rango 0–100 inclusive, 400 si está fuera.
+
+### Diseño e implementación
+- **Patrón de responsable reutilizado sin endpoint compartido**: el catálogo "Worker.Subarea == X" ya estaba duplicado localmente en `ArquitecturaComercialRepository`, `ProjectRepository.GetResponsables` y `LessonReminderRepository` — se replicó el mismo patrón (duplicado, no una llamada cruzada a otro feature) filtrando `Subarea == "Planeamiento BIM"`, consistente con R5.
+- **Endpoints** (`api/v1/planeamiento-bim/configuracion`, todos con 1 query/acción por R1):
+  - `GET /responsables` — catálogo de workers.
+  - `GET /{projectId}` — zonas con niveles+sectores anidados (proyección correlacionada sin N+1) + responsable + meta PPC + **fases** (lazy-create: si el proyecto no tiene filas en `bim_proyecto_fase`, las crea desde el catálogo `bim_fase` antes de responder).
+  - `PUT /{projectId}` — guarda zonas (upsert por Id: crea/actualiza/elimina), responsable, meta PPC y fechas de fase (por Id de `bim_proyecto_fase`; si el Id no pertenece al proyecto, 400). Un solo `SaveChangesAsync` transaccional; el borrado de zona/nivel/sector con FK restringida (`bim_registro_diario`) se captura como `AbrilException 409` en vez de 500 crudo.
+- **Iteración sobre la regla 7**: la primera versión del `Service` tenía validaciones de "nombre obligatorio" en zona/nivel/sector que contradecían la regla explícita del usuario ("sin campos obligatorios a nivel backend, única restricción dura = el 409 por FK"). Se removieron, y se agregó null-guard (`?? string.Empty`) antes de cada `.Trim()` en el repository para que un nombre nulo en guardado parcial no crashee con 500.
+
+### Migración manual acotada: `fecha_inicio` nullable
+Para soportar el lazy-create de fases con fechas sin definir, `bim_proyecto_fase.fecha_inicio` tenía que dejar de ser `NOT NULL` (así estaba en producción, verificado en vivo). `dotnet ef migrations add` arrastró drift no relacionado ya presente en los modelos del repo pero nunca migrado (`cat_jefatura`, columnas nuevas en `workers`/`lesson`/`ssoma_inspeccion`, tablas `ss_emo_correo_*`) — se descartó esa migración completa y se escribió a mano `Migrations/20260806170000_MakeFechaInicioNullableEnBimProyectoFase.cs` con un único `ALTER COLUMN`, sin `Designer.cs` propio (los atributos `[DbContext]`/`[Migration]` van directo en la clase; `dotnet ef migrations script`/`migrations list` lo reconocen igual). Se parcheó una sola línea del `AppDbContextModelSnapshot.cs` (el resto del drift ajeno queda intacto, tal como estaba). El SQL se mostró al usuario antes de aplicar, y el usuario lo corrió a mano en pgAdmin contra producción — verificado en vivo después: `is_nullable=YES` y `__EFMigrationsHistory` con la fila nueva como última entrada.
+
+### Archivos clave
+- `Features/PlaneamientoBimFeature/Application/{Dtos/ConfiguracionInicialDtos.cs, Interfaces/IPlaneamientoBimConfiguracionService.cs, Services/PlaneamientoBimConfiguracionService.cs}`
+- `Features/PlaneamientoBimFeature/Infrastructure/{Interfaces/IPlaneamientoBimConfiguracionRepository.cs, Repositories/PlaneamientoBimConfiguracionRepository.cs, Models/BimProyectoFase.cs}` (FechaInicio → `DateOnly?`)
+- `Features/PlaneamientoBimFeature/Presentation/PlaneamientoBimConfiguracionController.cs`
+- `Features/PlaneamientoBimFeature/PlaneamientoBimModule.cs`, registrado en `Program.cs`
+- `Migrations/20260806170000_MakeFechaInicioNullableEnBimProyectoFase.cs`, `Migrations/AppDbContextModelSnapshot.cs`
+
+### Pendiente
+- Drift de migración ajeno (`cat_jefatura`, `workers`/`lesson`/`ssoma_inspeccion`, `ss_emo_correo_*`) sigue sin resolver — no se tocó, no es de este feature.
+- Falta el frontend de la pantalla de Configuración Inicial.
+- No se implementó nada de `bim_registro_diario`/`bim_evidencia_foto`/`bim_bloqueo` (pantallas de seguimiento diario) — fuera de alcance de esta sesión.

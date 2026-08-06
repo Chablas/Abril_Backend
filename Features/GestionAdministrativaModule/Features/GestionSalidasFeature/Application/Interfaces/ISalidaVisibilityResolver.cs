@@ -3,8 +3,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     /// <summary>
     /// Resuelve el alcance de visibilidad de un usuario en la gestión de salidas:
     /// qué nodos <c>area_scope</c> puede ver (además de las solicitudes donde él es el
-    /// aprobador). Primero mira el override manual (ga_salida_visibilidad_area); si el
-    /// usuario no tiene ninguna asignación, cae al algoritmo de jerarquía.
+    /// aprobador). Al conjunto siempre se le suman los nodos (con su subárbol) donde el
+    /// usuario está designado como revisor de área (<c>area_revisores</c>); sobre eso,
+    /// primero mira el override manual (ga_salida_visibilidad_area) y, si el usuario no
+    /// tiene ninguna asignación, cae al algoritmo de jerarquía.
     /// </summary>
     public interface ISalidaVisibilityResolver
     {

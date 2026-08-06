@@ -15,6 +15,13 @@ namespace Abril_Backend.Infrastructure.Models {
         public int? CatalogItemId {get; set;}
         /// <summary>Rama seleccionada en lecciones (modelo nuevo). Nullable para no romper lecciones viejas.</summary>
         public int? LessonAreaId {get; set;}
+        /// <summary>
+        /// FK a <c>workers_obra_oficina_staff</c>: Obra / Staff / Oficina Central.
+        /// Antes esta diferenciación se guardaba implícitamente en el último nodo
+        /// del árbol de áreas (tipo "Área Obra_Oficina"); ahora es un campo propio
+        /// de la lección que el autor elige en un desplegable aparte.
+        /// </summary>
+        public int? ObraOficinaStaffId {get; set;}
         public int StateId {get; set;}
 
         // ── Flujo de aprobación por jefatura ────────────────────────────────

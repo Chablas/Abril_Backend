@@ -56,5 +56,7 @@ namespace Abril_Backend.Shared.Constants
         public const string Prevencionista                    = "72"; // PREVENCIONISTA
         public const string ContratistaSupervisorCampo        = "74"; // CONTRATISTA - SUPERVISOR DE CAMPO
         public const string AdministradorSolicitudSalidas     = "76"; // ADMINISTRADOR DE SOLICITUD DE SALIDAS
+        public const string UsuarioGth                        = "77"; // USUARIO DE GTH
+        public const string UsuarioRevisorSalidas             = "78"; // USUARIO REVISOR DE SALIDAS
     }
 }

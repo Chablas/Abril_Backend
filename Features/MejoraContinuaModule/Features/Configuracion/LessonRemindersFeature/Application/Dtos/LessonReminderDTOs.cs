@@ -1,5 +1,12 @@
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.LessonRemindersFeature.Application.Dtos
 {
+    /// <summary>Opcion del filtro Obra / Staff / Oficina Central (workers_obra_oficina_staff).</summary>
+    public class LessonReminderObraOficinaDTO
+    {
+        public int ObraOficinaStaffId { get; set; }
+        public string Name { get; set; } = string.Empty;
+    }
+
     public class LessonReminderDTO
     {
         public int UserProjectId { get; set; }

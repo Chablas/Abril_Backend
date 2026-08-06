@@ -28,5 +28,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 })
                 .ToListAsync();
         }
+
+        public async Task<List<ProyectoSimpleDto>> GetActivosInduccionAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.Project
+                .Where(p => p.State && p.Active && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.HabilitacionInduccion && !f.Active))
+                .OrderBy(p => p.ProjectDescription)
+                .Select(p => new ProyectoSimpleDto
+                {
+                    Id = p.ProjectId,
+                    Nombre = p.ProjectDescription
+                })
+                .ToListAsync();
+        }
     }
 }

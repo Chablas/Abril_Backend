@@ -8,6 +8,7 @@ using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
@@ -17,7 +18,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
     public class SolicitudSalidaService : ISolicitudSalidaService
     {
         private readonly ISolicitudSalidaRepository    _repo;
-        private readonly ISalidaRevisorResolver        _revisorResolver;
+        private readonly IJefeRevisorResolver          _revisorResolver;
         private readonly ICorreoSalidaRecipientResolver _correoResolver;
         private readonly ISolicitudSalidaTokenService  _tokenService;
         private readonly IEmailService                 _emailService;
@@ -28,7 +29,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
 
         public SolicitudSalidaService(
             ISolicitudSalidaRepository repo,
-            ISalidaRevisorResolver revisorResolver,
+            IJefeRevisorResolver revisorResolver,
             ICorreoSalidaRecipientResolver correoResolver,
             ISolicitudSalidaTokenService tokenService,
             IEmailService emailService,

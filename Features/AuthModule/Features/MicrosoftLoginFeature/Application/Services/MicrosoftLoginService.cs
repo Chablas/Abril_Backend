@@ -9,6 +9,13 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
 {
     public class MicrosoftLoginService : IMicrosoftLoginService
     {
+        /// <summary>
+        /// USUARIO REVISOR DE SALIDAS — espejo entero de
+        /// <see cref="Shared.Constants.Roles.UsuarioRevisorSalidas"/>, que es string porque
+        /// así viaja en el claim del JWT; acá se necesita el ID para asignar el user_role.
+        /// </summary>
+        private const int RoleIdUsuarioRevisorSalidas = 78;
+
         private readonly IMicrosoftProfileService _profileService;
         private readonly IMicrosoftLoginRepository _repository;
         private readonly IJWTService _jwtService;
@@ -83,6 +90,18 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
                                 if (rol is not null && !user.Roles!.Any(r => r.RoleId == rol.RoleId))
                                     user.Roles!.Add(rol);
                             }
+                        }
+
+                        // Revisor de área (Revisores de Áreas): necesita entrar a Gestión de
+                        // Salidas para aprobar las solicitudes de su área. Buena parte de los
+                        // revisores designados no tenía usuario del sistema todavía, así que el
+                        // rol no se les pudo asignar por SQL; se les asigna acá, al crearse la
+                        // cuenta en su primer login.
+                        if (await _repository.IsAreaRevisorByPersonIdAsync(personId))
+                        {
+                            var rolRevisor = await _repository.AssignRoleAsync(user.UserId, RoleIdUsuarioRevisorSalidas);
+                            if (rolRevisor is not null && !user.Roles!.Any(r => r.RoleId == rolRevisor.RoleId))
+                                user.Roles!.Add(rolRevisor);
                         }
                     }
                 }

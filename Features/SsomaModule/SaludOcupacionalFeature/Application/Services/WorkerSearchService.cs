@@ -10,10 +10,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private const int LimitMax = 100;
 
         private readonly IWorkerSearchRepository _repo;
+        private readonly IWorkerEmailValidator _emailValidator;
 
-        public WorkerSearchService(IWorkerSearchRepository repo)
+        public WorkerSearchService(IWorkerSearchRepository repo, IWorkerEmailValidator emailValidator)
         {
             _repo = repo;
+            _emailValidator = emailValidator;
         }
 
         public Task<List<WorkerSearchResultDto>> Search(string? q, int limit, int? empresaIdContratista = null)
@@ -29,12 +31,50 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<List<WorkerCategoryDto>> GetWorkerCategories() => _repo.GetWorkerCategories();
 
-        public Task<int> Create(WorkerCreateDto dto) => _repo.Create(dto);
+        public Task<EmailCorporativoValidacionDto> ValidarEmailCorporativo(string? email, int? workerId, bool? esCorporativo) =>
+            _emailValidator.ValidarCorporativoAsync(email, workerId, esCorporativo);
 
-        public Task Update(int id, WorkerUpdateDto dto) => _repo.Update(id, dto);
+        public async Task<int> Create(WorkerCreateDto dto)
+        {
+            var correos = await _emailValidator.ValidarYNormalizarAsync(
+                dto.EmailCorporativo, dto.EmailPersonal, workerId: null, EsCorporativo(dto.ContrataCasa, dto.ObraOficinaStaffId));
 
-        public Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto) => _repo.UpdateDatosBasicos(id, dto);
+            dto.EmailCorporativo = correos.Corporativo;
+            dto.EmailPersonal = correos.Personal;
+
+            return await _repo.Create(dto);
+        }
+
+        public async Task Update(int id, WorkerUpdateDto dto)
+        {
+            var correos = await _emailValidator.ValidarYNormalizarAsync(
+                dto.EmailCorporativo, dto.EmailPersonal, id, EsCorporativo(dto.ContrataCasa, dto.ObraOficinaStaffId));
+
+            dto.EmailCorporativo = correos.Corporativo;
+            dto.EmailPersonal = correos.Personal;
+
+            await _repo.Update(id, dto);
+        }
+
+        public async Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto)
+        {
+            // Este formulario no envía la clasificación del trabajador: se deduce de la guardada.
+            var correos = await _emailValidator.ValidarYNormalizarAsync(
+                dto.EmailCorporativo, dto.EmailPersonal, id, esCorporativo: null);
+
+            dto.EmailCorporativo = correos.Corporativo;
+            dto.EmailPersonal = correos.Personal;
+
+            await _repo.UpdateDatosBasicos(id, dto);
+        }
 
         public Task Retirar(int id) => _repo.Retirar(id);
+
+        /// <summary>
+        /// La clasificación que envía el formulario manda sobre la guardada (una edición puede
+        /// mover al trabajador de Obra a Staff y viceversa).
+        /// </summary>
+        private static bool EsCorporativo(string? contrataCasa, int? obraOficinaStaffId) =>
+            WorkerEmailValidator.EsClasificacionCorporativa(contrataCasa, obraOficinaStaffId);
     }
 }

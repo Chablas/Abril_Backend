@@ -13,6 +13,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? Empresa { get; set; }
         public string? EmpresaOrigenNombre { get; set; }
         public string? ProyectoNombre { get; set; }
+        public int? ObraOficinaStaffId { get; set; }
         public string? ObraOficina { get; set; }
         public string? TipoContrata { get; set; }
         /// <summary>Categoría del trabajador (para prellenar el modal de edición).</summary>
@@ -29,6 +30,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public int? WorkerCategoryId { get; set; }
         /// <summary>Correo corporativo del trabajador (workers.email_corporativo, para prellenar el modal de edición).</summary>
         public string? EmailCorporativo { get; set; }
+        /// <summary>Correo personal / de contacto (person.email, para prellenar el modal de edición).</summary>
+        public string? EmailPersonal { get; set; }
         public bool TieneEmo { get; set; }
         public int? EmoId { get; set; }
         public string? TipoEmo { get; set; }

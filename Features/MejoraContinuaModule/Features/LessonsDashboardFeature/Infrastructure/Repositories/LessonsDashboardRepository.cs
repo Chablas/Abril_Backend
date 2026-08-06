@@ -25,7 +25,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             _factory = factory;
         }
 
-        public async Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, List<int>? lessonAreaIds, List<int>? projectIds, string? approvalStatus)
+        public async Task<LessonsDashboardDataDTO> GetDataAsync(DateTimeOffset? periodDate, int? userId, List<int>? lessonAreaIds, int? obraOficinaStaffId, List<int>? projectIds, string? approvalStatus)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -58,6 +58,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             if (effectiveAreaIds != null)
                 q = q.Where(l => l.LessonAreaId != null && effectiveAreaIds.Contains(l.LessonAreaId.Value));
 
+            // Obra / Staff / Oficina Central: filtro propio (antes era el ultimo nivel
+            // de la cascada de areas, con nodos de tipo Obra_Oficina).
+            if (obraOficinaStaffId.HasValue)
+                q = q.Where(l => l.ObraOficinaStaffId == obraOficinaStaffId.Value);
+
             if (projectIds != null && projectIds.Count > 0)
                 q = q.Where(l => l.ProjectId != null && projectIds.Contains(l.ProjectId.Value));
 
@@ -68,13 +73,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                     l.ProjectId,
                     l.LessonAreaId,
                     l.CatalogItemId,
+                    l.ObraOficinaStaffId,
                     l.CreatedUserId
                 })
                 .ToListAsync();
 
             // Tendencia mensual: ignora el filtro de período para mostrar la evolución
             // completa en el tiempo, respetando los filtros de usuario, área, proyectos y estado.
-            var lessonsByMonth = await BuildMonthlyTrendAsync(ctx, userId, effectiveAreaIds, projectIds, approvalStatus);
+            var lessonsByMonth = await BuildMonthlyTrendAsync(ctx, userId, effectiveAreaIds, obraOficinaStaffId, projectIds, approvalStatus);
 
             // Usuarios pendientes (de registrar lecciones) del período seleccionado o del mes actual.
             var (pendingLabel, pendingUsers) = await BuildPendingUsersAsync(ctx, periodDate);
@@ -107,6 +113,11 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
 
             // 3. Etiqueta de área (lesson_area -> area_scope -> area_item: nombre de la hoja)
             var areaLabelById = await BuildAreaLabelsAsync(ctx);
+
+            // 3b. Etiquetas del catálogo Obra / Staff / Oficina Central.
+            var obraOficinaLabelById = await ctx.WorkersObraOficinaStaff
+                .Where(c => c.State)
+                .ToDictionaryAsync(c => c.WorkersObraOficinaStaffId, c => c.Name);
 
             // 4. Clasificación por scope_item (Fase/Etapa/Subetapa) por (lesson_area_id, catalog_item_id)
             //
@@ -163,6 +174,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
             var byArea = new Dictionary<int, (string Label, int Count)>();
             var byUser = new Dictionary<int, (string Label, int Count)>();
             var byPhase = new Dictionary<int, (string Label, int Count)>();
+            var byObraOficina = new Dictionary<int, (string Label, int Count)>();
             var bySubStage = new Dictionary<int, (string Label, int Count)>();
             // (phaseId, stageId) -> (phaseLabel, stageLabel, count)
             var byPhaseStage = new Dictionary<(int, int), (string PhaseLabel, string StageLabel, int Count)>();
@@ -191,6 +203,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                     var aid = l.LessonAreaId.Value;
                     var alabel = areaLabelById.TryGetValue(aid, out var an) ? an : $"Área {aid}";
                     Bump(byArea, aid, alabel);
+                }
+
+                // Obra / Staff / Oficina Central
+                if (l.ObraOficinaStaffId.HasValue)
+                {
+                    var ooid = l.ObraOficinaStaffId.Value;
+                    var oolabel = obraOficinaLabelById.TryGetValue(ooid, out var oon) ? oon : $"Obra/Oficina {ooid}";
+                    Bump(byObraOficina, ooid, oolabel);
                 }
 
                 // Clasificación
@@ -280,6 +300,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 LessonsByUser = ToChart(byUser),
                 LessonsByPhase = ToChart(byPhase),
                 LessonsBySubStage = ToChart(bySubStage),
+                LessonsByObraOficina = ToChart(byObraOficina),
                 LessonsByPhaseAndStage = phaseStageCharts,
                 LessonsByMonth = lessonsByMonth,
                 PendingPeriodLabel = pendingLabel,
@@ -337,12 +358,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
         /// Tendencia mensual: lecciones agrupadas por mes (period_date), en orden cronológico.
         /// No aplica el filtro de período (para ver la evolución completa); sí usuario, área y proyectos.
         /// </summary>
-        private async Task<List<ChartItemDTO>> BuildMonthlyTrendAsync(AppDbContext ctx, int? userId, List<int>? areaIds, List<int>? projectIds, string? approvalStatus)
+        private async Task<List<ChartItemDTO>> BuildMonthlyTrendAsync(AppDbContext ctx, int? userId, List<int>? areaIds, int? obraOficinaStaffId, List<int>? projectIds, string? approvalStatus)
         {
             var q = ctx.Lesson.Where(l => l.Active && l.State && l.PeriodDate != null);
             if (userId.HasValue) q = q.Where(l => l.CreatedUserId == userId.Value);
             if (!string.IsNullOrWhiteSpace(approvalStatus)) q = q.Where(l => l.ApprovalStatus == approvalStatus);
             if (areaIds != null) q = q.Where(l => l.LessonAreaId != null && areaIds.Contains(l.LessonAreaId.Value));
+            if (obraOficinaStaffId.HasValue) q = q.Where(l => l.ObraOficinaStaffId == obraOficinaStaffId.Value);
             if (projectIds != null && projectIds.Count > 0)
                 q = q.Where(l => l.ProjectId != null && projectIds.Contains(l.ProjectId.Value));
 
@@ -401,12 +423,23 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
                 }
             ).ToListAsync();
 
+            var obraOficinaStaff = await ctx.WorkersObraOficinaStaff
+                .Where(c => c.State && c.Active)
+                .OrderBy(c => c.DisplayOrder)
+                .Select(c => new DashboardObraOficinaStaffDTO
+                {
+                    ObraOficinaStaffId = c.WorkersObraOficinaStaffId,
+                    Name = c.Name
+                })
+                .ToListAsync();
+
             return new LessonsDashboardFiltersDTO
             {
                 Periods = periods,
                 Users = users,
                 Areas = areas,
-                Projects = projects
+                Projects = projects,
+                ObraOficinaStaff = obraOficinaStaff
             };
         }
 

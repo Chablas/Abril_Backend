@@ -59,7 +59,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             return result;
         }
 
-        public async Task<object> GetPaged(int page, int pageSize, string? subarea = null, int? workerId = null, bool includeWorkers = false)
+        public async Task<object> GetPaged(int page, int pageSize, string? subarea = null, int? workerId = null, bool includeWorkers = false, int? obraOficinaStaffId = null)
         {
             page = page < 1 ? 1 : page;
             pageSize = pageSize < 1 ? 10 : pageSize;
@@ -81,6 +81,14 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             {
                 var sa = subarea.Trim();
                 baseQuery = baseQuery.Where(x => x.w.Subarea == sa);
+            }
+
+            // Filtro opcional por Obra / Staff / Oficina Central del trabajador
+            // (workers.obra_oficina_staff_id; antes esto se deducia del ultimo nodo del
+            // arbol de areas, de tipo Obra_Oficina).
+            if (obraOficinaStaffId.HasValue && obraOficinaStaffId.Value > 0)
+            {
+                baseQuery = baseQuery.Where(x => x.w.ObraOficinaStaffId == obraOficinaStaffId.Value);
             }
 
             // Filtro opcional por trabajador.
@@ -112,6 +120,21 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
             // Opciones del filtro por trabajador: trabajadores distintos con algún
             // recordatorio vivo (independiente de la subárea seleccionada, para que el
             // desplegable sea estable). Solo se devuelve en la carga inicial.
+            // Opciones del filtro Obra / Oficina (solo en la carga inicial).
+            List<LessonReminderObraOficinaDTO>? obraOficinaStaff = null;
+            if (includeWorkers)
+            {
+                obraOficinaStaff = await ctx.WorkersObraOficinaStaff
+                    .Where(c => c.State && c.Active)
+                    .OrderBy(c => c.DisplayOrder)
+                    .Select(c => new LessonReminderObraOficinaDTO
+                    {
+                        ObraOficinaStaffId = c.WorkersObraOficinaStaffId,
+                        Name = c.Name
+                    })
+                    .ToListAsync();
+            }
+
             List<LessonReminderWorkerDTO>? workers = null;
             if (includeWorkers)
             {
@@ -137,7 +160,8 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.Configuracion.Les
                 totalRecords,
                 totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
                 data,
-                workers
+                workers,
+                obraOficinaStaff
             };
         }
 

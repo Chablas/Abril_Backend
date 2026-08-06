@@ -51,6 +51,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? reviewerWorkerId,
             [FromQuery] string? catalogItemIds,
             [FromQuery] string? lessonAreaIds,
+            [FromQuery] int? obraOficinaStaffId,
             [FromQuery] string? approvalStatus,
             [FromQuery] bool onlyMyPendingReview,
             [FromQuery] int page = 1,
@@ -83,6 +84,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     ReviewerWorkerId = reviewerWorkerId,
                     CatalogItemIds = parsedCatalogIds,
                     LessonAreaIds = ParseCsvInts(lessonAreaIds),
+                    ObraOficinaStaffId = obraOficinaStaffId,
                     ApprovalStatus = approvalStatus,
                     OnlyMyPendingReview = onlyMyPendingReview,
                     CurrentUserId = int.Parse(userIdClaim.Value),
@@ -109,6 +111,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? reviewerWorkerId,
             [FromQuery] string? catalogItemIds,
             [FromQuery] string? lessonAreaIds,
+            [FromQuery] int? obraOficinaStaffId,
             [FromQuery] string? approvalStatus,
             [FromQuery] bool onlyMyPendingReview,
             [FromQuery] int page = 1,
@@ -142,6 +145,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     ReviewerWorkerId = reviewerWorkerId,
                     CatalogItemIds = parsedCatalogIds,
                     LessonAreaIds = ParseCsvInts(lessonAreaIds),
+                    ObraOficinaStaffId = obraOficinaStaffId,
                     ApprovalStatus = approvalStatus,
                     OnlyMyPendingReview = onlyMyPendingReview,
                     CurrentUserId = int.Parse(userIdClaim.Value),
@@ -310,14 +314,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? projectId,
             [FromQuery] int? areaId,
             [FromQuery] int? userId,
-            [FromQuery] string? lessonAreaIds)
+            [FromQuery] string? lessonAreaIds,
+            [FromQuery] int? obraOficinaStaffId)
         {
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
                 if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _lessonService.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId, ParseCsvInts(lessonAreaIds));
+                var result = await _lessonService.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId, ParseCsvInts(lessonAreaIds), obraOficinaStaffId);
                 return Ok(result);
             }
             catch (Exception)
@@ -374,14 +379,15 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             [FromQuery] int? projectId,
             [FromQuery] int? areaId,
             [FromQuery] int? userId,
-            [FromQuery] string? lessonAreaIds)
+            [FromQuery] string? lessonAreaIds,
+            [FromQuery] int? obraOficinaStaffId)
         {
             try
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
                 if (userIdClaim == null) return Unauthorized(new { message = "Inicie sesión" });
 
-                var lessons = await _lessonService.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId, ParseCsvInts(lessonAreaIds));
+                var lessons = await _lessonService.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId, ParseCsvInts(lessonAreaIds), obraOficinaStaffId);
                 var fileBytes = await _excelService.GenerateLessonsExcel(lessons);
 
                 return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Lecciones_Aprendidas.xlsx");

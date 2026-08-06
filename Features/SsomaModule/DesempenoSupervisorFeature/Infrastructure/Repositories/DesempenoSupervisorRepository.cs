@@ -2,6 +2,7 @@ using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Application.
 using Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.SsomaModule.DesempenoSupervisorFeature.Infrastructure.Repositories;
 
@@ -100,7 +101,7 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
                 g => g.OrderByDescending(x => x.FechaInicio).ThenByDescending(x => x.Id).First().ProyectoId!.Value);
 
         var staffBase = (await ctx.Worker
-            .Where(w => w.ObraOficina == "Staff" && w.Estado == "ACTIVO")
+            .Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.Estado == "ACTIVO")
             .Select(w => new { WorkerId = w.Id, w.PersonId, w.Ocupacion, w.ApellidoNombre })
             .ToListAsync())
             .Where(s => proyectoActualPorWorker.ContainsKey(s.WorkerId))
@@ -166,11 +167,13 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
 
         var supervisorUserIds = workerToUser.Values.Distinct().ToList();
 
-        var nombreToWorkerId = nombrePorWorker
-            .GroupBy(kv => kv.Value.ToUpper().Trim())
-            .ToDictionary(g => g.Key, g => g.First().Key);
-
-        var supervisorNombres = nombreToWorkerId.Keys.ToList();
+        // Nombres de los supervisores tokenizados una sola vez, para resolver los registros
+        // que no guardaron created_by comparando por conjunto de tokens en vez de por igualdad
+        // exacta de texto — ver NombreSupervisorMatcher.
+        var supervisoresNombre = nombrePorWorker
+            .Select(kv => new NombreSupervisorMatcher.SupervisorNombre(
+                kv.Key, NombreSupervisorMatcher.Tokens(kv.Value)))
+            .ToList();
 
         var residenteWorkerIds = staffBase
             .Where(s => string.Equals(s.Ocupacion, "Residencia", StringComparison.OrdinalIgnoreCase))
@@ -178,40 +181,54 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .ToHashSet();
 
         // ── 3. Queries de actividad — SIN filtro de proyecto (lo que importa es el supervisor) ─
-        int WorkerIdDesdeUserONombre(int? createdBy, string? nombre)
+        //
+        // Cada registro se atribuye en este orden, de lo más firme a lo más frágil:
+        //   1. WorkerId guardado en el propio registro (ssoma_opt.observador_id,
+        //      ssoma_inspeccion.inspector_worker_id) — inmune a que luego cambie el nombre.
+        //   2. UserId del creador / reportante (created_by, ssoma_rac.reportante_id).
+        //   3. El nombre que quedó como texto, comparado por tokens (NombreSupervisorMatcher).
+        //      Solo para el histórico: los registros viejos no guardaron ningún id, y este
+        //      camino es el que se rompía al corregir un nombre en la ficha del trabajador.
+        //
+        // El paso 3 no se puede filtrar en SQL (la comparación por tokens no es traducible a
+        // un IN), así que esos registros se traen y se resuelven en memoria — unos cientos de
+        // filas de 2-3 columnas por mes, en la misma cantidad de queries que antes.
+        var supWorkerIdSet = supWorkerIds.ToHashSet();
+
+        int ResolverSupervisor(int? workerId, int? userId2, string? nombre)
         {
-            if (createdBy != null)
-                return userToWorker.TryGetValue(createdBy.Value, out var wid) ? wid : 0;
-            if (nombre != null && nombreToWorkerId.TryGetValue(nombre.ToUpper().Trim(), out var wid2))
-                return wid2;
-            return 0;
+            if (workerId != null && supWorkerIdSet.Contains(workerId.Value)) return workerId.Value;
+            if (userId2 != null && userToWorker.TryGetValue(userId2.Value, out var wid)) return wid;
+            return NombreSupervisorMatcher.Resolver(nombre, supervisoresNombre);
         }
 
         var racsRaw = await ctx.SsomaRacs
             .Where(r => r.FechaReporte >= inicio && r.FechaReporte < fin
                      && (
                          (r.CreatedBy != null && supervisorUserIds.Contains(r.CreatedBy.Value)) ||
-                         (r.CreatedBy == null && r.ReportanteNombre != null && supervisorNombres.Contains(r.ReportanteNombre.ToUpper().Trim()))
+                         (r.ReportanteId != null && supervisorUserIds.Contains(r.ReportanteId.Value)) ||
+                         (r.CreatedBy == null && r.ReportanteId == null && r.ReportanteNombre != null)
                      ))
-            .Select(r => new { r.CreatedBy, r.ReportanteNombre, Fecha = r.FechaReporte })
+            .Select(r => new { r.CreatedBy, r.ReportanteId, r.ReportanteNombre, Fecha = r.FechaReporte })
             .ToListAsync();
 
         var racsDetalle = racsRaw
-            .Select(r => new { SupId = WorkerIdDesdeUserONombre(r.CreatedBy, r.ReportanteNombre), r.Fecha })
+            .Select(r => new { SupId = ResolverSupervisor(null, r.CreatedBy ?? r.ReportanteId, r.ReportanteNombre), r.Fecha })
             .Where(r => r.SupId > 0)
             .ToList();
 
         var optRaw = await ctx.SsomaOpt
             .Where(o => o.Fecha >= inicio && o.Fecha < fin
                      && (
+                         (o.ObservadorId != null && supWorkerIds.Contains(o.ObservadorId.Value)) ||
                          (o.CreatedBy != null && supervisorUserIds.Contains(o.CreatedBy.Value)) ||
-                         (o.CreatedBy == null && o.ObservadorNombre != null && supervisorNombres.Contains(o.ObservadorNombre.ToUpper().Trim()))
+                         (o.ObservadorId == null && o.CreatedBy == null && o.ObservadorNombre != null)
                      ))
-            .Select(o => new { o.CreatedBy, o.ObservadorNombre, o.Fecha })
+            .Select(o => new { o.ObservadorId, o.CreatedBy, o.ObservadorNombre, o.Fecha })
             .ToListAsync();
 
         var optDetalle = optRaw
-            .Select(o => new { SupId = WorkerIdDesdeUserONombre(o.CreatedBy, o.ObservadorNombre), o.Fecha })
+            .Select(o => new { SupId = ResolverSupervisor(o.ObservadorId, o.CreatedBy, o.ObservadorNombre), o.Fecha })
             .Where(o => o.SupId > 0)
             .ToList();
 
@@ -219,14 +236,15 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
             .Where(i => i.Fecha >= inicio && i.Fecha < fin
                      && i.Estado != "Borrador"
                      && (
+                         (i.InspectorWorkerId != null && supWorkerIds.Contains(i.InspectorWorkerId.Value)) ||
                          (i.CreatedBy != null && supervisorUserIds.Contains(i.CreatedBy.Value)) ||
-                         (i.CreatedBy == null && i.InspectorNombre != null && supervisorNombres.Contains(i.InspectorNombre.ToUpper().Trim()))
+                         (i.InspectorWorkerId == null && i.CreatedBy == null && i.InspectorNombre != null)
                      ))
-            .Select(i => new { i.CreatedBy, i.InspectorNombre, i.Fecha })
+            .Select(i => new { i.InspectorWorkerId, i.CreatedBy, i.InspectorNombre, i.Fecha })
             .ToListAsync();
 
         var inspDetalle = inspRaw
-            .Select(i => new { SupId = WorkerIdDesdeUserONombre(i.CreatedBy, i.InspectorNombre), i.Fecha })
+            .Select(i => new { SupId = ResolverSupervisor(i.InspectorWorkerId, i.CreatedBy, i.InspectorNombre), i.Fecha })
             .Where(i => i.SupId > 0)
             .ToList();
 
@@ -406,39 +424,61 @@ public class DesempenoSupervisorRepository(IDbContextFactory<AppDbContext> facto
         var finAnt    = inicioAnt.AddMonths(1);
 
         var supIds2 = resultado.Select(r => r.SupervisorId).Distinct().ToList();
-        var userIds2 = supIds2.Where(wid => workerToUser.ContainsKey(wid)).Select(wid => workerToUser[wid]).ToList();
 
+        // El mes anterior se cuenta EXACTAMENTE igual que el mes consultado: por created_by y,
+        // si viene null, por el nombre guardado vía NombreSupervisorMatcher. Antes solo miraba
+        // created_by (y las charlas exigían además estado Enviado/Aprobado), así que la flecha
+        // de tendencia comparaba dos criterios distintos y podía marcar una caída inexistente.
         var racsAntRaw = await ctx.SsomaRacs
             .Where(r => r.FechaReporte >= inicioAnt && r.FechaReporte < finAnt
-                     && r.CreatedBy != null && userIds2.Contains(r.CreatedBy.Value))
-            .GroupBy(r => r.CreatedBy)
-            .Select(g => new { UserId = g.Key!.Value, N = g.Count() })
+                     && (
+                         (r.CreatedBy != null && supervisorUserIds.Contains(r.CreatedBy.Value)) ||
+                         (r.ReportanteId != null && supervisorUserIds.Contains(r.ReportanteId.Value)) ||
+                         (r.CreatedBy == null && r.ReportanteId == null && r.ReportanteNombre != null)
+                     ))
+            .Select(r => new { r.CreatedBy, r.ReportanteId, r.ReportanteNombre })
             .ToListAsync();
-        var racsAnt = racsAntRaw.Where(x => userToWorker.ContainsKey(x.UserId))
-            .ToDictionary(x => userToWorker[x.UserId], x => x.N);
+        var racsAnt = racsAntRaw
+            .Select(r => ResolverSupervisor(null, r.CreatedBy ?? r.ReportanteId, r.ReportanteNombre))
+            .Where(wid => wid > 0)
+            .GroupBy(wid => wid)
+            .ToDictionary(g => g.Key, g => g.Count());
 
         var optAntRaw = await ctx.SsomaOpt
             .Where(o => o.Fecha >= inicioAnt && o.Fecha < finAnt
-                     && o.CreatedBy != null && userIds2.Contains(o.CreatedBy.Value))
-            .GroupBy(o => o.CreatedBy)
-            .Select(g => new { UserId = g.Key!.Value, N = g.Count() })
+                     && (
+                         (o.ObservadorId != null && supWorkerIds.Contains(o.ObservadorId.Value)) ||
+                         (o.CreatedBy != null && supervisorUserIds.Contains(o.CreatedBy.Value)) ||
+                         (o.ObservadorId == null && o.CreatedBy == null && o.ObservadorNombre != null)
+                     ))
+            .Select(o => new { o.ObservadorId, o.CreatedBy, o.ObservadorNombre })
             .ToListAsync();
-        var optAnt = optAntRaw.Where(x => userToWorker.ContainsKey(x.UserId))
-            .ToDictionary(x => userToWorker[x.UserId], x => x.N);
+        var optAnt = optAntRaw
+            .Select(o => ResolverSupervisor(o.ObservadorId, o.CreatedBy, o.ObservadorNombre))
+            .Where(wid => wid > 0)
+            .GroupBy(wid => wid)
+            .ToDictionary(g => g.Key, g => g.Count());
 
         var inspAntRaw = await ctx.SsomaInspeccion
             .Where(i => i.Fecha >= inicioAnt && i.Fecha < finAnt
-                     && i.CreatedBy != null && userIds2.Contains(i.CreatedBy.Value))
-            .GroupBy(i => i.CreatedBy)
-            .Select(g => new { UserId = g.Key!.Value, N = g.Count() })
+                     && i.Estado != "Borrador"
+                     && (
+                         (i.InspectorWorkerId != null && supWorkerIds.Contains(i.InspectorWorkerId.Value)) ||
+                         (i.CreatedBy != null && supervisorUserIds.Contains(i.CreatedBy.Value)) ||
+                         (i.InspectorWorkerId == null && i.CreatedBy == null && i.InspectorNombre != null)
+                     ))
+            .Select(i => new { i.InspectorWorkerId, i.CreatedBy, i.InspectorNombre })
             .ToListAsync();
-        var inspAnt = inspAntRaw.Where(x => userToWorker.ContainsKey(x.UserId))
-            .ToDictionary(x => userToWorker[x.UserId], x => x.N);
+        var inspAnt = inspAntRaw
+            .Select(i => ResolverSupervisor(i.InspectorWorkerId, i.CreatedBy, i.InspectorNombre))
+            .Where(wid => wid > 0)
+            .GroupBy(wid => wid)
+            .ToDictionary(g => g.Key, g => g.Count());
 
         var charlasAnt = await ctx.SsCharlas
             .Where(c => c.Fecha >= inicioAnt && c.Fecha < finAnt
                      && c.SupervisorId != null && supIds2.Contains(c.SupervisorId.Value)
-                     && c.State && (c.Estado == "Enviado" || c.Estado == "Aprobado"))
+                     && c.State)
             .GroupBy(c => c.SupervisorId)
             .Select(g => new { SupId = g.Key!.Value, N = g.Count() })
             .ToListAsync();

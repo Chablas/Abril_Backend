@@ -13,5 +13,12 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Interf
         Task<PersonDTO> LinkPersonToUserAsync(int userId, int personId, string email);
         Task<RoleSimpleDTO?> AssignRoleAsync(int userId, int roleId);
         Task<string?> GetWorkerAreaByPersonIdAsync(int personId);
+
+        /// <summary>
+        /// true si alguno de los workers de la persona está designado como revisor vivo y
+        /// activo de algún área (area_revisores). Se usa en el primer login para darle el rol
+        /// que le abre Gestión de Salidas.
+        /// </summary>
+        Task<bool> IsAreaRevisorByPersonIdAsync(int personId);
     }
 }

@@ -203,7 +203,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Empresa = x.em != null ? x.em.ContributorName : null,
                     EmpresaOrigenNombre = x.eop != null ? x.eop.ContributorName : null,
                     ProyectoNombre = x.proy != null ? x.proy.ProjectDescription : null,
-                    ObraOficina = x.w.ObraOficina,
+                    ObraOficinaStaffId = x.w.ObraOficinaStaffId,
+                    ObraOficina = x.w.ObraOficinaStaff != null ? x.w.ObraOficinaStaff.Name : null,
                     TipoContrata = x.w.ContrataCasa,
                     Categoria = x.w.Categoria,
                     Ocupacion = x.w.Ocupacion,
@@ -212,6 +213,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     AreaScopeId = x.w.AreaScopeId,
                     WorkerCategoryId = x.w.WorkerCategoryId,
                     EmailCorporativo = x.w.EmailCorporativo,
+                    EmailPersonal = x.w.Person != null ? x.w.Person.Email : null,
                     TieneEmo = x.ue != null,
                     EmoId = x.ue != null ? x.ue.Id : (int?)null,
                     TipoEmo = x.t != null ? x.t.Nombre : null,
@@ -499,7 +501,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var vigenciaMeses = tipo.VigenciaMeses ?? 0;
-            if (string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase))
+            if (worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral)
                 vigenciaMeses = 24;
             var fechaVencCalc = vigenciaMeses > 0
                 ? (DateOnly?)dto.FechaEmo.AddMonths(vigenciaMeses)
@@ -724,7 +726,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var vigenciaMesesUpd = tipo.VigenciaMeses ?? 0;
-            if (string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase))
+            if (worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral)
                 vigenciaMesesUpd = 24;
             var fechaVencCalc = vigenciaMesesUpd > 0
                 ? (DateOnly?)dto.FechaEmo.AddMonths(vigenciaMesesUpd)

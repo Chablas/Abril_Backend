@@ -5,6 +5,7 @@ using Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.CharlasFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.SsomaModule.CharlasFeature.Application.Services;
 
@@ -96,7 +97,8 @@ public class CharlaService : ICharlaService
         var staffIds = await ctx.Worker
             .Where(w => workerIds.Contains(w.Id)
                 && w.Categoria == "Supervisor"
-                && (w.ObraOficina == "Staff" || w.ObraOficina == "Oficina Central")
+                && (w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
+                    || w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral)
                 && w.Estado == "ACTIVO")
             .Select(w => w.Id)
             .ToListAsync();
@@ -128,7 +130,7 @@ public class CharlaService : ICharlaService
 
         var staff = await ctx.Worker
             .Include(w => w.Person)
-            .Where(w => w.ObraOficina == "Staff"
+            .Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
                 && w.Estado == "ACTIVO"
                 && ctx.WorkerVinculacion.Any(v =>
                     v.WorkerId == w.Id
@@ -963,7 +965,7 @@ public class CharlaService : ICharlaService
 
         var staff = await ctx.Worker
             .Include(w => w.Person)
-            .Where(w => workerIds.Contains(w.Id) && w.ObraOficina == "Staff" && w.Estado == "ACTIVO")
+            .Where(w => workerIds.Contains(w.Id) && w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.Estado == "ACTIVO")
             .ToListAsync();
 
         if (staff.Count == 0) return new DashPersonalResultDto([], []);
@@ -1068,7 +1070,7 @@ public class CharlaService : ICharlaService
         var staffPorProyecto = await ctx.WorkerProyecto
             .Where(wp => proyectoIds.Contains(wp.ProyectoId)
                 && (wp.FechaFin == null || wp.FechaFin >= hoy))
-            .Join(ctx.Worker.Where(w => w.ObraOficina == "Staff" && w.Estado == "ACTIVO"),
+            .Join(ctx.Worker.Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.Estado == "ACTIVO"),
                 wp => wp.WorkerId, w => w.Id, (wp, w) => wp.ProyectoId)
             .GroupBy(pid => pid)
             .Select(g => new { ProyectoId = g.Key, Count = g.Count() })

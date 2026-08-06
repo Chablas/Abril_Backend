@@ -20,6 +20,30 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         /// dropdown por entrada.
         /// </summary>
         public List<CatalogFilterGroupDTO> Categories { get; set; } = new();
+        /// <summary>
+        /// Catálogo Obra / Staff / Oficina Central. Alimenta tanto el filtro del
+        /// listado como el desplegable del formulario de creación/edición.
+        /// </summary>
+        public List<ObraOficinaStaffOptionDTO> ObraOficinaStaff { get; set; } = new();
+        /// <summary>
+        /// Valor sugerido para el formulario: el del trabajador que está registrando
+        /// la lección (null si el usuario no tiene ficha de trabajador o no lo tiene definido).
+        /// </summary>
+        public int? DefaultObraOficinaStaffId { get; set; }
+        /// <summary>
+        /// Área sugerida en el formulario, resuelta desde el nodo del árbol que tiene
+        /// asignado el trabajador (<c>workers.area_scope_id</c>). Permite que la cascada
+        /// de área llegue preseleccionada y el usuario solo tenga que elegir el proyecto.
+        /// null = no se pudo resolver y el usuario la elige a mano.
+        /// </summary>
+        public int? DefaultLessonAreaId { get; set; }
+    }
+
+    /// <summary>Opción del catálogo <c>workers_obra_oficina_staff</c>.</summary>
+    public class ObraOficinaStaffOptionDTO
+    {
+        public int ObraOficinaStaffId { get; set; }
+        public string Name { get; set; } = string.Empty;
     }
 
     public class CatalogFilterGroupDTO

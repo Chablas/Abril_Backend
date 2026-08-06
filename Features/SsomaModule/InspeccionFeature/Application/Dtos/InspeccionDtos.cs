@@ -54,6 +54,12 @@ public class CrearInspeccionRequest
     public string? HoraFin { get; set; }
     public string? Area { get; set; }
     public string? ResponsableArea { get; set; }
+    /// <summary>
+    /// Worker que hace la inspección. El formulario ya lo resuelve del usuario logueado; si no
+    /// llega, el repositorio lo deduce del JWT. Es lo que permite atribuir la inspección en
+    /// Desempeño Supervisor sin depender del texto del nombre.
+    /// </summary>
+    public int? InspectorWorkerId { get; set; }
     public string? InspectorNombre { get; set; }
     public string? InspectorCargo { get; set; }
     public string? InspectorEmpresa { get; set; }

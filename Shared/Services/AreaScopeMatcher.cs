@@ -54,20 +54,35 @@ namespace Abril_Backend.Shared.Services
             // subáreas anidadas bajo "Unidad de Proyectos" (41)
             ["ingenieria bim"]                 = AreaScopeIds.IngenieriaBim,
             ["planeamiento bim"]               = AreaScopeIds.PlaneamientoBim,
-            // "Administración Obra" -> nodo Obra_Oficina "Oficina Técnica" (84),
-            // hijo de "Administración de Obra".
-            ["administracion obra"]            = AreaScopeIds.AdministracionObraOficinaTecnica,
+            // "Administración Obra" -> "Administración de Obra" (83). Antes apuntaba al
+            // hijo Obra_Oficina "Oficina Técnica" (84); ese tipo de área ya no existe
+            // (la distinción Obra/Staff/Oficina Central vive en workers.obra_oficina_staff_id).
+            ["administracion obra"]            = AreaScopeIds.AdministracionDeObra,
 
             // "Comité" (Proyectos) existe en cat_subarea pero NO tiene nodo en area_scope -> null.
         };
 
         /// <summary>
+        /// Mapa inverso del anterior: area_scope_id -> subárea normalizada. Es la dirección que usa
+        /// hoy el formulario de trabajadores (se elige el nodo del árbol y de ahí se derivan los
+        /// campos legacy area/subarea/jefatura). Se deriva del mismo diccionario para que ambas
+        /// direcciones no puedan divergir; los 22 nodos son distintos, así que la inversión es 1:1.
+        /// Los nodos del árbol que no están acá (gerencias, hijos Obra_Oficina, nodos nuevos) los
+        /// resuelve <c>IAreaScopeLegacyResolver</c> subiendo por el árbol y cruzando por nombre
+        /// contra <c>cat_subarea</c>.
+        /// </summary>
+        public static readonly IReadOnlyDictionary<int, string> ScopeToSubarea =
+            SubareaToScope.ToDictionary(kv => kv.Value, kv => kv.Key);
+
+        /// <summary>
         /// Devuelve el area_scope_id que corresponde a la pareja área/subárea capturada, o
         /// <c>null</c> si no hay match (subárea vacía, obrero sin área, o subárea sin nodo como "Comité").
-        /// El <paramref name="obraOficina"/> se acepta por si en el futuro se quiere distinguir el
-        /// nodo Obra_Oficina del estándar; hoy no altera el resultado para los valores del formulario.
+        ///
+        /// Solo se usa para los llamadores que siguen capturando texto plano. El formulario de
+        /// habilitación ya manda el nodo elegido, y en ese caso se hace el camino inverso
+        /// (ver <c>IAreaScopeLegacyResolver</c>).
         /// </summary>
-        public static int? Resolve(string? area, string? subarea, string? obraOficina = null)
+        public static int? Resolve(string? area, string? subarea)
         {
             var key = Normalize(subarea);
             if (key.Length == 0) return null;
@@ -76,7 +91,7 @@ namespace Abril_Backend.Shared.Services
         }
 
         /// <summary>minúsculas + sin diacríticos + trim, para tolerar "Logística"/"Logistica", espacios, etc.</summary>
-        private static string Normalize(string? s)
+        public static string Normalize(string? s)
         {
             if (string.IsNullOrWhiteSpace(s)) return string.Empty;
             var formD = s.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);

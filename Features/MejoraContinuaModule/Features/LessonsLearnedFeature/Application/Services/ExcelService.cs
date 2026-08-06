@@ -29,7 +29,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
                 worksheet.Cell(row, 2).Value = lesson.ProjectDescription;
                 worksheet.Cell(row, 3).Value = lesson.Period;
-                worksheet.Cell(row, 4).Value = lesson.AreaDescription;
+                // El Obra/Oficina se anexa al área: antes formaba parte del path porque era
+                // el último nodo del árbol; ahora es una columna propia de la lección y la
+                // plantilla del Excel tiene las columnas fijas.
+                var areaConObraOficina = string.IsNullOrWhiteSpace(lesson.ObraOficinaStaffName)
+                    ? lesson.AreaDescription
+                    : $"{lesson.AreaDescription} / {lesson.ObraOficinaStaffName}";
+                worksheet.Cell(row, 4).Value = areaConObraOficina;
                 worksheet.Cell(row, 5).Value = classification;
                 worksheet.Cell(row, 6).Value = lesson.ProblemDescription;
                 worksheet.Cell(row, 7).Value = lesson.ReasonDescription;

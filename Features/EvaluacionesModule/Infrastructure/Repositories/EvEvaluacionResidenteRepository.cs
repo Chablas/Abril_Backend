@@ -102,10 +102,12 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var conn = ctx.Database.GetDbConnection();
 
             var evaluador = await conn.QueryFirstOrDefaultAsync<EvaluadorInfo>(
-                @"SELECT w.obra_oficina AS ObraOficina, w.area AS Area, w.subarea AS Subarea,
+                @"SELECT oos.name AS ObraOficina, w.area AS Area, w.subarea AS Subarea,
                          w.categoria   AS Categoria,   w.id AS WorkerId
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
+                  LEFT JOIN workers_obra_oficina_staff oos
+                         ON oos.workers_obra_oficina_staff_id = w.obra_oficina_staff_id
                   WHERE p.user_id = @EvaluadorUserId
                   LIMIT 1",
                 new { EvaluadorUserId = evaluadorUserId });

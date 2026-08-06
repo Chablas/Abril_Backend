@@ -25,6 +25,13 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         /// <summary>Nodo hoja seleccionado del árbol de scope (catalog_item_id).</summary>
         public int? CatalogItemId { get; set; }
 
+        /// <summary>
+        /// Obra / Staff / Oficina Central (FK a <c>workers_obra_oficina_staff</c>).
+        /// Sustituye al antiguo último nodo del árbol de áreas de tipo Obra_Oficina:
+        /// ahora es un desplegable propio del formulario.
+        /// </summary>
+        public int? ObraOficinaStaffId { get; set; }
+
         public List<IFormFile>? OpportunityImages { get; set; }
         public List<IFormFile>? ImprovementImages { get; set; }
     }

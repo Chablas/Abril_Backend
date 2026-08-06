@@ -34,6 +34,12 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
         public List<ChartItemDTO> LessonsByPhase { get; set; } = new();
         public List<PhaseStageChartDTO> LessonsByPhaseAndStage { get; set; } = new();
         public List<ChartItemDTO> LessonsBySubStage { get; set; } = new();
+        /// <summary>
+        /// Lecciones por Obra / Staff / Oficina Central. Antes esta apertura salia del
+        /// ultimo nodo del arbol de areas (tipo Obra_Oficina); ahora viene de
+        /// lesson.obra_oficina_staff_id.
+        /// </summary>
+        public List<ChartItemDTO> LessonsByObraOficina { get; set; } = new();
 
         // Usuarios que debían registrar lecciones (user_project) y no lo han hecho en el período.
         public string PendingPeriodLabel { get; set; } = string.Empty;
@@ -71,11 +77,19 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsDashboardF
         public string ProjectDescription { get; set; } = string.Empty;
     }
 
+    public class DashboardObraOficinaStaffDTO
+    {
+        public int ObraOficinaStaffId { get; set; }
+        public string Name { get; set; } = string.Empty;
+    }
+
     public class LessonsDashboardFiltersDTO
     {
         public List<DashboardPeriodDTO> Periods { get; set; } = new();
         public List<DashboardUserDTO> Users { get; set; } = new();
         public List<DashboardAreaDTO> Areas { get; set; } = new();
         public List<DashboardProjectDTO> Projects { get; set; } = new();
+        /// <summary>Opciones del filtro Obra / Staff / Oficina Central.</summary>
+        public List<DashboardObraOficinaStaffDTO> ObraOficinaStaff { get; set; } = new();
     }
 }

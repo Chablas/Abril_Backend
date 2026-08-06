@@ -105,6 +105,38 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetCriterios"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Árbol de áreas (area_scope) para los desplegables en cascada del formulario de
+        /// trabajadores, con la equivalencia legacy area/subárea/jefatura y el revisor que le
+        /// tocaría al trabajador ya resueltos por nodo. Una sola llamada: al cambiar de área el
+        /// formulario no vuelve al servidor.
+        /// </summary>
+        [HttpGet("areas-arbol")]
+        public async Task<IActionResult> GetAreaArbol()
+        {
+            try
+            {
+                return Ok(await _repo.GetAreaArbolAsync());
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetAreaArbol"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>
+        /// Catálogo Obra / Staff / Oficina Central, para el desplegable del formulario
+        /// de trabajadores (workers.obra_oficina_staff_id).
+        /// </summary>
+        [HttpGet("obra-oficina-staff")]
+        public async Task<IActionResult> GetObraOficinaStaff()
+        {
+            try
+            {
+                return Ok(await _repo.GetObraOficinaStaffAsync());
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetObraOficinaStaff"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("areas")]
         [AllowAnonymous]
         public async Task<IActionResult> GetAreas()

@@ -13,6 +13,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
     [Authorize]
     public class AreaRevisorController : ControllerBase
     {
+        /// <summary>
+        /// Roles que configuran los revisores de áreas, en el formato separado por comas que
+        /// espera <c>[Authorize(Roles = ...)]</c>. Es el mismo par que decide <c>verTodas</c>
+        /// en la carga inicial: acá ver todas las áreas y editarlas van juntos.
+        /// </summary>
+        private const string RolesQueEditan =
+            Roles.AdministradorSolicitudSalidas + "," + Roles.UsuarioGth;
+
         private readonly IAreaRevisorService _service;
         private readonly ILogger<AreaRevisorController> _logger;
 
@@ -23,9 +31,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
         }
 
         /// <summary>
-        /// Carga inicial: áreas estándar (primer nodo de cada rama) con sus n revisores + opciones.
-        /// ADMINISTRADOR DE SOLICITUD DE SALIDAS ve todas las áreas; un trabajador con
-        /// categoría Jefe/Coordinador/Gerente ve solo su área; el resto no ve ninguna.
+        /// Carga inicial: gerencias y áreas estándar (primer nodo de su tipo en cada rama) con sus n revisores + opciones.
+        /// ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven todas las áreas y pueden
+        /// editarlas; un trabajador con categoría Jefe/Coordinador/Gerente ve solo su área (de
+        /// lectura); el resto no ve ninguna.
         /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetInitialData()
@@ -37,7 +46,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
-                var verTodas = User.IsInRole(Roles.AdministradorSolicitudSalidas);
+                // Ver todas y editar coinciden: los dos roles que configuran esta pantalla.
+                var verTodas = User.IsInRole(Roles.AdministradorSolicitudSalidas)
+                               || User.IsInRole(Roles.UsuarioGth);
                 return Ok(await _service.GetInitialDataAsync(userId.Value, verTodas));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -50,10 +61,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
 
         /// <summary>
         /// Reemplaza el conjunto de revisores de un área (nodo area_scope) o de un proyecto
-        /// dentro del área (dto.ProjectId con valor). Solo el ADMINISTRADOR DE SOLICITUD DE SALIDAS puede editar.
+        /// dentro del área (dto.ProjectId con valor). Editan el ADMINISTRADOR DE SOLICITUD DE
+        /// SALIDAS y el USUARIO DE GTH.
         /// </summary>
         [HttpPut("{areaScopeId:int}")]
-        [Authorize(Roles = Roles.AdministradorSolicitudSalidas)]
+        [Authorize(Roles = RolesQueEditan)]
         public async Task<IActionResult> UpdateRevisores(int areaScopeId, [FromBody] AreaRevisoresUpdateDto dto)
         {
             try
@@ -72,10 +84,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.AreaRevisores.Presentatio
         /// <summary>
         /// Marca/desmarca "filtrar por proyecto" para un área. Al activarse, el área se
         /// subdivide por proyecto y sus revisores se asignan por proyecto.
-        /// Solo el ADMINISTRADOR DE SOLICITUD DE SALIDAS puede editar.
+        /// Editan el ADMINISTRADOR DE SOLICITUD DE SALIDAS y el USUARIO DE GTH.
         /// </summary>
         [HttpPut("{areaScopeId:int}/filtro-proyecto")]
-        [Authorize(Roles = Roles.AdministradorSolicitudSalidas)]
+        [Authorize(Roles = RolesQueEditan)]
         public async Task<IActionResult> SetFiltroProyecto(int areaScopeId, [FromBody] AreaFiltroProyectoUpdateDto dto)
         {
             try

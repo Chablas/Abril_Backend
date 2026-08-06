@@ -23,5 +23,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public int? WorkerCategoryId { get; set; }
         /// <summary>Correo corporativo del trabajador (workers.email_corporativo). Null/vacío = sin correo.</summary>
         public string? EmailCorporativo { get; set; }
+        /// <summary>Correo personal / de contacto (person.email). Puede repetirse entre trabajadores.</summary>
+        public string? EmailPersonal { get; set; }
     }
 }

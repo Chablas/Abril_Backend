@@ -42,8 +42,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
         }
 
         public Task<List<LessonListDTO>> GetLessonsFilterAsync(
-            string? period, int? stateId, int? projectId, int? areaId, int? userId, List<int>? lessonAreaIds = null)
-            => _lessonRepository.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId, lessonAreaIds);
+            string? period, int? stateId, int? projectId, int? areaId, int? userId,
+            List<int>? lessonAreaIds = null, int? obraOficinaStaffId = null)
+            => _lessonRepository.GetLessonsFilterAsync(period, stateId, projectId, areaId, userId, lessonAreaIds, obraOficinaStaffId);
 
         public async Task<object?> CreateAsync(LessonCreateDTO dto, int userId)
         {

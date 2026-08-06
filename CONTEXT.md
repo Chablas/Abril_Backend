@@ -5466,3 +5466,26 @@ Implicancias:
 1. **Nada de esto debe crearse de nuevo** — cualquier intento de `CREATE TABLE`/`ADD COLUMN` sobre estos objetos va a fallar contra producción (mismo tipo de colisión que encontramos con `ss_proyecto_habilitado` y `ss_charla_contratista` esta sesión).
 2. Cuando se retome el feature, **el primer paso NO es crear estas tablas** — ya existen. El primer paso es: crear los modelos C# + registrar en `DbContext` (para que EF conozca el esquema), y escribir la migración de EF que reconoce todo esto como ya aplicado — mismo patrón aprendido hoy con `ss_proyecto_habilitado`: la migración no debe ejecutar los `CREATE TABLE`/`ADD COLUMN` reales contra producción, solo marcarse como aplicada (o usar `IF NOT EXISTS` con verificación previa de columnas/constraints reales contra producción, no asumidas).
 3. **Después de eso, el siguiente paso real es la pantalla de Configuración Inicial** (Controller/Service/Repository + UI) — no más modelo de datos.
+
+## Sesión 2026-08-05 — Editar email de usuario contratista
+
+Rama: `master`.
+
+### Contexto
+En "Gestión de Ingresos → Usuarios" (`admin-contratista-usuarios`), el modal "Editar" de un usuario contratista no permitía corregir el email (se armaba explícitamente sin ese campo). Si alguien invitaba con el correo equivocado o el usuario perdía acceso a esa casilla, no había forma de arreglarlo — solo desactivar e invitar de nuevo.
+
+### Cambio
+- `ContratistaUsuarioUpdateDto` ahora acepta `Email` (antes solo `RolNombre`/`Scope`/`Activo`/`ProyectoIds`/`Modulos`).
+- `ContratistaUsuarioService.ActualizarUsuarioAsync`: si viene `Email` distinto al actual, valida formato básico, verifica que no esté en uso por otro `User` (evita colisión de login) y si está libre actualiza `User.Email` directo (el email vive en la tabla `User`, compartida por todo el sistema — no es propiedad de `ss_contratista_usuario`).
+
+### Archivos clave
+- `Features/HabilitacionModule/Application/Dtos/ContratistaUsuarios/ContratistaUsuarioDtos.cs`
+- `Features/HabilitacionModule/Application/Services/ContratistaUsuarioService.cs`
+
+### Investigación sin cambios de código (pendiente para otra sesión)
+Se investigó por qué el personal de Oficina Central / Post Venta / Arquitectura Comercial no aparece en "Programar Inducción" (`habilitacion/gestion/trabajadores`). Causa raíz identificada: "Programar Inducción" solo lista workers con fila activa en `ss_hab_worker_proyecto`, y el campo "Proyecto" en el alta de trabajadores `Casa` (incluye Staff/Oficina Central) **no es obligatorio** (`worker-create-edit.ts`, getter `canSubmit` — ver rama `esStaffOOficina`, no exige `proyectoId`). Si se crea sin seleccionar Proyecto, el worker nunca queda vinculado y jamás aparece en la programación de inducción, sin importar el proyecto elegido.
+
+Pendiente para retomar:
+1. Confirmar con SQL cuántos workers de esas áreas están sin vínculo (`ss_hab_worker_proyecto` sin fila activa) y si el proyecto "Arquitectura Comercial" existe en la tabla `project` (Oficina Central y Post Venta sí existen).
+2. Backfill de esos workers hacia el "proyecto" que les corresponde.
+3. Hacer `proyectoId` obligatorio en el formulario para `esStaffOOficina` (frontend, `worker-create-edit.ts`) para que no vuelva a pasar.

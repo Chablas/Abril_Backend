@@ -22,7 +22,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         // Catálogos de los desplegables del formulario.
         public List<OpcionDto> EstadosCiviles { get; set; } = new();
-        public List<OpcionDto> TiposDocumento { get; set; } = new();
+        public List<TipoDocumentoOpcionDto> TiposDocumento { get; set; } = new();
         public List<DistritoOpcionDto> Distritos { get; set; } = new();
         public List<OpcionDto> Universidades { get; set; } = new();
         public List<OpcionDto> GradosAcademicos { get; set; } = new();
@@ -33,6 +33,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Respuestas ya guardadas (ids de catálogo + valores) para precargar el formulario.</summary>
         public PostulanteFormularioRespuestasDto Respuestas { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Tipo de documento para el desplegable. Además del nombre lleva el <c>Codigo</c> estable
+    /// (DNI / CE) para que el formulario pueda aplicar reglas por tipo (el DNI son 8 dígitos)
+    /// sin depender del texto que se muestra.
+    /// </summary>
+    public class TipoDocumentoOpcionDto
+    {
+        public int Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        /// <summary>DNI o CE (espejo de gth_tipo_documento.codigo).</summary>
+        public string Codigo { get; set; } = string.Empty;
     }
 
     /// <summary>Distrito para el desplegable (incluye la provincia para agrupar/mostrar).</summary>

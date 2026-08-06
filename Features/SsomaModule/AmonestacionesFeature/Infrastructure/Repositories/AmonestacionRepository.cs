@@ -226,8 +226,8 @@ public class AmonestacionRepository : IAmonestacionRepository
                 pe.document_identity_code AS workerDni,
                 w.categoria AS workerCategoria,
                 w.ocupacion AS workerCargo,
-                CASE WHEN w.fecha_nacimiento IS NOT NULL
-                     THEN DATE_PART('year', AGE(w.fecha_nacimiento))::int ELSE NULL END AS workerEdad,
+                CASE WHEN pe.fecha_nacimiento IS NOT NULL
+                     THEN DATE_PART('year', AGE(pe.fecha_nacimiento))::int ELSE NULL END AS workerEdad,
                 c.contributor_id AS empresaId,
                 COALESCE(c.contributor_name, '') AS empresaNombre,
                 COALESCE(c.es_abril, false) AS esEmpresaAbril,

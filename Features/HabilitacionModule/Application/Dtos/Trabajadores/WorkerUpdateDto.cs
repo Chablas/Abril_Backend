@@ -15,7 +15,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Area { get; set; }
         public string? Subarea { get; set; }
         public string? ContrataCasa { get; set; }
-        public string? ObraOficina { get; set; }
+        /// <summary>FK a <c>workers_obra_oficina_staff</c> (Obra / Staff / Oficina Central).</summary>
+        public int? ObraOficinaStaffId { get; set; }
         public string? Jefatura { get; set; }
         public string? Estado { get; set; }
         public bool? HabilitadoObra { get; set; }

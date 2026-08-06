@@ -9,6 +9,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Ruc { get; set; }
         public string? Celular { get; set; }
         public string? EmailCorporativo { get; set; }
+        /// <summary>Correo personal / de contacto (person.email).</summary>
+        public string? EmailPersonal { get; set; }
         public DateOnly? FechaNacimiento { get; set; }
         public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }
@@ -17,9 +19,17 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Ocupacion { get; set; }
         public int? OcupacionId { get; set; }
         public string? Puesto { get; set; }
+        /// <summary>
+        /// Nodo del árbol de áreas asignado (workers.area_scope_id). Es lo que el formulario usa
+        /// para precargar los desplegables de área; Area/Subarea son su equivalencia legacy.
+        /// </summary>
+        public int? AreaScopeId { get; set; }
         public string? Area { get; set; }
         public string? Subarea { get; set; }
         public string? ContrataCasa { get; set; }
+        /// <summary>FK a <c>workers_obra_oficina_staff</c>. Fuente de verdad.</summary>
+        public int? ObraOficinaStaffId { get; set; }
+        /// <summary>Nombre del catálogo (solo lectura, derivado de <see cref="ObraOficinaStaffId"/>).</summary>
         public string? ObraOficina { get; set; }
         public string? Jefatura { get; set; }
         public string? Estado { get; set; }

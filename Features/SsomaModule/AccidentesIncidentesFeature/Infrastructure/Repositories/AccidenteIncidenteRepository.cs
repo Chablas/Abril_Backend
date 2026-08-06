@@ -43,7 +43,7 @@ public class AccidenteIncidenteRepository : IAccidenteIncidenteRepository
             SELECT contributor_id AS id, contributor_name AS razon_social, contributor_ruc AS ruc FROM contributor WHERE active = true AND es_abril = false ORDER BY contributor_name;
             SELECT w.id, p.full_name AS nombre_completo, p.document_identity_code AS documento,
                    NULLIF(TRIM(COALESCE(w.categoria,'') || CASE WHEN w.categoria IS NOT NULL AND w.ocupacion IS NOT NULL THEN ' / ' ELSE '' END || COALESCE(w.ocupacion,'')), '') AS cargo,
-                   CASE WHEN w.fecha_nacimiento IS NOT NULL THEN DATE_PART('year', AGE(w.fecha_nacimiento))::int ELSE NULL END AS edad,
+                   CASE WHEN p.fecha_nacimiento IS NOT NULL THEN DATE_PART('year', AGE(p.fecha_nacimiento))::int ELSE NULL END AS edad,
                    w.anios_experiencia, w.contributor_id
             FROM workers w JOIN person p ON p.person_id = w.person_id WHERE w.estado = 'ACTIVO' ORDER BY p.full_name;
             SELECT psc.project_id, c.contributor_id

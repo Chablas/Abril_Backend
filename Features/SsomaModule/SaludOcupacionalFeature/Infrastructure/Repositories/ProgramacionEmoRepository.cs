@@ -7,8 +7,10 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
@@ -17,17 +19,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
+        private readonly IJefeRevisorResolver _jefeResolver;
+        private readonly IEmoCorreoConfigRepository _correoConfig;
         private readonly ILogger<ProgramacionEmoRepository> _logger;
 
         public ProgramacionEmoRepository(
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
             IConfiguration configuration,
+            IJefeRevisorResolver jefeResolver,
+            IEmoCorreoConfigRepository correoConfig,
             ILogger<ProgramacionEmoRepository> logger)
         {
             _factory = factory;
             _emailService = emailService;
             _configuration = configuration;
+            _jefeResolver = jefeResolver;
+            _correoConfig = correoConfig;
             _logger = logger;
         }
 
@@ -129,9 +137,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         FechaNotificacion = x.p.FechaNotificacion,
                         Ocupacion = x.w.Ocupacion,
                         Categoria = x.w.Categoria,
-                        TipoTrabajador = x.w.ContrataCasa == "Casa" && x.w.ObraOficina == "Oficina Central"
+                        TipoTrabajador = x.w.ContrataCasa == "Casa" && x.w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
                             ? "Oficina Central"
-                            : x.w.ContrataCasa == "Casa" && x.w.ObraOficina == "Staff"
+                            : x.w.ContrataCasa == "Casa" && x.w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff
                                 ? "Staff Obra"
                                 : "Obrero",
                         FechaVencimientoEmo = ctx.WorkerEmo
@@ -433,18 +441,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var toRaw = new List<string>();
             try
             {
-                // Solo enviar si tiene clínica asignada
-                if (!prog.ClinicaId.HasValue) return;
+                // Destinatarios configurables (Configuración de EMOs → Correos de
+                // programación): la clínica se puede apagar y se pueden sumar correos
+                // fijos al "Para" y copias al "CC".
+                var correoCfg = await _correoConfig.GetEnvioConfigAsync();
 
-                toRaw = await ctx.SsClinicaEmail.AsNoTracking()
-                    .Where(e => e.ClinicaId == prog.ClinicaId.Value && e.Activo)
-                    .Select(e => e.Email!)
-                    .ToListAsync();
+                SsClinica? clinica = null;
+                if (prog.ClinicaId.HasValue)
+                {
+                    clinica = await ctx.SsClinica.AsNoTracking()
+                        .FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value);
 
-                var clinica = await ctx.SsClinica.AsNoTracking()
-                    .FirstOrDefaultAsync(c => c.Id == prog.ClinicaId.Value);
-                if (toRaw.Count == 0 && clinica?.Email is not null)
-                    toRaw.Add(clinica.Email);
+                    if (correoCfg.IncluirClinica)
+                    {
+                        toRaw = await ctx.SsClinicaEmail.AsNoTracking()
+                            .Where(e => e.ClinicaId == prog.ClinicaId.Value && e.Activo)
+                            .Select(e => e.Email!)
+                            .ToListAsync();
+
+                        if (toRaw.Count == 0 && clinica?.Email is not null)
+                            toRaw.Add(clinica.Email);
+                    }
+                }
+
+                toRaw.AddRange(correoCfg.Principales);
+
+                var cc = correoCfg.Copias
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Select(e => e.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
                 var tipoEmo = await ctx.SsEmoTipo.AsNoTracking()
                     .FirstOrDefaultAsync(t => t.Id == prog.TipoEmoId);
@@ -462,9 +488,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var to = toRaw.Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
+                // Sin ningún destinatario principal activo no se envía nada (ni las
+                // copias): es justamente la forma de silenciar el correo desde la
+                // pantalla de Configuración de EMOs para hacer pruebas.
                 if (to.Count == 0)
                 {
-                    _logger.LogWarning("Programación {Id}: sin emails de clínica, no se envía notificación de creación.", prog.Id);
+                    _logger.LogWarning("Programación {Id}: sin destinatarios principales activos, no se envía notificación de creación.", prog.Id);
                     return;
                 }
 
@@ -492,6 +521,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     subject: $"[EMO Programado] {workerNombre} — {fechaStr}",
                     body: html,
                     isHtml: true,
+                    cc: cc.Count > 0 ? cc : null,
                     fromOverride: SaludOcupacionalEmailConstants.Remitente);
 
                 prog.FechaNotificacion = DateTimeOffset.UtcNow;
@@ -506,6 +536,38 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
         }
 
+        /// <summary>
+        /// Correo del jefe/revisor del trabajador según la configuración global de revisores
+        /// (revisor directo → revisor del área → fallback GTH), la misma que decide a quién
+        /// se le manda a aprobar una solicitud de salida.
+        ///
+        /// Reemplaza al cruce por nombre contra <c>cat_jefatura</c> (<c>workers.jefatura</c>,
+        /// texto libre), que dejaba sin jefe a quien tuviera la jefatura vacía o escrita
+        /// distinto y podía devolver al propio trabajador como su jefe.
+        ///
+        /// Best-effort: si no se resuelve nada, el correo sale igual con el resto de
+        /// destinatarios (en esta rama GTH ya va incluido aparte).
+        /// </summary>
+        private async Task<string?> ResolverJefeEmailAsync(Worker worker)
+        {
+            try
+            {
+                var jefe = await _jefeResolver.ResolveAsync(worker.Id);
+                if (jefe == null)
+                    _logger.LogWarning(
+                        "Worker {WorkerId}: sin jefe revisor configurado; el correo de EMO sale sin jefe.",
+                        worker.Id);
+                return jefe?.Email;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Worker {WorkerId}: error resolviendo el jefe revisor para el correo de EMO.",
+                    worker.Id);
+                return null;
+            }
+        }
+
         private async Task EnviarNotificacionAceptacionAsync(
             AppDbContext ctx,
             SsProgramacionEmo prog,
@@ -514,8 +576,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             try
             {
                 var esCasa = string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase);
-                var esOficinaCentral = esCasa && string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
-                var esStaff = esCasa && string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
+                var esOficinaCentral = esCasa && worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
+                var esStaff = esCasa && worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff;
                 var esObrero = esCasa && !esOficinaCentral && !esStaff;
 
                 if (!esCasa) return; // Contratistas: sin notificación en aceptación
@@ -592,19 +654,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
                 else if (esOficinaCentral)
                 {
-                    // Oficina Central: correo corporativo + jefatura + GTH + médico ocupacional + admin empresa
+                    // Oficina Central: correo corporativo + jefe revisor + GTH + médico ocupacional + admin empresa
                     toRaw.Add(worker.EmailCorporativo);
                     toRaw.Add(gth);
                     toRaw.Add(medOcupacional);
                     toRaw.Add(adminEmail);
-                    if (!string.IsNullOrWhiteSpace(worker.Jefatura))
-                    {
-                        var jefaturaEmails = await ctx.CatJefatura.AsNoTracking()
-                            .Where(j => j.Nombre == worker.Jefatura && j.Activo)
-                            .Select(j => j.Email!)
-                            .ToListAsync();
-                        toRaw.AddRange(jefaturaEmails);
-                    }
+                    toRaw.Add(await ResolverJefeEmailAsync(worker));
                     if (proyecto?.TieneArquitecturaComercial == true)
                     {
                         var extraEmails = new[] { emailJefeArqCom, emailJefePostVenta, emailPrevArqCom, emailPrevPostVenta };
@@ -680,8 +735,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             try
             {
                 var esCasa = string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase);
-                var esOficinaCentral = esCasa && string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
-                var esStaff = esCasa && string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
+                var esOficinaCentral = esCasa && worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
+                var esStaff = esCasa && worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff;
                 var esObrero = esCasa && !esOficinaCentral && !esStaff;
 
                 if (!esCasa) return;
@@ -744,14 +799,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     toRaw.Add(gth);
                     toRaw.Add(medOcupacional);
                     toRaw.Add(adminEmail);
-                    if (!string.IsNullOrWhiteSpace(worker.Jefatura))
-                    {
-                        var jefaturaEmails = await ctx.CatJefatura.AsNoTracking()
-                            .Where(j => j.Nombre == worker.Jefatura && j.Activo)
-                            .Select(j => j.Email!)
-                            .ToListAsync();
-                        toRaw.AddRange(jefaturaEmails);
-                    }
+                    toRaw.Add(await ResolverJefeEmailAsync(worker));
                 }
 
                 var to = toRaw.Where(e => !string.IsNullOrWhiteSpace(e))

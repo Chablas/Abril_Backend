@@ -230,6 +230,23 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
                 .FirstOrDefaultAsync();
         }
 
+        public async Task<bool> IsAreaRevisorByPersonIdAsync(int personId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // State && Active: mismo criterio con el que JefeRevisorResolver elige al revisor
+            // de una solicitud y con el que SalidaVisibilityResolver le da visibilidad de su
+            // área. No se filtra por Worker.Estado a propósito: la designación vive en
+            // area_revisores y es la que manda, igual que en esos dos resolvers.
+            return await (
+                from r in ctx.AreaRevisores.AsNoTracking()
+                where r.State && r.Active
+                join w in ctx.Worker.AsNoTracking() on r.RevisorId equals w.Id
+                where w.PersonId == personId
+                select r.AreaRevisoresId
+            ).AnyAsync();
+        }
+
         public async Task<UserDTO> CreateUserFromGraphAsync(MicrosoftProfileDto profile)
         {
             using var ctx = _factory.CreateDbContext();

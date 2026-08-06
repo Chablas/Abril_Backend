@@ -1225,7 +1225,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                     ReqText(data.LegalEntityRegistryNumber,        "Partida registral del contratista");
                     ReqText(data.ProjectRazonSocial,               "Razón social del proyecto");
                     ReqText(data.ProjectContributorRuc,            "RUC del proyecto");
+                    // Ubicación de la obra: los 4 campos vienen del proyecto (Configuración → Proyectos),
+                    // no del contribuyente. Son obligatorios porque el contrato los imprime todos.
                     ReqText(data.ProjectDistrict,                  "Distrito del proyecto");
+                    ReqText(data.ProjectProvince,                  "Provincia del proyecto");
+                    ReqText(data.ProjectDepartment,                "Departamento del proyecto");
+                    ReqText(data.ProjectLocation,                  "Ubicación de la obra del proyecto");
+                    ReqText(data.LevelDescription,                 "Desc. de pisos del proyecto");
                     ReqText(data.ProjectLegalEntityRegistryNumber, "Partida registral del proyecto");
                     if (!data.StartDate.HasValue)      missing.Add("Fecha de inicio del contrato");
                     if (!data.EndDate.HasValue)        missing.Add("Fecha de fin del contrato");
@@ -1609,8 +1615,16 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PROYECTO_ABREVIATURA}}",          abreviaturaProyecto },
                 { "{{PROYECTO_RAZON_SOCIAL}}",         (data.ProjectRazonSocial ?? "").ToUpper() },
                 { "{{PROYECTO_RUC}}",                  data.ProjectContributorRuc ?? "" },
-                { "{{PROYECTO_DISTRITO}}",             data.ProjectDistrict ?? "" },
-                { "{{PROYECTO_UBICACION_OBRA}}",       data.ProjectLocation ?? "" },
+                // Ubicación de la obra y desc. de pisos, tomadas SIEMPRE del proyecto (project.project_*),
+                // nunca del contribuyente asociado — ese va en los {{CONTRATISTA_*}}. {{PROYECTO_UBICACION_OBRA}}
+                // es solo la dirección (calle/av.); distrito, provincia y departamento van aparte.
+                // Los 5 van en mayúscula porque en BD conviven "LIMA" y "Lima" (se tipean a mano en
+                // Configuración → Proyectos) y el contrato debe imprimirlos uniformes.
+                { "{{PROYECTO_DISTRITO}}",             (data.ProjectDistrict   ?? "").ToUpper() },
+                { "{{PROYECTO_PROVINCIA}}",            (data.ProjectProvince   ?? "").ToUpper() },
+                { "{{PROYECTO_DEPARTAMENTO}}",         (data.ProjectDepartment ?? "").ToUpper() },
+                { "{{PROYECTO_UBICACION_OBRA}}",       (data.ProjectLocation   ?? "").ToUpper() },
+                { "{{DESCRIPCIÓN_DE_PISOS}}",          (data.LevelDescription  ?? "").ToUpper() },
                 { "{{PROYECTO_PARTIDA_REGISTRAL}}",    data.ProjectLegalEntityRegistryNumber ?? "" },
                 // Contrato
                 { "{{PAGO_A_CUENTA}}",                 data.PaymentMethodId == 4 ? "mediante Pago a cuenta, " : "" },
@@ -1829,7 +1843,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 { "{{PROYECTO_RAZON_SOCIAL}}",            (data.ProjectRazonSocial ?? "").ToUpper() },
                 { "{{PROYECTO_RUC}}",                     data.ProjectContributorRuc ?? "" },
                 { "{{PROYECTO_NOMBRE}}",                  data.ProjectDescription },
+                // Ubicación de la obra, tomada SIEMPRE del proyecto (project.project_*), nunca del
+                // contribuyente asociado — ese va en los {{CONTRATISTA_*}} de más abajo.
                 { "{{PROYECTO_DISTRITO}}",                data.ProjectDistrict ?? "" },
+                { "{{PROYECTO_PROVINCIA}}",               data.ProjectProvince ?? "" },
+                { "{{PROYECTO_DEPARTAMENTO}}",            data.ProjectDepartment ?? "" },
+                { "{{PROYECTO_UBICACION_OBRA}}",          data.ProjectLocation ?? "" },
+                { "{{DESCRIPCIÓN_DE_PISOS}}",             data.LevelDescription ?? "" },
                 // El año se toma de la fecha de firma (definida en el paso 2), no del año actual.
                 { "{{AÑO_ACTUAL}}",                       (data.SigningDate?.Year ?? hoy.Year).ToString() },
                 { "{{NUM_PAGARE}}",                       data.PromissoryNoteNumber.HasValue ? data.PromissoryNoteNumber.Value.ToString("D3") : "" },

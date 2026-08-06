@@ -77,6 +77,19 @@ public class InspeccionRepository : IInspeccionRepository
         if (!string.IsNullOrEmpty(request.HoraFin) && TimeOnly.TryParse(request.HoraFin, out var hf))
             horaFin = hf;
 
+        // El formulario manda el worker del inspector; si un cliente viejo (o el flujo de
+        // contratista) no lo envía, se deduce del usuario logueado. Sin esto la inspección solo
+        // se podría atribuir por el texto del nombre, que es justo lo que se rompe cuando alguien
+        // corrige un nombre en la ficha del trabajador.
+        var inspectorWorkerId = request.InspectorWorkerId;
+        if (inspectorWorkerId == null && userId != null)
+        {
+            inspectorWorkerId = await ctx.Person
+                .Where(p => p.UserId == userId)
+                .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => (int?)w.Id)
+                .FirstOrDefaultAsync();
+        }
+
         var inspeccion = new SsomaInspeccion
         {
             ProyectoId = request.ProyectoId,
@@ -89,6 +102,7 @@ public class InspeccionRepository : IInspeccionRepository
             HoraFin = horaFin,
             Area = request.Area,
             ResponsableArea = request.ResponsableArea,
+            InspectorWorkerId = inspectorWorkerId,
             InspectorNombre = request.InspectorNombre,
             InspectorCargo = request.InspectorCargo,
             InspectorEmpresa = request.InspectorEmpresa,

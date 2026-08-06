@@ -9,17 +9,23 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
     public class InterconsultaRepository : IInterconsultaRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IJefeRevisorResolver _jefeResolver;
 
-        public InterconsultaRepository(IDbContextFactory<AppDbContext> factory)
+        public InterconsultaRepository(
+            IDbContextFactory<AppDbContext> factory,
+            IJefeRevisorResolver jefeResolver)
         {
             _factory = factory;
+            _jefeResolver = jefeResolver;
         }
 
         public async Task<PagedResult<InterconsultaListDto>> List(InterconsultaFilterDto filter)
@@ -69,13 +75,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x =>
                     (x.ProyAsignada != null && x.ProyAsignada.EmpresaId == filter.ContributorId.Value) ||
                     (x.ProyAsignada == null && x.VincActiva != null && x.VincActiva.EmpresaId == filter.ContributorId.Value));
-            if (!string.IsNullOrWhiteSpace(filter.ObraOficina))
+            if (filter.ObraOficinaStaffId.HasValue)
             {
-                // Si obra_oficina viene vacío/nulo se asume "Obra": solo Staff/Oficina Central
+                // Si obra_oficina_staff_id viene nulo se asume "Obra": solo Staff/Oficina Central
                 // se marcan explícitamente en el dato, el resto son obreros por defecto.
-                q = filter.ObraOficina == "Obra"
-                    ? q.Where(x => x.w.ObraOficina == "Obra" || string.IsNullOrWhiteSpace(x.w.ObraOficina))
-                    : q.Where(x => x.w.ObraOficina == filter.ObraOficina);
+                var ooId = filter.ObraOficinaStaffId.Value;
+                q = ooId == ObraOficinaStaffIds.Obra
+                    ? q.Where(x => x.w.ObraOficinaStaffId == ObraOficinaStaffIds.Obra || x.w.ObraOficinaStaffId == null)
+                    : q.Where(x => x.w.ObraOficinaStaffId == ooId);
             }
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {
@@ -112,13 +119,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     x.i.Estado,
                     x.i.RequiereSeguimiento,
                     x.i.UrlInforme,
-                    x.w.ObraOficina,
+                    x.w.ObraOficinaStaffId,
                     x.w.ContrataCasa,
-                    x.w.Jefatura,
                     x.w.Categoria,
                     x.w.Ocupacion,
-                    x.w.AreaScopeId,
-                    JefeWorkerId = x.w.WorkerLessonJefeId ?? x.w.WorkerSalidaJefeId,
                     WorkerEmail = x.w.EmailCorporativo,
                     ProyectoId = (x.ProyAsignada != null ? (int?)x.ProyAsignada.ProyectoId : null) ?? (x.VincActiva != null ? (int?)x.VincActiva.ProyectoId : null),
                     EmpresaId = (x.ProyAsignada != null ? x.ProyAsignada.EmpresaId : null) ?? (x.VincActiva != null ? x.VincActiva.EmpresaId : null)
@@ -127,8 +131,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var proyectoIds = raw.Where(x => x.ProyectoId.HasValue).Select(x => x.ProyectoId!.Value).Distinct().ToList();
             var empresaIds = raw.Where(x => x.EmpresaId.HasValue).Select(x => x.EmpresaId!.Value).Distinct().ToList();
-            var jefaturaNombres = raw.Where(x => !string.IsNullOrWhiteSpace(x.Jefatura)).Select(x => x.Jefatura!).Distinct().ToList();
-            var jefeWorkerIds = raw.Where(x => x.JefeWorkerId.HasValue).Select(x => x.JefeWorkerId!.Value).Distinct().ToList();
 
             var proyectoMap = await ctx.Project
                 .Where(p => proyectoIds.Contains(p.ProjectId))
@@ -136,43 +138,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var empresaMap = await ctx.Contributor
                 .Where(c => empresaIds.Contains(c.ContributorId))
                 .ToDictionaryAsync(c => c.ContributorId, c => c);
-            var jefaturaMap = await ctx.CatJefatura
-                .Where(j => jefaturaNombres.Contains(j.Nombre) && j.Activo)
-                .ToDictionaryAsync(j => j.Nombre, j => j.Email);
-            var jefeWorkerMap = await ctx.Worker
-                .Where(jw => jefeWorkerIds.Contains(jw.Id))
-                .Select(jw => new { jw.Id, Nombre = jw.Person != null ? jw.Person.FullName : null, jw.EmailCorporativo })
-                .ToDictionaryAsync(jw => jw.Id, jw => jw);
-            var (parentByScope, candidatosPorScope) = await LoadAreaJefeContextAsync(ctx);
+            // Jefe de cada trabajador desde la configuración global de revisores
+            // (revisor directo → revisor del área → fallback GTH), en un solo lote.
+            var jefeMap = await _jefeResolver.ResolveManyAsync(
+                raw.Select(x => x.WorkerId).Distinct().ToList());
 
             var items = raw.Select(x =>
             {
                 Project? proyecto = x.ProyectoId.HasValue && proyectoMap.TryGetValue(x.ProyectoId.Value, out var p) ? p : null;
                 Contributor? empresa = x.EmpresaId.HasValue && empresaMap.TryGetValue(x.EmpresaId.Value, out var e) ? e : null;
-                var esOficinaCentral = string.Equals(x.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
+                var esOficinaCentral = x.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
 
-                // Prioridad: 1) jefe real (worker_lesson_jefe_id/worker_salida_jefe_id), 2) texto
-                // libre workers.jefatura + cat_jefatura, 3) árbol area_scope (mismo algoritmo que
-                // ApproverResolver de Solicitud de Salidas) — cubre a quienes no tienen ninguno de
-                // los dos primeros pero sí un área asignada.
-                string? jefaturaNombre = null;
-                string? jefaturaEmail = null;
-                if (x.JefeWorkerId.HasValue && jefeWorkerMap.TryGetValue(x.JefeWorkerId.Value, out var jefe))
-                {
-                    jefaturaNombre = jefe.Nombre;
-                    jefaturaEmail = jefe.EmailCorporativo;
-                }
-                else if (!string.IsNullOrWhiteSpace(x.Jefatura))
-                {
-                    jefaturaNombre = x.Jefatura;
-                    jefaturaMap.TryGetValue(x.Jefatura, out jefaturaEmail);
-                }
-                else
-                {
-                    var porArea = ResolveJefePorArea(x.AreaScopeId, x.WorkerId, parentByScope, candidatosPorScope);
-                    jefaturaNombre = porArea.Nombre;
-                    jefaturaEmail = porArea.Email;
-                }
+                jefeMap.TryGetValue(x.WorkerId, out var jefe);
+                var jefaturaNombre = jefe?.Nombre;
+                var jefaturaEmail = jefe?.Email;
 
                 return new InterconsultaListDto
                 {
@@ -188,7 +167,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ProyectoNombre = esOficinaCentral ? "Oficina Central" : proyecto?.ProjectDescription,
                     ContributorId = x.EmpresaId,
                     RazonSocial = empresa?.ContributorName,
-                    ObraOficina = x.ObraOficina,
+                    ObraOficinaStaffId = x.ObraOficinaStaffId,
+                    ObraOficina = ObraOficinaStaffIds.Nombre(x.ObraOficinaStaffId),
                     ContrataCasa = x.ContrataCasa,
                     Categoria = x.Categoria,
                     Ocupacion = x.Ocupacion,
@@ -240,11 +220,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerDni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     i.Especialidad,
                     i.FechaDerivacion,
-                    w.ObraOficina,
+                    w.ObraOficinaStaffId,
                     w.ContrataCasa,
-                    w.Jefatura,
-                    w.AreaScopeId,
-                    JefeWorkerId = w.WorkerLessonJefeId ?? w.WorkerSalidaJefeId,
                     WorkerEmail = w.EmailCorporativo,
                     ProyAsignada = ctx.WorkerProyecto
                         .Where(wp => wp.WorkerId == w.Id && wp.FechaFin == null)
@@ -265,8 +242,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var empresaIds = raw
                 .Select(x => x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId)
                 .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
-            var jefaturaNombres = raw.Where(x => !string.IsNullOrWhiteSpace(x.Jefatura)).Select(x => x.Jefatura!).Distinct().ToList();
-            var jefeWorkerIds = raw.Where(x => x.JefeWorkerId.HasValue).Select(x => x.JefeWorkerId!.Value).Distinct().ToList();
 
             var proyectoMap = await ctx.Project
                 .Where(p => proyectoIds.Contains(p.ProjectId))
@@ -274,41 +249,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var empresaMap = await ctx.Contributor
                 .Where(c => empresaIds.Contains(c.ContributorId))
                 .ToDictionaryAsync(c => c.ContributorId, c => c);
-            var jefaturaMap = await ctx.CatJefatura
-                .Where(j => jefaturaNombres.Contains(j.Nombre) && j.Activo)
-                .ToDictionaryAsync(j => j.Nombre, j => j.Email);
-            var jefeWorkerMap = await ctx.Worker
-                .Where(jw => jefeWorkerIds.Contains(jw.Id))
-                .Select(jw => new { jw.Id, Nombre = jw.Person != null ? jw.Person.FullName : null, jw.EmailCorporativo })
-                .ToDictionaryAsync(jw => jw.Id, jw => jw);
-            var (parentByScope, candidatosPorScope) = await LoadAreaJefeContextAsync(ctx);
+            // Jefe de cada trabajador desde la configuración global de revisores
+            // (revisor directo → revisor del área → fallback GTH), en un solo lote.
+            var jefeMap = await _jefeResolver.ResolveManyAsync(
+                raw.Select(x => x.WorkerId).Distinct().ToList());
 
             return raw.Select(x =>
             {
-                var esOficinaCentral = string.Equals(x.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
+                var esOficinaCentral = x.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
                 var proyectoId = esOficinaCentral ? null : (x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId);
                 var empresaId = x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId;
                 Project? proyecto = proyectoId.HasValue && proyectoMap.TryGetValue(proyectoId.Value, out var p) ? p : null;
                 Contributor? empresa = empresaId.HasValue && empresaMap.TryGetValue(empresaId.Value, out var e) ? e : null;
 
-                string? jefaturaNombre = null;
-                string? jefaturaEmail = null;
-                if (x.JefeWorkerId.HasValue && jefeWorkerMap.TryGetValue(x.JefeWorkerId.Value, out var jefe))
-                {
-                    jefaturaNombre = jefe.Nombre;
-                    jefaturaEmail = jefe.EmailCorporativo;
-                }
-                else if (!string.IsNullOrWhiteSpace(x.Jefatura))
-                {
-                    jefaturaNombre = x.Jefatura;
-                    jefaturaMap.TryGetValue(x.Jefatura, out jefaturaEmail);
-                }
-                else
-                {
-                    var porArea = ResolveJefePorArea(x.AreaScopeId, x.WorkerId, parentByScope, candidatosPorScope);
-                    jefaturaNombre = porArea.Nombre;
-                    jefaturaEmail = porArea.Email;
-                }
+                jefeMap.TryGetValue(x.WorkerId, out var jefe);
+                var jefaturaNombre = jefe?.Nombre;
+                var jefaturaEmail = jefe?.Email;
 
                 return new InterconsultaEnvioInfoDto
                 {
@@ -320,7 +276,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     FechaDerivacion = x.FechaDerivacion,
                     DiasPendiente = hoy.DayNumber - x.FechaDerivacion.DayNumber,
                     WorkerEmailCorporativo = x.WorkerEmail,
-                    ObraOficina = x.ObraOficina,
+                    ObraOficinaStaffId = x.ObraOficinaStaffId,
+                    ObraOficina = ObraOficinaStaffIds.Nombre(x.ObraOficinaStaffId),
                     ContrataCasa = x.ContrataCasa,
                     Jefatura = jefaturaNombre,
                     JefaturaEmail = jefaturaEmail,
@@ -569,91 +526,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             await ctx.SaveChangesAsync();
         }
 
-        // ── Resolución de jefatura por árbol area_scope (fallback cuando no hay
-        // worker_lesson_jefe_id/worker_salida_jefe_id ni workers.jefatura) ──────────
-        // Mismo algoritmo que ApproverResolver (Solicitud de Salidas): camina hacia
-        // arriba por area_scope buscando el primer Jefe/Sub Gerente/Coordinador/Gerente
-        // con correo corporativo.
-
-        private static readonly string[] CategoriasLider = { "Jefe", "Sub Gerente", "Coordinador", "Gerente" };
-
-        private static async Task<(Dictionary<int, int?> ParentByScope, List<(int WorkerId, int AreaScopeId, string Categoria, string? Nombre, string? Email)> Candidatos)>
-            LoadAreaJefeContextAsync(AppDbContext ctx)
-        {
-            var parentByScope = await ctx.AreaScope
-                .AsNoTracking()
-                .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
-                .ToDictionaryAsync(s => s.AreaScopeId, s => s.AreaScopeParentId);
-
-            var candidatos = await (
-                from w in ctx.Worker.AsNoTracking()
-                join cat in ctx.WorkersCategory on w.WorkerCategoryId equals cat.WorkersCategoryId
-                where w.AreaScopeId != null
-                      && CategoriasLider.Contains(cat.Name)
-                      && w.EmailCorporativo != null && w.EmailCorporativo != ""
-                select new { w.Id, AreaScopeId = w.AreaScopeId!.Value, Categoria = cat.Name, Nombre = w.Person != null ? w.Person.FullName : null, w.EmailCorporativo }
-            ).ToListAsync();
-
-            var lista = candidatos.Select(c => (c.Id, c.AreaScopeId, c.Categoria, c.Nombre, c.EmailCorporativo)).ToList();
-            return (parentByScope, lista);
-        }
-
-        private static int CategoriaPriority(string categoria) => categoria switch
-        {
-            "Jefe" => 1,
-            "Sub Gerente" => 2,
-            "Coordinador" => 3,
-            "Gerente" => 4,
-            _ => 99,
-        };
-
-        private static (string? Nombre, string? Email) ResolveJefePorArea(
-            int? areaScopeId,
-            int excludeWorkerId,
-            Dictionary<int, int?> parentByScope,
-            List<(int WorkerId, int AreaScopeId, string Categoria, string? Nombre, string? Email)> candidatos)
-        {
-            if (!areaScopeId.HasValue) return (null, null);
-
-            var porScope = candidatos.ToLookup(c => c.AreaScopeId);
-
-            var seen = new HashSet<int>();
-            int? curr = areaScopeId;
-            while (curr.HasValue && seen.Add(curr.Value))
-            {
-                var elegido = porScope[curr.Value]
-                    .Where(c => c.WorkerId != excludeWorkerId)
-                    .OrderBy(c => CategoriaPriority(c.Categoria))
-                    .FirstOrDefault();
-
-                if (elegido.Email != null)
-                    return (elegido.Nombre, elegido.Email);
-
-                parentByScope.TryGetValue(curr.Value, out var parent);
-                curr = parent;
-            }
-
-            // Nadie en la cadena de ancestros directos (ej. "Residencia" cuelga de "Gerencia de
-            // Proyectos", pero el Gerente está asignado a un área hermana como "Unidad de
-            // Proyectos", no al nodo padre en sí). Se busca entonces cualquier Gerente que cuelgue
-            // de la misma raíz del árbol — igual que el fallback de ApproverResolver.
-            var rootId = RootOf(areaScopeId.Value, parentByScope);
-            var gerente = candidatos
-                .Where(c => c.WorkerId != excludeWorkerId && c.Categoria == "Gerente"
-                            && RootOf(c.AreaScopeId, parentByScope) == rootId)
-                .FirstOrDefault();
-
-            return gerente.Email != null ? (gerente.Nombre, gerente.Email) : (null, null);
-        }
-
-        /// <summary>Camina hacia arriba devolviendo el id de la raíz de un scope.</summary>
-        private static int RootOf(int scopeId, Dictionary<int, int?> parentByScope)
-        {
-            var seen = new HashSet<int>();
-            int curr = scopeId;
-            while (seen.Add(curr) && parentByScope.TryGetValue(curr, out var parent) && parent.HasValue)
-                curr = parent.Value;
-            return curr;
-        }
+        // La resolución del jefe del trabajador vive en IJefeRevisorResolver (Shared):
+        // revisor directo (workers_revisores) → revisor del área (area_revisores) →
+        // fallback GTH, todo desde la configuración global de /configuracion. Aquí había
+        // tres mecanismos propios (worker_lesson_jefe_id/worker_salida_jefe_id, el cruce
+        // por nombre contra cat_jefatura, y un recorrido del árbol area_scope buscando
+        // trabajadores de categoría Jefe/Sub Gerente/Coordinador/Gerente) que quedaron
+        // reemplazados por esa única fuente.
     }
 }

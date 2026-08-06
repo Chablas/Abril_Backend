@@ -1,4 +1,5 @@
 using Abril_Backend.Features.CostsModule.Shared.Models;
+using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.SsomaModule.InspeccionFeature.Infrastructure.Models;
@@ -49,6 +50,13 @@ public class SsomaInspeccion
     public TimeOnly? HoraFin { get; set; }
     public string? Area { get; set; }
     public string? ResponsableArea { get; set; }
+    /// <summary>
+    /// Worker que hizo la inspección. Es la fuente de verdad para atribuirla a su supervisor en
+    /// Desempeño Supervisor: <see cref="InspectorNombre"/> es solo el texto que se imprime en el
+    /// PDF y, siendo una foto del nombre al momento de crear el registro, deja de calzar en
+    /// cuanto alguien corrige el nombre en la ficha del trabajador (incidencia Corilla, ago-2026).
+    /// </summary>
+    public int? InspectorWorkerId { get; set; }
     public string? InspectorNombre { get; set; }
     public string? InspectorCargo { get; set; }
     public string? InspectorEmpresa { get; set; }
@@ -75,6 +83,8 @@ public class SsomaInspeccion
     public Project? Proyecto { get; set; }
     public SsomaInspeccionTipo? Tipo { get; set; }
     public Contributor? Empresa { get; set; }
+    // Mismo patrón que SsomaOpt.Observador — la FK la genera EF por convención.
+    public Worker? InspectorWorker { get; set; }
     public ICollection<SsomaInspeccionRespuesta> Respuestas { get; set; } = [];
     public ICollection<SsomaInspeccionHallazgo> Hallazgos { get; set; } = [];
     public ICollection<SsomaInspeccionFotoArea> FotosArea { get; set; } = [];

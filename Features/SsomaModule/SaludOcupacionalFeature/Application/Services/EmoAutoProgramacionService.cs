@@ -1,11 +1,13 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
@@ -14,17 +16,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
+        private readonly IEmoCorreoConfigRepository _correoConfig;
         private readonly ILogger<EmoAutoProgramacionService> _logger;
 
         public EmoAutoProgramacionService(
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
             IConfiguration configuration,
+            IEmoCorreoConfigRepository correoConfig,
             ILogger<EmoAutoProgramacionService> logger)
         {
             _factory = factory;
             _emailService = emailService;
             _configuration = configuration;
+            _correoConfig = correoConfig;
             _logger = logger;
         }
 
@@ -170,24 +175,49 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             {
                 const int clinicaId = 1;
 
-                var toRaw = await ctx.SsClinicaEmail.AsNoTracking()
-                    .Where(e => e.ClinicaId == clinicaId && e.Activo)
-                    .Select(e => e.Email)
-                    .ToListAsync();
+                // Mismos destinatarios configurables que la programación manual
+                // (Configuración de EMOs → Correos de programación).
+                var correoCfg = await _correoConfig.GetEnvioConfigAsync();
 
-                var clinica = await ctx.SsClinica.AsNoTracking()
-                    .FirstOrDefaultAsync(c => c.Id == clinicaId);
+                var toRaw = new List<string?>();
 
-                if (toRaw.Count == 0 && clinica?.Email is not null)
-                    toRaw.Add(clinica.Email);
+                if (correoCfg.IncluirClinica)
+                {
+                    toRaw = await ctx.SsClinicaEmail.AsNoTracking()
+                        .Where(e => e.ClinicaId == clinicaId && e.Activo)
+                        .Select(e => e.Email)
+                        .ToListAsync();
+
+                    if (toRaw.Count == 0)
+                    {
+                        var clinica = await ctx.SsClinica.AsNoTracking()
+                            .FirstOrDefaultAsync(c => c.Id == clinicaId);
+                        if (clinica?.Email is not null)
+                            toRaw.Add(clinica.Email);
+                    }
+                }
+
+                toRaw.AddRange(correoCfg.Principales);
 
                 var to = toRaw
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Select(e => e!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var cc = correoCfg.Copias
                     .Where(e => !string.IsNullOrWhiteSpace(e))
                     .Select(e => e.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                if (to.Count == 0) return;
+                // Sin destinatarios principales activos no se envía nada — es la forma
+                // de silenciar el resumen desde la pantalla de Configuración de EMOs.
+                if (to.Count == 0)
+                {
+                    _logger.LogWarning("Auto-programación EMO: sin destinatarios principales activos, no se envía el resumen.");
+                    return;
+                }
 
                 var filas = string.Join("", programados
                     .OrderBy(p => p.Fecha)
@@ -229,6 +259,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     subject: subject,
                     body: body,
                     isHtml: true,
+                    cc: cc.Count > 0 ? cc : null,
                     fromOverride: SaludOcupacionalEmailConstants.Remitente);
             }
             catch (Exception ex)
@@ -251,8 +282,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private static bool EsCalendarioOficina(Worker worker)
         {
             return string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)
-                && (string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase));
+                && ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
         }
     }
 }

@@ -5,6 +5,7 @@ using Abril_Backend.Features.AuthModule.UserFeature.Application.Dtos;
 using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 using UserModel = Abril_Backend.Infrastructure.Models.User;
 
 namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositories
@@ -172,7 +173,9 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Infrastructure.Repositor
                     EmailCorporativo = g.Min(w => w.EmailCorporativo)!,
                     // Si alguna de sus filas en workers es "Staff", se considera Staff
                     // (usado por el front para preseleccionar el rol EVALUADOR).
-                    ObraOficina = g.Any(w => w.ObraOficina == "Staff") ? "Staff" : g.Max(w => w.ObraOficina)
+                    ObraOficinaStaffId = g.Any(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff)
+                        ? ObraOficinaStaffIds.Staff
+                        : g.Max(w => w.ObraOficinaStaffId)
                 })
                 .OrderBy(o => o.FullName)
                 .ToListAsync();

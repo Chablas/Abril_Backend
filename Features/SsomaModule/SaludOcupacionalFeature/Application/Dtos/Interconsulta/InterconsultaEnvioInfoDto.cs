@@ -12,13 +12,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interco
         public DateOnly FechaDerivacion { get; set; }
         public int DiasPendiente { get; set; }
         public string? WorkerEmailCorporativo { get; set; }
+        public int? ObraOficinaStaffId { get; set; }
         public string? ObraOficina { get; set; }
         public string? ContrataCasa { get; set; }
         public string? Jefatura { get; set; }
         public string? JefaturaEmail { get; set; }
 
         /// <summary>True para Oficina Central: no tiene proyecto real, su unidad organizativa es la jefatura.</summary>
-        public bool EsOficinaCentral => string.Equals(ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase);
+        public bool EsOficinaCentral => ObraOficinaStaffId == Abril_Backend.Shared.Constants.ObraOficinaStaffIds.OficinaCentral;
 
         public int? ProyectoId { get; set; }
         public string? ProyectoNombre { get; set; }

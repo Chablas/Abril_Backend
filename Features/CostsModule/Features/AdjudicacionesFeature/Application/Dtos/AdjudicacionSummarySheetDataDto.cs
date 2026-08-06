@@ -18,9 +18,18 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos
         public string? ProjectRazonSocial { get; set; }
         public string? ProjectContributorRuc { get; set; }
         public string? ProjectDistrict { get; set; }
+        public string? ProjectProvince { get; set; }
+        public string? ProjectDepartment { get; set; }
+        /// <summary>Dirección de la obra (project.project_location). Solo la calle/av., sin distrito ni provincia.</summary>
         public string? ProjectLocation { get; set; }
         /// <summary>N° de niveles: project.level_description, con fallback a project.num_niveles.</summary>
         public string? Niveles { get; set; }
+        /// <summary>
+        /// "Desc. de pisos" del proyecto (project.level_description), ej. "3 SÓTANOS 23 PISOS".
+        /// Sin el fallback a num_niveles de <see cref="Niveles"/>: el contrato necesita el texto
+        /// descriptivo, no un número suelto.
+        /// </summary>
+        public string? LevelDescription { get; set; }
         public string? ProjectLegalEntityRegistryNumber { get; set; }
         public int WorkItemId { get; set; }
         public string WorkItemDescription { get; set; } = null!;

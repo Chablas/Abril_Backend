@@ -7,6 +7,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Microsoft.EntityFrameworkCore;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 {
@@ -240,7 +241,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     w.Id,
                     ApellidoNombre = w.Person != null ? w.Person.FullName : null,
                     Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
-                    w.ObraOficina
+                    w.ObraOficinaStaffId
                 })
                 .ToDictionaryAsync(w => w.Id);
 
@@ -286,7 +287,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         WorkerId = wId,
                         ApellidoNombre = w.ApellidoNombre ?? string.Empty,
                         Dni = w.Dni ?? string.Empty,
-                        ObraOficina = w.ObraOficina,
+                        ObraOficinaStaffId = w.ObraOficinaStaffId,
+                        ObraOficina = ObraOficinaStaffIds.Nombre(w.ObraOficinaStaffId),
                         EmpresaId = empId,
                         EmpresaNombre = empNombre ?? string.Empty,
                         YaIndujo = yaIndujeroSet.Contains(wId)

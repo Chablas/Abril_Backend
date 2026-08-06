@@ -99,8 +99,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                              // normaliza el espacio tras la coma para replicar el TrimEntries.
                              ctx.SsItemTrabajador.Any(i => i.Id == h.ItemId && i.Activo &&
                                  (i.AplicaCategoria == null || ("," + i.AplicaCategoria.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.Categoria ?? "") + ",").ToLower())) &&
-                                 (i.AplicaObraOficina == null || ("," + i.AplicaObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficina ?? "") + ",").ToLower())) &&
-                                 (i.ExcluyeObraOficina == null || !("," + i.ExcluyeObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficina ?? "") + ",").ToLower())) &&
+                                 (i.AplicaObraOficina == null || ("," + i.AplicaObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficinaStaff == null ? "" : w.ObraOficinaStaff.Name) + ",").ToLower())) &&
+                                 (i.ExcluyeObraOficina == null || !("," + i.ExcluyeObraOficina.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.ObraOficinaStaff == null ? "" : w.ObraOficinaStaff.Name) + ",").ToLower())) &&
                                  (w.ContrataCasa != "Contratista" || i.ExcluyeCategoriaContratista == null || !("," + i.ExcluyeCategoriaContratista.Replace(", ", ",") + ",").ToLower().Contains(("," + (w.Categoria ?? "") + ",").ToLower()))))
                          || (w.ContrataCasa == "Casa" && !ctx.WorkerEmo.Any(e => e.WorkerId == w.Id &&
                              e.Activo && (e.Estado == "Vigente" || e.Estado == "Convalidado"))))
@@ -118,12 +118,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             else
                 baseQuery = baseQuery.Where(x => x.Worker.Estado == null || x.Worker.Estado != "RETIRADO");
 
+            // Búsqueda por palabras en cualquier orden, insensible a mayúsculas y tildes
+            // (alineada con app-search-input del front: "perez juan" coincide con "JUAN PÉREZ").
+            // Cada palabra debe estar en el nombre o en el documento, así que se acumula un
+            // Where por palabra (AND) en vez de un solo Contains sobre la frase completa.
             if (!string.IsNullOrWhiteSpace(search))
             {
-                var s = search.ToLower();
-                baseQuery = baseQuery.Where(x =>
-                    (x.PersonFullName != null && x.PersonFullName.ToLower().Contains(s)) ||
-                    (x.PersonDni != null && x.PersonDni.Contains(s)));
+                foreach (var word in search.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var pattern = $"%{word}%";
+                    baseQuery = baseQuery.Where(x =>
+                        (x.PersonFullName != null &&
+                         EF.Functions.ILike(AppDbContext.Unaccent(x.PersonFullName), AppDbContext.Unaccent(pattern)))
+                        || (x.PersonDni != null && EF.Functions.ILike(x.PersonDni, pattern)));
+                }
             }
 
             if (empresaId.HasValue)
@@ -165,7 +173,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (soloSinVidaLey)
                 baseQuery = baseQuery.Where(x =>
                     x.Worker.FechaRetiro == null
-                    && (x.Worker.ObraOficina == "Oficina Central" || x.Worker.ObraOficina == "Staff")
+                    && (x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral
+                        || x.Worker.ObraOficinaStaffId == ObraOficinaStaffIds.Staff)
                     && x.Worker.ContrataCasa == "Casa"
                     && x.Worker.Categoria != "Practicante"
                     && ctx.WorkerVinculacion.Any(v => v.WorkerId == x.Worker.Id
@@ -286,7 +295,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     Categoria = r.Worker.Categoria,
                     Ocupacion = r.Worker.Ocupacion,
                     ContrataCasa = r.Worker.ContrataCasa,
-                    ObraOficina = r.Worker.ObraOficina,
+                    ObraOficinaStaffId = r.Worker.ObraOficinaStaffId,
+                    ObraOficina = ObraOficinaStaffIds.Nombre(r.Worker.ObraOficinaStaffId),
                     EstadoWorker = r.Worker.Estado ?? "ACTIVO",
                     TieneEmo = emoMap.ContainsKey(r.Worker.Id),
                     DiasRestantesEmo = emoVenc.HasValue
@@ -329,8 +339,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             items = items
                 .Where(i => CsvContiene(i.AplicaCategoria, worker.Categoria))
-                .Where(i => CsvContiene(i.AplicaObraOficina, worker.ObraOficina))
-                .Where(i => !CsvExcluye(i.ExcluyeObraOficina, worker.ObraOficina))
+                .Where(i => CsvContiene(i.AplicaObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
+                .Where(i => !CsvExcluye(i.ExcluyeObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
                 .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, worker.Categoria))
                 .ToList();
 
@@ -511,31 +521,37 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 entregable.FechaAprobacion = DateTime.UtcNow;
             }
 
-            if (entregable.ItemId == HabItemIds.InduccionObra)
+            // El ítem 12 es global (una fila por trabajador) y `WorkerProyecto.InduccionCompletada`
+            // es su espejo por proyecto, así que hay que mantenerlos sincronizados en ambos
+            // sentidos: "Aprobado" marca la inducción, y CUALQUIER otro estado la desmarca.
+            // Antes solo se desmarcaba con "Falta", y un ítem 12 pasado a "Rechazado" dejaba el
+            // flag en true: el trabajador quedaba "No Autorizado" en la lista pero invisible en
+            // "Programar Inducción", que filtra justamente por ese flag (incidencia 2026-08-05).
+            //
+            // Se evalúa `entregable.Estado` (el valor ya resuelto) y no `dto.Estado`, porque al
+            // rechazar una renovación el estado vuelve a "Aprobado" conservando la vigencia
+            // anterior: esa inducción sigue siendo válida y no debe borrarse.
+            if (entregable.ItemId == HabItemIds.InduccionObra && !string.IsNullOrEmpty(dto.Estado))
             {
-                if (string.Equals(dto.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase))
+                var induccionVigente =
+                    string.Equals(entregable.Estado, "Aprobado", StringComparison.OrdinalIgnoreCase);
+
+                var wpRows = await ctx.WorkerProyecto
+                    .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
+                    .ToListAsync();
+                foreach (var wp in wpRows)
                 {
-                    var wpRows = await ctx.WorkerProyecto
-                        .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
-                        .ToListAsync();
-                    foreach (var wp in wpRows)
+                    if (induccionVigente)
                     {
                         wp.InduccionCompletada = true;
                         wp.FechaInduccion ??= DateOnly.FromDateTime(DateTime.UtcNow);
-                        wp.UpdatedAt = DateTimeOffset.UtcNow;
                     }
-                }
-                else if (string.Equals(dto.Estado, "Falta", StringComparison.OrdinalIgnoreCase))
-                {
-                    var wpRows = await ctx.WorkerProyecto
-                        .Where(wp => wp.WorkerId == entregable.WorkerId && wp.FechaFin == null)
-                        .ToListAsync();
-                    foreach (var wp in wpRows)
+                    else
                     {
                         wp.InduccionCompletada = false;
                         wp.FechaInduccion = null;
-                        wp.UpdatedAt = DateTimeOffset.UtcNow;
                     }
+                    wp.UpdatedAt = DateTimeOffset.UtcNow;
                 }
             }
 
@@ -745,8 +761,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 }
 
                 var esOficinaOStaff =
-                    string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
+                    ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
 
                 var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
                 if (!string.IsNullOrWhiteSpace(emailSctr))
@@ -1029,8 +1044,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 }
 
                 var esOficinaOStaff =
-                    string.Equals(worker.ObraOficina, "Oficina Central", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(worker.ObraOficina, "Staff", StringComparison.OrdinalIgnoreCase);
+                    ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
 
                 var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
                 if (!string.IsNullOrWhiteSpace(emailSctr))
@@ -1319,8 +1333,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             (i.AplicaA == "CASA" && workerType == "CASA") ||
                             (i.AplicaA == "CONTRATISTA" && workerType == "CONTRATISTA"))
                 .Where(i => CsvContiene(i.AplicaCategoria, worker.Categoria))
-                .Where(i => CsvContiene(i.AplicaObraOficina, worker.ObraOficina))
-                .Where(i => !CsvExcluye(i.ExcluyeObraOficina, worker.ObraOficina))
+                .Where(i => CsvContiene(i.AplicaObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
+                .Where(i => !CsvExcluye(i.ExcluyeObraOficina, ObraOficinaStaffIds.Nombre(worker.ObraOficinaStaffId)))
                 .Where(i => !esContratista || !CsvExcluye(i.ExcluyeCategoriaContratista, worker.Categoria))
                 .Where(i => !(esCasaPracticante && i.Id == HabItemIds.VidaLey))
                 .ToList();
@@ -1423,7 +1437,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
             var categoriaAnterior = w.Categoria;
-            var obraOficinaAnterior = w.ObraOficina;
+            var obraOficinaAnterior = w.ObraOficinaStaffId;
 
             if (dto.ApellidoNombre is not null && w.Person is not null) w.Person.FullName = dto.ApellidoNombre;
             if (dto.Celular is not null && w.Person is not null) w.Person.PhoneNumber = int.TryParse(dto.Celular, out var ph) ? ph : (int?)null;
@@ -1437,9 +1451,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (dto.Area is not null) w.Area = dto.Area;
             if (dto.Subarea is not null) w.Subarea = dto.Subarea;
             if (dto.ContrataCasa is not null) w.ContrataCasa = dto.ContrataCasa;
-            if (dto.ObraOficina is not null) w.ObraOficina = dto.ObraOficina;
+            if (dto.ObraOficinaStaffId.HasValue) w.ObraOficinaStaffId = dto.ObraOficinaStaffId;
             // Match interno: deriva el nodo normalizado area_scope a partir del texto capturado.
-            w.AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(w.Area, w.Subarea, w.ObraOficina);
+            w.AreaScopeId = Abril_Backend.Shared.Services.AreaScopeMatcher.Resolve(w.Area, w.Subarea);
             if (dto.Jefatura is not null) w.Jefatura = dto.Jefatura;
             if (dto.Estado is not null) w.Estado = dto.Estado;
             if (dto.HabilitadoObra.HasValue) w.HabilitadoObra = dto.HabilitadoObra;
@@ -1481,11 +1495,11 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             string? cambioObraOficinaDestino = null;
             string? cambioObraOficinaEmail = null;
-            if (dto.ObraOficina is not null
+            if (dto.ObraOficinaStaffId.HasValue
                 && esCasa
-                && !string.Equals(obraOficinaAnterior?.Trim(), w.ObraOficina?.Trim(), StringComparison.OrdinalIgnoreCase))
+                && obraOficinaAnterior != w.ObraOficinaStaffId)
             {
-                if (string.Equals(w.ObraOficina?.Trim(), "Staff", StringComparison.OrdinalIgnoreCase))
+                if (w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff)
                 {
                     var proyectoActualId = await ctx.WorkerVinculacion
                         .Where(v => v.WorkerId == workerId && v.FechaFin == null)
@@ -1505,7 +1519,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         }
                     }
                 }
-                else if (string.Equals(w.ObraOficina?.Trim(), "Oficina Central", StringComparison.OrdinalIgnoreCase))
+                else if (w.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral)
                 {
                     cambioObraOficinaDestino = "Oficina Central";
                     cambioObraOficinaEmail = EmailAsistentaSocial;
@@ -1524,7 +1538,10 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (cambioObraOficinaDestino is not null && cambioObraOficinaEmail is not null)
             {
                 var subject = $"Vida Ley pendiente — Cambio a {cambioObraOficinaDestino} — {w.Person?.FullName}";
-                var body = BuildBodyVidaLeyCambioObraOficina(w, obraOficinaAnterior, w.ObraOficina);
+                var body = BuildBodyVidaLeyCambioObraOficina(
+                    w,
+                    ObraOficinaStaffIds.Nombre(obraOficinaAnterior),
+                    ObraOficinaStaffIds.Nombre(w.ObraOficinaStaffId));
                 await EnviarEmailSilenciosoAsync(new List<string> { cambioObraOficinaEmail }, subject, body);
             }
 
@@ -1566,6 +1583,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Ruc = w.Contributor?.ContributorRuc,
             Celular = w.Person?.PhoneNumber?.ToString(),
             EmailCorporativo = w.EmailCorporativo,
+            EmailPersonal = w.Person?.Email,
             FechaNacimiento = w.Person?.FechaNacimiento,
             Sexo = w.Person?.Sexo != null ? w.Person.Sexo.Codigo : null,
             FechaIngreso = w.FechaIngreso,
@@ -1574,10 +1592,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             Ocupacion = w.Ocupacion,
             OcupacionId = w.OcupacionId,
             Puesto = w.Puesto,
+            AreaScopeId = w.AreaScopeId,
             Area = w.Area,
             Subarea = w.Subarea,
             ContrataCasa = w.ContrataCasa,
-            ObraOficina = w.ObraOficina,
+            ObraOficinaStaffId = w.ObraOficinaStaffId,
+            ObraOficina = ObraOficinaStaffIds.Nombre(w.ObraOficinaStaffId),
             Jefatura = w.Jefatura,
             Estado = w.Estado,
             HabilitadoObra = w.HabilitadoObra,

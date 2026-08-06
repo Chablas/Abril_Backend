@@ -127,3 +127,40 @@ SELECT 40, fn.id, true
 FROM proyecto_filtro_funcionalidad fn
 WHERE fn.codigo = 'AC_ACTIVIDADES'
 ON CONFLICT (project_id, funcionalidad_id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- HABILITACION_INDUCCION (2026-08-05) — se parte el filtro de Habilitación.
+-- La funcionalidad HABILITACION (4) alimentaba a la vez cuatro desplegables:
+-- el filtro de proyecto de la lista de Trabajadores, el modal de EMOs Programados,
+-- la asignación de proyectos por empresa y el desplegable del modal "Programar
+-- Inducción". Oficina Central (36) debe ser inducible sin reaparecer en los otros
+-- tres, así que el modal de inducción pasa a tener su propio filtro (14) y la
+-- funcionalidad 4 se queda con el resto.
+-- Semántica de la tabla: fila ausente = visible. Por eso, para no cambiarle el
+-- comportamiento a nadie, se copian a la 14 las filas active=false que hoy existen
+-- en la 4 (hoy solo Oficina Central 36 y Post Venta 40) y se deja visible solo a 36.
+-- ----------------------------------------------------------------------------
+INSERT INTO proyecto_filtro_funcionalidad (id, codigo, nombre) VALUES
+    (14, 'HABILITACION_INDUCCION', 'Habilitación — Programar Inducción')
+ON CONFLICT (id) DO NOTHING;
+
+SELECT setval(
+    pg_get_serial_sequence('proyecto_filtro_funcionalidad', 'id'),
+    GREATEST((SELECT MAX(id) FROM proyecto_filtro_funcionalidad), 1)
+);
+
+-- Todo proyecto oculto hoy en HABILITACION queda igual de oculto en la nueva
+-- funcionalidad, salvo Oficina Central, que es justamente lo que se quiere abrir.
+INSERT INTO proyecto_filtro (project_id, funcionalidad_id, active)
+SELECT pf.project_id, 14, false
+FROM proyecto_filtro pf
+WHERE pf.funcionalidad_id = 4
+  AND pf.active = false
+  AND pf.project_id <> 36
+ON CONFLICT (project_id, funcionalidad_id) DO NOTHING;
+
+-- Oficina Central: visible solo aquí (sigue oculta en HABILITACION). La fila
+-- explícita con active=true es documentación del caso; sin fila también sería visible.
+INSERT INTO proyecto_filtro (project_id, funcionalidad_id, active)
+VALUES (36, 14, true)
+ON CONFLICT (project_id, funcionalidad_id) DO UPDATE SET active = true;

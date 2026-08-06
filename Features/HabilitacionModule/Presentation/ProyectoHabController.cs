@@ -30,5 +30,21 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ProyectoHabController.GetActivos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        /// <summary>
+        /// Proyectos del desplegable del modal "Programar Inducción". Filtro propio
+        /// (HABILITACION_INDUCCION), separado del de Habilitación general que usa <see cref="GetActivos"/>.
+        /// </summary>
+        [HttpGet("induccion")]
+        public async Task<IActionResult> GetActivosInduccion()
+        {
+            try
+            {
+                var proyectos = await _repo.GetActivosInduccionAsync();
+                return Ok(proyectos);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ProyectoHabController.GetActivosInduccion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

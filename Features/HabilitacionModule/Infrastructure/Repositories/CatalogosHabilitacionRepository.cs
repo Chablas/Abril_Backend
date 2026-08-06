@@ -1,7 +1,10 @@
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Services.AreaScope.Interfaces;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
@@ -9,10 +12,74 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
     public class CatalogosHabilitacionRepository : ICatalogosHabilitacionRepository
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
+        private readonly IAreaScopeLegacyResolver _legacyResolver;
+        private readonly IJefeRevisorResolver _revisorResolver;
 
-        public CatalogosHabilitacionRepository(IDbContextFactory<AppDbContext> factory)
+        public CatalogosHabilitacionRepository(
+            IDbContextFactory<AppDbContext> factory,
+            IAreaScopeLegacyResolver legacyResolver,
+            IJefeRevisorResolver revisorResolver)
         {
             _factory = factory;
+            _legacyResolver = legacyResolver;
+            _revisorResolver = revisorResolver;
+        }
+
+        /// <summary>
+        /// Árbol de áreas para los desplegables del formulario de trabajadores, con la equivalencia
+        /// legacy y el revisor ya resueltos por nodo. Una sola petición alimenta toda la cascada y
+        /// el campo de revisor, sin ir al servidor cada vez que se cambia de área.
+        /// </summary>
+        public async Task<List<AreaArbolNodoDto>> GetAreaArbolAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var nodos = await (
+                from s in ctx.AreaScope.AsNoTracking()
+                join ai in ctx.AreaItem.AsNoTracking() on s.AreaItemId equals ai.AreaItemId
+                join at in ctx.AreaType.AsNoTracking() on ai.AreaTypeId equals at.AreaTypeId
+                where s.State && ai.State
+                orderby s.DisplayOrder, ai.AreaItemName
+                select new AreaArbolNodoDto
+                {
+                    AreaScopeId = s.AreaScopeId,
+                    AreaScopeParentId = s.AreaScopeParentId,
+                    AreaItemName = ai.AreaItemName,
+                    AreaTypeName = at.AreaTypeName,
+                    DisplayOrder = s.DisplayOrder,
+                }
+            ).ToListAsync();
+
+            if (nodos.Count == 0) return nodos;
+
+            var ids = nodos.Select(n => n.AreaScopeId).ToList();
+            var legacy = await _legacyResolver.ResolveTodosAsync();
+            var revisores = await _revisorResolver.ResolveByAreaScopeManyAsync(ids);
+
+            foreach (var nodo in nodos)
+            {
+                if (legacy.TryGetValue(nodo.AreaScopeId, out var eq))
+                {
+                    nodo.Area = eq.Area;
+                    nodo.Subarea = eq.Subarea;
+                    nodo.Jefatura = eq.Jefatura;
+                }
+
+                if (!revisores.TryGetValue(nodo.AreaScopeId, out var rev)) continue;
+
+                nodo.RevisorNombre = rev.Area?.Nombre;
+                nodo.RevisorEmail = rev.Area?.Email;
+                nodo.RevisoresPorProyecto = rev.PorProyecto
+                    .Select(kv => new AreaArbolRevisorProyectoDto
+                    {
+                        ProyectoId = kv.Key,
+                        RevisorNombre = kv.Value.Nombre,
+                        RevisorEmail = kv.Value.Email,
+                    })
+                    .ToList();
+            }
+
+            return nodos;
         }
 
         public async Task<List<SsItemTrabajador>> GetItemsTrabajadorAsync()
@@ -48,6 +115,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             return await ctx.SsCriterioEvaluacion
                 .Where(x => x.Activo)
                 .OrderBy(x => x.Orden)
+                .ToListAsync();
+        }
+
+        public async Task<List<ObraOficinaStaffDto>> GetObraOficinaStaffAsync()
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.WorkersObraOficinaStaff
+                .Where(x => x.State && x.Active)
+                .OrderBy(x => x.DisplayOrder)
+                .Select(x => new ObraOficinaStaffDto
+                {
+                    ObraOficinaStaffId = x.WorkersObraOficinaStaffId,
+                    Name = x.Name
+                })
                 .ToListAsync();
         }
 

@@ -22,9 +22,12 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         }
 
         public async Task<PagedResult<ProjectDto>> GetPaged(
-            int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null)
+            int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null)
         {
             var query = _context.Project.Where(p => p.State);
+
+            if (active.HasValue)
+                query = query.Where(p => p.Active == active.Value);
 
             if (!string.IsNullOrWhiteSpace(ruc))
                 query = query.Where(p => p.Contributor != null && p.Contributor.ContributorRuc.Contains(ruc));

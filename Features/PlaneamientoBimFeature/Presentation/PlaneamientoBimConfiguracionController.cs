@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.PlaneamientoBimFeature.Application.Dtos;
 using Abril_Backend.Features.PlaneamientoBimFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,7 +9,7 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Presentation
 {
     [ApiController]
     [Route("api/v1/planeamiento-bim/configuracion")]
-    [Authorize]
+    [Authorize(Roles = $"{Roles.AdministradorSistema},{Roles.AdministradorUdp},{Roles.UsuarioUdp}")]
     public class PlaneamientoBimConfiguracionController : ControllerBase
     {
         private readonly IPlaneamientoBimConfiguracionService _service;

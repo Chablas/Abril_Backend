@@ -5341,3 +5341,27 @@ Pendiente para retomar:
 1. Confirmar con SQL cuántos workers de esas áreas están sin vínculo (`ss_hab_worker_proyecto` sin fila activa) y si el proyecto "Arquitectura Comercial" existe en la tabla `project` (Oficina Central y Post Venta sí existen).
 2. Backfill de esos workers hacia el "proyecto" que les corresponde.
 3. Hacer `proyectoId` obligatorio en el formulario para `esStaffOOficina` (frontend, `worker-create-edit.ts`) para que no vuelva a pasar.
+
+## Sesión 2026-08-07 — Fix IES (ranking Arquitectura Comercial)
+
+### Contexto
+El ranking de eficiencia (IES) de supervisores en el dashboard de Arquitectura Comercial mostraba números confusos: supervisores con 100% de tareas culminadas (12/12, 4/4, 6/6) no llegaban a 100% de IES. Se identificó que el componente SPI del IES exigía un ritmo de 1.5x (50% adelantado sobre el plan) para dar el máximo puntaje — un umbral irreal, casi nadie llega a SPI 1.5 sostenido.
+
+### Cambio
+`Infrastructure/Repositories/ArquitecturaComercialRepository.cs:1513`, método `GetDashboardDataFiltrado`:
+```csharp
+var compSpi = Math.Min(spiPromedio / 1.0, 1.0) * 100;  // antes: / 1.5
+```
+Ahora SPI=1.0 (a tiempo, sin adelanto) ya da el 100% de ese componente. Sesión anterior (misma fecha) ya había quitado la penalización por mora del 10% del IES — ambos cambios en el mismo archivo/método.
+
+Fórmula final del IES:
+```
+IES = (SPI*0.35 + Cierre*0.35 + Puntualidad*0.20) / 0.90
+```
+donde `compSpi = min(spiPromedio, 1.0) * 100`.
+
+### Verificado
+Confirmado en vivo (frontend) que el detalle semanal del ranking ("ver cuáles", agregado en `Abril-Frontend` la misma sesión) coincide con el conteo del IES — ej. Carbajal 3/5 mostró exactamente 3 Culminado + 2 no culminadas en el modal filtrado a la semana en control.
+
+### Pendiente
+Nada pendiente de este cambio puntual. Build local limpio (`dotnet build`, 0 errores).

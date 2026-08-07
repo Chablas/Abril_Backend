@@ -112,6 +112,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 .Where(p => proyectoIds.Contains(p.ProjectId))
                 .ToDictionaryAsync(p => p.ProjectId);
 
+            // Correo del residente de cada proyecto: sale de su ficha de trabajador
+            // (project.residente_workers_id → workers.email_corporativo), no de una copia
+            // guardada en el proyecto.
+            var residentePorProyecto = await (
+                from p in ctx.Project.AsNoTracking()
+                where proyectoIds.Contains(p.ProjectId) && p.ResidenteWorkersId != null
+                join w in ctx.Worker.AsNoTracking() on p.ResidenteWorkersId equals w.Id
+                where w.EmailCorporativo != null && w.EmailCorporativo != ""
+                select new { p.ProjectId, w.EmailCorporativo })
+                .ToDictionaryAsync(x => x.ProjectId, x => x.EmailCorporativo!);
+
             var empresasDict = await ctx.Contributor
                 .AsNoTracking()
                 .Where(em => empresaIds.Contains(em.ContributorId))
@@ -144,7 +155,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 if (vinculacion?.EmpresaId.HasValue == true)
                     empresasDict.TryGetValue(vinculacion.EmpresaId.Value, out empresa);
 
-                var destinatarios = BuildDestinatarios(c.Worker, proyecto);
+                string? residenteEmail = null;
+                if (proyecto != null) residentePorProyecto.TryGetValue(proyecto.ProjectId, out residenteEmail);
+
+                var destinatarios = BuildDestinatarios(c.Worker, proyecto, residenteEmail);
                 if (destinatarios.Count == 0)
                 {
                     result.Detalles.Add($"EMO {c.Emo.Id} ({c.WorkerNombre}) — sin destinatarios. Omitido.");
@@ -216,20 +230,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 && ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
         }
 
-        private static List<string> BuildDestinatarios(Worker worker, Project? proyecto)
+        private static List<string> BuildDestinatarios(Worker worker, Project? proyecto, string? residenteEmail)
         {
             var raw = new List<string?> { worker.EmailCorporativo };
 
-            // Casa y Staff: agregar también email corporativo
-            if (string.Equals(worker.ContrataCasa, "Casa", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(worker.ContrataCasa, "Staff", StringComparison.OrdinalIgnoreCase))
-            {
-                raw.Add(worker.EmailCorporativo);
-            }
-
             if (proyecto != null)
             {
-                raw.Add(proyecto.EmailResidente);
+                raw.Add(residenteEmail);
                 raw.Add(proyecto.EmailResponsable);
                 raw.Add(proyecto.EmailRrhh);
                 raw.Add(proyecto.EmailCoordSsoma);

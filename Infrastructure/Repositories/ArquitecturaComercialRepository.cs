@@ -1510,7 +1510,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                     // 1. SPI (35%): de lo que debía cerrar esta semana, ¿a qué ritmo va (real vs. planificado)?
                     var spiValidos  = vencenEstaSemana.Where(a => a.Spi.HasValue && a.Spi.Value > 0 && a.Spi.Value <= 1.5m).ToList();
                     var spiPromedio = spiValidos.Any() ? (double)spiValidos.Average(a => a.Spi!.Value) : 1.0;
-                    var compSpi     = Math.Min(spiPromedio / 1.5, 1.0) * 100;
+                    var compSpi     = Math.Min(spiPromedio / 1.0, 1.0) * 100;
 
                     // 2. Tasa de cierre (35%): de lo que debía cerrar esta semana, ¿cuánto cerró?
                     var compCierre = completadas / (double)total * 100;
@@ -1523,11 +1523,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                         ? puntuales / (double)conInicioEfectivo.Count * 100
                         : 50.0;
 
-                    // 4. Penalización mora (10%): de lo que debía cerrar esta semana, ¿cuánto ya venció sin cerrar?
-                    var vencidas = vencenEstaSemana.Count(a => a.FinProgramado!.Value < today && a.FinEfectivo == null);
-                    var compMora = (1 - vencidas / (double)total) * 100;
-
-                    var ies = Math.Round(compSpi * 0.35 + compCierre * 0.35 + compInicio * 0.20 + compMora * 0.10, 1);
+                    var ies = Math.Round((compSpi * 0.35 + compCierre * 0.35 + compInicio * 0.20) / 0.90, 1);
                     if (completadas == 0 && total > 0) ies = Math.Min(ies, 30.0);
 
                     return new SupervisorProgresoDTO

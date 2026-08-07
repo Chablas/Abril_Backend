@@ -74,6 +74,52 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<EstadoRequerimientoResultDto> EnviarLongList(int requerimientoId, List<LongListCandidatoArchivoDto> candidatos, int? userId);
 
+        /// <summary>Marca/desmarca el check informativo del Multitest de un candidato aprobado.</summary>
+        Task SetMultitest(int candidatoId, MultitestUpdateDto dto, int? userId);
+
+        /// <summary>
+        /// Avanza el requerimiento de LONG_LIST_APROBADA a ENTREVISTAS validando los requisitos del
+        /// paso (Multitest completo, formularios revisados y al menos uno aprobado).
+        /// </summary>
+        Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId);
+
+        /// <summary>
+        /// Programa (o reprograma) la entrevista de un candidato y le envía la invitación por correo.
+        /// El envío es best-effort: si el correo falla, la programación queda igual guardada y se
+        /// informa en el mensaje para que GTH reintente.
+        /// </summary>
+        Task<EntrevistaAccionResultDto> GuardarEntrevista(int candidatoId, EntrevistaGuardarDto dto, int? userId);
+
+        /// <summary>
+        /// Guarda la evaluación de la entrevista de un candidato: los cuatro puntajes (0-100) y los
+        /// tres comentarios del informe de finalista que verá el área solicitante.
+        /// </summary>
+        Task<EvaluacionAccionResultDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId);
+
+        /// <summary>
+        /// Envía al candidato el correo de agradecimiento por no continuar en el proceso y deja su
+        /// resultado en NO_PASO (RG-12: no se cierra un "No pasó" sin ese correo). El envío es
+        /// best-effort: si el correo falla, el resultado igual queda registrado y se informa en el
+        /// mensaje para que GTH reintente.
+        /// </summary>
+        Task<EvaluacionAccionResultDto> EnviarAgradecimiento(int candidatoId, int? userId);
+
+        /// <summary>
+        /// Informe de finalistas de un requerimiento del solicitante (vista "Finalistas enviados por
+        /// GTH"). Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no
+        /// existe o no le pertenece.
+        /// </summary>
+        Task<RevisionFinalistasDto> GetRevisionFinalistas(int requerimientoId, int? userId);
+
+        /// <summary>
+        /// Registra la decisión final del área solicitante sobre un finalista, avanza el
+        /// requerimiento (CERRADO al aprobar; de vuelta a LONG_LIST si se rechazó a todos) y envía
+        /// los correos: el de agradecimiento al finalista rechazado y la notificación a GTH
+        /// (tipo FINALISTA_DECISION). Ambos envíos son best-effort.
+        /// </summary>
+        Task<FinalistaDecisionResultDto> RegistrarDecisionFinalista(
+            int requerimientoId, FinalistaDecisionDto dto, int? userId);
+
         /// <summary>Destinatarios configurados de un correo de reclutamiento (principales + copias) por tipo (SOLICITUD/LONG_LIST).</summary>
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
 

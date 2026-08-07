@@ -34,7 +34,16 @@ namespace Abril_Backend.Shared.Models {
         // Planeamiento BIM: meta de PPC pactada, fija por proyecto
         public decimal? MetaPpc {get; set;}
 
+        // Residente: referencia al trabajador. Su correo se lee de
+        // workers.email_corporativo al enviar, así sigue siempre al dato maestro.
+        public int? ResidenteWorkersId {get; set;}
+
         // Emails del proyecto
+        /// <summary>
+        /// DEPRECADO — reemplazado por <see cref="ResidenteWorkersId"/>. Se conserva
+        /// solo como histórico (convención del proyecto: no se borran campos); ningún
+        /// código lo lee. Para el residente usar la FK.
+        /// </summary>
         public string? EmailResidente {get; set;}
         public string? EmailResponsable {get; set;}
         public string? EmailRrhh {get; set;}

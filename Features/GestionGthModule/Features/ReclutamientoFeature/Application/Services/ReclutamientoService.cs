@@ -207,6 +207,309 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public Task<EstadoRequerimientoResultDto> IniciarRevisionCv(int requerimientoId, int? userId) =>
             _repo.IniciarRevisionCv(requerimientoId, userId);
 
+        // ── Multitest y programación de entrevistas ───────────────────────────
+        public Task SetMultitest(int candidatoId, MultitestUpdateDto dto, int? userId) =>
+            _repo.SetMultitest(candidatoId, dto?.Realizado ?? false, userId);
+
+        public Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId) =>
+            _repo.ContinuarAEntrevistas(requerimientoId, userId);
+
+        public async Task<EntrevistaAccionResultDto> GuardarEntrevista(
+            int candidatoId, EntrevistaGuardarDto dto, int? userId)
+        {
+            if (dto == null || dto.Fecha == default)
+                throw new AbrilException("Selecciona la fecha de la entrevista.", 400);
+            if (!TimeOnly.TryParseExact(dto.Hora ?? "", "HH:mm", out var hora))
+                throw new AbrilException("Selecciona la hora de la entrevista.", 400);
+            if (dto.LugarId <= 0)
+                throw new AbrilException("Selecciona el lugar de la entrevista.", 400);
+
+            var ctx = await _repo.GuardarEntrevista(candidatoId, dto.Fecha, hora, dto.LugarId, userId);
+
+            // El correo es best-effort: la entrevista ya quedó programada, así que un fallo del
+            // envío se informa en el mensaje en vez de tumbar la operación.
+            var message = $"Invitación enviada a {ctx.Resumen.CorreoEnvio}.";
+            try
+            {
+                await _email.SendAsync(
+                    to:      new List<string> { ctx.Resumen.CorreoEnvio },
+                    subject: $"Entrevista — {ctx.Puesto} · Abril Grupo Inmobiliario",
+                    body:    ConstruirCuerpoEntrevista(ctx),
+                    isHtml:  true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "No se pudo enviar la invitación a la entrevista del candidato {CandidatoId}", candidatoId);
+                message = "La entrevista quedó programada, pero no se pudo enviar la invitación por correo. Vuelve a intentarlo.";
+            }
+
+            return new EntrevistaAccionResultDto { Message = message, Entrevista = ctx.Resumen };
+        }
+
+        /// <summary>Correo genérico de citación a entrevista (fecha, hora y lugar de la cita).</summary>
+        private static string ConstruirCuerpoEntrevista(EntrevistaEnvioContextoDto ctx)
+        {
+            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : Esc(ctx.CandidatoNombre);
+            var fecha  = ctx.Resumen.Fecha.ToString("dd/MM/yyyy");
+
+            return $"""
+                <div style="font-family:Arial,sans-serif;max-width:640px">
+                  <div style="background:#005D9D;padding:14px 18px">
+                    <h2 style="color:#fff;margin:0;font-size:18px">Invitación a entrevista</h2>
+                  </div>
+                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
+                    <p style="font-size:13px;margin-top:0">Estimado(a) {nombre},</p>
+                    <p style="font-size:13px">
+                      Continuamos con tu proceso de selección en <b>Abril Grupo Inmobiliario</b> para la
+                      posición <b>{Esc(ctx.Puesto)}</b>. Te invitamos a la entrevista programada con los
+                      siguientes datos:
+                    </p>
+                    <table style="font-size:13px;border-collapse:collapse;margin:14px 0">
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Fecha</td><td style="padding:4px 0"><b>{fecha}</b></td></tr>
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Hora</td><td style="padding:4px 0"><b>{Esc(ctx.Resumen.Hora)}</b></td></tr>
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Lugar</td><td style="padding:4px 0"><b>{Esc(ctx.Resumen.LugarNombre)}</b></td></tr>
+                    </table>
+                    <p style="font-size:13px">
+                      Te pedimos llegar con 10 minutos de anticipación y traer tu documento de identidad.
+                      Si no pudieras asistir, responde este correo para reprogramar la cita.
+                    </p>
+                    <p style="font-size:11px;color:#888;margin-top:18px">
+                      Correo automático de Abril One · Gestión GTH · Reclutamiento · {Esc(ctx.Codigo)}.
+                    </p>
+                  </div>
+                </div>
+                """;
+        }
+
+        // ── Evaluación de la entrevista y no continuidad ──────────────────────
+        public async Task<EvaluacionAccionResultDto> GuardarEvaluacion(
+            int candidatoId, EvaluacionGuardarDto dto, int? userId)
+        {
+            if (dto == null)
+                throw new AbrilException("Datos de la evaluación no recibidos.", 400);
+
+            ValidarPuntaje(dto.PuntajeEntrevista,   "de la entrevista");
+            ValidarPuntaje(dto.PuntajePsicotecnico, "psicotécnico");
+            ValidarPuntaje(dto.PuntajeTecnica,      "de la evaluación técnica");
+            ValidarPuntaje(dto.PuntajeResultado,    "del resultado");
+
+            var resumen = await _repo.GuardarEvaluacion(candidatoId, dto, userId);
+            return new EvaluacionAccionResultDto { Message = "Evaluación guardada.", Evaluacion = resumen };
+        }
+
+        /// <summary>Los puntajes son porcentajes: 0-100 o null (aún sin registrar).</summary>
+        private static void ValidarPuntaje(int? valor, string campo)
+        {
+            if (valor is < 0 or > 100)
+                throw new AbrilException($"El puntaje {campo} debe estar entre 0 y 100.", 400);
+        }
+
+        public async Task<EvaluacionAccionResultDto> EnviarAgradecimiento(int candidatoId, int? userId)
+        {
+            var ctx = await _repo.RegistrarAgradecimiento(candidatoId, userId);
+
+            // Mismo criterio que la invitación a la entrevista: el resultado ya quedó registrado,
+            // así que un fallo del correo se informa en el mensaje (GTH puede reintentar) en vez
+            // de tumbar la operación.
+            var message = $"Correo de agradecimiento enviado a {ctx.Correo}. El candidato ya no continúa en el proceso.";
+            try
+            {
+                await _email.SendAsync(
+                    to:      new List<string> { ctx.Correo },
+                    subject: $"Proceso de selección — {ctx.Puesto} · Abril Grupo Inmobiliario",
+                    body:    ConstruirCuerpoAgradecimiento(ctx),
+                    isHtml:  true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "No se pudo enviar el correo de agradecimiento del candidato {CandidatoId}", candidatoId);
+                message = "El candidato quedó registrado como no continúa, pero no se pudo enviar el correo de agradecimiento. Vuelve a intentarlo.";
+            }
+
+            return new EvaluacionAccionResultDto { Message = message, Evaluacion = ctx.Resumen };
+        }
+
+        /// <summary>
+        /// Correo genérico de agradecimiento para el candidato que no continúa en el proceso. No
+        /// menciona puntajes ni motivos: solo agradece la participación y deja abierta la puerta a
+        /// futuros procesos.
+        /// </summary>
+        private static string ConstruirCuerpoAgradecimiento(AgradecimientoEnvioContextoDto ctx)
+        {
+            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : Esc(ctx.CandidatoNombre);
+
+            return $"""
+                <div style="font-family:Arial,sans-serif;max-width:640px">
+                  <div style="background:#005D9D;padding:14px 18px">
+                    <h2 style="color:#fff;margin:0;font-size:18px">Gracias por participar</h2>
+                  </div>
+                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
+                    <p style="font-size:13px;margin-top:0">Estimado(a) {nombre},</p>
+                    <p style="font-size:13px">
+                      Agradecemos el tiempo que dedicaste al proceso de selección de
+                      <b>Abril Grupo Inmobiliario</b> para la posición <b>{Esc(ctx.Puesto)}</b>, así como
+                      el interés que mostraste por formar parte de nuestro equipo.
+                    </p>
+                    <p style="font-size:13px">
+                      Luego de evaluar a todos los participantes, hemos decidido continuar el proceso con
+                      otros candidatos cuyo perfil se ajusta más a lo que la posición requiere en este
+                      momento. Esta decisión no desmerece tu experiencia ni tus capacidades profesionales.
+                    </p>
+                    <p style="font-size:13px">
+                      Conservaremos tus datos en nuestra base de postulantes para considerarte en futuras
+                      convocatorias que se ajusten a tu perfil. Te deseamos mucho éxito en tu desarrollo
+                      profesional.
+                    </p>
+                    <p style="font-size:13px;margin-bottom:0">
+                      Atentamente,<br />
+                      <b>Gestión de Talento Humano</b><br />
+                      Abril Grupo Inmobiliario
+                    </p>
+                    <p style="font-size:11px;color:#888;margin-top:18px">
+                      Correo automático de Abril One · Gestión GTH · Reclutamiento · {Esc(ctx.Codigo)}.
+                    </p>
+                  </div>
+                </div>
+                """;
+        }
+
+        public async Task<RevisionFinalistasDto> GetRevisionFinalistas(int requerimientoId, int? userId)
+        {
+            if (!userId.HasValue)
+                throw new AbrilException("No se pudo identificar al usuario.", 401);
+
+            var revision = await _repo.GetRevisionFinalistas(requerimientoId, userId.Value);
+            if (revision == null)
+                throw new AbrilException("No se encontró el informe de finalistas del requerimiento.", 404);
+
+            return revision;
+        }
+
+        // ── Decisión final del solicitante sobre un finalista ─────────────────
+        public async Task<FinalistaDecisionResultDto> RegistrarDecisionFinalista(
+            int requerimientoId, FinalistaDecisionDto dto, int? userId)
+        {
+            if (!userId.HasValue)
+                throw new AbrilException("No se pudo identificar al usuario.", 401);
+            if (dto == null || dto.CandidatoId <= 0)
+                throw new AbrilException("Selecciona al finalista sobre el que quieres decidir.", 400);
+
+            var ctx = await _repo.RegistrarDecisionFinalista(
+                requerimientoId, dto.CandidatoId, dto.Aprobado, userId.Value);
+            var res = ctx.Resultado;
+
+            // 1) Al rechazar, el finalista recibe el mismo correo de agradecimiento que le envía GTH
+            //    a quien no supera la entrevista. Best-effort: la decisión ya quedó registrada.
+            if (!res.Aprobado && !string.IsNullOrWhiteSpace(ctx.CandidatoCorreo))
+            {
+                try
+                {
+                    await _email.SendAsync(
+                        to:      new List<string> { ctx.CandidatoCorreo },
+                        subject: $"Proceso de selección — {ctx.Puesto} · Abril Grupo Inmobiliario",
+                        body:    ConstruirCuerpoAgradecimiento(new AgradecimientoEnvioContextoDto
+                        {
+                            CandidatoNombre = res.CandidatoNombre,
+                            Puesto          = ctx.Puesto,
+                            Codigo          = ctx.Codigo,
+                            Correo          = ctx.CandidatoCorreo,
+                        }),
+                        isHtml:  true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "No se pudo enviar el correo de agradecimiento al finalista rechazado {CandidatoId}", dto.CandidatoId);
+                }
+            }
+
+            // 2) Notificar la decisión a GTH (tipo FINALISTA_DECISION), igual que la de long list.
+            await NotificarDecisionFinalistaAGthAsync(ctx);
+
+            res.Message = res.Aprobado
+                ? $"{res.CandidatoNombre} quedó seleccionado. El proceso de reclutamiento se cerró y GTH continuará con su onboarding."
+                : res.TodosRechazados
+                    ? $"{res.CandidatoNombre} fue rechazado y se le envió el correo de agradecimiento. Al no quedar finalistas, GTH preparará y enviará una nueva long list."
+                    : $"{res.CandidatoNombre} fue rechazado y se le envió el correo de agradecimiento.";
+
+            return res;
+        }
+
+        /// <summary>
+        /// Envía a GTH el correo con la decisión final del solicitante sobre un finalista (tipo
+        /// FINALISTA_DECISION). To = principales configurados, CC = copias. Sin principales no se
+        /// envía. No bloquea: cualquier fallo solo se registra como warning.
+        /// </summary>
+        private async Task NotificarDecisionFinalistaAGthAsync(FinalistaDecisionContextoDto ctx)
+        {
+            try
+            {
+                var dest = await _repo.GetCorreoDestinatarios(CorreoTipoReclutamiento.FinalistaDecision);
+                if (dest.Principales.Count == 0)
+                {
+                    _logger.LogWarning(
+                        "No hay destinatarios principales configurados para el correo de decisión de finalista ({Codigo}); no se envía.",
+                        ctx.Codigo);
+                    return;
+                }
+
+                var res     = ctx.Resultado;
+                var accion  = res.Aprobado ? "aprobó" : "rechazó";
+                var subject = $"[Reclutamiento] Decisión de finalista — {ctx.Codigo} · {ctx.Puesto}";
+
+                await _email.SendAsync(
+                    to:      dest.Principales,
+                    subject: subject,
+                    body:    ConstruirCuerpoDecisionFinalista(ctx, accion),
+                    isHtml:  true,
+                    cc:      dest.Copias.Count > 0 ? dest.Copias : null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo enviar el correo de decisión de finalista del requerimiento {Codigo}", ctx.Codigo);
+            }
+        }
+
+        private static string ConstruirCuerpoDecisionFinalista(FinalistaDecisionContextoDto ctx, string accion)
+        {
+            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+
+            var res         = ctx.Resultado;
+            var solicitante = string.IsNullOrWhiteSpace(ctx.SolicitanteNombre) ? "El área solicitante" : Esc(ctx.SolicitanteNombre);
+            var color       = res.Aprobado ? "#15803D" : "#B91C1C";
+            var siguiente   = res.Aprobado
+                ? "El proceso de reclutamiento queda cerrado y el seleccionado pasa al proceso de onboarding."
+                : res.TodosRechazados
+                    ? "No quedan finalistas en carrera: el requerimiento volvió a Long list / CVs para que GTH envíe una nueva long list."
+                    : "El proceso continúa con los finalistas que aún están pendientes de decisión.";
+
+            return $"""
+                <div style="font-family:Arial,sans-serif;max-width:640px">
+                  <div style="background:#005D9D;padding:14px 18px">
+                    <h2 style="color:#fff;margin:0;font-size:18px">Decisión de finalista</h2>
+                  </div>
+                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
+                    <p style="font-size:13px;margin-top:0">
+                      {solicitante} {accion} a un finalista del requerimiento
+                      <b>{Esc(ctx.Codigo)}</b> — <b>{Esc(ctx.Puesto)}</b>.
+                    </p>
+                    <table style="font-size:13px;border-collapse:collapse;margin:14px 0">
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Finalista</td><td style="padding:4px 0"><b>{Esc(res.CandidatoNombre)}</b></td></tr>
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Decisión</td><td style="padding:4px 0"><b style="color:{color}">{(res.Aprobado ? "Aprobado" : "Rechazado")}</b></td></tr>
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Área</td><td style="padding:4px 0">{Esc(ctx.Area) }</td></tr>
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Proyecto/Obra</td><td style="padding:4px 0">{Esc(ctx.ProyectoObra)}</td></tr>
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Estado</td><td style="padding:4px 0">{Esc(res.EstadoNombre)}</td></tr>
+                    </table>
+                    <p style="font-size:13px">{siguiente}</p>
+                    <p style="font-size:11px;color:#888;margin-top:18px">
+                      Correo automático de Abril One · Gestión GTH · Reclutamiento.
+                    </p>
+                  </div>
+                </div>
+                """;
+        }
+
         // ── Envío de la long list al solicitante ──────────────────────────────
         // Topes de tamaño de la long list. Antes eran 20 MB (tanto el total como cada archivo); se
         // subieron a 3 GB para el total de la petición y a 3 GB para cada archivo individual. Los
@@ -324,16 +627,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 var item = new LongListCandidatoPersistDto
                 {
-                    Nombre           = c.Nombre,
-                    Puesto           = c.Puesto,
-                    ExperienciaAnios = c.ExperienciaAnios,
-                    Disponibilidad   = c.Disponibilidad,
-                    FuenteCanalId    = c.FuenteCanalId,
-                    Comentario       = c.Comentario,
-                    CvNombre         = cvSubida.FileName,
-                    CvUrl            = cvSubida.WebUrl,
-                    CvItemId         = cvSubida.ItemId,
-                    CvDriveId        = carpeta.DriveId,
+                    Nombre     = c.Nombre,
+                    Comentario = c.Comentario,
+                    CvNombre   = cvSubida.FileName,
+                    CvUrl      = cvSubida.WebUrl,
+                    CvItemId   = cvSubida.ItemId,
+                    CvDriveId  = carpeta.DriveId,
                 };
 
                 if (c.InformeContent != null && c.InformeContent.Length > 0)
@@ -429,14 +728,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 var c = candidatos[i];
                 var comentario = string.IsNullOrWhiteSpace(c.Comentario) ? "—" : Esc(c.Comentario);
-                var fuente     = string.IsNullOrWhiteSpace(c.FuenteNombre) ? "—" : Esc(c.FuenteNombre);
                 var nombre     = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Esc(c.Nombre);
                 var informe    = c.InformeContent != null && c.InformeContent.Length > 0 ? "Sí" : "No";
                 filas.Append($"""
                     <tr>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{i + 1}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{nombre}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{fuente}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb">{comentario}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{informe}</td>
                     </tr>
@@ -468,7 +765,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         <tr style="background:#f3f4f6">
                           <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">#</th>
                           <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Candidato</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Fuente</th>
                           <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Comentario de GTH</th>
                           <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Informe</th>
                         </tr>

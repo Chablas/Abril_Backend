@@ -22,10 +22,6 @@ using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.I
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.CarpetaAdjuntos.Infrastructure.Repositories;
-using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Application.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Application.Services;
-using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastructure.Interfaces;
-using Abril_Backend.Features.GestionAdministrativa.RevisorSalidas.Infrastructure.Repositories;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Interfaces;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Application.Services;
 using Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infrastructure.Interfaces;
@@ -77,9 +73,10 @@ namespace Abril_Backend.Features.GestionAdministrativa
             services.AddScoped<IGaTrayectoRepository, GaTrayectoRepository>();
             services.AddScoped<IGaTrayectoService, GaTrayectoService>();
 
-            // Revisor de salidas (configuración: override manual del aprobador por trabajador)
-            services.AddScoped<IRevisorSalidaRepository, RevisorSalidaRepository>();
-            services.AddScoped<IRevisorSalidaService, RevisorSalidaService>();
+            // El jefe personalizado por trabajador (workers_revisores) ya no se configura acá:
+            // se asigna con el checkbox "Jefe personalizado" del formulario de trabajadores
+            // (Gestión de Ingresos) y lo gestiona IJefePersonalizadoService, servicio compartido
+            // registrado en Program.cs junto a IJefeRevisorResolver.
 
             // Carpeta de adjuntos (configuración: carpeta SharePoint/OneDrive detectada por link
             // donde se guardan los documentos adjuntos de las solicitudes de salida)

@@ -1,12 +1,14 @@
 namespace Abril_Backend.Shared.Services.Revisores.Interfaces
 {
     /// <summary>
-    /// Resuelve el jefe/revisor de un trabajador a partir de la configuración global
-    /// ("Revisores de Trabajadores" y "Revisores de Áreas" en /configuracion):
-    ///   1) El primer revisor vivo (state) y activo (active) del trabajador en
-    ///      <c>workers_revisores</c>, por orden_prioridad ascendente, cuyo worker
-    ///      tenga correo corporativo @abril.pe.
-    ///   2) Los revisores del área del trabajador en <c>area_revisores</c>: se parte
+    /// Resuelve el jefe/revisor de un trabajador:
+    ///   1) Su jefe personalizado — el primer revisor vivo (state) y activo (active) del
+    ///      trabajador en <c>workers_revisores</c>, por orden_prioridad ascendente, cuyo
+    ///      worker tenga correo corporativo @abril.pe. Se asigna con el checkbox
+    ///      "Jefe personalizado" del formulario de trabajadores (Gestión de Ingresos) y
+    ///      se sobrepone al revisor del área.
+    ///   2) Los revisores del área del trabajador en <c>area_revisores</c>
+    ///      (/configuracion/revisores-areas): se parte
     ///      de su nodo workers.area_scope_id y se sube por el árbol hasta el primer
     ///      nodo con un revisor vivo + activo con correo válido (por prioridad).
     ///   3) Fallback: el área de GTH — nodo <c>area_scope</c> del área

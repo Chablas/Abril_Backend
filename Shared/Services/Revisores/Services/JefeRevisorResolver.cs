@@ -6,7 +6,8 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
 {
     /// <summary>
     /// Resolución del jefe/revisor de un trabajador en tres pasos:
-    ///   1) <c>workers_revisores</c>: n revisores por trabajador, por prioridad.
+    ///   1) <c>workers_revisores</c>: el jefe personalizado del trabajador (el checkbox del
+    ///      formulario de trabajadores guarda uno; la tabla admite n por prioridad).
     ///   2) <c>area_revisores</c>: n revisores por área, por prioridad, partiendo del
     ///      nodo area_scope del trabajador (workers.area_scope_id) y subiendo por el
     ///      árbol hasta el primer nodo con revisores (los revisores se configuran solo
@@ -47,7 +48,7 @@ namespace Abril_Backend.Shared.Services.Revisores.Services
 
             using var ctx = _factory.CreateDbContext();
 
-            // ── Paso 1: revisor directo (workers_revisores) ────────────────────────
+            // ── Paso 1: jefe personalizado (workers_revisores) ─────────────────────
             var directos = await (
                 from r in ctx.WorkersRevisores.AsNoTracking()
                 where r.State && r.Active && ids.Contains(r.SolicitanteId)

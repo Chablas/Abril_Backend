@@ -385,6 +385,9 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoCorreoConfig>  SsDescansoCorreoConfig    => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoCorreoConfig>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoTipo>          SsEmoCorreoTipo           => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoTipo>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoDestinatario>  SsEmoCorreoDestinatario   => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoDestinatario>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoEvento>        SsEmoCorreoEvento         => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoEvento>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoPerfil>        SsEmoCorreoPerfil         => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoPerfil>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoRegla>         SsEmoCorreoRegla          => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoRegla>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsTopicoEvolucion>        SsTopicoEvolucion         => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsTopicoEvolucion>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocial>            SsCasoSocial            => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocial>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocialSeguimiento> SsCasoSocialSeguimiento => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsCasoSocialSeguimiento>();
@@ -457,6 +460,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal> GthRequerimientoCanal => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthRequerimientoCanal>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEstado> GthCandidatoEstado => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEstado>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato> GthCandidato => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>();
+        // Programación de entrevistas (fecha/hora/lugar por candidato) + catálogo de lugares.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthLugarEntrevista> GthLugarEntrevista => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthLugarEntrevista>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEntrevista> GthEntrevista => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEntrevista>();
+        // Evaluación de la entrevista (puntajes + comentarios del informe de finalista) + catálogo de resultados.
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoResultado> GthCandidatoResultado => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoResultado>();
+        public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEvaluacion> GthCandidatoEvaluacion => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEvaluacion>();
         // Formulario de información del postulante (público por token) + sus catálogos.
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPostulanteFormulario> GthPostulanteFormulario => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPostulanteFormulario>();
         public DbSet<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPostulanteFormularioEstado> GthPostulanteFormularioEstado => Set<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPostulanteFormularioEstado>();
@@ -1353,6 +1362,44 @@ namespace Abril_Backend.Infrastructure.Data
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCanalPublicacion>()
                  .WithMany()
                  .HasForeignKey(c => c.GthCanalPublicacionId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── Gestión GTH · Programación de entrevistas ────────────────────────
+            // Lugar de entrevista: un solo registro "vivo" (state = true) por nombre.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthLugarEntrevista>()
+                .HasIndex(l => l.Nombre).IsUnique().HasFilter("state = true");
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthEntrevista>(e =>
+            {
+                // Una sola entrevista vigente por candidato: reprogramar actualiza esa fila.
+                e.HasIndex(x => x.GthCandidatoId).IsUnique().HasFilter("state = true");
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>()
+                 .WithMany()
+                 .HasForeignKey(x => x.GthCandidatoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthLugarEntrevista>()
+                 .WithMany()
+                 .HasForeignKey(x => x.GthLugarEntrevistaId)
+                 .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── Gestión GTH · Evaluación de la entrevista (finalistas) ──────────
+            // Catálogo del resultado: un solo registro "vivo" (state = true) por código.
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoResultado>()
+                .HasIndex(r => r.Codigo).IsUnique().HasFilter("state = true");
+
+            modelBuilder.Entity<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoEvaluacion>(e =>
+            {
+                // Una sola evaluación vigente por candidato: volver a guardar actualiza esa fila.
+                e.HasIndex(x => x.GthCandidatoId).IsUnique().HasFilter("state = true");
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidato>()
+                 .WithMany()
+                 .HasForeignKey(x => x.GthCandidatoId)
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthCandidatoResultado>()
+                 .WithMany()
+                 .HasForeignKey(x => x.GthCandidatoResultadoId)
                  .OnDelete(DeleteBehavior.Restrict);
             });
 

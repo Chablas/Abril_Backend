@@ -48,10 +48,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Canales de publicación con su estado de publicación para este requerimiento.</summary>
         public List<CanalPublicacionDto> Canales { get; set; } = new();
 
+        /// <summary>Lugares donde se puede citar al candidato (desplegable de programación de entrevistas).</summary>
+        public List<OpcionDto> LugaresEntrevista { get; set; } = new();
+
         /// <summary>
         /// Candidatos APROBADOS por el solicitante (solo relevante cuando el requerimiento ya está
         /// en LONG_LIST_APROBADA). Alimentan la vista de GTH "Long list aprobada": formulario del
-        /// postulante, plantilla del proceso y control del Multitest. Vacío en fases anteriores.
+        /// postulante y control del Multitest, y luego la programación de entrevistas. Vacío en
+        /// fases anteriores.
         /// </summary>
         public List<CandidatoAprobadoDto> CandidatosAprobados { get; set; } = new();
     }
@@ -65,6 +69,25 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Estado del formulario de información del postulante de este candidato (null si GTH aún no lo envió).</summary>
         public CandidatoFormularioResumenDto? Formulario { get; set; }
+
+        /// <summary>true si GTH ya marcó el check informativo del Multitest de este candidato.</summary>
+        public bool MultitestRealizado { get; set; }
+
+        /// <summary>
+        /// Correo del postulante al que se enviará la invitación a la entrevista: el que declaró en
+        /// el formulario y, si no lo declaró, aquel al que GTH le envió el enlace. Null si aún no
+        /// hay formulario.
+        /// </summary>
+        public string? CorreoContacto { get; set; }
+
+        /// <summary>Entrevista programada de este candidato (null si aún no se programó).</summary>
+        public EntrevistaResumenDto? Entrevista { get; set; }
+
+        /// <summary>
+        /// Evaluación de la entrevista (puntajes, comentarios del informe y resultado). Null
+        /// mientras GTH no registre nada ni envíe el correo de agradecimiento.
+        /// </summary>
+        public EvaluacionResumenDto? Evaluacion { get; set; }
     }
 
     /// <summary>Asignación interna de GTH de un requerimiento (todas opcionales/null = sin asignar).</summary>
@@ -105,14 +128,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public int CuposDisponibles { get; set; }
     }
 
-    /// <summary>Canal de publicación de vacantes y su estado para el requerimiento consultado.</summary>
+    /// <summary>
+    /// Canal de publicación de vacantes y su estado para el requerimiento consultado. No hay
+    /// integración con las APIs de los portales: marcar el canal solo deja registro de dónde se
+    /// publicó, la publicación siempre la hace GTH manualmente.
+    /// </summary>
     public class CanalPublicacionDto
     {
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
-
-        /// <summary>true = API disponible · publicación automática; false = registrar publicación manual.</summary>
-        public bool ApiDisponible { get; set; }
 
         /// <summary>true = la vacante ya está registrada como publicada en este canal.</summary>
         public bool Publicado { get; set; }

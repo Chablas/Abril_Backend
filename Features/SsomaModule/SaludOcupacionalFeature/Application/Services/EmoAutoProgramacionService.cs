@@ -1,6 +1,6 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configuracion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
-using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
@@ -16,20 +16,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
-        private readonly IEmoCorreoConfigRepository _correoConfig;
+        private readonly IEmoDestinatariosResolver _destinatarios;
         private readonly ILogger<EmoAutoProgramacionService> _logger;
 
         public EmoAutoProgramacionService(
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
             IConfiguration configuration,
-            IEmoCorreoConfigRepository correoConfig,
+            IEmoDestinatariosResolver destinatarios,
             ILogger<EmoAutoProgramacionService> logger)
         {
             _factory = factory;
             _emailService = emailService;
             _configuration = configuration;
-            _correoConfig = correoConfig;
+            _destinatarios = destinatarios;
             _logger = logger;
         }
 
@@ -102,7 +102,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             var existentesSet = new HashSet<(int, int)>(
                 programacionesExistentes.Select(p => (p.WorkerId, p.TipoEmoId)));
 
-            var programados = new List<(string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)>();
+            var programados = new List<(int WorkerId, string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)>();
 
             foreach (var c in candidatos)
             {
@@ -144,6 +144,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     await ctx.SaveChangesAsync();
 
                     programados.Add((
+                        c.Worker.Id,
                         c.WorkerNombre ?? $"Worker {c.Worker.Id}",
                         c.ContribNombre,
                         c.ProyectoNombre,
@@ -169,47 +170,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         private async Task EnviarResumenClinicaAsync(
             AppDbContext ctx,
-            List<(string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)> programados)
+            List<(int WorkerId, string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)> programados)
         {
             try
             {
                 const int clinicaId = 1;
 
-                // Mismos destinatarios configurables que la programación manual
-                // (Configuración de EMOs → Correos de programación).
-                var correoCfg = await _correoConfig.GetEnvioConfigAsync();
+                // Destinatarios según la matriz de Configuración de EMOs → sección
+                // "Programación automática". Como el resumen agrupa a varios trabajadores,
+                // se manda a la unión de lo que le corresponde a cada uno según su perfil.
+                var destinatarios = await _destinatarios.ResolverLoteAsync(
+                    EmoCorreoEventoCodigo.ProgramacionAutomatica,
+                    programados.Select(p => p.WorkerId).ToList(),
+                    clinicaId);
 
-                var toRaw = new List<string?>();
-
-                if (correoCfg.IncluirClinica)
-                {
-                    toRaw = await ctx.SsClinicaEmail.AsNoTracking()
-                        .Where(e => e.ClinicaId == clinicaId && e.Activo)
-                        .Select(e => e.Email)
-                        .ToListAsync();
-
-                    if (toRaw.Count == 0)
-                    {
-                        var clinica = await ctx.SsClinica.AsNoTracking()
-                            .FirstOrDefaultAsync(c => c.Id == clinicaId);
-                        if (clinica?.Email is not null)
-                            toRaw.Add(clinica.Email);
-                    }
-                }
-
-                toRaw.AddRange(correoCfg.Principales);
-
-                var to = toRaw
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(e => e!.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                var cc = correoCfg.Copias
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(e => e.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                var to = destinatarios.Para.Select(d => d.Email).ToList();
+                var cc = destinatarios.Copias.Select(d => d.Email).ToList();
 
                 // Sin destinatarios principales activos no se envía nada — es la forma
                 // de silenciar el resumen desde la pantalla de Configuración de EMOs.

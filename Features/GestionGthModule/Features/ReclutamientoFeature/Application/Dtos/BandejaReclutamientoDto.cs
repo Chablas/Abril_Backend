@@ -1,13 +1,19 @@
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Application.Dtos
 {
     /// <summary>
-    /// Datos de la vista de GTH ("Reclutamiento"): tarjetas de resumen + tabla de solicitudes de
-    /// contratación de toda la organización, servidos en una sola petición. Por ahora solo trae la
-    /// tarjeta "En proceso" y la tabla; las demás tarjetas y acciones se agregarán después.
+    /// Datos de la vista de GTH ("Reclutamiento"): tarjetas de resumen, embudo del pipeline y tabla
+    /// de solicitudes de contratación de toda la organización, servidos en una sola petición.
     /// </summary>
     public class BandejaReclutamientoDto
     {
         public ResumenReclutamientoDto Resumen { get; set; } = new();
+
+        /// <summary>
+        /// Embudo "Pipeline de reclutamiento": cuántos requerimientos vigentes hay parados en cada
+        /// etapa, en orden. Cada fase del catálogo pertenece a exactamente una etapa, así que la
+        /// suma de las etapas es el total de requerimientos vigentes.
+        /// </summary>
+        public List<PipelineEtapaDto> Pipeline { get; set; } = new();
 
         /// <summary>Filas de la tabla "Solicitudes de contratación" (un requerimiento por fila), más recientes primero.</summary>
         public List<RequerimientoGthListItemDto> Solicitudes { get; set; } = new();
@@ -19,8 +25,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// <summary>Contadores de las tarjetas de resumen de la vista de GTH.</summary>
     public class ResumenReclutamientoDto
     {
-        /// <summary>Requerimientos activos actualmente (en curso dentro del pipeline).</summary>
+        /// <summary>"En proceso · Activos actualmente": requerimientos vigentes que aún no se cierran.</summary>
         public int EnProceso { get; set; }
+
+        /// <summary>"Vacantes abiertas · Publicadas": ya publicadas en canales y todavía sin cerrar.</summary>
+        public int VacantesAbiertas { get; set; }
+
+        /// <summary>"Evaluaciones · Programadas": entrevistas agendadas cuyo resultado GTH aún no cierra.</summary>
+        public int EvaluacionesProgramadas { get; set; }
+
+        /// <summary>"Procesos cerrados · Este período": requerimientos cerrados en el año en curso.</summary>
+        public int ProcesosCerrados { get; set; }
+
+        /// <summary>
+        /// Solicitudes de vacante recién llegadas de jefatura (fase inicial, GTH todavía no las tomó).
+        /// Alimenta el aviso "N solicitudes de vacante nuevas de jefatura".
+        /// </summary>
+        public int SolicitudesNuevas { get; set; }
+    }
+
+    /// <summary>Una etapa del embudo "Pipeline de reclutamiento" con su conteo.</summary>
+    public class PipelineEtapaDto
+    {
+        /// <summary>Código estable de la etapa (para lógica de front).</summary>
+        public string Codigo { get; set; } = string.Empty;
+
+        /// <summary>Nombre corto mostrado bajo el círculo (Solicitud, Publicado, …).</summary>
+        public string Nombre { get; set; } = string.Empty;
+
+        /// <summary>Requerimientos vigentes parados en esta etapa.</summary>
+        public int Total { get; set; }
     }
 
     /// <summary>

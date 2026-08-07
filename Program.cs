@@ -236,11 +236,15 @@ builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>
 // de lecciones aprendidas vía PowerAutomate). Lo implementa GraphUserService.
 builder.Services.AddScoped<IEmailGroupResolver, GraphUserService>();
 
-// Jefe/revisor de un trabajador según la configuración global de revisores
-// (/configuracion/revisor-salidas y /configuracion/revisores-areas): revisor directo →
-// revisor del área → fallback GTH. Registrado globalmente porque lo usan Gestión
-// Administrativa (aprobación de salidas) y SSOMA · Salud Ocupacional (correos de EMO).
+// Jefe/revisor de un trabajador: jefe personalizado (checkbox del formulario de trabajadores)
+// → revisor del área (/configuracion/revisores-areas) → fallback GTH. Registrado globalmente
+// porque lo usan Gestión Administrativa (aprobación de salidas) y SSOMA · Salud Ocupacional
+// (correos de EMO e interconsultas).
 builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
+
+// Escritura del jefe personalizado (workers_revisores) desde el formulario de trabajadores,
+// más el catálogo de jefes candidatos que alimenta su desplegable.
+builder.Services.AddScoped<IJefePersonalizadoService, JefePersonalizadoService>();
 
 // Equivalencia legacy (workers.area/subarea/jefatura) de un nodo del árbol area_scope. Lo usan el
 // formulario de trabajadores al guardar (manda el nodo, el backend deriva los textos) y el endpoint

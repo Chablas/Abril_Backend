@@ -97,6 +97,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController.GetResumen"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>
+        /// Vista previa de a quién le llegan los DOS correos del flujo, según la Configuración
+        /// de EMOs: el de la programación manual (al guardar) y el de la programación aceptada
+        /// por la clínica (después, si la clínica acepta). La usa el modal "Programar EMO con
+        /// clínica" para mostrarlos antes de guardar. Se vuelve a pedir al cambiar de clínica
+        /// porque los correos de contacto dependen de ella.
+        /// </summary>
+        [HttpGet("destinatarios")]
+        public async Task<IActionResult> GetDestinatarios([FromQuery] int workerId, [FromQuery] int? clinicaId)
+        {
+            try { return Ok(await _service.GetDestinatarios(workerId, clinicaId)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en ProgramacionEmoController.GetDestinatarios"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("habilitacion")]
         public async Task<IActionResult> GetHabilitacion(
             [FromQuery] string? estado,

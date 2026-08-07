@@ -4,22 +4,32 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interface
 {
     public interface IEmoCorreoConfigRepository
     {
-        /// <summary>Ambas listas (Para y CC) en un solo roundtrip, para la pantalla de configuración.</summary>
+        /// <summary>
+        /// Toda la matriz (perfiles + los 4 correos con sus destinatarios y celdas) en un
+        /// solo roundtrip, para la pantalla de Configuración de EMOs.
+        /// </summary>
         Task<EmoCorreosConfigDto> GetConfigAsync();
 
-        Task<int> CreateAsync(string tipoCodigo, string email, string? nombre);
+        /// <summary>
+        /// Da de alta un correo adicional y le crea sus celdas en los 4 correos × 4 perfiles.
+        /// Nace activo únicamente en los 4 perfiles del correo desde el que se agregó.
+        /// </summary>
+        Task<int> CreateAdicionalAsync(string eventoCodigo, string tipoCodigo, string email, string? nombre);
 
-        Task UpdateAsync(int id, string email, string? nombre);
+        /// <summary>Cambia el correo/nombre de un buzón de área o de un correo adicional.</summary>
+        Task UpdateDestinatarioAsync(int id, string email, string? nombre, string? tipoCodigo);
 
-        Task SetActiveAsync(int id, bool active);
+        /// <summary>Prende o apaga una celda de la matriz.</summary>
+        Task SetReglaActiveAsync(int reglaId, bool active);
 
-        /// <summary>Soft delete (state = false). No aplica a los destinatarios fijos.</summary>
-        Task DeleteAsync(int id);
+        /// <summary>Soft delete de un correo adicional y de sus celdas. No aplica al catálogo.</summary>
+        Task DeleteAdicionalAsync(int id);
 
         /// <summary>
-        /// Configuración resuelta para el envío de correos de programación de EMO.
-        /// La consumen la programación manual y la automática.
+        /// Celdas activas de un correo, aplanadas para el envío. Las consumen la
+        /// programación (manual y automática) y las notificaciones de la clínica a
+        /// través de <c>EmoDestinatariosResolver</c>.
         /// </summary>
-        Task<EmoCorreoEnvioConfigDto> GetEnvioConfigAsync();
+        Task<List<EmoCorreoReglaEnvioDto>> GetReglasEnvioAsync(string eventoCodigo);
     }
 }

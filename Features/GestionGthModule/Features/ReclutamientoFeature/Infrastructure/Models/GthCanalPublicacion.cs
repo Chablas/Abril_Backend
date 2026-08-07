@@ -1,9 +1,9 @@
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models
 {
     /// <summary>
-    /// Catálogo de canales donde se publica una vacante (tabla <c>gth_canal_publicacion</c>).
-    /// Valores iniciales: Bumeran (API disponible · publicación automática), LinkedIn y
-    /// Computrabajo (API no disponible · registro de publicación manual).
+    /// Catálogo de canales donde se publica una vacante (tabla <c>gth_canal_publicacion</c>):
+    /// Bumeran, LinkedIn y Computrabajo. No hay integración con las APIs de los portales — GTH
+    /// publica manualmente y en Abril One solo marca en qué canales lo hizo.
     /// </summary>
     public class GthCanalPublicacion
     {
@@ -11,7 +11,10 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string Codigo { get; set; } = null!;
         public string Nombre { get; set; } = null!;
 
-        /// <summary>true = el canal tiene API y la publicación es automática; false = registro manual.</summary>
+        /// <summary>
+        /// OBSOLETO: se descartó integrar las APIs de los portales, así que ya no se sirve al
+        /// frontend. La columna se conserva por auditoría; no usarla para decidir comportamiento.
+        /// </summary>
         public bool ApiDisponible { get; set; }
 
         public int Orden { get; set; }

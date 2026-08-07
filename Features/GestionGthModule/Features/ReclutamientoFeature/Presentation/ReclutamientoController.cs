@@ -325,6 +325,180 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         }
 
         /// <summary>
+        /// Vista de GTH: marca/desmarca el check informativo del Multitest de un candidato aprobado.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPatch("candidato/{candidatoId:int}/multitest")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> SetMultitest(int candidatoId, [FromBody] MultitestUpdateDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                await _service.SetMultitest(candidatoId, dto, userId);
+                return Ok(new { message = dto.Realizado ? "Multitest marcado como realizado." : "Multitest marcado como pendiente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.SetMultitest");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista de GTH: continúa a la programación de entrevistas — avanza el requerimiento de
+        /// LONG_LIST_APROBADA a ENTREVISTAS. Devuelve el estado resultante.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPatch("requerimiento/{id:int}/continuar-entrevistas")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> ContinuarAEntrevistas(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                var estado = await _service.ContinuarAEntrevistas(id, userId);
+                return Ok(new { message = "Programación de entrevistas habilitada.", estado.EstadoCodigo, estado.EstadoNombre });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.ContinuarAEntrevistas");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista de GTH: programa (o reprograma) la entrevista de un candidato y le envía la
+        /// invitación al correo que declaró en su formulario del postulante.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPost("candidato/{candidatoId:int}/entrevista")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> GuardarEntrevista(int candidatoId, [FromBody] EntrevistaGuardarDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                return Ok(await _service.GuardarEntrevista(candidatoId, dto, userId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.GuardarEntrevista");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista de GTH: guarda la evaluación de la entrevista de un candidato (los cuatro puntajes
+        /// y los tres comentarios del informe que verá el área solicitante).
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPut("candidato/{candidatoId:int}/evaluacion")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> GuardarEvaluacion(int candidatoId, [FromBody] EvaluacionGuardarDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                return Ok(await _service.GuardarEvaluacion(candidatoId, dto, userId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.GuardarEvaluacion");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista de GTH: envía al candidato el correo de agradecimiento por no continuar en el
+        /// proceso y deja su resultado en NO_PASO.
+        /// </summary>
+        /// <remarks>Acceso por feature: los roles con <c>gestion-gth.reclutamiento</c> en role_feature.</remarks>
+        [HttpPost("candidato/{candidatoId:int}/agradecimiento")]
+        [RequireFeature("gestion-gth.reclutamiento")]
+        public async Task<IActionResult> EnviarAgradecimiento(int candidatoId)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                return Ok(await _service.EnviarAgradecimiento(candidatoId, userId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.EnviarAgradecimiento");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Informe de finalistas de un requerimiento del solicitante (modal "Finalistas enviados por
+        /// GTH"): cabecera + finalistas con sus puntajes, comentarios y CV, en una sola petición.
+        /// </summary>
+        [HttpGet("requerimiento/{id:int}/finalistas/revision")]
+        public async Task<IActionResult> GetRevisionFinalistas(int id)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                return Ok(await _service.GetRevisionFinalistas(id, userId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.GetRevisionFinalistas");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Vista del solicitante: registra su decisión final sobre un finalista. Aprobar cierra el
+        /// proceso de reclutamiento (el seleccionado pasa a onboarding); rechazar le envía el correo
+        /// de agradecimiento y, si ya no queda ningún finalista, devuelve el requerimiento a
+        /// LONG_LIST para que GTH envíe una nueva long list. En ambos casos se notifica a GTH.
+        /// </summary>
+        [HttpPost("requerimiento/{id:int}/finalistas/decision")]
+        public async Task<IActionResult> RegistrarDecisionFinalista(int id, [FromBody] FinalistaDecisionDto dto)
+        {
+            try
+            {
+                var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
+                return Ok(await _service.RegistrarDecisionFinalista(id, dto, userId));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en ReclutamientoController.RegistrarDecisionFinalista");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
         /// Vista de GTH: envía la long list al solicitante. Multipart: <c>data</c> = JSON con los
         /// candidatos (nombre, fuente, comentario y las claves de sus archivos); los CVs e informes
         /// viajan como form files con esas claves (ej. <c>cv_0</c>, <c>informe_0</c>). Envía el correo
@@ -364,16 +538,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                     var candidato = new LongListCandidatoArchivoDto
                     {
-                        Nombre           = m.Nombre,
-                        Puesto           = m.Puesto,
-                        ExperienciaAnios = m.ExperienciaAnios,
-                        Disponibilidad   = m.Disponibilidad,
-                        FuenteCanalId    = m.FuenteCanalId,
-                        FuenteNombre     = m.FuenteNombre,
-                        Comentario       = m.Comentario,
-                        CvFileName       = cv.FileName,
-                        CvContentType    = cv.ContentType ?? "application/octet-stream",
-                        CvContent        = await ToBytesAsync(cv),
+                        Nombre        = m.Nombre,
+                        Comentario    = m.Comentario,
+                        CvFileName    = cv.FileName,
+                        CvContentType = cv.ContentType ?? "application/octet-stream",
+                        CvContent     = await ToBytesAsync(cv),
                     };
 
                     var informe = string.IsNullOrWhiteSpace(m.InformeKey) ? null : Request.Form.Files[m.InformeKey];

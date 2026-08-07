@@ -40,5 +40,13 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? Notas { get; set; }
         public int? PuntosInfraccion { get; set; }
         public int? AniosExperiencia { get; set; }
+        /// <summary>
+        /// Jefe elegido a mano para este trabajador (<c>workers_revisores</c>), que se sobrepone al
+        /// revisor de su área. Null = no tiene y le corresponde el revisor del área. Es lo que
+        /// precarga el checkbox "Jefe personalizado" del formulario.
+        /// </summary>
+        public int? JefePersonalizadoWorkerId { get; set; }
+        public string? JefePersonalizadoNombre { get; set; }
+        public string? JefePersonalizadoEmail { get; set; }
     }
 }

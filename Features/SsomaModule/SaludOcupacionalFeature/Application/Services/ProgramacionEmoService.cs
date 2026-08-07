@@ -69,5 +69,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<ProgramacionResumenDto> GetResumen(ProgramacionFilterDto filter)
             => _repo.GetResumen(filter);
+
+        public Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId)
+            => _repo.GetDestinatarios(workerId, clinicaId);
     }
 }

@@ -42,5 +42,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         /// </summary>
         public string? TipoDocumento { get; set; }
         public int? AniosExperiencia { get; set; }
+        /// <summary>
+        /// true = el formulario gestiona el jefe del trabajador y <see cref="JefePersonalizadoWorkerId"/>
+        /// manda: se guarda ese jefe personalizado o, si viene null, se quita el que tuviera para que
+        /// vuelva a depender del revisor de su área. false (por defecto) = el formulario no muestra el
+        /// campo (obreros y contratistas) y no se toca lo que ya estuviera guardado.
+        /// </summary>
+        public bool GestionaJefe { get; set; } = false;
+        /// <summary>Jefe elegido a mano (workers.id), que se sobrepone al revisor del área.</summary>
+        public int? JefePersonalizadoWorkerId { get; set; }
     }
 }

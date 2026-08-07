@@ -5573,3 +5573,27 @@ Probado en vivo por el usuario: el backend devolvía URL de éxito, pero la URL 
 - `rac-nuevo.ts` / parámetro `estado` no bindeado en `GetPaged` — bug análogo al de `active`, no corregido a propósito.
 - Falta el frontend de Carga Diaria y de gestión de Bloqueos (Antigravity).
 - Drift de migración ajeno (`cat_jefatura`, etc., ver sesión anterior) sigue sin resolver.
+
+## Sesión 2026-08-07 — Fix IES (ranking Arquitectura Comercial)
+
+### Contexto
+El ranking de eficiencia (IES) de supervisores en el dashboard de Arquitectura Comercial mostraba números confusos: supervisores con 100% de tareas culminadas (12/12, 4/4, 6/6) no llegaban a 100% de IES. Se identificó que el componente SPI del IES exigía un ritmo de 1.5x (50% adelantado sobre el plan) para dar el máximo puntaje — un umbral irreal, casi nadie llega a SPI 1.5 sostenido.
+
+### Cambio
+`Infrastructure/Repositories/ArquitecturaComercialRepository.cs:1513`, método `GetDashboardDataFiltrado`:
+```csharp
+var compSpi = Math.Min(spiPromedio / 1.0, 1.0) * 100;  // antes: / 1.5
+```
+Ahora SPI=1.0 (a tiempo, sin adelanto) ya da el 100% de ese componente. Sesión anterior (misma fecha) ya había quitado la penalización por mora del 10% del IES — ambos cambios en el mismo archivo/método.
+
+Fórmula final del IES:
+```
+IES = (SPI*0.35 + Cierre*0.35 + Puntualidad*0.20) / 0.90
+```
+donde `compSpi = min(spiPromedio, 1.0) * 100`.
+
+### Verificado
+Confirmado en vivo (frontend) que el detalle semanal del ranking ("ver cuáles", agregado en `Abril-Frontend` la misma sesión) coincide con el conteo del IES — ej. Carbajal 3/5 mostró exactamente 3 Culminado + 2 no culminadas en el modal filtrado a la semana en control.
+
+### Pendiente
+Nada pendiente de este cambio puntual. Build local limpio (`dotnet build`, 0 errores).

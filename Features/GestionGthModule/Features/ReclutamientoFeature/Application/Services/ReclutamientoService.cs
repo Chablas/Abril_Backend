@@ -207,6 +207,81 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public Task<EstadoRequerimientoResultDto> IniciarRevisionCv(int requerimientoId, int? userId) =>
             _repo.IniciarRevisionCv(requerimientoId, userId);
 
+        // ── Multitest y programación de entrevistas ───────────────────────────
+        public Task SetMultitest(int candidatoId, MultitestUpdateDto dto, int? userId) =>
+            _repo.SetMultitest(candidatoId, dto?.Realizado ?? false, userId);
+
+        public Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId) =>
+            _repo.ContinuarAEntrevistas(requerimientoId, userId);
+
+        public async Task<EntrevistaAccionResultDto> GuardarEntrevista(
+            int candidatoId, EntrevistaGuardarDto dto, int? userId)
+        {
+            if (dto == null || dto.Fecha == default)
+                throw new AbrilException("Selecciona la fecha de la entrevista.", 400);
+            if (!TimeOnly.TryParseExact(dto.Hora ?? "", "HH:mm", out var hora))
+                throw new AbrilException("Selecciona la hora de la entrevista.", 400);
+            if (dto.LugarId <= 0)
+                throw new AbrilException("Selecciona el lugar de la entrevista.", 400);
+
+            var ctx = await _repo.GuardarEntrevista(candidatoId, dto.Fecha, hora, dto.LugarId, userId);
+
+            // El correo es best-effort: la entrevista ya quedó programada, así que un fallo del
+            // envío se informa en el mensaje en vez de tumbar la operación.
+            var message = $"Invitación enviada a {ctx.Resumen.CorreoEnvio}.";
+            try
+            {
+                await _email.SendAsync(
+                    to:      new List<string> { ctx.Resumen.CorreoEnvio },
+                    subject: $"Entrevista — {ctx.Puesto} · Abril Grupo Inmobiliario",
+                    body:    ConstruirCuerpoEntrevista(ctx),
+                    isHtml:  true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "No se pudo enviar la invitación a la entrevista del candidato {CandidatoId}", candidatoId);
+                message = "La entrevista quedó programada, pero no se pudo enviar la invitación por correo. Vuelve a intentarlo.";
+            }
+
+            return new EntrevistaAccionResultDto { Message = message, Entrevista = ctx.Resumen };
+        }
+
+        /// <summary>Correo genérico de citación a entrevista (fecha, hora y lugar de la cita).</summary>
+        private static string ConstruirCuerpoEntrevista(EntrevistaEnvioContextoDto ctx)
+        {
+            static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+            var nombre = string.IsNullOrWhiteSpace(ctx.CandidatoNombre) ? "postulante" : Esc(ctx.CandidatoNombre);
+            var fecha  = ctx.Resumen.Fecha.ToString("dd/MM/yyyy");
+
+            return $"""
+                <div style="font-family:Arial,sans-serif;max-width:640px">
+                  <div style="background:#005D9D;padding:14px 18px">
+                    <h2 style="color:#fff;margin:0;font-size:18px">Invitación a entrevista</h2>
+                  </div>
+                  <div style="padding:18px;border:1px solid #e5e7eb;border-top:none">
+                    <p style="font-size:13px;margin-top:0">Estimado(a) {nombre},</p>
+                    <p style="font-size:13px">
+                      Continuamos con tu proceso de selección en <b>Abril Grupo Inmobiliario</b> para la
+                      posición <b>{Esc(ctx.Puesto)}</b>. Te invitamos a la entrevista programada con los
+                      siguientes datos:
+                    </p>
+                    <table style="font-size:13px;border-collapse:collapse;margin:14px 0">
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Fecha</td><td style="padding:4px 0"><b>{fecha}</b></td></tr>
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Hora</td><td style="padding:4px 0"><b>{Esc(ctx.Resumen.Hora)}</b></td></tr>
+                      <tr><td style="padding:4px 14px 4px 0;color:#555">Lugar</td><td style="padding:4px 0"><b>{Esc(ctx.Resumen.LugarNombre)}</b></td></tr>
+                    </table>
+                    <p style="font-size:13px">
+                      Te pedimos llegar con 10 minutos de anticipación y traer tu documento de identidad.
+                      Si no pudieras asistir, responde este correo para reprogramar la cita.
+                    </p>
+                    <p style="font-size:11px;color:#888;margin-top:18px">
+                      Correo automático de Abril One · Gestión GTH · Reclutamiento · {Esc(ctx.Codigo)}.
+                    </p>
+                  </div>
+                </div>
+                """;
+        }
+
         // ── Envío de la long list al solicitante ──────────────────────────────
         // Topes de tamaño de la long list. Antes eran 20 MB (tanto el total como cada archivo); se
         // subieron a 3 GB para el total de la petición y a 3 GB para cada archivo individual. Los
@@ -324,16 +399,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
                 var item = new LongListCandidatoPersistDto
                 {
-                    Nombre           = c.Nombre,
-                    Puesto           = c.Puesto,
-                    ExperienciaAnios = c.ExperienciaAnios,
-                    Disponibilidad   = c.Disponibilidad,
-                    FuenteCanalId    = c.FuenteCanalId,
-                    Comentario       = c.Comentario,
-                    CvNombre         = cvSubida.FileName,
-                    CvUrl            = cvSubida.WebUrl,
-                    CvItemId         = cvSubida.ItemId,
-                    CvDriveId        = carpeta.DriveId,
+                    Nombre     = c.Nombre,
+                    Comentario = c.Comentario,
+                    CvNombre   = cvSubida.FileName,
+                    CvUrl      = cvSubida.WebUrl,
+                    CvItemId   = cvSubida.ItemId,
+                    CvDriveId  = carpeta.DriveId,
                 };
 
                 if (c.InformeContent != null && c.InformeContent.Length > 0)
@@ -429,14 +500,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 var c = candidatos[i];
                 var comentario = string.IsNullOrWhiteSpace(c.Comentario) ? "—" : Esc(c.Comentario);
-                var fuente     = string.IsNullOrWhiteSpace(c.FuenteNombre) ? "—" : Esc(c.FuenteNombre);
                 var nombre     = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {i + 1}" : Esc(c.Nombre);
                 var informe    = c.InformeContent != null && c.InformeContent.Length > 0 ? "Sí" : "No";
                 filas.Append($"""
                     <tr>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{i + 1}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:bold">{nombre}</td>
-                      <td style="padding:6px 10px;border:1px solid #e5e7eb">{fuente}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb">{comentario}</td>
                       <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{informe}</td>
                     </tr>
@@ -468,7 +537,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         <tr style="background:#f3f4f6">
                           <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">#</th>
                           <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Candidato</th>
-                          <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Fuente</th>
                           <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">Comentario de GTH</th>
                           <th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">Informe</th>
                         </tr>

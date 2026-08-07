@@ -56,12 +56,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     {
         public int CandidatoId { get; set; }
         public string Nombre { get; set; } = string.Empty;
-        public string? Puesto { get; set; }
-        public int? ExperienciaAnios { get; set; }
-        public string? Disponibilidad { get; set; }
 
-        /// <summary>Fuente de reclutamiento (nombre del canal). Null si no se indicó.</summary>
-        public string? FuenteNombre { get; set; }
+        /// <summary>Puesto del requerimiento (snapshot), no un dato capturado por candidato.</summary>
+        public string? Puesto { get; set; }
 
         public string? Comentario { get; set; }
 

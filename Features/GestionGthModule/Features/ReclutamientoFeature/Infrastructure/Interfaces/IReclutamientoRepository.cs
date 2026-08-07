@@ -117,6 +117,34 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<LongListDecisionContextoDto> RegistrarDecisionLongList(
             int requerimientoId, List<CandidatoDecisionDto> decisiones, int userId);
 
+        /// <summary>
+        /// Marca/desmarca el check informativo del Multitest de un candidato (con su trazabilidad).
+        /// Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el candidato
+        /// no existe.
+        /// </summary>
+        Task SetMultitest(int candidatoId, bool realizado, int? userId);
+
+        /// <summary>
+        /// Avanza el requerimiento de LONG_LIST_APROBADA a ENTREVISTAS. Valida los requisitos del
+        /// paso: Multitest marcado en todos los candidatos aprobados, todos sus formularios del
+        /// postulante ya revisados (aprobados o rechazados) y al menos uno aprobado. Idempotente si
+        /// ya está en Entrevistas o más adelante. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 400 si falta algún
+        /// requisito y 404 si el requerimiento no existe. Devuelve el estado resultante.
+        /// </summary>
+        Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId);
+
+        /// <summary>
+        /// Programa (o reprograma) la entrevista de un candidato con formulario APROBADO: crea o
+        /// actualiza su única fila vigente en <c>gth_entrevista</c> y resuelve el correo del
+        /// postulante al que se envía la invitación. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si el candidato no
+        /// existe y 400 si su formulario no está aprobado, si el lugar no es válido o si no tiene
+        /// correo. Devuelve el contexto para armar el correo.
+        /// </summary>
+        Task<EntrevistaEnvioContextoDto> GuardarEntrevista(
+            int candidatoId, DateOnly fecha, TimeOnly hora, int lugarId, int? userId);
+
         /// <summary>Destinatarios vigentes del correo del tipo indicado (SOLICITUD / LONG_LIST): principales + copias.</summary>
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
 

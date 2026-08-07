@@ -74,6 +74,22 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// </summary>
         Task<EstadoRequerimientoResultDto> EnviarLongList(int requerimientoId, List<LongListCandidatoArchivoDto> candidatos, int? userId);
 
+        /// <summary>Marca/desmarca el check informativo del Multitest de un candidato aprobado.</summary>
+        Task SetMultitest(int candidatoId, MultitestUpdateDto dto, int? userId);
+
+        /// <summary>
+        /// Avanza el requerimiento de LONG_LIST_APROBADA a ENTREVISTAS validando los requisitos del
+        /// paso (Multitest completo, formularios revisados y al menos uno aprobado).
+        /// </summary>
+        Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId);
+
+        /// <summary>
+        /// Programa (o reprograma) la entrevista de un candidato y le envía la invitación por correo.
+        /// El envío es best-effort: si el correo falla, la programación queda igual guardada y se
+        /// informa en el mensaje para que GTH reintente.
+        /// </summary>
+        Task<EntrevistaAccionResultDto> GuardarEntrevista(int candidatoId, EntrevistaGuardarDto dto, int? userId);
+
         /// <summary>Destinatarios configurados de un correo de reclutamiento (principales + copias) por tipo (SOLICITUD/LONG_LIST).</summary>
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
 

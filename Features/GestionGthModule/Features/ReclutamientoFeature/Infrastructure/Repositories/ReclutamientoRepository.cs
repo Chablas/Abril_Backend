@@ -16,6 +16,27 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             _factory = factory;
         }
 
+        /// <summary>Los timestamps se guardan en UTC y se sirven al frontend en hora de Perú.</summary>
+        private static readonly TimeSpan PeruOffset = TimeSpan.FromHours(-5);
+
+        /// <summary>
+        /// Fila cruda del formulario del postulante en el detalle de GTH. Es una clase con nombre
+        /// (y no un tipo anónimo) porque la consulta se saltea cuando no hay candidatos y ambas
+        /// ramas del condicional necesitan el mismo tipo de lista.
+        /// </summary>
+        private sealed class FormularioRawRow
+        {
+            public int GthCandidatoId { get; set; }
+            public string EstadoCodigo { get; set; } = string.Empty;
+            public string EstadoNombre { get; set; } = string.Empty;
+            public string CorreoEnvio { get; set; } = string.Empty;
+            public string? CorreoElectronico { get; set; }
+            public DateTimeOffset? EnviadoDateTime { get; set; }
+            public DateTimeOffset? CompletadoDateTime { get; set; }
+            public string? RevisadoNombre { get; set; }
+            public DateTimeOffset? RevisadoDateTime { get; set; }
+        }
+
         public async Task<ReclutamientoFormDataDto> GetFormData(int? userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -144,24 +165,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 from c in ctx.GthCandidato
                 where c.GthRequerimientoId == requerimientoId && c.State
                 join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
-                join canal in ctx.GthCanalPublicacion on c.GthCanalPublicacionId equals canal.GthCanalPublicacionId into canalJoin
-                from canal in canalJoin.DefaultIfEmpty()
                 orderby c.Orden, c.GthCandidatoId
                 select new CandidatoRevisionDto
                 {
-                    CandidatoId      = c.GthCandidatoId,
-                    Nombre           = c.Nombre,
-                    Puesto           = c.Puesto,
-                    ExperienciaAnios = c.ExperienciaAnios,
-                    Disponibilidad   = c.Disponibilidad,
-                    FuenteNombre     = canal != null ? canal.Nombre : null,
-                    Comentario       = c.Comentario,
-                    CvNombre         = c.CvNombre,
-                    CvUrl            = c.CvUrl,
-                    InformeNombre    = c.InformeNombre,
-                    InformeUrl       = c.InformeUrl,
-                    EstadoCodigo     = est.Codigo,
-                    EstadoNombre     = est.Nombre,
+                    CandidatoId   = c.GthCandidatoId,
+                    Nombre        = c.Nombre,
+                    Puesto        = c.Puesto,
+                    Comentario    = c.Comentario,
+                    CvNombre      = c.CvNombre,
+                    CvUrl         = c.CvUrl,
+                    InformeNombre = c.InformeNombre,
+                    InformeUrl    = c.InformeUrl,
+                    EstadoCodigo  = est.Codigo,
+                    EstadoNombre  = est.Nombre,
                 }).ToListAsync();
 
             return new RevisionLongListDto
@@ -471,9 +487,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .OrderBy(c => c.Orden)
                 .Select(c => new CanalPublicacionDto
                 {
-                    Id            = c.GthCanalPublicacionId,
-                    Nombre        = c.Nombre,
-                    ApiDisponible = c.ApiDisponible,
+                    Id     = c.GthCanalPublicacionId,
+                    Nombre = c.Nombre,
                 })
                 .ToListAsync();
 
@@ -497,6 +512,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     c.GthCandidatoId,
                     c.Nombre,
                     c.Puesto,
+                    c.MultitestRealizado,
                 }).ToListAsync();
 
             // Formulario del postulante de cada candidato aprobado (0..1 por candidato) para saber, por
@@ -506,41 +522,86 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // "fr != null ? fr.Campo : null"— y lanza "Nullable object must have a value" al iterar
             // cuando el candidato aún no tiene formulario. Se une en memoria por GthCandidatoId.
             var candidatoIds = candidatosAprobadosRaw.Select(x => x.GthCandidatoId).ToList();
-            var formulariosPorCandidato = candidatoIds.Count == 0
-                ? new Dictionary<int, CandidatoFormularioResumenDto>()
+            var formulariosRaw = candidatoIds.Count == 0
+                ? new List<FormularioRawRow>()
+                : await (
+                    from f in ctx.GthPostulanteFormulario
+                    where f.State && candidatoIds.Contains(f.GthCandidatoId)
+                    join fe in ctx.GthPostulanteFormularioEstado on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
+                    select new FormularioRawRow
+                    {
+                        GthCandidatoId     = f.GthCandidatoId,
+                        EstadoCodigo       = fe.Codigo,
+                        EstadoNombre       = fe.Nombre,
+                        CorreoEnvio        = f.CorreoEnvio,
+                        CorreoElectronico  = f.CorreoElectronico,
+                        EnviadoDateTime    = f.EnviadoDateTime,
+                        CompletadoDateTime = f.CompletadoDateTime,
+                        RevisadoNombre     = f.RevisadoNombre,
+                        RevisadoDateTime   = f.RevisadoDateTime,
+                    }).ToListAsync();
+
+            var formulariosPorCandidato = formulariosRaw.ToDictionary(x => x.GthCandidatoId, x => new CandidatoFormularioResumenDto
+            {
+                EstadoCodigo   = x.EstadoCodigo,
+                EstadoNombre   = x.EstadoNombre,
+                CorreoEnvio    = x.CorreoEnvio,
+                EnviadoEn      = x.EnviadoDateTime?.ToOffset(PeruOffset).DateTime,
+                CompletadoEn   = x.CompletadoDateTime?.ToOffset(PeruOffset).DateTime,
+                RevisadoNombre = x.RevisadoNombre,
+                RevisadoEn     = x.RevisadoDateTime?.ToOffset(PeruOffset).DateTime,
+            });
+
+            // Correo de contacto para la invitación a la entrevista: el que el postulante declaró
+            // en el formulario y, si no lo declaró, aquel al que GTH le envió el enlace.
+            var correosPorCandidato = formulariosRaw.ToDictionary(
+                x => x.GthCandidatoId,
+                x => string.IsNullOrWhiteSpace(x.CorreoElectronico) ? x.CorreoEnvio : x.CorreoElectronico!);
+
+            // Entrevista programada de cada candidato (0..1 vigente por candidato).
+            var entrevistasPorCandidato = candidatoIds.Count == 0
+                ? new Dictionary<int, EntrevistaResumenDto>()
                 : (await (
-                        from f in ctx.GthPostulanteFormulario
-                        where f.State && candidatoIds.Contains(f.GthCandidatoId)
-                        join fe in ctx.GthPostulanteFormularioEstado on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
+                        from en in ctx.GthEntrevista
+                        where en.State && candidatoIds.Contains(en.GthCandidatoId)
+                        join l in ctx.GthLugarEntrevista on en.GthLugarEntrevistaId equals l.GthLugarEntrevistaId
                         select new
                         {
-                            f.GthCandidatoId,
-                            EstadoCodigo = fe.Codigo,
-                            EstadoNombre = fe.Nombre,
-                            f.CorreoEnvio,
-                            f.EnviadoDateTime,
-                            f.CompletadoDateTime,
-                            f.RevisadoNombre,
-                            f.RevisadoDateTime,
+                            en.GthCandidatoId,
+                            en.Fecha,
+                            en.Hora,
+                            en.GthLugarEntrevistaId,
+                            LugarNombre = l.Nombre,
+                            en.CorreoEnvio,
+                            en.EnviadoDateTime,
                         }).ToListAsync())
-                    .ToDictionary(x => x.GthCandidatoId, x => new CandidatoFormularioResumenDto
+                    .ToDictionary(x => x.GthCandidatoId, x => new EntrevistaResumenDto
                     {
-                        EstadoCodigo   = x.EstadoCodigo,
-                        EstadoNombre   = x.EstadoNombre,
-                        CorreoEnvio    = x.CorreoEnvio,
-                        EnviadoEn      = x.EnviadoDateTime?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
-                        CompletadoEn   = x.CompletadoDateTime?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
-                        RevisadoNombre = x.RevisadoNombre,
-                        RevisadoEn     = x.RevisadoDateTime?.ToOffset(TimeSpan.FromHours(-5)).DateTime,
+                        Fecha       = x.Fecha,
+                        Hora        = x.Hora.ToString("HH\\:mm"),
+                        LugarId     = x.GthLugarEntrevistaId,
+                        LugarNombre = x.LugarNombre,
+                        CorreoEnvio = x.CorreoEnvio,
+                        EnviadoEn   = x.EnviadoDateTime?.ToOffset(PeruOffset).DateTime,
                     });
 
             var candidatosAprobados = candidatosAprobadosRaw.Select(x => new CandidatoAprobadoDto
             {
-                CandidatoId = x.GthCandidatoId,
-                Nombre      = x.Nombre,
-                Puesto      = x.Puesto,
-                Formulario  = formulariosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
+                CandidatoId        = x.GthCandidatoId,
+                Nombre             = x.Nombre,
+                Puesto             = x.Puesto,
+                Formulario         = formulariosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
+                MultitestRealizado = x.MultitestRealizado,
+                CorreoContacto     = correosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
+                Entrevista         = entrevistasPorCandidato.GetValueOrDefault(x.GthCandidatoId),
             }).ToList();
+
+            // Catálogo de lugares para el desplegable de programación de entrevistas.
+            var lugaresEntrevista = await ctx.GthLugarEntrevista
+                .Where(l => l.State && l.Active)
+                .OrderBy(l => l.Orden).ThenBy(l => l.Nombre)
+                .Select(l => new OpcionDto { Id = l.GthLugarEntrevistaId, Nombre = l.Nombre })
+                .ToListAsync();
 
             return new DetalleRequerimientoGthDto
             {
@@ -566,7 +627,185 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 Prioridades     = prioridades,
                 RazonesSociales     = razonesSociales,
                 Canales             = canales,
+                LugaresEntrevista   = lugaresEntrevista,
                 CandidatosAprobados = candidatosAprobados,
+            };
+        }
+
+        public async Task SetMultitest(int candidatoId, bool realizado, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var cand = await ctx.GthCandidato
+                .FirstOrDefaultAsync(c => c.GthCandidatoId == candidatoId && c.State);
+            if (cand == null)
+                throw new AbrilException("Candidato no encontrado.", 404);
+
+            var now = DateTimeOffset.UtcNow;
+            cand.MultitestRealizado = realizado;
+            cand.MultitestDateTime  = now;
+            cand.MultitestUserId    = userId;
+            cand.UpdatedDateTime    = now;
+            cand.UpdatedUserId      = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<EstadoRequerimientoResultDto> ContinuarAEntrevistas(int requerimientoId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var req = await ctx.GthRequerimiento
+                .FirstOrDefaultAsync(r => r.GthRequerimientoId == requerimientoId && r.State);
+            if (req == null)
+                throw new AbrilException("Requerimiento no encontrado.", 404);
+
+            var estados = await ctx.GthEstadoRequerimiento
+                .Where(e => e.State && (e.Codigo == EstadoReclutamiento.LongListAprobada
+                                        || e.Codigo == EstadoReclutamiento.Entrevistas
+                                        || e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId))
+                .ToListAsync();
+            var longListAprobada = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.LongListAprobada)
+                ?? throw new AbrilException("No está configurado el estado LONG_LIST_APROBADA de reclutamiento.", 500);
+            var entrevistas = estados.FirstOrDefault(e => e.Codigo == EstadoReclutamiento.Entrevistas)
+                ?? throw new AbrilException("No está configurado el estado ENTREVISTAS de reclutamiento.", 500);
+            var actual = estados.FirstOrDefault(e => e.GthEstadoRequerimientoId == req.GthEstadoRequerimientoId);
+
+            // Idempotente: si ya está en Entrevistas (o más adelante) no se retrocede ni se revalida.
+            if (actual != null && actual.Orden >= entrevistas.Orden)
+                return new EstadoRequerimientoResultDto { EstadoCodigo = actual.Codigo, EstadoNombre = actual.Nombre };
+
+            if (actual == null || actual.Orden < longListAprobada.Orden)
+                throw new AbrilException("El solicitante aún no aprobó la long list de este requerimiento.", 400);
+
+            // Requisitos para pasar a entrevistas (mismos que habilitan el botón en la vista de GTH):
+            // Multitest marcado en todos los candidatos aprobados, todos los formularios ya revisados
+            // (aprobados o rechazados) y al menos uno aprobado.
+            var candidatos = await (
+                from c in ctx.GthCandidato
+                where c.GthRequerimientoId == requerimientoId && c.State
+                join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+                where est.Codigo == EstadoCandidato.Aprobado
+                select new { c.GthCandidatoId, c.MultitestRealizado }).ToListAsync();
+
+            if (candidatos.Count == 0)
+                throw new AbrilException("No hay candidatos aprobados por el solicitante en este requerimiento.", 400);
+            if (candidatos.Any(c => !c.MultitestRealizado))
+                throw new AbrilException("Marca el Multitest de todos los candidatos antes de continuar.", 400);
+
+            // Estado del formulario de cada candidato (segundo roundtrip acotado: el left join
+            // encadenado formulario→estado no lo materializa bien EF Core, ver GetDetalleGth).
+            var idsCandidatos = candidatos.Select(c => c.GthCandidatoId).ToList();
+            var estadoFormPorCandidato = (await (
+                    from f in ctx.GthPostulanteFormulario
+                    where f.State && idsCandidatos.Contains(f.GthCandidatoId)
+                    join fe in ctx.GthPostulanteFormularioEstado on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
+                    select new { f.GthCandidatoId, fe.Codigo }).ToListAsync())
+                .ToDictionary(x => x.GthCandidatoId, x => x.Codigo);
+
+            var estadosForm = idsCandidatos.Select(id => estadoFormPorCandidato.GetValueOrDefault(id)).ToList();
+            if (estadosForm.Any(e => e != EstadoFormularioPostulante.Aprobado
+                                     && e != EstadoFormularioPostulante.Rechazado))
+                throw new AbrilException("Todos los formularios del postulante deben estar aprobados o rechazados antes de continuar.", 400);
+            if (!estadosForm.Any(e => e == EstadoFormularioPostulante.Aprobado))
+                throw new AbrilException("Se necesita al menos un formulario del postulante aprobado para programar entrevistas.", 400);
+
+            req.GthEstadoRequerimientoId = entrevistas.GthEstadoRequerimientoId;
+            req.UpdatedDateTime          = DateTimeOffset.UtcNow;
+            req.UpdatedUserId            = userId;
+            await ctx.SaveChangesAsync();
+
+            return new EstadoRequerimientoResultDto
+            {
+                EstadoCodigo = entrevistas.Codigo,
+                EstadoNombre = entrevistas.Nombre,
+            };
+        }
+
+        public async Task<EntrevistaEnvioContextoDto> GuardarEntrevista(
+            int candidatoId, DateOnly fecha, TimeOnly hora, int lugarId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Candidato + puesto/código del requerimiento.
+            var cand = await (
+                from c in ctx.GthCandidato
+                where c.GthCandidatoId == candidatoId && c.State
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                select new { c.Nombre, Puesto = p.Nombre, r.Codigo }).FirstOrDefaultAsync();
+            if (cand == null)
+                throw new AbrilException("Candidato no encontrado.", 404);
+
+            // Formulario del postulante (debe estar aprobado) y correo al que se cita.
+            var form = await (
+                from f in ctx.GthPostulanteFormulario
+                where f.GthCandidatoId == candidatoId && f.State
+                join fe in ctx.GthPostulanteFormularioEstado on f.GthPostulanteFormularioEstadoId equals fe.GthPostulanteFormularioEstadoId
+                select new { EstadoCodigo = fe.Codigo, f.CorreoElectronico, f.CorreoEnvio }).FirstOrDefaultAsync();
+
+            if (form?.EstadoCodigo != EstadoFormularioPostulante.Aprobado)
+                throw new AbrilException("Solo se programa entrevista a los candidatos con el formulario del postulante aprobado.", 400);
+
+            var correo = string.IsNullOrWhiteSpace(form.CorreoElectronico) ? form.CorreoEnvio : form.CorreoElectronico;
+            if (string.IsNullOrWhiteSpace(correo))
+                throw new AbrilException("El candidato no tiene un correo registrado al cual enviar la invitación.", 400);
+
+            var lugar = await ctx.GthLugarEntrevista
+                .FirstOrDefaultAsync(l => l.GthLugarEntrevistaId == lugarId && l.State && l.Active);
+            if (lugar == null)
+                throw new AbrilException("El lugar de entrevista seleccionado no es válido.", 400);
+
+            var now = DateTimeOffset.UtcNow;
+
+            // Una sola entrevista vigente por candidato: reprogramar actualiza esta misma fila.
+            var entrevista = await ctx.GthEntrevista
+                .FirstOrDefaultAsync(e => e.GthCandidatoId == candidatoId && e.State);
+            if (entrevista == null)
+            {
+                entrevista = new GthEntrevista
+                {
+                    GthCandidatoId       = candidatoId,
+                    Fecha                = fecha,
+                    Hora                 = hora,
+                    GthLugarEntrevistaId = lugarId,
+                    CorreoEnvio          = correo,
+                    EnviadoDateTime      = now,
+                    EnviadoUserId        = userId,
+                    CreatedDateTime      = now,
+                    CreatedUserId        = userId,
+                    Active               = true,
+                    State                = true,
+                };
+                ctx.GthEntrevista.Add(entrevista);
+            }
+            else
+            {
+                entrevista.Fecha                = fecha;
+                entrevista.Hora                 = hora;
+                entrevista.GthLugarEntrevistaId = lugarId;
+                entrevista.CorreoEnvio          = correo;
+                entrevista.EnviadoDateTime      = now;
+                entrevista.EnviadoUserId        = userId;
+                entrevista.UpdatedDateTime      = now;
+                entrevista.UpdatedUserId        = userId;
+            }
+
+            await ctx.SaveChangesAsync();
+
+            return new EntrevistaEnvioContextoDto
+            {
+                CandidatoNombre = cand.Nombre,
+                Puesto          = cand.Puesto,
+                Codigo          = cand.Codigo,
+                Resumen = new EntrevistaResumenDto
+                {
+                    Fecha       = fecha,
+                    Hora        = hora.ToString("HH\\:mm"),
+                    LugarId     = lugarId,
+                    LugarNombre = lugar.Nombre,
+                    CorreoEnvio = correo,
+                    EnviadoEn   = now.ToOffset(PeruOffset).DateTime,
+                },
             };
         }
 
@@ -826,19 +1065,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync()
                 ?? throw new AbrilException("No está configurado el estado PENDIENTE de candidatos.", 500);
 
-            // Validar las fuentes (canales) indicadas.
-            var canalIds = candidatos
-                .Where(c => c.FuenteCanalId.HasValue)
-                .Select(c => c.FuenteCanalId!.Value)
-                .Distinct()
-                .ToList();
-            if (canalIds.Count > 0)
-            {
-                var validos = await ctx.GthCanalPublicacion
-                    .CountAsync(c => canalIds.Contains(c.GthCanalPublicacionId) && c.State && c.Active);
-                if (validos != canalIds.Count)
-                    throw new AbrilException("Una o más fuentes de reclutamiento no son válidas.", 400);
-            }
+            // El puesto del candidato es siempre el del requerimiento (el que registró el
+            // solicitante): se guarda como snapshot para que la revisión no dependa del catálogo.
+            var puestoRequerimiento = await ctx.GthPuesto
+                .Where(p => p.GthPuestoId == req.GthPuestoId)
+                .Select(p => p.Nombre)
+                .FirstOrDefaultAsync();
 
             var now = DateTimeOffset.UtcNow;
 
@@ -859,27 +1091,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             {
                 ctx.GthCandidato.Add(new GthCandidato
                 {
-                    GthRequerimientoId    = requerimientoId,
-                    Nombre                = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {orden}" : c.Nombre.Trim(),
-                    Puesto                = string.IsNullOrWhiteSpace(c.Puesto) ? null : c.Puesto.Trim(),
-                    ExperienciaAnios      = c.ExperienciaAnios,
-                    Disponibilidad        = string.IsNullOrWhiteSpace(c.Disponibilidad) ? null : c.Disponibilidad.Trim(),
-                    GthCanalPublicacionId = c.FuenteCanalId,
-                    Comentario            = string.IsNullOrWhiteSpace(c.Comentario) ? null : c.Comentario.Trim(),
-                    CvNombre              = c.CvNombre,
-                    CvUrl                 = c.CvUrl,
-                    CvItemId              = c.CvItemId,
-                    CvDriveId             = c.CvDriveId,
-                    InformeNombre         = c.InformeNombre,
-                    InformeUrl            = c.InformeUrl,
-                    InformeItemId         = c.InformeItemId,
-                    InformeDriveId        = c.InformeDriveId,
-                    GthCandidatoEstadoId  = estadoPendienteId,
-                    Orden                 = orden,
-                    CreatedDateTime       = now,
-                    CreatedUserId         = userId,
-                    Active                = true,
-                    State                 = true,
+                    GthRequerimientoId   = requerimientoId,
+                    Nombre               = string.IsNullOrWhiteSpace(c.Nombre) ? $"Candidato {orden}" : c.Nombre.Trim(),
+                    Puesto               = puestoRequerimiento,
+                    Comentario           = string.IsNullOrWhiteSpace(c.Comentario) ? null : c.Comentario.Trim(),
+                    CvNombre             = c.CvNombre,
+                    CvUrl                = c.CvUrl,
+                    CvItemId             = c.CvItemId,
+                    CvDriveId            = c.CvDriveId,
+                    InformeNombre        = c.InformeNombre,
+                    InformeUrl           = c.InformeUrl,
+                    InformeItemId        = c.InformeItemId,
+                    InformeDriveId       = c.InformeDriveId,
+                    GthCandidatoEstadoId = estadoPendienteId,
+                    Orden                = orden,
+                    CreatedDateTime      = now,
+                    CreatedUserId        = userId,
+                    Active               = true,
+                    State                = true,
                 });
                 orden++;
             }
@@ -1216,6 +1445,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string LongList         = "LONG_LIST";
         public const string LongListEnviada  = "LONG_LIST_ENVIADA";
         public const string LongListAprobada = "LONG_LIST_APROBADA";
+        public const string Entrevistas      = "ENTREVISTAS";
     }
 
     /// <summary>Códigos estables de prioridad de reclutamiento (espejo de gth_prioridad.codigo).</summary>

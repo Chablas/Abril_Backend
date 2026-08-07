@@ -10,26 +10,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public List<LongListCandidatoMetaDto> Candidatos { get; set; } = new();
     }
 
-    /// <summary>Metadatos de un candidato de la long list (sin los binarios de los archivos).</summary>
+    /// <summary>
+    /// Metadatos de un candidato de la long list (sin los binarios de los archivos). El puesto no
+    /// viaja: es el del requerimiento (el que registró el solicitante) y lo resuelve el repositorio.
+    /// </summary>
     public class LongListCandidatoMetaDto
     {
         /// <summary>Nombre y apellido del candidato (lo captura/corrige GTH).</summary>
         public string? Nombre { get; set; }
-
-        /// <summary>Puesto detectado en el CV (texto libre). Null si no se determinó.</summary>
-        public string? Puesto { get; set; }
-
-        /// <summary>Tiempo de experiencia en años. Null si no se determinó.</summary>
-        public int? ExperienciaAnios { get; set; }
-
-        /// <summary>Disponibilidad del candidato (texto libre: "15 días", "Inmediata"…). Null si no se determinó.</summary>
-        public string? Disponibilidad { get; set; }
-
-        /// <summary>Id del canal de publicación usado como fuente de reclutamiento. Null si no se indicó.</summary>
-        public int? FuenteCanalId { get; set; }
-
-        /// <summary>Fuente de reclutamiento (nombre del canal), solo para mostrar en el correo.</summary>
-        public string? FuenteNombre { get; set; }
 
         /// <summary>Comentario interno de GTH sobre el candidato.</summary>
         public string? Comentario { get; set; }
@@ -48,11 +36,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class LongListCandidatoArchivoDto
     {
         public string? Nombre { get; set; }
-        public string? Puesto { get; set; }
-        public int? ExperienciaAnios { get; set; }
-        public string? Disponibilidad { get; set; }
-        public int? FuenteCanalId { get; set; }
-        public string? FuenteNombre { get; set; }
         public string? Comentario { get; set; }
 
         public string CvFileName { get; set; } = string.Empty;
@@ -72,10 +55,6 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     public class LongListCandidatoPersistDto
     {
         public string? Nombre { get; set; }
-        public string? Puesto { get; set; }
-        public int? ExperienciaAnios { get; set; }
-        public string? Disponibilidad { get; set; }
-        public int? FuenteCanalId { get; set; }
         public string? Comentario { get; set; }
 
         public string? CvNombre { get; set; }

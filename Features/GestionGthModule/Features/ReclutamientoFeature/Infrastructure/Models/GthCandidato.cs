@@ -2,11 +2,15 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 {
     /// <summary>
     /// Candidato de la long list de un requerimiento (tabla <c>gth_candidato</c>). GTH carga los
-    /// CVs previamente filtrados y, por cada uno, registra el nombre, el puesto detectado, el
-    /// tiempo de experiencia, la disponibilidad, la fuente de reclutamiento y un comentario
-    /// interno; el CV (y un informe opcional) se suben a SharePoint. Estos datos los llena hoy
-    /// GTH manualmente y en el futuro los prellenará una IA a partir del CV (con corrección
-    /// manual como respaldo). El solicitante los revisa desde su vista para aprobar/rechazar.
+    /// CVs previamente filtrados y, por cada uno, registra el nombre y un comentario interno; el
+    /// CV (y un informe opcional) se suben a SharePoint. El puesto no se captura: es el del
+    /// requerimiento y se guarda como snapshot. El solicitante los revisa desde su vista para
+    /// aprobar/rechazar.
+    ///
+    /// Las columnas <see cref="ExperienciaAnios"/>, <see cref="Disponibilidad"/> y
+    /// <see cref="GthCanalPublicacionId"/> quedaron OBSOLETAS: GTH pidió quitar esos campos de la
+    /// carga de CVs. Se conservan por auditoría de los registros antiguos, pero ya no se escriben
+    /// ni se sirven al frontend.
     /// </summary>
     public class GthCandidato
     {
@@ -18,16 +22,19 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         /// <summary>Nombre y apellido del candidato (lo captura/corrige GTH; a futuro lo prellena la IA).</summary>
         public string Nombre { get; set; } = null!;
 
-        /// <summary>Puesto detectado en el CV (texto libre; para que el solicitante lo vea en la revisión). Null si no se determinó.</summary>
+        /// <summary>
+        /// Puesto del requerimiento al momento de cargar la long list (snapshot, para que el
+        /// solicitante lo vea en la revisión). Ya no lo escribe GTH: se copia del requerimiento.
+        /// </summary>
         public string? Puesto { get; set; }
 
-        /// <summary>Tiempo de experiencia en años (preferiblemente). Null si no se determinó.</summary>
+        /// <summary>OBSOLETO (ver resumen de la clase): ya no se captura. Solo lectura histórica.</summary>
         public int? ExperienciaAnios { get; set; }
 
-        /// <summary>Disponibilidad declarada del candidato (texto libre: "15 días", "Inmediata"…). Null si no se determinó.</summary>
+        /// <summary>OBSOLETO (ver resumen de la clase): ya no se captura. Solo lectura histórica.</summary>
         public string? Disponibilidad { get; set; }
 
-        /// <summary>FK a <c>gth_canal_publicacion</c>: fuente de reclutamiento del candidato. Null si no se indicó.</summary>
+        /// <summary>OBSOLETO (ver resumen de la clase): la fuente de reclutamiento ya no se captura.</summary>
         public int? GthCanalPublicacionId { get; set; }
 
         /// <summary>Comentario interno de GTH sobre el candidato.</summary>
@@ -47,6 +54,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>FK a <c>gth_candidato_estado</c>: estado de revisión (PENDIENTE por defecto).</summary>
         public int GthCandidatoEstadoId { get; set; }
+
+        // ── Multitest (control informativo) ───────────────────────────────────
+        /// <summary>
+        /// true si GTH marcó que el candidato ya rindió el Multitest. La prueba se gestiona fuera
+        /// de la plataforma: este check es informativo y no cambia el flujo por sí solo (RG del
+        /// requerimiento funcional). Sí es requisito para habilitar el paso a entrevistas.
+        /// </summary>
+        public bool MultitestRealizado { get; set; }
+
+        /// <summary>Momento en que se marcó/desmarcó el Multitest.</summary>
+        public DateTimeOffset? MultitestDateTime { get; set; }
+
+        /// <summary>Usuario de GTH que marcó/desmarcó el Multitest.</summary>
+        public int? MultitestUserId { get; set; }
 
         /// <summary>Orden del candidato dentro de la long list (posición de carga).</summary>
         public int Orden { get; set; }

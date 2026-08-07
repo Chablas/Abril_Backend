@@ -34,5 +34,35 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
     {
         public List<ProgramacionDestinatarioDto> Para { get; set; } = new();
         public List<ProgramacionDestinatarioDto> Copias { get; set; } = new();
+
+        /// <summary>
+        /// La clínica es destinataria activa de este correo para el perfil del trabajador,
+        /// pero todavía no se sabe cuál es: la vista previa del modal se pide antes de
+        /// elegirla. Sus correos de contacto se suman a <see cref="Para"/> en cuanto el
+        /// usuario la elija (CLINICA es siempre destinatario principal en el catálogo).
+        ///
+        /// Sin este dato la vista previa afirmaba que el correo solo le llegaba al jefe,
+        /// cuando programar exige clínica y a la clínica siempre termina llegándole.
+        /// </summary>
+        public bool ClinicaPendiente { get; set; }
+
+        /// <summary>
+        /// La clínica es destinataria activa y ya está elegida, pero no tiene ni un correo
+        /// de contacto activo ni correo en su ficha: no le va a llegar nada.
+        /// </summary>
+        public bool ClinicaSinCorreos { get; set; }
+    }
+
+    /// <summary>
+    /// Vista previa del modal "Programar EMO con clínica". Programar dispara DOS correos
+    /// en momentos distintos y con destinatarios distintos según la Configuración de EMOs,
+    /// así que se muestran por separado para que el usuario no asuma que es el mismo:
+    ///   • <see cref="Manual"/>   — sale al guardar la cita (evento PROGRAMACION_MANUAL).
+    ///   • <see cref="Aceptada"/> — sale después, si la clínica acepta (evento ACEPTADA).
+    /// </summary>
+    public class ProgramacionDestinatariosPreviewDto
+    {
+        public ProgramacionDestinatariosDto Manual { get; set; } = new();
+        public ProgramacionDestinatariosDto Aceptada { get; set; } = new();
     }
 }

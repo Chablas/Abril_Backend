@@ -98,10 +98,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         }
 
         /// <summary>
-        /// Vista previa de a quién le llegaría el correo al programar el EMO (clínica de la cita +
-        /// jefe del trabajador + correos fijos, según la Configuración de EMOs). La usa el modal
-        /// "Programar EMO con clínica" para mostrarlo antes de guardar. Se vuelve a pedir al
-        /// cambiar de clínica porque los correos de contacto dependen de ella.
+        /// Vista previa de a quién le llegan los DOS correos del flujo, según la Configuración
+        /// de EMOs: el de la programación manual (al guardar) y el de la programación aceptada
+        /// por la clínica (después, si la clínica acepta). La usa el modal "Programar EMO con
+        /// clínica" para mostrarlos antes de guardar. Se vuelve a pedir al cambiar de clínica
+        /// porque los correos de contacto dependen de ella.
         /// </summary>
         [HttpGet("destinatarios")]
         public async Task<IActionResult> GetDestinatarios([FromQuery] int workerId, [FromQuery] int? clinicaId)

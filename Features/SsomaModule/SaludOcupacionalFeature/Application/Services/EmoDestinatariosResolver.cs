@@ -171,6 +171,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                 if (clinicaEmails.Count == 0 && !string.IsNullOrWhiteSpace(clinica?.Email))
                     clinicaEmails.Add(clinica!.Email!);
+
+                if (clinicaEmails.Count == 0)
+                    _logger.LogWarning(
+                        "Correo de EMO {Evento}: la clínica {ClinicaId} está activa como destinataria pero no tiene ningún correo de contacto.",
+                        eventoCodigo, clinicaId);
             }
 
             // GTH: siempre el correo del área de Gestión del Talento Humano, para que
@@ -222,6 +227,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
                 foreach (var regla in reglasPorPerfil[perfil])
                 {
+                    // La clínica es destinataria de este correo para el perfil de este
+                    // trabajador, pero su correo puede no poder resolverse todavía. Se
+                    // marca acá y no arriba con `codigosActivos` porque eso mira las
+                    // reglas de los cuatro perfiles juntos, no las del trabajador.
+                    if (string.Equals(regla.DestinatarioCodigo, EmoCorreoDestinatarioCodigo.Clinica,
+                                      StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (clinicaId is not > 0) resultado.ClinicaPendiente = true;
+                        else if (clinicaEmails.Count == 0) resultado.ClinicaSinCorreos = true;
+                    }
+
                     var destino = regla.EsCopia ? copias : para;
 
                     foreach (var (email, nombre) in ExpandirRegla(regla, w, jefes, clinicaEmails, clinicaNombre, gthEmail))

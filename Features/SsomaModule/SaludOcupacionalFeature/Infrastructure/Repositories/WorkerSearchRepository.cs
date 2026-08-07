@@ -100,7 +100,21 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             else
             {
-                workers = ctx.Worker.Where(w => w.Person != null && w.Person.UserId == userId).Take(1);
+                // Una misma persona puede tener más de una ficha de trabajador (reingreso:
+                // la ficha anterior queda RETIRADA con su vinculación cerrada y se crea una
+                // nueva). El Take(1) sin orden devolvía cualquiera de las dos — en la práctica
+                // la más antigua, ya retirada y sin vinculación vigente — y el llamador se
+                // quedaba sin EmpresaActualId/Cargo. Se prioriza la ficha realmente vigente.
+                workers = ctx.Worker
+                    .Where(w => w.Person != null && w.Person.UserId == userId)
+                    .OrderByDescending(w => ctx.WorkerVinculacion.Any(v =>
+                        v.WorkerId == w.Id && (v.FechaFin == null || v.FechaFin >= hoy)))
+                    // Ternario y no comparación directa: con estado NULL el "= 'ACTIVO'" da
+                    // NULL y Postgres ordena los NULL primero en un DESC, justo al revés de
+                    // lo que se busca acá.
+                    .ThenByDescending(w => w.Estado == "ACTIVO" ? 1 : 0)
+                    .ThenByDescending(w => w.Id)
+                    .Take(1);
             }
 
             var result = await EnrichAsync(ctx, workers, hoy);

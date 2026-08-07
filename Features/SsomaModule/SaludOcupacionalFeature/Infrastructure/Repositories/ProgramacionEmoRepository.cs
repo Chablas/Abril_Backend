@@ -432,13 +432,23 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         }
 
         /// <summary>
-        /// Vista previa del modal "Programar EMO con clínica". Sale del mismo resolver que el
-        /// envío real, así que lo que el usuario ve antes de guardar es exactamente lo que se
-        /// va a enviar.
+        /// Vista previa del modal "Programar EMO con clínica": los DOS correos que dispara el
+        /// flujo — el de ahora (programación manual) y el que sale después si la clínica acepta.
+        /// Ambos salen del mismo resolver que el envío real, así que lo que el usuario ve antes
+        /// de guardar es exactamente lo que se va a enviar en cada momento.
+        ///
+        /// Secuencial a propósito: cada Resolver abre su propio contexto y la convención del
+        /// proyecto es no paralelizar accesos a la base de datos.
         /// </summary>
-        public Task<ProgramacionDestinatariosDto> GetDestinatarios(int workerId, int? clinicaId)
-            => _destinatarios.ResolverAsync(
+        public async Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId)
+        {
+            var manual = await _destinatarios.ResolverAsync(
                 EmoCorreoEventoCodigo.ProgramacionManual, workerId, clinicaId);
+            var aceptada = await _destinatarios.ResolverAsync(
+                EmoCorreoEventoCodigo.Aceptada, workerId, clinicaId);
+
+            return new ProgramacionDestinatariosPreviewDto { Manual = manual, Aceptada = aceptada };
+        }
 
         private async Task EnviarNotificacionCreacionAsync(
             AppDbContext ctx,

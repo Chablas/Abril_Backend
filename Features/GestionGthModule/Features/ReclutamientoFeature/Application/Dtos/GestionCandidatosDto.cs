@@ -15,8 +15,9 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     }
 
     /// <summary>
-    /// Tarjeta de "Gestión de candidatos": un requerimiento del solicitante cuya long list ya
-    /// fue enviada por GTH (estado LONG_LIST_ENVIADA) y está pendiente de su revisión.
+    /// Tarjeta de "Gestión de candidatos": un requerimiento del solicitante sobre el que GTH le
+    /// dejó algo por revisar. Hay dos tipos, distinguidos por <see cref="Tipo"/>:
+    /// la long list enviada (LONG_LIST) y el informe de finalistas (FINALISTAS).
     /// </summary>
     public class GestionCandidatoCardDto
     {
@@ -26,11 +27,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? Area { get; set; }
         public string? ProyectoObra { get; set; }
 
-        /// <summary>Cantidad de candidatos que GTH cargó en la long list.</summary>
+        /// <summary>Cantidad de candidatos de la tarjeta (long list cargada o finalistas evaluados).</summary>
         public int TotalCandidatos { get; set; }
 
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Qué le toca revisar al solicitante: <c>LONG_LIST</c> (CVs, con decisión de aprobar o
+        /// rechazar) o <c>FINALISTAS</c> (informe de entrevistas de GTH, solo lectura).
+        /// </summary>
+        public string Tipo { get; set; } = TipoGestionCandidato.LongList;
+    }
+
+    /// <summary>Tipos de tarjeta de "Gestión de candidatos" (valores estables usados por el frontend).</summary>
+    public static class TipoGestionCandidato
+    {
+        public const string LongList   = "LONG_LIST";
+        public const string Finalistas = "FINALISTAS";
     }
 
     /// <summary>

@@ -2,11 +2,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 {
     /// <summary>
     /// Panel de la vista del solicitante ("Solicitud de Personal"), en una sola petición:
-    /// las tarjetas de "Gestión de candidatos" (long lists que GTH ya le envió para revisar)
-    /// y la tabla "Mis solicitudes de vacante".
+    /// las tarjetas resumen, las tarjetas de "Gestión de candidatos" (long lists que GTH ya le
+    /// envió para revisar) y la tabla "Mis solicitudes de vacante".
     /// </summary>
     public class SolicitantePanelDto
     {
+        /// <summary>Contadores de las tarjetas resumen de la cabecera.</summary>
+        public ResumenSolicitantePanelDto Resumen { get; set; } = new();
+
         /// <summary>Tarjetas "Long list enviada por GTH" pendientes de revisión del solicitante.</summary>
         public List<GestionCandidatoCardDto> GestionCandidatos { get; set; } = new();
 
@@ -15,8 +18,28 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     }
 
     /// <summary>
-    /// Tarjeta de "Gestión de candidatos": un requerimiento del solicitante cuya long list ya
-    /// fue enviada por GTH (estado LONG_LIST_ENVIADA) y está pendiente de su revisión.
+    /// Tarjetas resumen del panel del solicitante: el embudo de sus requerimientos, desde el total
+    /// registrado hasta los procesos ya cerrados.
+    /// </summary>
+    public class ResumenSolicitantePanelDto
+    {
+        /// <summary>"Mis solicitudes · Total registradas": todos sus requerimientos vigentes.</summary>
+        public int TotalRegistradas { get; set; }
+
+        /// <summary>"Pendientes · Sin respuesta": siguen en la fase inicial, GTH todavía no los tomó.</summary>
+        public int Pendientes { get; set; }
+
+        /// <summary>"En revisión · GTH evaluando": el siguiente paso le toca a GTH (sin contar el inicial).</summary>
+        public int EnRevisionGth { get; set; }
+
+        /// <summary>"Aprobadas · Este período": procesos cerrados (finalista aprobado) del año en curso.</summary>
+        public int Aprobadas { get; set; }
+    }
+
+    /// <summary>
+    /// Tarjeta de "Gestión de candidatos": un requerimiento del solicitante sobre el que GTH le
+    /// dejó algo por revisar. Hay dos tipos, distinguidos por <see cref="Tipo"/>:
+    /// la long list enviada (LONG_LIST) y el informe de finalistas (FINALISTAS).
     /// </summary>
     public class GestionCandidatoCardDto
     {
@@ -26,11 +49,24 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? Area { get; set; }
         public string? ProyectoObra { get; set; }
 
-        /// <summary>Cantidad de candidatos que GTH cargó en la long list.</summary>
+        /// <summary>Cantidad de candidatos de la tarjeta (long list cargada o finalistas evaluados).</summary>
         public int TotalCandidatos { get; set; }
 
         public string EstadoCodigo { get; set; } = string.Empty;
         public string EstadoNombre { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Qué le toca revisar al solicitante: <c>LONG_LIST</c> (CVs, con decisión de aprobar o
+        /// rechazar) o <c>FINALISTAS</c> (informe de entrevistas de GTH, solo lectura).
+        /// </summary>
+        public string Tipo { get; set; } = TipoGestionCandidato.LongList;
+    }
+
+    /// <summary>Tipos de tarjeta de "Gestión de candidatos" (valores estables usados por el frontend).</summary>
+    public static class TipoGestionCandidato
+    {
+        public const string LongList   = "LONG_LIST";
+        public const string Finalistas = "FINALISTAS";
     }
 
     /// <summary>

@@ -37,6 +37,72 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             public DateTimeOffset? RevisadoDateTime { get; set; }
         }
 
+        /// <summary>
+        /// Fila cruda de la evaluación de la entrevista de un candidato (mismo motivo que
+        /// <see cref="FormularioRawRow"/>: la consulta se saltea cuando no hay candidatos y ambas
+        /// ramas necesitan el mismo tipo de lista).
+        /// </summary>
+        private sealed class EvaluacionRawRow
+        {
+            public int GthCandidatoId { get; set; }
+            public int? PuntajeEntrevista { get; set; }
+            public int? PuntajePsicotecnico { get; set; }
+            public int? PuntajeTecnica { get; set; }
+            public int? PuntajeResultado { get; set; }
+            public string? ComentarioEntrevista { get; set; }
+            public string? ComentarioPsicotecnico { get; set; }
+            public string? ComentarioRecomendacion { get; set; }
+            public string ResultadoCodigo { get; set; } = string.Empty;
+            public string ResultadoNombre { get; set; } = string.Empty;
+            public string? AgradecimientoCorreo { get; set; }
+            public DateTimeOffset? AgradecimientoDateTime { get; set; }
+            public DateTimeOffset? DecisionDateTime { get; set; }
+        }
+
+        /// <summary>Evaluaciones vigentes de los candidatos indicados (vacío si no hay candidatos).</summary>
+        private static async Task<List<EvaluacionRawRow>> QueryEvaluaciones(AppDbContext ctx, List<int> candidatoIds)
+        {
+            if (candidatoIds.Count == 0) return new List<EvaluacionRawRow>();
+
+            return await (
+                from ev in ctx.GthCandidatoEvaluacion
+                where ev.State && candidatoIds.Contains(ev.GthCandidatoId)
+                join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                select new EvaluacionRawRow
+                {
+                    GthCandidatoId          = ev.GthCandidatoId,
+                    PuntajeEntrevista       = ev.PuntajeEntrevista,
+                    PuntajePsicotecnico     = ev.PuntajePsicotecnico,
+                    PuntajeTecnica          = ev.PuntajeTecnica,
+                    PuntajeResultado        = ev.PuntajeResultado,
+                    ComentarioEntrevista    = ev.ComentarioEntrevista,
+                    ComentarioPsicotecnico  = ev.ComentarioPsicotecnico,
+                    ComentarioRecomendacion = ev.ComentarioRecomendacion,
+                    ResultadoCodigo         = res.Codigo,
+                    ResultadoNombre         = res.Nombre,
+                    AgradecimientoCorreo    = ev.AgradecimientoCorreo,
+                    AgradecimientoDateTime  = ev.AgradecimientoDateTime,
+                    DecisionDateTime        = ev.DecisionDateTime,
+                }).ToListAsync();
+        }
+
+        /// <summary>Proyecta la fila cruda de la evaluación al DTO (fechas ya en hora de Perú).</summary>
+        private static EvaluacionResumenDto MapEvaluacion(EvaluacionRawRow x) => new()
+        {
+            PuntajeEntrevista       = x.PuntajeEntrevista,
+            PuntajePsicotecnico     = x.PuntajePsicotecnico,
+            PuntajeTecnica          = x.PuntajeTecnica,
+            PuntajeResultado        = x.PuntajeResultado,
+            ComentarioEntrevista    = x.ComentarioEntrevista,
+            ComentarioPsicotecnico  = x.ComentarioPsicotecnico,
+            ComentarioRecomendacion = x.ComentarioRecomendacion,
+            ResultadoCodigo         = x.ResultadoCodigo,
+            ResultadoNombre         = x.ResultadoNombre,
+            AgradecimientoCorreo    = x.AgradecimientoCorreo,
+            AgradecimientoEnviadoEn = x.AgradecimientoDateTime?.ToOffset(PeruOffset).DateTime,
+            DecididoEn              = x.DecisionDateTime?.ToOffset(PeruOffset).DateTime,
+        };
+
         public async Task<ReclutamientoFormDataDto> GetFormData(int? userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -116,10 +182,79 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     TotalCandidatos = ctx.GthCandidato.Count(c => c.GthRequerimientoId == r.GthRequerimientoId && c.State),
                     EstadoCodigo    = e.Codigo,
                     EstadoNombre    = e.Nombre,
+                    Tipo            = TipoGestionCandidato.LongList,
                 }).ToListAsync();
+
+            // Tarjetas "Finalistas enviados por GTH": requerimientos del usuario que siguen en la
+            // fase de entrevistas y ya tienen al menos un candidato evaluado que sigue en carrera.
+            // El filtro por ENTREVISTAS es el que hace desaparecer la tarjeta cuando el proceso se
+            // cierra (aprobó a un finalista) o vuelve a LONG_LIST (rechazó a todos).
+            //
+            // El id de NO_PASO se resuelve aparte (consulta mínima al catálogo) para que el conteo
+            // por requerimiento sea una subconsulta simple sobre ids en vez de un join anidado.
+            var noPasoId = await ctx.GthCandidatoResultado
+                .Where(x => x.Codigo == ResultadoCandidato.NoPaso && x.State)
+                .Select(x => (int?)x.GthCandidatoResultadoId)
+                .FirstOrDefaultAsync() ?? 0; // 0 = catálogo sin sembrar: no descarta a nadie
+
+            var finalistas = await (
+                from r in ctx.GthRequerimiento
+                where r.State && r.Solicitud!.State && r.Solicitud.SolicitanteUserId == userId
+                      && ctx.GthCandidato.Any(c => c.GthRequerimientoId == r.GthRequerimientoId && c.State
+                            && ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId
+                                  && ev.State && ev.GthCandidatoResultadoId != noPasoId))
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                where e.Codigo == EstadoReclutamiento.Entrevistas
+                orderby r.UpdatedDateTime descending, r.GthRequerimientoId descending
+                select new GestionCandidatoCardDto
+                {
+                    RequerimientoId = r.GthRequerimientoId,
+                    Codigo          = r.Codigo,
+                    Puesto          = p.Nombre,
+                    Area            = r.Solicitud!.AreaNombre,
+                    ProyectoObra    = pr.ProjectDescription,
+                    TotalCandidatos = ctx.GthCandidato.Count(c => c.GthRequerimientoId == r.GthRequerimientoId && c.State
+                            && ctx.GthCandidatoEvaluacion.Any(ev => ev.GthCandidatoId == c.GthCandidatoId
+                                  && ev.State && ev.GthCandidatoResultadoId != noPasoId)),
+                    EstadoCodigo    = e.Codigo,
+                    EstadoNombre    = e.Nombre,
+                    Tipo            = TipoGestionCandidato.Finalistas,
+                }).ToListAsync();
+
+            cards.AddRange(finalistas);
+
+            // Tarjetas resumen. Se calculan sobre lo ya traído (sin roundtrips extra).
+            //
+            // "En revisión · GTH evaluando" = procesos cuyo siguiente paso le toca a GTH, sin contar
+            // el primero (NUEVO, que es justamente "Pendientes · Sin respuesta"). Además se descartan
+            // los que están esperando una acción del solicitante, que son exactamente los que ya
+            // tienen tarjeta en "Gestión de candidatos": el caso real es ENTREVISTAS con finalistas
+            // ya enviados — GTH terminó su parte y la decisión es del solicitante, así que sería
+            // contradictorio mostrarlo a la vez como "GTH evaluando".
+            var esperandoAlSolicitante = cards.Select(c => c.RequerimientoId).ToHashSet();
+
+            var anioActual = DateTimeOffset.UtcNow.ToOffset(PeruOffset).Year;
+
+            var resumen = new ResumenSolicitantePanelDto
+            {
+                TotalRegistradas = misSolicitudes.Count,
+                Pendientes       = misSolicitudes.Count(s => s.EstadoCodigo == EstadoReclutamiento.Nuevo),
+                EnRevisionGth    = misSolicitudes.Count(s =>
+                                       EstadoReclutamiento.FasesGth.Contains(s.EstadoCodigo)
+                                       && !esperandoAlSolicitante.Contains(s.RequerimientoId)),
+                // "Este período" = año en curso (hora Perú), el mismo que rotula la cabecera de la
+                // página. Se toma la fecha de envío porque es la que define a qué año pertenece el
+                // requerimiento en la tabla.
+                Aprobadas        = misSolicitudes.Count(s =>
+                                       s.EstadoCodigo == EstadoReclutamiento.Cerrado
+                                       && s.Enviado.Year == anioActual),
+            };
 
             return new SolicitantePanelDto
             {
+                Resumen           = resumen,
                 GestionCandidatos = cards,
                 MisSolicitudes    = misSolicitudes,
             };
@@ -362,11 +497,66 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(p => new OpcionDto { Id = p.GthPrioridadId, Nombre = p.Nombre })
                 .ToListAsync();
 
+            // "Evaluaciones · Programadas": entrevistas ya agendadas cuyo resultado GTH todavía no
+            // cierra (sin evaluación registrada, o registrada pero aún en PENDIENTE). Una vez que el
+            // candidato queda en PASO / NO_PASO / SELECCIONADO / RECHAZADO deja de estar programada.
+            var evaluacionesProgramadas = await (
+                from ent in ctx.GthEntrevista
+                join c in ctx.GthCandidato on ent.GthCandidatoId equals c.GthCandidatoId
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                where ent.State && c.State && r.State
+                      && !(from ev in ctx.GthCandidatoEvaluacion
+                           join res in ctx.GthCandidatoResultado
+                               on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                           where ev.GthCandidatoId == c.GthCandidatoId && ev.State
+                                 && res.Codigo != ResultadoCandidato.Pendiente
+                           select ev.GthCandidatoEvaluacionId).Any()
+                select ent.GthEntrevistaId).CountAsync();
+
+            // ── Embudo del pipeline y tarjetas de resumen ─────────────────────────────────
+            // Se calculan sobre `solicitudes`, que ya está materializado (sin roundtrips extra).
+            var totalPorFase = solicitudes
+                .GroupBy(s => s.EstadoCodigo)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            var pipeline = EtapaPipeline.Todas
+                .Select(etapa => new PipelineEtapaDto
+                {
+                    Codigo = etapa.Codigo,
+                    Nombre = etapa.Nombre,
+                    Total  = etapa.Fases.Sum(f => totalPorFase.GetValueOrDefault(f)),
+                })
+                .ToList();
+
+            var cerrados = pipeline.First(e => e.Codigo == EtapaPipeline.CodigoCierre).Total;
+
+            // "Vacantes abiertas" = ya publicadas y todavía en curso: las etapas desde Publicado
+            // hasta la anterior a Cierre. Se recorta por posición para no repetir la lista de fases.
+            var desdePublicado = Array.FindIndex(EtapaPipeline.Todas, e => e.Codigo == EtapaPipeline.CodigoPublicado);
+            var hastaCierre    = Array.FindIndex(EtapaPipeline.Todas, e => e.Codigo == EtapaPipeline.CodigoCierre);
+            var vacantesAbiertas = pipeline
+                .Take(hastaCierre)
+                .Skip(desdePublicado)
+                .Sum(e => e.Total);
+
+            // "Este período" = año en curso (hora Perú), el mismo que rotula la cabecera de la página.
+            var anioActual = DateTimeOffset.UtcNow.ToOffset(PeruOffset).Year;
+
+            var resumen = new ResumenReclutamientoDto
+            {
+                // Lo cerrado ya no está en curso, así que sale de "En proceso".
+                EnProceso               = solicitudes.Count - cerrados,
+                VacantesAbiertas        = vacantesAbiertas,
+                EvaluacionesProgramadas = evaluacionesProgramadas,
+                ProcesosCerrados        = solicitudes.Count(s => s.EstadoCodigo == EstadoReclutamiento.Cerrado
+                                                                 && s.FechaLlegada.Year == anioActual),
+                SolicitudesNuevas       = totalPorFase.GetValueOrDefault(EstadoReclutamiento.Nuevo),
+            };
+
             return new BandejaReclutamientoDto
             {
-                // "En proceso" = requerimientos vigentes en curso. Aún no hay estado de cierre modelado,
-                // así que por ahora son todos los vigentes; cuando exista un estado terminal se excluirá aquí.
-                Resumen     = new ResumenReclutamientoDto { EnProceso = solicitudes.Count },
+                Resumen     = resumen,
+                Pipeline    = pipeline,
                 Solicitudes = solicitudes,
                 Prioridades = prioridades,
             };
@@ -585,6 +775,11 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                         EnviadoEn   = x.EnviadoDateTime?.ToOffset(PeruOffset).DateTime,
                     });
 
+            // Evaluación de la entrevista de cada candidato (0..1 vigente por candidato): puntajes,
+            // comentarios del informe y resultado (incluido el correo de agradecimiento si no continúa).
+            var evaluacionesPorCandidato = (await QueryEvaluaciones(ctx, candidatoIds))
+                .ToDictionary(x => x.GthCandidatoId, MapEvaluacion);
+
             var candidatosAprobados = candidatosAprobadosRaw.Select(x => new CandidatoAprobadoDto
             {
                 CandidatoId        = x.GthCandidatoId,
@@ -594,6 +789,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 MultitestRealizado = x.MultitestRealizado,
                 CorreoContacto     = correosPorCandidato.GetValueOrDefault(x.GthCandidatoId),
                 Entrevista         = entrevistasPorCandidato.GetValueOrDefault(x.GthCandidatoId),
+                Evaluacion         = evaluacionesPorCandidato.GetValueOrDefault(x.GthCandidatoId),
             }).ToList();
 
             // Catálogo de lugares para el desplegable de programación de entrevistas.
@@ -806,6 +1002,385 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                     CorreoEnvio = correo,
                     EnviadoEn   = now.ToOffset(PeruOffset).DateTime,
                 },
+            };
+        }
+
+        // ── Evaluación de la entrevista (puntajes, informe y no continuidad) ──
+        /// <summary>Texto opcional normalizado: sin espacios sobrantes y null si queda vacío.</summary>
+        private static string? Limpiar(string? texto) =>
+            string.IsNullOrWhiteSpace(texto) ? null : texto.Trim();
+
+        /// <summary>
+        /// Cabecera del candidato para evaluarlo: nombre, puesto/código del requerimiento y correo
+        /// de la entrevista programada. Lanza 404 si no existe y 400 si aún no se le envió la
+        /// invitación (solo se evalúa a quien ya fue citado).
+        /// </summary>
+        private static async Task<(string Nombre, string Puesto, string Codigo, string Correo)> GetCandidatoEntrevistado(
+            AppDbContext ctx, int candidatoId)
+        {
+            var cand = await (
+                from c in ctx.GthCandidato
+                where c.GthCandidatoId == candidatoId && c.State
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                select new { c.Nombre, Puesto = p.Nombre, r.Codigo }).FirstOrDefaultAsync();
+            if (cand == null)
+                throw new AbrilException("Candidato no encontrado.", 404);
+
+            var correo = await ctx.GthEntrevista
+                .Where(e => e.GthCandidatoId == candidatoId && e.State)
+                .Select(e => e.CorreoEnvio)
+                .FirstOrDefaultAsync();
+            if (string.IsNullOrWhiteSpace(correo))
+                throw new AbrilException("Primero envía la invitación a la entrevista de este candidato.", 400);
+
+            return (cand.Nombre, cand.Puesto, cand.Codigo, correo);
+        }
+
+        /// <summary>
+        /// Evaluación vigente del candidato, creándola en PENDIENTE si aún no existe. No guarda:
+        /// el llamador ajusta los campos y hace el <c>SaveChangesAsync</c>.
+        /// </summary>
+        private static async Task<GthCandidatoEvaluacion> GetOrCreateEvaluacion(
+            AppDbContext ctx, int candidatoId, int? userId, DateTimeOffset now)
+        {
+            var evaluacion = await ctx.GthCandidatoEvaluacion
+                .FirstOrDefaultAsync(e => e.GthCandidatoId == candidatoId && e.State);
+            if (evaluacion != null)
+            {
+                evaluacion.UpdatedDateTime = now;
+                evaluacion.UpdatedUserId   = userId;
+                return evaluacion;
+            }
+
+            var pendienteId = await ctx.GthCandidatoResultado
+                .Where(r => r.Codigo == ResultadoCandidato.Pendiente && r.State)
+                .Select(r => (int?)r.GthCandidatoResultadoId)
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("No está configurado el resultado PENDIENTE de la entrevista.", 500);
+
+            evaluacion = new GthCandidatoEvaluacion
+            {
+                GthCandidatoId          = candidatoId,
+                GthCandidatoResultadoId = pendienteId,
+                CreatedDateTime         = now,
+                CreatedUserId           = userId,
+                Active                  = true,
+                State                   = true,
+            };
+            ctx.GthCandidatoEvaluacion.Add(evaluacion);
+            return evaluacion;
+        }
+
+        /// <summary>Resumen de la evaluación ya persistida (relee el catálogo para el nombre del resultado).</summary>
+        private static async Task<EvaluacionResumenDto> BuildEvaluacionResumen(AppDbContext ctx, GthCandidatoEvaluacion e)
+        {
+            var resultado = await ctx.GthCandidatoResultado
+                .Where(r => r.GthCandidatoResultadoId == e.GthCandidatoResultadoId)
+                .Select(r => new { r.Codigo, r.Nombre })
+                .FirstAsync();
+
+            return new EvaluacionResumenDto
+            {
+                PuntajeEntrevista       = e.PuntajeEntrevista,
+                PuntajePsicotecnico     = e.PuntajePsicotecnico,
+                PuntajeTecnica          = e.PuntajeTecnica,
+                PuntajeResultado        = e.PuntajeResultado,
+                ComentarioEntrevista    = e.ComentarioEntrevista,
+                ComentarioPsicotecnico  = e.ComentarioPsicotecnico,
+                ComentarioRecomendacion = e.ComentarioRecomendacion,
+                ResultadoCodigo         = resultado.Codigo,
+                ResultadoNombre         = resultado.Nombre,
+                AgradecimientoCorreo    = e.AgradecimientoCorreo,
+                AgradecimientoEnviadoEn = e.AgradecimientoDateTime?.ToOffset(PeruOffset).DateTime,
+            };
+        }
+
+        public async Task<EvaluacionResumenDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            await GetCandidatoEntrevistado(ctx, candidatoId);
+
+            var now = DateTimeOffset.UtcNow;
+            var evaluacion = await GetOrCreateEvaluacion(ctx, candidatoId, userId, now);
+
+            // Un candidato descartado por GTH o ya decidido por el solicitante tiene su resultado
+            // cerrado: el informe no se sigue editando.
+            var resultadoActual = await ctx.GthCandidatoResultado
+                .Where(r => r.GthCandidatoResultadoId == evaluacion.GthCandidatoResultadoId)
+                .Select(r => r.Codigo)
+                .FirstOrDefaultAsync();
+            if (resultadoActual == ResultadoCandidato.NoPaso)
+                throw new AbrilException("El candidato ya no continúa en el proceso: su evaluación quedó cerrada.", 400);
+            if (resultadoActual is ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado)
+                throw new AbrilException("El área solicitante ya tomó una decisión sobre este finalista: su informe quedó cerrado.", 400);
+
+            // Guardar el informe es, a la vez, enviarlo como finalista: el candidato pasa a PASO y
+            // desde ahí lo ve el área solicitante.
+            if (resultadoActual != ResultadoCandidato.Paso)
+            {
+                evaluacion.GthCandidatoResultadoId = await ctx.GthCandidatoResultado
+                    .Where(r => r.Codigo == ResultadoCandidato.Paso && r.State)
+                    .Select(r => (int?)r.GthCandidatoResultadoId)
+                    .FirstOrDefaultAsync()
+                    ?? throw new AbrilException("No está configurado el resultado PASO de la entrevista.", 500);
+            }
+
+            evaluacion.PuntajeEntrevista       = dto.PuntajeEntrevista;
+            evaluacion.PuntajePsicotecnico     = dto.PuntajePsicotecnico;
+            evaluacion.PuntajeTecnica          = dto.PuntajeTecnica;
+            evaluacion.PuntajeResultado        = dto.PuntajeResultado;
+            evaluacion.ComentarioEntrevista    = Limpiar(dto.ComentarioEntrevista);
+            evaluacion.ComentarioPsicotecnico  = Limpiar(dto.ComentarioPsicotecnico);
+            evaluacion.ComentarioRecomendacion = Limpiar(dto.ComentarioRecomendacion);
+
+            await ctx.SaveChangesAsync();
+            return await BuildEvaluacionResumen(ctx, evaluacion);
+        }
+
+        public async Task<AgradecimientoEnvioContextoDto> RegistrarAgradecimiento(int candidatoId, int? userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var cand = await GetCandidatoEntrevistado(ctx, candidatoId);
+
+            var noPasoId = await ctx.GthCandidatoResultado
+                .Where(r => r.Codigo == ResultadoCandidato.NoPaso && r.State)
+                .Select(r => (int?)r.GthCandidatoResultadoId)
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException("No está configurado el resultado NO_PASO de la entrevista.", 500);
+
+            var now = DateTimeOffset.UtcNow;
+            var evaluacion = await GetOrCreateEvaluacion(ctx, candidatoId, userId, now);
+
+            evaluacion.GthCandidatoResultadoId = noPasoId;
+            evaluacion.AgradecimientoCorreo    = cand.Correo;
+            evaluacion.AgradecimientoDateTime  = now;
+            evaluacion.AgradecimientoUserId    = userId;
+
+            await ctx.SaveChangesAsync();
+
+            return new AgradecimientoEnvioContextoDto
+            {
+                CandidatoNombre = cand.Nombre,
+                Puesto          = cand.Puesto,
+                Codigo          = cand.Codigo,
+                Correo          = cand.Correo,
+                Resumen         = await BuildEvaluacionResumen(ctx, evaluacion),
+            };
+        }
+
+        public async Task<RevisionFinalistasDto?> GetRevisionFinalistas(int requerimientoId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Cabecera del requerimiento (scope: solo del usuario dueño de la solicitud).
+            var head = await (
+                from r in ctx.GthRequerimiento
+                where r.GthRequerimientoId == requerimientoId
+                      && r.State && r.Solicitud!.State
+                      && r.Solicitud.SolicitanteUserId == userId
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new
+                {
+                    r.GthRequerimientoId,
+                    r.Codigo,
+                    Puesto       = p.Nombre,
+                    Area         = r.Solicitud!.AreaNombre,
+                    ProyectoObra = pr.ProjectDescription,
+                    EstadoCodigo = e.Codigo,
+                    EstadoNombre = e.Nombre,
+                }).FirstOrDefaultAsync();
+
+            if (head == null) return null;
+
+            // Finalistas: candidatos aprobados en la long list con evaluación registrada por GTH.
+            // Los que no continúan (resultado NO_PASO, con su correo de agradecimiento ya enviado)
+            // no se muestran al solicitante.
+            var candidatos = await (
+                from c in ctx.GthCandidato
+                where c.GthRequerimientoId == requerimientoId && c.State
+                join est in ctx.GthCandidatoEstado on c.GthCandidatoEstadoId equals est.GthCandidatoEstadoId
+                where est.Codigo == EstadoCandidato.Aprobado
+                join ev in ctx.GthCandidatoEvaluacion on c.GthCandidatoId equals ev.GthCandidatoId
+                where ev.State
+                join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                where res.Codigo != ResultadoCandidato.NoPaso
+                select new
+                {
+                    c.GthCandidatoId,
+                    c.Nombre,
+                    c.Puesto,
+                    c.CvNombre,
+                    c.CvUrl,
+                    Evaluacion = new EvaluacionRawRow
+                    {
+                        GthCandidatoId          = c.GthCandidatoId,
+                        PuntajeEntrevista       = ev.PuntajeEntrevista,
+                        PuntajePsicotecnico     = ev.PuntajePsicotecnico,
+                        PuntajeTecnica          = ev.PuntajeTecnica,
+                        PuntajeResultado        = ev.PuntajeResultado,
+                        ComentarioEntrevista    = ev.ComentarioEntrevista,
+                        ComentarioPsicotecnico  = ev.ComentarioPsicotecnico,
+                        ComentarioRecomendacion = ev.ComentarioRecomendacion,
+                        ResultadoCodigo         = res.Codigo,
+                        ResultadoNombre         = res.Nombre,
+                        AgradecimientoCorreo    = ev.AgradecimientoCorreo,
+                        AgradecimientoDateTime  = ev.AgradecimientoDateTime,
+                    },
+                }).ToListAsync();
+
+            return new RevisionFinalistasDto
+            {
+                RequerimientoId = head.GthRequerimientoId,
+                Codigo          = head.Codigo,
+                Puesto          = head.Puesto,
+                Area            = head.Area,
+                ProyectoObra    = head.ProyectoObra,
+                EstadoCodigo    = head.EstadoCodigo,
+                EstadoNombre    = head.EstadoNombre,
+                // Mejor puntaje de resultado primero; los que aún no lo tienen van al final.
+                Finalistas      = candidatos
+                    .OrderByDescending(x => x.Evaluacion.PuntajeResultado ?? -1)
+                    .ThenBy(x => x.Nombre)
+                    .Select(x => new FinalistaDto
+                    {
+                        CandidatoId = x.GthCandidatoId,
+                        Nombre      = x.Nombre,
+                        Puesto      = x.Puesto,
+                        CvNombre    = x.CvNombre,
+                        CvUrl       = x.CvUrl,
+                        Evaluacion  = MapEvaluacion(x.Evaluacion),
+                    }).ToList(),
+            };
+        }
+
+        public async Task<FinalistaDecisionContextoDto> RegistrarDecisionFinalista(
+            int requerimientoId, int candidatoId, bool aprobado, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Cabecera + estado actual, con scope al solicitante dueño de la solicitud. Se trae la
+            // entidad del requerimiento (r) para mutarla; EF la rastrea aunque venga en un anónimo.
+            var head = await (
+                from r in ctx.GthRequerimiento
+                where r.GthRequerimientoId == requerimientoId
+                      && r.State && r.Solicitud!.State
+                      && r.Solicitud.SolicitanteUserId == userId
+                join p in ctx.GthPuesto on r.GthPuestoId equals p.GthPuestoId
+                join pr in ctx.Project on r.ProjectId equals pr.ProjectId
+                join e in ctx.GthEstadoRequerimiento on r.GthEstadoRequerimientoId equals e.GthEstadoRequerimientoId
+                select new
+                {
+                    Req          = r,
+                    r.Codigo,
+                    Puesto       = p.Nombre,
+                    Area         = r.Solicitud!.AreaNombre,
+                    ProyectoObra = pr.ProjectDescription,
+                    EstadoCodigo = e.Codigo,
+                }).FirstOrDefaultAsync();
+
+            if (head == null)
+                throw new AbrilException("No se encontró el informe de finalistas del requerimiento.", 404);
+
+            // La decisión final solo se toma mientras el requerimiento está en la fase de entrevistas
+            // (después ya quedó cerrado o volvió a long list).
+            if (head.EstadoCodigo != EstadoReclutamiento.Entrevistas)
+                throw new AbrilException("Este proceso ya no está en la fase de decisión de finalistas.", 409);
+
+            // Finalistas del requerimiento: candidatos con evaluación vigente que GTH no descartó.
+            var finalistas = await (
+                from c in ctx.GthCandidato
+                where c.GthRequerimientoId == requerimientoId && c.State
+                join ev in ctx.GthCandidatoEvaluacion on c.GthCandidatoId equals ev.GthCandidatoId
+                where ev.State
+                join res in ctx.GthCandidatoResultado on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                where res.Codigo != ResultadoCandidato.NoPaso
+                select new { c.GthCandidatoId, c.Nombre, Evaluacion = ev, ResultadoCodigo = res.Codigo })
+                .ToListAsync();
+
+            var elegido = finalistas.FirstOrDefault(f => f.GthCandidatoId == candidatoId)
+                ?? throw new AbrilException("El candidato no forma parte de los finalistas de este requerimiento.", 404);
+            if (elegido.ResultadoCodigo is ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado)
+                throw new AbrilException("Ya registraste una decisión sobre este finalista.", 409);
+
+            var codigoResultado = aprobado ? ResultadoCandidato.Seleccionado : ResultadoCandidato.Rechazado;
+            var resultadoDestino = await ctx.GthCandidatoResultado
+                .Where(r => r.Codigo == codigoResultado && r.State)
+                .Select(r => (int?)r.GthCandidatoResultadoId)
+                .FirstOrDefaultAsync()
+                ?? throw new AbrilException($"No está configurado el resultado {codigoResultado} de candidatos.", 500);
+
+            var now = DateTimeOffset.UtcNow;
+            elegido.Evaluacion.GthCandidatoResultadoId = resultadoDestino;
+            elegido.Evaluacion.DecisionDateTime        = now;
+            elegido.Evaluacion.DecisionUserId          = userId;
+            elegido.Evaluacion.UpdatedDateTime         = now;
+            elegido.Evaluacion.UpdatedUserId           = userId;
+
+            // Al rechazar también se le manda el correo de agradecimiento (el mismo que envía GTH),
+            // así que se registra su envío igual que en RegistrarAgradecimiento.
+            var correoCandidato = string.Empty;
+            if (!aprobado)
+            {
+                correoCandidato = await ctx.GthEntrevista
+                    .Where(e => e.GthCandidatoId == candidatoId && e.State)
+                    .Select(e => e.CorreoEnvio)
+                    .FirstOrDefaultAsync() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(correoCandidato))
+                {
+                    elegido.Evaluacion.AgradecimientoCorreo   = correoCandidato;
+                    elegido.Evaluacion.AgradecimientoDateTime = now;
+                    elegido.Evaluacion.AgradecimientoUserId   = userId;
+                }
+            }
+
+            // Aprobar cierra el proceso de reclutamiento (el seleccionado pasa a onboarding).
+            // Rechazar al último finalista en carrera devuelve el requerimiento a LONG_LIST para que
+            // GTH prepare y envíe una nueva long list; los rechazados quedan grabados como historial.
+            var quedanEnCarrera = finalistas.Any(f =>
+                f.GthCandidatoId != candidatoId
+                && f.ResultadoCodigo is not (ResultadoCandidato.Seleccionado or ResultadoCandidato.Rechazado));
+            var todosRechazados = !aprobado && !quedanEnCarrera;
+
+            var codigoEstado = aprobado ? EstadoReclutamiento.Cerrado
+                             : todosRechazados ? EstadoReclutamiento.LongList
+                             : EstadoReclutamiento.Entrevistas;
+            var estadoDestino = await ctx.GthEstadoRequerimiento
+                .FirstOrDefaultAsync(e => e.Codigo == codigoEstado && e.State)
+                ?? throw new AbrilException($"No está configurado el estado {codigoEstado} de reclutamiento.", 500);
+
+            head.Req.GthEstadoRequerimientoId = estadoDestino.GthEstadoRequerimientoId;
+            head.Req.UpdatedDateTime          = now;
+            head.Req.UpdatedUserId            = userId;
+
+            // Nombre del solicitante para el cuerpo del correo a GTH (best-effort; no bloquea).
+            var solicitanteNombre = await ctx.Worker
+                .Where(w => w.Person != null && w.Person.UserId == userId)
+                .Select(w => w.Person!.FullName ?? w.ApellidoNombre)
+                .FirstOrDefaultAsync();
+
+            await ctx.SaveChangesAsync();
+
+            return new FinalistaDecisionContextoDto
+            {
+                Resultado = new FinalistaDecisionResultDto
+                {
+                    EstadoCodigo    = estadoDestino.Codigo,
+                    EstadoNombre    = estadoDestino.Nombre,
+                    Aprobado        = aprobado,
+                    TodosRechazados = todosRechazados,
+                    CandidatoNombre = elegido.Nombre,
+                },
+                Codigo            = head.Codigo,
+                Puesto            = head.Puesto,
+                Area              = head.Area,
+                ProyectoObra      = head.ProyectoObra,
+                SolicitanteNombre = solicitanteNombre,
+                CandidatoCorreo   = correoCandidato,
             };
         }
 
@@ -1440,12 +2015,82 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// <summary>Códigos estables de estados de reclutamiento (espejo de gth_estado_requerimiento.codigo).</summary>
     internal static class EstadoReclutamiento
     {
-        public const string Nuevo            = "NUEVO";
-        public const string Publicacion      = "PUBLICACION";
-        public const string LongList         = "LONG_LIST";
-        public const string LongListEnviada  = "LONG_LIST_ENVIADA";
-        public const string LongListAprobada = "LONG_LIST_APROBADA";
-        public const string Entrevistas      = "ENTREVISTAS";
+        public const string Nuevo             = "NUEVO";
+        public const string AprobacionGg      = "APROBACION_GG";
+        public const string ValidacionGth     = "VALIDACION_GTH";
+        public const string Publicacion       = "PUBLICACION";
+        public const string LongList          = "LONG_LIST";
+        public const string LongListEnviada   = "LONG_LIST_ENVIADA";
+        public const string LongListAprobada  = "LONG_LIST_APROBADA";
+        public const string Entrevistas       = "ENTREVISTAS";
+        public const string Evaluacion        = "EVALUACION";
+        public const string SeleccionJefatura = "SELECCION_JEFATURA";
+        public const string OfertaCierre      = "OFERTA_CIERRE";
+
+        /// <summary>
+        /// Estado final: el solicitante aprobó al finalista, el proceso de reclutamiento termina y
+        /// el seleccionado pasa al proceso de onboarding (funcionalidad aparte).
+        /// </summary>
+        public const string Cerrado           = "CERRADO";
+
+        /// <summary>
+        /// Fases en las que el siguiente paso le toca a GTH (tarjeta "En revisión · GTH evaluando"
+        /// del panel del solicitante). Deja fuera a propósito:
+        /// <list type="bullet">
+        ///   <item><description><see cref="Nuevo"/>: es el primer paso de GTH y ya se cuenta en
+        ///   "Pendientes · Sin respuesta"; contarlo en ambas tarjetas duplicaría el mismo proceso.</description></item>
+        ///   <item><description><see cref="AprobacionGg"/>: el paso es de Gerencia General, no de GTH.</description></item>
+        ///   <item><description><see cref="LongListEnviada"/> y <see cref="SeleccionJefatura"/>:
+        ///   la pelota está del lado del solicitante.</description></item>
+        ///   <item><description><see cref="Cerrado"/>: el proceso ya terminó.</description></item>
+        /// </list>
+        /// </summary>
+        public static readonly HashSet<string> FasesGth = new()
+        {
+            ValidacionGth,
+            Publicacion,
+            LongList,
+            LongListAprobada,
+            Entrevistas,
+            Evaluacion,
+            OfertaCierre,
+        };
+    }
+
+    /// <summary>
+    /// Etapas del embudo "Pipeline de reclutamiento" (vista de GTH), en el orden en que se muestran.
+    /// El catálogo tiene 12 fases y el embudo las agrupa en 7 etapas legibles; cada fase pertenece a
+    /// exactamente una etapa, de modo que la suma de las etapas es siempre el total de requerimientos
+    /// vigentes y ninguno se pierde del embudo.
+    ///
+    /// El orden sigue el <c>orden</c> del catálogo (por eso Entrevistas va antes que Evaluación),
+    /// que es el mismo que ve el solicitante en el seguimiento vertical del requerimiento.
+    /// <c>SELECCION_JEFATURA</c> es una fase heredada que el flujo implementado no usa (su función
+    /// la cubren LONG_LIST_ENVIADA/LONG_LIST_APROBADA); se agrupa en Revisión por lo que describe.
+    /// </summary>
+    internal sealed record EtapaPipeline(string Codigo, string Nombre, string[] Fases)
+    {
+        public static readonly EtapaPipeline[] Todas =
+        {
+            new("SOLICITUD",   "Solicitud",   new[] { EstadoReclutamiento.Nuevo,
+                                                      EstadoReclutamiento.AprobacionGg,
+                                                      EstadoReclutamiento.ValidacionGth }),
+            new("PUBLICADO",   "Publicado",   new[] { EstadoReclutamiento.Publicacion }),
+            new("REVISION",    "Revisión",    new[] { EstadoReclutamiento.LongList,
+                                                      EstadoReclutamiento.LongListEnviada,
+                                                      EstadoReclutamiento.LongListAprobada,
+                                                      EstadoReclutamiento.SeleccionJefatura }),
+            new("ENTREVISTAS", "Entrevistas", new[] { EstadoReclutamiento.Entrevistas }),
+            new("EVALUACION",  "Evaluación",  new[] { EstadoReclutamiento.Evaluacion }),
+            new("OFERTA",      "Oferta",      new[] { EstadoReclutamiento.OfertaCierre }),
+            new("CIERRE",      "Cierre",      new[] { EstadoReclutamiento.Cerrado }),
+        };
+
+        /// <summary>Código de la etapa terminal: lo ya cerrado no cuenta como proceso activo.</summary>
+        public const string CodigoCierre = "CIERRE";
+
+        /// <summary>Código de la etapa en la que la vacante recién se publica (inicio de "vacantes abiertas").</summary>
+        public const string CodigoPublicado = "PUBLICADO";
     }
 
     /// <summary>Códigos estables de prioridad de reclutamiento (espejo de gth_prioridad.codigo).</summary>
@@ -1460,5 +2105,20 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public const string Pendiente = "PENDIENTE";
         public const string Aprobado  = "APROBADO";
         public const string Rechazado = "RECHAZADO";
+    }
+
+    /// <summary>
+    /// Códigos estables del resultado del candidato en el proceso (espejo de
+    /// gth_candidato_resultado.codigo). Es una sola línea de tiempo: PENDIENTE → PASO (finalista
+    /// enviado al solicitante) → SELECCIONADO / RECHAZADO por el solicitante; NO_PASO es la salida
+    /// que decide GTH tras la entrevista.
+    /// </summary>
+    internal static class ResultadoCandidato
+    {
+        public const string Pendiente    = "PENDIENTE";
+        public const string Paso         = "PASO";
+        public const string NoPaso       = "NO_PASO";
+        public const string Seleccionado = "SELECCIONADO";
+        public const string Rechazado    = "RECHAZADO";
     }
 }

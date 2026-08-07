@@ -285,8 +285,16 @@ public class RacService : IRacService
             if (persona is not null)
             {
                 reportanteNombre = persona.FullName;
+                // Mismo criterio que WorkerSearchRepository.GetByUserId: una persona puede
+                // arrastrar una ficha RETIRADA de un ingreso anterior, así que el snapshot
+                // del cargo tiene que salir de la ficha vigente, no de la primera que caiga.
+                var hoy = DateOnly.FromDateTime(DateTime.Today);
                 var worker = await ctx.Worker
                     .Where(w => w.PersonId == persona.PersonId)
+                    .OrderByDescending(w => ctx.WorkerVinculacion.Any(v =>
+                        v.WorkerId == w.Id && (v.FechaFin == null || v.FechaFin >= hoy)))
+                    .ThenByDescending(w => w.Estado == "ACTIVO" ? 1 : 0)
+                    .ThenByDescending(w => w.Id)
                     .Select(w => new { w.Ocupacion })
                     .FirstOrDefaultAsync();
                 if (!string.IsNullOrEmpty(worker?.Ocupacion))

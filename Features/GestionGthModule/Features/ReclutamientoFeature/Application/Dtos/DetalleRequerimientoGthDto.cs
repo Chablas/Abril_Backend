@@ -82,6 +82,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>Entrevista programada de este candidato (null si aún no se programó).</summary>
         public EntrevistaResumenDto? Entrevista { get; set; }
+
+        /// <summary>
+        /// Evaluación de la entrevista (puntajes, comentarios del informe y resultado). Null
+        /// mientras GTH no registre nada ni envíe el correo de agradecimiento.
+        /// </summary>
+        public EvaluacionResumenDto? Evaluacion { get; set; }
     }
 
     /// <summary>Asignación interna de GTH de un requerimiento (todas opcionales/null = sin asignar).</summary>

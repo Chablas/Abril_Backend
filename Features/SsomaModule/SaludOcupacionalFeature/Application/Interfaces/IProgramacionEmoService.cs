@@ -18,6 +18,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         /// A quién le llegaría el correo si se programara ahora mismo un EMO para ese trabajador
         /// en esa clínica. Misma lógica que el envío real; la usa el formulario para avisarlo.
         /// </summary>
-        Task<ProgramacionDestinatariosDto> GetDestinatarios(int workerId, int? clinicaId);
+        Task<ProgramacionDestinatariosPreviewDto> GetDestinatarios(int workerId, int? clinicaId);
     }
 }

@@ -145,6 +145,44 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         Task<EntrevistaEnvioContextoDto> GuardarEntrevista(
             int candidatoId, DateOnly fecha, TimeOnly hora, int lugarId, int? userId);
 
+        /// <summary>
+        /// Guarda la evaluación de la entrevista de un candidato (puntajes + comentarios del
+        /// informe), creando su única fila vigente en <c>gth_candidato_evaluacion</c> si no
+        /// existía. Lanza <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si
+        /// el candidato no existe, 400 si aún no se le envió la invitación a la entrevista y 400
+        /// si ya no continúa (resultado NO_PASO: su evaluación quedó cerrada).
+        /// </summary>
+        Task<EvaluacionResumenDto> GuardarEvaluacion(int candidatoId, EvaluacionGuardarDto dto, int? userId);
+
+        /// <summary>
+        /// Marca al candidato como NO_PASO (no continúa) y registra la trazabilidad del correo de
+        /// agradecimiento (a qué correo, cuándo y quién). Mismas validaciones que
+        /// <see cref="GuardarEvaluacion"/> salvo la del resultado cerrado: reenviar el correo es
+        /// válido si el envío anterior falló. Devuelve el contexto para armar el correo.
+        /// </summary>
+        Task<AgradecimientoEnvioContextoDto> RegistrarAgradecimiento(int candidatoId, int? userId);
+
+        /// <summary>
+        /// Informe de finalistas de un requerimiento del usuario (cabecera + candidatos evaluados
+        /// que siguen en carrera, con sus puntajes, comentarios y CV), en 1 roundtrip por bloque.
+        /// Devuelve null si el requerimiento no existe o no le pertenece al usuario.
+        /// </summary>
+        Task<RevisionFinalistasDto?> GetRevisionFinalistas(int requerimientoId, int userId);
+
+        /// <summary>
+        /// Registra la decisión final del área solicitante sobre un finalista y mueve el
+        /// requerimiento: aprobar lo deja en CERRADO (el seleccionado pasa a onboarding); rechazar
+        /// lo deja en ENTREVISTAS mientras queden finalistas por decidir y lo devuelve a LONG_LIST
+        /// cuando ya no queda ninguno (GTH deberá enviar una nueva long list). Al rechazar también
+        /// registra el envío del correo de agradecimiento. Scope: solo el solicitante dueño y solo
+        /// con el requerimiento en ENTREVISTAS. Lanza
+        /// <see cref="Abril_Backend.Application.Exceptions.AbrilException"/> 404 si no existe o el
+        /// candidato no es finalista, y 409 si el proceso ya salió de esa fase o el finalista ya
+        /// estaba decidido. Devuelve el contexto para armar los correos.
+        /// </summary>
+        Task<FinalistaDecisionContextoDto> RegistrarDecisionFinalista(
+            int requerimientoId, int candidatoId, bool aprobado, int userId);
+
         /// <summary>Destinatarios vigentes del correo del tipo indicado (SOLICITUD / LONG_LIST): principales + copias.</summary>
         Task<CorreoDestinatariosDto> GetCorreoDestinatarios(string tipoCodigo);
 

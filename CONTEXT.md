@@ -5529,3 +5529,47 @@ Para soportar el lazy-create de fases con fechas sin definir, `bim_proyecto_fase
 - Drift de migración ajeno (`cat_jefatura`, `workers`/`lesson`/`ssoma_inspeccion`, `ss_emo_correo_*`) sigue sin resolver — no se tocó, no es de este feature.
 - Falta el frontend de la pantalla de Configuración Inicial.
 - No se implementó nada de `bim_registro_diario`/`bim_evidencia_foto`/`bim_bloqueo` (pantallas de seguimiento diario) — fuera de alcance de esta sesión.
+
+## Sesión 2026-08-06/07 — Planeamiento BIM: Carga Diaria + Bloqueos, fix de GetPaged, fix de storage
+
+Rama: `victor-backend`. Cierra la Fase 1 de Planeamiento BIM (Configuración Inicial ya estaba cerrada en la sesión anterior) y de paso corrige dos bugs reales encontrados al probar en vivo, no relacionados directamente con BIM.
+
+### Carga Diaria + Bloqueos (100% desde cero, sin spec original — ver sesión anterior sobre `dashboard-planeamiento-bim-spec.md` perdida)
+Reglas de negocio confirmadas por `/grill-me` corto del usuario (fuente de verdad, no la spec):
+1. Acceso: mismos 3 roles que Configuración Inicial (`AdministradorSistema`/`AdministradorUdp`/`UsuarioUdp`) para Carga Diaria y Bloqueos.
+2. Ventana de edición de `bim_registro_diario`: hoy y los 4 días anteriores (5 días corridos). Fuera de ventana: 400 si la fecha es futura, 409 si ya venció. Corrección dentro de ventana = UPDATE (upsert), no INSERT duplicado.
+3. `bim_evidencia_foto` es general por proyecto+fecha, sin relación a zona/nivel/sector/actividad — misma ventana de 5 días que las celdas.
+4. Guardado parcial: se puede cargar solo algunas celdas del cruce zona×nivel×sector×actividad; ausencia de registro = "sin cargar", no "no cumplida". Sin validación de "todo completo".
+5. `causa_id` obligatorio (400) si `cumplida=false`; se ignora (se guarda null) si `cumplida=true`.
+6. `bim_bloqueo` es puramente informativo — no bloquea la Carga Diaria normal, sin relación con celdas.
+7. Mismo control de acceso (3 roles) para crear/actualizar/cerrar bloqueos.
+
+Diseño de endpoints (acordado explícitamente antes de escribir código, iterando sobre 6 confirmaciones del usuario):
+- **`GET /api/v1/planeamiento-bim/carga-diaria/{projectId}?fecha=`** — todo en una sola llamada (R1/B6): `zonas` (niveles+sectores anidados, reusa `ZonaDto`/`NivelDto`/`SectorDto` de Configuración Inicial), `actividades` (catálogo de 37, con `macroActividadNombre` resuelto), `causas` (catálogo de 5 — agregado en un paso posterior de la sesión, mismo patrón que `actividades`, tras detectar que el frontend tenía un dropdown de causas hardcodeado con 8 opciones inventadas), `celdas` (**sparse** — solo lo cargado, ausencia = sin cargar), `evidencias` de esa fecha, `bloqueosActivos` (`FechaCierre == null`), y `esEditable` calculado server-side.
+- **`PUT /api/v1/planeamiento-bim/carga-diaria/{projectId}?fecha=`** — upsert por la tupla natural `(zonaId, nivelId, sectorId, actividadId)` + fecha de la URL contra `ix_bim_registro_diario_unico` (no por Id, a diferencia del diff-por-Id de Configuración Inicial, porque acá el cliente no tiene Id de antemano al ser sparse).
+- **`POST /api/v1/planeamiento-bim/carga-diaria/{projectId}/evidencias?fecha=`** (multipart) — sube a `IStorageContainerResolver.GetProjectFotosContainerName()` (contenedor `project-fotos`, confirmado sin ningún uso previo en todo el repo antes de esto).
+- **`api/v1/planeamiento-bim/bloqueos`** — `GET/{projectId}?soloActivos=`, `POST/{projectId}`, `PUT/{id}`, `PUT/{id}/cerrar`. `Estado` (texto libre en BD) validado en el Service contra `{ABIERTO, EN_GESTION}` en Create/Update — `"CERRADO"` solo lo asigna el endpoint `Cerrar` dedicado, para que `Estado` y `FechaCierre` nunca queden inconsistentes entre sí (decisión propia, confirmada con el usuario).
+
+**Gap encontrado y corregido en el camino**: `PlaneamientoBimConfiguracionController` (Configuración Inicial) solo tenía `[Authorize]` genérico, sin los 3 roles — quedó inconsistente con los controllers nuevos hasta que se alineó explícitamente.
+
+### Fix: `ProjectController.GetPaged` ignoraba `active`
+Encontrado mientras se diagnosticaba una pantalla nueva (no relacionado a BIM). El parámetro `active` que mandan 7 pantallas SSOMA (Inspección, Auditoría ATS, OPT) nunca se bindeaba en el controller — el filtro se ignoraba en silencio y el endpoint devolvía proyectos activos e inactivos mezclados. Se confirmó contra el modelo (`Project.Active` es el campo correcto; `State` es borrado lógico ya filtrado fijo; `Activo` es un string sin uso real en este dominio) antes de tocar código. Fix de punta a punta (Controller→Service→Repository) con `bool? active = null`, sin cambiar el comportamiento por defecto. Pendiente aparte, no tocado: `rac-nuevo.ts` manda `estado: 'ACTIVO'` (otro parámetro, tampoco bindeado hoy) — mismo tipo de bug, queda para otra sesión.
+
+### Bug real: evidencia fotográfica se subía pero la imagen no cargaba
+Probado en vivo por el usuario: el backend devolvía URL de éxito, pero la URL daba `ResourceNotFound` en Azure. Investigación en dos capas:
+1. **Bug de código real, corregido**: `AzureBlobStorageService.UploadFilesAsync` encadenaba `blobClient.UploadAsync(...).ContinueWith(_ => blobClient.Uri.ToString())` sin `OnlyOnRanToCompletion` — si `UploadAsync` fallaba, la excepción quedaba en un `Task` fallado que nadie observaba, y la continuación igual devolvía la URL calculada (no una confirmación de escritura). Se reemplazó por `await` normal. Afecta a los ~14 endpoints que usan este servicio contra Azure (Lessons, IVTs, Cuaderno de Obra, Adjudicaciones, ActasReunion, Vecinos, Topico, DescansoMedico, BIM) — se verificó que los 14 controllers llamantes ya tienen `catch (Exception)` genérico → 500, ninguno necesitó ajuste en paralelo. Firma pública sin cambios.
+2. **Hallazgo posterior, NO corregido todavía**: al probar el fix end-to-end (subida real a Azure + verificación con `blobClient.ExistsAsync()` autenticado + insert/select real en `bim_evidencia_foto`, con limpieza del registro de prueba), se descubrió que el contenedor `project-fotos` tiene `PublicAccess = None` (privado), a diferencia de los otros 3 contenedores activos del sistema (`lecciones-aprendidas-imagenes`, `ivts-pdfs`, `cuaderno-de-obra-pdfs`, los tres en `Blob`). Causa: `CreateIfNotExistsAsync(PublicAccessType.Blob)` solo aplica el nivel de acceso al crear el contenedor por primera vez — como `project-fotos` ya existía (creado fuera de este código, sin uso previo real), quedó privado para siempre. **Las 3 filas de `bim_evidencia_foto` de las pruebas de esta sesión NO son huérfanas** — los 3 blobs existen realmente en Azure (confirmado con `ExistsAsync()`), simplemente no son accesibles públicamente. No se borraron. Quedan pendientes de aprobación del usuario: (a) cambiar el `PublicAccess` de `project-fotos` a `Blob` en Azure, y (b) reemplazar `CreateIfNotExistsAsync` por `SetAccessPolicyAsync(PublicAccessType.Blob)` incondicional en el código para que esto se autocorrija ante cualquier otro contenedor pre-existente mal configurado.
+
+### Archivos clave
+- `Features/PlaneamientoBimFeature/Application/{Dtos/CargaDiariaDtos.cs, Dtos/BloqueoDtos.cs, Interfaces/IPlaneamientoBimCargaDiariaService.cs, Interfaces/IPlaneamientoBimBloqueoService.cs, Services/PlaneamientoBimCargaDiariaService.cs, Services/PlaneamientoBimBloqueoService.cs}`
+- `Features/PlaneamientoBimFeature/Infrastructure/{Interfaces/IPlaneamientoBimCargaDiariaRepository.cs, Interfaces/IPlaneamientoBimBloqueoRepository.cs, Repositories/PlaneamientoBimCargaDiariaRepository.cs, Repositories/PlaneamientoBimBloqueoRepository.cs}`
+- `Features/PlaneamientoBimFeature/Presentation/{PlaneamientoBimCargaDiariaController.cs, PlaneamientoBimBloqueoController.cs, PlaneamientoBimConfiguracionController.cs}` (el último solo por el fix de roles)
+- `Features/PlaneamientoBimFeature/PlaneamientoBimModule.cs`
+- `Features/ConfigurationModule/Features/ProjectFeature/{Application,Infrastructure,Presentation}/**` (fix de `active`)
+- `Shared/Services/Storage/Services/AzureBlobStorageService.cs` (fix del `.ContinueWith`)
+
+### Pendiente
+- Decisión del usuario sobre el contenedor `project-fotos` privado (ver arriba) — sin esto, ninguna evidencia fotográfica de Carga Diaria va a ser visible en el navegador aunque el backend funcione perfecto.
+- `rac-nuevo.ts` / parámetro `estado` no bindeado en `GetPaged` — bug análogo al de `active`, no corregido a propósito.
+- Falta el frontend de Carga Diaria y de gestión de Bloqueos (Antigravity).
+- Drift de migración ajeno (`cat_jefatura`, etc., ver sesión anterior) sigue sin resolver.

@@ -225,8 +225,36 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
             cards.AddRange(finalistas);
 
+            // Tarjetas resumen. Se calculan sobre lo ya traído (sin roundtrips extra).
+            //
+            // "En revisión · GTH evaluando" = procesos cuyo siguiente paso le toca a GTH, sin contar
+            // el primero (NUEVO, que es justamente "Pendientes · Sin respuesta"). Además se descartan
+            // los que están esperando una acción del solicitante, que son exactamente los que ya
+            // tienen tarjeta en "Gestión de candidatos": el caso real es ENTREVISTAS con finalistas
+            // ya enviados — GTH terminó su parte y la decisión es del solicitante, así que sería
+            // contradictorio mostrarlo a la vez como "GTH evaluando".
+            var esperandoAlSolicitante = cards.Select(c => c.RequerimientoId).ToHashSet();
+
+            var anioActual = DateTimeOffset.UtcNow.ToOffset(PeruOffset).Year;
+
+            var resumen = new ResumenSolicitantePanelDto
+            {
+                TotalRegistradas = misSolicitudes.Count,
+                Pendientes       = misSolicitudes.Count(s => s.EstadoCodigo == EstadoReclutamiento.Nuevo),
+                EnRevisionGth    = misSolicitudes.Count(s =>
+                                       EstadoReclutamiento.FasesGth.Contains(s.EstadoCodigo)
+                                       && !esperandoAlSolicitante.Contains(s.RequerimientoId)),
+                // "Este período" = año en curso (hora Perú), el mismo que rotula la cabecera de la
+                // página. Se toma la fecha de envío porque es la que define a qué año pertenece el
+                // requerimiento en la tabla.
+                Aprobadas        = misSolicitudes.Count(s =>
+                                       s.EstadoCodigo == EstadoReclutamiento.Cerrado
+                                       && s.Enviado.Year == anioActual),
+            };
+
             return new SolicitantePanelDto
             {
+                Resumen           = resumen,
                 GestionCandidatos = cards,
                 MisSolicitudes    = misSolicitudes,
             };
@@ -469,11 +497,66 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(p => new OpcionDto { Id = p.GthPrioridadId, Nombre = p.Nombre })
                 .ToListAsync();
 
+            // "Evaluaciones · Programadas": entrevistas ya agendadas cuyo resultado GTH todavía no
+            // cierra (sin evaluación registrada, o registrada pero aún en PENDIENTE). Una vez que el
+            // candidato queda en PASO / NO_PASO / SELECCIONADO / RECHAZADO deja de estar programada.
+            var evaluacionesProgramadas = await (
+                from ent in ctx.GthEntrevista
+                join c in ctx.GthCandidato on ent.GthCandidatoId equals c.GthCandidatoId
+                join r in ctx.GthRequerimiento on c.GthRequerimientoId equals r.GthRequerimientoId
+                where ent.State && c.State && r.State
+                      && !(from ev in ctx.GthCandidatoEvaluacion
+                           join res in ctx.GthCandidatoResultado
+                               on ev.GthCandidatoResultadoId equals res.GthCandidatoResultadoId
+                           where ev.GthCandidatoId == c.GthCandidatoId && ev.State
+                                 && res.Codigo != ResultadoCandidato.Pendiente
+                           select ev.GthCandidatoEvaluacionId).Any()
+                select ent.GthEntrevistaId).CountAsync();
+
+            // ── Embudo del pipeline y tarjetas de resumen ─────────────────────────────────
+            // Se calculan sobre `solicitudes`, que ya está materializado (sin roundtrips extra).
+            var totalPorFase = solicitudes
+                .GroupBy(s => s.EstadoCodigo)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            var pipeline = EtapaPipeline.Todas
+                .Select(etapa => new PipelineEtapaDto
+                {
+                    Codigo = etapa.Codigo,
+                    Nombre = etapa.Nombre,
+                    Total  = etapa.Fases.Sum(f => totalPorFase.GetValueOrDefault(f)),
+                })
+                .ToList();
+
+            var cerrados = pipeline.First(e => e.Codigo == EtapaPipeline.CodigoCierre).Total;
+
+            // "Vacantes abiertas" = ya publicadas y todavía en curso: las etapas desde Publicado
+            // hasta la anterior a Cierre. Se recorta por posición para no repetir la lista de fases.
+            var desdePublicado = Array.FindIndex(EtapaPipeline.Todas, e => e.Codigo == EtapaPipeline.CodigoPublicado);
+            var hastaCierre    = Array.FindIndex(EtapaPipeline.Todas, e => e.Codigo == EtapaPipeline.CodigoCierre);
+            var vacantesAbiertas = pipeline
+                .Take(hastaCierre)
+                .Skip(desdePublicado)
+                .Sum(e => e.Total);
+
+            // "Este período" = año en curso (hora Perú), el mismo que rotula la cabecera de la página.
+            var anioActual = DateTimeOffset.UtcNow.ToOffset(PeruOffset).Year;
+
+            var resumen = new ResumenReclutamientoDto
+            {
+                // Lo cerrado ya no está en curso, así que sale de "En proceso".
+                EnProceso               = solicitudes.Count - cerrados,
+                VacantesAbiertas        = vacantesAbiertas,
+                EvaluacionesProgramadas = evaluacionesProgramadas,
+                ProcesosCerrados        = solicitudes.Count(s => s.EstadoCodigo == EstadoReclutamiento.Cerrado
+                                                                 && s.FechaLlegada.Year == anioActual),
+                SolicitudesNuevas       = totalPorFase.GetValueOrDefault(EstadoReclutamiento.Nuevo),
+            };
+
             return new BandejaReclutamientoDto
             {
-                // "En proceso" = requerimientos vigentes en curso. Aún no hay estado de cierre modelado,
-                // así que por ahora son todos los vigentes; cuando exista un estado terminal se excluirá aquí.
-                Resumen     = new ResumenReclutamientoDto { EnProceso = solicitudes.Count },
+                Resumen     = resumen,
+                Pipeline    = pipeline,
                 Solicitudes = solicitudes,
                 Prioridades = prioridades,
             };
@@ -1932,18 +2015,82 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
     /// <summary>Códigos estables de estados de reclutamiento (espejo de gth_estado_requerimiento.codigo).</summary>
     internal static class EstadoReclutamiento
     {
-        public const string Nuevo            = "NUEVO";
-        public const string Publicacion      = "PUBLICACION";
-        public const string LongList         = "LONG_LIST";
-        public const string LongListEnviada  = "LONG_LIST_ENVIADA";
-        public const string LongListAprobada = "LONG_LIST_APROBADA";
-        public const string Entrevistas      = "ENTREVISTAS";
+        public const string Nuevo             = "NUEVO";
+        public const string AprobacionGg      = "APROBACION_GG";
+        public const string ValidacionGth     = "VALIDACION_GTH";
+        public const string Publicacion       = "PUBLICACION";
+        public const string LongList          = "LONG_LIST";
+        public const string LongListEnviada   = "LONG_LIST_ENVIADA";
+        public const string LongListAprobada  = "LONG_LIST_APROBADA";
+        public const string Entrevistas       = "ENTREVISTAS";
+        public const string Evaluacion        = "EVALUACION";
+        public const string SeleccionJefatura = "SELECCION_JEFATURA";
+        public const string OfertaCierre      = "OFERTA_CIERRE";
 
         /// <summary>
         /// Estado final: el solicitante aprobó al finalista, el proceso de reclutamiento termina y
         /// el seleccionado pasa al proceso de onboarding (funcionalidad aparte).
         /// </summary>
-        public const string Cerrado          = "CERRADO";
+        public const string Cerrado           = "CERRADO";
+
+        /// <summary>
+        /// Fases en las que el siguiente paso le toca a GTH (tarjeta "En revisión · GTH evaluando"
+        /// del panel del solicitante). Deja fuera a propósito:
+        /// <list type="bullet">
+        ///   <item><description><see cref="Nuevo"/>: es el primer paso de GTH y ya se cuenta en
+        ///   "Pendientes · Sin respuesta"; contarlo en ambas tarjetas duplicaría el mismo proceso.</description></item>
+        ///   <item><description><see cref="AprobacionGg"/>: el paso es de Gerencia General, no de GTH.</description></item>
+        ///   <item><description><see cref="LongListEnviada"/> y <see cref="SeleccionJefatura"/>:
+        ///   la pelota está del lado del solicitante.</description></item>
+        ///   <item><description><see cref="Cerrado"/>: el proceso ya terminó.</description></item>
+        /// </list>
+        /// </summary>
+        public static readonly HashSet<string> FasesGth = new()
+        {
+            ValidacionGth,
+            Publicacion,
+            LongList,
+            LongListAprobada,
+            Entrevistas,
+            Evaluacion,
+            OfertaCierre,
+        };
+    }
+
+    /// <summary>
+    /// Etapas del embudo "Pipeline de reclutamiento" (vista de GTH), en el orden en que se muestran.
+    /// El catálogo tiene 12 fases y el embudo las agrupa en 7 etapas legibles; cada fase pertenece a
+    /// exactamente una etapa, de modo que la suma de las etapas es siempre el total de requerimientos
+    /// vigentes y ninguno se pierde del embudo.
+    ///
+    /// El orden sigue el <c>orden</c> del catálogo (por eso Entrevistas va antes que Evaluación),
+    /// que es el mismo que ve el solicitante en el seguimiento vertical del requerimiento.
+    /// <c>SELECCION_JEFATURA</c> es una fase heredada que el flujo implementado no usa (su función
+    /// la cubren LONG_LIST_ENVIADA/LONG_LIST_APROBADA); se agrupa en Revisión por lo que describe.
+    /// </summary>
+    internal sealed record EtapaPipeline(string Codigo, string Nombre, string[] Fases)
+    {
+        public static readonly EtapaPipeline[] Todas =
+        {
+            new("SOLICITUD",   "Solicitud",   new[] { EstadoReclutamiento.Nuevo,
+                                                      EstadoReclutamiento.AprobacionGg,
+                                                      EstadoReclutamiento.ValidacionGth }),
+            new("PUBLICADO",   "Publicado",   new[] { EstadoReclutamiento.Publicacion }),
+            new("REVISION",    "Revisión",    new[] { EstadoReclutamiento.LongList,
+                                                      EstadoReclutamiento.LongListEnviada,
+                                                      EstadoReclutamiento.LongListAprobada,
+                                                      EstadoReclutamiento.SeleccionJefatura }),
+            new("ENTREVISTAS", "Entrevistas", new[] { EstadoReclutamiento.Entrevistas }),
+            new("EVALUACION",  "Evaluación",  new[] { EstadoReclutamiento.Evaluacion }),
+            new("OFERTA",      "Oferta",      new[] { EstadoReclutamiento.OfertaCierre }),
+            new("CIERRE",      "Cierre",      new[] { EstadoReclutamiento.Cerrado }),
+        };
+
+        /// <summary>Código de la etapa terminal: lo ya cerrado no cuenta como proceso activo.</summary>
+        public const string CodigoCierre = "CIERRE";
+
+        /// <summary>Código de la etapa en la que la vacante recién se publica (inicio de "vacantes abiertas").</summary>
+        public const string CodigoPublicado = "PUBLICADO";
     }
 
     /// <summary>Códigos estables de prioridad de reclutamiento (espejo de gth_prioridad.codigo).</summary>

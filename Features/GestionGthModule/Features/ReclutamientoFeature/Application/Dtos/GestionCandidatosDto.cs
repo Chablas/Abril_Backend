@@ -2,16 +2,38 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 {
     /// <summary>
     /// Panel de la vista del solicitante ("Solicitud de Personal"), en una sola petición:
-    /// las tarjetas de "Gestión de candidatos" (long lists que GTH ya le envió para revisar)
-    /// y la tabla "Mis solicitudes de vacante".
+    /// las tarjetas resumen, las tarjetas de "Gestión de candidatos" (long lists que GTH ya le
+    /// envió para revisar) y la tabla "Mis solicitudes de vacante".
     /// </summary>
     public class SolicitantePanelDto
     {
+        /// <summary>Contadores de las tarjetas resumen de la cabecera.</summary>
+        public ResumenSolicitantePanelDto Resumen { get; set; } = new();
+
         /// <summary>Tarjetas "Long list enviada por GTH" pendientes de revisión del solicitante.</summary>
         public List<GestionCandidatoCardDto> GestionCandidatos { get; set; } = new();
 
         /// <summary>Filas de la tabla "Mis solicitudes de vacante".</summary>
         public List<SolicitudVacanteListItemDto> MisSolicitudes { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Tarjetas resumen del panel del solicitante: el embudo de sus requerimientos, desde el total
+    /// registrado hasta los procesos ya cerrados.
+    /// </summary>
+    public class ResumenSolicitantePanelDto
+    {
+        /// <summary>"Mis solicitudes · Total registradas": todos sus requerimientos vigentes.</summary>
+        public int TotalRegistradas { get; set; }
+
+        /// <summary>"Pendientes · Sin respuesta": siguen en la fase inicial, GTH todavía no los tomó.</summary>
+        public int Pendientes { get; set; }
+
+        /// <summary>"En revisión · GTH evaluando": el siguiente paso le toca a GTH (sin contar el inicial).</summary>
+        public int EnRevisionGth { get; set; }
+
+        /// <summary>"Aprobadas · Este período": procesos cerrados (finalista aprobado) del año en curso.</summary>
+        public int Aprobadas { get; set; }
     }
 
     /// <summary>

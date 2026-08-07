@@ -4,6 +4,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Services.AreaScope.Interfaces;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -15,13 +16,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IAreaScopeLegacyResolver _areaLegacyResolver;
+        private readonly IJefePersonalizadoService _jefePersonalizado;
 
         public WorkerSearchRepository(
             IDbContextFactory<AppDbContext> factory,
-            IAreaScopeLegacyResolver areaLegacyResolver)
+            IAreaScopeLegacyResolver areaLegacyResolver,
+            IJefePersonalizadoService jefePersonalizado)
         {
             _factory = factory;
             _areaLegacyResolver = areaLegacyResolver;
+            _jefePersonalizado = jefePersonalizado;
         }
 
         /// <summary>
@@ -358,6 +362,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 await ctx.SaveChangesAsync();
             }
 
+            // Jefe personalizado (checkbox del formulario). Solo se toca cuando el formulario
+            // gestiona el campo: en obreros y contratistas ni siquiera se muestra.
+            if (dto.GestionaJefe)
+                await _jefePersonalizado.SetAsync(worker.Id, dto.JefePersonalizadoWorkerId);
+
             return worker.Id;
         }
 
@@ -441,6 +450,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
 
             await GuardarCuidandoEmailUnicoAsync(ctx);
+
+            // Jefe personalizado (checkbox del formulario). Solo se toca cuando el formulario
+            // gestiona el campo: en obreros y contratistas ni siquiera se muestra.
+            if (dto.GestionaJefe)
+                await _jefePersonalizado.SetAsync(id, dto.JefePersonalizadoWorkerId);
         }
 
         public async Task UpdateDatosBasicos(int id, WorkerDatosBasicosDto dto)

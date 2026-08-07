@@ -6,6 +6,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Shared.Constants;
 
@@ -17,6 +18,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
         private readonly IEmoCorreoConfigRepository _correoConfig;
+        private readonly IJefeRevisorResolver _jefeResolver;
         private readonly ILogger<EmoAutoProgramacionService> _logger;
 
         public EmoAutoProgramacionService(
@@ -24,12 +26,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             IEmailService emailService,
             IConfiguration configuration,
             IEmoCorreoConfigRepository correoConfig,
+            IJefeRevisorResolver jefeResolver,
             ILogger<EmoAutoProgramacionService> logger)
         {
             _factory = factory;
             _emailService = emailService;
             _configuration = configuration;
             _correoConfig = correoConfig;
+            _jefeResolver = jefeResolver;
             _logger = logger;
         }
 
@@ -102,7 +106,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             var existentesSet = new HashSet<(int, int)>(
                 programacionesExistentes.Select(p => (p.WorkerId, p.TipoEmoId)));
 
-            var programados = new List<(string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)>();
+            var programados = new List<(int WorkerId, string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)>();
 
             foreach (var c in candidatos)
             {
@@ -144,6 +148,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     await ctx.SaveChangesAsync();
 
                     programados.Add((
+                        c.Worker.Id,
                         c.WorkerNombre ?? $"Worker {c.Worker.Id}",
                         c.ContribNombre,
                         c.ProyectoNombre,
@@ -169,7 +174,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         private async Task EnviarResumenClinicaAsync(
             AppDbContext ctx,
-            List<(string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)> programados)
+            List<(int WorkerId, string Nombre, string RazonSocial, string? Proyecto, string TipoEmo, DateOnly Fecha)> programados)
         {
             try
             {
@@ -196,6 +201,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                             toRaw.Add(clinica.Email);
                     }
                 }
+
+                // Jefes de los trabajadores del resumen: mismo destinatario dinámico que en la
+                // programación manual, resuelto en un número fijo de consultas para todo el lote.
+                if (correoCfg.IncluirJefe)
+                    toRaw.AddRange(await ResolverJefesAsync(programados.Select(p => p.WorkerId).ToList()));
 
                 toRaw.AddRange(correoCfg.Principales);
 
@@ -265,6 +275,30 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error enviando resumen de auto-programación a clínica.");
+            }
+        }
+
+        /// <summary>
+        /// Correos de los jefes de los trabajadores programados (jefe personalizado o revisor del
+        /// área, lo que corresponda a cada uno). Best-effort: si la resolución falla, el resumen
+        /// sale igual con el resto de destinatarios.
+        /// </summary>
+        private async Task<List<string?>> ResolverJefesAsync(List<int> workerIds)
+        {
+            try
+            {
+                var jefes = await _jefeResolver.ResolveManyAsync(workerIds);
+                return jefes.Values
+                    .Select(j => j.Email)
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Select(e => (string?)e.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Auto-programación EMO: error resolviendo los jefes; el resumen sale sin ellos.");
+                return new List<string?>();
             }
         }
 

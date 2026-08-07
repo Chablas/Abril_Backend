@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,13 +13,16 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
     public class CatalogosHabilitacionController : ControllerBase
     {
         private readonly ICatalogosHabilitacionRepository _repo;
+        private readonly IJefePersonalizadoService _jefePersonalizado;
         private readonly ILogger<CatalogosHabilitacionController> _logger;
 
         public CatalogosHabilitacionController(
             ICatalogosHabilitacionRepository repo,
+            IJefePersonalizadoService jefePersonalizado,
             ILogger<CatalogosHabilitacionController> logger)
         {
             _repo = repo;
+            _jefePersonalizado = jefePersonalizado;
             _logger = logger;
         }
 
@@ -120,6 +124,22 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetAreaArbol"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>
+        /// Trabajadores que pueden ser jefe (los que tienen correo corporativo @abril.pe),
+        /// para el desplegable que aparece al marcar "Jefe personalizado" en el formulario de
+        /// trabajadores. No exige que tengan usuario del sistema.
+        /// </summary>
+        [HttpGet("jefes")]
+        public async Task<IActionResult> GetJefes()
+        {
+            try
+            {
+                return Ok(await _jefePersonalizado.GetCandidatosAsync());
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosHabilitacionController.GetJefes"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         /// <summary>

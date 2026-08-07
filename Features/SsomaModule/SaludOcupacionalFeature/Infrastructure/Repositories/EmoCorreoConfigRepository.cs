@@ -172,6 +172,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 // comportamiento histórico: el correo va a la clínica.
                 IncluirClinica = filas.Count == 0
                     || filas.Any(f => string.Equals(f.DestCodigo, EmoCorreoDestinatarioCodigo.Clinica, StringComparison.OrdinalIgnoreCase)),
+                // El jefe no tiene comportamiento histórico que preservar: solo se le escribe
+                // si su fila existe y está activa.
+                IncluirJefe = filas.Any(f => string.Equals(f.DestCodigo, EmoCorreoDestinatarioCodigo.Jefe, StringComparison.OrdinalIgnoreCase)),
             };
 
             foreach (var f in filas)

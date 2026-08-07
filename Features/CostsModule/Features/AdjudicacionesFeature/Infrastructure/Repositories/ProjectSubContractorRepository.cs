@@ -1644,20 +1644,20 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                     Step6SignedGerenteGeneral = (bool)raw.Step6SignedGerenteGeneral,
                     CreatedDateTime = new DateTimeOffset((DateTime)raw.CreatedDateTime, TimeSpan.Zero),
                     CreatedUserFullName = (string?)raw.CreatedUserFullName,
-                    Contract = raw.contract_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.contract_file_url, OriginalFileName = raw.contract_file_name, StatusId = (int?)raw.contract_status_id, StatusDescription = raw.contract_status_desc, Observation = raw.contract_observation } : null,
-                    SummarySheet = raw.summary_sheet_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.summary_sheet_file_url, OriginalFileName = raw.summary_sheet_file_name, StatusId = (int?)raw.summary_sheet_status_id, StatusDescription = raw.summary_sheet_status_desc, Observation = raw.summary_sheet_observation } : null,
-                    Budget = raw.budget_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.budget_file_url, OriginalFileName = raw.budget_file_name, StatusId = (int?)raw.budget_status_id, StatusDescription = raw.budget_status_desc, Observation = raw.budget_observation } : null,
-                    Schedule = raw.schedule_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.schedule_file_url, OriginalFileName = raw.schedule_file_name, StatusId = (int?)raw.schedule_status_id, StatusDescription = raw.schedule_status_desc, Observation = raw.schedule_observation } : null,
-                    AttachedQuotation = raw.attached_quotation_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.attached_quotation_file_url, OriginalFileName = raw.attached_quotation_file_name, StatusId = (int?)raw.attached_quotation_status_id, StatusDescription = raw.attached_quotation_status_desc, Observation = raw.attached_quotation_observation } : null,
-                    ServiceOrder = raw.service_order_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.service_order_file_url, OriginalFileName = raw.service_order_file_name, StatusId = (int?)raw.service_order_status_id, StatusDescription = raw.service_order_status_desc, Observation = raw.service_order_observation } : null,
-                    PromissoryNote = raw.promissory_note_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.promissory_note_file_url, OriginalFileName = raw.promissory_note_file_name, StatusId = (int?)raw.promissory_note_status_id, StatusDescription = raw.promissory_note_status_desc, Observation = raw.promissory_note_observation } : null,
+                    Contract = MapDocDto((string?)raw.contract_file_url, (string?)raw.contract_file_name, (int?)raw.contract_status_id, (string?)raw.contract_status_desc, (string?)raw.contract_observation),
+                    SummarySheet = MapDocDto((string?)raw.summary_sheet_file_url, (string?)raw.summary_sheet_file_name, (int?)raw.summary_sheet_status_id, (string?)raw.summary_sheet_status_desc, (string?)raw.summary_sheet_observation),
+                    Budget = MapDocDto((string?)raw.budget_file_url, (string?)raw.budget_file_name, (int?)raw.budget_status_id, (string?)raw.budget_status_desc, (string?)raw.budget_observation),
+                    Schedule = MapDocDto((string?)raw.schedule_file_url, (string?)raw.schedule_file_name, (int?)raw.schedule_status_id, (string?)raw.schedule_status_desc, (string?)raw.schedule_observation),
+                    AttachedQuotation = MapDocDto((string?)raw.attached_quotation_file_url, (string?)raw.attached_quotation_file_name, (int?)raw.attached_quotation_status_id, (string?)raw.attached_quotation_status_desc, (string?)raw.attached_quotation_observation),
+                    ServiceOrder = MapDocDto((string?)raw.service_order_file_url, (string?)raw.service_order_file_name, (int?)raw.service_order_status_id, (string?)raw.service_order_status_desc, (string?)raw.service_order_observation),
+                    PromissoryNote = MapDocDto((string?)raw.promissory_note_file_url, (string?)raw.promissory_note_file_name, (int?)raw.promissory_note_status_id, (string?)raw.promissory_note_status_desc, (string?)raw.promissory_note_observation),
                     Package = raw.package_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.package_file_url, OriginalFileName = raw.package_file_name } : null,
-                    Instructivo = raw.instructivo_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.instructivo_file_url, OriginalFileName = raw.instructivo_file_name, StatusId = (int?)raw.instructivo_status_id, StatusDescription = raw.instructivo_status_desc, Observation = raw.instructivo_observation } : null,
+                    Instructivo = MapDocDto((string?)raw.instructivo_file_url, (string?)raw.instructivo_file_name, (int?)raw.instructivo_status_id, (string?)raw.instructivo_status_desc, (string?)raw.instructivo_observation),
                     NonConformingOutput = ((int?)raw.NonConformingOutputStatusId) != null ? new ProjectSubContractorFileDto { StatusId = (int?)raw.NonConformingOutputStatusId } : null,
                     ToleranceChart = ((int?)raw.ToleranceChartStatusId) != null ? new ProjectSubContractorFileDto { StatusId = (int?)raw.ToleranceChartStatusId } : null,
                     FinishProtection = ((int?)raw.FinishProtectionStatusId) != null ? new ProjectSubContractorFileDto { StatusId = (int?)raw.FinishProtectionStatusId } : null,
-                    FichaTecnica = raw.ficha_tecnica_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.ficha_tecnica_file_url, OriginalFileName = raw.ficha_tecnica_file_name, StatusId = (int?)raw.ficha_tecnica_status_id, StatusDescription = raw.ficha_tecnica_status_desc, Observation = raw.ficha_tecnica_observation } : null,
-                    Anexo = raw.anexo_file_url != null ? new ProjectSubContractorFileDto { FileUrl = raw.anexo_file_url, OriginalFileName = raw.anexo_file_name, StatusId = (int?)raw.anexo_status_id, StatusDescription = raw.anexo_status_desc, Observation = raw.anexo_observation } : null,
+                    FichaTecnica = MapDocDto((string?)raw.ficha_tecnica_file_url, (string?)raw.ficha_tecnica_file_name, (int?)raw.ficha_tecnica_status_id, (string?)raw.ficha_tecnica_status_desc, (string?)raw.ficha_tecnica_observation),
+                    Anexo = MapDocDto((string?)raw.anexo_file_url, (string?)raw.anexo_file_name, (int?)raw.anexo_status_id, (string?)raw.anexo_status_desc, (string?)raw.anexo_observation),
                 });
             }
 
@@ -2526,54 +2526,81 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
 
             var now = DateTimeOffset.UtcNow;
 
+            // El estado (y su observación) se puede fijar ANTES de subir el archivo: si el
+            // documento todavía no tiene registro se crea uno sin file_url para guardarlo,
+            // de modo que el estado no se pierda al cerrar y reabrir el detalle.
             switch (documentType)
             {
                 case AdjudicacionDocumentType.Contract:
-                    if (!psc.ProjectSubContractorContractId.HasValue) throw new AbrilException("No existe un registro de Contrato para actualizar.");
-                    var contract = await _context.ProjectSubContractorContract.FindAsync(psc.ProjectSubContractorContractId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    contract.ProjectSubContractorFileStatusId = statusId; contract.Observation = observation; contract.UpdatedDatetime = now; contract.UpdatedUserId = userId;
+                    psc.ProjectSubContractorContractId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorContract,
+                        psc.ProjectSubContractorContractId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorContract { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorContractId);
                     break;
 
                 case AdjudicacionDocumentType.SummarySheet:
-                    if (!psc.ProjectSubContractorSummarySheetId.HasValue) throw new AbrilException("No existe un registro de Hoja Resumen para actualizar.");
-                    var summarySheet = await _context.ProjectSubContractorSummarySheet.FindAsync(psc.ProjectSubContractorSummarySheetId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    summarySheet.ProjectSubContractorFileStatusId = statusId; summarySheet.Observation = observation; summarySheet.UpdatedDatetime = now; summarySheet.UpdatedUserId = userId;
+                    psc.ProjectSubContractorSummarySheetId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorSummarySheet,
+                        psc.ProjectSubContractorSummarySheetId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorSummarySheet { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorSummarySheetId);
                     break;
 
                 case AdjudicacionDocumentType.Budget:
-                    if (!psc.ProjectSubContractorBudgetId.HasValue) throw new AbrilException("No existe un registro de Presupuesto para actualizar.");
-                    var budget = await _context.ProjectSubContractorBudget.FindAsync(psc.ProjectSubContractorBudgetId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    budget.ProjectSubContractorFileStatusId = statusId; budget.Observation = observation; budget.UpdatedDatetime = now; budget.UpdatedUserId = userId;
+                    psc.ProjectSubContractorBudgetId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorBudget,
+                        psc.ProjectSubContractorBudgetId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorBudget { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorBudgetId);
                     break;
 
                 case AdjudicacionDocumentType.Schedule:
-                    if (!psc.ProjectSubContractorScheduleId.HasValue) throw new AbrilException("No existe un registro de Cronograma para actualizar.");
-                    var schedule = await _context.ProjectSubContractorSchedule.FindAsync(psc.ProjectSubContractorScheduleId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    schedule.ProjectSubContractorFileStatusId = statusId; schedule.Observation = observation; schedule.UpdatedDatetime = now; schedule.UpdatedUserId = userId;
+                    psc.ProjectSubContractorScheduleId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorSchedule,
+                        psc.ProjectSubContractorScheduleId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorSchedule { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorScheduleId);
                     break;
 
                 case AdjudicacionDocumentType.AttachedQuotation:
-                    if (!psc.ProjectSubContractorAttachedQuotationId.HasValue) throw new AbrilException("No existe un registro de Cotización Adjunta para actualizar.");
-                    var attachedQuotation = await _context.ProjectSubContractorAttachedQuotation.FindAsync(psc.ProjectSubContractorAttachedQuotationId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    attachedQuotation.ProjectSubContractorFileStatusId = statusId; attachedQuotation.Observation = observation; attachedQuotation.UpdatedDatetime = now; attachedQuotation.UpdatedUserId = userId;
+                    psc.ProjectSubContractorAttachedQuotationId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorAttachedQuotation,
+                        psc.ProjectSubContractorAttachedQuotationId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorAttachedQuotation { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorAttachedQuotationId);
                     break;
 
                 case AdjudicacionDocumentType.ServiceOrder:
-                    if (!psc.ProjectSubContractorServiceOrderId.HasValue) throw new AbrilException("No existe un registro de Orden de Servicio para actualizar.");
-                    var serviceOrder = await _context.ProjectSubContractorServiceOrder.FindAsync(psc.ProjectSubContractorServiceOrderId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    serviceOrder.ProjectSubContractorFileStatusId = statusId; serviceOrder.Observation = observation; serviceOrder.UpdatedDatetime = now; serviceOrder.UpdatedUserId = userId;
+                    psc.ProjectSubContractorServiceOrderId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorServiceOrder,
+                        psc.ProjectSubContractorServiceOrderId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorServiceOrder { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorServiceOrderId);
                     break;
 
                 case AdjudicacionDocumentType.PromissoryNote:
-                    if (!psc.ProjectSubContractorPromissoryNoteId.HasValue) throw new AbrilException("No existe un registro de Pagaré para actualizar.");
-                    var promissoryNote = await _context.ProjectSubContractorPromissoryNote.FindAsync(psc.ProjectSubContractorPromissoryNoteId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    promissoryNote.ProjectSubContractorFileStatusId = statusId; promissoryNote.Observation = observation; promissoryNote.UpdatedDatetime = now; promissoryNote.UpdatedUserId = userId;
+                    psc.ProjectSubContractorPromissoryNoteId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorPromissoryNote,
+                        psc.ProjectSubContractorPromissoryNoteId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorPromissoryNote { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorPromissoryNoteId);
                     break;
 
                 case AdjudicacionDocumentType.Instructivo:
-                    if (!psc.ProjectSubContractorInstructivoId.HasValue) throw new AbrilException("No existe un registro de Instructivo para actualizar.");
-                    var instructivo = await _context.ProjectSubContractorInstructivo.FindAsync(psc.ProjectSubContractorInstructivoId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    instructivo.ProjectSubContractorFileStatusId = statusId; instructivo.Observation = observation; instructivo.UpdatedDatetime = now; instructivo.UpdatedUserId = userId;
+                    psc.ProjectSubContractorInstructivoId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorInstructivo,
+                        psc.ProjectSubContractorInstructivoId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorInstructivo { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorInstructivoId);
                     break;
 
                 // Causales de No Conformidad y Cuadro de Tolerancias: documentos de plantilla, sin
@@ -2588,15 +2615,21 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                     break;
 
                 case AdjudicacionDocumentType.FichaTecnica:
-                    if (!psc.ProjectSubContractorFichaTecnicaId.HasValue) throw new AbrilException("No existe un registro de Ficha Técnica para actualizar.");
-                    var fichaTecnica = await _context.ProjectSubContractorFichaTecnica.FindAsync(psc.ProjectSubContractorFichaTecnicaId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    fichaTecnica.ProjectSubContractorFileStatusId = statusId; fichaTecnica.Observation = observation; fichaTecnica.UpdatedDatetime = now; fichaTecnica.UpdatedUserId = userId;
+                    psc.ProjectSubContractorFichaTecnicaId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorFichaTecnica,
+                        psc.ProjectSubContractorFichaTecnicaId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorFichaTecnica { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorFichaTecnicaId);
                     break;
 
                 case AdjudicacionDocumentType.Anexo:
-                    if (!psc.ProjectSubContractorAnexoId.HasValue) throw new AbrilException("No existe un registro de Anexos para actualizar.");
-                    var anexo = await _context.ProjectSubContractorAnexo.FindAsync(psc.ProjectSubContractorAnexoId.Value) ?? throw new AbrilException("Documento no encontrado.");
-                    anexo.ProjectSubContractorFileStatusId = statusId; anexo.Observation = observation; anexo.UpdatedDatetime = now; anexo.UpdatedUserId = userId;
+                    psc.ProjectSubContractorAnexoId = await UpsertDocumentAsync(
+                        _context.ProjectSubContractorAnexo,
+                        psc.ProjectSubContractorAnexoId,
+                        e => { e.ProjectSubContractorFileStatusId = statusId; e.Observation = observation; e.UpdatedDatetime = now; e.UpdatedUserId = userId; },
+                        () => new ProjectSubContractorAnexo { ProjectSubContractorFileStatusId = statusId, Observation = observation, CreatedDatetime = now, CreatedUserId = userId, Active = true, State = true },
+                        e => e.ProjectSubContractorAnexoId);
                     break;
 
                 // Protección de Acabados: documento de plantilla, sin archivo. El estado se guarda
@@ -2753,6 +2786,22 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                     result.Add(new DocumentObservationDto { DocumentLabel = "Cuadro de Tolerancias", Observation = d.Observation });
             }
 
+            if (psc.ProjectSubContractorFichaTecnicaId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorFichaTecnica
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorFichaTecnicaId == psc.ProjectSubContractorFichaTecnicaId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Ficha Técnica", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorAnexoId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorAnexo
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorAnexoId == psc.ProjectSubContractorAnexoId.Value);
+                if (d?.ProjectSubContractorFileStatusId == ObservacionStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Anexos", Observation = d.Observation });
+            }
+
             return result;
         }
 
@@ -2835,6 +2884,22 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
                     .FirstOrDefaultAsync(x => x.ProjectSubContractorToleranceChartId == psc.ProjectSubContractorToleranceChartId.Value);
                 if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
                     result.Add(new DocumentObservationDto { DocumentLabel = "Cuadro de Tolerancias", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorFichaTecnicaId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorFichaTecnica
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorFichaTecnicaId == psc.ProjectSubContractorFichaTecnicaId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Ficha Técnica", Observation = d.Observation });
+            }
+
+            if (psc.ProjectSubContractorAnexoId.HasValue)
+            {
+                var d = await _context.ProjectSubContractorAnexo
+                    .FirstOrDefaultAsync(x => x.ProjectSubContractorAnexoId == psc.ProjectSubContractorAnexoId.Value);
+                if (d?.ProjectSubContractorFileStatusId == LevantamientoStatusId)
+                    result.Add(new DocumentObservationDto { DocumentLabel = "Anexos", Observation = d.Observation });
             }
 
             return result;
@@ -3004,6 +3069,30 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
         /// <summary>
         /// Actualiza el registro existente si ya hay un ID, o crea uno nuevo y devuelve su ID.
         /// </summary>
+        /// <summary>
+        /// Mapea las columnas de un documento del paso 3 al DTO. Devuelve el DTO cuando el
+        /// registro existe aunque todavía NO tenga archivo (el estado/observación se puede
+        /// fijar antes de subirlo); solo devuelve null cuando no hay nada que mostrar.
+        /// </summary>
+        private static ProjectSubContractorFileDto? MapDocDto(
+            string? fileUrl,
+            string? originalFileName,
+            int? statusId,
+            string? statusDescription,
+            string? observation)
+        {
+            if (fileUrl is null && statusId is null && observation is null) return null;
+
+            return new ProjectSubContractorFileDto
+            {
+                FileUrl           = fileUrl!,
+                OriginalFileName  = originalFileName,
+                StatusId          = statusId,
+                StatusDescription = statusDescription,
+                Observation       = observation,
+            };
+        }
+
         private async Task<int> UpsertDocumentAsync<T>(
             Microsoft.EntityFrameworkCore.DbSet<T> dbSet,
             int? existingId,

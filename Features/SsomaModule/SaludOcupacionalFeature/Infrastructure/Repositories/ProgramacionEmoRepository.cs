@@ -464,6 +464,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     }
                 }
 
+                // Jefe del trabajador: destinatario dinámico igual que la clínica. Se resuelve
+                // recién al enviar, así que siempre refleja lo último configurado (jefe
+                // personalizado del formulario de trabajadores o revisor de su área).
+                if (correoCfg.IncluirJefe)
+                {
+                    var jefeEmail = await ResolverJefeEmailAsync(worker);
+                    if (!string.IsNullOrWhiteSpace(jefeEmail)) toRaw.Add(jefeEmail);
+                }
+
                 toRaw.AddRange(correoCfg.Principales);
 
                 var cc = correoCfg.Copias

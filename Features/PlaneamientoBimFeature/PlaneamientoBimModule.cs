@@ -12,6 +12,12 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature
             services.AddScoped<IPlaneamientoBimConfiguracionRepository, PlaneamientoBimConfiguracionRepository>();
             services.AddScoped<IPlaneamientoBimConfiguracionService, PlaneamientoBimConfiguracionService>();
 
+            services.AddScoped<IPlaneamientoBimCargaDiariaRepository, PlaneamientoBimCargaDiariaRepository>();
+            services.AddScoped<IPlaneamientoBimCargaDiariaService, PlaneamientoBimCargaDiariaService>();
+
+            services.AddScoped<IPlaneamientoBimBloqueoRepository, PlaneamientoBimBloqueoRepository>();
+            services.AddScoped<IPlaneamientoBimBloqueoService, PlaneamientoBimBloqueoService>();
+
             return services;
         }
     }

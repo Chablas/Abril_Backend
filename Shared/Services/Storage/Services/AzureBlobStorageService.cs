@@ -20,7 +20,7 @@ namespace Abril_Backend.Infrastructure.Services
 
             await container.CreateIfNotExistsAsync(PublicAccessType.Blob);
 
-            var tasks = files.Select(file =>
+            var tasks = files.Select(async file =>
             {
                 var blobClient = container.GetBlobClient(file.FileName);
 
@@ -29,10 +29,12 @@ namespace Abril_Backend.Infrastructure.Services
                     ContentType = GetContentType(file.FileName)
                 };
 
-                return blobClient.UploadAsync(file.Stream, new BlobUploadOptions
+                await blobClient.UploadAsync(file.Stream, new BlobUploadOptions
                 {
                     HttpHeaders = headers
-                }).ContinueWith(_ => blobClient.Uri.ToString());
+                });
+
+                return blobClient.Uri.ToString();
             });
 
             var results = await Task.WhenAll(tasks);

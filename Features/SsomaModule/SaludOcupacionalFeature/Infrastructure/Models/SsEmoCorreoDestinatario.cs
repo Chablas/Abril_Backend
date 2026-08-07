@@ -4,19 +4,24 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
 {
     /// <summary>
-    /// Destinatario de los correos de programación de EMO (tanto la programación
-    /// manual desde /emos como la automática del cron diario). El
-    /// <see cref="TipoId"/> decide si va en "Para" (PRINCIPAL) o en "CC" (COPIA);
-    /// <see cref="Active"/> prende/apaga el envío a ese destinatario sin borrarlo,
-    /// igual que <see cref="SsDescansoCorreoConfig"/> en Mi Salud.
+    /// El "quién" de los correos de EMO: es el eje "fila" de la matriz
+    /// <see cref="SsEmoCorreoRegla"/>. El <see cref="TipoId"/> decide si va en
+    /// "Para" (PRINCIPAL) o en "CC" (COPIA).
     ///
-    /// Hay dos clases de fila:
-    ///  • Editables (<see cref="Editable"/> = true): correo escrito a mano, con CRUD
-    ///    completo desde la pantalla de configuración.
-    ///  • Fijas (<see cref="Editable"/> = false): destinatarios dinámicos cuyo correo
-    ///    NO vive acá sino que se resuelve al enviar (hoy solo <c>CLINICA</c>, que
-    ///    expande a los emails de contacto de la clínica de la programación). Solo
-    ///    se pueden prender/apagar — no se editan ni se eliminan.
+    /// Hay tres clases de fila, distinguidas por <see cref="Codigo"/> y <see cref="Email"/>:
+    ///  • <b>Dinámica</b> (código + sin correo): el correo NO vive acá, se resuelve al
+    ///    enviar según el trabajador — <c>CLINICA</c>, <c>JEFE</c>, <c>TRABAJADOR</c>,
+    ///    <c>RESIDENTE</c>, <c>COORD_ADMIN</c>, <c>COORD_SSOMA</c>,
+    ///    <c>ADMIN_RAZON_SOCIAL</c>, <c>GTH</c>. No se editan ni se eliminan.
+    ///  • <b>Buzón de área</b> (código + correo): el correo vive acá y se edita desde la
+    ///    pantalla, pero la fila no se puede eliminar — <c>MEDICINA_OCUPACIONAL</c>,
+    ///    <c>ARQCOM_*</c>, <c>POSTVENTA_*</c>.
+    ///  • <b>Correo adicional</b> (sin código): agregado a mano, con alta/edición/baja
+    ///    completa desde la pantalla.
+    ///
+    /// <see cref="Active"/> quedó SIN USO cuando la configuración pasó de ser una lista
+    /// plana a la matriz: el interruptor real es <see cref="SsEmoCorreoRegla.Active"/>,
+    /// una celda por correo y perfil de trabajador.
     /// </summary>
     [Table("ss_emo_correo_destinatario")]
     public class SsEmoCorreoDestinatario

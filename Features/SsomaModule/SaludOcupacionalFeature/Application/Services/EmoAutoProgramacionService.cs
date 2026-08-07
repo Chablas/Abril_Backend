@@ -1,12 +1,11 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Alerta;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configuracion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
-using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
-using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Shared.Constants;
 
@@ -17,23 +16,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
-        private readonly IEmoCorreoConfigRepository _correoConfig;
-        private readonly IJefeRevisorResolver _jefeResolver;
+        private readonly IEmoDestinatariosResolver _destinatarios;
         private readonly ILogger<EmoAutoProgramacionService> _logger;
 
         public EmoAutoProgramacionService(
             IDbContextFactory<AppDbContext> factory,
             IEmailService emailService,
             IConfiguration configuration,
-            IEmoCorreoConfigRepository correoConfig,
-            IJefeRevisorResolver jefeResolver,
+            IEmoDestinatariosResolver destinatarios,
             ILogger<EmoAutoProgramacionService> logger)
         {
             _factory = factory;
             _emailService = emailService;
             _configuration = configuration;
-            _correoConfig = correoConfig;
-            _jefeResolver = jefeResolver;
+            _destinatarios = destinatarios;
             _logger = logger;
         }
 
@@ -180,46 +176,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             {
                 const int clinicaId = 1;
 
-                // Mismos destinatarios configurables que la programación manual
-                // (Configuración de EMOs → Correos de programación).
-                var correoCfg = await _correoConfig.GetEnvioConfigAsync();
+                // Destinatarios según la matriz de Configuración de EMOs → sección
+                // "Programación automática". Como el resumen agrupa a varios trabajadores,
+                // se manda a la unión de lo que le corresponde a cada uno según su perfil.
+                var destinatarios = await _destinatarios.ResolverLoteAsync(
+                    EmoCorreoEventoCodigo.ProgramacionAutomatica,
+                    programados.Select(p => p.WorkerId).ToList(),
+                    clinicaId);
 
-                var toRaw = new List<string?>();
-
-                if (correoCfg.IncluirClinica)
-                {
-                    toRaw = await ctx.SsClinicaEmail.AsNoTracking()
-                        .Where(e => e.ClinicaId == clinicaId && e.Activo)
-                        .Select(e => e.Email)
-                        .ToListAsync();
-
-                    if (toRaw.Count == 0)
-                    {
-                        var clinica = await ctx.SsClinica.AsNoTracking()
-                            .FirstOrDefaultAsync(c => c.Id == clinicaId);
-                        if (clinica?.Email is not null)
-                            toRaw.Add(clinica.Email);
-                    }
-                }
-
-                // Jefes de los trabajadores del resumen: mismo destinatario dinámico que en la
-                // programación manual, resuelto en un número fijo de consultas para todo el lote.
-                if (correoCfg.IncluirJefe)
-                    toRaw.AddRange(await ResolverJefesAsync(programados.Select(p => p.WorkerId).ToList()));
-
-                toRaw.AddRange(correoCfg.Principales);
-
-                var to = toRaw
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(e => e!.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                var cc = correoCfg.Copias
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(e => e.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                var to = destinatarios.Para.Select(d => d.Email).ToList();
+                var cc = destinatarios.Copias.Select(d => d.Email).ToList();
 
                 // Sin destinatarios principales activos no se envía nada — es la forma
                 // de silenciar el resumen desde la pantalla de Configuración de EMOs.
@@ -275,30 +241,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error enviando resumen de auto-programación a clínica.");
-            }
-        }
-
-        /// <summary>
-        /// Correos de los jefes de los trabajadores programados (jefe personalizado o revisor del
-        /// área, lo que corresponda a cada uno). Best-effort: si la resolución falla, el resumen
-        /// sale igual con el resto de destinatarios.
-        /// </summary>
-        private async Task<List<string?>> ResolverJefesAsync(List<int> workerIds)
-        {
-            try
-            {
-                var jefes = await _jefeResolver.ResolveManyAsync(workerIds);
-                return jefes.Values
-                    .Select(j => j.Email)
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(e => (string?)e.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Auto-programación EMO: error resolviendo los jefes; el resumen sale sin ellos.");
-                return new List<string?>();
             }
         }
 

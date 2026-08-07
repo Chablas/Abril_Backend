@@ -118,10 +118,12 @@ namespace Abril_Backend.Features.Ssoma
             // Auto-programación EMO (cron)
             services.AddScoped<IEmoAutoProgramacionService, EmoAutoProgramacionService>();
 
-            // Configuración de EMOs — destinatarios (Para/CC) de los correos de
-            // programación, tanto manual como automática.
+            // Configuración de EMOs — matriz de destinatarios de los 4 correos de EMO
+            // (correo × perfil del trabajador × destinatario) y el resolver que la
+            // aplica: única fuente de verdad de a quién le llega cada correo.
             services.AddScoped<IEmoCorreoConfigRepository, EmoCorreoConfigRepository>();
             services.AddScoped<IEmoCorreoConfigService, EmoCorreoConfigService>();
+            services.AddScoped<IEmoDestinatariosResolver, EmoDestinatariosResolver>();
 
             // Resumen diario EMO (cron 4:30pm)
             services.AddScoped<IEmoResumenDiarioService, EmoResumenDiarioService>();

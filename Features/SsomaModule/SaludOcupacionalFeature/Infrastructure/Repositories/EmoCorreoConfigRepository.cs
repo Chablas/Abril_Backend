@@ -8,8 +8,10 @@ using Microsoft.EntityFrameworkCore;
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
 {
     /// <summary>
-    /// Destinatarios de los correos de programación de EMO (ss_emo_correo_destinatario).
-    /// Sirve tanto a la pantalla de configuración (CRUD) como al envío real.
+    /// Matriz de destinatarios de los correos de EMO: correo × perfil del trabajador ×
+    /// destinatario (<c>ss_emo_correo_regla</c>). Sirve tanto a la pantalla de
+    /// configuración (lectura completa + CRUD de correos adicionales) como al envío
+    /// real, que consume las celdas activas ya aplanadas.
     /// </summary>
     public class EmoCorreoConfigRepository : IEmoCorreoConfigRepository
     {
@@ -24,42 +26,110 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         {
             using var ctx = _factory.CreateDbContext();
 
-            // Una sola consulta para ambas secciones: se separan en memoria por el
-            // código del tipo, sin un segundo roundtrip por lista.
-            var filas = await (
-                from d in ctx.SsEmoCorreoDestinatario
-                join t in ctx.SsEmoCorreoTipo on d.TipoId equals t.Id
-                where d.State && t.State
-                orderby d.Orden, d.Id
-                select new EmoCorreoDestinatarioDto
+            var perfiles = await ctx.SsEmoCorreoPerfil.AsNoTracking()
+                .Where(p => p.State && p.Active)
+                .OrderBy(p => p.Orden).ThenBy(p => p.Id)
+                .Select(p => new EmoCorreoPerfilDto
                 {
-                    Id          = d.Id,
-                    Tipo        = t.Codigo,
-                    Codigo      = d.Codigo,
-                    Email       = d.Email,
-                    Nombre      = d.Nombre,
-                    Descripcion = d.Descripcion,
-                    Editable    = d.Editable,
-                    Active      = d.Active,
-                    Orden       = d.Orden,
+                    Id          = p.Id,
+                    Codigo      = p.Codigo,
+                    Nombre      = p.Nombre,
+                    Descripcion = p.Descripcion,
+                })
+                .ToListAsync();
+
+            var eventos = await ctx.SsEmoCorreoEvento.AsNoTracking()
+                .Where(e => e.State && e.Active)
+                .OrderBy(e => e.Orden).ThenBy(e => e.Id)
+                .Select(e => new EmoCorreoEventoDto
+                {
+                    Id          = e.Id,
+                    Codigo      = e.Codigo,
+                    Nombre      = e.Nombre,
+                    Descripcion = e.Descripcion,
+                    Orden       = e.Orden,
+                })
+                .ToListAsync();
+
+            // Toda la matriz de una sola vez; el armado por evento se hace en memoria
+            // para no repetir la consulta una vez por sección de la pantalla.
+            var celdas = await (
+                from r in ctx.SsEmoCorreoRegla
+                join d in ctx.SsEmoCorreoDestinatario on r.DestinatarioId equals d.Id
+                join t in ctx.SsEmoCorreoTipo on d.TipoId equals t.Id
+                join p in ctx.SsEmoCorreoPerfil on r.PerfilId equals p.Id
+                where r.State && d.State && t.State && p.State && p.Active
+                select new
+                {
+                    r.Id,
+                    r.EventoId,
+                    r.PerfilId,
+                    PerfilCodigo = p.Codigo,
+                    r.Active,
+                    DestinatarioId = d.Id,
+                    d.Codigo,
+                    d.Email,
+                    d.Nombre,
+                    d.Descripcion,
+                    d.Editable,
+                    d.Orden,
+                    TipoCodigo = t.Codigo,
                 })
                 .AsNoTracking()
                 .ToListAsync();
 
-            return new EmoCorreosConfigDto
+            var porEvento = celdas.ToLookup(c => c.EventoId);
+
+            foreach (var evento in eventos)
             {
-                Principales = filas
-                    .Where(f => string.Equals(f.Tipo, EmoCorreoTipoCodigo.Principal, StringComparison.OrdinalIgnoreCase))
-                    .ToList(),
-                Copias = filas
-                    .Where(f => string.Equals(f.Tipo, EmoCorreoTipoCodigo.Copia, StringComparison.OrdinalIgnoreCase))
-                    .ToList(),
-            };
+                evento.Destinatarios = porEvento[evento.Id]
+                    .GroupBy(c => c.DestinatarioId)
+                    .Select(g =>
+                    {
+                        var d = g.First();
+                        var esAdicional = string.IsNullOrWhiteSpace(d.Codigo);
+                        return new EmoCorreoFilaDto
+                        {
+                            DestinatarioId = d.DestinatarioId,
+                            Codigo         = d.Codigo,
+                            Nombre         = d.Nombre,
+                            Descripcion    = d.Descripcion,
+                            Email          = d.Email,
+                            Tipo           = d.TipoCodigo,
+                            Editable       = d.Editable,
+                            Eliminable     = esAdicional,
+                            RequiereArqCom = EmoCorreoDestinatarioCodigo.RequiereArquitecturaComercial(d.Codigo),
+                            // Aviso para la pantalla: un buzón de área activo pero sin correo
+                            // cargado no le llega a nadie, y sin este dato no se nota.
+                            SinCorreo      = d.Editable && string.IsNullOrWhiteSpace(d.Email),
+                            Orden          = d.Orden,
+                            Celdas = g
+                                .Select(c => new EmoCorreoCeldaDto
+                                {
+                                    ReglaId      = c.Id,
+                                    PerfilId     = c.PerfilId,
+                                    PerfilCodigo = c.PerfilCodigo,
+                                    Active       = c.Active,
+                                })
+                                .OrderBy(c => perfiles.FindIndex(p => p.Id == c.PerfilId))
+                                .ToList(),
+                        };
+                    })
+                    .OrderBy(f => f.Orden).ThenBy(f => f.DestinatarioId)
+                    .ToList();
+            }
+
+            return new EmoCorreosConfigDto { Perfiles = perfiles, Eventos = eventos };
         }
 
-        public async Task<int> CreateAsync(string tipoCodigo, string email, string? nombre)
+        public async Task<int> CreateAdicionalAsync(
+            string eventoCodigo, string tipoCodigo, string email, string? nombre)
         {
             using var ctx = _factory.CreateDbContext();
+
+            var evento = await ctx.SsEmoCorreoEvento
+                .FirstOrDefaultAsync(e => e.State && e.Codigo.ToUpper() == eventoCodigo.ToUpper())
+                ?? throw new AbrilException("El correo indicado no existe.", 400);
 
             var tipo = await ctx.SsEmoCorreoTipo
                 .FirstOrDefaultAsync(t => t.State && t.Codigo.ToUpper() == tipoCodigo.ToUpper())
@@ -67,39 +137,61 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             var emailNorm = email.Trim();
 
+            // Solo se controla el duplicado entre correos adicionales: dos buzones de área
+            // pueden compartir dirección (la misma persona puede cubrir dos roles).
             var duplicado = await ctx.SsEmoCorreoDestinatario.AnyAsync(d =>
-                d.State &&
-                d.TipoId == tipo.Id &&
-                d.Email != null &&
+                d.State && d.Codigo == null && d.TipoId == tipo.Id && d.Email != null &&
                 d.Email.ToLower() == emailNorm.ToLower());
             if (duplicado)
-                throw new AbrilException("Ese correo ya está registrado en esta lista.", 409);
+                throw new AbrilException("Ese correo ya está agregado como destinatario adicional.", 409);
 
-            // Los nuevos van al final de su sección (los fijos usan orden 0).
+            // Los adicionales van después del catálogo, que ocupa el orden 1..13.
             var ultimoOrden = await ctx.SsEmoCorreoDestinatario
-                .Where(d => d.State && d.TipoId == tipo.Id)
+                .Where(d => d.State)
                 .MaxAsync(d => (int?)d.Orden) ?? 0;
 
-            var ent = new SsEmoCorreoDestinatario
+            var dest = new SsEmoCorreoDestinatario
             {
                 TipoId    = tipo.Id,
                 Codigo    = null,
                 Email     = emailNorm,
                 Nombre    = string.IsNullOrWhiteSpace(nombre) ? null : nombre.Trim(),
                 Editable  = true,
-                Orden     = ultimoOrden + 1,
+                Orden     = Math.Max(ultimoOrden + 1, 100),
                 Active    = true,
                 State     = true,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,
             };
-
-            ctx.SsEmoCorreoDestinatario.Add(ent);
+            ctx.SsEmoCorreoDestinatario.Add(dest);
             await ctx.SaveChangesAsync();
-            return ent.Id;
+
+            // Celda en los 4 correos × 4 perfiles: activo solo en el correo desde cuya
+            // sección se agregó, para que el alta haga lo que el usuario espera sin
+            // prenderle de golpe los otros tres.
+            var eventos  = await ctx.SsEmoCorreoEvento.AsNoTracking()
+                .Where(e => e.State).Select(e => new { e.Id, e.Codigo }).ToListAsync();
+            var perfiles = await ctx.SsEmoCorreoPerfil.AsNoTracking()
+                .Where(p => p.State).Select(p => p.Id).ToListAsync();
+
+            foreach (var e in eventos)
+                foreach (var perfilId in perfiles)
+                    ctx.SsEmoCorreoRegla.Add(new SsEmoCorreoRegla
+                    {
+                        EventoId        = e.Id,
+                        PerfilId        = perfilId,
+                        DestinatarioId  = dest.Id,
+                        Active          = e.Id == evento.Id,
+                        State           = true,
+                        CreatedAt       = DateTimeOffset.UtcNow,
+                        UpdatedAt       = DateTimeOffset.UtcNow,
+                    });
+
+            await ctx.SaveChangesAsync();
+            return dest.Id;
         }
 
-        public async Task UpdateAsync(int id, string email, string? nombre)
+        public async Task UpdateDestinatarioAsync(int id, string email, string? nombre, string? tipoCodigo)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -107,87 +199,99 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ?? throw new AbrilException("Destinatario no encontrado.", 404);
 
             if (!ent.Editable)
-                throw new AbrilException("Este destinatario es fijo: solo se puede activar o desactivar.", 409);
+                throw new AbrilException(
+                    "Este destinatario se resuelve al enviar: su correo no se edita acá.", 409);
 
             var emailNorm = email.Trim();
+            var tipoId = ent.TipoId;
 
-            var duplicado = await ctx.SsEmoCorreoDestinatario.AnyAsync(d =>
-                d.State &&
-                d.Id != id &&
-                d.TipoId == ent.TipoId &&
-                d.Email != null &&
-                d.Email.ToLower() == emailNorm.ToLower());
-            if (duplicado)
-                throw new AbrilException("Ese correo ya está registrado en esta lista.", 409);
+            // El tipo (Para/CC) solo tiene sentido en los correos adicionales; los buzones
+            // de área siempre van en "Para".
+            if (!string.IsNullOrWhiteSpace(tipoCodigo) && ent.Codigo == null)
+            {
+                var tipo = await ctx.SsEmoCorreoTipo
+                    .FirstOrDefaultAsync(t => t.State && t.Codigo.ToUpper() == tipoCodigo.ToUpper())
+                    ?? throw new AbrilException("El tipo de destinatario no existe.", 400);
+                tipoId = tipo.Id;
+            }
 
+            // Igual que en el alta: la unicidad solo aplica entre correos adicionales.
+            if (ent.Codigo == null)
+            {
+                var duplicado = await ctx.SsEmoCorreoDestinatario.AnyAsync(d =>
+                    d.State && d.Codigo == null && d.Id != id && d.TipoId == tipoId &&
+                    d.Email != null && d.Email.ToLower() == emailNorm.ToLower());
+                if (duplicado)
+                    throw new AbrilException("Ese correo ya está agregado como destinatario adicional.", 409);
+            }
+
+            ent.TipoId    = tipoId;
             ent.Email     = emailNorm;
-            ent.Nombre    = string.IsNullOrWhiteSpace(nombre) ? null : nombre.Trim();
+            ent.Nombre    = string.IsNullOrWhiteSpace(nombre) ? ent.Nombre : nombre.Trim();
             ent.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }
 
-        public async Task SetActiveAsync(int id, bool active)
+        public async Task SetReglaActiveAsync(int reglaId, bool active)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var regla = await ctx.SsEmoCorreoRegla.FirstOrDefaultAsync(r => r.Id == reglaId && r.State)
+                ?? throw new AbrilException("Configuración de correo no encontrada.", 404);
+
+            regla.Active    = active;
+            regla.UpdatedAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task DeleteAdicionalAsync(int id)
         {
             using var ctx = _factory.CreateDbContext();
 
             var ent = await ctx.SsEmoCorreoDestinatario.FirstOrDefaultAsync(d => d.Id == id && d.State)
                 ?? throw new AbrilException("Destinatario no encontrado.", 404);
 
-            ent.Active    = active;
-            ent.UpdatedAt = DateTimeOffset.UtcNow;
-            await ctx.SaveChangesAsync();
-        }
-
-        public async Task DeleteAsync(int id)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            var ent = await ctx.SsEmoCorreoDestinatario.FirstOrDefaultAsync(d => d.Id == id && d.State)
-                ?? throw new AbrilException("Destinatario no encontrado.", 404);
-
-            if (!ent.Editable)
-                throw new AbrilException("Este destinatario es fijo y no se puede eliminar.", 409);
+            if (ent.Codigo != null)
+                throw new AbrilException(
+                    "Este destinatario es parte del catálogo y no se puede eliminar. Desactívalo en cada correo.", 409);
 
             // Soft delete: nada se borra de la BD (auditoría).
+            var reglas = await ctx.SsEmoCorreoRegla.Where(r => r.DestinatarioId == id && r.State).ToListAsync();
+            foreach (var r in reglas)
+            {
+                r.State     = false;
+                r.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
             ent.State     = false;
             ent.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
         }
 
-        public async Task<EmoCorreoEnvioConfigDto> GetEnvioConfigAsync()
+        public async Task<List<EmoCorreoReglaEnvioDto>> GetReglasEnvioAsync(string eventoCodigo)
         {
             using var ctx = _factory.CreateDbContext();
 
-            var filas = await (
-                from d in ctx.SsEmoCorreoDestinatario
+            return await (
+                from r in ctx.SsEmoCorreoRegla
+                join e in ctx.SsEmoCorreoEvento on r.EventoId equals e.Id
+                join p in ctx.SsEmoCorreoPerfil on r.PerfilId equals p.Id
+                join d in ctx.SsEmoCorreoDestinatario on r.DestinatarioId equals d.Id
                 join t in ctx.SsEmoCorreoTipo on d.TipoId equals t.Id
-                where d.State && t.State && d.Active
-                select new { t.Codigo, DestCodigo = d.Codigo, d.Email })
+                where r.State && r.Active
+                      && e.State && e.Active && e.Codigo.ToUpper() == eventoCodigo.ToUpper()
+                      && p.State && p.Active
+                      && d.State && t.State
+                select new EmoCorreoReglaEnvioDto
+                {
+                    PerfilCodigo       = p.Codigo,
+                    DestinatarioCodigo = d.Codigo,
+                    Email              = d.Email,
+                    Nombre             = d.Nombre,
+                    EsCopia            = t.Codigo.ToUpper() == EmoCorreoTipoCodigo.Copia,
+                })
                 .AsNoTracking()
                 .ToListAsync();
-
-            var cfg = new EmoCorreoEnvioConfigDto
-            {
-                // Si la tabla está vacía (p. ej. antes de sembrarla) se mantiene el
-                // comportamiento histórico: el correo va a la clínica.
-                IncluirClinica = filas.Count == 0
-                    || filas.Any(f => string.Equals(f.DestCodigo, EmoCorreoDestinatarioCodigo.Clinica, StringComparison.OrdinalIgnoreCase)),
-                // El jefe no tiene comportamiento histórico que preservar: solo se le escribe
-                // si su fila existe y está activa.
-                IncluirJefe = filas.Any(f => string.Equals(f.DestCodigo, EmoCorreoDestinatarioCodigo.Jefe, StringComparison.OrdinalIgnoreCase)),
-            };
-
-            foreach (var f in filas)
-            {
-                if (string.IsNullOrWhiteSpace(f.Email)) continue; // destinatarios dinámicos (CLINICA)
-
-                var lista = string.Equals(f.Codigo, EmoCorreoTipoCodigo.Copia, StringComparison.OrdinalIgnoreCase)
-                    ? cfg.Copias
-                    : cfg.Principales;
-                lista.Add(f.Email.Trim());
-            }
-
-            return cfg;
         }
     }
 }

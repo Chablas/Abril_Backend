@@ -7,8 +7,10 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
     /// <summary>
-    /// Configuración de los destinatarios de los correos de programación de EMO
-    /// (programación manual desde /emos y programación automática del cron diario).
+    /// Configuración de los destinatarios de los 4 correos de EMO: programación
+    /// automática, programación manual, aceptada por la clínica y rechazada por la
+    /// clínica. Cada correo se configura por perfil de trabajador
+    /// (Oficina Central / Staff / Obra / Contratista).
     /// </summary>
     public class EmoCorreoConfigService : IEmoCorreoConfigService
     {
@@ -27,25 +29,34 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
         public Task<EmoCorreosConfigDto> GetConfig() => _repo.GetConfigAsync();
 
-        public Task<int> Create(EmoCorreoDestinatarioCreateDto dto)
+        public Task<int> CrearAdicional(EmoCorreoAdicionalCreateDto dto)
         {
-            var tipo = (dto.Tipo ?? string.Empty).Trim().ToUpperInvariant();
-            if (!TiposValidos.Contains(tipo))
+            if (string.IsNullOrWhiteSpace(dto.EventoCodigo))
+                throw new AbrilException("Falta indicar a qué correo se agrega el destinatario.", 400);
+
+            var email = ValidarEmail(dto.Email);
+            return _repo.CreateAdicionalAsync(
+                dto.EventoCodigo.Trim(), ValidarTipo(dto.Tipo), email, dto.Nombre);
+        }
+
+        public Task ActualizarDestinatario(int id, EmoCorreoDestinatarioUpdateDto dto)
+        {
+            var email = ValidarEmail(dto.Email);
+            var tipo  = string.IsNullOrWhiteSpace(dto.Tipo) ? null : ValidarTipo(dto.Tipo);
+            return _repo.UpdateDestinatarioAsync(id, email, dto.Nombre, tipo);
+        }
+
+        public Task SetReglaActive(int reglaId, bool active) => _repo.SetReglaActiveAsync(reglaId, active);
+
+        public Task EliminarAdicional(int id) => _repo.DeleteAdicionalAsync(id);
+
+        private static string ValidarTipo(string? tipo)
+        {
+            var valor = (tipo ?? EmoCorreoTipoCodigo.Principal).Trim().ToUpperInvariant();
+            if (!TiposValidos.Contains(valor))
                 throw new AbrilException("El tipo de destinatario debe ser PRINCIPAL o COPIA.", 400);
-
-            var email = ValidarEmail(dto.Email);
-            return _repo.CreateAsync(tipo, email, dto.Nombre);
+            return valor;
         }
-
-        public Task Update(int id, EmoCorreoDestinatarioUpdateDto dto)
-        {
-            var email = ValidarEmail(dto.Email);
-            return _repo.UpdateAsync(id, email, dto.Nombre);
-        }
-
-        public Task SetActive(int id, bool active) => _repo.SetActiveAsync(id, active);
-
-        public Task Delete(int id) => _repo.DeleteAsync(id);
 
         private static string ValidarEmail(string? email)
         {

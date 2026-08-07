@@ -211,19 +211,42 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             return contributor;
         }
 
-        public async Task<ProjectEmailsUpdateDto?> GetEmails(int projectId)
+        public async Task<ProjectEmailsDto?> GetEmails(int projectId)
         {
             var emails = await _context.Project
                 .Where(p => p.ProjectId == projectId && p.State)
-                .Select(p => new ProjectEmailsUpdateDto
+                .Select(p => new ProjectEmailsDto
                 {
-                    EmailResidente   = p.EmailResidente,
-                    EmailResponsable = p.EmailResponsable,
-                    EmailRrhh        = p.EmailRrhh,
-                    EmailCoordSsoma  = p.EmailCoordSsoma,
-                    EmailCoordAdmin  = p.EmailCoordAdmin,
+                    ResidenteWorkersId = p.ResidenteWorkersId,
+                    EmailResponsable   = p.EmailResponsable,
+                    EmailRrhh          = p.EmailRrhh,
+                    EmailCoordSsoma    = p.EmailCoordSsoma,
+                    EmailCoordAdmin    = p.EmailCoordAdmin,
                 })
                 .FirstOrDefaultAsync();
+
+            if (emails == null) return null;
+
+            // Trabajadores elegibles como residente: los que tienen correo corporativo.
+            // Van en la misma respuesta para que el formulario se arme con una sola petición.
+            emails.Residentes = await _context.Worker
+                .Where(w => w.EmailCorporativo != null && w.EmailCorporativo.Trim() != "")
+                .Select(w => new ResidenteOptionDto
+                {
+                    WorkerId       = w.Id,
+                    NombreCompleto = w.Person != null ? w.Person.FullName! : "",
+                    Email          = w.EmailCorporativo!,
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            emails.Residentes = emails.Residentes
+                .OrderBy(r => r.NombreCompleto, StringComparer.CurrentCulture)
+                .ToList();
+
+            var actual = emails.Residentes.FirstOrDefault(r => r.WorkerId == emails.ResidenteWorkersId);
+            emails.ResidenteNombre = actual?.NombreCompleto;
+            emails.ResidenteEmail  = actual?.Email;
 
             return emails;
         }
@@ -234,9 +257,18 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             if (project == null)
                 throw new AbrilException("El proyecto no existe.");
 
-            // Solo sobreescribimos campos que vinieron no-null en el DTO; null se trata como "no tocar".
-            // Si querés vaciar un email, mandar string vacío en vez de null.
-            if (dto.EmailResidente   != null) project.EmailResidente   = string.IsNullOrWhiteSpace(dto.EmailResidente)   ? null : dto.EmailResidente.Trim();
+            // El residente es una FK, no un texto: null significa "sin residente" y limpia
+            // el valor. El formulario siempre manda el objeto completo.
+            if (dto.ResidenteWorkersId.HasValue)
+            {
+                var existe = await _context.Worker.AnyAsync(w => w.Id == dto.ResidenteWorkersId.Value);
+                if (!existe)
+                    throw new AbrilException("El trabajador seleccionado como residente no existe.");
+            }
+            project.ResidenteWorkersId = dto.ResidenteWorkersId;
+
+            // Los correos de texto conservan su semántica: null es "no tocar" y string
+            // vacío es "vaciar".
             if (dto.EmailResponsable != null) project.EmailResponsable = string.IsNullOrWhiteSpace(dto.EmailResponsable) ? null : dto.EmailResponsable.Trim();
             if (dto.EmailRrhh        != null) project.EmailRrhh        = string.IsNullOrWhiteSpace(dto.EmailRrhh)        ? null : dto.EmailRrhh.Trim();
             if (dto.EmailCoordSsoma  != null) project.EmailCoordSsoma  = string.IsNullOrWhiteSpace(dto.EmailCoordSsoma)  ? null : dto.EmailCoordSsoma.Trim();

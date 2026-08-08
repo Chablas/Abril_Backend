@@ -95,15 +95,20 @@ namespace Abril_Backend.Features.PlaneamientoBimFeature.Application.Services
             }
         }
 
+        private static readonly TimeZoneInfo LimaZone = TimeZoneInfo.FindSystemTimeZoneById("America/Lima");
+
+        private static DateOnly HoyLima()
+            => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, LimaZone));
+
         private static bool EsFechaEditable(DateOnly fecha)
         {
-            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+            var hoy = HoyLima();
             return fecha <= hoy && fecha >= hoy.AddDays(-(VentanaDiasEdicion - 1));
         }
 
         private static void ValidarVentanaDeEdicion(DateOnly fecha)
         {
-            var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+            var hoy = HoyLima();
             if (fecha > hoy)
                 throw new AbrilException("No se puede cargar información de una fecha futura.", 400);
             if (!EsFechaEditable(fecha))

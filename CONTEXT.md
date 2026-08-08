@@ -5597,3 +5597,41 @@ Confirmado en vivo (frontend) que el detalle semanal del ranking ("ver cuáles",
 
 ### Pendiente
 Nada pendiente de este cambio puntual. Build local limpio (`dotnet build`, 0 errores).
+
+## Sesión 2026-08-07 — Diagnóstico Planeamiento BIM invisible + role_feature faltante (Dashboard UDP) + fix timezone Carga Diaria
+
+Rama: `victor-backend`. Sesión de tres pedidos encadenados del usuario, cada uno resuelto con SELECTs reales contra la única BD del proyecto (túnel SSH `localhost:5544 → VPS:5432`, ver reglas P2/P3) antes de tocar código — nunca se afirmó "está bien" sin pegar el resultado de una query.
+
+### 1) Por qué Planeamiento BIM no aparecía en el menú
+Diagnóstico con evidencia, no supuestos:
+- **`feature`**: la fila existe (`feature_id=190`, `feature_key='planeamiento-bim.configuracion-inicial'`, `module_id=6` "Proyectos"). Las 3 pantallas (Configuración Inicial, Carga Diaria, Bloqueos) comparten a propósito el mismo `feature_key`.
+- **`role_feature`**: ya asignada a los 3 roles esperados (`ADMINISTRADOR DEL SISTEMA`, `ADMINISTRADOR DE UDP`, `USUARIO DE UDP`), todos activos.
+- **Local vs producción**: no existen como bases distintas en este proyecto — `appsettings.Development.json` y `appsettings.Production.json` tienen la misma connection string exacta (túnel 5544). Confirmado corriendo las mismas queries contra ambos archivos: resultado idéntico.
+- **`vcolonio@abril.pe` (`user_id=23`)**: tiene 11 roles, incluidos `ADMINISTRADOR DEL SISTEMA` y `USUARIO DE UDP`. Se replicó la query real de `AuthRepository.GetAllowedFeaturesAsync` para ese usuario: de 104 features permitidas, `planeamiento-bim.configuracion-inicial` está incluida. El backend no es el problema.
+- **featureKey backend vs frontend**: coincide carácter por carácter (`navigation.service.ts:79`, `proyectos.routes.ts:25,31,37`).
+- **Causa real**: el commit del frontend con el sidebar y las 3 rutas (`a0e92443`, "feat(planeamiento-bim): agregar sub-navegación y pantallas completas de Carga Diaria y Bloqueos...") vive solo en `victor-frontend`/`origin/victor-frontend`. `git branch --contains a0e92443 -a` no lista `master`; `git show origin/master:navigation.service.ts | grep bim` y lo mismo para `proyectos.routes.ts` no encuentran nada. El frontend que se despliega a `/var/www/abril` (build desde `master`, regla P1) simplemente no tiene el código de BIM todavía. Pendiente: mergear `victor-frontend` a `master` y desplegar — no se hizo en esta sesión, quedó para decisión del usuario por tocar `master`/producción.
+- **Hallazgo colateral**: `Migrations/Manual/20260807_PlaneamientoBimFeatureSeed.sql` existía en disco sin trackear en git (`git status` → `??`) — el INSERT que documenta ya estaba aplicado en BD, pero el archivo nunca se comiteó. Se comiteó en esta sesión (ver más abajo).
+
+### 2) `role_feature` faltante para Dashboard UDP (`projects.cronograma-dashboard`)
+Mismo patrón de diagnóstico con SELECTs reales: el rol de `vcolonio@abril.pe` para ese módulo es correcto (`USUARIO DE UDP`, `role_id=3`, confirmado que también tiene `ADMINISTRADOR DEL SISTEMA`), pero ninguno de sus 11 roles tenía la fila en `role_feature` para `feature_id=143` (`projects.cronograma-dashboard`). No era problema de rol asignado, sino de fila faltante. Se generó (no se ejecutó) el INSERT idempotente, `feature_id` por `SELECT` en vez de hardcodeado:
+```sql
+INSERT INTO role_feature (role_id, feature_id)
+SELECT 3, feature_id FROM feature
+WHERE feature_key = 'projects.cronograma-dashboard'
+ON CONFLICT DO NOTHING;
+```
+Queda pendiente que el usuario lo corra manualmente (psql/pgAdmin, regla del proyecto).
+
+### 3) Fix: Carga Diaria de Planeamiento BIM aceptaba fechas futuras
+Bug real reportado por el usuario: un registro con fecha 2026-08-08 se guardó siendo 2026-08-07. Causa encontrada: `PlaneamientoBimCargaDiariaService.EsFechaEditable`/`ValidarVentanaDeEdicion` calculaban "hoy" con `DateOnly.FromDateTime(DateTime.UtcNow)` — UTC puro. Perú es UTC-5 sin horario de verano, así que desde las 19:00 hora Lima el backend ya considera "hoy" el día calendario siguiente (UTC ya cruzó medianoche), dejando pasar como "no futura" una fecha que en Lima todavía no llegaba. No era el frontend corriendo la fecha con `toISOString()`.
+
+Fix: se agregó `HoyLima()` usando `TimeZoneInfo.FindSystemTimeZoneById("America/Lima")` + `TimeZoneInfo.ConvertTimeFromUtc(...)`, siguiendo el mismo patrón ya usado en `InduccionRepository.cs` (único otro lugar del repo con esta lógica). No se tocó `PlaneamientoBimConfiguracionRepository.cs:151` (`UpdatedDateTime = DateTime.UtcNow`) por ser columna de auditoría, correctamente en UTC.
+
+### Archivos clave
+- `Features/PlaneamientoBimFeature/Application/Services/PlaneamientoBimCargaDiariaService.cs` (fix de timezone)
+- `Migrations/Manual/20260807_PlaneamientoBimFeatureSeed.sql` (comiteado, ya estaba aplicado en BD)
+
+### Pendiente
+- Mergear `victor-frontend` a `master` y desplegar para que Planeamiento BIM sea visible en producción — decisión del usuario, no hecho en esta sesión.
+- Correr manualmente el INSERT de `role_feature` para `projects.cronograma-dashboard` + `role_id=3` (arriba) — no ejecutado en esta sesión, solo generado.
+- Build local limpio (`dotnet build`, 0 errores) tras el fix de timezone.

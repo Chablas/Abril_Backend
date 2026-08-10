@@ -123,7 +123,8 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
 
         /// <summary>
         /// Cupos disponibles = tope (20) − trabajadores vigentes de la razón social en la base
-        /// maestra (los practicantes no consumen cupo). Nunca negativo (se muestra 0).
+        /// maestra que son de Staff, Oficina Central o Personal Externo (el personal de Obra y
+        /// los practicantes no consumen cupo). Nunca negativo (se muestra 0).
         /// </summary>
         public int CuposDisponibles { get; set; }
     }

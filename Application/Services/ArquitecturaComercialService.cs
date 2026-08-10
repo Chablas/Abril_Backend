@@ -137,10 +137,20 @@ namespace Abril_Backend.Application.Services
                 .Select(x => x.UserId)
                 .ToHashSet();
 
+            // TODO(temporal): exclusión hardcodeada mientras se define un mecanismo
+            // basado en roles/puesto de trabajo para separar "acceso al módulo" de
+            // "destinatario de alertas". No deben recibir estas alertas aunque tengan
+            // el rol Gestor de Arquitectura Comercial asignado.
+            var excluidosHardcode = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "vcolonio@abril.pe",
+                "coriundo@abril.pe",
+            };
+
             var emailsGestores = gestoresConRoles
                 .Where(x => x.Rol == "GESTOR DE ARQUITECTURA COMERCIAL" && !userIdsGerenteProyectos.Contains(x.UserId))
                 .Select(x => x.Email)
-                .Where(e => e != null)
+                .Where(e => e != null && !excluidosHardcode.Contains(e))
                 .Distinct()
                 .ToList();
 

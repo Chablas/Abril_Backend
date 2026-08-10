@@ -582,32 +582,32 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var clinicaNombre = clinica?.Nombre ?? "—";
                 var clinicaDireccion = clinica?.Direccion;
 
-                var clinicaRowsHtml =
-                    $@"<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Clínica</td><td style='padding:6px 12px'>{clinicaNombre}</td></tr>";
-                if (!string.IsNullOrWhiteSpace(clinicaDireccion))
-                    clinicaRowsHtml +=
-                        $@"
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Dirección</td><td style='padding:6px 12px'>{clinicaDireccion}</td></tr>";
+                // El logo, los íconos y la imagen de recomendaciones se sirven desde los estáticos
+                // del frontend (public/images/), no desde el wwwroot del backend: en producción
+                // intranet.abril.pe es nginx, que solo proxea /api/** al contenedor. Cualquier otra
+                // ruta cae en el fallback SPA y devolvía index.html (200 text/html) en vez de la
+                // imagen, por eso salían rotas.
+                //
+                // El origen es una clave aparte de App:FrontendUrl a propósito: Outlook no descarga
+                // las imágenes desde el cliente sino a través del proxy de imágenes de Microsoft,
+                // que nunca puede alcanzar un localhost. Con App:FrontendUrl (que en dev tiene que
+                // seguir apuntando a localhost para los links clicables de los otros correos) las
+                // imágenes salen siempre rotas al probar en local; App:EmailAssetsUrl permite
+                // apuntarlas a un host público sin tocar esos links.
+                var assetsUrl = _configuration["App:EmailAssetsUrl"]
+                    ?? _configuration["App:FrontendUrl"]
+                    ?? "https://intranet.abril.pe";
 
-                // La imagen se sirve desde los estáticos del frontend (public/images/emails/),
-                // no desde el wwwroot del backend: en producción intranet.abril.pe es nginx, que
-                // solo proxea /api/** al contenedor. Cualquier otra ruta cae en el fallback SPA y
-                // devolvía index.html (200 text/html) en vez del JPG, por eso la imagen salía rota.
-                var frontendUrl = (_configuration["App:FrontendUrl"] ?? "http://localhost:4200").TrimEnd('/');
-                var recomendacionesImgUrl = $"{frontendUrl}/images/emails/recomendaciones-emo.jpg";
-
-                var html = $@"<h2>EMO Confirmado</h2>
-<p>Se ha confirmado la programación del Examen Médico Ocupacional:</p>
-<table style='border-collapse:collapse;width:100%;max-width:500px'>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Trabajador</td><td style='padding:6px 12px'>{workerNombre}</td></tr>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Tipo EMO</td><td style='padding:6px 12px'>{tipoStr}</td></tr>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Fecha</td><td style='padding:6px 12px'>{fechaStr}</td></tr>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Hora</td><td style='padding:6px 12px'>{horaStr}</td></tr>
-<tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Proyecto</td><td style='padding:6px 12px'>{proyectoStr}</td></tr>
-{clinicaRowsHtml}
-</table>
-<p style='margin-top:16px;color:#6b7280;font-size:0.9em'>El trabajador debe presentarse en la clínica en la fecha y hora indicadas. Ese mismo día se le brindarán los resultados.</p>
-<img src='{recomendacionesImgUrl}' alt='Recomendaciones previas al Examen Médico Ocupacional' style='margin-top:16px;max-width:500px;width:100%' />";
+                var html = EmoConfirmacionEmailTemplate.Construir(
+                    new EmoConfirmacionEmailTemplate.Datos(
+                        Trabajador: workerNombre,
+                        TipoEmo: tipoStr,
+                        Fecha: fechaStr,
+                        Hora: horaStr,
+                        Proyecto: proyectoStr,
+                        Clinica: clinicaNombre,
+                        Direccion: clinicaDireccion),
+                    assetsUrl);
 
                 await _emailService.SendAsync(
                     to: to,

@@ -3,6 +3,7 @@ using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Appl
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Repositories
@@ -582,7 +583,12 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             await ctx.SaveChangesAsync();
         }
 
-        /// <summary>Tope de trabajadores por razón social para el cálculo de cupos (los practicantes no consumen cupo).</summary>
+        /// <summary>
+        /// Tope de trabajadores por razón social para el cálculo de cupos. Cuentan los de Staff,
+        /// Oficina Central y Personal Externo
+        /// (<see cref="ObraOficinaStaffIds.ConsumenCupoRazonSocial"/>); el personal de Obra y los
+        /// practicantes no consumen cupo.
+        /// </summary>
         private const int TopeCuposRazonSocial = 20;
 
         public async Task<DetalleRequerimientoGthDto?> GetDetalleGth(int requerimientoId)
@@ -652,11 +658,14 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .Select(c => new { c.ContributorId, c.ContributorName })
                 .ToListAsync();
 
-            // Ocupación por razón social desde la base maestra: trabajadores no retirados;
-            // los practicantes no consumen el tope de 20.
+            // Ocupación por razón social desde la base maestra: trabajadores no retirados de
+            // Staff, Oficina Central o Personal Externo. El personal de Obra NO consume el tope
+            // (el tope de 20 es de planilla de escritorio, y contando obreros toda razón social
+            // con un proyecto en curso quedaba en 0 cupos). Los practicantes tampoco consumen.
             var ocupados = await ctx.Worker
                 .Where(w => w.ContributorId != null
                             && w.Estado != "RETIRADO"
+                            && ObraOficinaStaffIds.ConsumenCupoRazonSocial.Contains(w.ObraOficinaStaffId ?? 0)
                             && (w.Categoria == null || w.Categoria.Trim().ToLower() != "practicante"))
                 .GroupBy(w => w.ContributorId!.Value)
                 .Select(g => new { ContributorId = g.Key, Total = g.Count() })

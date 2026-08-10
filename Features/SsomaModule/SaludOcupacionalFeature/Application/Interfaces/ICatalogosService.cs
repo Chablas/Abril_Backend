@@ -1,4 +1,5 @@
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Catalogos;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convalidacion;
 using Abril_Backend.Shared.Services.Sunat.Dtos;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
@@ -13,6 +14,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task<List<MedicoOcupacionalDto>> ListMedicos(bool soloActivos);
         Task<MedicoOcupacionalDto> CreateMedico(MedicoOcupacionalUpsertDto dto);
         Task<MedicoOcupacionalDto> UpdateMedico(int id, MedicoOcupacionalUpsertDto dto);
+        Task<byte[]> GenerarAutorizacionFirmaPdfAsync(int medicoId);
+        Task SetPinFirmaAsync(int medicoId, string pin, string? callerEmail);
+        Task<string> SetFirmaDigitalAsync(int medicoId, Stream fileStream, string fileName, string? callerEmail);
+        Task<string> SetAutorizacionFirmadaAsync(int medicoId, Stream fileStream, string fileName, string? callerEmail);
 
         Task<List<EmoTipoDto>> ListEmoTipos(bool soloActivos);
         Task<EmoTipoDto> CreateEmoTipo(EmoTipoUpsertDto dto);

@@ -43,6 +43,24 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("updated_at")]
         public DateTimeOffset? UpdatedAt { get; set; }
 
+        [Column("puesto_origen")]
+        public string? PuestoOrigen { get; set; }
+
+        [Column("puesto_destino")]
+        public string? PuestoDestino { get; set; }
+
+        [Column("obra_oficina_staff_origen_id")]
+        public int? ObraOficinaStaffOrigenId { get; set; }
+
+        [Column("obra_oficina_staff_destino_id")]
+        public int? ObraOficinaStaffDestinoId { get; set; }
+
+        /// <summary>True si el puesto destino sube de riesgo bajo (Oficina Central) a
+        /// riesgo alto (Staff/Obra) respecto al puesto origen — ver
+        /// <see cref="Shared.Constants.ObraOficinaStaffIds.EsCambioRiesgoCritico"/>.</summary>
+        [Column("cambio_riesgo")]
+        public bool CambioRiesgo { get; set; }
+
         [ForeignKey(nameof(EmoId))]
         public WorkerEmo? Emo { get; set; }
 

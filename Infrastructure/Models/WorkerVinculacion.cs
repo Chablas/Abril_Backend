@@ -31,6 +31,13 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("puesto")]
         public string? Puesto { get; set; }
 
+        /// <summary>Clasificación de riesgo vigente durante ESTA vinculación (catálogo
+        /// workers_obra_oficina_staff). Se guarda por vinculación, no solo en Worker, para
+        /// poder saber qué clasificación tenía el trabajador en cada obra/empresa pasada —
+        /// necesario para evaluar convalidaciones de EMO con precisión histórica.</summary>
+        [Column("obra_oficina_staff_id")]
+        public int? ObraOficinaStaffId { get; set; }
+
         [Column("tipo_vinculacion")]
         public string? TipoVinculacion { get; set; }
 

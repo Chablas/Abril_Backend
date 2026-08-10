@@ -134,7 +134,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     w.Categoria,
                     w.Estado,
                     w.AniosExperiencia,
-                    w.FechaIngreso
+                    w.FechaIngreso,
+                    w.ObraOficinaStaffId,
+                    ObraOficinaStaffNombre = w.ObraOficinaStaff != null ? w.ObraOficinaStaff.Name : null
                 })
                 .ToListAsync();
 
@@ -188,6 +190,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Ocupacion = b.Ocupacion,
                     Categoria = b.Categoria,
                     Cargo = vin?.Puesto,
+                    ObraOficinaStaffId = b.ObraOficinaStaffId,
+                    ObraOficinaStaffNombre = b.ObraOficinaStaffNombre,
                     EmpresaActualId = vin?.EmpresaId,
                     EmpresaActual = vin?.EmpresaNombre,
                     Activo = !string.IsNullOrWhiteSpace(b.Estado)
@@ -418,17 +422,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             worker.EmailCorporativo = dto.EmailCorporativo;
             worker.FechaIngreso = dto.FechaIngreso;
-            worker.Categoria = dto.Categoria;
-            worker.Ocupacion = dto.Ocupacion;
-            worker.OcupacionId = dto.OcupacionId;
-            worker.Puesto = dto.Puesto;
+            // Obra, razón social, puesto (categoría/ocupación) y clasificación (Obra/Staff/
+            // Oficina Central) NO se tocan desde esta edición general — deliberado. Cambiarlas
+            // acá bypaseaba por completo el flujo de "Cambiar obra / puesto de trabajo"
+            // (CambiarObraAsync): no reseteaba el certificado de aptitud, no dejaba auditoría
+            // (WorkerEvento), no bloqueaba la subida de riesgo Oficina Central → Staff/Obra, y
+            // encima MUTABA la vinculación vigente en vez de cerrarla y abrir una nueva,
+            // corrompiendo el historial. Esos cinco campos ahora son de solo lectura en el
+            // formulario de edición; el único camino soportado es CambiarObraAsync.
             var areaResuelta = await ResolverAreaAsync(
                 dto.AreaScopeId, dto.Area, dto.Subarea, dto.Jefatura);
             worker.AreaScopeId = areaResuelta.AreaScopeId;
             worker.Area = areaResuelta.Area;
             worker.Subarea = areaResuelta.Subarea;
             worker.ContrataCasa = dto.ContrataCasa;
-            worker.ObraOficinaStaffId = dto.ObraOficinaStaffId;
             worker.Jefatura = areaResuelta.Jefatura;
             worker.Procedencia = dto.Procedencia;
             worker.CondicionMedica = dto.CondicionMedica;
@@ -437,33 +444,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.HabilitadoObra = dto.HabilitadoObra;
             if (dto.AniosExperiencia.HasValue) worker.AniosExperiencia = dto.AniosExperiencia;
             worker.UpdatedAt = DateTimeOffset.UtcNow;
-
-            if (dto.EmpresaId.HasValue || dto.ProyectoId.HasValue)
-            {
-                var hoy = DateOnly.FromDateTime(DateTime.Today);
-                var vinculacion = await ctx.WorkerVinculacion
-                    .Where(v => v.WorkerId == id && (v.FechaFin == null || v.FechaFin >= hoy))
-                    .OrderByDescending(v => v.FechaInicio)
-                    .FirstOrDefaultAsync();
-
-                if (vinculacion != null)
-                {
-                    if (dto.EmpresaId.HasValue) vinculacion.EmpresaId = dto.EmpresaId;
-                    if (dto.ProyectoId.HasValue) vinculacion.ProyectoId = dto.ProyectoId;
-                    vinculacion.UpdatedAt = DateTimeOffset.UtcNow;
-                }
-                else
-                {
-                    ctx.WorkerVinculacion.Add(new WorkerVinculacion
-                    {
-                        WorkerId = id,
-                        EmpresaId = dto.EmpresaId,
-                        ProyectoId = dto.ProyectoId,
-                        FechaInicio = hoy,
-                        CreatedAt = DateTimeOffset.UtcNow,
-                    });
-                }
-            }
 
             await GuardarCuidandoEmailUnicoAsync(ctx);
 

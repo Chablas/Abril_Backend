@@ -29,6 +29,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             return int.TryParse(val, out var id) ? id : (int?)null;
         }
 
+        private string? ClientIp() => HttpContext.Connection.RemoteIpAddress?.ToString();
+
+        private string? ClientUserAgent() => Request.Headers.UserAgent.ToString() is { Length: > 0 } ua ? ua : null;
+
         [HttpGet]
         public async Task<IActionResult> GetList([FromQuery] ConvalidacionFilterDto filter)
         {
@@ -42,7 +46,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         {
             try
             {
-                var id = await _service.Create(dto, CurrentUserId());
+                var id = await _service.Create(dto, CurrentUserId(), ClientIp(), ClientUserAgent());
                 return Ok(new { id, message = "Convalidación registrada exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
@@ -54,7 +58,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         {
             try
             {
-                await _service.Update(id, dto, CurrentUserId());
+                await _service.Update(id, dto, CurrentUserId(), ClientIp(), ClientUserAgent());
                 return Ok(new { message = "Convalidación actualizada exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

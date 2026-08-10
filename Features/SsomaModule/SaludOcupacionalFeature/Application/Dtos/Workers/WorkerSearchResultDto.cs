@@ -9,6 +9,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         public string? Ocupacion { get; set; }
         public string? Categoria { get; set; }
         public string? Cargo { get; set; }
+        /// <summary>FK a workers_obra_oficina_staff — clasificación de riesgo actual, ya
+        /// gestionada exclusivamente desde Habilitación (Cambiar obra / puesto de trabajo).</summary>
+        public int? ObraOficinaStaffId { get; set; }
+        public string? ObraOficinaStaffNombre { get; set; }
         public int? EmpresaActualId { get; set; }
         public string? EmpresaActual { get; set; }
         public bool Activo { get; set; }

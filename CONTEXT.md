@@ -5365,3 +5365,58 @@ Confirmado en vivo (frontend) que el detalle semanal del ranking ("ver cuáles",
 
 ### Pendiente
 Nada pendiente de este cambio puntual. Build local limpio (`dotnet build`, 0 errores).
+
+## Sesión 2026-08-10 — Convalidación de EMO: riesgo, firma electrónica y control de cambio de puesto
+
+### Contexto
+El módulo de Convalidaciones (SSOMA → Salud Ocupacional) dejaba que el médico digitara a
+mano el puesto/clasificación origen-destino, sin ninguna evaluación de riesgo ni control de
+quién autorizó realmente la decisión. Paralelamente, "Cambiar obra" (Habilitación → Gestión
+de Trabajadores) no distinguía cambio de obra (inocuo) de cambio de razón social/puesto/
+clasificación (que sí debía revisar la aptitud del trabajador).
+
+### Cambios principales
+1. **Convalidaciones**: `puesto_origen`/`puesto_destino`/`obra_oficina_staff_origen_id`/
+   `obra_oficina_staff_destino_id` en `worker_emo_convalidaciones`, resueltos automáticamente
+   server-side (origen = vinculación histórica en la empresa de origen del EMO; destino =
+   vinculación vigente) — ya no se digitan a mano. `cambio_riesgo` bloquea aprobar cuando sube
+   de Oficina Central (bajo) a Staff/Obra (alto): exige EMO nuevo.
+2. **Firma electrónica**: PIN de firma del médico (PBKDF2, `PinHasher.cs`) + reautenticación
+   fresca de Microsoft (prompt=login), validados en `ConvalidacionService.ValidarFirmaAsync`
+   antes de aceptar Aprobada/Rechazada. Auditoría en `ss_convalidacion_firma_log` (IP,
+   user-agent, hash del documento). Formato SSO-FO-149 (`AutorizacionFirmaPdfService`) con la
+   firma digital del médico (dibujada en un canvas, `firma-digital-pad`) impresa junto a un
+   recuadro para la firma manuscrita de comparación. Orden obligatorio antes de habilitar el
+   PIN: firma digital → autorización impresa/firmada a mano/escaneada y subida → PIN.
+3. **Habilitación — "Cambiar obra"**: rediseñado con 4 checkboxes independientes (Obra, Razón
+   social, Puesto de trabajo, Clasificación). Solo razón social, puesto o subida de riesgo
+   disparan revisión de aptitud (`CertAptitud` → "Pendiente" + convalidación auto-creada,
+   igual mecanismo para los 3 casos); cambio de obra puro no toca nada. Bloquea un nuevo
+   cambio si ya hay convalidación sin resolver (`worker_emo_convalidaciones.resultado =
+   'Pendiente'`).
+4. **Dos bugs reales corregidos**:
+   - `WorkerSearchRepository.Update()` (el lápiz "Editar trabajador") permitía cambiar obra/
+     empresa/puesto/clasificación sin pasar por ningún control, y mutaba la vinculación
+     vigente en vez de cerrarla y abrir una nueva (corrompía el historial). Esos 5 campos
+     ahora son de solo lectura fuera de "Cambiar obra".
+   - `GetEntregablesWorkerAsync`: el checklist de Habilitación mostraba "Certificado de
+     Aptitud (EMO)" calculando su estado solo desde `WorkerEmo.Estado` (nunca "Pendiente"),
+     ignorando el estado real en `ss_hab_trabajador` — corregido para leer ese estado real.
+
+### SQL a correr en pgAdmin (`Migrations_Manual/`)
+`2026-08-10_convalidacion_cambio_puesto.sql`, `_worker_vinculacion_obra_oficina_staff.sql`,
+`_autorizacion_firma_medico.sql`, `_firma_digital_medico.sql` (todas confirmadas corridas en
+esta sesión) y `_backfill_puesto_riesgo_convalidaciones.sql` (backfill de las 55
+convalidaciones existentes, confirmado corrido).
+
+### Verificado en vivo
+Probado end-to-end con el trabajador real Justiniani Aranda (worker_id 12305): cambio de
+razón social disparó `CAMBIO_EMPRESA`, `CertAptitud` → Pendiente, convalidación auto-creada;
+confirmado por SQL contra `worker_eventos`/`ss_hab_trabajador`/`worker_vinculaciones`.
+
+### Pendiente
+- Subir documentos del EMO (Lectura/Certificado/EMO Completo) directo desde "Revisar
+  convalidación" — hoy esa sección solo muestra si hay archivo, no permite cargar uno ahí.
+- Repasar workers cuyo cambio de obra/empresa/puesto pasó por el bug del lápiz antes de este
+  fix — no hay forma 100% confiable de detectarlos retroactivamente (la vinculación se mutó
+  in-place, se perdió el historial de esos cambios puntuales).

@@ -152,6 +152,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<SsClinica> SsClinica { get; set; }
         public DbSet<SsClinicaResetToken> SsClinicaResetToken => Set<SsClinicaResetToken>();
         public DbSet<SsMedicoOcupacional> SsMedicoOcupacional { get; set; }
+        public DbSet<Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsConvalidacionFirmaLog> SsConvalidacionFirmaLog => Set<Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsConvalidacionFirmaLog>();
         public DbSet<SsEmoTipo> SsEmoTipo { get; set; }
         public DbSet<SsExamenTipo> SsExamenTipo { get; set; }
         public DbSet<SsRestriccionTipo> SsRestriccionTipo { get; set; }

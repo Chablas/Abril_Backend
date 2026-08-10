@@ -1,7 +1,10 @@
+using System.Security.Cryptography;
+using System.Text;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convalidacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Constants;
@@ -37,7 +40,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     from eo in eoj.DefaultIfEmpty()
                     join ed in ctx.Contributor on cv.EmpresaDestinoId equals ed.ContributorId into edj
                     from ed in edj.DefaultIfEmpty()
-                    select new { cv, e, per, et, med, eo, ed };
+                    join oso in ctx.WorkersObraOficinaStaff on cv.ObraOficinaStaffOrigenId equals (int?)oso.WorkersObraOficinaStaffId into osoj
+                    from oso in osoj.DefaultIfEmpty()
+                    join osd in ctx.WorkersObraOficinaStaff on cv.ObraOficinaStaffDestinoId equals (int?)osd.WorkersObraOficinaStaffId into osdj
+                    from osd in osdj.DefaultIfEmpty()
+                    select new { cv, e, per, et, med, eo, ed, w, oso, osd };
 
             if (filter.WorkerId.HasValue)
                 q = q.Where(x => x.e.WorkerId == filter.WorkerId.Value);
@@ -114,13 +121,25 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         .Where(i => i.EmoId == x.e.Id)
                         .OrderByDescending(i => i.FechaDerivacion)
                         .Select(i => (string?)i.UrlInforme)
-                        .FirstOrDefault()
+                        .FirstOrDefault(),
+                    PuestoOrigen = x.cv.PuestoOrigen ?? x.w.Ocupacion,
+                    PuestoDestino = x.cv.PuestoDestino,
+                    ObraOficinaStaffOrigenId = x.cv.ObraOficinaStaffOrigenId ?? x.w.ObraOficinaStaffId,
+                    ObraOficinaStaffOrigenNombre = x.oso != null ? x.oso.Name
+                        : (x.w.ObraOficinaStaff != null ? x.w.ObraOficinaStaff.Name : null),
+                    ObraOficinaStaffDestinoId = x.cv.ObraOficinaStaffDestinoId,
+                    ObraOficinaStaffDestinoNombre = x.osd != null ? x.osd.Name : null,
+                    CambioRiesgo = x.cv.CambioRiesgo
                 })
                 .ToListAsync();
 
             foreach (var it in items)
+            {
                 if (it.FechaVencimiento.HasValue)
                     it.DiasParaVencer = it.FechaVencimiento.Value.DayNumber - hoy.DayNumber;
+                it.RiesgoOrigen = ObraOficinaStaffIds.RiesgoEmo(it.ObraOficinaStaffOrigenId);
+                it.RiesgoDestino = ObraOficinaStaffIds.RiesgoEmo(it.ObraOficinaStaffDestinoId);
+            }
 
             return new PagedResponseDto<ConvalidacionListDto>
             {
@@ -150,6 +169,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from eo in eoj.DefaultIfEmpty()
                 join ed in ctx.Contributor on cv.EmpresaDestinoId equals ed.ContributorId into edj
                 from ed in edj.DefaultIfEmpty()
+                join oso in ctx.WorkersObraOficinaStaff on cv.ObraOficinaStaffOrigenId equals (int?)oso.WorkersObraOficinaStaffId into osoj
+                from oso in osoj.DefaultIfEmpty()
+                join osd in ctx.WorkersObraOficinaStaff on cv.ObraOficinaStaffDestinoId equals (int?)osd.WorkersObraOficinaStaffId into osdj
+                from osd in osdj.DefaultIfEmpty()
                 where cv.Id == id
                 select new ConvalidacionDetalleDto
                 {
@@ -169,20 +192,175 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     FechaConvalidacion = cv.FechaConvalidacion,
                     FechaVencimiento = cv.FechaVencimiento,
                     Resultado = cv.Resultado,
-                    Notas = cv.Observaciones
+                    Notas = cv.Observaciones,
+                    PuestoOrigen = cv.PuestoOrigen ?? w.Ocupacion,
+                    PuestoDestino = cv.PuestoDestino,
+                    ObraOficinaStaffOrigenId = cv.ObraOficinaStaffOrigenId ?? w.ObraOficinaStaffId,
+                    ObraOficinaStaffOrigenNombre = oso != null ? oso.Name
+                        : (w.ObraOficinaStaff != null ? w.ObraOficinaStaff.Name : null),
+                    ObraOficinaStaffDestinoId = cv.ObraOficinaStaffDestinoId,
+                    ObraOficinaStaffDestinoNombre = osd != null ? osd.Name : null,
+                    CambioRiesgo = cv.CambioRiesgo
                 }
             ).FirstOrDefaultAsync();
+
+            if (row != null)
+            {
+                row.RiesgoOrigen = ObraOficinaStaffIds.RiesgoEmo(row.ObraOficinaStaffOrigenId);
+                row.RiesgoDestino = ObraOficinaStaffIds.RiesgoEmo(row.ObraOficinaStaffDestinoId);
+            }
 
             return row;
         }
 
-        public async Task<int> Create(ConvalidacionCreateDto dto, int? userId)
+        public async Task<MedicoFirmaEstadoDto?> GetMedicoFirmaEstadoAsync(int medicoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsMedicoOcupacional
+                .Where(m => m.Id == medicoId)
+                .Select(m => new MedicoFirmaEstadoDto
+                {
+                    PinFirmaHash = m.PinFirmaHash,
+                    Email = m.Email,
+                    PinFirmaIntentosFallidos = m.PinFirmaIntentosFallidos,
+                    PinFirmaBloqueadoHasta = m.PinFirmaBloqueadoHasta
+                })
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task RegistrarIntentoFirmaAsync(int medicoId, bool exito)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var med = await ctx.SsMedicoOcupacional.FirstOrDefaultAsync(m => m.Id == medicoId);
+            if (med == null) return;
+
+            if (exito)
+            {
+                med.PinFirmaIntentosFallidos = 0;
+                med.PinFirmaBloqueadoHasta = null;
+            }
+            else
+            {
+                med.PinFirmaIntentosFallidos++;
+                if (med.PinFirmaIntentosFallidos >= 5)
+                {
+                    med.PinFirmaBloqueadoHasta = DateTimeOffset.UtcNow.AddMinutes(15);
+                    med.PinFirmaIntentosFallidos = 0;
+                }
+            }
+            await ctx.SaveChangesAsync();
+        }
+
+        private static readonly HashSet<string> ResultadosAprobados = new()
+        {
+            "Aprobada", "Aprobada con Observaciones"
+        };
+
+        /// <summary>
+        /// Valida el cambio de puesto (riesgo origen vs destino) y bloquea la convalidación
+        /// cuando sube de riesgo bajo a alto (Oficina Central → Staff/Obra): en ese caso la
+        /// R.M. 312-2011/MINSA exige un EMO nuevo, no es un caso convalidable.
+        /// </summary>
+        private static bool ValidarCambioRiesgo(int? origenId, int? destinoId, string resultado)
+        {
+            var cambioRiesgo = ObraOficinaStaffIds.EsCambioRiesgoCritico(origenId, destinoId);
+            if (cambioRiesgo && ResultadosAprobados.Contains(resultado))
+                throw new AbrilException(
+                    "No se puede convalidar: el puesto destino (Staff/Obra, riesgo alto) exige exámenes " +
+                    "que el EMO de origen (Oficina Central, riesgo bajo) no evaluó. Corresponde generar un " +
+                    "EMO nuevo conforme al protocolo del puesto destino.", 400);
+            return cambioRiesgo;
+        }
+
+        /// <summary>
+        /// SHA-256 de los datos exactos que el médico autorizó, para poder demostrar más
+        /// adelante que la convalidación no fue alterada después de firmada.
+        /// </summary>
+        private static string CalcularDocumentoHash(WorkerEmoConvalidacion ent)
+        {
+            var raw = string.Join('|',
+                ent.EmoId, ent.EmpresaDestinoId, ent.FechaConvalidacion, ent.FechaVencimiento,
+                ent.MedicoId, ent.Resultado, ent.PuestoOrigen, ent.PuestoDestino,
+                ent.ObraOficinaStaffOrigenId, ent.ObraOficinaStaffDestinoId, ent.Observaciones);
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
+            return Convert.ToHexString(bytes);
+        }
+
+        private static void RegistrarFirma(
+            AppDbContext ctx, int convalidacionId, int? medicoId, string resultado,
+            string documentoHash, string? ip, string? userAgent)
+        {
+            ctx.SsConvalidacionFirmaLog.Add(new SsConvalidacionFirmaLog
+            {
+                ConvalidacionId = convalidacionId,
+                MedicoId = medicoId,
+                FechaHora = DateTimeOffset.UtcNow,
+                Ip = ip,
+                UserAgent = userAgent,
+                DocumentoHash = documentoHash,
+                Resultado = resultado,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+        }
+
+        /// <summary>
+        /// Puesto/clasificación "de origen" = lo que el trabajador tenía en la empresa de
+        /// origen del EMO, a la fecha del EMO (histórico, vía WorkerVinculacion — ya no el
+        /// registro actual del trabajador, que desde que Habilitación gestiona el puesto
+        /// correctamente representa el DESTINO, no el origen).
+        /// </summary>
+        private static async Task<(string? Puesto, int? ObraOficinaStaffId)> ResolverPuestoOrigenAsync(
+            AppDbContext ctx, WorkerEmo emo)
+        {
+            var vinculacionOrigen = await ctx.WorkerVinculacion
+                .Where(v => v.WorkerId == emo.WorkerId
+                         && v.EmpresaId == emo.EmpresaOrigenId
+                         && v.FechaInicio <= emo.FechaEmo)
+                .OrderByDescending(v => v.FechaInicio)
+                .FirstOrDefaultAsync();
+
+            return (
+                vinculacionOrigen?.Puesto ?? emo.Worker?.Ocupacion,
+                vinculacionOrigen?.ObraOficinaStaffId ?? emo.Worker?.ObraOficinaStaffId
+            );
+        }
+
+        /// <summary>
+        /// Puesto/clasificación "de destino" = el registro VIGENTE del trabajador (vinculación
+        /// activa), que ya llega listo si el administrador hizo el cambio en Habilitación →
+        /// Cambiar obra / puesto de trabajo antes de convalidar.
+        /// </summary>
+        private static async Task<(string? Puesto, int? ObraOficinaStaffId)> ResolverPuestoDestinoAsync(
+            AppDbContext ctx, WorkerEmo emo)
+        {
+            var vinculacionActual = await ctx.WorkerVinculacion
+                .Where(v => v.WorkerId == emo.WorkerId && v.FechaFin == null)
+                .OrderByDescending(v => v.FechaInicio)
+                .FirstOrDefaultAsync();
+
+            return (
+                vinculacionActual?.Puesto ?? emo.Worker?.Ocupacion,
+                vinculacionActual?.ObraOficinaStaffId ?? emo.Worker?.ObraOficinaStaffId
+            );
+        }
+
+        public async Task<int> Create(ConvalidacionCreateDto dto, int? userId, string? ip, string? userAgent)
         {
             using var ctx = _factory.CreateDbContext();
             var emo = await ctx.WorkerEmo
                 .Include(e => e.Worker)
                 .FirstOrDefaultAsync(e => e.Id == dto.EmoOrigenId)
                 ?? throw new AbrilException("EMO no encontrado.", 404);
+
+            var (puestoOrigenAuto, obraOficinaOrigenAuto) = await ResolverPuestoOrigenAsync(ctx, emo);
+            var (puestoDestinoAuto, obraOficinaDestinoAuto) = await ResolverPuestoDestinoAsync(ctx, emo);
+
+            var puestoOrigen = dto.PuestoOrigen ?? puestoOrigenAuto;
+            var origenId = dto.ObraOficinaStaffOrigenId ?? obraOficinaOrigenAuto;
+            var puestoDestino = dto.PuestoDestino ?? puestoDestinoAuto;
+            var destinoId = dto.ObraOficinaStaffDestinoId ?? obraOficinaDestinoAuto;
+
+            var cambioRiesgo = ValidarCambioRiesgo(origenId, destinoId, dto.Resultado);
 
             var ent = new WorkerEmoConvalidacion
             {
@@ -194,6 +372,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 FechaVencimiento = dto.FechaVencimiento,
                 UrlDocumento = dto.UrlDocumento,
                 Observaciones = dto.Notas,
+                PuestoOrigen = puestoOrigen,
+                PuestoDestino = puestoDestino,
+                ObraOficinaStaffOrigenId = origenId,
+                ObraOficinaStaffDestinoId = destinoId,
+                CambioRiesgo = cambioRiesgo,
                 RegistradoPorId = userId,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
@@ -203,10 +386,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             await SincronizarHabilitacionAsync(ctx, emo, dto.Resultado, dto.FechaVencimiento);
 
             await ctx.SaveChangesAsync();
+
+            RegistrarFirma(ctx, ent.Id, dto.MedicoId, dto.Resultado, CalcularDocumentoHash(ent), ip, userAgent);
+            await ctx.SaveChangesAsync();
+
             return ent.Id;
         }
 
-        public async Task Update(int id, ConvalidacionUpdateDto dto, int? userId)
+        public async Task Update(int id, ConvalidacionUpdateDto dto, int? userId, string? ip, string? userAgent)
         {
             using var ctx = _factory.CreateDbContext();
             var ent = await ctx.WorkerEmoConvalidacion.FirstOrDefaultAsync(c => c.Id == id)
@@ -217,6 +404,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .FirstOrDefaultAsync(e => e.Id == ent.EmoId)
                 ?? throw new AbrilException("EMO de origen no encontrado.", 404);
 
+            string? puestoOrigenAuto = null, puestoDestinoAuto = null;
+            int? obraOficinaOrigenAuto = null, obraOficinaDestinoAuto = null;
+            if (ent.ObraOficinaStaffOrigenId is null || string.IsNullOrWhiteSpace(ent.PuestoOrigen))
+                (puestoOrigenAuto, obraOficinaOrigenAuto) = await ResolverPuestoOrigenAsync(ctx, emo);
+            if (ent.ObraOficinaStaffDestinoId is null || string.IsNullOrWhiteSpace(ent.PuestoDestino))
+                (puestoDestinoAuto, obraOficinaDestinoAuto) = await ResolverPuestoDestinoAsync(ctx, emo);
+
+            var origenId = dto.ObraOficinaStaffOrigenId ?? ent.ObraOficinaStaffOrigenId ?? obraOficinaOrigenAuto;
+            var destinoId = dto.ObraOficinaStaffDestinoId ?? ent.ObraOficinaStaffDestinoId ?? obraOficinaDestinoAuto;
+            var cambioRiesgo = ValidarCambioRiesgo(origenId, destinoId, dto.Resultado);
+
             ent.EmpresaDestinoId = dto.EmpresaDestinoId;
             ent.FechaConvalidacion = dto.FechaConvalidacion;
             ent.MedicoId = dto.MedicoId;
@@ -224,10 +422,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             ent.FechaVencimiento = dto.FechaVencimiento;
             ent.UrlDocumento = dto.UrlDocumento;
             ent.Observaciones = dto.Notas;
+            ent.PuestoOrigen = dto.PuestoOrigen ?? ent.PuestoOrigen ?? puestoOrigenAuto;
+            ent.PuestoDestino = dto.PuestoDestino ?? ent.PuestoDestino ?? puestoDestinoAuto;
+            ent.ObraOficinaStaffOrigenId = origenId;
+            ent.ObraOficinaStaffDestinoId = destinoId;
+            ent.CambioRiesgo = cambioRiesgo;
             ent.UpdatedAt = DateTimeOffset.UtcNow;
 
             await SincronizarHabilitacionAsync(ctx, emo, dto.Resultado, dto.FechaVencimiento);
 
+            await ctx.SaveChangesAsync();
+
+            RegistrarFirma(ctx, ent.Id, ent.MedicoId, ent.Resultado, CalcularDocumentoHash(ent), ip, userAgent);
             await ctx.SaveChangesAsync();
         }
 

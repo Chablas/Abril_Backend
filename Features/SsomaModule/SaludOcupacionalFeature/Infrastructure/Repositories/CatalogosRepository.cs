@@ -1,5 +1,6 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Catalogos;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convalidacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
@@ -123,6 +124,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     Id = x.m.Id,
                     ApellidoNombre = x.m.ApellidoNombre,
+                    Dni = x.m.Dni,
                     Cmp = x.m.Cmp,
                     Especialidad = x.m.Especialidad,
                     ClinicaId = x.m.ClinicaId,
@@ -140,6 +142,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var ent = new SsMedicoOcupacional
             {
                 ApellidoNombre = dto.ApellidoNombre,
+                Dni = dto.Dni,
                 Cmp = dto.Cmp,
                 Especialidad = dto.Especialidad,
                 ClinicaId = dto.ClinicaId,
@@ -159,6 +162,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var ent = await ctx.SsMedicoOcupacional.FirstOrDefaultAsync(m => m.Id == id)
                 ?? throw new AbrilException("Médico no encontrado.", 404);
             ent.ApellidoNombre = dto.ApellidoNombre;
+            ent.Dni = dto.Dni;
             ent.Cmp = dto.Cmp;
             ent.Especialidad = dto.Especialidad;
             ent.ClinicaId = dto.ClinicaId;
@@ -181,6 +185,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     Id = m.Id,
                     ApellidoNombre = m.ApellidoNombre,
+                    Dni = m.Dni,
                     Cmp = m.Cmp,
                     Especialidad = m.Especialidad,
                     ClinicaId = m.ClinicaId,
@@ -189,6 +194,76 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Celular = m.Celular,
                     Activo = m.Activo
                 }).FirstAsync();
+        }
+
+        public async Task<string?> GetMedicoEmailAsync(int medicoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsMedicoOcupacional
+                .Where(m => m.Id == medicoId)
+                .Select(m => m.Email)
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task SetPinFirmaAsync(int medicoId, string pinHash)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsMedicoOcupacional.FirstOrDefaultAsync(m => m.Id == medicoId)
+                ?? throw new AbrilException("Médico no encontrado.", 404);
+            ent.PinFirmaHash = pinHash;
+            ent.PinFirmaIntentosFallidos = 0;
+            ent.PinFirmaBloqueadoHasta = null;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<AutorizacionFirmaDetalleDto?> GetAutorizacionFirmaDetalleAsync(int medicoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsMedicoOcupacional
+                .Where(m => m.Id == medicoId)
+                .Select(m => new AutorizacionFirmaDetalleDto
+                {
+                    MedicoId = m.Id,
+                    MedicoNombre = m.ApellidoNombre,
+                    MedicoDni = m.Dni,
+                    MedicoCmp = m.Cmp,
+                    MedicoEspecialidad = m.Especialidad,
+                    FirmaDigitalUrl = m.FirmaDigitalUrl
+                })
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<MedicoFirmaArchivosDto?> GetMedicoFirmaArchivosAsync(int medicoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsMedicoOcupacional
+                .Where(m => m.Id == medicoId)
+                .Select(m => new MedicoFirmaArchivosDto
+                {
+                    Email = m.Email,
+                    FirmaDigitalUrl = m.FirmaDigitalUrl,
+                    UrlAutorizacionFirmada = m.UrlAutorizacionFirmada
+                })
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task SetFirmaDigitalAsync(int medicoId, string url)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsMedicoOcupacional.FirstOrDefaultAsync(m => m.Id == medicoId)
+                ?? throw new AbrilException("Médico no encontrado.", 404);
+            ent.FirmaDigitalUrl = url;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task SetAutorizacionFirmadaAsync(int medicoId, string url)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var ent = await ctx.SsMedicoOcupacional.FirstOrDefaultAsync(m => m.Id == medicoId)
+                ?? throw new AbrilException("Médico no encontrado.", 404);
+            ent.UrlAutorizacionFirmada = url;
+            ent.FechaAutorizacionFirma = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync();
         }
 
         // ===== EMO Tipos =====

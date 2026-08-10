@@ -5,6 +5,7 @@ using Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Interface
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.SsomaModule.Shared;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repositories
@@ -12,9 +13,6 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
     public class MiSaludRepository : IMiSaludRepository
     {
         private const int PageSize = 10;
-        // Regla de negocio: los descansos registrados por el propio trabajador
-        // se guardan siempre con este tipo (el valor vive en ss_descanso_tipo).
-        private const string TipoPorDefecto = "Particular";
         /// <summary>Nombre exacto del área en area_item cuyo area_scope.email es el correo de GTH.</summary>
         private const string AreaGthNombre = "Gestión del Talento Humano";
         private readonly IDbContextFactory<AppDbContext> _factory;
@@ -77,11 +75,17 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
                 .Select(d => new { d.Estado, d.FechaFin })
                 .FirstOrDefaultAsync();
 
-            // Catálogo de motivos para el formulario de registro
-            var motivos = await ctx.SsDescansoMotivo
-                .Where(m => m.State && m.Active)
-                .OrderBy(m => m.Nombre)
-                .Select(m => new DescansoMotivoDto { Id = m.Id, Nombre = m.Nombre })
+            // Catálogo de tipos para el formulario de registro: solo los que el trabajador
+            // puede elegir. Nombre = lo que se guarda; NombreCorto = lo que se le muestra.
+            var tipos = await ctx.SsDescansoTipo
+                .Where(t => t.State && t.Active && t.DisponibleMiSalud)
+                .OrderBy(t => t.Orden).ThenBy(t => t.Nombre)
+                .Select(t => new DescansoTipoDto
+                {
+                    Id          = t.Id,
+                    Nombre      = t.Nombre,
+                    NombreCorto = t.NombreCorto ?? t.Nombre,
+                })
                 .ToListAsync();
 
             DateOnly? fechaVenc = emo?.e.FechaVencimientoCalculada ?? emo?.e.FechaVencimiento;
@@ -100,7 +104,7 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
                 RestriccionesVigentes = restricciones,
                 UltimoDescansoEstado  = ultimoDescanso?.Estado,
                 UltimoDescansoFechaFin = ultimoDescanso?.FechaFin,
-                MotivosDescanso = motivos,
+                TiposDescanso = tipos,
             };
         }
 
@@ -117,16 +121,14 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
 
             var items = await (
                 from d in q
-                join m in ctx.SsDescansoMotivo on d.MotivoId equals m.Id into mj
-                from m in mj.DefaultIfEmpty()
+                join t in ctx.SsDescansoTipo on d.TipoId equals t.Id
                 select new MiDescansoDto
                 {
                     Id               = d.Id,
-                    Tipo             = d.Tipo,
+                    Tipo             = t.Nombre,
                     FechaInicio      = d.FechaInicio,
                     FechaFin         = d.FechaFin,
                     Dias             = d.Dias,
-                    Motivo           = m != null ? m.Nombre : d.Motivo,
                     Diagnostico      = d.Diagnostico,
                     Estado           = d.Estado,
                     MotivoRechazo    = d.MotivoRechazo,
@@ -173,28 +175,19 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
         {
             using var ctx = _factory.CreateDbContext();
 
+            // El trabajador solo puede clasificar su descanso con los tipos habilitados para
+            // Mi Salud (los "común"); los ocupacionales los asigna SSOMA.
             var tipo = await ctx.SsDescansoTipo
-                .FirstOrDefaultAsync(t => t.State && t.Nombre == TipoPorDefecto)
-                ?? throw new AbrilException($"No se encontró el tipo de descanso '{TipoPorDefecto}' en el catálogo.", 500);
-
-            SsDescansoMotivo? motivo = null;
-            if (dto.MotivoId.HasValue)
-            {
-                motivo = await ctx.SsDescansoMotivo
-                    .FirstOrDefaultAsync(m => m.Id == dto.MotivoId.Value && m.State)
-                    ?? throw new AbrilException("El motivo seleccionado no es válido.", 400);
-            }
+                .FirstOrDefaultAsync(t => t.Id == dto.TipoId && t.State && t.Active && t.DisponibleMiSalud)
+                ?? throw new AbrilException("El tipo de descanso seleccionado no es válido.", 400);
 
             var entity = new SsDescansoMedico
             {
                 WorkerId               = workerId,
-                Tipo                   = tipo.Nombre,
                 TipoId                 = tipo.Id,
                 FechaInicio            = dto.FechaInicio,
                 FechaFin               = dto.FechaFin,
                 Dias                   = dto.Dias ?? (dto.FechaFin.DayNumber - dto.FechaInicio.DayNumber + 1),
-                Motivo                 = motivo?.Nombre,
-                MotivoId               = motivo?.Id,
                 Diagnostico            = dto.Diagnostico,
                 UrlCertificado         = adjuntos.Count > 0 ? adjuntos[0].Url : null,
                 Estado                 = "Pendiente",
@@ -224,7 +217,7 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
             return entity.Id;
         }
 
-        public async Task<DescansoNotificacionDatosDto> GetDatosNotificacionDescansoAsync(int workerId, int userId, int? motivoId)
+        public async Task<DescansoNotificacionDatosDto> GetDatosNotificacionDescansoAsync(int workerId, int userId, int tipoId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -254,19 +247,18 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
                 select s.Email
             ).FirstOrDefaultAsync();
 
-            string? motivoNombre = null;
-            if (motivoId.HasValue)
-                motivoNombre = await ctx.SsDescansoMotivo
-                    .Where(m => m.Id == motivoId.Value)
-                    .Select(m => m.Nombre)
-                    .FirstOrDefaultAsync();
+            // En el correo va el nombre largo del tipo, no el corto que ve el trabajador.
+            var tipoNombre = await ctx.SsDescansoTipo
+                .Where(t => t.Id == tipoId)
+                .Select(t => t.Nombre)
+                .FirstOrDefaultAsync();
 
             return new DescansoNotificacionDatosDto
             {
                 WorkerNombre = worker?.Nombre,
                 WorkerEmail  = !string.IsNullOrWhiteSpace(userEmail) ? userEmail.Trim() : worker?.EmailCorporativo?.Trim(),
                 GthEmail     = gthEmail?.Trim(),
-                MotivoNombre = motivoNombre,
+                TipoNombre   = tipoNombre,
             };
         }
 

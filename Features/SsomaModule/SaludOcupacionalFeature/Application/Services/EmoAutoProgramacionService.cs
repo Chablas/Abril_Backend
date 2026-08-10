@@ -91,7 +91,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             var programacionesExistentes = await ctx.SsProgramacionEmo
                 .AsNoTracking()
                 .Where(p =>
-                    workerIds.Contains(p.WorkerId)
+                    p.State
+                    && workerIds.Contains(p.WorkerId)
                     && p.FechaProgramada >= hoy
                     && p.Estado != "Completado"
                     && p.Estado != "Cancelado"

@@ -251,7 +251,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // programación vieja "No se presentó" quedaría como "la más reciente" para
             // siempre, aunque exista una programación posterior ya completada.
             var progMapRaw = await ctx.SsProgramacionEmo
-                .Where(p => workerIds.Contains(p.WorkerId))
+                .Where(p => p.State && workerIds.Contains(p.WorkerId))
                 .GroupBy(p => p.WorkerId)
                 .Select(g => new
                 {
@@ -1715,6 +1715,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             EmailCorporativo = w.EmailCorporativo,
             EmailPersonal = w.Person?.Email,
             FechaNacimiento = w.Person?.FechaNacimiento,
+            MostrarEnBoletin = w.Person?.MostrarEnBoletin ?? true,
             Sexo = w.Person?.Sexo != null ? w.Person.Sexo.Codigo : null,
             FechaIngreso = w.FechaIngreso,
             FechaRetiro = w.FechaRetiro,

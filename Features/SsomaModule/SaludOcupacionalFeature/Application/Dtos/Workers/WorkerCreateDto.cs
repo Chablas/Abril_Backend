@@ -9,6 +9,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Workers
         /// <summary>Correo personal / de contacto. Va a <c>person.email</c> y puede repetirse.</summary>
         public string? EmailPersonal { get; set; }
         public DateOnly? FechaNacimiento { get; set; }
+        /// <summary>
+        /// Checkbox "Mostrar en el boletín" (<c>person.mostrar_en_boletin</c>): true = su
+        /// cumpleaños aparece en el calendario del boletín. null = el formulario no gestiona el
+        /// campo (contratistas, que no capturan fecha de nacimiento) y se deja lo que ya estuviera
+        /// guardado; en una persona nueva queda en true, el valor por defecto de la columna.
+        /// </summary>
+        public bool? MostrarEnBoletin { get; set; }
         public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }
         public string? Categoria { get; set; }

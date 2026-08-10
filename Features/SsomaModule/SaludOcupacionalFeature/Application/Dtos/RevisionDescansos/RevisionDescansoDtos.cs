@@ -14,7 +14,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Revisio
         public DateOnly FechaInicio { get; set; }
         public DateOnly FechaFin { get; set; }
         public int Dias { get; set; }
-        public string? Motivo { get; set; }
+        /// <summary>Nombre del tipo resuelto desde el catálogo (ss_descanso_tipo).</summary>
+        public string Tipo { get; set; } = string.Empty;
         public string Estado { get; set; } = string.Empty;
         public int AdjuntosCount { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
@@ -34,11 +35,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Revisio
         public string? WorkerDni { get; set; }
         public string? AreaNombre { get; set; }
         public string? EmpresaNombre { get; set; }
+        /// <summary>Nombre del tipo resuelto desde el catálogo (ss_descanso_tipo).</summary>
         public string Tipo { get; set; } = string.Empty;
         public DateOnly FechaInicio { get; set; }
         public DateOnly FechaFin { get; set; }
         public int Dias { get; set; }
-        public string? Motivo { get; set; }
         public string? Diagnostico { get; set; }
         public string Estado { get; set; } = string.Empty;
         public string? MotivoRechazo { get; set; }

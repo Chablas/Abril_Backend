@@ -122,17 +122,60 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         public async Task Create(ProjectSubContractorCreateDTO dto, int userId)
         {
+            var hasInitialFiles = (dto.QuotationFiles?.Count ?? 0) > 0
+                               || (dto.ComparativeFiles?.Count ?? 0) > 0;
+
+            // Phase 0: si hay archivos que subir, se valida ANTES del INSERT que la ruta de OneDrive
+            // se pueda resolver (carpeta 04_OBRAS configurada + especialidad asignada). Sin esto el
+            // registro quedaba creado y visible en la lista, pero sin ningún archivo, porque el 422
+            // de "Falta configuración" recién salta en la fase 2, con el INSERT ya committeado.
+            if (hasInitialFiles)
+            {
+                var preflight = await _projectSubContractorRepository.GetCreatePathDataAsync(
+                    dto.ProjectId, dto.WorkSpecialtyId);
+                _oneDriveStorage.ValidateUploadPath(preflight);
+            }
+
             // Phase 1: persist the record and get the new ID (needed for the folder path).
             var newId = await _projectSubContractorRepository.Create(dto, userId);
 
-            // Phase 2: fetch path data and upload files to SharePoint.
-            var pathData = await _projectSubContractorRepository.GetPathDataAsync(newId);
+            try
+            {
+                // Phase 2: fetch path data and upload files to SharePoint.
+                var pathData = await _projectSubContractorRepository.GetPathDataAsync(newId);
 
-            var quotationFiles   = await UploadFilesToSharePoint(dto.QuotationFiles,   pathData, AdjudicacionDocumentType.InitialQuotation);
-            var comparativeFiles = await UploadFilesToSharePoint(dto.ComparativeFiles, pathData, AdjudicacionDocumentType.InitialComparative);
+                var quotationFiles   = await UploadFilesToSharePoint(dto.QuotationFiles,   pathData, AdjudicacionDocumentType.InitialQuotation);
+                var comparativeFiles = await UploadFilesToSharePoint(dto.ComparativeFiles, pathData, AdjudicacionDocumentType.InitialComparative);
 
-            // Phase 3: save file records.
-            await _projectSubContractorRepository.SaveInitialFilesAsync(newId, quotationFiles, comparativeFiles, userId);
+                // Phase 3: save file records.
+                await _projectSubContractorRepository.SaveInitialFilesAsync(newId, quotationFiles, comparativeFiles, userId);
+            }
+            catch
+            {
+                // El alta falló con el INSERT ya committeado (OneDrive caído, token vencido, archivo
+                // vacío...). Se compensa con soft delete para no dejar una adjudicación sin archivos:
+                // cada llamada al repositorio abre su propio contexto, así que nada se revierte solo.
+                await TrySoftDeleteAfterFailedCreateAsync(newId, userId);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Compensación del alta. Nunca debe tapar la excepción original que la disparó, así que si
+        /// el propio soft delete falla solo se registra y se deja propagar la excepción de arriba.
+        /// </summary>
+        private async Task TrySoftDeleteAfterFailedCreateAsync(int projectSubContractorId, int userId)
+        {
+            try
+            {
+                await _projectSubContractorRepository.SoftDeleteAsync(projectSubContractorId, userId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(
+                    $"[Create] No se pudo revertir la adjudicación {projectSubContractorId} " +
+                    $"tras fallar el alta: {ex.Message}");
+            }
         }
 
         public async Task<ProjectSubContractorFormDataDTO> GetFormData()
@@ -180,6 +223,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
         public async Task SendNotification(SendAdjudicacionNotificationDto dto, int userId)
         {
             var data = await _projectSubContractorRepository.GetNotificationData(dto.ProjectSubContractorId);
+
+            // La cotización es opcional al crear la adjudicación, pero obligatoria para notificar:
+            // es el adjunto del correo que se envía al pasar al paso 2. El cuadro comparativo sigue
+            // siendo opcional en todos los pasos.
+            if (data.QuotationFiles.Count == 0)
+                throw new AbrilException(
+                    "La adjudicación no tiene ningún archivo de cotización. Adjunte la cotización en el " +
+                    "paso 1 antes de notificar al subcontratista.", 400);
 
             if (data.StaffEmails.Count == 0)
                 throw MissingStaffEmailConfig("Staff de obra");
@@ -989,7 +1040,38 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
 
         public async Task UpdateInfo(int projectSubContractorId, ProjectSubContractorUpdateInfoDTO dto, int userId)
         {
+            var hasNewFiles = (dto.NewQuotationFiles?.Count ?? 0) > 0
+                           || (dto.NewComparativeFiles?.Count ?? 0) > 0;
+
+            // Mismo pre-flight que en el alta, pero contra el proyecto y la especialidad que van a
+            // quedar guardados (la edición puede estar cambiándolos): si falta la carpeta 04_OBRAS
+            // se corta antes de escribir nada.
+            if (hasNewFiles)
+            {
+                var preflight = await _projectSubContractorRepository.GetCreatePathDataAsync(
+                    dto.ProjectId, dto.WorkSpecialtyId);
+                _oneDriveStorage.ValidateUploadPath(preflight);
+            }
+
             await _projectSubContractorRepository.UpdateInfo(projectSubContractorId, dto, userId);
+
+            if ((dto.RemovedQuotationFileIds?.Count ?? 0) > 0 || (dto.RemovedComparativeFileIds?.Count ?? 0) > 0)
+            {
+                await _projectSubContractorRepository.RemoveInitialFilesAsync(
+                    projectSubContractorId, dto.RemovedQuotationFileIds, dto.RemovedComparativeFileIds, userId);
+            }
+
+            if (!hasNewFiles) return;
+
+            // La ruta se resuelve DESPUÉS del update para que los archivos nuevos caigan en la carpeta
+            // de la especialidad/partida ya actualizada, no en la que tenía antes de editar.
+            var pathData = await _projectSubContractorRepository.GetPathDataAsync(projectSubContractorId);
+
+            var quotationFiles   = await UploadFilesToSharePoint(dto.NewQuotationFiles,   pathData, AdjudicacionDocumentType.InitialQuotation);
+            var comparativeFiles = await UploadFilesToSharePoint(dto.NewComparativeFiles, pathData, AdjudicacionDocumentType.InitialComparative);
+
+            await _projectSubContractorRepository.SaveInitialFilesAsync(
+                projectSubContractorId, quotationFiles, comparativeFiles, userId);
         }
 
         public async Task UpdateDocumentStatusAsync(

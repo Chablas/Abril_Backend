@@ -331,6 +331,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             if (!string.IsNullOrWhiteSpace(dto.Sexo)) person.SexoId = await ResolveSexoIdAsync(ctx, dto.Sexo) ?? person.SexoId;
             if (dto.FechaNacimiento.HasValue) person.FechaNacimiento = dto.FechaNacimiento;
+            if (dto.MostrarEnBoletin.HasValue) person.MostrarEnBoletin = dto.MostrarEnBoletin.Value;
             // Al reusar una Person existente (reingreso) se actualiza el correo de contacto solo si
             // vino uno: un campo vacío no borra el dato que ya estaba registrado.
             if (dto.EmailPersonal is not null) person.Email = dto.EmailPersonal;
@@ -417,6 +418,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 worker.Person.Email         = dto.EmailPersonal;
                 if (!string.IsNullOrWhiteSpace(dto.Sexo)) worker.Person.SexoId = await ResolveSexoIdAsync(ctx, dto.Sexo) ?? worker.Person.SexoId;
                 if (dto.FechaNacimiento.HasValue) worker.Person.FechaNacimiento = dto.FechaNacimiento;
+                if (dto.MostrarEnBoletin.HasValue) worker.Person.MostrarEnBoletin = dto.MostrarEnBoletin.Value;
             }
             worker.EmailCorporativo = dto.EmailCorporativo;
             worker.FechaIngreso = dto.FechaIngreso;

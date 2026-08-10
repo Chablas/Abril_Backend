@@ -12,6 +12,11 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         /// <summary>Correo personal / de contacto (person.email).</summary>
         public string? EmailPersonal { get; set; }
         public DateOnly? FechaNacimiento { get; set; }
+        /// <summary>
+        /// <c>person.mostrar_en_boletin</c>: true = su cumpleaños aparece en el calendario del
+        /// boletín. Es lo que precarga el checkbox "Mostrar en el boletín" del formulario.
+        /// </summary>
+        public bool MostrarEnBoletin { get; set; } = true;
         public string? Sexo { get; set; }
         public DateOnly? FechaIngreso { get; set; }
         public DateOnly? FechaRetiro { get; set; }

@@ -25,6 +25,14 @@ namespace Abril_Backend.Infrastructure.Models {
         /// Para el calendario del boletín solo interesa día y mes.
         /// </summary>
         public DateOnly? FechaNacimiento {get; set;}
+        /// <summary>
+        /// true = su cumpleaños aparece en el calendario del boletín (columna
+        /// <c>mostrar_en_boletin</c>). Lo controla el checkbox "Mostrar en el boletín" del
+        /// formulario de trabajadores, y viene marcado por defecto: quien no quiera figurar se
+        /// desmarca a mano. Es independiente de <see cref="FechaNacimiento"/>: la fecha se sigue
+        /// guardando (la usan EMO y GTH), solo deja de publicarse.
+        /// </summary>
+        public bool MostrarEnBoletin {get; set;} = true;
         /// <summary>FK al catálogo normalizado <c>sexo</c> (reemplaza la antigua columna de texto).</summary>
         public int? SexoId {get; set;}
         public Sexo? Sexo {get; set;}

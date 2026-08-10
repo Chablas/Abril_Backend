@@ -6,8 +6,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Interfaces
     public interface IProjectSubContractorRepository
     {
         Task<int> Create(ProjectSubContractorCreateDTO dto, int userId);
+        /// <summary>
+        /// Datos de ruta de OneDrive disponibles ANTES de crear la adjudicación (proyecto +
+        /// carpeta 04_OBRAS + especialidad), para validar el alta sin haberla insertado.
+        /// </summary>
+        Task<AdjudicacionPathDataDto> GetCreatePathDataAsync(int projectId, int? workSpecialtyId);
+        /// <summary>Soft delete de la adjudicación (state = false). Nada se borra físicamente.</summary>
+        Task SoftDeleteAsync(int projectSubContractorId, int userId);
         Task UpdateInfo(int projectSubContractorId, ProjectSubContractorUpdateInfoDTO dto, int userId);
         Task SaveInitialFilesAsync(int projectSubContractorId, List<(string Url, string OriginalFileName, string? ItemId)> quotationFiles, List<(string Url, string OriginalFileName, string? ItemId)> comparativeFiles, int userId);
+        /// <summary>Soft delete de cotizaciones / cuadros comparativos del paso 1, acotado a la adjudicación.</summary>
+        Task RemoveInitialFilesAsync(int projectSubContractorId, List<int>? quotationFileIds, List<int>? comparativeFileIds, int userId);
         Task<List<ContractTypeSimpleDTO>> GetContractTypeFactory();
         Task<List<PaymentMethodSimpleDTO>> GetPaymentMethodFactory();
         Task<List<CurrencySimpleDTO>> GetCurrencyFactory();

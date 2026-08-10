@@ -5,13 +5,12 @@ using Abril_Backend.Features.Habilitacion.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMedico;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.Shared;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
     public class DescansoMedicoService : IDescansoMedicoService
     {
-        private static readonly HashSet<string> TiposValidos = new() { "Particular", "Ocupacional" };
-
         private readonly IDescansoMedicoRepository _repo;
         private readonly ITrabajadorRestringidoService _restringido;
 
@@ -21,24 +20,35 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             _restringido = restringido;
         }
 
+        public Task<List<DescansoTipoDto>> GetTipos() => _repo.GetTipos();
+
+        /// <summary>Carga inicial de la pantalla: catálogo de tipos + primera página, en una sola llamada.</summary>
+        public async Task<DescansosInicioDto> GetInicio(DescansoMedicoFilterDto filter) => new()
+        {
+            Tipos     = await _repo.GetTipos(),
+            Descansos = await _repo.ListPaged(filter),
+        };
+
         public Task<PagedResult<DescansoMedicoListItemDto>> ListPaged(DescansoMedicoFilterDto filter) =>
             _repo.ListPaged(filter);
 
         public Task<DescansoMedicoDetalleDto> GetById(int id) => _repo.GetById(id);
 
-        public Task<int> Create(DescansoMedicoCreateDto dto, int? userId)
+        public Task<int> Create(DescansoMedicoCreateDto dto, int? userId, List<(string Url, string Nombre)> adjuntos)
         {
             if (dto.WorkerId <= 0)
                 throw new AbrilException("El trabajador es obligatorio.", 400);
-            if (string.IsNullOrWhiteSpace(dto.Tipo) || !TiposValidos.Contains(dto.Tipo))
-                throw new AbrilException("El tipo debe ser 'Particular' u 'Ocupacional'.", 400);
+            if (dto.TipoId <= 0)
+                throw new AbrilException("El tipo de descanso es obligatorio.", 400);
             if (dto.FechaFin < dto.FechaInicio)
                 throw new AbrilException("La fecha de fin no puede ser anterior a la fecha de inicio.", 400);
-            return _repo.Create(dto, userId ?? 0);
+            return _repo.Create(dto, userId ?? 0, adjuntos);
         }
 
         public Task Update(int id, DescansoMedicoUpdateDto dto)
         {
+            if (dto.TipoId <= 0)
+                throw new AbrilException("El tipo de descanso es obligatorio.", 400);
             if (dto.FechaFin < dto.FechaInicio)
                 throw new AbrilException("La fecha de fin no puede ser anterior a la fecha de inicio.", 400);
             return _repo.Update(id, dto);

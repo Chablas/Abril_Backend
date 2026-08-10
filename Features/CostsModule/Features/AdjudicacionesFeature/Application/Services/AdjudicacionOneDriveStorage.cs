@@ -89,6 +89,17 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             return result;
         }
 
+        /// <summary>
+        /// Valida que la ruta de 04_OBRAS se pueda resolver con los datos recibidos, sin tocar
+        /// OneDrive ni requerir que la adjudicación exista todavía. Permite fallar antes de
+        /// insertarla en vez de dejarla creada y sin archivos.
+        /// </summary>
+        public void ValidateUploadPath(AdjudicacionPathDataDto pathData)
+        {
+            RequireObrasFolder(pathData);
+            RequireWorkSpecialty(pathData);
+        }
+
         public Task<byte[]> DownloadByWebUrlAsync(string webUrl)
             => _graph.DownloadOneDriveFileByWebUrlAsync(webUrl);
 
@@ -115,10 +126,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
             // para 04_OBRAS es la subcarpeta "ADJUDICACIONES DE INTRANET" ya resuelta por el caller.
 
             // 1) Especialidad — obligatoria para saber en qué rama guardar.
-            if (string.IsNullOrWhiteSpace(data.WorkSpecialtyDescription))
-                throw new AbrilException(
-                    "La adjudicación no tiene una especialidad asignada. Asigne una especialidad en el paso 1 " +
-                    "antes de guardar documentos.", 400);
+            RequireWorkSpecialty(data);
 
             var especialidadId = await FindOrCreateEspecialidadFolderAsync(
                 driveId, contratosFolderId, data.WorkSpecialtyDescription);
@@ -142,6 +150,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Services
                 driveId, adjudicacionId, GetSubfolderName(documentType));
 
             return (driveId, subfolderId);
+        }
+
+        private static void RequireWorkSpecialty(AdjudicacionPathDataDto data)
+        {
+            if (string.IsNullOrWhiteSpace(data.WorkSpecialtyDescription))
+                throw new AbrilException(
+                    "La adjudicación no tiene una especialidad asignada. Asigne una especialidad en el paso 1 " +
+                    "antes de guardar documentos.", 400);
         }
 
         private static (string DriveId, string FolderId) RequireObrasFolder(AdjudicacionPathDataDto data)

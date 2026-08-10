@@ -58,6 +58,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     from m in mj.DefaultIfEmpty()
                     select new { p, w, per, em, t, c, m };
 
+                q = q.Where(x => x.p.State);
                 q = q.Where(x => x.em != null && x.em.EsAbril);
 
                 // La clínica no puede procesar trabajadores con interconsulta pendiente.
@@ -184,6 +185,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from em in ej.DefaultIfEmpty()
                 select new { p, per, em };
 
+            q = q.Where(x => x.p.State);
             q = q.Where(x => x.em != null && x.em.EsAbril);
 
             if (!filter.IncluirConInterconsulta)
@@ -245,7 +247,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             // Evita duplicados: si ya hay una programación activa para este trabajador
             // y este tipo de EMO, no crear otra (antes solo el auto-programador validaba esto).
+            // Una programación dada de baja (State = false) no bloquea: justamente se da de
+            // baja para poder rehacerla.
             var yaTieneActiva = await ctx.SsProgramacionEmo.AnyAsync(p =>
+                p.State &&
                 p.WorkerId == dto.WorkerId &&
                 p.TipoEmoId == dto.TipoEmoId &&
                 p.Estado != "Completado" &&
@@ -294,7 +299,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task Update(int id, ProgramacionUpdateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id)
+            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id && p.State)
                 ?? throw new AbrilException("Programación no encontrada.", 404);
 
             ent.EmpresaId = dto.EmpresaId;
@@ -326,7 +331,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 throw new AbrilException("El estado 'Completado' solo puede asignarse al registrar el resultado del EMO.", 400);
 
             using var ctx = _factory.CreateDbContext();
-            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id)
+            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id && p.State)
                 ?? throw new AbrilException("Programación no encontrada.", 404);
 
             if (EstadosRequierenClinica.Contains(estado) && (ent.ClinicaId is null || ent.EmpresaId is null))
@@ -343,7 +348,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task ClinicaAccion(int id, ProgramacionClinicaAccionDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
-            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id)
+            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id && p.State)
                 ?? throw new AbrilException("Programación no encontrada.", 404);
 
             var worker = await ctx.Worker.Include(w => w.Person)
@@ -419,7 +424,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task UndoCheckInAsync(int id)
         {
             using var ctx = _factory.CreateDbContext();
-            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id)
+            var ent = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id && p.State)
                 ?? throw new AbrilException("Programación no encontrada.", 404);
 
             if (ent.Estado != "En Atención")
@@ -584,8 +589,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         $@"
 <tr><td style='padding:6px 12px;font-weight:600;background:#f9fafb'>Dirección</td><td style='padding:6px 12px'>{clinicaDireccion}</td></tr>";
 
-                var backendUrl = (_configuration["BackendSettings:PublicUrl"] ?? "http://localhost:5236").TrimEnd('/');
-                var recomendacionesImgUrl = $"{backendUrl}/emails/recomendaciones-emo.jpg";
+                // La imagen se sirve desde los estáticos del frontend (public/images/emails/),
+                // no desde el wwwroot del backend: en producción intranet.abril.pe es nginx, que
+                // solo proxea /api/** al contenedor. Cualquier otra ruta cae en el fallback SPA y
+                // devolvía index.html (200 text/html) en vez del JPG, por eso la imagen salía rota.
+                var frontendUrl = (_configuration["App:FrontendUrl"] ?? "http://localhost:4200").TrimEnd('/');
+                var recomendacionesImgUrl = $"{frontendUrl}/images/emails/recomendaciones-emo.jpg";
 
                 var html = $@"<h2>EMO Confirmado</h2>
 <p>Se ha confirmado la programación del Examen Médico Ocupacional:</p>
@@ -690,7 +699,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var estados = new[] { "Programado", "Aceptado por Clínica", "En Atención", "En Interconsulta", "Aceptado" };
 
             var q = ctx.SsProgramacionEmo
-                .Where(p => estados.Contains(p.Estado))
+                .Where(p => p.State && estados.Contains(p.Estado))
                 .Include(p => p.Worker)
                     .ThenInclude(w => w!.Person)
                 .AsQueryable();
@@ -753,7 +762,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task PatchNotificadoAsync(int id, bool notificado)
         {
             using var ctx = _factory.CreateDbContext();
-            var prog = await ctx.SsProgramacionEmo.FindAsync(id)
+            var prog = await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.Id == id && p.State)
                 ?? throw new AbrilException("Programación no encontrada.", 404);
             prog.Notificado = notificado;
             prog.UpdatedAt = DateTimeOffset.UtcNow;

@@ -1,3 +1,5 @@
+using Abril_Backend.Features.SsomaModule.Shared;
+
 namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos
 {
     public class MiSaludResumenDto
@@ -21,24 +23,20 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos
         public string? UltimoDescansoEstado { get; set; }
         public DateOnly? UltimoDescansoFechaFin { get; set; }
 
-        // Catálogo para el formulario de registro (evita otro roundtrip al abrir el modal)
-        public List<DescansoMotivoDto> MotivosDescanso { get; set; } = [];
-    }
-
-    public class DescansoMotivoDto
-    {
-        public int Id { get; set; }
-        public string Nombre { get; set; } = string.Empty;
+        // Catálogo para el formulario de registro (evita otro roundtrip al abrir el modal).
+        // Solo los tipos que el trabajador puede elegir: "Accidente común" y "Enfermedad común",
+        // que se le muestran con su nombre corto ("Accidente" / "Enfermedad").
+        public List<DescansoTipoDto> TiposDescanso { get; set; } = [];
     }
 
     public class MiDescansoDto
     {
         public int Id { get; set; }
+        /// <summary>Nombre del tipo resuelto desde el catálogo (ss_descanso_tipo).</summary>
         public string Tipo { get; set; } = string.Empty;
         public DateOnly FechaInicio { get; set; }
         public DateOnly FechaFin { get; set; }
         public int? Dias { get; set; }
-        public string? Motivo { get; set; }
         public string? Diagnostico { get; set; }
         public string? Estado { get; set; }
         public string? MotivoRechazo { get; set; }
@@ -59,7 +57,8 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos
         public DateOnly FechaInicio { get; set; }
         public DateOnly FechaFin { get; set; }
         public int? Dias { get; set; }
-        public int? MotivoId { get; set; }
+        /// <summary>Tipo del catálogo; solo se aceptan los marcados como disponibles en Mi Salud.</summary>
+        public int TipoId { get; set; }
         public string? Diagnostico { get; set; }
         public List<IFormFile>? Documentos { get; set; }
     }
@@ -78,7 +77,8 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Dtos
         public string? WorkerNombre { get; set; }
         public string? WorkerEmail { get; set; }
         public string? GthEmail { get; set; }
-        public string? MotivoNombre { get; set; }
+        /// <summary>Nombre largo del tipo ("Accidente común"), que es lo que se reporta.</summary>
+        public string? TipoNombre { get; set; }
     }
 
     /// <summary>

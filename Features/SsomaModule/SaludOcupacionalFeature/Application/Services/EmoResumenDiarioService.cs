@@ -35,7 +35,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             var hoy = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(-5).Date);
             result.Fecha = hoy;
 
-            // Query única: todas las programaciones de hoy con sus relaciones
+            // Query única: todas las programaciones de hoy con sus relaciones.
+            // Excluye las dadas de baja (State = false) y las canceladas: el resumen es de
+            // la vigilancia médica del día, y una cancelada no se atendió ni se dejó de
+            // atender — antes se colaba como fila suelta y sumaba al "Total programados".
             var filas = await (
                 from p in ctx.SsProgramacionEmo
                 join w in ctx.Worker on p.WorkerId equals w.Id
@@ -45,7 +48,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 from em in ej.DefaultIfEmpty()
                 join c in ctx.SsClinica on p.ClinicaId equals c.Id into cj
                 from c in cj.DefaultIfEmpty()
-                where p.FechaProgramada == hoy
+                where p.FechaProgramada == hoy && p.State && p.Estado != "Cancelado"
                 select new FilaProgramacion
                 {
                     WorkerNombre = (w.Person != null ? w.Person.FullName : null) ?? "—",

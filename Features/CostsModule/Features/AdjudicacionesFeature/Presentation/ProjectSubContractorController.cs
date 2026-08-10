@@ -214,7 +214,8 @@ namespace Abril_Backend.Features.Adjudicaciones.Presentation
 
         [Authorize]
         [HttpPatch("{id}/info")]
-        public async Task<IActionResult> UpdateInfo(int id, [FromBody] ProjectSubContractorUpdateInfoDTO dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UpdateInfo(int id, [FromForm] ProjectSubContractorUpdateInfoDTO dto)
         {
             try
             {

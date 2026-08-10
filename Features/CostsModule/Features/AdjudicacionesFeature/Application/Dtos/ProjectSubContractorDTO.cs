@@ -2,6 +2,12 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Dtos {
 
     public class ProjectSubContractorFileDto
     {
+        /// <summary>
+        /// Id de la fila del archivo. Solo se llena en los archivos de cotización y cuadro
+        /// comparativo (colecciones editables del paso 1), donde el frontend lo necesita para
+        /// pedir su eliminación. Null en los documentos de paso 3 en adelante, que son 1 a 1.
+        /// </summary>
+        public int? FileId { get; set; }
         public string FileUrl { get; set; } = null!;
         public string? OriginalFileName { get; set; }
         public int? StatusId { get; set; }

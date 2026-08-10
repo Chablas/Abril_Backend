@@ -362,7 +362,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             // Mover la programación activa a "En Interconsulta" para que
             // no aparezca en la agenda normal hasta que la clínica suba el levantamiento.
             var prog = await ctx.SsProgramacionEmo
-                .Where(p => p.WorkerId == dto.WorkerId
+                .Where(p => p.State
+                         && p.WorkerId == dto.WorkerId
                          && p.Estado != "Completado"
                          && p.Estado != "Cancelado"
                          && p.Estado != "Rechazado por Clínica"
@@ -446,8 +447,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 // Se ubica la programación por el vínculo real (EmoResultadoId), no por heurística de
                 // "la más reciente del trabajador" — con varias programaciones abiertas esa heurística
                 // podía tocar la fila equivocada.
+                // Una programación dada de baja (State = false) no se reabre: cuenta como
+                // inexistente y el flujo cae al else de abajo, que crea una nueva.
                 var prog = ent.EmoId.HasValue
-                    ? await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.EmoResultadoId == ent.EmoId.Value)
+                    ? await ctx.SsProgramacionEmo.FirstOrDefaultAsync(p => p.EmoResultadoId == ent.EmoId.Value && p.State)
                     : null;
 
                 // Si el EMO ya tiene una aptitud TERMINAL (se leyó/calificó en algún momento,

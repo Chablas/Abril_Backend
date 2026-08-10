@@ -9,6 +9,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
     public class TopicoService : ITopicoService
     {
+        /// <summary>Tipo (nombre de ss_descanso_tipo) con el que nace el descanso que genera un tópico.</summary>
+        private const string TipoDescansoTopico = "Accidente ocupacional";
+
         private readonly ITopicoRepository _repo;
         private readonly IDescansoMedicoRepository _descansoRepo;
 
@@ -36,7 +39,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 
             var topicoId = await _repo.Create(dto, userId ?? 0);
 
-            // Si genera descanso, crear automáticamente un descanso de tipo Ocupacional ya aprobado
+            // Si genera descanso, crear automáticamente un descanso ocupacional (la atención de
+            // tópico es un evento en obra). SSOMA puede recategorizarlo después desde Descansos.
             if (dto.GeneraDescanso && dto.DescansoDias.HasValue && dto.DescansoDias.Value > 0)
             {
                 var fechaInicio = dto.Fecha;
@@ -45,7 +49,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                 var descansoId = await _descansoRepo.Create(new DescansoMedicoCreateDto
                 {
                     WorkerId        = dto.WorkerId,
-                    Tipo            = "Ocupacional",
+                    TipoId          = await _descansoRepo.GetTipoIdPorNombre(TipoDescansoTopico),
                     FechaInicio     = fechaInicio,
                     FechaFin        = fechaFin,
                     Diagnostico     = dto.Diagnostico,
@@ -53,8 +57,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     TopicoOrigenId  = topicoId,
                     ProyectoId      = dto.ProyectoId,
                     EmpresaId       = dto.EmpresaId,
-                    Observaciones   = "Generado automáticamente desde tópico médico.",
-                }, userId ?? 0);
+                }, userId ?? 0, []);
 
                 // Vincular el descanso al tópico
                 await _repo.SetDescansoGenerado(topicoId, descansoId);

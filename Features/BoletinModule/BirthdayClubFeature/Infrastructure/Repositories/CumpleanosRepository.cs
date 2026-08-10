@@ -31,6 +31,9 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
                 where w.EmailCorporativo != null
                       && w.EmailCorporativo.ToLower().EndsWith("@abril.pe")
                       && p.FechaNacimiento != null
+                      // Checkbox "Mostrar en el boletín" del formulario de trabajadores: quien lo
+                      // desmarca conserva su fecha de nacimiento pero no figura en el calendario.
+                      && p.MostrarEnBoletin
                 select new
                 {
                     w.Id,

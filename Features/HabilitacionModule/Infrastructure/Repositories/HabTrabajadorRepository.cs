@@ -1600,6 +1600,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             EmailCorporativo = w.EmailCorporativo,
             EmailPersonal = w.Person?.Email,
             FechaNacimiento = w.Person?.FechaNacimiento,
+            MostrarEnBoletin = w.Person?.MostrarEnBoletin ?? true,
             Sexo = w.Person?.Sexo != null ? w.Person.Sexo.Codigo : null,
             FechaIngreso = w.FechaIngreso,
             FechaRetiro = w.FechaRetiro,

@@ -83,7 +83,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .CountAsync(i => i.Estado == "Pendiente" && workerIdsAbril.Contains(i.WorkerId));
 
             var programacionesSemana = await ctx.SsProgramacionEmo
-                .CountAsync(p => p.FechaProgramada >= hoy && p.FechaProgramada <= hoy7
+                .CountAsync(p => p.State
+                              && p.FechaProgramada >= hoy && p.FechaProgramada <= hoy7
                               && p.Estado != "Cancelado");
 
             var trabajadoresInhabilitados = await ctx.Worker

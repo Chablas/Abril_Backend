@@ -135,7 +135,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     x.d.FechaInicio,
                     x.d.FechaFin,
                     x.d.Dias,
-                    Motivo = ctx.SsDescansoMotivo.Where(mm => mm.Id == x.d.MotivoId).Select(mm => mm.Nombre).FirstOrDefault() ?? x.d.Motivo,
+                    Tipo = ctx.SsDescansoTipo.Where(t => t.Id == x.d.TipoId).Select(t => t.Nombre).FirstOrDefault(),
                     x.d.Estado,
                     AdjuntosCount = ctx.SsDescansoMedicoAdjunto.Count(a => a.DescansoId == x.d.Id && a.State),
                     x.d.UrlCertificado,
@@ -153,7 +153,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 FechaInicio  = r.FechaInicio,
                 FechaFin     = r.FechaFin,
                 Dias         = r.Dias,
-                Motivo       = r.Motivo,
+                Tipo         = r.Tipo ?? string.Empty,
                 Estado       = r.Estado,
                 // Descansos antiguos guardaban un único archivo en url_certificado, sin filas en la tabla de adjuntos.
                 AdjuntosCount = r.AdjuntosCount > 0 ? r.AdjuntosCount : (string.IsNullOrWhiteSpace(r.UrlCertificado) ? 0 : 1),
@@ -186,8 +186,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from ai in aij.DefaultIfEmpty()
                 join em in ctx.Contributor on d.EmpresaId equals (int?)em.ContributorId into emj
                 from em in emj.DefaultIfEmpty()
-                join m in ctx.SsDescansoMotivo on d.MotivoId equals (int?)m.Id into mj
-                from m in mj.DefaultIfEmpty()
+                join t in ctx.SsDescansoTipo on d.TipoId equals t.Id
                 select new
                 {
                     d,
@@ -195,7 +194,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerDni     = p != null ? p.DocumentIdentityCode : null,
                     AreaNombre    = ai != null ? ai.AreaItemName : null,
                     EmpresaNombre = em != null ? em.ContributorName : null,
-                    MotivoNombre  = m != null ? m.Nombre : null,
+                    TipoNombre    = t.Nombre,
                 }
             ).FirstOrDefaultAsync()
               ?? throw new AbrilException("Solicitud de descanso médico no encontrada.", 404);
@@ -232,11 +231,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 WorkerDni         = row.WorkerDni,
                 AreaNombre        = row.AreaNombre,
                 EmpresaNombre     = row.EmpresaNombre,
-                Tipo              = row.d.Tipo,
+                Tipo              = row.TipoNombre,
                 FechaInicio       = row.d.FechaInicio,
                 FechaFin          = row.d.FechaFin,
                 Dias              = row.d.Dias,
-                Motivo            = row.MotivoNombre ?? row.d.Motivo,
                 Diagnostico       = row.d.Diagnostico,
                 Estado            = row.d.Estado,
                 MotivoRechazo     = row.d.MotivoRechazo,

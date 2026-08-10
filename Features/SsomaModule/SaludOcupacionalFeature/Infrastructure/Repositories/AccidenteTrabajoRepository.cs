@@ -134,7 +134,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 {
                     Id = d.Id,
                     WorkerId = d.WorkerId,
-                    Tipo = d.Tipo,
+                    TipoId = d.TipoId,
+                    Tipo = d.TipoCatalogo != null ? d.TipoCatalogo.Nombre : string.Empty,
                     FechaInicio = d.FechaInicio,
                     FechaFin = d.FechaFin,
                     Dias = d.Dias,

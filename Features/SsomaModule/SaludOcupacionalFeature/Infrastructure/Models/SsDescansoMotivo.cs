@@ -3,6 +3,12 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
 {
+    /// <summary>
+    /// LEGACY. El "motivo" del descanso desapareció: ahora el único clasificador es
+    /// ss_descanso_tipo (ver <see cref="SsDescansoTipo"/> y
+    /// Migrations_Manual/ss_descanso_tipo_unificado.sql). La tabla y esta entidad se conservan
+    /// solo para poder consultar el histórico; ningún flujo la escribe ni la lee.
+    /// </summary>
     [Table("ss_descanso_motivo")]
     public class SsDescansoMotivo
     {

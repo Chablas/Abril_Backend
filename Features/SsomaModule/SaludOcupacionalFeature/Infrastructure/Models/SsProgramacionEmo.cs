@@ -67,6 +67,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("notificado")]
         public bool Notificado { get; set; }
 
+        // Soft delete, igual que el resto de tablas SSOMA. Distinto de Estado: Estado es el
+        // flujo (Programado → Aceptado por Clínica → ...), State es si la fila sigue vigente.
+        // Una programación mal creada se da de baja con State = false y deja de listarse,
+        // pero se conserva por auditoría.
+        [Column("state")]
+        public bool State { get; set; } = true;
+
         [ForeignKey(nameof(WorkerId))]
         public Worker? Worker { get; set; }
 

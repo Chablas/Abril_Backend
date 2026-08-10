@@ -5,6 +5,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMed
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure;
+using Abril_Backend.Features.SsomaModule.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,6 +23,39 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             _reactivosCacheVersion = reactivosCacheVersion;
         }
 
+        /// <summary>
+        /// Catálogo ss_descanso_tipo. <paramref name="soloMiSalud"/> = true devuelve únicamente los
+        /// tipos que el trabajador puede elegir desde Mi Salud (los "común").
+        /// </summary>
+        public async Task<List<DescansoTipoDto>> GetTipos(bool soloMiSalud = false)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SsDescansoTipo
+                .Where(t => t.State && t.Active && (!soloMiSalud || t.DisponibleMiSalud))
+                .OrderBy(t => t.Orden).ThenBy(t => t.Nombre)
+                .Select(t => new DescansoTipoDto
+                {
+                    Id          = t.Id,
+                    Nombre      = t.Nombre,
+                    NombreCorto = t.NombreCorto ?? t.Nombre,
+                })
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Resuelve el id de un tipo por su nombre de catálogo. Para los descansos que crea el
+        /// sistema (p. ej. los que genera el Tópico Médico), que no pasan por un desplegable.
+        /// </summary>
+        public async Task<int> GetTipoIdPorNombre(string nombre)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var id = await ctx.SsDescansoTipo
+                .Where(t => t.State && t.Nombre == nombre)
+                .Select(t => (int?)t.Id)
+                .FirstOrDefaultAsync();
+            return id ?? throw new AbrilException($"No se encontró el tipo de descanso '{nombre}' en el catálogo.", 500);
+        }
+
         public async Task<PagedResult<DescansoMedicoListItemDto>> ListPaged(DescansoMedicoFilterDto filter)
         {
             using var ctx = _factory.CreateDbContext();
@@ -30,16 +64,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from d in ctx.SsDescansoMedico
                 where d.State
                 join w in ctx.Worker on d.WorkerId equals w.Id
+                join t in ctx.SsDescansoTipo on d.TipoId equals t.Id
                 join em in ctx.Contributor on d.EmpresaId equals em.ContributorId into emj
                 from em in emj.DefaultIfEmpty()
-                select new { d, w, em };
+                select new { d, w, t, em };
 
             if (filter.WorkerId.HasValue)
                 q = q.Where(x => x.d.WorkerId == filter.WorkerId.Value);
             if (!string.IsNullOrWhiteSpace(filter.Estado))
                 q = q.Where(x => x.d.Estado == filter.Estado);
-            if (!string.IsNullOrWhiteSpace(filter.Tipo))
-                q = q.Where(x => x.d.Tipo == filter.Tipo);
+            if (filter.TipoId.HasValue)
+                q = q.Where(x => x.d.TipoId == filter.TipoId.Value);
             if (filter.EmpresaId.HasValue)
                 q = q.Where(x => x.d.EmpresaId == filter.EmpresaId.Value);
             if (filter.FechaDesde.HasValue)
@@ -62,7 +97,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerNombre = x.w.Person != null ? x.w.Person.FullName : null,
                     WorkerDni = x.w.Person != null ? x.w.Person.DocumentIdentityCode : null,
                     EmpresaNombre = x.em != null ? x.em.ContributorName : null,
-                    Tipo = x.d.Tipo,
+                    TipoId = x.d.TipoId,
+                    Tipo = x.t.Nombre,
                     FechaInicio = x.d.FechaInicio,
                     FechaFin = x.d.FechaFin,
                     Dias = x.d.Dias,
@@ -92,11 +128,18 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from d in ctx.SsDescansoMedico
                 where d.Id == id && d.State
                 join w in ctx.Worker on d.WorkerId equals w.Id
+                join t in ctx.SsDescansoTipo on d.TipoId equals t.Id
                 join em in ctx.Contributor on d.EmpresaId equals em.ContributorId into emj
                 from em in emj.DefaultIfEmpty()
-                select new { d, w, em }
+                select new { d, w, t, em }
             ).FirstOrDefaultAsync()
               ?? throw new AbrilException("Descanso médico no encontrado.", 404);
+
+            var adjuntos = await ctx.SsDescansoMedicoAdjunto
+                .Where(a => a.State && a.DescansoId == id)
+                .OrderBy(a => a.Id)
+                .Select(a => new DescansoAdjuntoDto { Url = a.Url, Nombre = a.NombreArchivo })
+                .ToListAsync();
 
             return new DescansoMedicoDetalleDto
             {
@@ -107,16 +150,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ProyectoId = row.d.ProyectoId,
                 EmpresaId = row.d.EmpresaId,
                 EmpresaNombre = row.em != null ? row.em.ContributorName : null,
-                Tipo = row.d.Tipo,
+                TipoId = row.d.TipoId,
+                Tipo = row.t.Nombre,
                 FechaInicio = row.d.FechaInicio,
                 FechaFin = row.d.FechaFin,
                 Dias = row.d.Dias,
-                Motivo = row.d.Motivo,
                 Diagnostico = row.d.Diagnostico,
                 DiagnosticoCie10 = row.d.DiagnosticoCie10,
-                MedicoCertifica = row.d.MedicoCertifica,
-                Establecimiento = row.d.Establecimiento,
                 UrlCertificado = row.d.UrlCertificado,
+                Adjuntos = adjuntos,
                 UrlDocumento = row.d.UrlDocumento,
                 Estado = row.d.Estado,
                 MotivoRechazo = row.d.MotivoRechazo,
@@ -139,34 +181,40 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
         }
 
-        public async Task<int> Create(DescansoMedicoCreateDto dto, int registradoPorId, string? urlCertificado = null)
+        /// <param name="adjuntos">Certificados médicos ya subidos al storage (url + nombre original).</param>
+        public async Task<int> Create(DescansoMedicoCreateDto dto, int registradoPorId, List<(string Url, string Nombre)> adjuntos)
         {
             using var ctx = _factory.CreateDbContext();
+
+            // El tipo tiene que existir en el catálogo: es el único clasificador del descanso.
+            var tipoValido = await ctx.SsDescansoTipo.AnyAsync(t => t.Id == dto.TipoId && t.State && t.Active);
+            if (!tipoValido)
+                throw new AbrilException("El tipo de descanso seleccionado no es válido.", 400);
 
             var dias = dto.FechaFin.DayNumber - dto.FechaInicio.DayNumber + 1;
 
             var entity = new SsDescansoMedico
             {
                 WorkerId = dto.WorkerId,
-                Tipo = dto.Tipo,
+                TipoId = dto.TipoId,
                 FechaInicio = dto.FechaInicio,
                 FechaFin = dto.FechaFin,
                 Dias = dias,
-                Motivo = dto.Motivo,
                 Diagnostico = dto.Diagnostico,
                 DiagnosticoCie10 = dto.DiagnosticoCie10,
-                MedicoCertifica = dto.MedicoCertifica,
-                Establecimiento = dto.Establecimiento,
-                UrlCertificado = dto.UrlCertificado ?? urlCertificado,
+                // El primer adjunto también va a url_certificado para no romper las vistas
+                // antiguas que muestran un único certificado.
+                UrlCertificado = adjuntos.Count > 0 ? adjuntos[0].Url : null,
                 Estado = "Pendiente",
-                ReportadoPorTrabajador = dto.ReportadoPorTrabajador,
+                // Registrado por SSOMA, no autorreportado: Revisión de Descansos solo revisa
+                // los que reporta el propio trabajador desde Mi Salud.
+                ReportadoPorTrabajador = false,
                 AccidenteId = dto.AccidenteId,
                 EsRecaida = dto.EsRecaida,
                 TopicoOrigenId = dto.TopicoOrigenId,
                 ProrrogaDelId = dto.ProrrogaDelId,
                 ProyectoId = dto.ProyectoId,
                 EmpresaId = dto.EmpresaId,
-                Observaciones = dto.Observaciones,
                 RegistradoPorId = registradoPorId,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,
@@ -174,6 +222,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
 
             ctx.SsDescansoMedico.Add(entity);
+
+            foreach (var (url, nombre) in adjuntos)
+            {
+                ctx.SsDescansoMedicoAdjunto.Add(new SsDescansoMedicoAdjunto
+                {
+                    Descanso      = entity,
+                    Url           = url,
+                    NombreArchivo = nombre,
+                    State         = true,
+                    CreatedAt     = DateTimeOffset.UtcNow,
+                    UpdatedAt     = DateTimeOffset.UtcNow,
+                });
+            }
+
             await ctx.SaveChangesAsync();
             return entity.Id;
         }
@@ -188,15 +250,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (entity.Estado != "Pendiente")
                 throw new AbrilException("Solo se puede editar un descanso en estado Pendiente.", 400);
 
+            var tipoValido = await ctx.SsDescansoTipo.AnyAsync(t => t.Id == dto.TipoId && t.State && t.Active);
+            if (!tipoValido)
+                throw new AbrilException("El tipo de descanso seleccionado no es válido.", 400);
+
+            entity.TipoId = dto.TipoId;
             entity.FechaInicio = dto.FechaInicio;
             entity.FechaFin = dto.FechaFin;
             entity.Dias = dto.FechaFin.DayNumber - dto.FechaInicio.DayNumber + 1;
-            entity.Motivo = dto.Motivo;
             entity.Diagnostico = dto.Diagnostico;
             entity.DiagnosticoCie10 = dto.DiagnosticoCie10;
-            entity.MedicoCertifica = dto.MedicoCertifica;
-            entity.Establecimiento = dto.Establecimiento;
-            entity.Observaciones = dto.Observaciones;
             entity.UpdatedAt = DateTimeOffset.UtcNow;
 
             await ctx.SaveChangesAsync();

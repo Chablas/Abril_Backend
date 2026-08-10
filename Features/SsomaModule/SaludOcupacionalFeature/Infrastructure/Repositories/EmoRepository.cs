@@ -344,7 +344,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from c in cj.DefaultIfEmpty()
                 join m in ctx.SsMedicoOcupacional on p.MedicoId equals m.Id into mj
                 from m in mj.DefaultIfEmpty()
-                where p.EmoResultadoId == id
+                where p.EmoResultadoId == id && p.State
                 orderby p.FechaProgramada descending
                 select new EmoProgramacionDetalleDto
                 {
@@ -661,7 +661,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             await SincronizarEntregableEmoAsync(ctx, emo, worker);
 
             var progActiva = await ctx.SsProgramacionEmo
-                .Where(p => p.WorkerId == emo.WorkerId
+                .Where(p => p.State
+                         && p.WorkerId == emo.WorkerId
                          && p.Estado == "En Atención")
                 .OrderByDescending(p => p.FechaProgramada)
                 .FirstOrDefaultAsync();

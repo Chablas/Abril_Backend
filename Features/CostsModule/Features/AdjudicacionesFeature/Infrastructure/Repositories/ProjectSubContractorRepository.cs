@@ -60,6 +60,50 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             return subContractor.ProjectSubContractorId;
         }
 
+        /// <summary>
+        /// Misma resolución de carpeta 04_OBRAS y especialidad que <see cref="GetPathDataAsync"/>,
+        /// pero a partir de los datos del alta (la adjudicación aún no existe), en un solo round-trip.
+        /// </summary>
+        public async Task<AdjudicacionPathDataDto> GetCreatePathDataAsync(int projectId, int? workSpecialtyId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await (
+                from p in ctx.Project
+                join pafObras in ctx.ProjectAdjudicacionFolder.Where(f =>
+                        f.Active && f.State && f.FolderTypeId == AdjudicacionFolderTypes.Obras)
+                    on p.ProjectId equals pafObras.ProjectId into pafObrasG
+                from obrasFolder in pafObrasG.DefaultIfEmpty()
+                from ws in ctx.WorkSpecialty
+                    .Where(w => w.WorkSpecialtyId == workSpecialtyId).DefaultIfEmpty()
+                where p.ProjectId == projectId
+                select new AdjudicacionPathDataDto
+                {
+                    ProjectId          = p.ProjectId,
+                    ProjectDescription = p.ProjectDescription,
+                    ObrasDriveId       = obrasFolder != null ? obrasFolder.DriveId : null,
+                    ObrasFolderId      = obrasFolder != null ? obrasFolder.FolderId : null,
+                    WorkSpecialtyDescription = ws != null ? ws.WorkSpecialtyDescription : null,
+                }
+            ).FirstOrDefaultAsync()
+                ?? throw new AbrilException("El proyecto seleccionado no existe.");
+        }
+
+        public async Task SoftDeleteAsync(int projectSubContractorId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var psc = await ctx.ProjectSubContractor
+                .FirstOrDefaultAsync(x => x.ProjectSubContractorId == projectSubContractorId && x.State);
+            if (psc is null) return;
+
+            psc.State = false;
+            psc.UpdatedDateTime = DateTimeOffset.UtcNow;
+            psc.UpdatedUserId = userId;
+
+            await ctx.SaveChangesAsync();
+        }
+
         public async Task UpdateInfo(int projectSubContractorId, ProjectSubContractorUpdateInfoDTO dto, int userId)
         {
             using var ctx = _factory.CreateDbContext();
@@ -92,6 +136,54 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             psc.ContractWorkItemName = string.IsNullOrWhiteSpace(dto.ContractWorkItemName) ? null : dto.ContractWorkItemName.Trim();
             psc.UpdatedDateTime     = DateTimeOffset.UtcNow;
             psc.UpdatedUserId       = userId;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Soft delete de cotizaciones / cuadros comparativos del paso 1. Los ids se filtran además
+        /// por la adjudicación, para que no se pueda quitar un archivo de otra pasando su id.
+        /// </summary>
+        public async Task RemoveInitialFilesAsync(
+            int projectSubContractorId,
+            List<int>? quotationFileIds,
+            List<int>? comparativeFileIds,
+            int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var now = DateTimeOffset.UtcNow;
+
+            if (quotationFileIds is { Count: > 0 })
+            {
+                var rows = await ctx.ProjectSubContractorQuotationFile
+                    .Where(f => f.ProjectSubContractorId == projectSubContractorId
+                             && quotationFileIds.Contains(f.ProjectSubContractorQuotationFileId)
+                             && f.State)
+                    .ToListAsync();
+
+                foreach (var row in rows)
+                {
+                    row.State = false;
+                    row.UpdatedDateTime = now;
+                    row.UpdatedUserId = userId;
+                }
+            }
+
+            if (comparativeFileIds is { Count: > 0 })
+            {
+                var rows = await ctx.ProjectSubContractorComparativeFile
+                    .Where(f => f.ProjectSubContractorId == projectSubContractorId
+                             && comparativeFileIds.Contains(f.ProjectSubContractorComparativeFileId)
+                             && f.State)
+                    .ToListAsync();
+
+                foreach (var row in rows)
+                {
+                    row.State = false;
+                    row.UpdatedDateTime = now;
+                    row.UpdatedUserId = userId;
+                }
+            }
 
             await ctx.SaveChangesAsync();
         }
@@ -666,18 +758,19 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
 
             var quotationFiles = await ctx.ProjectSubContractorQuotationFile
                 .Where(f => ids.Contains(f.ProjectSubContractorId) && f.State)
-                .Select(f => new { f.ProjectSubContractorId, f.FileUrl, f.OriginalFileName })
+                .Select(f => new { f.ProjectSubContractorQuotationFileId, f.ProjectSubContractorId, f.FileUrl, f.OriginalFileName })
                 .ToListAsync();
 
             var comparativeFiles = await ctx.ProjectSubContractorComparativeFile
                 .Where(f => ids.Contains(f.ProjectSubContractorId) && f.State)
-                .Select(f => new { f.ProjectSubContractorId, f.FileUrl, f.OriginalFileName })
+                .Select(f => new { f.ProjectSubContractorComparativeFileId, f.ProjectSubContractorId, f.FileUrl, f.OriginalFileName })
                 .ToListAsync();
 
             var quotationByPsc = quotationFiles
                 .GroupBy(f => f.ProjectSubContractorId)
                 .ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto
                 {
+                    FileId = f.ProjectSubContractorQuotationFileId,
                     FileUrl = f.FileUrl,
                     OriginalFileName = f.OriginalFileName
                 }).ToList());
@@ -686,6 +779,7 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
                 .GroupBy(f => f.ProjectSubContractorId)
                 .ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto
                 {
+                    FileId = f.ProjectSubContractorComparativeFileId,
                     FileUrl = f.FileUrl,
                     OriginalFileName = f.OriginalFileName
                 }).ToList());
@@ -1271,12 +1365,14 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Infrastructure.Repositorie
             string cCEActive = ctx.Col<ContractorEmail>(nameof(ContractorEmail.Active));
 
             string tQuotFile = ctx.Table<ProjectSubContractorQuotationFile>();
+            string cQFId = ctx.Col<ProjectSubContractorQuotationFile>(nameof(ProjectSubContractorQuotationFile.ProjectSubContractorQuotationFileId));
             string cQFPscId = ctx.Col<ProjectSubContractorQuotationFile>(nameof(ProjectSubContractorQuotationFile.ProjectSubContractorId));
             string cQFFileUrl = ctx.Col<ProjectSubContractorQuotationFile>(nameof(ProjectSubContractorQuotationFile.FileUrl));
             string cQFFileName = ctx.Col<ProjectSubContractorQuotationFile>(nameof(ProjectSubContractorQuotationFile.OriginalFileName));
             string cQFState = ctx.Col<ProjectSubContractorQuotationFile>(nameof(ProjectSubContractorQuotationFile.State));
 
             string tCompFile = ctx.Table<ProjectSubContractorComparativeFile>();
+            string cCFId = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.ProjectSubContractorComparativeFileId));
             string cCFPscId = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.ProjectSubContractorId));
             string cCFFileUrl = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.FileUrl));
             string cCFFileName = ctx.Col<ProjectSubContractorComparativeFile>(nameof(ProjectSubContractorComparativeFile.OriginalFileName));
@@ -1537,8 +1633,8 @@ ORDER BY contrib.{cContributorName};
 
 -- 12-14. Supporting data
 SELECT {cCEContractorId} AS ""ContractorId"", {cCEEmail} AS ""Email"" FROM {tContractorEmail} WHERE {cCEActive} = TRUE;
-SELECT {cQFPscId} AS ""ProjectSubContractorId"", {cQFFileUrl} AS ""FileUrl"", {cQFFileName} AS ""OriginalFileName"" FROM {tQuotFile} WHERE {cQFState} = TRUE;
-SELECT {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {cCFFileName} AS ""OriginalFileName"" FROM {tCompFile} WHERE {cCFState} = TRUE;
+SELECT {cQFId} AS ""FileId"", {cQFPscId} AS ""ProjectSubContractorId"", {cQFFileUrl} AS ""FileUrl"", {cQFFileName} AS ""OriginalFileName"" FROM {tQuotFile} WHERE {cQFState} = TRUE;
+SELECT {cCFId} AS ""FileId"", {cCFPscId} AS ""ProjectSubContractorId"", {cCFFileUrl} AS ""FileUrl"", {cCFFileName} AS ""OriginalFileName"" FROM {tCompFile} WHERE {cCFState} = TRUE;
 SELECT {cSDPscId} AS ""ProjectSubContractorId"", {cSDSlot} AS ""Slot"", {cSDFileUrl} AS ""FileUrl"", {cSDFileName} AS ""OriginalFileName"" FROM {tScannedFile} WHERE {cSDState} = TRUE;
 SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} AS concept, {cWorkItemValFormPercentage} AS percentage, {cWorkItemValFormSortOrder} AS sort_order FROM {tWorkItemValForm} WHERE {cWorkItemValFormState} = TRUE ORDER BY {cWorkItemValFormWorkItemId}, {cWorkItemValFormSortOrder};
             ";
@@ -1571,14 +1667,14 @@ SELECT {cWorkItemValFormWorkItemId} AS work_item_id, {cWorkItemValFormConcept} A
             var valorizationForms = (await multi.ReadAsync<WorkItemValorizationFormSimpleDTO>()).ToList();
 
             var emails = emailsRaw.Select(e => new { ContractorId = (int)e.ContractorId, Email = (string)e.Email }).ToList();
-            var quotationFiles = quotationFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
-            var comparativeFiles = comparativeFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
+            var quotationFiles = quotationFilesRaw.Select(f => new { FileId = (int)f.FileId, ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
+            var comparativeFiles = comparativeFilesRaw.Select(f => new { FileId = (int)f.FileId, ProjectSubContractorId = (int)f.ProjectSubContractorId, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
             var scannedFiles = scannedFilesRaw.Select(f => new { ProjectSubContractorId = (int)f.ProjectSubContractorId, Slot = (int)f.Slot, FileUrl = (string)f.FileUrl, OriginalFileName = (string)f.OriginalFileName }).ToList();
 
             // Build dictionaries for supporting data
             var emailsByContractor = emails.GroupBy(e => e.ContractorId).ToDictionary(g => g.Key, g => g.Select(e => e.Email).ToList());
-            var quotationByPsc = quotationFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
-            var comparativeByPsc = comparativeFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
+            var quotationByPsc = quotationFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileId = f.FileId, FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
+            var comparativeByPsc = comparativeFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.Select(f => new ProjectSubContractorFileDto { FileId = f.FileId, FileUrl = f.FileUrl, OriginalFileName = f.OriginalFileName }).ToList());
             // Escaneados agrupados por adjudicación y luego por slot (1/2/3).
             var scannedByPsc = scannedFiles.GroupBy(f => f.ProjectSubContractorId).ToDictionary(g => g.Key, g => g.ToDictionary(f => f.Slot));
             var formsByWorkItem = valorizationForms.GroupBy(f => f.WorkItemId).ToDictionary(g => g.Key, g => g.OrderBy(f => f.SortOrder).ToList());

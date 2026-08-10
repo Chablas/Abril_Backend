@@ -32,6 +32,31 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             return int.TryParse(val, out var id) ? id : (int?)null;
         }
 
+        /// <summary>
+        /// Carga inicial de la pantalla: catálogo de tipos (filtro + formulario) y primera página
+        /// de la tabla en una sola petición. Al filtrar/paginar se usa GET descansos, que solo
+        /// devuelve la tabla.
+        /// </summary>
+        [HttpGet("descansos/inicio")]
+        public async Task<IActionResult> GetInicio([FromQuery] DescansoMedicoFilterDto filter)
+        {
+            try { return Ok(await _service.GetInicio(filter)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>
+        /// Catálogo de tipos suelto. Lo usa el formulario cuando se abre desde otra pantalla
+        /// (p. ej. el detalle de un accidente) que no trae el catálogo en su carga inicial.
+        /// </summary>
+        [HttpGet("descansos/tipos")]
+        public async Task<IActionResult> GetTipos()
+        {
+            try { return Ok(await _service.GetTipos()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("descansos")]
         public async Task<IActionResult> GetList([FromQuery] DescansoMedicoFilterDto filter)
         {
@@ -50,18 +75,25 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
 
         [HttpPost("descansos")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> Create([FromForm] DescansoMedicoCreateDto dto, IFormFile? archivoCertificado)
+        public async Task<IActionResult> Create([FromForm] DescansoMedicoCreateDto dto)
         {
             try
             {
-                if (archivoCertificado is { Length: > 0 })
+                // Mismo manejo de n certificados que Mi Salud: se suben todos y cada uno
+                // queda como fila en ss_descanso_medico_adjunto.
+                var adjuntos = new List<(string Url, string Nombre)>();
+                var archivos = (dto.Documentos ?? []).Where(f => f.Length > 0).ToList();
+                if (archivos.Count > 0)
                 {
                     var urls = await _storage.UploadFilesAsync(
-                        [(archivoCertificado.OpenReadStream(), archivoCertificado.FileName)],
+                        archivos.Select(f => (f.OpenReadStream(), f.FileName)).ToList(),
                         "ssoma-descansos");
-                    dto.UrlCertificado = urls.FirstOrDefault();
+                    adjuntos = urls
+                        .Select((url, i) => (Url: url, Nombre: archivos[i].FileName))
+                        .ToList();
                 }
-                var id = await _service.Create(dto, CurrentUserId());
+
+                var id = await _service.Create(dto, CurrentUserId(), adjuntos);
                 return Ok(new { id, message = "Descanso médico registrado exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

@@ -36,6 +36,13 @@ namespace Abril_Backend.Features.Costs.Adjudicaciones.Application.Interfaces
             string contentType,
             bool autoRenameOnLock = false);
 
+        /// <summary>
+        /// Valida que la ruta de 04_OBRAS se pueda resolver (carpeta configurada + especialidad
+        /// asignada) sin tocar OneDrive ni requerir que la adjudicación exista. Lanza la misma
+        /// AbrilException que lanzaría <c>UploadAsync</c>, para poder fallar antes del INSERT.
+        /// </summary>
+        void ValidateUploadPath(AdjudicacionPathDataDto pathData);
+
         /// <summary>Descarga un documento de la adjudicación a partir de su webUrl de OneDrive.</summary>
         Task<byte[]> DownloadByWebUrlAsync(string webUrl);
 

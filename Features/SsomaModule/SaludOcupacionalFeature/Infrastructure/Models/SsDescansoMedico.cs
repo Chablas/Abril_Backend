@@ -14,8 +14,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("worker_id")]
         public int WorkerId { get; set; }
 
-        [Column("tipo")]
-        public string Tipo { get; set; } = string.Empty;
+        // Nota: las columnas legacy `tipo` (texto), `motivo` (texto) y `motivo_id` siguen en la
+        // tabla con su valor histórico para auditoría, pero ya no se mapean: el único
+        // clasificador es TipoId → ss_descanso_tipo (ver Migrations_Manual/ss_descanso_tipo_unificado.sql).
 
         [Column("fecha_inicio")]
         public DateOnly FechaInicio { get; set; }
@@ -28,12 +29,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
 
         [Column("diagnostico_cie10")]
         public string? DiagnosticoCie10 { get; set; }
-
-        [Column("medico_certifica")]
-        public string? MedicoCertifica { get; set; }
-
-        [Column("establecimiento")]
-        public string? Establecimiento { get; set; }
 
         [Column("url_certificado")]
         public string? UrlCertificado { get; set; }
@@ -77,14 +72,9 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
         [Column("dias")]
         public int Dias { get; set; }
 
-        [Column("motivo")]
-        public string? Motivo { get; set; }
-
-        [Column("motivo_id")]
-        public int? MotivoId { get; set; }
-
+        /// <summary>Único clasificador del descanso (ss_descanso_tipo). Obligatorio.</summary>
         [Column("tipo_id")]
-        public int? TipoId { get; set; }
+        public int TipoId { get; set; }
 
         [Column("url_documento")]
         public string? UrlDocumento { get; set; }
@@ -118,9 +108,6 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models
 
         [ForeignKey(nameof(WorkerId))]
         public Worker? Worker { get; set; }
-
-        [ForeignKey(nameof(MotivoId))]
-        public SsDescansoMotivo? MotivoCatalogo { get; set; }
 
         [ForeignKey(nameof(TipoId))]
         public SsDescansoTipo? TipoCatalogo { get; set; }

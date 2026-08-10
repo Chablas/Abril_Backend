@@ -108,7 +108,7 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
         /// </summary>
         private async Task SendNotificacionDescansoAsync(int workerId, int userId, CrearMiDescansoDto dto)
         {
-            var datos  = await _repo.GetDatosNotificacionDescansoAsync(workerId, userId, dto.MotivoId);
+            var datos  = await _repo.GetDatosNotificacionDescansoAsync(workerId, userId, dto.TipoId);
             var config = await _repo.GetCorreoConfigMapAsync();
 
             // Un destinatario está activo salvo que exista una fila explícita con active=false.
@@ -163,7 +163,7 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Application.Services
                   <tr><td style="padding:4px 12px;font-weight:bold;">Fecha de inicio</td><td>{dto.FechaInicio:dd/MM/yyyy}</td></tr>
                   <tr><td style="padding:4px 12px;font-weight:bold;">Fecha de fin</td><td>{dto.FechaFin:dd/MM/yyyy}</td></tr>
                   <tr><td style="padding:4px 12px;font-weight:bold;">Días</td><td>{dias}</td></tr>
-                  <tr><td style="padding:4px 12px;font-weight:bold;">Motivo</td><td>{datos.MotivoNombre ?? "—"}</td></tr>
+                  <tr><td style="padding:4px 12px;font-weight:bold;">Tipo</td><td>{datos.TipoNombre ?? "—"}</td></tr>
                   {(string.IsNullOrWhiteSpace(dto.Diagnostico) ? "" : $"<tr><td style='padding:4px 12px;font-weight:bold;'>Diagnóstico</td><td>{dto.Diagnostico}</td></tr>")}
                   <tr><td style="padding:4px 12px;font-weight:bold;">Estado</td><td>Pendiente de aprobación</td></tr>
                 </table>

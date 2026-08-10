@@ -2,8 +2,11 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.Habilitacion.Application.Interfaces;
+using Abril_Backend.Shared.Services;
 using Abril_Backend.Shared.Services.Sunat.Dtos;
 using Abril_Backend.Shared.Services.Sunat.Interfaces;
+using Microsoft.AspNetCore.Hosting;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
 {
@@ -11,11 +14,32 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     {
         private readonly ICatalogosRepository _repo;
         private readonly ISunatService _sunat;
+        private readonly ISharePointHabService _sharePoint;
+        private readonly string[] _logoPaths;
 
-        public CatalogosService(ICatalogosRepository repo, ISunatService sunat)
+        public CatalogosService(
+            ICatalogosRepository repo, ISunatService sunat, ISharePointHabService sharePoint, IWebHostEnvironment env)
         {
             _repo = repo;
             _sunat = sunat;
+            _sharePoint = sharePoint;
+            _logoPaths = new[]
+            {
+                Path.Combine(env.WebRootPath, "images", "abril-logo.png"),
+                Path.Combine(env.WebRootPath, "images", "logo-abril.jpg"),
+                Path.Combine(env.ContentRootPath, "Templates", "logo-abril.jpg"),
+            };
+        }
+
+        /// <summary>Solo el propio médico (email de su sesión == email registrado) puede tocar
+        /// su firma/PIN — mismo control en las tres operaciones de este flujo.</summary>
+        private async Task AsegurarEsElPropioMedicoAsync(int medicoId, string? callerEmail, string medicoEmail)
+        {
+            if (string.IsNullOrWhiteSpace(medicoEmail)
+                || string.IsNullOrWhiteSpace(callerEmail)
+                || !string.Equals(medicoEmail.Trim(), callerEmail.Trim(), StringComparison.OrdinalIgnoreCase))
+                throw new AbrilException("Solo el propio médico puede configurar su firma.", 403);
+            await Task.CompletedTask;
         }
 
         public Task<List<ClinicaDto>> ListClinicas(bool soloActivos) => _repo.ListClinicas(soloActivos);
@@ -50,6 +74,83 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             if (string.IsNullOrWhiteSpace(dto.ApellidoNombre))
                 throw new AbrilException("El nombre del médico es obligatorio.", 400);
             return _repo.UpdateMedico(id, dto);
+        }
+
+        public async Task<byte[]> GenerarAutorizacionFirmaPdfAsync(int medicoId)
+        {
+            var detalle = await _repo.GetAutorizacionFirmaDetalleAsync(medicoId)
+                ?? throw new AbrilException("Médico no encontrado.", 404);
+
+            byte[]? logoBytes = null;
+            var logoPath = _logoPaths.FirstOrDefault(File.Exists);
+            if (logoPath != null)
+                logoBytes = await File.ReadAllBytesAsync(logoPath);
+
+            // La firma digital se imprime junto a un recuadro en blanco para la firma
+            // manuscrita de comparación. Si por lo que sea no se puede descargar de SharePoint,
+            // el PDF igual se genera — solo queda sin la imagen (el recuadro en blanco sigue).
+            byte[]? firmaDigitalBytes = null;
+            if (!string.IsNullOrWhiteSpace(detalle.FirmaDigitalUrl))
+            {
+                try { firmaDigitalBytes = await _sharePoint.DescargarContenidoAsync(detalle.FirmaDigitalUrl, "firma-digital-medico"); }
+                catch { /* se degrada a recuadro vacío, no bloquea la generación del PDF */ }
+            }
+
+            return AutorizacionFirmaPdfService.GenerarPdf(detalle, logoBytes, firmaDigitalBytes);
+        }
+
+        public async Task SetPinFirmaAsync(int medicoId, string pin, string? callerEmail)
+        {
+            if (string.IsNullOrWhiteSpace(pin) || pin.Length < 4)
+                throw new AbrilException("El PIN de firma debe tener al menos 4 dígitos.", 400);
+
+            var archivos = await _repo.GetMedicoFirmaArchivosAsync(medicoId)
+                ?? throw new AbrilException("Médico no encontrado.", 404);
+            await AsegurarEsElPropioMedicoAsync(medicoId, callerEmail, archivos.Email ?? "");
+
+            // Orden obligatorio del flujo de firma: primero la firma digital y la autorización
+            // ya escaneada, recién después el PIN. Sin esto, el médico podría empezar a
+            // convalidar con un PIN configurado pero sin haber dejado nunca la evidencia física
+            // que respalda su firma electrónica.
+            if (string.IsNullOrWhiteSpace(archivos.FirmaDigitalUrl))
+                throw new AbrilException(
+                    "Antes de configurar el PIN debes registrar tu firma digital " +
+                    "(Catálogo de Médicos → Firma digital).", 400);
+            if (string.IsNullOrWhiteSpace(archivos.UrlAutorizacionFirmada))
+                throw new AbrilException(
+                    "Antes de configurar el PIN debes imprimir el SSO-FO-149, firmarlo a mano " +
+                    "junto a tu firma digital, escanearlo y subirlo (Catálogo de Médicos → " +
+                    "Autorización de firma → Subir escaneado).", 400);
+
+            await _repo.SetPinFirmaAsync(medicoId, PinHasher.Hash(pin));
+        }
+
+        public async Task<string> SetFirmaDigitalAsync(int medicoId, Stream fileStream, string fileName, string? callerEmail)
+        {
+            var medicoEmail = await _repo.GetMedicoEmailAsync(medicoId)
+                ?? throw new AbrilException("Médico no encontrado.", 404);
+            await AsegurarEsElPropioMedicoAsync(medicoId, callerEmail, medicoEmail);
+
+            var url = await _sharePoint.SubirArchivoAsync(fileStream, fileName, "firma-digital-medico");
+            await _repo.SetFirmaDigitalAsync(medicoId, url);
+            return url;
+        }
+
+        public async Task<string> SetAutorizacionFirmadaAsync(int medicoId, Stream fileStream, string fileName, string? callerEmail)
+        {
+            var medicoEmail = await _repo.GetMedicoEmailAsync(medicoId)
+                ?? throw new AbrilException("Médico no encontrado.", 404);
+            await AsegurarEsElPropioMedicoAsync(medicoId, callerEmail, medicoEmail);
+
+            var archivos = await _repo.GetMedicoFirmaArchivosAsync(medicoId);
+            if (string.IsNullOrWhiteSpace(archivos?.FirmaDigitalUrl))
+                throw new AbrilException(
+                    "Debes registrar primero tu firma digital — el SSO-FO-149 debe imprimirse " +
+                    "con ella ya incluida para poder firmarlo a mano al costado y compararlas.", 400);
+
+            var url = await _sharePoint.SubirArchivoAsync(fileStream, fileName, "autorizacion-firma-medico");
+            await _repo.SetAutorizacionFirmadaAsync(medicoId, url);
+            return url;
         }
 
         public Task<List<EmoTipoDto>> ListEmoTipos(bool soloActivos) => _repo.ListEmoTipos(soloActivos);

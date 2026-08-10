@@ -123,6 +123,8 @@ public static class ConvalidacionPdfService
 
                     L("DNI:"); V(d.WorkerDni);
                     L("Ocupación:"); V(d.WorkerOcupacion ?? "—");
+                    L("Puesto de origen:"); V(d.PuestoOrigen ?? "—");
+                    L("Puesto de destino:"); V(d.PuestoDestino ?? "—");
                 });
             });
 
@@ -167,6 +169,26 @@ public static class ConvalidacionPdfService
 
             col.Item().Column(inner =>
             {
+                SectionHeader(inner, "ANÁLISIS DE RIESGO POR CAMBIO DE PUESTO");
+                inner.Item().Table(t =>
+                {
+                    t.ColumnsDefinition(c => { c.RelativeColumn(1); c.RelativeColumn(1.6f); c.RelativeColumn(1); c.RelativeColumn(1.6f); });
+                    void L(string v) => t.Cell().Background(ColorGrupo).Padding(5).Text(v).Bold().FontSize(8.5f);
+                    void V(string v, string? color = null) => t.Cell().Border(1).BorderColor(Colors.Grey.Lighten2)
+                        .Padding(5).Text(v).FontSize(9.5f).FontColor(color ?? TextMain);
+
+                    L("Clasificación origen:"); V(d.ObraOficinaStaffOrigenNombre ?? "—");
+                    L("Clasificación destino:"); V(d.ObraOficinaStaffDestinoNombre ?? "—");
+                    L("Riesgo origen:"); V(d.RiesgoOrigen ?? "—", RiesgoColor(d.RiesgoOrigen));
+                    L("Riesgo destino:"); V(d.RiesgoDestino ?? "—", RiesgoColor(d.RiesgoDestino));
+                });
+                inner.Item().PaddingTop(4).Border(1).BorderColor(Colors.Grey.Lighten2).Padding(8)
+                    .Text(DeclaracionRiesgo(d))
+                    .FontSize(8.5f).FontColor(d.CambioRiesgo ? "#B91C1C" : TextMuted).LineHeight(1.4f);
+            });
+
+            col.Item().Column(inner =>
+            {
                 SectionHeader(inner, "OBSERVACIONES");
                 inner.Item().Border(1).BorderColor(Colors.Grey.Lighten2).Padding(8).MinHeight(60)
                     .Text(string.IsNullOrWhiteSpace(d.Notas) ? "Sin observaciones." : d.Notas)
@@ -205,6 +227,39 @@ public static class ConvalidacionPdfService
                 row.RelativeItem();
             });
         });
+    }
+
+    private static string RiesgoColor(string? riesgo) => riesgo switch
+    {
+        "Alto" => "#B91C1C",
+        "Bajo" => "#166534",
+        _ => "#5A6275",
+    };
+
+    /// <summary>
+    /// Texto legal del análisis de riesgo por cambio de puesto, conforme a la R.M. 312-2011/MINSA:
+    /// el EMO evalúa al trabajador para los agentes de riesgo específicos de un puesto. Si el
+    /// puesto destino mantiene o reduce esa exposición, la convalidación es procedente; si la
+    /// aumenta (Oficina Central → Staff/Obra), no lo es y corresponde un EMO nuevo.
+    /// </summary>
+    private static string DeclaracionRiesgo(ConvalidacionDetalleDto d)
+    {
+        if (string.IsNullOrEmpty(d.RiesgoOrigen) || string.IsNullOrEmpty(d.RiesgoDestino))
+            return "No se registró la clasificación de riesgo del puesto de origen y/o destino.";
+
+        if (d.CambioRiesgo)
+            return "El puesto de destino implica mayor exposición a riesgo (Staff/Obra) que el evaluado " +
+                   "en el EMO de origen (Oficina Central). Conforme a la R.M. N° 312-2011/MINSA, no procede " +
+                   "la convalidación: corresponde realizar un nuevo Examen Médico Ocupacional bajo el " +
+                   "protocolo aplicable al puesto destino.";
+
+        if (d.RiesgoOrigen == d.RiesgoDestino)
+            return "El puesto de destino mantiene un perfil de riesgo similar al evaluado en el EMO de " +
+                   "origen, por lo que la convalidación es procedente conforme a la R.M. N° 312-2011/MINSA.";
+
+        return "El puesto de destino implica un perfil de riesgo igual o menor al evaluado en el EMO de " +
+               "origen (Staff/Obra → Oficina Central), por lo que la convalidación es procedente conforme " +
+               "a la R.M. N° 312-2011/MINSA.";
     }
 
     private static void SectionHeader(ColumnDescriptor col, string title)

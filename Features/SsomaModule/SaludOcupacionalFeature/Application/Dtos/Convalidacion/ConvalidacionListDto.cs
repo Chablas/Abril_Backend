@@ -29,5 +29,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convali
         public string? InterconsultaEstado { get; set; }
         public string? InterconsultaEspecialidad { get; set; }
         public string? InterconsultaUrlInforme { get; set; }
+
+        // Cambio de puesto: datos y evaluación de riesgo (ver ObraOficinaStaffIds.RiesgoEmo).
+        public string? PuestoOrigen { get; set; }
+        public string? PuestoDestino { get; set; }
+        public int? ObraOficinaStaffOrigenId { get; set; }
+        public string? ObraOficinaStaffOrigenNombre { get; set; }
+        public int? ObraOficinaStaffDestinoId { get; set; }
+        public string? ObraOficinaStaffDestinoNombre { get; set; }
+        public string? RiesgoOrigen { get; set; }
+        public string? RiesgoDestino { get; set; }
+        public bool CambioRiesgo { get; set; }
     }
 }

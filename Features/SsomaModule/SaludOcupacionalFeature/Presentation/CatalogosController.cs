@@ -82,6 +82,19 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en CatalogosController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        [HttpGet("medicos/{id:int}/autorizacion-firma/pdf")]
+        public async Task<IActionResult> GetAutorizacionFirmaPdf(int id)
+        {
+            try
+            {
+                var bytes = await _service.GenerarAutorizacionFirmaPdfAsync(id);
+                return File(bytes, "application/pdf", $"Autorizacion_Firma_Medico_{id}.pdf");
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error generando PDF de autorización de firma"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+
         // ===== EMO Tipos =====
         [AllowAnonymous]
         [HttpGet("emo-tipos")]

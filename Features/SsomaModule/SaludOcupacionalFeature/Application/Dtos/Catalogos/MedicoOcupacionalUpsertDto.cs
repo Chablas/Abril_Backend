@@ -3,6 +3,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Catalog
     public class MedicoOcupacionalUpsertDto
     {
         public string ApellidoNombre { get; set; } = string.Empty;
+        public string? Dni { get; set; }
         public string? Cmp { get; set; }
         public string? Especialidad { get; set; }
         public int? ClinicaId { get; set; }

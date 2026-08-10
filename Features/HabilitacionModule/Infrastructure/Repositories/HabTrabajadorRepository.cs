@@ -402,8 +402,35 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                         vigenciaEmo = fechaVenc.Value.ToDateTime(TimeOnly.MinValue);
                 }
 
+                // El ítem CertAptitud es el que Cambiar obra/puesto/razón social pone en
+                // "Pendiente" o "Falta" (ver CambiarObraAsync) cuando hay que revisar el EMO —
+                // ese estado vive en ss_hab_trabajador, no se puede seguir derivando solo de
+                // WorkerEmo.Estado (que nunca pasa por "Pendiente"), o el checklist de acá nunca
+                // reflejaría un cambio de obra/puesto/razón social pendiente de convalidar.
+                var habCertAptitud = await ctx.SsHabTrabajador
+                    .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.CertAptitud);
+
                 foreach (var item in emoItems)
                 {
+                    if (item.Id == HabItemIds.CertAptitud && habCertAptitud != null)
+                    {
+                        entregables.Add(new WorkerEntregableDto
+                        {
+                            Id = habCertAptitud.Id,
+                            ItemId = item.Id,
+                            NombreItem = item.Nombre,
+                            Estado = habCertAptitud.Estado,
+                            Vigencia = habCertAptitud.Vigencia,
+                            ArchivoUrl = habCertAptitud.ArchivoUrl,
+                            ObsAbril = "Gestionado por módulo SSOMA",
+                            ObsContratista = null,
+                            RequiereVigencia = item.RequiereVigencia,
+                            EsSctrVidaley = item.EsSctrVidaley,
+                            Responsable = item.Responsable
+                        });
+                        continue;
+                    }
+
                     entregables.Add(new WorkerEntregableDto
                     {
                         Id = 0,
@@ -693,6 +720,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             if (worker.Estado == "RETIRADO")
                 throw new AbrilException("El trabajador está retirado. Use la opción de Reingreso en vez de Cambiar obra.", 400);
 
+            // No se permite un nuevo cambio de obra/razón social/puesto mientras haya una
+            // convalidación sin resolver: encadenar cambios antes de que el médico decida deja
+            // convalidaciones "Pendiente" apiladas contra EMOs y empresas destino distintas, sin
+            // que quede claro cuál sigue vigente. Primero se resuelve la que está pendiente.
+            var tieneConvalidacionPendiente = await ctx.WorkerEmoConvalidacion
+                .Join(ctx.WorkerEmo, cv => cv.EmoId, e => e.Id, (cv, e) => new { cv, e })
+                .AnyAsync(x => x.e.WorkerId == workerId && x.cv.Resultado == "Pendiente");
+
+            if (tieneConvalidacionPendiente)
+                throw new AbrilException(
+                    "Este trabajador tiene una convalidación pendiente sin resolver. Debe " +
+                    "aprobarla o rechazarla en SSOMA → Salud Ocupacional → Convalidaciones antes " +
+                    "de registrar un nuevo cambio de obra, razón social o puesto de trabajo.", 400);
+
             var fechaCambio = DateOnly.FromDateTime(dto.FechaCambio);
             var now = DateTimeOffset.UtcNow;
             var esContratista = !string.Equals(worker.ContrataCasa?.Trim(), "Casa", StringComparison.OrdinalIgnoreCase);
@@ -708,6 +749,19 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var esCambioEmpresa = dto.NuevaEmpresaId.HasValue
                 && dto.NuevaEmpresaId != currentEmpresaId
                 && !esContratista;
+
+            // Un cambio de obra puro (mismo puesto, misma empresa, misma clasificación) no
+            // altera nada de la aptitud del trabajador — el EMO sigue siendo válido para el
+            // mismo puesto en otra obra. Solo estos tres casos exigen revisar el EMO:
+            var currentPuesto = activas.Select(a => a.Puesto).FirstOrDefault();
+            var nuevoPuesto = dto.Puesto?.Trim();
+            var esCambioPuesto = !string.IsNullOrWhiteSpace(nuevoPuesto)
+                && !string.Equals(nuevoPuesto, currentPuesto?.Trim(), StringComparison.OrdinalIgnoreCase);
+
+            var currentObraOficinaStaffId = worker.ObraOficinaStaffId;
+            var nuevoObraOficinaStaffId = dto.ObraOficinaStaffId ?? currentObraOficinaStaffId;
+            var esCambioRiesgoAscendente = ObraOficinaStaffIds.EsCambioRiesgoCritico(
+                currentObraOficinaStaffId, nuevoObraOficinaStaffId);
 
             if (dto.NuevaEmpresaId.HasValue && esContratista)
                 await ValidarExclusividadEmpresaAsync(ctx, workerId, dto.NuevaEmpresaId.Value);
@@ -752,8 +806,22 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
             if (esCambioEmpresa)
             {
+                // SCTR y Vida Ley son pólizas atadas a la razón social — solo el cambio de
+                // empresa las afecta, no un simple cambio de puesto u obra.
                 itemsToReset.Add(HabItemIds.Sctr);
                 itemsToReset.Add(HabItemIds.VidaLey);
+            }
+
+            // El certificado de aptitud (EMO) deja de ser válido para el nuevo puesto en
+            // cualquiera de estos tres casos — un cambio de obra puro (misma empresa, mismo
+            // puesto, misma clasificación) no lo toca:
+            //   1) cambio de razón social,
+            //   2) cambio de puesto de trabajo,
+            //   3) cambio de clasificación ascendente (Oficina Central → Staff/Obra).
+            var requiereRevisionAptitud = esCambioEmpresa || esCambioPuesto || esCambioRiesgoAscendente;
+
+            if (requiereRevisionAptitud)
+            {
                 itemsToReset.Add(HabItemIds.CertAptitud);
 
                 if (proyectoDestino == null)
@@ -767,26 +835,35 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 var esOficinaOStaff =
                     ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId ?? 0);
 
-                var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
-                if (!string.IsNullOrWhiteSpace(emailSctr))
-                    pendingEmails.Add((
-                        [emailSctr!],
-                        $"Cambio de obra — SCTR — {worker.Person?.FullName}",
-                        BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
-                    ));
+                if (esCambioEmpresa)
+                {
+                    var emailSctr = esOficinaOStaff ? EmailGth : proyectoDestino?.EmailCoordAdmin;
+                    if (!string.IsNullOrWhiteSpace(emailSctr))
+                        pendingEmails.Add((
+                            [emailSctr!],
+                            $"Cambio de obra — SCTR — {worker.Person?.FullName}",
+                            BuildBodyReingreso(worker, proyectoDestino, "• SCTR")
+                        ));
 
-                var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.EmailCoordAdmin;
-                if (!string.IsNullOrWhiteSpace(emailVidaLey))
-                    pendingEmails.Add((
-                        [emailVidaLey!],
-                        $"Cambio de obra — Vida Ley — {worker.Person?.FullName}",
-                        BuildBodyReingreso(worker, proyectoDestino, "• Vida Ley")
-                    ));
+                    var emailVidaLey = esOficinaOStaff ? EmailAsistentaSocial : proyectoDestino?.EmailCoordAdmin;
+                    if (!string.IsNullOrWhiteSpace(emailVidaLey))
+                        pendingEmails.Add((
+                            [emailVidaLey!],
+                            $"Cambio de obra — Vida Ley — {worker.Person?.FullName}",
+                            BuildBodyReingreso(worker, proyectoDestino, "• Vida Ley")
+                        ));
+                }
+
+                var motivoAptitud = esCambioRiesgoAscendente
+                    ? "• Certificado de Aptitud (EMO nuevo obligatorio — sube de riesgo a Staff/Obra)"
+                    : esCambioEmpresa
+                        ? "• Certificado de Aptitud (Homologación)"
+                        : "• Certificado de Aptitud (revisión por cambio de puesto)";
 
                 pendingEmails.Add((
                     [EmailMedico],
                     $"Cambio de obra — Certificado de Aptitud — {worker.Person?.FullName}",
-                    BuildBodyReingreso(worker, proyectoDestino, "• Certificado de Aptitud (Homologación)")
+                    BuildBodyReingreso(worker, proyectoDestino, motivoAptitud)
                 ));
             }
 
@@ -796,11 +873,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 v.UpdatedAt = now;
             }
 
+            if (nuevoObraOficinaStaffId != currentObraOficinaStaffId)
+                worker.ObraOficinaStaffId = nuevoObraOficinaStaffId;
+
             ctx.WorkerVinculacion.Add(new WorkerVinculacion
             {
                 WorkerId = workerId,
                 EmpresaId = dto.NuevaEmpresaId ?? currentEmpresaId,
                 ProyectoId = dto.NuevoProyectoId,
+                Puesto = nuevoPuesto ?? currentPuesto,
+                ObraOficinaStaffId = nuevoObraOficinaStaffId,
                 FechaInicio = fechaCambio,
                 CreatedAt = now
             });
@@ -894,6 +976,25 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CreatedAt = nowUtc
                 });
 
+            if (esCambioPuesto)
+                ctx.WorkerEvento.Add(new WorkerEvento
+                {
+                    WorkerId = workerId,
+                    TipoEvento = WorkerTipoEvento.CambioPuesto,
+                    Descripcion = $"Cambio de puesto: \"{currentPuesto ?? "—"}\" → \"{nuevoPuesto}\". Certificado de aptitud puesto en revisión.",
+                    CreatedAt = nowUtc
+                });
+
+            if (esCambioRiesgoAscendente)
+                ctx.WorkerEvento.Add(new WorkerEvento
+                {
+                    WorkerId = workerId,
+                    TipoEvento = WorkerTipoEvento.CambioRiesgo,
+                    Descripcion = $"Cambio de clasificación: \"{ObraOficinaStaffIds.Nombre(currentObraOficinaStaffId) ?? "—"}\" → " +
+                                  $"\"{ObraOficinaStaffIds.Nombre(nuevoObraOficinaStaffId)}\". Sube de riesgo — requiere EMO nuevo, no es convalidable.",
+                    CreatedAt = nowUtc
+                });
+
             foreach (var itemId in itemsToReset)
                 ctx.WorkerEvento.Add(new WorkerEvento
                 {
@@ -903,11 +1004,16 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     CreatedAt = nowUtc
                 });
 
-            // Auto-crear convalidación pendiente si el trabajador cambia de empresa y tiene un EMO activo.
-            _logger.LogInformation("[Convalidacion] esCambioEmpresa={EsCambioEmpresa} workerId={WorkerId} NuevaEmpresaId={NuevaEmpresaId} currentEmpresaId={CurrentEmpresaId} esContratista={EsContratista}",
-                esCambioEmpresa, workerId, dto.NuevaEmpresaId, currentEmpresaId, esContratista);
+            // Auto-crear convalidación pendiente si el certificado de aptitud quedó en revisión
+            // (cambio de razón social, de puesto, o subida de riesgo Oficina Central → Staff/Obra)
+            // y el trabajador tiene un EMO activo: en vez de dejarlo solo bloqueado ("Falta"), se
+            // le arma al médico la convalidación lista para que decida — la misma mecánica que ya
+            // existía para cambio de empresa, ahora extendida a los otros dos disparadores.
+            _logger.LogInformation(
+                "[Convalidacion] requiereRevisionAptitud={Requiere} (empresa={Empresa} puesto={Puesto} riesgo={Riesgo}) workerId={WorkerId}",
+                requiereRevisionAptitud, esCambioEmpresa, esCambioPuesto, esCambioRiesgoAscendente, workerId);
 
-            if (esCambioEmpresa)
+            if (requiereRevisionAptitud)
             {
                 var ultimoEmo = await ctx.WorkerEmo
                     .Where(e => e.WorkerId == workerId && e.Activo)
@@ -922,14 +1028,23 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     ctx.WorkerEmoConvalidacion.Add(new WorkerEmoConvalidacion
                     {
                         EmoId = ultimoEmo.Id,
-                        EmpresaDestinoId = dto.NuevaEmpresaId,
+                        // Si no cambia de empresa (solo puesto y/o clasificación), la convalidación
+                        // sigue siendo dentro de la misma empresa vigente.
+                        EmpresaDestinoId = dto.NuevaEmpresaId ?? currentEmpresaId,
                         FechaConvalidacion = fechaCambio,
                         Resultado = "Pendiente",
+                        PuestoOrigen = currentPuesto,
+                        PuestoDestino = nuevoPuesto ?? currentPuesto,
+                        ObraOficinaStaffOrigenId = currentObraOficinaStaffId,
+                        ObraOficinaStaffDestinoId = nuevoObraOficinaStaffId,
+                        CambioRiesgo = esCambioRiesgoAscendente,
                         CreatedAt = DateTimeOffset.UtcNow,
                         UpdatedAt = DateTimeOffset.UtcNow
                     });
 
-                    // Marcar CertAptitud como Pendiente (override del "Falta" ya asignado arriba)
+                    // Marcar CertAptitud como Pendiente (override del "Falta" ya asignado arriba):
+                    // hay un EMO reciente sobre el que el médico puede decidir, no hace falta
+                    // bloquear de inmediato exigiendo un EMO nuevo desde cero.
                     var habCert = await ctx.SsHabTrabajador
                         .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.CertAptitud);
                     if (habCert != null)

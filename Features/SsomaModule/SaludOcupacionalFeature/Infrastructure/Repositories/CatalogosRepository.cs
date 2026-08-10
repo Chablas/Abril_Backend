@@ -219,7 +219,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task<AutorizacionFirmaDetalleDto?> GetAutorizacionFirmaDetalleAsync(int medicoId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.SsMedicoOcupacional
+            var row = await ctx.SsMedicoOcupacional
                 .Where(m => m.Id == medicoId)
                 .Select(m => new AutorizacionFirmaDetalleDto
                 {
@@ -228,9 +228,40 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     MedicoDni = m.Dni,
                     MedicoCmp = m.Cmp,
                     MedicoEspecialidad = m.Especialidad,
-                    FirmaDigitalUrl = m.FirmaDigitalUrl
+                    FirmaDigitalUrl = m.FirmaDigitalUrl,
+                    Email = m.Email
                 })
                 .FirstOrDefaultAsync();
+
+            if (row != null)
+                row.MedicoDni = await ResolverDniPorEmailAsync(ctx, row.MedicoDni, row.Email);
+
+            return row;
+        }
+
+        /// <summary>
+        /// Si el médico no tiene DNI cargado en su propio catálogo, lo busca en
+        /// workers/person por el mismo correo — evita duplicar el dato a mano cuando el
+        /// médico ya es un trabajador/persona registrado en el sistema.
+        /// </summary>
+        private static async Task<string?> ResolverDniPorEmailAsync(AppDbContext ctx, string? dniActual, string? email)
+        {
+            if (!string.IsNullOrWhiteSpace(dniActual)) return dniActual;
+            if (string.IsNullOrWhiteSpace(email)) return dniActual;
+
+            var correo = email.Trim();
+
+            var porWorker = await ctx.Worker
+                .Where(w => w.EmailCorporativo != null && w.EmailCorporativo.ToLower() == correo.ToLower())
+                .Select(w => w.Person != null ? w.Person.DocumentIdentityCode : null)
+                .FirstOrDefaultAsync();
+            if (!string.IsNullOrWhiteSpace(porWorker)) return porWorker;
+
+            var porPerson = await ctx.Person
+                .Where(p => p.Email != null && p.Email.ToLower() == correo.ToLower())
+                .Select(p => p.DocumentIdentityCode)
+                .FirstOrDefaultAsync();
+            return !string.IsNullOrWhiteSpace(porPerson) ? porPerson : dniActual;
         }
 
         public async Task<MedicoFirmaArchivosDto?> GetMedicoFirmaArchivosAsync(int medicoId)

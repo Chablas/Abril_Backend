@@ -74,5 +74,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error subiendo autorización de firma escaneada"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        // Movido desde CatalogosController: ese controller exige rol de administrador SSOMA
+        // para todo, pero el propio médico (rol "Médico Ocupacional", sin ese permiso) también
+        // necesita poder descargar su propia autorización de firma.
+        [HttpGet("medicos/{id:int}/autorizacion-firma/pdf")]
+        public async Task<IActionResult> GetAutorizacionFirmaPdf(int id)
+        {
+            try
+            {
+                var bytes = await _service.GenerarAutorizacionFirmaPdfAsync(id);
+                return File(bytes, "application/pdf", $"Autorizacion_Firma_Medico_{id}.pdf");
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error generando PDF de autorización de firma"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

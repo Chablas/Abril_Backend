@@ -662,11 +662,17 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
             // Staff, Oficina Central o Personal Externo. El personal de Obra NO consume el tope
             // (el tope de 20 es de planilla de escritorio, y contando obreros toda razón social
             // con un proyecto en curso quedaba en 0 cupos). Los practicantes tampoco consumen.
+            //
+            // El practicante se detecta por `categoria_maestra_id`, no por el texto libre
+            // `workers.categoria`: ese campo guarda el nivel del puesto (Operario, Arquitecto…)
+            // y se desincroniza — había practicantes con "Arquitecto" contando cupo y empleados
+            // que habían sido practicantes y seguían con el texto viejo sin contar. Los que no
+            // tienen categoría maestra sí consumen (no son practicantes).
             var ocupados = await ctx.Worker
                 .Where(w => w.ContributorId != null
                             && w.Estado != "RETIRADO"
                             && ObraOficinaStaffIds.ConsumenCupoRazonSocial.Contains(w.ObraOficinaStaffId ?? 0)
-                            && (w.Categoria == null || w.Categoria.Trim().ToLower() != "practicante"))
+                            && w.CategoriaMaestraId != CategoriaMaestraIds.PracticantePrePro)
                 .GroupBy(w => w.ContributorId!.Value)
                 .Select(g => new { ContributorId = g.Key, Total = g.Count() })
                 .ToListAsync();

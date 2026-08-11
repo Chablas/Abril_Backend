@@ -81,6 +81,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     q = q.Where(x => x.p.WorkerId == filter.WorkerId.Value);
                 if (filter.ClinicaId.HasValue)
                     q = q.Where(x => x.p.ClinicaId == filter.ClinicaId.Value);
+                if (!string.IsNullOrWhiteSpace(filter.Area))
+                    q = q.Where(x => x.w.Area == filter.Area);
+                if (!string.IsNullOrWhiteSpace(filter.Subarea))
+                    q = q.Where(x => x.w.Subarea == filter.Subarea);
                 if (!string.IsNullOrWhiteSpace(filter.Search))
                 {
                     var term = filter.Search.Trim().ToLower();
@@ -206,6 +210,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.p.WorkerId == filter.WorkerId.Value);
             if (filter.ClinicaId.HasValue)
                 q = q.Where(x => x.p.ClinicaId == filter.ClinicaId.Value);
+            if (!string.IsNullOrWhiteSpace(filter.Area))
+                q = q.Where(x => x.p.Worker != null && x.p.Worker.Area == filter.Area);
+            if (!string.IsNullOrWhiteSpace(filter.Subarea))
+                q = q.Where(x => x.p.Worker != null && x.p.Worker.Subarea == filter.Subarea);
             if (!string.IsNullOrWhiteSpace(filter.Search))
             {
                 var term = filter.Search.Trim().ToLower();

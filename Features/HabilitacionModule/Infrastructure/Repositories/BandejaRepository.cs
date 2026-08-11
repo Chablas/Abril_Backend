@@ -76,6 +76,8 @@ WHERE ht.estado = 'Enviado'
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'TRABAJADOR')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
+  AND (@Area IS NULL OR w.area = @Area)
+  AND (@Subarea IS NULL OR w.subarea = @Subarea)
 
 UNION ALL
 
@@ -124,6 +126,9 @@ WHERE he.estado = 'Enviado'
   AND (@Responsable IS NULL OR i.responsable = @Responsable)
   AND (@Tipo IS NULL OR @Tipo = 'EMPRESA')
   AND (@Search IS NULL OR ec.contributor_name ILIKE '%' || @Search || '%')
+  -- Entregable a nivel empresa, no de un trabajador puntual: no tiene área/subárea propia,
+  -- así que se excluye del listado en cuanto se filtra por cualquiera de las dos.
+  AND @Area IS NULL AND @Subarea IS NULL
 
 UNION ALL
 
@@ -158,6 +163,8 @@ WHERE heq.estado = 'Enviado'
   AND (@Tipo IS NULL OR @Tipo = 'EQUIPO')
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo) ILIKE '%' || @Search || '%')
+  -- Entregable de un equipo, no de un trabajador: sin área/subárea propia.
+  AND @Area IS NULL AND @Subarea IS NULL
 
 UNION ALL
 
@@ -192,11 +199,14 @@ WHERE i.estado = 'PROGRAMADA'
   AND (@EmpresaId IS NULL OR i.empresa_id = @EmpresaId)
   AND (@Responsable IS NULL OR @Responsable = 'SSOMA')
   AND (@Search IS NULL OR per.full_name ILIKE '%' || @Search || '%')
+  AND (@Area IS NULL OR w.area = @Area)
+  AND (@Subarea IS NULL OR w.subarea = @Subarea)
 ";
 
         public async Task<(List<BandejaItemDto> Items, int Total)> GetPendientesAsync(
             string? tipo, int? proyectoId, int? empresaId,
-            string? responsable, string? search, int page, int pageSize)
+            string? responsable, string? search, int page, int pageSize,
+            string? area = null, string? subarea = null)
         {
             var parametros = new
             {
@@ -205,6 +215,8 @@ WHERE i.estado = 'PROGRAMADA'
                 EmpresaId = empresaId,
                 Responsable = responsable,
                 Search = search,
+                Area = area,
+                Subarea = subarea,
                 PageSize = pageSize,
                 Offset = (page - 1) * pageSize
             };
@@ -226,7 +238,8 @@ LIMIT @PageSize OFFSET @Offset";
 
         public async Task<CursorPagedResult<BandejaItemDto>> GetPendientesCursorAsync(
             string? tipo, int? proyectoId, int? empresaId,
-            string? responsable, string? search, string? cursor, int pageSize)
+            string? responsable, string? search, string? cursor, int pageSize,
+            string? area = null, string? subarea = null)
         {
             DateTime? cursorFecha = null;
             int? cursorId = null;
@@ -254,6 +267,8 @@ LIMIT @PageSize OFFSET @Offset";
                 EmpresaId = empresaId,
                 Responsable = responsable,
                 Search = search,
+                Area = area,
+                Subarea = subarea,
                 CursorFecha = cursorFecha,
                 CursorId = cursorId,
                 PageSize = pageSize + 1
@@ -276,7 +291,9 @@ LIMIT @PageSize";
                 ProyectoId = proyectoId,
                 EmpresaId = empresaId,
                 Responsable = responsable,
-                Search = search
+                Search = search,
+                Area = area,
+                Subarea = subarea
             });
 
             var hasMore = rows.Count > pageSize;

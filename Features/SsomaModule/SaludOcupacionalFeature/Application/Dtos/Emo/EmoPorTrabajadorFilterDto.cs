@@ -7,6 +7,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? Estado { get; set; }
         public int? EmpresaId { get; set; }
         public int? ProyectoId { get; set; }
+        public string? Area { get; set; }
+        public string? Subarea { get; set; }
         public DateOnly? FechaEmoDesde { get; set; }
         public DateOnly? FechaEmoHasta { get; set; }
         public bool SinLectura { get; set; }

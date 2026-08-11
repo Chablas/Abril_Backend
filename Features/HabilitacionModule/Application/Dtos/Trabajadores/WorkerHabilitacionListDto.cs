@@ -10,8 +10,10 @@ namespace Abril_Backend.Features.Habilitacion.Application.Dtos.Trabajadores
         public string? ProyectoActual { get; set; }
         public int? ProyectoActualId { get; set; }
         public string EstadoHabilitacion { get; set; } = string.Empty;
+        /// <summary>Nombre de la categoría (campo de lógica).</summary>
         public string? Categoria { get; set; }
-        public string? Ocupacion { get; set; }
+        /// <summary>Nombre del puesto (campo de presentación).</summary>
+        public string? Puesto { get; set; }
         public string? ContrataCasa { get; set; }
         public int? ObraOficinaStaffId { get; set; }
         public string? ObraOficina { get; set; }

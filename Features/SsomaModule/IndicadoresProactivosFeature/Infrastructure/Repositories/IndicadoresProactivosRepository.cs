@@ -68,23 +68,25 @@ public class IndicadoresProactivosRepository : IIndicadoresProactivosRepository
     // OCULTAR/MOSTRAR EMPRESAS EN EL SEGUIMIENTO
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// <summary>Categoría que da el permiso. Ver <c>Migrations_Manual/categoria_puesto_unificados.sql</c>.</summary>
+    private const string CategoriaCoordinadorSsoma = "COORDINADOR SSOMA";
+
     public async Task<bool> EsCoordinadorSsomaAsync(int userId)
     {
         await using var ctx = await _factory.CreateDbContextAsync();
         var datos = await ctx.Person
             .Where(p => p.UserId == userId)
-            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId, (p, w) => new { w.Id, w.Ocupacion, w.Categoria })
+            .Join(ctx.Worker, p => p.PersonId, w => w.PersonId,
+                  (p, w) => new { w.Id, Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre })
             .FirstOrDefaultAsync();
         if (datos is null) return false;
         if (datos.Id == WorkerIdSamuel) return true;
 
-        // "Coordinador" y "SSOMA" pueden venir en el mismo campo (ej. Categoria=
-        // "Coordinador SSOMA") o repartidos entre Categoria y Ocupacion (ej.
-        // Categoria="Coordinador", Ocupacion="SSOMA") — se evalúa el texto combinado.
-        var textoCombinado = $"{datos.Categoria} {datos.Ocupacion}";
-
-        return textoCombinado.Contains("Coordinador", StringComparison.OrdinalIgnoreCase)
-            && textoCombinado.Contains("SSOMA", StringComparison.OrdinalIgnoreCase);
+        // Antes se concatenaban categoría y ocupación para buscar "Coordinador" y "SSOMA"
+        // sueltos, porque el dato no siempre vivía en el mismo campo. Al unificar los
+        // catálogos se creó la categoría COORDINADOR SSOMA con exactamente esos mismos
+        // trabajadores.
+        return string.Equals(datos.Categoria, CategoriaCoordinadorSsoma, StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<HashSet<int>> GetEmpresaExcluidaIdsAsync()

@@ -33,7 +33,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
     {
         private const string AreaGth          = "Gestión del Talento Humano";
         private const string AreaAdminObra    = "Administración de Obra";
-        private const string CategoriaGerente = "Gerente";
+        private const string CategoriaGerente = "GERENTE";
 
         private readonly IDbContextFactory<AppDbContext> _factory;
 
@@ -51,9 +51,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
                 where p.UserId == userId
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
-                select new { w.Id, w.AreaScopeId, Categoria = c != null ? c.Name : null }
+                select new { w.Id, w.AreaScopeId, Categoria = c != null ? c.Nombre : null }
             ).ToListAsync();
 
             if (workers.Count == 0) return new SalidaVisibility(false, new HashSet<int>());

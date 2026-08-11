@@ -6,6 +6,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.Shared;
+using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repositories
@@ -147,13 +148,13 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
                 var adjuntos = await ctx.SsDescansoMedicoAdjunto
                     .Where(a => a.State && ids.Contains(a.DescansoId))
                     .OrderBy(a => a.Id)
-                    .Select(a => new { a.DescansoId, a.Url, a.NombreArchivo })
+                    .Select(a => new { a.Id, a.DescansoId, a.Url, a.NombreArchivo })
                     .ToListAsync();
 
                 var porDescanso = adjuntos
                     .GroupBy(a => a.DescansoId)
                     .ToDictionary(g => g.Key, g => g
-                        .Select(a => new MiDescansoAdjuntoDto { Url = a.Url, Nombre = a.NombreArchivo })
+                        .Select(a => new MiDescansoAdjuntoDto { Id = a.Id, Url = a.Url, Nombre = a.NombreArchivo })
                         .ToList());
 
                 foreach (var item in items)
@@ -171,7 +172,7 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
             };
         }
 
-        public async Task<int> CreateDescanso(int workerId, CrearMiDescansoDto dto, int? userId, List<(string Url, string Nombre)> adjuntos)
+        public async Task<int> CreateDescanso(int workerId, CrearMiDescansoDto dto, int? userId, List<DescansoCertificadoSubidoDto> adjuntos)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -200,13 +201,15 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
 
             ctx.SsDescansoMedico.Add(entity);
 
-            foreach (var (url, nombre) in adjuntos)
+            foreach (var adjunto in adjuntos)
             {
                 ctx.SsDescansoMedicoAdjunto.Add(new SsDescansoMedicoAdjunto
                 {
                     Descanso      = entity,
-                    Url           = url,
-                    NombreArchivo = nombre,
+                    Url           = adjunto.Url,
+                    NombreArchivo = adjunto.Nombre,
+                    DriveId       = adjunto.DriveId,
+                    ItemId        = adjunto.ItemId,
                     State         = true,
                     CreatedAt     = DateTimeOffset.UtcNow,
                     UpdatedAt     = DateTimeOffset.UtcNow,
@@ -215,6 +218,24 @@ namespace Abril_Backend.Features.SsomaModule.MiSaludFeature.Infrastructure.Repos
 
             await ctx.SaveChangesAsync();
             return entity.Id;
+        }
+
+        public async Task<MiDescansoAdjuntoArchivoDto?> GetAdjuntoDelWorkerAsync(int adjuntoId, int workerId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await (
+                from a in ctx.SsDescansoMedicoAdjunto
+                join d in ctx.SsDescansoMedico on a.DescansoId equals d.Id
+                where a.Id == adjuntoId && a.State && d.State && d.WorkerId == workerId
+                select new MiDescansoAdjuntoArchivoDto
+                {
+                    Url           = a.Url,
+                    NombreArchivo = a.NombreArchivo,
+                    DriveId       = a.DriveId,
+                    ItemId        = a.ItemId,
+                }
+            ).FirstOrDefaultAsync();
         }
 
         public async Task<DescansoNotificacionDatosDto> GetDatosNotificacionDescansoAsync(int workerId, int userId, int tipoId)

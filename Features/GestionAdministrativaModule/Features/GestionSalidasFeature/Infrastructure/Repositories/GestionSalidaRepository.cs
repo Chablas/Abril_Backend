@@ -13,7 +13,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
     public class GestionSalidaRepository : IGestionSalidaRepository
     {
         private const int PageSize = 10;
-        private const string CategoriaGerente = "Gerente";
+        private const string CategoriaGerente = "GERENTE";
         private readonly IDbContextFactory<AppDbContext> _factory;
 
         public GestionSalidaRepository(IDbContextFactory<AppDbContext> factory)
@@ -226,10 +226,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
                 var misWorkers = await (
                     from w in ctx.Worker
                     join p in ctx.Person on w.PersonId equals p.PersonId
-                    join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
+                    join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
                     from c in cj.DefaultIfEmpty()
                     where p.UserId == uidDec
-                    select new { w.Id, Categoria = c != null ? c.Name : null }
+                    select new { w.Id, Categoria = c != null ? c.Nombre : null }
                 ).ToListAsync();
                 misWorkerIds = misWorkers.Select(x => x.Id).ToHashSet();
                 esGerente = misWorkers.Any(x => string.Equals(x.Categoria, CategoriaGerente, StringComparison.OrdinalIgnoreCase));
@@ -372,9 +372,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
             var categorias = await (
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
                 where p.UserId == reviewerUserId
-                select c.Name
+                select c.Nombre
             ).ToListAsync();
 
             var esGerente = categorias.Any(n => string.Equals(n, CategoriaGerente, StringComparison.OrdinalIgnoreCase));

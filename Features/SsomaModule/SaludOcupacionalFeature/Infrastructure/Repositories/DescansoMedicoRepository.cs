@@ -6,6 +6,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.IndicadoresProactivosFeature.Infrastructure;
 using Abril_Backend.Features.SsomaModule.Shared;
+using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -138,7 +139,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             var adjuntos = await ctx.SsDescansoMedicoAdjunto
                 .Where(a => a.State && a.DescansoId == id)
                 .OrderBy(a => a.Id)
-                .Select(a => new DescansoAdjuntoDto { Url = a.Url, Nombre = a.NombreArchivo })
+                .Select(a => new DescansoAdjuntoDto { Id = a.Id, Url = a.Url, Nombre = a.NombreArchivo })
                 .ToListAsync();
 
             return new DescansoMedicoDetalleDto
@@ -181,8 +182,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             };
         }
 
-        /// <param name="adjuntos">Certificados médicos ya subidos al storage (url + nombre original).</param>
-        public async Task<int> Create(DescansoMedicoCreateDto dto, int registradoPorId, List<(string Url, string Nombre)> adjuntos)
+        /// <param name="adjuntos">Certificados médicos ya subidos a la carpeta configurada en SharePoint.</param>
+        public async Task<int> Create(DescansoMedicoCreateDto dto, int registradoPorId, List<DescansoCertificadoSubidoDto> adjuntos)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -223,13 +224,15 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             ctx.SsDescansoMedico.Add(entity);
 
-            foreach (var (url, nombre) in adjuntos)
+            foreach (var adjunto in adjuntos)
             {
                 ctx.SsDescansoMedicoAdjunto.Add(new SsDescansoMedicoAdjunto
                 {
                     Descanso      = entity,
-                    Url           = url,
-                    NombreArchivo = nombre,
+                    Url           = adjunto.Url,
+                    NombreArchivo = adjunto.Nombre,
+                    DriveId       = adjunto.DriveId,
+                    ItemId        = adjunto.ItemId,
                     State         = true,
                     CreatedAt     = DateTimeOffset.UtcNow,
                     UpdatedAt     = DateTimeOffset.UtcNow,
@@ -238,6 +241,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             await ctx.SaveChangesAsync();
             return entity.Id;
+        }
+
+        public async Task<DescansoAdjuntoArchivoDto?> GetAdjunto(int adjuntoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await (
+                from a in ctx.SsDescansoMedicoAdjunto
+                join d in ctx.SsDescansoMedico on a.DescansoId equals d.Id
+                where a.Id == adjuntoId && a.State && d.State
+                select new DescansoAdjuntoArchivoDto
+                {
+                    Url           = a.Url,
+                    NombreArchivo = a.NombreArchivo,
+                    DriveId       = a.DriveId,
+                    ItemId        = a.ItemId,
+                }
+            ).FirstOrDefaultAsync();
         }
 
         public async Task Update(int id, DescansoMedicoUpdateDto dto)

@@ -77,12 +77,12 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
                 x.a.Fecha,
                 AuditorWorkerId = x.auditor.Id,
                 AuditorNombre = x.auditor.ApellidoNombre ?? (x.auditor.Person != null ? x.auditor.Person.FullName : null) ?? string.Empty,
-                AuditorCategoria = x.auditor.Categoria,
-                AuditorOcupacion = x.auditor.Ocupacion,
+                AuditorCategoria = x.auditor.CategoriaCatalogo == null ? null : x.auditor.CategoriaCatalogo.Nombre,
+                AuditorOcupacion = x.auditor.PuestoCatalogo == null ? null : x.auditor.PuestoCatalogo.Nombre,
                 AuditadoWorkerId = x.auditado.Id,
                 AuditadoNombre = x.auditado.ApellidoNombre ?? (x.auditado.Person != null ? x.auditado.Person.FullName : null) ?? string.Empty,
-                AuditadoCategoria = x.auditado.Categoria,
-                AuditadoOcupacion = x.auditado.Ocupacion,
+                AuditadoCategoria = x.auditado.CategoriaCatalogo == null ? null : x.auditado.CategoriaCatalogo.Nombre,
+                AuditadoOcupacion = x.auditado.PuestoCatalogo == null ? null : x.auditado.PuestoCatalogo.Nombre,
                 ProyectoNombre = x.proj != null ? x.proj.ProjectDescription : null,
                 x.a.Actividad,
                 x.a.Lugar,
@@ -155,8 +155,8 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             .Select(w => new
             {
                 Nombre = w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
-                w.Categoria,
-                w.Ocupacion,
+                Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre,
+                Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
             })
             .FirstOrDefaultAsync();
 
@@ -165,8 +165,8 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             .Select(w => new
             {
                 Nombre = w.ApellidoNombre ?? (w.Person != null ? w.Person.FullName : null) ?? string.Empty,
-                w.Categoria,
-                w.Ocupacion,
+                Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre,
+                Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
             })
             .FirstOrDefaultAsync();
 
@@ -225,12 +225,12 @@ public class AuditoriaAtsRepository : IAuditoriaAtsRepository
             AuditorNombre = auditorNombre,
             AuditorEmpresaNombre = empresaAuditorId.HasValue && nombreEmpresaPorId.TryGetValue(empresaAuditorId.Value, out var an) ? an : null,
             AuditorCategoria = auditorInfo?.Categoria,
-            AuditorOcupacion = auditorInfo?.Ocupacion,
+            AuditorOcupacion = auditorInfo?.Puesto,
             AuditadoWorkerId = auditoria.AuditadoWorkerId,
             AuditadoNombre = auditadoNombre,
             AuditadoEmpresaNombre = empresaId.HasValue && nombreEmpresaPorId.TryGetValue(empresaId.Value, out var dn) ? dn : null,
             AuditadoCategoria = auditadoInfo?.Categoria,
-            AuditadoOcupacion = auditadoInfo?.Ocupacion,
+            AuditadoOcupacion = auditadoInfo?.Puesto,
             EmpresaId = empresaId,
             EmpresaAuditorId = empresaAuditorId,
             ProyectoId = auditoria.ProyectoId,

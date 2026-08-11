@@ -10,7 +10,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Application.D
     {
         public int WorkerId { get; set; }
         public string NombreCompleto { get; set; } = string.Empty;
-        /// <summary>Puesto del trabajador (<c>workers.puesto</c>); si es null, <c>workers.ocupacion</c>.</summary>
+        /// <summary>Nombre del puesto del trabajador (catálogo <c>puesto</c>).</summary>
         public string? Puesto { get; set; }
         public string Email { get; set; } = string.Empty;
 

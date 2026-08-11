@@ -106,9 +106,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             return await (
                 from w in ctx.Worker
                 join p in ctx.Person on w.PersonId equals p.PersonId
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId
                 where p.UserId == userId
-                select c.Name
+                select c.Nombre
             ).FirstOrDefaultAsync();
         }
     }

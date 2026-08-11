@@ -51,6 +51,7 @@ using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Interfac
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Application.Services;
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.HorasHombreFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Services;
 
@@ -168,9 +169,11 @@ namespace Abril_Backend.Features.Ssoma
             services.AddScoped<IDescansoMedicoRepository, DescansoMedicoRepository>();
             services.AddScoped<IDescansoMedicoService, DescansoMedicoService>();
 
-            // Revisión de solicitudes de descanso médico (médico ocupacional)
-            services.AddScoped<IRevisionDescansosRepository, RevisionDescansosRepository>();
-            services.AddScoped<IRevisionDescansosService, RevisionDescansosService>();
+            // Certificados médicos: lo comparten Descansos y Mi Salud, y el destino es la
+            // carpeta de SharePoint configurada en ss_descanso_carpeta.
+            services.AddScoped<Abril_Backend.Shared.Services.SharePoint.Interfaces.IGraphSharePointService,
+                Abril_Backend.Shared.Services.SharePoint.Services.GraphSharePointService>();
+            services.AddScoped<IDescansoCertificadoStorage, DescansoCertificadoStorage>();
 
             // SCTR — Asistente Social
             services.AddScoped<ISctrGestionRepository, SctrGestionRepository>();

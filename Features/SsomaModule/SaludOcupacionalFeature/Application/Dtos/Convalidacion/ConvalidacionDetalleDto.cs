@@ -6,7 +6,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Convali
         public int WorkerId { get; set; }
         public string WorkerNombre { get; set; } = string.Empty;
         public string WorkerDni { get; set; } = string.Empty;
-        public string? WorkerOcupacion { get; set; }
+        /// <summary>Nombre del puesto del trabajador (campo de presentación).</summary>
+        public string? WorkerPuesto { get; set; }
         public string? TipoEmo { get; set; }
         public DateOnly? FechaEmoOrigen { get; set; }
         public string? AptitudOrigen { get; set; }

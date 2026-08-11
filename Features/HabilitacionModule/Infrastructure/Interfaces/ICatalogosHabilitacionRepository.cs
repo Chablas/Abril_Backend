@@ -1,5 +1,6 @@
 using Abril_Backend.Features.Habilitacion.Application.Dtos.Catalogos;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
 {
@@ -27,19 +28,22 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         /// <summary>Áreas del catálogo legacy cat_subarea. Sigue vivo para otros consumidores.</summary>
         Task<List<string>> GetAreasAsync();
         Task<List<CatSubarea>> GetSubareasAsync(string? area);
-        Task<List<CatCategoria>> GetCategoriasAsync();
-        Task<List<CatOcupacion>> GetOcupacionesAsync();
+        /// <summary>Categorías activas: el campo de lógica del trabajador.</summary>
+        Task<List<Categoria>> GetCategoriasAsync();
+
+        /// <summary>Puestos activos: el campo de presentación. Cada uno apunta a una categoría.</summary>
+        Task<List<Puesto>> GetPuestosAsync();
 
         // Categorías CRUD
-        Task<List<CatCategoria>> GetCategoriasTodasAsync();
-        Task<CatCategoria> CrearCategoriaAsync(string nombre);
-        Task<CatCategoria> ActualizarCategoriaAsync(int id, string nombre);
+        Task<List<Categoria>> GetCategoriasTodasAsync();
+        Task<Categoria> CrearCategoriaAsync(string nombre);
+        Task<Categoria> ActualizarCategoriaAsync(int id, string nombre);
         Task ToggleCategoriaAsync(int id, bool activo);
 
-        // Ocupaciones CRUD
-        Task<List<CatOcupacion>> GetOcupacionesTodasAsync();
-        Task<CatOcupacion> CrearOcupacionAsync(string nombre);
-        Task<CatOcupacion> ActualizarOcupacionAsync(int id, string nombre);
-        Task ToggleOcupacionAsync(int id, bool activo);
+        // Puestos CRUD
+        Task<List<Puesto>> GetPuestosTodosAsync();
+        Task<Puesto> CrearPuestoAsync(string nombre, int? categoriaId);
+        Task<Puesto> ActualizarPuestoAsync(int id, string nombre, int? categoriaId);
+        Task TogglePuestoAsync(int id, bool activo);
     }
 }

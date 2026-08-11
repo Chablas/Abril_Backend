@@ -21,7 +21,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         public TimeOnly? CheckInHora { get; set; }
         public string? MotivoRechazo { get; set; }
         public DateTimeOffset? FechaNotificacion { get; set; }
-        public string? Ocupacion { get; set; }
+        /// <summary>Nombre del puesto (campo de presentación).</summary>
+        public string? Puesto { get; set; }
         public DateOnly? FechaVencimientoEmo { get; set; }
         public string? Categoria { get; set; }
         public string? TipoTrabajador { get; set; }

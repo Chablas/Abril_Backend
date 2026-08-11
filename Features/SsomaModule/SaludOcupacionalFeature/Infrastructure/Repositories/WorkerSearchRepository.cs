@@ -130,8 +130,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ApellidoNombre = w.Person != null ? w.Person.FullName : null,
                     Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                     w.EmailCorporativo,
-                    w.Ocupacion,
-                    w.Categoria,
+                    Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
+                    Categoria = w.CategoriaCatalogo == null ? null : w.CategoriaCatalogo.Nombre,
                     w.Estado,
                     w.AniosExperiencia,
                     w.FechaIngreso,
@@ -187,9 +187,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     ApellidoNombre = b.ApellidoNombre,
                     Dni = b.Dni,
                     EmailCorporativo = b.EmailCorporativo,
-                    Ocupacion = b.Ocupacion,
+                    Puesto = b.Puesto,
                     Categoria = b.Categoria,
-                    Cargo = vin?.Puesto,
+                    // El cargo histórico de la vinculación; si no hay, el puesto vigente.
+                    Cargo = vin?.Puesto ?? b.Puesto,
                     ObraOficinaStaffId = b.ObraOficinaStaffId,
                     ObraOficinaStaffNombre = b.ObraOficinaStaffNombre,
                     EmpresaActualId = vin?.EmpresaId,
@@ -224,13 +225,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
         public async Task<List<WorkerCategoryDto>> GetWorkerCategories()
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.WorkersCategory
+            return await ctx.Categoria
                 .Where(c => c.Active && c.State)
-                .OrderBy(c => c.Name)
+                .OrderBy(c => c.Nombre)
                 .Select(c => new WorkerCategoryDto
                 {
-                    Id = c.WorkersCategoryId,
-                    Nombre = c.Name,
+                    Id = c.CategoriaId,
+                    Nombre = c.Nombre,
                 })
                 .ToListAsync();
         }
@@ -344,10 +345,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 Person = person,
                 EmailCorporativo = dto.EmailCorporativo,
                 FechaIngreso = dto.FechaIngreso,
-                Categoria = dto.Categoria,
-                Ocupacion = dto.Ocupacion,
-                OcupacionId = dto.OcupacionId,
-                Puesto = dto.Puesto,
+                CategoriaId = dto.CategoriaId,
+                PuestoId = dto.PuestoId,
                 AreaScopeId = areaResuelta.AreaScopeId,
                 Area = areaResuelta.Area,
                 Subarea = areaResuelta.Subarea,
@@ -489,10 +488,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             worker.Person.FechaNacimiento = dto.Cumpleanos;
             worker.Person.UpdatedDateTime = DateTime.UtcNow;
 
-            worker.Categoria = dto.Categoria;
-            worker.Ocupacion = dto.Ocupacion;
-            worker.OcupacionId = dto.OcupacionId;
-            worker.Puesto = dto.Puesto;
+            worker.PuestoId = dto.PuestoId;
 
             if (dto.AreaScopeId.HasValue && dto.AreaScopeId != worker.AreaScopeId)
             {
@@ -503,14 +499,14 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             }
             worker.AreaScopeId = dto.AreaScopeId;
 
-            if (dto.WorkerCategoryId.HasValue && dto.WorkerCategoryId != worker.WorkerCategoryId)
+            if (dto.CategoriaId.HasValue && dto.CategoriaId != worker.CategoriaId)
             {
-                var existeCategoria = await ctx.WorkersCategory
-                    .AnyAsync(c => c.WorkersCategoryId == dto.WorkerCategoryId.Value && c.State);
+                var existeCategoria = await ctx.Categoria
+                    .AnyAsync(c => c.CategoriaId == dto.CategoriaId.Value && c.State);
                 if (!existeCategoria)
                     throw new AbrilException("La categoría seleccionada no existe.", 400);
             }
-            worker.WorkerCategoryId = dto.WorkerCategoryId;
+            worker.CategoriaId = dto.CategoriaId;
 
             // Ambos correos llegan ya normalizados y validados (formato, existencia en el tenant,
             // unicidad del corporativo y "al menos uno") por WorkerEmailValidator; aquí solo se persisten.

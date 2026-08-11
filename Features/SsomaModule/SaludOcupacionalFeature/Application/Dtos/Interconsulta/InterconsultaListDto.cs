@@ -16,10 +16,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Interco
         public string? ObraOficina { get; set; }
         /// <summary>Valor crudo de workers.contrata_casa (Casa, Contrata).</summary>
         public string? ContrataCasa { get; set; }
-        /// <summary>workers.categoria (texto libre, ej. "Operario", "Residente").</summary>
+        /// <summary>Nombre de la categoría (campo de lógica, ej. "OPERARIO", "RESIDENTE").</summary>
         public string? Categoria { get; set; }
-        /// <summary>workers.ocupacion (puesto de trabajo).</summary>
-        public string? Ocupacion { get; set; }
+        /// <summary>Nombre del puesto (campo de presentación).</summary>
+        public string? Puesto { get; set; }
         /// <summary>Correo corporativo del trabajador, si tiene (workers.email_corporativo).</summary>
         public string? WorkerEmail { get; set; }
         /// <summary>Correo del administrador encargado de la razón social/proyecto para el envío consolidado (obreros sin correo).</summary>

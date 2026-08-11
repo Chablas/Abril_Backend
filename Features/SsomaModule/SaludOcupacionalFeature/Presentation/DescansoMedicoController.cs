@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMedico;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
-using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,13 +15,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
     public class DescansoMedicoController : ControllerBase
     {
         private readonly IDescansoMedicoService _service;
-        private readonly IFileStorageService _storage;
         private readonly ILogger<DescansoMedicoController> _logger;
 
-        public DescansoMedicoController(IDescansoMedicoService service, IFileStorageService storage, ILogger<DescansoMedicoController> logger)
+        public DescansoMedicoController(IDescansoMedicoService service, ILogger<DescansoMedicoController> logger)
         {
             _service = service;
-            _storage = storage;
             _logger = logger;
         }
 
@@ -79,25 +76,28 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
         {
             try
             {
-                // Mismo manejo de n certificados que Mi Salud: se suben todos y cada uno
-                // queda como fila en ss_descanso_medico_adjunto.
-                var adjuntos = new List<(string Url, string Nombre)>();
-                var archivos = (dto.Documentos ?? []).Where(f => f.Length > 0).ToList();
-                if (archivos.Count > 0)
-                {
-                    var urls = await _storage.UploadFilesAsync(
-                        archivos.Select(f => (f.OpenReadStream(), f.FileName)).ToList(),
-                        "ssoma-descansos");
-                    adjuntos = urls
-                        .Select((url, i) => (Url: url, Nombre: archivos[i].FileName))
-                        .ToList();
-                }
-
-                var id = await _service.Create(dto, CurrentUserId(), adjuntos);
+                var id = await _service.Create(dto, CurrentUserId());
                 return Ok(new { id, message = "Descanso médico registrado exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>
+        /// Sirve el certificado médico de un descanso. El archivo vive en la carpeta de SharePoint
+        /// configurada (ss_descanso_carpeta) y lo baja el backend con su token de app, así se ve
+        /// sin depender de que el navegador tenga sesión de Microsoft 365.
+        /// </summary>
+        [HttpGet("descansos/adjuntos/{adjuntoId:int}")]
+        public async Task<IActionResult> GetCertificado(int adjuntoId)
+        {
+            try
+            {
+                var archivo = await _service.GetCertificado(adjuntoId);
+                return File(archivo.Contenido, archivo.ContentType, archivo.NombreArchivo);
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en DescansoMedicoController.GetCertificado"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         [HttpPut("descansos/{id:int}")]

@@ -26,8 +26,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Emo
         public string? Puesto { get; set; }
         /// <summary>Nodo del árbol de áreas asignado (workers.area_scope_id, para prellenar el modal de edición).</summary>
         public int? AreaScopeId { get; set; }
-        /// <summary>Categoría normalizada (workers.worker_category_id, para prellenar el modal de edición).</summary>
-        public int? WorkerCategoryId { get; set; }
+        /// <summary>FK a <c>categoria</c> (workers.categoria_id), para prellenar el modal de edición.</summary>
+        public int? CategoriaId { get; set; }
+        /// <summary>FK a <c>puesto</c> (workers.puesto_id), para prellenar el modal de edición.</summary>
+        public int? PuestoId { get; set; }
         /// <summary>Correo corporativo del trabajador (workers.email_corporativo, para prellenar el modal de edición).</summary>
         public string? EmailCorporativo { get; set; }
         /// <summary>Correo personal / de contacto (person.email, para prellenar el modal de edición).</summary>

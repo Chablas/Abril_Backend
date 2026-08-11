@@ -142,6 +142,14 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<AcCategoria> AcCategoria { get; set; }
         public DbSet<AcEspecialidad> AcEspecialidad { get; set; }
         public DbSet<Worker> Worker { get; set; }
+
+        /// <summary>Catálogo único de categorías (campo de lógica). Ver <see cref="Categoria"/>.</summary>
+        public DbSet<Categoria> Categoria => Set<Categoria>();
+
+        /// <summary>Catálogo único de puestos (campo de presentación). Ver <see cref="Puesto"/>.</summary>
+        public DbSet<Puesto> Puesto => Set<Puesto>();
+
+        /// <summary>Congelado: reemplazado por <see cref="Categoria"/>. Solo lectura histórica.</summary>
         public DbSet<WorkersCategory> WorkersCategory => Set<WorkersCategory>();
         public DbSet<WorkersObraOficinaStaff> WorkersObraOficinaStaff => Set<WorkersObraOficinaStaff>();
         public DbSet<WorkerEmo> WorkerEmo { get; set; }
@@ -382,6 +390,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoTipo>            SsDescansoTipo            => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoTipo>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedicoAdjunto>   SsDescansoMedicoAdjunto   => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoMedicoAdjunto>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoSeguimiento>    SsDescansoSeguimiento     => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoSeguimiento>();
+        public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoCarpeta>       SsDescansoCarpeta         => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoCarpeta>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoCorreoConfig>  SsDescansoCorreoConfig    => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsDescansoCorreoConfig>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoTipo>          SsEmoCorreoTipo           => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoTipo>();
         public DbSet<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoDestinatario>  SsEmoCorreoDestinatario   => Set<Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models.SsEmoCorreoDestinatario>();
@@ -1268,9 +1277,9 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany(s => s.Requerimientos)
                  .HasForeignKey(r => r.GthSolicitudId)
                  .OnDelete(DeleteBehavior.Cascade);
-                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPuesto>()
+                e.HasOne<Puesto>()
                  .WithMany()
-                 .HasForeignKey(r => r.GthPuestoId)
+                 .HasForeignKey(r => r.PuestoId)
                  .OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthTipoRequerimiento>()
                  .WithMany()
@@ -1425,8 +1434,8 @@ namespace Abril_Backend.Infrastructure.Data
                  .WithMany().HasForeignKey(f => f.GthTipoDocumentoId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthDistrito>()
                  .WithMany().HasForeignKey(f => f.GthDistritoId).OnDelete(DeleteBehavior.Restrict);
-                e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthPuesto>()
-                 .WithMany().HasForeignKey(f => f.ConvocatoriaGthPuestoId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne<Puesto>()
+                 .WithMany().HasForeignKey(f => f.ConvocatoriaPuestoId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthDisponibilidad>()
                  .WithMany().HasForeignKey(f => f.GthDisponibilidadId).OnDelete(DeleteBehavior.Restrict);
                 e.HasOne<Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Models.GthUniversidad>()

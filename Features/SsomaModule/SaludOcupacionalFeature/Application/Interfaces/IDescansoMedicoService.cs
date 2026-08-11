@@ -1,6 +1,7 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.DescansoMedico;
 using Abril_Backend.Features.SsomaModule.Shared;
+using Abril_Backend.Features.SsomaModule.Shared.DescansoCertificados;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
 {
@@ -10,7 +11,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces
         Task<DescansosInicioDto> GetInicio(DescansoMedicoFilterDto filter);
         Task<PagedResult<DescansoMedicoListItemDto>> ListPaged(DescansoMedicoFilterDto filter);
         Task<DescansoMedicoDetalleDto> GetById(int id);
-        Task<int> Create(DescansoMedicoCreateDto dto, int? userId, List<(string Url, string Nombre)> adjuntos);
+        /// <summary>
+        /// Registra el descanso y sube sus certificados (dto.Documentos) a la carpeta de
+        /// SharePoint configurada en ss_descanso_carpeta.
+        /// </summary>
+        Task<int> Create(DescansoMedicoCreateDto dto, int? userId);
+        /// <summary>
+        /// Contenido de un certificado, servido por el backend (que lo baja de SharePoint con su
+        /// token de app) para no depender de la sesión de Microsoft 365 del navegador.
+        /// </summary>
+        Task<DescansoCertificadoArchivoDto> GetCertificado(int adjuntoId);
         Task Update(int id, DescansoMedicoUpdateDto dto);
         Task Aprobar(int id, DescansoAprobarDto dto, int? userId);
         Task Rechazar(int id, DescansoRechazarDto dto, int? userId);

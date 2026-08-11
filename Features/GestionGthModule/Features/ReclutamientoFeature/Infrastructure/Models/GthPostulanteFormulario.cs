@@ -55,7 +55,7 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         public string? CorreoElectronico { get; set; }
         public string? NumeroCelular { get; set; }
         /// <summary>FK a <c>gth_puesto</c>: convocatoria de interés (se reutiliza el catálogo de puestos).</summary>
-        public int? ConvocatoriaGthPuestoId { get; set; }
+        public int? ConvocatoriaPuestoId { get; set; }
         public string? PretensionesSalariales { get; set; }
         public int? GthDisponibilidadId { get; set; }
         public string? Linkedin { get; set; }

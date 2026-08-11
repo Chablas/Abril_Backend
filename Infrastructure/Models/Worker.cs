@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations.Schema;
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Models;
+using Abril_Backend.Shared.Models;
 
 namespace Abril_Backend.Infrastructure.Models
 {
@@ -41,37 +42,49 @@ namespace Abril_Backend.Infrastructure.Models
         [Column("fecha_retiro")]
         public DateOnly? FechaRetiro { get; set; }
 
+        /// <summary>
+        /// Categoría del trabajador: el campo de LÓGICA. Todo filtro, comparación,
+        /// bloqueo o restricción interna se hace contra esta FK.
+        /// </summary>
+        [Column("categoria_id")]
+        public int? CategoriaId { get; set; }
+
+        [ForeignKey(nameof(CategoriaId))]
+        public Categoria? CategoriaCatalogo { get; set; }
+
+        /// <summary>
+        /// Puesto del trabajador: el campo de PRESENTACIÓN. Es lo que se muestra en
+        /// pantalla, PDFs y correos; no debe usarse para decidir nada.
+        /// </summary>
+        [Column("puesto_id")]
+        public int? PuestoId { get; set; }
+
+        [ForeignKey(nameof(PuestoId))]
+        public Puesto? PuestoCatalogo { get; set; }
+
+        // ── Columnas congeladas ────────────────────────────────────────────────
+        // Reemplazadas por CategoriaId / PuestoId al unificar los cinco catálogos
+        // que describían "qué hace" un trabajador (ver Migrations_Manual/
+        // categoria_puesto_unificados.sql). Se conservan solo para auditoría:
+        // no se leen ni se escriben desde ningún lado.
+
+        /// <summary>Congelada. Antes: texto libre de la categoría. Usar <see cref="CategoriaId"/>.</summary>
         [Column("categoria")]
         public string? Categoria { get; set; }
 
-        /// <summary>
-        /// FK al catálogo <c>workers_category</c>. Usado SOLO por Lecciones Aprendidas
-        /// y Solicitud de Salidas (normaliza el texto de <see cref="Categoria"/>, que se
-        /// conserva para el resto de funcionalidades).
-        /// </summary>
+        /// <summary>Congelada. Antes: FK a <c>workers_category</c>. Usar <see cref="CategoriaId"/>.</summary>
         [Column("worker_category_id")]
         public int? WorkerCategoryId { get; set; }
 
+        /// <summary>Congelada. Antes: texto libre de la ocupación. Usar <see cref="PuestoId"/>.</summary>
         [Column("ocupacion")]
         public string? Ocupacion { get; set; }
 
-        /// <summary>
-        /// FK a <c>cat_ocupacion</c> (puesto de trabajo normalizado). Complementa a
-        /// <see cref="Ocupacion"/> (texto libre, se conserva por compatibilidad) para
-        /// permitir tabular accidentes/enfermedades por puesto en reportes como el
-        /// informe anual DIGESA.
-        /// </summary>
+        /// <summary>Congelada. Antes: FK a <c>cat_ocupacion</c>. Usar <see cref="PuestoId"/>.</summary>
         [Column("ocupacion_id")]
         public int? OcupacionId { get; set; }
 
-        [ForeignKey(nameof(OcupacionId))]
-        public CatOcupacion? OcupacionCatalogo { get; set; }
-
-        /// <summary>
-        /// Nombre del puesto final del trabajador. Se autocompleta en el frontend
-        /// concatenando <see cref="Categoria"/> y <see cref="Ocupacion"/>
-        /// (ej. "Operario Abogado"), pero es editable.
-        /// </summary>
+        /// <summary>Congelada. Antes: texto libre del puesto. Usar <see cref="PuestoId"/>.</summary>
         [Column("puesto")]
         public string? Puesto { get; set; }
 

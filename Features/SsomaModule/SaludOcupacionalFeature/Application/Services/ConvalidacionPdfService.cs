@@ -122,7 +122,7 @@ public static class ConvalidacionPdfService
                         .Text(d.WorkerNombre).Bold().FontSize(12);
 
                     L("DNI:"); V(d.WorkerDni);
-                    L("Ocupación:"); V(d.WorkerOcupacion ?? "—");
+                    L("Puesto:"); V(d.WorkerPuesto ?? "—");
                     L("Puesto de origen:"); V(d.PuestoOrigen ?? "—");
                     L("Puesto de destino:"); V(d.PuestoDestino ?? "—");
                 });

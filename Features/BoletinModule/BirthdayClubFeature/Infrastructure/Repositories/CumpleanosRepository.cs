@@ -39,8 +39,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
                     w.Id,
                     p.PersonId,
                     p.FullName,
-                    w.Puesto,
-                    w.Ocupacion,
+                    Puesto = w.PuestoCatalogo == null ? null : w.PuestoCatalogo.Nombre,
                     w.EmailCorporativo,
                     Nacimiento = p.FechaNacimiento,
                 }).ToListAsync();
@@ -61,7 +60,7 @@ namespace Abril_Backend.Features.BoletinModule.BirthdayClubFeature.Infrastructur
                 {
                     WorkerId = f.Id,
                     NombreCompleto = f.FullName ?? string.Empty,
-                    Puesto = f.Puesto ?? f.Ocupacion,
+                    Puesto = f.Puesto,
                     Email = f.EmailCorporativo!,
                     Mes = fecha.Value.Month,
                     Dia = fecha.Value.Day,

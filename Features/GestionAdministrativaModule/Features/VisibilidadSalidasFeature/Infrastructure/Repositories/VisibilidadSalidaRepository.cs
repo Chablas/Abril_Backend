@@ -54,7 +54,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
                 where w.EmailCorporativo != null && w.EmailCorporativo.ToLower().Contains("@abril.pe")
                 join p in ctx.Person on w.PersonId equals p.PersonId into pj
                 from p in pj.DefaultIfEmpty()
-                join c in ctx.WorkersCategory on w.WorkerCategoryId equals c.WorkersCategoryId into cj
+                join c in ctx.Categoria on w.CategoriaId equals c.CategoriaId into cj
                 from c in cj.DefaultIfEmpty()
                 orderby p != null ? p.FullName : ""
                 select new VisibilidadWorkerItemDto
@@ -62,8 +62,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.VisibilidadSalidas.Infras
                     WorkerId = w.Id,
                     FullName = p != null ? p.FullName : null,
                     Email = w.EmailCorporativo,
-                    CategoryId = w.WorkerCategoryId,
-                    Category = c != null ? c.Name : null,
+                    CategoryId = w.CategoriaId,
+                    Category = c != null ? c.Nombre : null,
                     AreaScopeId = w.AreaScopeId,
                 }
             ).ToListAsync();

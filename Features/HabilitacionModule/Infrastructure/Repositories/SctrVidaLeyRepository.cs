@@ -608,7 +608,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
         public async Task<List<SctrTrabajadorEstadoDto>> GetTrabajadoresPorEmpresaAsync(
             int? empresaId, int? proyectoId, string? tipo, string? tipoPoliza,
-            string? estadoSctr, string? estadoVidaLey, string? obraOficina = null)
+            string? estadoSctr, string? estadoVidaLey, string? obraOficina = null,
+            string? area = null, string? subarea = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -676,7 +677,9 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             // LEFT JOIN workers + ss_hab_trabajador SCTR + ss_hab_trabajador VidaLey en BD
             // COALESCE equivalente: habX != null ? habX.Estado : "Falta"
             var habQuery =
-                from w in ctx.Worker.Where(w => workerIds.Contains(w.Id))
+                from w in ctx.Worker.Where(w => workerIds.Contains(w.Id)
+                    && (string.IsNullOrWhiteSpace(area) || w.Area == area)
+                    && (string.IsNullOrWhiteSpace(subarea) || w.Subarea == subarea))
                 join p in ctx.Person on w.PersonId equals (int?)p.PersonId into pg
                 from person in pg.DefaultIfEmpty()
                 join hs in ctx.SsHabTrabajador.Where(h => h.ItemId == itemSctrId)

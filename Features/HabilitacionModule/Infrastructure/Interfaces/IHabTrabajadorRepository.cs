@@ -8,7 +8,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<(List<WorkerHabilitacionListDto> Items, int Total)> GetWorkersHabilitacionAsync(
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
-            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false);
+            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false,
+            string? area = null, string? subarea = null);
 
         Task<List<WorkerEntregableDto>> GetEntregablesWorkerAsync(int workerId);
 

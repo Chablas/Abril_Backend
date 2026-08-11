@@ -32,6 +32,7 @@ namespace Abril_Backend.Features.Habilitacion
             services.AddScoped<IVigenciaRevisionService, VigenciaRevisionService>();
             services.AddScoped<IDashboardHabRepository, DashboardHabRepository>();
             services.AddScoped<IRetiroAutomaticoService, RetiroAutomaticoService>();
+            services.AddScoped<IResponsablesRepository, ResponsablesRepository>();
 
             // Dossier Semanal
             services.AddScoped<IDossierRepository, DossierRepository>();

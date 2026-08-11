@@ -41,6 +41,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] int? empresaId,
             [FromQuery] string? responsable,
             [FromQuery] string? search,
+            [FromQuery] string? area,
+            [FromQuery] string? subarea,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20)
         {
@@ -59,7 +61,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
                 }
 
-                var (items, total) = await _repo.GetPendientesAsync(tipo, proyectoId, empresaId, responsable, search, page, pageSize);
+                var (items, total) = await _repo.GetPendientesAsync(tipo, proyectoId, empresaId, responsable, search, page, pageSize, area, subarea);
 
                 var result = new PagedResult<BandejaItemDto>
                 {
@@ -109,6 +111,8 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
             [FromQuery] int? empresaId,
             [FromQuery] string? responsable,
             [FromQuery] string? search,
+            [FromQuery] string? area,
+            [FromQuery] string? subarea,
             [FromQuery] string? cursor,
             [FromQuery] int pageSize = 20)
         {
@@ -127,7 +131,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
                     // Si tiene múltiples proyectos, por ahora no filtrar — se implementa después
                 }
 
-                var result = await _repo.GetPendientesCursorAsync(tipo, proyectoId, empresaId, responsable, search, cursor, pageSize);
+                var result = await _repo.GetPendientesCursorAsync(tipo, proyectoId, empresaId, responsable, search, cursor, pageSize, area, subarea);
                 return Ok(result);
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

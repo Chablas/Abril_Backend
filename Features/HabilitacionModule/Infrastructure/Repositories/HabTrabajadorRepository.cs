@@ -57,7 +57,8 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
         public async Task<(List<WorkerHabilitacionListDto> Items, int Total)> GetWorkersHabilitacionAsync(
             string? search, int? empresaId, int? proyectoId,
             string? estadoHabilitacion, string? contratistaCasa,
-            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false)
+            int page, int pageSize, bool soloRetirados = false, bool soloSinEmo = false, bool soloEmoVencido = false, bool soloSinVidaLey = false,
+            string? area = null, string? subarea = null)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -171,6 +172,12 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 var cc = contratistaCasa.Trim();
                 baseQuery = baseQuery.Where(x => x.Worker.ContrataCasa == cc);
             }
+
+            if (!string.IsNullOrWhiteSpace(area))
+                baseQuery = baseQuery.Where(x => x.Worker.Area == area);
+
+            if (!string.IsNullOrWhiteSpace(subarea))
+                baseQuery = baseQuery.Where(x => x.Worker.Subarea == subarea);
 
             if (!string.IsNullOrWhiteSpace(estadoHabilitacion))
                 baseQuery = baseQuery.Where(x => x.EstadoCalc == estadoHabilitacion);

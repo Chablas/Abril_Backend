@@ -9,6 +9,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Features.Habilitacion.Infrastructure.Helpers;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositories
@@ -162,10 +163,11 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.vv != null && x.vv.EmpresaId == filter.EmpresaId.Value);
             if (filter.ProyectoId.HasValue)
                 q = q.Where(x => x.vv != null && x.vv.ProyectoId == filter.ProyectoId.Value);
-            if (!string.IsNullOrWhiteSpace(filter.Area))
-                q = q.Where(x => x.w.Area == filter.Area);
-            if (!string.IsNullOrWhiteSpace(filter.Subarea))
-                q = q.Where(x => x.w.Subarea == filter.Subarea);
+            if (filter.AreaScopeId.HasValue)
+            {
+                var idsArea = await ctx.ResolveDescendantsAsync(filter.AreaScopeId.Value);
+                q = q.Where(x => x.w.AreaScopeId != null && idsArea.Contains(x.w.AreaScopeId.Value));
+            }
             if (filter.FechaEmoDesde.HasValue)
                 q = q.Where(x => x.ue != null && x.ue.FechaEmo >= filter.FechaEmoDesde.Value);
             if (filter.FechaEmoHasta.HasValue)
@@ -794,6 +796,38 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             emo.Estado = esApto ? "Vigente" : "Observado";
             emo.UpdatedAt = DateTimeOffset.UtcNow;
 
+            // Si al editar el EMO la aptitud pasa a Apto/Apto con Restricciones, cualquier
+            // interconsulta "Pendiente" ligada a este mismo EMO se da por resuelta acá: el
+            // médico que edita el EMO ya tomó la decisión de aptitud, y sin este cierre la
+            // interconsulta se queda "Pendiente" para siempre (visible en el listado de
+            // Interconsultas) aunque el Certificado de Aptitud ya muestre "Aprobado" — mismo
+            // huérfano que el caso ya resuelto en Create() para EMOs reemplazados, pero acá el
+            // EMO es el mismo, solo se le cambió la aptitud sin pasar por el flujo de
+            // InterconsultaService.UpdateResultado.
+            if (esApto)
+            {
+                var interconsultasAbiertas = await ctx.SsInterconsulta
+                    .Where(i => i.EmoId == id && i.Estado == "Pendiente")
+                    .ToListAsync();
+                foreach (var ic in interconsultasAbiertas)
+                {
+                    ic.Estado = "Completado";
+                    ic.FechaAtencion ??= dto.FechaEmo;
+                    ic.Resultado = string.IsNullOrWhiteSpace(ic.Resultado)
+                        ? "Resuelta automáticamente: la aptitud del EMO se actualizó a " + dto.Aptitud + "."
+                        : ic.Resultado;
+                    ic.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+                emo.InterconsultaResuelta = true;
+
+                // Se persiste ya: SincronizarEntregableEmoAsync (más abajo) consulta
+                // ss_interconsultas directo contra la base para decidir si el Certificado de
+                // Aptitud puede pasar a "Aprobado" — sin este guardado intermedio vería el
+                // estado "Pendiente" todavía no confirmado y dejaría el ítem en "En plazo" por
+                // error, aunque la interconsulta ya se acaba de cerrar en esta misma edición.
+                await ctx.SaveChangesAsync();
+            }
+
             var examenesExistentes = await ctx.SsEmoExamenDetalle.Where(x => x.EmoId == id).ToListAsync();
             ctx.SsEmoExamenDetalle.RemoveRange(examenesExistentes);
             foreach (var ex in dto.Examenes)
@@ -864,10 +898,28 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 ctx.SsHabTrabajador.Add(hab);
             }
 
+            // Aunque la aptitud del EMO ya sea Apto/Apto con Restricciones, si sigue habiendo una
+            // interconsulta "Pendiente" ligada a este EMO el caso no está realmente cerrado — no
+            // tiene sentido mostrar el Certificado de Aptitud como "Aprobado" mientras el médico
+            // todavía no atendió esa derivación. Se marca "En plazo" (mismo estado que usa el caso
+            // "Observado" más abajo) hasta que la interconsulta se resuelva.
+            var interconsultaPendienteEmo = await ctx.SsInterconsulta
+                .AnyAsync(i => i.EmoId == emo.Id && i.Estado == "Pendiente");
+
             switch (emo.Aptitud)
             {
                 case "Apto":
                 case "Apto con Restricciones":
+                    if (interconsultaPendienteEmo)
+                    {
+                        // "Falta" (no "En plazo") para que coincida con el otro camino de cálculo
+                        // de este mismo ítem (HabTrabajadorRepository.GetById, cuando no existe
+                        // fila en ss_hab_trabajador): ese usa "Falta" como el estado "todavía no
+                        // aprobado" — es la palabra que ya reconoce el frontend/usuarios, no
+                        // "En plazo".
+                        hab.Estado = "Falta";
+                        break;
+                    }
                     hab.Estado = "Aprobado";
                     var fv = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
                     if (fv.HasValue)

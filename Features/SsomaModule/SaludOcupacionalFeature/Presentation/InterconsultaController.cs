@@ -49,7 +49,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en InterconsultaController"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        // Solo la clínica (el médico) puede disparar estos correos en producción — el envío
+        // parte de su bandeja, no de SSOMA/Habilitación, que solo tienen visibilidad de lectura
+        // de este listado. Se incluye también Jefe SSOMA para que pueda probar el flujo.
+        // Sin esta restricción cualquier usuario con acceso a la pantalla (por el featureKey de
+        // la ruta, no por rol) podía enviarlos.
         [HttpPost("enviar-correos")]
+        [Authorize(Roles = Roles.Clinica + "," + Roles.AdministradorSsoma)]
         public async Task<IActionResult> EnviarCorreos([FromBody] InterconsultaEnviarCorreoDto dto)
         {
             try { return Ok(await _service.EnviarRecordatorios(dto.Ids)); }

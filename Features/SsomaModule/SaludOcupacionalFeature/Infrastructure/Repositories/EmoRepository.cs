@@ -165,7 +165,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 q = q.Where(x => x.vv != null && x.vv.ProyectoId == filter.ProyectoId.Value);
             if (filter.AreaScopeId.HasValue)
             {
-                var idsArea = await ctx.ResolveDescendantsAsync(filter.AreaScopeId.Value);
+                var idsArea = await ResolveDescendantsAsync(ctx, filter.AreaScopeId.Value);
                 q = q.Where(x => x.w.AreaScopeId != null && idsArea.Contains(x.w.AreaScopeId.Value));
             }
             if (filter.FechaEmoDesde.HasValue)
@@ -878,6 +878,36 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             emo.Estado = estado;
             emo.UpdatedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Nodo de <c>area_scope</c> + todos sus descendientes vivos (BFS por el árbol, que es
+        /// una tabla chica: se trae la topología completa en una sola consulta y se expande en
+        /// memoria, sin recursión contra la base de datos).
+        /// </summary>
+        private static async Task<HashSet<int>> ResolveDescendantsAsync(AppDbContext ctx, int rootId)
+        {
+            var nodos = await ctx.AreaScope
+                .Where(s => s.State)
+                .Select(s => new { s.AreaScopeId, s.AreaScopeParentId })
+                .ToListAsync();
+
+            var childrenByParent = nodos
+                .Where(n => n.AreaScopeParentId != null)
+                .GroupBy(n => n.AreaScopeParentId!.Value)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.AreaScopeId).ToList());
+
+            var result = new HashSet<int> { rootId };
+            var queue = new Queue<int>();
+            queue.Enqueue(rootId);
+            while (queue.Count > 0)
+            {
+                var cur = queue.Dequeue();
+                if (!childrenByParent.TryGetValue(cur, out var hijos)) continue;
+                foreach (var h in hijos)
+                    if (result.Add(h)) queue.Enqueue(h);
+            }
+            return result;
         }
 
         private static async Task SincronizarEntregableEmoAsync(AppDbContext ctx, WorkerEmo emo, Worker worker)

@@ -13,7 +13,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
     {
         private static readonly HashSet<string> ResultadosValidos = new()
         {
-            "Pendiente", "Aprobada", "Aprobada con Observaciones", "Rechazada"
+            "Pendiente", "Aprobada", "Aprobada con Observaciones", "Rechazada", "Descartada"
         };
 
         /// <summary>Resultados que constituyen una decisión médica final y por tanto exigen

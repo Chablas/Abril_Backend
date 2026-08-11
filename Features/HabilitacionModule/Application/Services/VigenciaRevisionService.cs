@@ -53,8 +53,14 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
             }
 
             var hoyDate = DateOnly.FromDateTime(DateTime.Today);
+            // Usa FechaVencimientoCalculada ?? FechaVencimiento — el mismo criterio que el
+            // resto de la app (badge "Habilitado", vigencia del ítem CertAptitud, etc.). Si solo
+            // se mira FechaVencimiento y esa columna quedó null (el caso normal cuando la
+            // vigencia se calculó a partir del tipo de EMO), el EMO nunca entra a este filtro y
+            // el trabajador queda "Habilitado" para siempre con el EMO ya vencido.
             var emos = await ctx.WorkerEmo
-                .Where(e => e.Activo && e.Estado == "Vigente" && e.FechaVencimiento < hoyDate)
+                .Where(e => e.Activo && e.Estado == "Vigente"
+                         && (e.FechaVencimientoCalculada ?? e.FechaVencimiento) < hoyDate)
                 .ToListAsync();
 
             foreach (var e in emos)

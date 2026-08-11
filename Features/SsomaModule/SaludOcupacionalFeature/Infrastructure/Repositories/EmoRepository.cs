@@ -541,6 +541,45 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 e.UpdatedAt = DateTimeOffset.UtcNow;
             }
 
+            // Si el EMO anterior tenía una convalidación "Pendiente" sin resolver, este EMO nuevo
+            // la vuelve obsoleta: ya no hay nada que un médico deba decidir sobre un EMO que
+            // acaba de ser reemplazado. Sin este cierre automático, la fila queda "Pendiente"
+            // para siempre, apuntando a un EmoId inactivo y sin los documentos reales (que ahora
+            // están en el EMO nuevo) — el caso visto en el listado de Convalidaciones donde el
+            // detalle mostraba "Sin archivo" pese a que el EMO vigente del trabajador sí los tenía.
+            var emoIdsAnteriores = emosAnteriores.Select(e => e.Id).ToList();
+            if (emoIdsAnteriores.Count > 0)
+            {
+                var pendientesObsoletas = await ctx.WorkerEmoConvalidacion
+                    .Where(cv => emoIdsAnteriores.Contains(cv.EmoId) && cv.Resultado == "Pendiente")
+                    .ToListAsync();
+                foreach (var cv in pendientesObsoletas)
+                {
+                    cv.Resultado = "Descartada";
+                    cv.Observaciones = string.IsNullOrWhiteSpace(cv.Observaciones)
+                        ? "Descartada automáticamente: se registró un EMO nuevo para el trabajador."
+                        : cv.Observaciones + " | Descartada automáticamente: se registró un EMO nuevo para el trabajador.";
+                    cv.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+
+                // Mismo huérfano, otro caso real (Polanco): una interconsulta "Pendiente" atada a
+                // un EMO que ya quedó inactivo porque se registró uno nuevo. El caso original ya
+                // no tiene sentido — el nuevo EMO es el que decide la aptitud ahora — pero sin este
+                // cierre la fila se queda "Pendiente" indefinidamente (se vieron casos con 300+
+                // días pendientes en el listado de Interconsultas).
+                var interconsultasObsoletas = await ctx.SsInterconsulta
+                    .Where(i => i.EmoId.HasValue && emoIdsAnteriores.Contains(i.EmoId.Value) && i.Estado == "Pendiente")
+                    .ToListAsync();
+                foreach (var ic in interconsultasObsoletas)
+                {
+                    ic.Estado = "Cancelada";
+                    ic.Diagnostico = string.IsNullOrWhiteSpace(ic.Diagnostico)
+                        ? "Cancelada automáticamente: se registró un EMO nuevo para el trabajador."
+                        : ic.Diagnostico + " | Cancelada automáticamente: se registró un EMO nuevo para el trabajador.";
+                    ic.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+            }
+
             ctx.WorkerEmo.Add(emo);
             await ctx.SaveChangesAsync();  // necesario para generar emo.Id antes de usarlo
 

@@ -170,6 +170,20 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                                 CreatedAt = DateTime.UtcNow
                             });
 
+                            // Igual que en el retiro manual (HabTrabajadorRepository.BajaAsync): una
+                            // interconsulta "Pendiente" no la va a completar nadie una vez retirado.
+                            var interconsultasPendientes = await writeCtx.SsInterconsulta
+                                .Where(i => i.WorkerId == w.WorkerId && i.Estado == "Pendiente")
+                                .ToListAsync();
+                            foreach (var ic in interconsultasPendientes)
+                            {
+                                ic.Estado = "Cancelada";
+                                ic.Diagnostico = string.IsNullOrWhiteSpace(ic.Diagnostico)
+                                    ? "Cancelada automáticamente: trabajador retirado."
+                                    : ic.Diagnostico + " | Cancelada automáticamente: trabajador retirado.";
+                                ic.UpdatedAt = DateTimeOffset.UtcNow;
+                            }
+
                             writeCtx.SsRetiroAutomaticoLog.Add(new SsRetiroAutomaticoLog
                             {
                                 WorkerId = w.WorkerId,

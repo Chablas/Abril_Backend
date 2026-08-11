@@ -60,6 +60,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
                 q = q.Where(x => x.p.State);
                 q = q.Where(x => x.em != null && x.em.EsAbril);
+                q = q.Where(x => x.w.Estado == null || x.w.Estado != "RETIRADO");
 
                 // La clínica no puede procesar trabajadores con interconsulta pendiente.
                 // El médico SSOMA (IncluirConInterconsulta = true) ve todas sin excepción.

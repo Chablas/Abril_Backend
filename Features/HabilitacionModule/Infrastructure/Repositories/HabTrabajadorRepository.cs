@@ -95,7 +95,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                              //    aunque la renovación esté pendiente de aprobación.
                              (h.Estado == "Falta" || h.Estado == "Rechazado" || h.Estado == "Vencido" || h.Estado == "Enviado" ||
                               (h.Estado == "Renovando" && (!h.Vigencia.HasValue || h.Vigencia.Value <= DateTime.UtcNow))) &&
-                             !(w.ContrataCasa == "Casa" && itemsEmoIds.Contains(h.ItemId)) &&
+                             // Antes se excluía el ítem EMO (id 4) para "Casa" acá, confiando SOLO
+                             // en el chequeo de WorkerEmo.Estado de la línea de abajo como única
+                             // fuente de verdad. Si ese estado quedaba desincronizado (p.ej. el job
+                             // de vigencias nunca lo marcaba "Vencido" por comparar contra la
+                             // columna equivocada — ver VigenciaRevisionService), el trabajador
+                             // aparecía "Habilitado" aunque este mismo ítem ya mostrara "Falta"/
+                             // "Vencido" en pantalla (casos Díaz Díaz, Algoner, Bolaños). Ahora
+                             // cualquiera de las dos fuentes que detecte el problema bloquea.
+                             // El ítem 25 (Lectura EMO) sigue excluido globalmente arriba.
                              // El item debe aplicarle de verdad al trabajador. Se compara IGUAL que
                              // el checklist (helper CsvContiene): por token exacto e ignorando
                              // mayúsculas. Se envuelve el CSV y el valor con comas para no hacer
@@ -1023,14 +1031,65 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
                 _logger.LogInformation("[Convalidacion] ultimoEmo={UltimoEmoId}", ultimoEmo?.Id);
 
-                if (ultimoEmo != null)
+                var empresaDestinoResuelta = dto.NuevaEmpresaId ?? currentEmpresaId;
+
+                // Evita apilar una convalidación redundante: si ya existe una Aprobada / Aprobada
+                // con Observaciones para el MISMO EMO, hacia la misma empresa y clasificación
+                // destino, esta transición ya fue resuelta por un médico antes — no hay nada nuevo
+                // que decidir (p.ej. un cambio de obra administrativo que reafirma un destino ya
+                // convalidado). En ese caso se restaura el estado directamente en vez de crear otra
+                // fila "Pendiente" contra un caso ya cerrado.
+                var yaConvalidadoHaciaDestino = ultimoEmo != null && await ctx.WorkerEmoConvalidacion
+                    .AnyAsync(cv => cv.EmoId == ultimoEmo.Id
+                        && (cv.Resultado == "Aprobada" || cv.Resultado == "Aprobada con Observaciones")
+                        && cv.EmpresaDestinoId == empresaDestinoResuelta
+                        && cv.ObraOficinaStaffDestinoId == nuevoObraOficinaStaffId);
+
+                var habCert = await ctx.SsHabTrabajador
+                    .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.CertAptitud);
+
+                if (yaConvalidadoHaciaDestino && ultimoEmo != null)
+                {
+                    _logger.LogInformation(
+                        "[Convalidacion] destino ya convalidado antes, se registra como Descartada (auditable). emoId={EmoId}",
+                        ultimoEmo.Id);
+
+                    // No se deja un cambio de estado invisible: se registra igual una fila en
+                    // Convalidaciones (auditable, visible en la lista) pero ya resuelta como
+                    // "Descartada" — sin pedir firma, porque no es una decisión médica nueva,
+                    // solo se está reafirmando una que ya existía para ese mismo destino.
+                    ctx.WorkerEmoConvalidacion.Add(new WorkerEmoConvalidacion
+                    {
+                        EmoId = ultimoEmo.Id,
+                        EmpresaDestinoId = empresaDestinoResuelta,
+                        FechaConvalidacion = fechaCambio,
+                        Resultado = "Descartada",
+                        Observaciones = "Descartada automáticamente: el destino ya tenía una convalidación Aprobada previa.",
+                        PuestoOrigen = currentPuesto,
+                        PuestoDestino = nuevoPuesto ?? currentPuesto,
+                        ObraOficinaStaffOrigenId = currentObraOficinaStaffId,
+                        ObraOficinaStaffDestinoId = nuevoObraOficinaStaffId,
+                        CambioRiesgo = esCambioRiesgoAscendente,
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow
+                    });
+
+                    if (habCert != null)
+                    {
+                        habCert.Estado = "Aprobado";
+                        habCert.UpdatedAt = DateTime.UtcNow;
+                    }
+                    ultimoEmo.Estado = "Convalidado";
+                    ultimoEmo.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+                else if (ultimoEmo != null)
                 {
                     ctx.WorkerEmoConvalidacion.Add(new WorkerEmoConvalidacion
                     {
                         EmoId = ultimoEmo.Id,
                         // Si no cambia de empresa (solo puesto y/o clasificación), la convalidación
                         // sigue siendo dentro de la misma empresa vigente.
-                        EmpresaDestinoId = dto.NuevaEmpresaId ?? currentEmpresaId,
+                        EmpresaDestinoId = empresaDestinoResuelta,
                         FechaConvalidacion = fechaCambio,
                         Resultado = "Pendiente",
                         PuestoOrigen = currentPuesto,
@@ -1045,8 +1104,6 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     // Marcar CertAptitud como Pendiente (override del "Falta" ya asignado arriba):
                     // hay un EMO reciente sobre el que el médico puede decidir, no hace falta
                     // bloquear de inmediato exigiendo un EMO nuevo desde cero.
-                    var habCert = await ctx.SsHabTrabajador
-                        .FirstOrDefaultAsync(h => h.WorkerId == workerId && h.ItemId == HabItemIds.CertAptitud);
                     if (habCert != null)
                     {
                         habCert.Estado = "Pendiente";
@@ -1063,6 +1120,14 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                             UpdatedAt = DateTime.UtcNow
                         });
                     }
+
+                    // Mantiene sincronizado el estado del EMO con el ítem de habilitación: si no se
+                    // hace, un trabajador "Casa" puede seguir viéndose "Habilitado" en el listado
+                    // (ese cálculo para Casa solo mira WorkerEmo.Estado, no el ítem CertAptitud) aunque
+                    // el ítem ya diga "Pendiente"/"Falta" — la causa exacta de la incoherencia vista
+                    // en el caso Díaz Díaz (EMO "Falta" pero trabajador "Habilitado").
+                    ultimoEmo.Estado = "Pendiente";
+                    ultimoEmo.UpdatedAt = DateTimeOffset.UtcNow;
                 }
             }
 
@@ -1795,6 +1860,21 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     u.Activo = false;
             }
 
+            // Trabajador retirado = nadie va a completar una interconsulta pendiente que quedó
+            // abierta (caso real: varios trabajadores llevaban 250+ días "Pendiente" ya estando
+            // RETIRADO). Se cierra en vez de dejarla huérfana para siempre.
+            var interconsultasPendientes = await ctx.SsInterconsulta
+                .Where(i => i.WorkerId == workerId && i.Estado == "Pendiente")
+                .ToListAsync();
+            foreach (var ic in interconsultasPendientes)
+            {
+                ic.Estado = "Cancelada";
+                ic.Diagnostico = string.IsNullOrWhiteSpace(ic.Diagnostico)
+                    ? "Cancelada automáticamente: trabajador retirado."
+                    : ic.Diagnostico + " | Cancelada automáticamente: trabajador retirado.";
+                ic.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
             await ctx.SaveChangesAsync();
         }
 
@@ -1865,6 +1945,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                     foreach (var u in usuariosContratista.Where(u => u.WorkerId == w.Id && u.ContractorId == vinc.EmpresaId.Value))
                         u.Activo = false;
                 }
+            }
+
+            // Mismo cierre que en BajaAsync: una interconsulta pendiente no la va a completar
+            // nadie una vez que el trabajador está retirado.
+            var interconsultasPendientes = await ctx.SsInterconsulta
+                .Where(i => workerIds.Contains(i.WorkerId) && i.Estado == "Pendiente")
+                .ToListAsync();
+            foreach (var ic in interconsultasPendientes)
+            {
+                ic.Estado = "Cancelada";
+                ic.Diagnostico = string.IsNullOrWhiteSpace(ic.Diagnostico)
+                    ? "Cancelada automáticamente: trabajador retirado."
+                    : ic.Diagnostico + " | Cancelada automáticamente: trabajador retirado.";
+                ic.UpdatedAt = DateTimeOffset.UtcNow;
             }
 
             await ctx.SaveChangesAsync();

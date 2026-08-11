@@ -465,14 +465,41 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     emo.UpdatedAt = DateTimeOffset.UtcNow;
                     hab.Estado = "Aprobado";
                     if (fechaVencimiento.HasValue)
+                    {
                         hab.Vigencia = DateTime.SpecifyKind(
                             fechaVencimiento.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+                        // La convalidación reemplaza la vigencia del EMO de origen por la nueva
+                        // fecha que el médico acaba de aprobar — sin esto, worker_emos se queda
+                        // con la fecha vieja (a menudo ya vencida) para siempre, y cualquier
+                        // filtro/proceso que lea el EMO directo (p.ej. "EMO Vencido" en la lista
+                        // de Trabajadores) contradice al ítem visible, que sí queda con la fecha
+                        // nueva. Caso Huarcaya Mesajil: ítem "Aprobado" con vigencia 2027, pero el
+                        // EMO seguía marcado vencido porque su fecha nunca se actualizó.
+                        emo.FechaVencimientoCalculada = fechaVencimiento;
+                        emo.FechaVencimiento = fechaVencimiento;
+                    }
                     break;
                 case "Rechazada":
                     hab.Estado = "Falta";
                     break;
                 case "Pendiente":
                     hab.Estado = "Pendiente";
+                    break;
+                case "Descartada":
+                    // No es una decisión médica sobre aptitud (no exige firma): descarta un
+                    // registro que no correspondía, p.ej. porque el trabajador ya estaba
+                    // convalidado hacia el mismo destino. No se fuerza "Aprobado" a ciegas —
+                    // se recalcula según la vigencia REAL del EMO de origen, como si la
+                    // convalidación nunca se hubiera disparado.
+                    var vencimientoReal = emo.FechaVencimientoCalculada ?? emo.FechaVencimiento;
+                    var vigente = vencimientoReal.HasValue
+                        && vencimientoReal.Value.ToDateTime(TimeOnly.MinValue) > DateTime.UtcNow;
+                    hab.Estado = vigente ? "Aprobado" : "Vencido";
+                    hab.Vigencia = vencimientoReal.HasValue
+                        ? DateTime.SpecifyKind(vencimientoReal.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)
+                        : null;
+                    emo.Estado = vigente ? "Vigente" : "Vencido";
+                    emo.UpdatedAt = DateTimeOffset.UtcNow;
                     break;
             }
 
